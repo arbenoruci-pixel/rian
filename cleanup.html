@@ -1,0 +1,37 @@
+<script>
+(() => {
+  try {
+    const VKEY = 'app_version';
+    const CURR = 'v4.2-flow-fix'; // bump this any time we deploy
+
+    const keys = Object.keys(localStorage);
+    const killPrefixes = [
+      'order_', 'orderlist_', 'order_list_v1',
+      'orders_v1', 'clients_v1', 'client_', 
+      'photo_client_', 'Xcode_', 'legacy_', 'cache_'
+    ];
+
+    // delete specific legacy keys/prefixes
+    keys.forEach(k => {
+      if (killPrefixes.some(p => k.startsWith(p))) localStorage.removeItem(k);
+    });
+
+    // kill old SW caches if any (best effort)
+    if ('caches' in window) caches.keys().then(ns => ns.forEach(n => caches.delete(n)));
+
+    // set fresh empty stores
+    localStorage.setItem('orders_v1', JSON.stringify([]));
+    localStorage.setItem('clients_v1', JSON.stringify([]));
+
+    // version bump
+    localStorage.setItem(VKEY, CURR);
+    alert('Local cleanup done ✅');
+  } catch(e){ alert('Cleanup error: '+e.message); }
+})();
+</script>
+
+<script src="reset_admin.js"></script>
+
+<script src="ux_fastlane.js"></script>
+
+<script src="./flow_lockdown.js"></script>

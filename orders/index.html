@@ -1,0 +1,47 @@
+<!doctype html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=0.7, maximum-scale=0.7, user-scalable=no">
+<title>Lista e Porosive</title>
+<link rel="stylesheet" href="/assets/styles.css">
+<script type="module">
+import {renderOrdersList} from '/assets/app.js';
+window.addEventListener('DOMContentLoaded', ()=>{
+  const el = document.getElementById('list');
+  renderOrdersList(el);
+});
+</script>
+
+<!-- injected by scale_65 -->
+<style id="global_scale_65">
+  /* 35% më e vogël (scale 0.65) – pa prek dizajnin, vetëm shrink */
+  html, body { height: auto !important; }
+  body {
+    transform: scale(0.65);
+    transform-origin: top left;
+    width: calc(100% / 0.65);
+  }
+</style>
+
+
+<!-- Supabase CDN (client-side) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Project env and bootstrap -->
+<script src="/assets/env.js"></script>
+<script src="/assets/supabaseClient.js"></script>
+
+
+<link rel="stylesheet" href="../clients_list_styles.css"/>
+</head><body><div class="app">
+  <div class="card">
+    <h2>Porositë e fundit</h2>
+    <div id="list" class="list"></div>
+  </div>
+  <a class="btn" href="../">⇐ Home</a>
+</div>
+<script src="../home_search_patch.js"></script>
+
+<script src="../reset_admin.js"></script>
+
+<script src="../ux_fastlane.js"></script>
+
+<script src="../flow_lockdown.js"></script>
+</body></html>

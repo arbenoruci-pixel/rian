@@ -1,0 +1,11 @@
+
+:root{ --line:#203049; --panel:#0f1a2a; --text:#eaf1ff; }
+.app{max-width:860px;margin:0 auto;padding:16px;color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+.card{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06)}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:#eaf1ff;text-decoration:none;font-weight:900}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.small{font-size:12px;opacity:.8}
+.list{display:grid;gap:8px}
+table{width:100%;border-collapse:collapse}
+th,td{border:1px solid var(--line);padding:8px;text-align:left}

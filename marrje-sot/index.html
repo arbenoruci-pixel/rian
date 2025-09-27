@@ -1,0 +1,123 @@
+<!doctype html><html lang="sq">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>MARRJE SOT • Të marrë sot</title>
+<style>
+:root{
+  --bg:#0b1220; --bg2:#0a111c; --panel:#0f1a2a; --line:#1f2e46;
+  --ink:#eaf1ff; --muted:#9fb4d6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+.app{max-width:960px;margin:0 auto;padding:14px}
+.header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(180deg,#254369,#15263c);border:1px solid #203651;display:flex;align-items:center;justify-content:center}
+.header h1{margin:0;font-size:22px;letter-spacing:.6px}
+.header-tools{margin-left:auto;display:flex;align-items:center;gap:8px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid #21446c;background:linear-gradient(180deg,#173555,#10263d);font-weight:1000}
+.panel{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:14px;padding:12px}
+.list{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:12px;background:#0e1930;border:1px solid var(--line)}
+.meta{font-size:12px;color:var(--muted)}
+.total{font-weight:1000;min-width:86px;text-align:right}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const CFG={ supabase:{ url:"https://vnidjrxidvusulinozbn.supabase.co",
+  anonKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaWRqcnhpZHZ1c3VsaW5vemJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTk0NjAsImV4cCI6MjA3MzA5NTQ2MH0.hzGSFKU3sKuUKBUBsTE0rKIerj2uhG9pGS8_K9N7tpA",
+  bucket:"tepiha-photos"} };
+const sb=(typeof supabase!=='undefined')? supabase.createClient(CFG.supabase.url, CFG.supabase.anonKey) : null;
+
+const r2=x=>Math.round((x+Number.EPSILON)*100)/100;
+function calcM2(o){
+  const sum = arr => (arr||[]).reduce((s,r)=> s+ (Number(r.m2)||0)*(Number(r.qty||1)), 0);
+  const tT = sum(o?.tepiha), tS = sum(o?.staza);
+  const tSh = (o?.shkallore?.qty>0)? (Number(o.shkallore.qty)||0) * (Number(o.shkallore.per)||0.3) : 0;
+  return r2(tT+tSh+tS);
+}
+function dayKey(ts){ const d=new Date(ts||Date.now()); d.setHours(0,0,0,0); return d.toISOString().slice(0,10); }
+
+let CACHE=[];
+async function loadAll(){
+  if(!sb) return [];
+  const out=[]; const byId={};
+  try{
+    const {data:list,error} = await sb.storage.from(CFG.supabase.bucket)
+      .list('orders',{limit:10000,sortBy:{column:'name',order:'asc'}});
+    if(error && error.message!=='The resource was not found') throw error;
+    const files=(list||[]).filter(f=>/\.json$/i.test(f.name));
+    const chunk=25;
+    for(let i=0;i<files.length;i+=chunk){
+      const slice=files.slice(i,i+chunk);
+      await Promise.all(slice.map(async f=>{
+        const {data:blob, error:e2} = await sb.storage.from(CFG.supabase.bucket).download(`orders/${f.name}`);
+        if(e2) return;
+        try{ const o=JSON.parse(await blob.text()); if(o&&o.id) byId[o.id]=o; }catch(_){}
+      }));
+    }
+  }catch(e){ console.warn('cloud',e?.message||e); }
+  return Object.values(byId);
+}
+
+function rowHtml(o){
+  const name=(o?.client?.name||'(pa emër)').trim();
+  const m2=(o?.pay?.m2!=null)? Number(o.pay.m2) : calcM2(o);
+  const euro=(o?.pay?.euro!=null)? Number(o.pay.euro) : r2(m2*(Number(o?.pay?.rate)||1));
+  const code=(o?.client?.code? String(o.client.code).trim() : '');
+  return `<div class="row">
+    <div><div style="font-weight:1000">${code?code+' • ':''}${name}</div>
+    <div class="meta">marrë: ${new Date(o.marrjeTs||Date.now()).toLocaleTimeString()}</div></div>
+    <div class="total">${euro.toFixed(2)} €</div>
+  </div>`;
+}
+
+async function refresh(){
+  const todayKey = dayKey();
+  let all=await loadAll();
+  CACHE = all.filter(o=> String(o.status||'').toLowerCase()==='marrje-sot' && (o.marrjeDay===todayKey));
+  const box=document.getElementById('list');
+  if(!CACHE.length){ box.innerHTML='<div class="meta">S’ka porosi për “MARRJE SOT”.</div>'; return; }
+  box.innerHTML = CACHE.sort((a,b)=>(b.marrjeTs||0)-(a.marrjeTs||0)).map(rowHtml).join('');
+  // total €
+  const tot = CACHE.reduce((s,o)=>{
+    const m2=(o?.pay?.m2!=null)? Number(o.pay.m2) : calcM2(o);
+    const euro=(o?.pay?.euro!=null)? Number(o.pay.euro) : r2(m2*(Number(o?.pay?.rate)||1));
+    return s+euro;
+  },0);
+  document.getElementById('totEuro').textContent = tot.toFixed(2)+' €';
+}
+</script>
+
+<link rel="stylesheet" href="../clients_list_styles.css"/>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="logo">📦</div>
+    <h1>MARRJE SOT • Të marrë sot</h1>
+    <div class="header-tools">
+      <div class="badge" id="totEuro">0.00 €</div>
+      <a class="badge" href="/">🏠 Home</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="list" id="list"></div>
+  </div>
+</div>
+<script>
+refresh();
+setInterval(refresh, 15000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refresh(); });
+</script>
+
+<script src="../home_search_patch.js"></script>
+
+<script src="../reset_admin.js"></script>
+
+<script src="../ux_fastlane.js"></script>
+
+<script src="../flow_lockdown.js"></script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+
+/*! photo_save_patch.js — robust photo save with HEIC fallback + await + preview */
+(function(){
+  if (window.__PHOTO_SAVE_PATCH__) return; window.__PHOTO_SAVE_PATCH__ = true;
+  function ready(fn){ if (document.readyState==='complete'||document.readyState==='interactive') setTimeout(fn,0); else document.addEventListener('DOMContentLoaded', fn); }
+  async function supa(){ try{ if (window.sb) return window.sb; if (window.supabase && window.CFG && CFG.supabase && CFG.supabase.url && CFG.supabase.anonKey){ return window.supabase.createClient(CFG.supabase.url, CFG.supabase.anonKey); } }catch(_){ } return null; }
+  function toJpegBlob(file,maxW,quality){ return new Promise(function(resolve,reject){ try{ var img=new Image(), fr=new FileReader(); fr.onload=function(){ img.src=fr.result }; fr.onerror=reject; img.onload=function(){ try{ var w=img.width||maxW||1280, h=img.height||maxW||1280; var scale=Math.min(1,(maxW||1280)/w); var c=document.createElement('canvas'); c.width=Math.round(w*scale); c.height=Math.round(h*scale); c.getContext('2d').drawImage(img,0,0,c.width,c.height); c.toBlob(function(b){ if(b) resolve(b); else reject(new Error('toBlob failed')); }, 'image/jpeg', quality||0.7); }catch(e){ reject(e); } }; img.onerror=function(){ reject(new Error('image decode failed')); }; fr.readAsDataURL(file); }catch(e){ reject(e); } }); }
+  ready(function(){
+    if (!window._photoAPI || typeof _photoAPI.savePhoto!=='function') return;
+    var orig = _photoAPI.savePhoto;
+    _photoAPI.savePhoto = async function(key, file){
+      var sb = await supa();
+      try{
+        var jpeg = await toJpegBlob(file, 1280, .72);
+        if (sb){
+          var path = (window.OID||'ord') + '/' + key + '_' + Date.now() + '.jpg';
+          var up = await sb.storage.from(CFG.supabase.bucket).upload(path, jpeg, { upsert:false, contentType:'image/jpeg' });
+          if (up && up.error) throw up.error;
+          var pu = await sb.storage.from(CFG.supabase.bucket).getPublicUrl(path);
+          var url = (pu && pu.data && pu.data.publicUrl) || null;
+          if (!url) throw new Error('Public URL bosh');
+          try{ localStorage.setItem(key+'_url', url); }catch(_){}
+          return url;
+        }else{
+          var objUrl = URL.createObjectURL(jpeg);
+          try{ sessionStorage.setItem(key+'_objurl', objUrl); }catch(_){}
+          return objUrl;
+        }
+      }catch(e1){
+        try{
+          if (sb){
+            var ext = (file.name&&file.name.split('.').pop()) || 'bin';
+            var path2 = (window.OID||'ord') + '/' + key + '_' + Date.now() + '.' + ext;
+            var up2 = await sb.storage.from(CFG.supabase.bucket).upload(path2, file, { upsert:false, contentType: (file.type||'application/octet-stream') });
+            if (up2 && up2.error) throw up2.error;
+            var pu2 = await sb.storage.from(CFG.supabase.bucket).getPublicUrl(path2);
+            var url2 = (pu2 && pu2.data && pu2.data.publicUrl) || null;
+            if (!url2) throw new Error('Public URL bosh');
+            try{ localStorage.setItem(key+'_url', url2); }catch(_){}
+            return url2;
+          }else{
+            var obj2 = URL.createObjectURL(file);
+            try{ sessionStorage.setItem(key+'_objurl', obj2); }catch(_){}
+            return obj2;
+          }
+        }catch(e2){
+          try{ return await orig(key, file); }catch(e3){ throw e3 || e2 || e1; }
+        }
+      }
+    };
+  });
+})();

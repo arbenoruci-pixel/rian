@@ -1,0 +1,386 @@
+<!doctype html><html lang="sq">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ARKA • Menaxhimi ditor</title>
+<style>
+:root{
+  --bg:#0b1220; --bg2:#0a111c; --panel:#0f1a2a; --line:#1f2e46;
+  --ink:#eaf1ff; --muted:#9fb4d6;
+  --green:#19a25f; --amber:#c78a2a; --red:#ef4444; --blue:#1aa5d8;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer}
+
+.app{max-width:960px;margin:0 auto;padding:14px}
+.header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(180deg,#254369,#15263c);border:1px solid #203651;display:flex;align-items:center;justify-content:center}
+.header h1{margin:0;font-size:22px;letter-spacing:.6px}
+.header-tools{margin-left:auto;display:flex;align-items:center;gap:8px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid #21446c;background:linear-gradient(180deg,#173555,#10263d);font-weight:1000}
+.home{background:linear-gradient(180deg,#2aa0d8,#1773a8);border:1px solid #1b6b99}
+
+.panel{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:760px){.grid{grid-template-columns:1fr}}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:14px;border-radius:12px;border:1px solid #2aa7d8;background:linear-gradient(180deg,#2aa0d8,#1773a8);font-weight:1000;color:#fff;width:100%}
+.btn.green{background:linear-gradient(180deg,#1fa068,#0e6d3d);border-color:#0e6d3d}
+.btn.orange{background:linear-gradient(180deg,var(--amber),#8a5f19);border-color:#8a5f19}
+.btn.red{background:linear-gradient(180deg,#ef4444,#9f1c1c);border-color:#7f1d1d}
+.btn.ghost{background:#0c1220;color:#e6f0ff;border:1px solid #2b3956}
+
+.sumline{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px dashed var(--line);border-radius:10px;margin-top:6px}
+.sumline b{font-size:18px}
+.sumline .ok{color:#86efac}
+.sumline .warn{color:#fde68a}
+.sumline .bad{color:#fecaca}
+
+.section h3{margin:8px 0 6px}
+.list{display:flex;flex-direction:column;gap:6px}
+.row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:10px;background:#0e1930}
+.row .l1{font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .l2{font-size:12px;color:var(--muted)}
+.row .v{min-width:90px;text-align:right;font-weight:1000}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid #264563;background:#12233a;font-size:12px;font-weight:900}
+
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;z-index:9999}
+.sheet{background:#0c0f16;border:1px solid #273143;border-radius:14px 14px 0 0;width:100%;max-width:680px;padding:16px}
+.sheet h3{margin:0 0 6px}
+.rowf{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0}
+.input{padding:12px;border-radius:10px;border:1px solid var(--line);background:#0e1730;color:#fff;font-weight:900}
+.btnbar{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.note{color:#cfe0ff;font-size:12px;margin-top:4px}
+</style>
+
+<!-- Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const CFG = {
+  supabase: {
+    url: "https://vnidjrxidvusulinozbn.supabase.co",
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaWRqcnhpZHZ1c3VsaW5vemJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTk0NjAsImV4cCI6MjA3MzA5NTQ2MH0.hzGSFKU3sKuUKBUBsTE0rKIerj2uhG9pGS8_K9N7tpA",
+    bucket: "tepiha-photos"
+  }
+};
+const sb = (typeof supabase!=='undefined') ? supabase.createClient(CFG.supabase.url, CFG.supabase.anonKey) : null;
+</script>
+  <script src="/assets/flow-guard.js"></script>
+  <script src="/assets/flow-core.js"></script>
+  <script src="/assets/flow-bind.js"></script>
+
+<link rel="stylesheet" href="../clients_list_styles.css"/>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="logo">💵</div>
+    <h1>ARKA</h1>
+    <div class="header-tools">
+      <div class="badge" id="todayStr">—</div>
+      <a class="badge home" href="/">🏠 Home</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="grid">
+      <button class="btn green" id="btnOpen">HAPE DITËN</button>
+      <button class="btn" id="btnReport">📊 RAPORT</button>
+      <button class="btn orange" id="btnExpense">➕ SHTO SHPENZIM</button>
+      <button class="btn red" id="btnClose">🔒 MBYLLE DITËN</button>
+    </div>
+    <div class="sumline"><span>Cash në arkë (live)</span><b id="cashNow" class="ok">0.00 €</b></div>
+  </div>
+
+  <div class="panel section">
+    <h3>Pagesat e sotme</h3>
+    <div class="list" id="payList"></div>
+    <div class="sumline"><span>Totali pagesave</span><b id="paySum" class="ok">0.00 €</b></div>
+  </div>
+
+  <div class="panel section">
+    <h3>Borxhet e sotme</h3>
+    <div class="list" id="debtList"></div>
+    <div class="sumline"><span>Totali borxheve</span><b id="debtSum" class="warn">0.00 €</b></div>
+  </div>
+
+  <div class="panel section">
+    <h3>Shpenzimet</h3>
+    <div class="list" id="expList"></div>
+    <div class="sumline"><span>Totali shpenzimeve</span><b id="expSum" class="bad">0.00 €</b></div>
+  </div>
+</div>
+
+<script>
+/* ===== Helpers ===== */
+const r2 = x => Math.round((x+Number.EPSILON)*100)/100;
+const fmt = n => r2(n).toFixed(2);
+function toDashCode(code){
+  const s=String(code||'').trim(); if(!s) return '';
+  if(s.startsWith('-')) return s;
+  const mX=/^X(\d+)$/i.exec(s); if(mX) return '-'+mX[1];
+  const mN=/^\d+$/.exec(s);     if(mN) return '-'+mN[0];
+  return s;
+}
+function todayKey(){
+  // përdor kohën lokale të pajisjes
+  const d=new Date(); const p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function dayBounds(){
+  const d=new Date();
+  const start=new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0,0,0,0).getTime();
+  const end  =new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23,59,59,999).getTime();
+  return {start,end};
+}
+function hhmm(ts){
+  try{ const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); return `${p(d.getHours())}:${p(d.getMinutes())}`; }catch(e){return '--:--'}
+}
+
+/* ===== CLOUD I/O ===== */
+async function sbGetText(path){
+  const { data, error } = await sb.storage.from(CFG.supabase.bucket).download(path);
+  if(error) return null;
+  return await data.text();
+}
+async function sbPutJson(path, obj){
+  const blob = new Blob([JSON.stringify(obj)], {type:'application/json'});
+  await sb.storage.from(CFG.supabase.bucket).upload(path, blob, { upsert:true, contentType:'application/json' });
+}
+async function listOrders(){
+  const out=[];
+  const { data:list, error } = await sb.storage.from(CFG.supabase.bucket).list('orders', { limit:10000, sortBy:{column:'name', order:'asc'} });
+  if(error && error.message!=='The resource was not found') return out;
+  for(const f of (list||[])){
+    if(!/\.json$/i.test(f.name)) continue;
+    const txt=await sbGetText(`orders/${f.name}`);
+    try{ const o=JSON.parse(txt); if(o&&o.id) out.push(o); }catch(_){}
+  }
+  return out;
+}
+
+/* ===== LEDGER PATHS ===== */
+function pathOpen(){ return `cash/open/${todayKey()}.json`; }
+function pathClose(){ return `cash/close/${todayKey()}.json`; }
+function pathExp(){ return `cash/expenses/${todayKey()}.json`; }
+
+/* ===== STATE ===== */
+let OPENING = 0;
+let EXPENSES = []; // {ts, desc, amount}
+let PAY_ROWS = []; // from orders today
+let DEBT_ROWS = []; // from orders today
+
+/* ===== LOAD DAY STATE ===== */
+async function loadOpening(){
+  const txt = await sbGetText(pathOpen());
+  if(!txt) { OPENING=0; return; }
+  try{ const j=JSON.parse(txt); OPENING=Number(j.opening||0)||0; }catch{ OPENING=0; }
+}
+async function loadExpenses(){
+  const txt = await sbGetText(pathExp());
+  if(!txt){ EXPENSES=[]; return; }
+  try{ const arr=JSON.parse(txt); EXPENSES=Array.isArray(arr)?arr:[]; }catch{ EXPENSES=[]; }
+}
+async function loadOrdersToday(){
+  const {start,end} = dayBounds();
+  const all = await listOrders();
+  PAY_ROWS=[]; DEBT_ROWS=[];
+  for(const o of all){
+    const st = String(o.status||'').toLowerCase();
+    const ts = Number(o.marrjeTs||0);
+    if(st==='marrje-sot' && ts>=start && ts<=end){
+      const name = (o.client?.name||'(pa emër)').trim();
+      const code = toDashCode(o.client?.code||'');
+      const euro = Number(o.pay?.euro||0);
+      const paid = Number(o.pay?.paid||0);
+      const debt = Number(o.pay?.debt||0);
+      const when = hhmm(ts);
+      if(o.pay?.paidUp && paid>0){
+        PAY_ROWS.push({id:o.id, code, name, when, amount:paid});
+      }
+      if(debt>0){
+        DEBT_ROWS.push({id:o.id, code, name, when, amount:debt});
+      }
+    }
+  }
+}
+
+/* ===== RENDER ===== */
+function renderOpening(){
+  document.getElementById('todayStr').textContent = todayKey();
+}
+function renderPays(){
+  const box=document.getElementById('payList');
+  if(!PAY_ROWS.length){ box.innerHTML='<div class="tag">— s’ka</div>'; }
+  else{
+    box.innerHTML = PAY_ROWS.map(r=>`
+      <div class="row">
+        <div>
+          <div class="l1">${r.code? r.code+' • ' : ''}${r.name}</div>
+          <div class="l2">${r.when}</div>
+        </div>
+        <div class="tag">PAGESË</div>
+        <div class="v">${fmt(r.amount)} €</div>
+      </div>
+    `).join('');
+  }
+  const sum = PAY_ROWS.reduce((s,r)=>s+r.amount,0);
+  document.getElementById('paySum').textContent = fmt(sum)+' €';
+  return sum;
+}
+function renderDebts(){
+  const box=document.getElementById('debtList');
+  if(!DEBT_ROWS.length){ box.innerHTML='<div class="tag">— s’ka</div>'; }
+  else{
+    box.innerHTML = DEBT_ROWS.map(r=>`
+      <div class="row">
+        <div>
+          <div class="l1">${r.code? r.code+' • ' : ''}${r.name}</div>
+          <div class="l2">${r.when}</div>
+        </div>
+        <div class="tag" style="border-color:#8a5f19;background:#1f1a10">BORXH</div>
+        <div class="v">${fmt(r.amount)} €</div>
+      </div>
+    `).join('');
+  }
+  const sum = DEBT_ROWS.reduce((s,r)=>s+r.amount,0);
+  document.getElementById('debtSum').textContent = fmt(sum)+' €';
+  return sum;
+}
+function renderExpenses(){
+  const box=document.getElementById('expList');
+  if(!EXPENSES.length){ box.innerHTML='<div class="tag">— asgjë</div>'; }
+  else{
+    box.innerHTML = EXPENSES.map(e=>`
+      <div class="row">
+        <div>
+          <div class="l1">${e.desc||'(pa përshkrim)'}</div>
+          <div class="l2">${hhmm(e.ts)}</div>
+        </div>
+        <div class="tag" style="border-color:#7f1d1d;background:#241012">SHPENZIM</div>
+        <div class="v">-${fmt(Number(e.amount||0))} €</div>
+      </div>
+    `).join('');
+  }
+  const sum = EXPENSES.reduce((s,e)=> s + (Number(e.amount||0)), 0);
+  document.getElementById('expSum').textContent = fmt(sum)+' €';
+  return sum;
+}
+function renderCashNow(){
+  const pay = PAY_ROWS.reduce((s,r)=>s+r.amount,0);
+  const exp = EXPENSES.reduce((s,e)=>s+Number(e.amount||0),0);
+  const now = r2((Number(OPENING)||0) + pay - exp);
+  const el=document.getElementById('cashNow');
+  el.textContent = fmt(now)+' €';
+  el.className = 'ok';
+}
+
+/* ===== SHEETS ===== */
+function openOpenDaySheet(){
+  const ov=document.createElement('div'); ov.className='ov';
+  const box=document.createElement('div'); box.className='sheet';
+  box.innerHTML = `
+    <h3>Hape Ditën</h3>
+    <div class="rowf">
+      <input id="opVal" class="input" inputmode="decimal" placeholder="Cash në fillim p.sh. 100.00">
+      <input id="opNote" class="input" placeholder="Shënim (opsionale)">
+    </div>
+    <div class="btnbar">
+      <button class="btn green" id="ok">Ruaj</button>
+      <button class="btn ghost" id="cancel">Anulo</button>
+    </div>
+    <div class="note">Ruhet te <code>cash/open/${todayKey()}.json</code>. Nëse ekziston, mbishkruhet.</div>
+  `;
+  document.body.appendChild(ov); ov.appendChild(box);
+  box.querySelector('#cancel').addEventListener('click', ()=>ov.remove());
+  box.querySelector('#ok').addEventListener('click', async ()=>{
+    OPENING = Number(box.querySelector('#opVal').value||0)||0;
+    await sbPutJson(pathOpen(), {opening:OPENING, note:box.querySelector('#opNote').value||'', ts:Date.now()});
+    ov.remove(); await refresh();
+  });
+}
+
+function openExpenseSheet(){
+  const ov=document.createElement('div'); ov.className='ov';
+  const box=document.createElement('div'); box.className='sheet';
+  box.innerHTML = `
+    <h3>Shto Shpenzim</h3>
+    <div class="rowf">
+      <input id="exDesc" class="input" placeholder="P.sh. Naftë, Material...">
+      <input id="exVal" class="input" inputmode="decimal" placeholder="Shuma p.sh. 20.00">
+    </div>
+    <div class="btnbar">
+      <button class="btn orange" id="ok">Shto</button>
+      <button class="btn ghost" id="cancel">Anulo</button>
+    </div>
+    <div class="note">Ruhet te <code>cash/expenses/${todayKey()}.json</code>.</div>
+  `;
+  document.body.appendChild(ov); ov.appendChild(box);
+  box.querySelector('#cancel').addEventListener('click', ()=>ov.remove());
+  box.querySelector('#ok').addEventListener('click', async ()=>{
+    const e={ ts:Date.now(), desc:box.querySelector('#exDesc').value||'', amount:Number(box.querySelector('#exVal').value||0)||0 };
+    EXPENSES.push(e);
+    await sbPutJson(pathExp(), EXPENSES);
+    ov.remove(); await refresh();
+  });
+}
+
+async function closeDay(){
+  const sumPay = PAY_ROWS.reduce((s,r)=>s+r.amount,0);
+  const sumDebt = DEBT_ROWS.reduce((s,r)=>s+r.amount,0);
+  const sumExp = EXPENSES.reduce((s,e)=>s+Number(e.amount||0),0);
+  const close = {
+    ts:Date.now(),
+    date: todayKey(),
+    opening: OPENING,
+    pay_sum: r2(sumPay),
+    debt_sum: r2(sumDebt),
+    expense_sum: r2(sumExp),
+    cash_end: r2((Number(OPENING)||0)+sumPay-sumExp),
+    pays: PAY_ROWS,
+    debts: DEBT_ROWS,
+    expenses: EXPENSES
+  };
+  await sbPutJson(pathClose(), close);
+  alert('Dita u mbyll. Raporti u ruajt.');
+}
+
+/* ===== PAGE FLOW ===== */
+async function refresh(){
+  document.getElementById('todayStr').textContent = todayKey();
+  await loadOpening();
+  await loadExpenses();
+  await loadOrdersToday();
+
+  renderOpening();
+  renderPays();
+  renderDebts();
+  renderExpenses();
+  renderCashNow();
+}
+
+document.getElementById('btnOpen').addEventListener('click', openOpenDaySheet);
+document.getElementById('btnExpense').addEventListener('click', openExpenseSheet);
+document.getElementById('btnClose').addEventListener('click', closeDay);
+document.getElementById('btnReport').addEventListener('click', async ()=>{
+  // thjesht rifresko & shfaq totalet aktuale (raporti live)
+  await refresh();
+  alert('Raporti live u përditësua. Për raport zyrtar përdor "Mbylle Ditën".');
+});
+
+refresh();
+setInterval(refresh, 15000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refresh(); });
+</script>
+
+<script src="../home_search_patch.js"></script>
+
+<script src="../reset_admin.js"></script>
+
+<script src="../ux_fastlane.js"></script>
+
+<script src="../flow_lockdown.js"></script>
+</body>
+</html>

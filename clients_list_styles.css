@@ -1,0 +1,13 @@
+
+/*! clients_list_styles.css — cleaner client list, better tap targets */
+.listWrap{margin:10px 0}
+.cliItem{display:flex;align-items:center;gap:12px;background:#0f1422;border:1px solid #263044;border-radius:12px;padding:12px 14px;margin:8px 0;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.cliMain{flex:1;min-width:0}
+.cliName{font-weight:800;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cliSub{color:#a9b6cf;font-size:.9rem;display:flex;gap:12px;flex-wrap:wrap}
+.cliCode{background:#10233e;border:1px solid #2b3a5a;border-radius:999px;padding:4px 10px;font-weight:800}
+.cliGo{min-width:44px;height:44px;border-radius:10px;border:1px solid #30405e;background:#17305c;color:#fff;font-weight:900;cursor:pointer}
+.cliGo:active{transform:scale(.98)}
+.searchRow{display:flex;gap:8px;margin:8px 0}
+.searchRow input{flex:1;padding:12px 14px;border-radius:12px;border:1px solid #2a3853;background:#0b111d;color:#eaf1ff;font-weight:700}
+.searchRow button{min-width:44px;border-radius:12px;border:1px solid #2a3853;background:#0f1422;color:#a9b6cf;font-weight:800}

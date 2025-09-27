@@ -1,0 +1,488 @@
+<!doctype html><html lang="sq">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>GATI • Gati për Marrje</title>
+<style>
+:root{
+  --bg:#0b1220; --bg2:#0a111c; --panel:#0f1a2a; --line:#1f2e46;
+  --ink:#eaf1ff; --muted:#9fb4d6;
+  --blue1:#1aa5d8; --blue2:#146b95;
+  --green:#19a25f; --amber:#c78a2a; --red:#ef4444;
+  --btn:#1e60ff; --btn2:#15419e;
+  --chipBg:#101a31; --chipBr:#2b3956;
+  --sum:#3aa7ff;  /* Totali (sa duhet paguar) */
+  --chg:#22c55e;  /* Kthe */
+  --debt:#f59e0b; /* Borxh */
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer}
+
+/* Header */
+.app{max-width:960px;margin:0 auto;padding:14px}
+.header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(180deg,#254369,#15263c);border:1px solid #203651;display:flex;align-items:center;justify-content:center}
+.header h1{margin:0;font-size:22px;letter-spacing:.6px}
+.header-tools{margin-left:auto;display:flex;align-items:center;gap:8px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid #21446c;background:linear-gradient(180deg,#173555,#10263d);font-weight:1000}
+.home{background:linear-gradient(180deg,#2aa0d8,#1773a8);border:1px solid #1b6b99}
+
+/* Panel & search */
+.panel{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:14px;padding:12px}
+.searchRow{display:grid;grid-template-columns:1fr auto;gap:8px;margin:8px 0}
+.input{padding:12px;border-radius:10px;border:1px solid var(--line);background:#0e1730;color:#fff;font-weight:900;letter-spacing:.6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 14px;border-radius:10px;border:1px solid #2aa7d8;background:linear-gradient(180deg,var(--blue1),var(--blue2));font-weight:1000;color:#fff}
+
+/* List */
+.list{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:12px;background:#0e1930;border:1px solid var(--line)}
+.left{flex:1;min-width:0}
+.top{font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{font-size:12px;color:var(--muted)}
+.actions{display:flex;align-items:center;gap:8px}
+.total{font-weight:1000;min-width:86px;text-align:right}
+
+/* tiny buttons on list */
+.mbtn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 10px;border-radius:9px;border:1px solid #2b3956;background:#0f1a2a;color:#eaf1ff;font-weight:900}
+.mbtn.sms{border-color:#2aa7d8}
+.mbtn.pay{border-color:#19a25f}
+.mbtn.ret{border-color:#8a5f19}
+
+/* Age dots */
+.dot{display:inline-block;width:8px;height:8px;border-radius:999px;margin-right:8px;vertical-align:middle}
+.dot.g{background:#22c55e}.dot.y{background:#f59e0b}.dot.r{background:var(--red)}
+
+/* Bottom sheets */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;z-index:9999}
+.sheet{background:#0c0f16;border:1px solid #273143;border-radius:14px 14px 0 0;width:100%;max-width:680px;padding:16px}
+.sheet h3{margin:0 0 6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* PILL rows with colored values */
+.pill{display:flex;justify-content:space-between;align-items:center;background:#0b111d;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-weight:1000}
+.pill .v{font-variant-numeric:tabular-nums}
+.pill.sum .v{color:var(--sum)}
+.pill.change .v{color:var(--chg)}
+.pill.debt .v{color:var(--debt)}
+
+/* Bigger chips */
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.chip{padding:12px 16px;border-radius:12px;border:1px solid var(--chipBr);background:var(--chipBg);color:#eaf1ff;font-weight:1000;font-size:16px}
+
+/* Buttons in sheets */
+.btnbar{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.btn.small{padding:12px 14px;border-radius:10px}
+.btn.green{background:linear-gradient(180deg,var(--green),#0e6d3d);border:1px solid #0e6d3d}
+.btn.orange{background:linear-gradient(180deg,var(--amber),#8a5f19);border:1px solid #8a5f19}
+.btn.red{background:linear-gradient(180deg,#ef4444,#9f1c1c);border:1px solid #7f1d1d}
+.btn.ghost{background:#0c1220;color:#e6f0ff;border:1px solid #2b3956}
+.note{color:#cfe0ff;font-size:12px;margin-top:4px}
+
+/* Return sheet specific */
+.sel, .ta{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:#0e1730;color:#fff;font-weight:900}
+.cam{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:10px;border:1px solid #2b3956;background:#0a1220;color:#e6f0ff;cursor:pointer}
+.thumb{width:46px;height:46px;border-radius:10px;border:1px solid #2b3956;object-fit:cover;display:none}
+</style>
+
+<!-- Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const CFG = {
+  supabase: {
+    url: "https://vnidjrxidvusulinozbn.supabase.co",
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaWRqcnhpZHZ1c3VsaW5vemJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTk0NjAsImV4cCI6MjA3MzA5NTQ2MH0.hzGSFKU3sKuUKBUBsTE0rKIerj2uhG9pGS8_K9N7tpA",
+    bucket: "tepiha-photos"
+  }
+};
+const sb = (typeof supabase!=='undefined') ? supabase.createClient(CFG.supabase.url, CFG.supabase.anonKey) : null;
+</script>
+<!-- optional shared assets if you keep them -->
+<script src="/assets/flow-guard.js"></script>
+<script src="/assets/flow-core.js"></script>
+<script src="/assets/flow-bind.js"></script>
+
+<link rel="stylesheet" href="../clients_list_styles.css"/>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="logo">🧼</div>
+    <h1>GATI • Gati për Marrje</h1>
+    <div class="header-tools">
+      <div class="badge" id="totM2">0.00 m²</div>
+      <a class="badge home" href="/">🏠 Home</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="searchRow">
+      <input id="q" class="input" placeholder="-1, emër ose telefon">
+      <button class="btn" id="btnSearch">KËRKO</button>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+</div>
+
+<!-- tiny on-screen debug -->
+<div id="dbg" style="position:fixed;right:8px;bottom:8px;background:#0c1220;border:1px solid #2b3956;border-radius:10px;padding:6px 10px;font:600 12px system-ui;opacity:.9;z-index:99999">GATI ready</div>
+
+<script>
+/* ===== Helpers ===== */
+const r2 = x => Math.round((x+Number.EPSILON)*100)/100;
+function toDashCode(code){
+  const s = String(code||'').trim();
+  if(!s) return '';
+  if(s.startsWith('-')) return s;
+  const mX = /^X(\d+)$/i.exec(s); if(mX) return '-'+mX[1];
+  const mN = /^\d+$/.exec(s);     if(mN) return '-'+mN[0];
+  return s;
+}
+function calcM2(o){
+  const sum = arr => (arr||[]).reduce((s,r)=> s+ (Number(r.m2)||0)*(Number(r.qty||1)), 0);
+  const tT = sum(o?.tepiha);
+  const tS = sum(o?.staza);
+  const tSh = (o?.shkallore?.qty>0)? (Number(o.shkallore.qty)||0) * (Number(o.shkallore.per)||0.3) : 0;
+  return r2(tT+tSh+tS);
+}
+function ageDot(ts){
+  if(!ts) return 'y';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = Math.floor((today.getTime() - (new Date(ts)).setHours(0,0,0,0)) / (24*3600*1000));
+  if(d<=0) return 'g';
+  if(d===1) return 'y';
+  return 'r';
+}
+function normalizePhone(s){ return (s||'').replace(/[^0-9+]/g,''); }
+function matches(o, q){
+  if(!q) return true;
+  const t = (s)=> String(s||'').toLowerCase();
+  const phone = normalizePhone(o.client?.phone||'');
+  const qn = normalizePhone(q||'');
+  const code = toDashCode(o.client?.code||'');
+  if(/^-\d+$/.test(q.trim())) return code===q.trim();
+  if(qn && phone.endsWith(qn)) return true;
+  if(t(o.client?.name).includes(t(q))) return true;
+  return false;
+}
+function now(){ return Date.now(); }
+function dayKey(ts=now()){ const d=new Date(ts); d.setHours(0,0,0,0); return d.toISOString().slice(0,10); }
+function newerOf(a,b){
+  if(!a) return b; if(!b) return a;
+  const ta=a.updatedTs||0, tb=b.updatedTs||0;
+  if(tb>ta) return b;
+  if(tb<ta) return a;
+  return (b._v||0)>(a._v||0)? b : a;
+}
+function setDebug(s){ const el=document.getElementById('dbg'); if(el) el.textContent=s; }
+
+/* ===== CLOUD I/O ===== */
+async function loadAllOrdersFromCloud(){
+  if(!sb) return [];
+  const byId = {};
+  try{
+    const { data:list, error } = await sb.storage.from(CFG.supabase.bucket)
+      .list('orders', { limit: 10000, sortBy:{column:'name', order:'asc'} });
+    if(error && error.message!=='The resource was not found') throw error;
+
+    const files=(list||[]).filter(f=>/\.json$/i.test(f.name));
+    const chunk=25;
+    for(let i=0;i<files.length;i+=chunk){
+      const slice=files.slice(i,i+chunk);
+      await Promise.all(slice.map(async (f)=>{
+        const path=`orders/${f.name}`;
+        const { data:blob, error:dlErr } = await sb.storage.from(CFG.supabase.bucket).download(path);
+        if(dlErr) return;
+        try{
+          const o = JSON.parse(await blob.text());
+          if(!o||!o.id) return;
+          byId[o.id] = newerOf(byId[o.id], o);
+        }catch(_){}
+      }));
+    }
+  }catch(e){ console.warn('cloud list error', e?.message||e); }
+  return Object.values(byId);
+}
+
+async function fetchOrderFromCloud(id){
+  try{
+    const { data:blob, error } = await sb.storage.from(CFG.supabase.bucket).download(`orders/${id}.json`);
+    if(error) return null;
+    const o = JSON.parse(await blob.text());
+    return (o&&o.id)? o : null;
+  }catch(_){ return null; }
+}
+
+// Atomic upsert (prevents old tabs from overwriting fresh status)
+async function atomicSave(id, mutator){
+  let base = await fetchOrderFromCloud(id);
+  let local = CLOUD_CACHE.find(x=>x.id===id) || null;
+  const current = newerOf(base, local);
+  const next = mutator(current? JSON.parse(JSON.stringify(current)) : { id, createdTs: now() }) || current;
+
+  next.updatedTs = now();
+  next._v = (current && current._v ? current._v : 0) + 1;
+
+  const blob=new Blob([JSON.stringify(next)],{type:'application/json'});
+  const { error } = await sb.storage.from(CFG.supabase.bucket)
+    .upload(`orders/${id}.json`, blob, { upsert:true, contentType:'application/json' });
+
+  if(!error){
+    const idx = CLOUD_CACHE.findIndex(x=>x.id===id);
+    if(idx>=0) CLOUD_CACHE[idx]=next; else CLOUD_CACHE.push(next);
+    setDebug(`Saved ✓ → ${next.status} (#${next._v})`);
+    return next;
+  }else{
+    setDebug(`Save FAILED ✗ (${error.message||'error'})`);
+    throw error;
+  }
+}
+
+// Back-compat wrapper
+async function saveToCloud(order){ return atomicSave(order.id, ()=>order); }
+
+/* ===== STATE ===== */
+let CLOUD_CACHE = [];
+
+/* ===== LIST RENDER ===== */
+function buildRow(o){
+  const name = (o?.client?.name||'(pa emër)').trim();
+  const phone = o?.client?.phone||'';
+  const code = toDashCode(o?.client?.code||'');
+  const pcs = ((o.tepiha?.length||0)+(o.staza?.length||0)+((o.shkallore?.qty||0)>0?1:0));
+  const m2 = (o?.pay?.m2!=null)? Number(o.pay.m2) : calcM2(o);
+  const euro = (o?.pay?.euro!=null)? Number(o.pay.euro) : r2(m2 * (Number(o?.pay?.rate)||1));
+  const dot = `<span class="dot ${ageDot(o.gatiTs||o.ts)}"></span>`;
+
+  return `
+  <div class="row" data-id="${o.id}">
+    <div class="left">
+      <div class="top">${dot}${code?code+' • ':''}${name}</div>
+      <div class="meta">${pcs} copë • ${m2.toFixed(2)} m² • ${phone||''}</div>
+    </div>
+    <div class="actions">
+      <div class="total">${euro.toFixed(2)} €</div>
+      <button class="mbtn sms" data-sms="${o.id}" title="Dërgo SMS">📩</button>
+      <button class="mbtn pay" data-pay="${o.id}" title="Paguaj">💰</button>
+      <button class="mbtn ret" data-ret="${o.id}" title="Kthe në pastrim">↺</button>
+    </div>
+  </div>`;
+}
+function renderList(rows){
+  const box=document.getElementById('list');
+  if(!rows.length){ box.innerHTML='<div class="meta">S’ka porosi në GATI.</div>'; return; }
+  box.innerHTML = rows.map(buildRow).join('');
+  box.querySelectorAll('.row').forEach(row=>{
+    const id=row.getAttribute('data-id');
+    const o=CLOUD_CACHE.find(x=>x.id===id);
+    if(!o) return;
+    row.querySelector('.left')?.addEventListener('click',()=> openPaymentSheet(o));
+    row.querySelector('.total')?.addEventListener('click',()=> openPaymentSheet(o));
+    row.querySelector('[data-sms]')?.addEventListener('click',(e)=>{ e.stopPropagation(); quickSMS(o); });
+    row.querySelector('[data-pay]')?.addEventListener('click',(e)=>{ e.stopPropagation(); openPaymentSheet(o); });
+    row.querySelector('[data-ret]')?.addEventListener('click',(e)=>{ e.stopPropagation(); openReturnSheet(o); });
+  });
+}
+
+/* ===== QUICK SMS ===== */
+function quickSMS(order){
+  const name = order?.client?.name || '';
+  const phone = (order?.client?.phone||'').replace(/[^\d]/g,'');
+  const code = toDashCode(order?.client?.code||'');
+  const euro = Number(order?.pay?.euro || calcM2(order)*(order?.pay?.rate||1) || 0);
+  const msg = `Përshëndetje ${name}, qilimat me kod ${code} janë GATI për marrje. Totali: ${euro.toFixed(2)} €. Faleminderit!`;
+  const enc = encodeURIComponent(msg);
+  const smsUrl = phone ? `sms:${phone}?body=${enc}` : `sms:?body=${enc}`;
+  try{ window.open(smsUrl,'_blank'); }catch(e){}
+}
+
+/* ===== PAYMENT + RETURN SHEETS ===== */
+function openPaymentSheet(order){
+  const ov=document.createElement('div'); ov.className='ov';
+  const box=document.createElement('div'); box.className='sheet';
+
+  const pay=order.pay||{};
+  const m2 = (pay.m2!=null)? Number(pay.m2) : calcM2(order);
+  const euro = Number(pay.euro || m2*(pay.rate||1) || 0);
+  const name = order?.client?.name || '';
+  const phone = order?.client?.phone || '';
+  const code = toDashCode(order?.client?.code||'');
+
+  box.innerHTML = `
+    <h3>${name}</h3>
+    <div class="grid2">
+      <div class="pill"><span>Tel</span><span class="v">${phone||'-'}</span></div>
+      <div class="pill"><span>Kodi</span><span class="v">${code||'-'}</span></div>
+    </div>
+
+    <div class="grid2" style="margin-top:10px">
+      <div class="pill sum"><span>Totali (€)</span><span class="v" id="totEuro">${euro.toFixed(2)}</span></div>
+      <div class="pill"><span>Klienti dha (€)</span><input id="inpPaid" class="input" inputmode="decimal" placeholder="p.sh. ${euro.toFixed(2)}"></div>
+    </div>
+
+    <div class="chips">
+      <button class="chip" data-v="10">10</button>
+      <button class="chip" data-v="20">20</button>
+      <button class="chip" data-v="50">50</button>
+      <button class="chip" data-v="100">100</button>
+      <button class="chip" data-v="${euro.toFixed(2)}">= Totali</button>
+      <button class="chip" id="chipSMS">📩 SMS</button>
+    </div>
+
+    <div class="grid2" style="margin-top:10px">
+      <div class="pill change"><span>Kthe (€)</span><span class="v" id="outChange">0.00</span></div>
+      <div class="pill debt"><span>Borxh (€)</span><span class="v" id="outDebt">0.00</span></div>
+    </div>
+
+    <div class="btnbar">
+      <button class="btn green small" id="btnOK">PAGUAJ</button>
+      <button class="btn orange small" id="btnBORXH">BORXH</button>
+      <button class="btn red small" id="btnRET">KTHE NË PASTRIM</button>
+      <button class="btn ghost small" id="btnClose">MBYLL</button>
+    </div>
+    <div class="note">“PAGUAJ” ose “BORXH” ⇒ kalon automatikisht në <b>MARRJE SOT</b>. “KTHE NË PASTRIM” kërkon arsye + (opsionale) foto dhe e kthen në pastrim.</div>
+  `;
+  document.body.appendChild(ov); ov.appendChild(box);
+
+  const q=(s)=>box.querySelector(s);
+  const recalc=()=>{
+    const need=Number(q('#totEuro').textContent)||0;
+    const paid=Number(q('#inpPaid').value||0)||0;
+    q('#outChange').textContent = Math.max(0, paid-need).toFixed(2);
+    q('#outDebt').textContent   = Math.max(0, need-paid).toFixed(2);
+  };
+  q('#inpPaid').addEventListener('input', recalc);
+  box.querySelectorAll('.chip[data-v]').forEach(c=> c.addEventListener('click',()=>{ q('#inpPaid').value=c.dataset.v; recalc(); }));
+  q('#chipSMS').addEventListener('click', ()=>{ quickSMS(order); });
+
+  q('#btnOK').addEventListener('click', async ()=>{
+    const paid=Number(q('#inpPaid').value||euro)||0;
+    await markPaidOrDebt(order, paid, false);
+    ov.remove(); await refresh();
+  });
+  q('#btnBORXH').addEventListener('click', async ()=>{
+    const paid=Number(q('#inpPaid').value||0)||0;
+    await markPaidOrDebt(order, paid, true);
+    ov.remove(); await refresh();
+  });
+  q('#btnRET').addEventListener('click', ()=>{
+    openReturnSheet(order, ()=>{ ov.remove(); });
+  });
+  q('#btnClose').addEventListener('click', ()=>ov.remove());
+}
+
+function openReturnSheet(order, onDone){
+  const ov=document.createElement('div'); ov.className='ov';
+  const box=document.createElement('div'); box.className='sheet';
+  const key = `ret_${order.id}_${Date.now()}`;
+
+  box.innerHTML = `
+    <h3>KTHE NË PASTRIM</h3>
+    <div class="grid2">
+      <div>
+        <label style="font-size:12px;color:#9fb4d6">Arsye</label>
+        <select class="sel" id="retReason">
+          <option value="Njolla s’u hoqën">Njolla s’u hoqën</option>
+          <option value="Aromë / Erë">Aromë / Erë</option>
+          <option value="Rikthim teknik">Rikthim teknik</option>
+          <option value="Gabim matje">Gabim matje</option>
+          <option value="Tjetër">Tjetër</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:#9fb4d6">Shënim</label>
+        <input class="ta" id="retNote" placeholder="shkruaj diçka (opsionale)">
+      </div>
+    </div>
+    <div class="btnbar" style="margin-top:8px">
+      <label class="cam">📷
+        <input type="file" id="retPhoto" accept="image/*" capture="environment" style="display:none">
+      </label>
+      <img class="thumb" id="retThumb">
+    </div>
+    <div class="btnbar">
+      <button class="btn red small" id="btnDoReturn">KTHE TANI</button>
+      <button class="btn ghost small" id="btnClose">MBYLL</button>
+    </div>
+  `;
+  document.body.appendChild(ov); ov.appendChild(box);
+
+  const q=(s)=>box.querySelector(s);
+  const inp=q('#retPhoto'), th=q('#retThumb');
+  inp.addEventListener('change', async (e)=>{
+    const f=e.target.files && e.target.files[0]; if(!f) return;
+    try{
+      const url = URL.createObjectURL(f);
+      th.src=url; th.style.display='inline-block';
+    }catch(_){}
+  });
+  q('#btnDoReturn').addEventListener('click', async ()=>{
+    const reason=q('#retReason').value||'';
+    const note=q('#retNote').value||'';
+    await returnToClean(order, {reason, note, photoKey:key});
+    ov.remove(); if(onDone) onDone(); await refresh();
+  });
+  q('#btnClose').addEventListener('click', ()=>{ ov.remove(); if(onDone) onDone(); });
+}
+
+/* ===== ACTIONS ===== */
+async function markPaidOrDebt(order, paid, asDebt){
+  const id=order.id;
+  await atomicSave(id, (o)=>{
+    const m2 = calcM2(o);
+    const rate = Number(o?.pay?.rate||1);
+    const euro = r2(m2*rate);
+    o.pay = { ...(o.pay||{}), m2, rate, euro, paidUp:!asDebt, paid:r2(paid||0), debt:Math.max(0, r2(euro-(paid||0))) };
+    o.status_prev = o.status||'';
+    o.status = 'marrje-sot';
+    o.marrjeTs = now();
+    o.marrjeDay = dayKey(o.marrjeTs);
+    (o.history||(o.history=[])).push({ts:now(), evt:'paid_or_debt', to:o.status, paid:o.pay.paid, debt:o.pay.debt});
+    return o;
+  });
+}
+async function returnToClean(order, {reason, note, photoKey}){
+  const id=order.id;
+  await atomicSave(id, (o)=>{
+    (o.returns = Array.isArray(o.returns)? o.returns : []).push({ ts:now(), from:'gati', to:'pastrim', reason, note, photoKey });
+    o.status_prev = o.status||'';
+    o.status='pastrim';
+    o.pastrimTs = now();
+    (o.history||(o.history=[])).push({ts:now(), evt:'return_to_clean', reason});
+    return o;
+  });
+}
+
+/* ===== PAGE ===== */
+function renderTotalM2(rows){
+  const sum = rows.reduce((s,o)=> s + calcM2(o), 0);
+  document.getElementById('totM2').textContent = r2(sum).toFixed(2)+' m²';
+}
+async function refresh(){
+  let all = await loadAllOrdersFromCloud();
+  if(!all.length){ await new Promise(r=>setTimeout(r,800)); all = await loadAllOrdersFromCloud(); }
+  CLOUD_CACHE = all.filter(o=> String(o.status||'').trim().toLowerCase()==='gati')
+                   .sort((a,b)=> (b.gatiTs||b.ts||0) - (a.gatiTs||a.ts||0));
+  const qv = (document.getElementById('q')?.value||'').trim();
+  const rows = CLOUD_CACHE.filter(o=>matches(o,qv));
+  renderList(rows);
+  renderTotalM2(rows);
+}
+document.getElementById('btnSearch')?.addEventListener('click', refresh);
+document.getElementById('q')?.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); refresh(); } });
+
+refresh();
+setInterval(refresh, 15000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refresh(); });
+</script>
+
+<script src="../home_search_patch.js"></script>
+
+<script src="../reset_admin.js"></script>
+
+<script src="../ux_fastlane.js"></script>
+
+<script src="../flow_lockdown.js"></script>
+</body>
+</html>
