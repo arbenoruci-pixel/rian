@@ -1,0 +1,298 @@
+<!doctype html><html lang="sq">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>PASTRIMI • Në proces</title>
+<style>
+:root{
+  --bg:#0b1220; --bg2:#0a111c; --panel:#0f1a2a; --line:#1f2e46;
+  --ink:#eaf1ff; --muted:#9fb4d6;
+  --blue1:#1aa5d8; --blue2:#146b95;
+  --green:#19a25f; --amber:#c78a2a; --red:#ef4444;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer}
+
+.app{max-width:960px;margin:0 auto;padding:14px}
+.header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(180deg,#254369,#15263c);border:1px solid #203651;display:flex;align-items:center;justify-content:center}
+.header h1{margin:0;font-size:22px;letter-spacing:.6px}
+.header-tools{margin-left:auto;display:flex;align-items:center;gap:8px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid #21446c;background:linear-gradient(180deg,#173555,#10263d);font-weight:1000}
+.home{background:linear-gradient(180deg,#2aa0d8,#1773a8);border:1px solid #1b6b99}
+
+/* Panel & search */
+.panel{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:14px;padding:12px}
+.searchRow{display:grid;grid-template-columns:1fr auto;gap:8px;margin:8px 0}
+.input{padding:12px;border-radius:10px;border:1px solid var(--line);background:#0e1730;color:#fff;font-weight:900;letter-spacing:.6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 14px;border-radius:10px;border:1px solid #2aa7d8;background:linear-gradient(180deg,var(--blue1),var(--blue2));font-weight:1000;color:#fff}
+
+/* List */
+.list{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:12px;background:#0e1930;border:1px solid var(--line)}
+.left{flex:1;min-width:0}
+.top{font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{font-size:12px;color:var(--muted)}
+.total{font-weight:1000;min-width:80px;text-align:right}
+.badges{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
+.badgeDebt{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:900;background:#b45309;color:#fff;border:1px solid #7a3a08}
+
+/* Bottom sheet */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;z-index:9999}
+.sheet{background:#0c0f16;border:1px solid #273143;border-radius:14px 14px 0 0;width:100%;max-width:680px;padding:16px}
+.sheet h3{margin:0 0 6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pill{display:flex;justify-content:space-between;align-items:center;background:#0b111d;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-weight:1000}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.chip{padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:#101a31;color:#eaf1ff;font-weight:900}
+.btnbar{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn.small{padding:10px 12px;border-radius:10px}
+.btn.green{background:linear-gradient(180deg,var(--green),#0e6d3d);border:1px solid #0e6d3d}
+.btn.orange{background:linear-gradient(180deg,var(--amber),#8a5f19);border:1px solid #8a5f19}
+.btn.ghost{background:#0c1220;color:#e6f0ff;border:1px solid #2b3956}
+.note{color:#cfe0ff;font-size:12px;margin-top:4px}
+</style>
+
+<!-- Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const CFG = {
+  supabase: {
+    url: "https://vnidjrxidvusulinozbn.supabase.co",
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaWRqcnhpZHZ1c3VsaW5vemJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTk0NjAsImV4cCI6MjA3MzA5NTQ2MH0.hzGSFKU3sKuUKBUBsTE0rKIerj2uhG9pGS8_K9N7tpA",
+    bucket: "tepiha-photos"
+  }
+};
+const sb = (typeof supabase!=='undefined') ? supabase.createClient(CFG.supabase.url, CFG.supabase.anonKey) : null;
+</script>
+  <script src="/assets/flow-guard.js"></script>
+  <script src="/assets/flow-core.js"></script>
+  <script src="/assets/flow-bind.js"></script>
+</head>
+<body>
+
+<!-- GPT-INJECT: diagnostics gear (visible NOW, will hide later) -->
+<a href="diagnostics.html" style="position:fixed;top:8px;right:10px;text-decoration:none;
+font-size:22px;line-height:1;z-index:9999;background:#111a;backdrop-filter:blur(4px);
+padding:6px 10px;border-radius:10px;border:1px solid #2b3956;color:#eaf1ff">⚙️</a>
+
+<div class="app">
+  <div class="header">
+    <div class="logo">🧼</div>
+    <h1>PASTRIMI • Në proces</h1>
+    <div class="header-tools">
+      <div class="badge" id="totM2">0.00 m²</div>
+      <a class="badge home" href="/">🏠 Home</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="searchRow">
+      <input id="q" class="input" placeholder="-1, emër ose telefon">
+      <button class="btn" id="btnSearch">KËRKO</button>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+</div>
+
+<script>
+/* ===== Helpers ===== */
+const r2 = x => Math.round((x+Number.EPSILON)*100)/100;
+function toDashCode(code){
+  const s = String(code||'').trim();
+  if(!s) return '';
+  if(s.startsWith('-')) return s;
+  const mX = /^X(\d+)$/i.exec(s); if(mX) return '-'+mX[1];
+  const mN = /^\d+$/.exec(s);     if(mN) return '-'+mN[0];
+  return s;
+}
+function normalizePhone(s){ return (s||'').replace(/[^0-9+]/g,''); }
+function includesFold(hay,needle){ return String(hay||'').toLowerCase().includes(String(needle||'').toLowerCase()); }
+function calcM2(o){
+  const sum = arr => (arr||[]).reduce((s,r)=> s+ (Number(r.m2)||0)*(Number(r.qty||1)), 0);
+  const tT = sum(o?.tepiha);
+  const tS = sum(o?.staza);
+  const tSh = (o?.shkallore?.qty>0)? (Number(o.shkallore.qty)||0) * (Number(o.shkallore.per)||0.3) : 0;
+  return r2(tT+tSh+tS);
+}
+function matches(o, q){
+  if(!q) return true;
+  const phone = normalizePhone(o.client?.phone||'');
+  const qn = normalizePhone(q||'');
+  const code = toDashCode(o.client?.code||'');
+  if(/^-\d+$/.test(q.trim())) return code===q.trim();
+  if(qn && phone.endsWith(qn)) return true;
+  if(includesFold(o.client?.name, q)) return true;
+  return false;
+}
+
+/* ===== CLOUD I/O ===== */
+async function loadAllOrdersFromCloud(){
+  if(!sb) return [];
+  const out=[];
+  try{
+    const { data:list, error } = await sb.storage.from(CFG.supabase.bucket)
+      .list('orders', { limit: 10000, sortBy:{column:'name', order:'asc'} });
+    if(error && error.message!=='The resource was not found') throw error;
+
+    for(const f of (list||[])){
+      if(!/\.json$/i.test(f.name)) continue;
+      const path = `orders/${f.name}`;
+      const { data:blob, error:dlErr } = await sb.storage.from(CFG.supabase.bucket).download(path);
+      if(dlErr) { console.warn('download fail', path, dlErr.message); continue; }
+      try { const o = JSON.parse(await blob.text()); if(o&&o.id) out.push(o); } catch(e){}
+    }
+  }catch(e){ console.warn('cloud list error', e?.message||e); }
+  return out;
+}
+async function saveToCloud(order){
+  try{
+    if(!sb) return;
+    const blob=new Blob([JSON.stringify(order)],{type:'application/json'});
+    await sb.storage.from(CFG.supabase.bucket).upload(`orders/${order.id}.json`, blob, { upsert:true, contentType:'application/json' });
+  }catch(e){ console.warn('save cloud', e?.message||e); }
+}
+
+/* ===== STATE & RENDER ===== */
+let CLOUD_CACHE = [];
+
+function buildRow(o){
+  const name = (o?.client?.name||'(pa emër)').trim();
+  const phone = o?.client?.phone||'';
+  const code = toDashCode(o?.client?.code||'');
+  const pcs = ((o.tepiha?.length||0)+(o.staza?.length||0)+((o.shkallore?.qty||0)>0?1:0));
+  const m2 = (o?.pay?.m2!=null)? Number(o.pay.m2) : calcM2(o);
+  const euro = (o?.pay?.euro!=null)? Number(o.pay.euro) : r2(m2 * (Number(o?.pay?.rate)||1));
+  const debt = Math.max(0, r2(Number(o?.pay?.debt||0)));
+  const debtBadge = (debt>0) ? `<span class="badgeDebt">BORXH ${debt.toFixed(2)}€</span>` : '';
+  return `
+  <a class="row" href="#" data-id="${o.id}">
+    <div class="left">
+      <div class="top">${code?code+' • ':''}${name}</div>
+      <div class="meta">${pcs} copë • ${m2.toFixed(2)} m² • ${phone||''}</div>
+      <div class="badges">${debtBadge}</div>
+    </div>
+    <div class="total">${euro.toFixed(2)} €</div>
+  </a>`;
+}
+function renderList(rows){
+  const box=document.getElementById('list');
+  if(!rows.length){ box.innerHTML='<div class="meta">S’ka porosi në PASTRIM.</div>'; return; }
+  box.innerHTML = rows.map(buildRow).join('');
+  box.querySelectorAll('.row').forEach(a=>{
+    a.addEventListener('click',()=>{
+      const id=a.getAttribute('data-id');
+      const o=CLOUD_CACHE.find(x=>x.id===id);
+      if(o) openSheet(o);
+    });
+  });
+}
+
+/* ===== SHEET ===== */
+function openSheet(order){
+  const ov=document.createElement('div'); ov.className='ov';
+  const box=document.createElement('div'); box.className='sheet';
+
+  const pay=order.pay||{};
+  const m2  = (pay.m2!=null)? Number(pay.m2) : calcM2(order);
+  const euro = (pay.euro!=null)? Number(pay.euro) : r2(m2*(Number(pay.rate)||1));
+  const name = order?.client?.name || '';
+  const phone = order?.client?.phone || '';
+  const code = toDashCode(order?.client?.code||'');
+
+  box.innerHTML = `
+    <h3>${name}</h3>
+    <div class="grid2">
+      <div class="pill"><span>Tel</span><span>${phone||'-'}</span></div>
+      <div class="pill"><span>Kodi</span><span>${code||'-'}</span></div>
+    </div>
+    <div class="grid2" style="margin-top:8px">
+      <div class="pill"><span>M²</span><span>${m2.toFixed(2)}</span></div>
+      <div class="pill"><span>Totali (€)</span><span id="totEuro">${euro.toFixed(2)}</span></div>
+    </div>
+    <div class="chips">
+      <button class="chip" data-v="10">10</button>
+      <button class="chip" data-v="20">20</button>
+      <button class="chip" data-v="50">50</button>
+      <button class="chip" data-v="100">100</button>
+      <button class="chip" data-v="${euro.toFixed(2)}">= Totali</button>
+    </div>
+    <div class="btnbar">
+      <button class="btn small" id="btnSMS">📩 DËRGO SMS</button>
+      <button class="btn green small" id="btnGATI">▶ QO NË GATI</button>
+      <button class="btn ghost small" id="btnClose">MBYLL</button>
+    </div>
+    <div class="note">“DËRGO SMS” tani <b>SE PARI</b> e kalon porosinë në GATI (ruan në cloud) dhe <b>pastaj</b> hap SMS.</div>
+  `;
+  document.body.appendChild(ov); ov.appendChild(box);
+
+  const q=(s)=>box.querySelector(s);
+
+  // chips vetëm për llogaritje të shpejtë (nuk ruajmë këtu)
+  box.querySelectorAll('.chip').forEach(c=> c.addEventListener('click',()=>{}));
+
+  q('#btnGATI').addEventListener('click', async ()=>{
+    await moveToGati(order, false);
+    ov.remove(); await refresh();
+  });
+
+  // **FIXI KRYESOR**: ruaj në cloud PARA SMS
+  q('#btnSMS').addEventListener('click', async ()=>{
+    const digits = (phone||'').replace(/[^\d]/g,'');
+    const msg = `Përshëndetje ${name||''}, qilimat me kod ${code||''} janë GATI për marrje. Totali: ${euro.toFixed(2)} €. Faleminderit!`;
+    const enc = encodeURIComponent(msg);
+    const smsUrl = digits ? `sms:${digits}?body=${enc}` : `sms:?body=${enc}`;
+
+    // 1) kalo ne GATI + ruaj
+    await moveToGati(order, true);
+
+    // 2) hap SMS pas ruajtjes (edhe nese bllokohet, statusi eshte ruajtur)
+    try{ window.open(smsUrl, '_blank'); }catch(e){}
+
+    ov.remove();
+    await refresh();
+  });
+
+  q('#btnClose').addEventListener('click', ()=>ov.remove());
+}
+
+async function moveToGati(order, viaSms){
+  order.status = 'gati';
+  order.gatiTs = Date.now();
+  if(viaSms) order.msgTs = Date.now();
+  await saveToCloud(order);
+}
+
+/* ===== REFRESH ===== */
+async function refresh(){
+  let all = await loadAllOrdersFromCloud();
+  // vetëm PAS TRIM
+  const rows = all.filter(o => String(o.status||'').toLowerCase()==='pastrim');
+
+  // total m2
+  const totM2 = rows.reduce((s,o)=> s + (Number(o?.pay?.m2||calcM2(o))||0), 0);
+  document.getElementById('totM2').textContent = r2(totM2).toFixed(2)+' m²';
+
+  // filter by query
+  const qv=(document.getElementById('q')?.value||'').trim();
+  const view = qv ? rows.filter(o=> matches(o,qv)) : rows;
+
+  // rendit nga koha (ts)
+  view.sort((a,b)=> (b.ts||0)-(a.ts||0));
+  CLOUD_CACHE = view;
+  renderList(view);
+}
+
+document.getElementById('btnSearch')?.addEventListener('click', refresh);
+document.getElementById('q')?.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); refresh(); } });
+
+refresh();
+setInterval(refresh, 15000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refresh(); });
+</script>
+<script src="assets/app.js"></script>
+  <script src="assets/diag_autofix.js"></script>
+</body>
+</html>

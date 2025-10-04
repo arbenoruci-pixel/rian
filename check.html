@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8">
+  <title>Supabase Check</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/assets/env.js"></script>
+  <script src="/assets/supabaseClient.js"></script>
+</head>
+<body style="background:#0b1220;color:#fff;font-family:system-ui;padding:20px">
+
+<!-- GPT-INJECT: diagnostics gear (visible NOW, will hide later) -->
+<a href="diagnostics.html" style="position:fixed;top:8px;right:10px;text-decoration:none;
+font-size:22px;line-height:1;z-index:9999;background:#111a;backdrop-filter:blur(4px);
+padding:6px 10px;border-radius:10px;border:1px solid #2b3956;color:#eaf1ff">⚙️</a>
+
+  <h1>🔍 Supabase Connection Test</h1>
+  <pre id="out">Loading…</pre>
+
+<script>
+(async ()=>{
+  const out = document.getElementById('out');
+  try {
+    // Test SELECT
+    let sel = await sb.from('payments').select('*').limit(1);
+    // Test INSERT (harmless demo row)
+    let ins = await sb.from('payments').insert({
+      order_id:'TEST-CHECK',
+      client_code:'C000',
+      client_name:'Check Client',
+      total: 1, received: 1, change: 0, debt: 0
+    }).select();
+
+    out.textContent =
+      "✅ SELECT status: " + sel.status + "\\n" +
+      "✅ INSERT status: " + ins.status + "\\n" +
+      "Inserted row: " + JSON.stringify(ins.data, null, 2);
+  } catch(e){
+    out.textContent = "❌ ERROR:\\n" + e.message;
+  }
+})();
+</script>
+<script src="assets/app.js"></script>
+  <script src="assets/diag_autofix.js"></script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>DIAGNOSTICS</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#0f1a2a; --line:#1f2e46;
+    --ink:#eaf1ff; --muted:#9fb4d6; --btn:#1e60ff; --red:#ef4444; --green:#16a34a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-rounded,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  h1{margin:16px 16px 8px;font-size:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:12px;padding:12px}
+  button{font-size:16px;border-radius:10px;border:1px solid #2b3956;background:var(--btn);color:#fff;padding:10px 14px}
+  pre{white-space:pre-wrap;word-break:break-word;background:#0d1628;border:1px solid var(--line);border-radius:10px;padding:10px}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .pill{display:inline-block;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:#101a31}
+  a{color:#9bd4ff}
+</style>
+</head>
+<body>
+<a href="index.html" style="position:fixed;top:8px;left:10px;text-decoration:none;font-size:22px;z-index:9999;background:#111a;padding:6px 10px;border-radius:10px;border:1px solid #2b3956;color:#eaf1ff">←</a>
+<h1>⚙️ DIAGNOSTICS</h1>
+<div class="card">
+  <div class="row">
+    <button id="btnPreview">Preview Next Code</button>
+    <button id="btnClaim">Claim Next Code</button>
+    <button id="btnMigrate">Migrate Legacy Codes</button>
+    <button id="btnReset" style="background:#3b1e1e;border-color:#6b2a2a">Admin Reset Counter</button>
+    <button id="btnPurge" style="background:#3b1e1e;border-color:#6b2a2a">Purge Local Orders (Danger)</button>
+  </div>
+  <p class="pill">Counter: <span id="counter">-</span></p>
+  <p class="pill">Preview: <span id="preview">-</span></p>
+<button id="btnScan" style="margin-left:8px">Open Page Scan</button> <button id="btnPro" style="margin-left:8px">Open Diagnostics PRO</button></div>
+
+<div class="card">
+  <h3>LocalStorage Snapshot</h3>
+  <pre id="dump">-</pre>
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+function refresh() {
+  try {
+    document.getElementById('counter').textContent = window._codeSystem ? window._codeSystem.getCodeCounter() : 'n/a';
+    document.getElementById('preview').textContent = window.previewNextCode ? window.previewNextCode() : 'n/a';
+  } catch (e) {}
+  const out = {};
+  for (const k of Object.keys(localStorage)) {
+    if (k.startsWith('order_') || k==='orders_v1' || k==='code_counter') {
+      out[k] = localStorage.getItem(k);
+    }
+  }
+  document.getElementById('dump').textContent = JSON.stringify(out, null, 2);
+}
+
+document.getElementById('btnPreview').onclick = function(){
+  alert(window.previewNextCode ? window.previewNextCode() : 'n/a');
+  refresh();
+};
+document.getElementById('btnClaim').onclick = function(){
+  const r = window.claimNextCode ? window.claimNextCode() : null;
+  alert(r ? ('Claimed: '+r.code) : 'n/a');
+  refresh();
+};
+document.getElementById('btnMigrate').onclick = function(){
+  const r = window.migrateLegacyCodes ? window.migrateLegacyCodes() : null;
+  alert('Migrated: ' + JSON.stringify(r));
+  refresh();
+};
+document.getElementById('btnReset').onclick = function(){
+  if (!confirm('Reset counter to 0 so next becomes "-1"?')) return;
+  try { window._codeSystem.setCodeCounter(0); } catch(e){}
+  refresh();
+};
+document.getElementById('btnPurge').onclick = function(){
+  if (!confirm('Delete ALL order_* keys and orders_v1? This cannot be undone.')) return;
+  const keys = Object.keys(localStorage);
+  for (const k of keys) {
+    if (k.startsWith('order_') || k==='orders_v1') localStorage.removeItem(k);
+  }
+  refresh();
+};
+refresh();
+</script>
+
+<script>
+var b=document.getElementById('btnScan'); if(b){ b.onclick=function(){ location.href='diagnostics-scan.html'; }; }
+</script>
+
+<script>
+var b=document.getElementById('btnPro'); if(b){ b.onclick=function(){ location.href='diagnostics-pro.html'; }; }
+</script>
+  <script src="assets/diag_autofix.js"></script>
+</body>
+
+
+</html>

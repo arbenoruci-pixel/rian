@@ -1,0 +1,210 @@
+<!doctype html><html lang="sq">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>RESET • Fshi të dhënat e testit</title>
+<style>
+:root{
+  --bg:#0b1220; --bg2:#0a111c; --panel:#0f1a2a; --line:#1f2e46;
+  --ink:#eaf1ff; --muted:#9fb4d6; --red:#ef4444; --green:#22c55e; --amber:#f59e0b; --blue:#1aa5d8;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+.app{max-width:740px;margin:0 auto;padding:16px}
+h1{margin:8px 0 2px;font-size:22px}
+.panel{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:12px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:720px){.row{grid-template-columns:1fr}}
+.input{padding:12px;border-radius:10px;border:1px solid var(--line);background:#0e1730;color:#fff;font-weight:900}
+.chk{display:flex;align-items:center;gap:10px;margin:6px 0}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:12px;border:1px solid #2aa7d8;background:linear-gradient(180deg,#2aa0d8,#1773a8);color:#fff;font-weight:1000;cursor:pointer}
+.btn.danger{background:linear-gradient(180deg,#ef4444,#9f1c1c);border-color:#7f1d1d}
+.btn.ghost{background:#0c1220;color:#e6f0ff;border:1px solid #2b3956}
+.badge{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid #21446c;background:linear-gradient(180deg,#173555,#10263d);font-weight:1000}
+.note{color:#cfe0ff;font-size:12px;margin-top:6px}
+pre{white-space:pre-wrap;background:#0a1324;border:1px solid #1f2e46;border-radius:10px;padding:12px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace}
+.hr{height:1px;background:#1f2e46;margin:12px 0;border:0}
+</style>
+
+<!-- Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- GPT-INJECT: diagnostics gear (visible NOW, will hide later) -->
+<a href="diagnostics.html" style="position:fixed;top:8px;right:10px;text-decoration:none;
+font-size:22px;line-height:1;z-index:9999;background:#111a;backdrop-filter:blur(4px);
+padding:6px 10px;border-radius:10px;border:1px solid #2b3956;color:#eaf1ff">⚙️</a>
+
+<div class="app">
+  <div style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+    <div><h1>RESET SISTEMI</h1><div class="badge">Admin Tool • Cloud-only</div></div>
+    <a class="btn ghost" href="/">🏠 HOME</a>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label>Çelësi sekret</label>
+        <input id="key" class="input" placeholder="p.sh. RESET123">
+        <div class="note">Duhet të përputhet me çelësin sekret që vendos më poshtë në kod.</div>
+      </div>
+      <div>
+        <label>Konfirmim</label>
+        <input id="confirm" class="input" placeholder='shkruaj: FSHIJ'>
+        <div class="note">Shkruaj fiks <b>FSHIJ</b> për të vazhduar.</div>
+      </div>
+    </div>
+
+    <div class="hr"></div>
+
+    <div class="chk">
+      <input type="checkbox" id="wipeOrders" checked>
+      <label for="wipeOrders"><b>Fshi POROSITË</b> (folderi <code>orders/</code>)</label>
+    </div>
+    <div class="chk">
+      <input type="checkbox" id="wipeCash">
+      <label for="wipeCash">Fshi të dhënat e ARKËS (folderët <code>cash/open/</code>, <code>cash/expenses/</code>, <code>cash/close/</code>)</label>
+    </div>
+    <div class="chk">
+      <input type="checkbox" id="wipeLocks">
+      <label for="wipeLocks">Fshi lock-at e klientëve/kodeve (folderët <code>clients/</code> dhe <code>codes/</code>)</label>
+    </div>
+
+    <div class="hr"></div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button id="run" class="btn danger">⚠️ BËJ RESET</button>
+      <button id="testList" class="btn">Lista e objekteve (provë)</button>
+      <button id="clearLocal" class="btn ghost">Pastro localStorage</button>
+    </div>
+
+    <div class="note">Kjo veprim i fshin <u>përgjithmonë</u> objektet e zgjedhura nga Supabase bucket.</div>
+  </div>
+
+  <div class="panel">
+    <h3>Dalja / Log</h3>
+    <pre id="log">Gati.</pre>
+  </div>
+</div>
+
+<script>
+/*** KONFIG SUPABASE ***/
+const CFG = {
+  supabase: {
+    url: "https://vnidjrxidvusulinozbn.supabase.co",
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaWRqcnhpZHZ1c3VsaW5vemJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTk0NjAsImV4cCI6MjA3MzA5NTQ2MH0.hzGSFKU3sKuUKBUBsTE0rKIerj2uhG9pGS8_K9N7tpA",
+    bucket: "tepiha-photos"
+  },
+  SECRET: "RESET123" // 🔒 NDRROJE! vendos një fjalë që e di vetëm ti
+};
+const sb = (typeof supabase!=='undefined') ? supabase.createClient(CFG.supabase.url, CFG.supabase.anonKey) : null;
+
+/*** LOG ***/
+function log(msg){ const el=document.getElementById('log'); el.textContent += '\\n' + msg; el.scrollTop=el.scrollHeight; }
+function clearLog(){ document.getElementById('log').textContent='Gati.'; }
+
+/*** HELPERS ***/
+// list all files under a "prefix/" path (p.sh. "orders/")
+async function listPrefix(prefix){
+  let out=[]; let page=null;
+  while(true){
+    const { data, error } = await sb.storage.from(CFG.supabase.bucket).list(prefix, { limit:1000, offset: out.length, sortBy:{column:'name', order:'asc'} });
+    if(error && error.message!=='The resource was not found'){ throw error; }
+    const rows = data || [];
+    out = out.concat(rows.map(r=> (prefix + (prefix.endsWith('/')?'':'/') + r.name)));
+    if(rows.length < 1000) break;
+  }
+  return out;
+}
+// remove in chunks (Supabase lejon fshirje bulk)
+async function removeMany(paths){
+  const BATCH=100;
+  for(let i=0;i<paths.length;i+=BATCH){
+    const chunk = paths.slice(i,i+BATCH);
+    const { error } = await sb.storage.from(CFG.supabase.bucket).remove(chunk);
+    if(error){ throw error; }
+    log('• Fshirë '+chunk.length+' objekte...');
+  }
+}
+
+/*** ACTIONS ***/
+async function runReset(){
+  clearLog();
+
+  // verifikim i key
+  const key = document.getElementById('key').value.trim();
+  const confirm = document.getElementById('confirm').value.trim().toUpperCase();
+  if(key !== CFG.SECRET){ log('⛔ Key sekret i gabuar.'); return; }
+  if(confirm !== 'FSHIJ'){ log('⛔ Shkruaj fiks "FSHIJ" për konfirmim.'); return; }
+
+  const wipeOrders = document.getElementById('wipeOrders').checked;
+  const wipeCash   = document.getElementById('wipeCash').checked;
+  const wipeLocks  = document.getElementById('wipeLocks').checked;
+
+  try{
+    if(!sb){ log('❌ Supabase client mungon'); return; }
+    log('⏳ Po fillon reset...');
+
+    // 1) localStorage
+    try{ localStorage.clear(); log('• localStorage u pastrua.'); }catch(_){}
+
+    // 2) cloud deletes
+    if(wipeOrders){
+      log('⏳ Listoj orders/ ...');
+      const files = await listPrefix('orders');
+      log('Gjetur: '+files.length);
+      if(files.length){ await removeMany(files); }
+      log('✅ orders/ u pastrua.');
+    }
+
+    if(wipeCash){
+      for(const sub of ['cash/open','cash/expenses','cash/close']){
+        log('⏳ Listoj '+sub+'/ ...');
+        const files = await listPrefix(sub);
+        log('Gjetur: '+files.length);
+        if(files.length){ await removeMany(files); }
+        log('✅ '+sub+'/ u pastrua.');
+      }
+    }
+
+    if(wipeLocks){
+      for(const sub of ['clients/name','clients/phone','codes']){
+        log('⏳ Listoj '+sub+'/ ...');
+        const files = await listPrefix(sub);
+        log('Gjetur: '+files.length);
+        if(files.length){ await removeMany(files); }
+        log('✅ '+sub+'/ u pastrua.');
+      }
+    }
+
+    log('🎉 RESET i përfunduar.');
+  }catch(e){
+    log('❌ ERROR: '+(e?.message||e));
+  }
+}
+
+async function testList(){
+  clearLog();
+  try{
+    const files = await listPrefix('orders');
+    log('orders/: '+files.length+' objekte (shembull i listimit).');
+    log(files.slice(0,20).join('\\n') + (files.length>20? '\\n...':''));
+  }catch(e){
+    log('❌ ERROR: '+(e?.message||e));
+  }
+}
+
+function clearLocalOnly(){
+  try{ localStorage.clear(); log('✅ localStorage u pastrua.'); }catch(e){ log('❌ '+e.message); }
+}
+
+/*** WIRE ***/
+document.getElementById('run').addEventListener('click', runReset);
+document.getElementById('testList').addEventListener('click', testList);
+document.getElementById('clearLocal').addEventListener('click', clearLocalOnly);
+</script>
+<script src="assets/app.js"></script>
+  <script src="assets/diag_autofix.js"></script>
+</body>
+</html>

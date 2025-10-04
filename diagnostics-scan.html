@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>Diagnostics Scan</title>
+<style>
+  :root{{--bg:#0b1220;--panel:#0f1a2a;--line:#1f2e46;--ink:#eaf1ff;--muted:#9fb4d6;--ok:#16a34a;--warn:#c78a2a;--bad:#ef4444}}
+  *{{box-sizing:border-box}}
+  html,body{{margin:0;background:var(--bg);color:var(--ink);font-family:ui-rounded,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}}
+  h1{{margin:16px 16px 8px;font-size:20px}}
+  .card{{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:12px;padding:12px}}
+  table{{width:100%;border-collapse:collapse}}
+  th,td{{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}}
+  .ok{{color:var(--ok)}}
+  .bad{{color:var(--bad)}}
+  .warn{{color:var(--warn)}}
+  .pill{{display:inline-block;margin:2px 4px;padding:4px 8px;border:1px solid var(--line);border-radius:999px;background:#101a31}}
+  a{{color:#9bd4ff}}
+</style>
+</head>
+<body>
+<a href="diagnostics.html" style="position:fixed;top:8px;left:10px;text-decoration:none;font-size:22px;z-index:9999;background:#111a;padding:6px 10px;border-radius:10px;border:1px solid #2b3956;color:#eaf1ff">←</a>
+<h1>🧪 Diagnostics — Page Scan</h1>
+<div class="card">
+  <p>Kjo faqe shfaq një raport të integruar për çdo HTML në projekt, dhe tregon probleme tipike (app.js i mungon,
+     përdorim i vjetër i kodeve, thirrje funksionesh legacy, etj.).</p>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr><th>File</th><th>Status</th><th>Issues</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+<script>
+const REPORT = [{"file": "check.html", "has_app_js": true, "issues": []}, {"file": "index.html", "has_app_js": true, "issues": []}, {"file": "index_patched.html", "has_app_js": true, "issues": ["legacy_code_counter", "uses_saveDraftLocal"]}, {"file": "pranimi.html", "has_app_js": true, "issues": ["legacy_code_counter", "uses_saveDraftLocal"]}, {"file": "reset.html", "has_app_js": true, "issues": []}, {"file": "diagnostics.html", "has_app_js": true, "issues": []}, {"file": "arka/index.html", "has_app_js": true, "issues": []}, {"file": "gati/index.html", "has_app_js": true, "issues": []}, {"file": "marrje-sot/index.html", "has_app_js": true, "issues": []}, {"file": "orders/index.html", "has_app_js": true, "issues": []}, {"file": "pastrimi/index.html", "has_app_js": true, "issues": []}, {"file": "pastrimi/pranimi_dash.html", "has_app_js": true, "issues": ["legacy_code_counter", "uses_saveDraftLocal"]}, {"file": "pranimi/index.html", "has_app_js": true, "issues": ["legacy_code_counter", "uses_saveDraftLocal"]}, {"file": "transporti/index.html", "has_app_js": true, "issues": []}];
+
+function tag(t, cls){{ return '<span class="pill '+(cls||'')+'">'+t+'</span>'; }}
+
+function row(r){{
+  const ok = (r.issues||[]).length===0 && r.has_app_js;
+  const status = ok ? '<span class="ok">OK</span>' : '<span class="warn">Needs review</span>';
+  const issues = (r.issues||[]).length ? r.issues.map(i=>tag(i)).join(' ') : tag('none','ok');
+  return '<tr><td><code>'+r.file+'</code></td><td>'+status+'</td><td>'+issues+'</td></tr>';
+}}
+
+document.getElementById('rows').innerHTML = REPORT.map(row).join('');
+</script>
+<script src="assets/app.js"></script>
+  <script src="assets/diag_autofix.js"></script>
+</body>
+</html>

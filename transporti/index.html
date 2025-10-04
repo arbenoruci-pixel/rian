@@ -1,0 +1,61 @@
+<!doctype html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=0.7, maximum-scale=0.7, user-scalable=no">
+<title>TRANSPORTI</title>
+<link rel="stylesheet" href="/assets/styles.css">
+<script type="module">
+import {ensureOrderFromURL, calcTotals, saveOrder, fmt2, openMessage, setStatusAndTheme} from '/assets/app.js';
+const o = ensureOrderFromURL();
+window.addEventListener('DOMContentLoaded', ()=>{ setStatusAndTheme(o, 'transport'); update(); });
+function update(){ calcTotals(o); saveOrder(o);
+  document.getElementById('oid').textContent = o.id;
+  document.getElementById('client').textContent = (o.client.name||'') + ' • ' + (o.client.phone||'');
+  document.getElementById('m2').textContent = fmt2(o.totals.m2);
+  document.getElementById('eur').textContent = fmt2(o.totals.eur);
+}
+window.msg = () => { calcTotals(o); saveOrder(o); openMessage(o, 'start', 'sms'); };
+window.setS = s => { setStatusAndTheme(o, s); };
+</script>
+
+<!-- injected by scale_65 -->
+<style id="global_scale_65">
+  /* 35% më e vogël (scale 0.65) – pa prek dizajnin, vetëm shrink */
+  html, body { height: auto !important; }
+  body {
+    transform: scale(0.65);
+    transform-origin: top left;
+    width: calc(100% / 0.65);
+  }
+</style>
+
+
+<!-- Supabase CDN (client-side) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Project env and bootstrap -->
+<script src="/assets/env.js"></script>
+<script src="/assets/supabaseClient.js"></script>
+
+  <script src="/assets/flow-guard.js"></script>
+  <script src="/assets/flow-core.js"></script>
+  <script src="/assets/flow-bind.js"></script>
+</head><body>
+
+<!-- GPT-INJECT: diagnostics gear (visible NOW, will hide later) -->
+<a href="diagnostics.html" style="position:fixed;top:8px;right:10px;text-decoration:none;
+font-size:22px;line-height:1;z-index:9999;background:#111a;backdrop-filter:blur(4px);
+padding:6px 10px;border-radius:10px;border:1px solid #2b3956;color:#eaf1ff">⚙️</a>
+<div class="app">
+  <div class="card">
+    <div class="badge" id="oid"></div>
+    <div class="small" id="client"></div>
+    <div class="grid2" style="margin:10px 0">
+      <div class="card">M²: <b id="m2">0.00</b></div>
+      <div class="card">€: <b id="eur">0.00</b></div>
+    </div>
+    <div class="grid2">
+      <a class="btn" href="javascript:setS('transport')">Ruaj statusin: TRANSPORT</a>
+      <a class="btn" href="javascript:msg()">📩 Dërgo mesazh</a>
+    </div>
+  </div>
+  <a class="btn" href="../">⇐ Home</a>
+</div>  <script src="assets/diag_autofix.js"></script>
+</body></html>

@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>PRANIMI</title>
+<style>
+:root{
+  --bg:#000; --ink:#fff; --muted:#b9c4da;
+  --panel:#0c0f16; --panel-br:#273143; --line:#2c3954;
+  --chip-bg:#121829; --chip-br:#2c3a55; --chip-ink:#e6f0ff;
+  --btn:#1e60ff; --btn-ink:#fff; --danger:#ef4444;
+  --green:#16a34a; --amber:#c78a2a; --blue:#1e60ff;
+  --uiScale:.85; --h:56px; --rad:14px;
+  --fs:calc(16px*var(--uiScale));
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-rounded,system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:var(--fs);line-height:1.25}
+.wrap{max-width:980px;margin:0 auto;padding:0 16px 120px}
+h1{font-size:clamp(34px,5.4vw,50px);margin:20px 6px 6px;font-weight:1000;letter-spacing:.01em;display:flex;align-items:center;gap:12px}
+.badge{display:inline-flex;align-items:center;gap:10px;background:linear-gradient(180deg,rgba(34,197,94,.18),rgba(34,197,94,.08));border:1px solid rgba(34,197,94,.6);color:#d8ffe9;padding:10px 16px;border-radius:999px;font-weight:1000;font-size:1.1rem}
+.card{background:var(--panel);border:1px solid var(--panel-br);border-radius:18px;padding:18px;margin:16px 0;box-shadow:0 12px 40px rgba(0,0,0,.55)}
+.title{display:flex;align-items:center;justify-content:space-between;font-size:clamp(20px,2.6vw,28px);font-weight:1000;margin-bottom:12px}
+label{font-size:.9rem;color:var(--muted);font-weight:900;letter-spacing:.03em}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:720px){.row{grid-template-columns:1fr}}
+.input{width:100%;min-height:56px;background:#070a12;border:2px solid var(--line);border-radius:14px;padding:14px 16px;font-size:1.25rem;font-weight:1000;color:var(--ink);outline:none}
+.input:focus{border-color:#6aa1ff;box-shadow:0 0 0 3px rgba(30,96,255,.25)}
+.chips{display:flex;flex-wrap:wrap;gap:12px;padding:6px 0}
+.chip{border:2px solid var(--chip-br);background:var(--chip-bg);color:var(--chip-ink);border-radius:999px;padding:10px 16px;min-height:56px;font-weight:1000}
+.chip:active,.chip:hover{background:#18223a}
+.list{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+.piece-row{display:grid;grid-template-columns: 1fr 58px;gap:4px;align-items:center;margin-top:2px}
+.mwrap{display:flex;align-items:center;gap:6px}
+.piece-row .input{min-height:44px;border-radius:10px;font-size:1.05rem;line-height:1.1;padding:8px;border-width:1px}
+.piece-row .piece-input{ font-weight:900; }
+.cam-btn{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;min-width:44px;border:1px solid #2b3956;border-radius:10px;background:#0a1220;color:#e6f0ff;font-size:16px;cursor:pointer;padding:0}
+.thumb{width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid #2b3956;display:none;cursor:pointer}
+.btnbar{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+.btn{border:0;border-radius:14px;padding:14px 18px;min-height:56px;font-weight:1000;font-size:1.05rem;cursor:pointer;background:var(--btn);color:var(--btn-ink)}
+.btn.red{background:var(--danger)}
+.btn.ghost{background:#0c1220;color:#e6f0ff;border:2px solid #2b3956}
+.pill,.tot{display:flex;justify-content:space-between;align-items:center;background:#0b111d;border:1px solid var(--panel-br);border-radius:12px;padding:10px 12px;font-weight:1000}
+.tot{margin-top:8px}
+.footer{position:fixed;left:0;right:0;bottom:0;z-index:10;background:rgba(5,7,12,.97);border-top:1px solid var(--panel-br);backdrop-filter:blur(6px)}
+.footwrap{max-width:980px;margin:0 auto;padding:12px 16px;display:grid;grid-template-columns:auto auto auto;gap:12px;align-items:center;justify-content:space-between}
+a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+
+/* KOD button at header (fixed size) */
+#btnFindCode{min-height:40px;height:40px;padding:8px 12px;border-radius:12px;border:1px solid #2b3956;background:#0a1220;color:#d8ffe9;font-weight:1000}
+
+/* UTIL ICON ROW (static) */
+.utilRow{display:flex;gap:10px;margin-top:12px}
+.utilBtn{flex:1;display:flex;align-items:center;justify-content:center;height:48px;border-radius:12px;border:1px solid #2b3956;font-weight:1000;cursor:pointer;user-select:none}
+.btn-sh{background:linear-gradient(180deg,rgba(120,180,255,.12),rgba(120,180,255,.05))}
+.btn-sms{background:linear-gradient(180deg,rgba(120,255,160,.12),rgba(120,255,160,.05))}
+.btn-eur{background:linear-gradient(180deg,rgba(255,220,140,.12),rgba(255,220,140,.05))}
+.utilBtn:active{transform:scale(.99)}
+
+/* bottom sheet */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:flex-end;justify-content:center;z-index:99999}
+.sheet{background:#0c0f16;border:1px solid #273143;border-radius:14px 14px 0 0;width:100%;max-width:720px;padding:16px}
+.sheet h3{margin:0 0 10px;font-size:1.25rem}
+.sheet p{margin:0 0 12px;color:#cfe0ff}
+.hint{color:#cbd7ef;font-size:.9rem;margin-top:8px}
+</style>
+
+<!-- Supabase CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Project env and bootstrap -->
+<script src="/assets/env.js"></script>
+<script src="/assets/supabaseClient.js"></script>
+<script src="/assets/flow-guard.js"></script>
+<script src="/assets/flow-core.js"></script>
+<script src="/assets/flow-bind.js"></script>
+</head>
+<body>
+
+<!-- GPT-INJECT: diagnostics gear (visible NOW, will hide later) -->
+<a href="diagnostics.html" style="position:fixed;top:8px;right:10px;text-decoration:none;
+font-size:22px;line-height:1;z-index:9999;background:#111a;backdrop-filter:blur(4px);
+padding:6px 10px;border-radius:10px;border:1px solid #2b3956;color:#eaf1ff">⚙️</a>
+
+  <h1>PRANIMI <span class="badge" id="ticketCode">KODI: ——</span>
+    <button id="btnFindCode" title="Gjej klientin me -code">🔎 KOD</button>
+  </h1>
+
+  <input type="hidden" id="orderId" value="">
+  <div class="wrap">
+
+    <!-- KLIENTI -->
+    <section class="card">
+      <div class="title"><span>Hapi 1 — Klienti</span></div>
+      <div class="row">
+        <div>
+          <label>EMRI &amp; MBIEMRI*</label>
+          <div class="row" style="grid-template-columns:1fr 60px">
+            <input class="input" id="name" placeholder="">
+            <label class="cam-btn" title="Foto klientit">📷
+              <input type="file" accept="image/*;capture=camera" capture="environment" id="clientPhotoInput" style="display:none">
+            </label>
+          </div>
+        </div>
+        <div>
+          <label>TELEFONI*</label>
+          <div class="row" style="grid-template-columns:160px 1fr">
+            <input class="input" id="phonePrefix" value="+383" readonly>
+            <input class="input" id="phone" inputmode="numeric" placeholder="44177778">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TEPIHA -->
+    <section class="card" id="sec-tepiha">
+      <div class="title"><span>Tepiha</span></div>
+      <div class="chips" id="chips-tepiha">
+        <button class="chip">2.0 m²</button><button class="chip">2.5 m²</button><button class="chip">3.0 m²</button><button class="chip">3.2 m²</button><button class="chip">3.5 m²</button><button class="chip">3.7 m²</button><button class="chip">6.0 m²</button><button class="chip">Manual</button>
+      </div>
+      <div class="list" id="list-tepiha"></div>
+      <div class="btnbar">
+        <button class="btn" onclick="addRow('tepiha', null)">+ Rresht</button>
+        <button class="btn red" onclick="removeRow('tepiha')">− Rresht</button>
+      </div>
+      <div class="tot"><span>Totali tepiha:</span><b id="tot-tepiha">0.00 m²</b></div>
+    </section>
+
+    <!-- STAZA -->
+    <section class="card" id="sec-staza">
+      <div class="title"><span>Staza</span></div>
+      <div class="chips" id="chips-staza">
+        <button class="chip">1.5 m²</button><button class="chip">2.0 m²</button><button class="chip">2.2 m²</button><button class="chip">3.0 m²</button><button class="chip">Manual</button>
+      </div>
+      <div class="list" id="list-staza"></div>
+      <div class="btnbar">
+        <button class="btn" onclick="addRow('staza', null)">+ Rresht</button>
+        <button class="btn red" onclick="removeRow('staza')">− Rresht</button>
+      </div>
+      <div class="tot"><span>Totali staza:</span><b id="tot-staza">0.00 m²</b></div>
+    </section>
+
+    <!-- SHKALLORE + UTIL ICONS (statike poshtë titullit) -->
+    <section class="card" id="sec-shkallore">
+      <div class="title"><span>Shkallore</span></div>
+      <div class="utilRow">
+        <button class="utilBtn btn-sh" id="openStairs">🪜 +SHKALLORE</button>
+        <button class="utilBtn btn-sms" id="btnSms" title="Tap=SMS, Mbaje=WhatsApp/Viber">SMS</button>
+        <button class="utilBtn btn-eur" id="openPay">€</button>
+      </div>
+      <div class="tot"><span>M² shkallore:</span><b id="stairsM2">0.00 m²</b></div>
+    </section>
+
+    <!-- PAGESA (mbledhje) -->
+    <section class="card">
+      <div class="title">
+        <span>Pagesa</span>
+      </div>
+      <div class="row">
+        <div class="pill"><b>Total (€):</b> <span id="euroTotal">0.00</span></div>
+        <div class="pill"><b>M² total:</b> <span id="m2Total">0.00</span></div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <div class="footer">
+      <div class="footwrap">
+        <a class="btn ghost" id="btnHome" href="../">🏠 KTHEU NË FILLIM</a>
+        <button class="btn ghost" id="btnSaveDraft">💾 RUAJ DRAFT</button>
+        <a class="btn" id="btnContinue" href="../pastrimi/">▶ VAZHDO</a>
+      </div>
+    </div>
+  </div>
+
+<!-- Supabase SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+
+<script>
+/* ====== KONFIG ====== */
+const CFG = {
+  supabase: {
+    url: "https://vnidjrxidvusulinozbn.supabase.co",
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaWRqcnhpZHZ1c3VsaW5vemJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTk0NjAsImV4cCI6MjA3MzA5NTQ2MH0.hzGSFKU3sKuUKBUBsTE0rKIerj2uhG9pGS8_K9N7tpA",
+    bucket: "tepiha-photos"
+  },
+  syncOrders: true,
+  codeLeaseMinutes: 30,
+  uniqueLocks: true
+};
+const sb = (typeof supabase!=='undefined' && CFG.supabase.url && CFG.supabase.anonKey)
+  ? supabase.createClient(CFG.supabase.url, CFG.supabase.anonKey)
+  : null;
+
+/* ====== HELPERS ====== */
+const q=s=>document.querySelector(s), qq=s=>Array.from(document.querySelectorAll(s));
+const r2=x=>Math.round((x+Number.EPSILON)*100)/100;
+const LIST_KEY='order_list_v1'; const KEY=id=>'order_'+id;
+
+/* ====== PHOTO STORE (HEIC->JPEG + Supabase/IndexedDB fallback) ====== */
+(function(){
+  const DB_NAME='tepiha_photos_v1', STORE='photos'; let _db;
+  function openDB(){return new Promise((res,rej)=>{ if(_db)return res(_db); const r=indexedDB.open(DB_NAME,1); r.onupgradeneeded=e=>e.target.result.createObjectStore(STORE); r.onsuccess=e=>{_db=e.target.result;res(_db)}; r.onerror=e=>rej(e.target.error) }) }
+  async function idbPut(key, blob){ const db=await openDB(); return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite'); tx.objectStore(STORE).put(blob,key); tx.oncomplete=()=>res(true); tx.onerror=e=>rej(e.target.error)}) }
+  async function idbGet(key){ const db=await openDB(); return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readonly'); const rq=tx.objectStore(STORE).get(key); rq.onsuccess=()=>res(rq.result||null); rq.onerror=e=>rej(e.target.error)}) }
+  function fileToJpegBlob(file,maxW=1280,quality=.7){
+    return new Promise((resolve,reject)=>{
+      const img=new Image(), fr=new FileReader();
+      fr.onload=()=>{img.src=fr.result}; fr.onerror=reject;
+      img.onload=()=>{
+        const scale=Math.min(1,maxW/(img.width||maxW)), c=document.createElement('canvas');
+        c.width=Math.round((img.width||maxW)*scale); c.height=Math.round((img.height||maxW)*scale);
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+        c.toBlob(b=> b?resolve(b):reject(new Error('toBlob failed')), 'image/jpeg', quality);
+      }; img.onerror=reject; fr.readAsDataURL(file);
+    });
+  }
+  async function savePhoto(key, file){
+    try{
+      const jpeg = await fileToJpegBlob(file, 1280, .7);
+      if(window.sb){
+        const path = `${(window.OID||'ord')}/${key}_${Date.now()}.jpg`;
+        const { error } = sb.storage.from(CFG.supabase.bucket)
+          .upload(path, jpeg, { upsert:false, contentType:'image/jpeg' });
+        if (error) throw error;
+        const { data } = sb.storage.from(CFG.supabase.bucket).getPublicUrl(path);
+        const url = data.publicUrl; if(!url) throw new Error('Public URL bosh');
+        localStorage.setItem(key+'_url', url);
+        return url;
+      }else{
+        await idbPut(key, jpeg);
+        const objUrl = URL.createObjectURL(jpeg);
+        sessionStorage.setItem(key+'_objurl', objUrl);
+        return objUrl;
+      }
+    }catch(err){
+      alert('Foto s’u ruajt: '+(err?.message||err));
+      throw err;
+    }
+  }
+  async function getPhotoUrl(key){
+    const direct=localStorage.getItem(key+'_url'); if(direct) return direct;
+    const fast=sessionStorage.getItem(key+'_objurl'); if(fast) return fast;
+    const blob=await idbGet(key); if(!blob) return null;
+    const url=URL.createObjectURL(blob); sessionStorage.setItem(key+'_objurl', url); return url;
+  }
+  function preview(url){
+    const ov=document.createElement('div'); ov.className='ov';
+    const im=document.createElement('img'); im.src=url; im.style.cssText='max-width:96%;max-height:92%;border-radius:10px';
+    ov.appendChild(im); ov.addEventListener('click',()=>ov.remove()); document.body.appendChild(ov);
+  }
+  window._photoAPI={savePhoto,getPhotoUrl,preview};
+})();
+
+/* ====== ORDER/ID + CODE ====== */
+function parseQS(){ const p=new URLSearchParams(location.search); const id=p.get('id'); return {id}; }
+const hid=q('#orderId'); const qs=parseQS();
+if(qs.id){ hid.value=qs.id; }
+if(!hid.value) hid.value='ord_'+Date.now();
+window.OID=hid.value;
+
+/* ******* DASH CODE SYSTEM (no 'X' anywhere) ******* */
+/* Reserve shared code with 30m lease; returns "-n" */
+async function reserveDashCode(){
+  // Unified: use new minus-only code system managed in assets/app.js
+  try{
+    if (typeof window.claimNextCode === 'function'){
+      var r = window.claimNextCode();
+      if (r && r.code) return r.code;
+    }
+  }catch(_){}
+  // Legacy fallback in case app.js didn't load for some reason
+  var n = parseInt(localStorage.getItem('code_counter')||'0',10) || 0;
+  n += 1; localStorage.setItem('code_counter', String(n));
+  return '-' + n;
+}
+  const leaseMs=(CFG.codeLeaseMinutes||30)*60*1000, now=Date.now();
+  // list all files under 'codes'
+  const { data:list, error } = await sb.storage.from(CFG.supabase.bucket)
+    .list('codes', { limit: 10000, sortBy:{column:'name',order:'asc'} });
+  if(error && error.message!=='The resource was not found'){
+    let n=parseInt(localStorage.getItem('code_counter')||'0',10)||0;
+    n+=1; localStorage.setItem('code_counter', String(n));
+    return '-'+n;
+  }
+  const used=new Set(), active=new Set(), expired=[];
+  (list||[]).forEach(f=>{
+    const nm=f.name||'';
+    // accept both old x*.* (cleanup) and new d*.* files
+    let m=/^(?:x|d)(\d+)\.(?:used|json)$/i.exec(nm); if(m){ used.add(parseInt(m[1],10)); return; }
+    m=/^(?:x|d)(\d+)\.(\d+)\.lock$/i.exec(nm);
+    if(m){
+      const n=parseInt(m[1],10), ts=parseInt(m[2],10);
+      if(isFinite(ts) && (Date.now()-ts)<=leaseMs) active.add(n);
+      else expired.push('codes/'+nm);
+      return;
+    }
+    m=/^(?:x|d)(\d+)\.lock$/i.exec(nm); if(m){ active.add(parseInt(m[1],10)); }
+  });
+  if(expired.length){ try{ await sb.storage.from(CFG.supabase.bucket).remove(expired); }catch(e){} }
+  function nextFree(){ let n=1; while(used.has(n)||active.has(n)) n++; return n; }
+  for(let tries=0; tries<200; tries++){
+    const n=nextFree();
+    const path=`codes/d${n}.${now}.lock`;
+    const blob=new Blob([String(now)],{type:'text/plain'});
+    const { error:upErr } = await sb.storage.from(CFG.supabase.bucket)
+      .upload(path, blob, { upsert:false, contentType:'text/plain' });
+    if(!upErr) return '-'+n;
+    await new Promise(r=>setTimeout(r,50));
+  }
+  let n=parseInt(localStorage.getItem('code_counter')||'0',10)||0;
+  n+=1; localStorage.setItem('code_counter', String(n));
+  return '-'+n;
+}
+
+/* Show code exactly as provided (already '-n') */
+function displayCode(code){
+  (q('#ticketCode')||{}).textContent = 'KODI: ' + (code || '——');
+}
+
+/* ====== UNIQUE CLIENT LOCKS (phone/name) ====== */
+function sanitizePhone(full){ return (full||'').replace(/[^\d]/g,''); }
+function normalizeName(n){ return (n||'').trim().replace(/\s+/g,' ').toLowerCase(); }
+async function tryReserveUnique(name, phoneDigits){
+  if(!CFG.uniqueLocks || !window.sb) return {ok:true};
+  const nm = normalizeName(name);
+  if(!nm || !phoneDigits){ return {ok:false, reason:'name_phone_missing'}; }
+  const nameKey = 'clients/name/'+encodeURIComponent(nm)+'.lock';
+  const phoneKey = 'clients/phone/'+phoneDigits+'.lock';
+  const blob = new Blob([String(Date.now())], {type:'text/plain'});
+  const r1 = await sb.storage.from(CFG.supabase.bucket).upload(phoneKey, blob, { upsert:false, contentType:'text/plain' });
+  if(r1.error){ return {ok:false, reason:'phone_exists'}; }
+  const r2 = await sb.storage.from(CFG.supabase.bucket).upload(nameKey, blob, { upsert:false, contentType:'text/plain' });
+  if(r2.error){ try{ await sb.storage.from(CFG.supabase.bucket).remove([phoneKey]); }catch(e){}; return {ok:false, reason:'name_exists'}; }
+  const locks = { nameKey, phoneKey, ts: Date.now() };
+  try{ localStorage.setItem('lock_'+phoneDigits, JSON.stringify(locks)); }catch(e){}
+  return {ok:true};
+}
+
+/* ====== DATA helpers ====== */
+function readRows(listId){
+  const list=q('#list-'+listId); if(!list) return [];
+  return qq('.piece-row', list).map(row=>({
+    m2: parseFloat((row.querySelector('.piece-input')||{}).value||'0')||0,
+    qty: parseFloat((row.querySelector('.piece-qty')||{}).value||'1')||1,
+    photoKey: row.getAttribute('data-photo-key')
+  }));
+}
+function totalsObj(){
+  const m2=parseFloat((q('#m2Total')&&q('#m2Total').textContent)||'0')||0;
+  const rate=parseFloat((q('#rate')&&q('#rate').value)||'0')||0;
+  const euro=r2(m2*rate);
+  const up=(q('#paidUpfront')&&q('#paidUpfront').checked);
+  const paid=up?(parseFloat((q('#clientPaid')&&q('#clientPaid').value)||'0')||0):0;
+  const debt=Math.max(0, r2(euro-paid)), change=Math.max(0, r2(paid-euro));
+  return {m2, rate, euro, paidUp:up, paid, debt, change};
+}
+function baseData(status='pranim'){
+  const meta = (()=>{ try{return JSON.parse(localStorage.getItem('order_meta_'+OID)||'{}')}catch(e){return{}} })();
+  return {
+    id:OID, ts:Date.now(), status,
+    client:{ name:(q('#name')?q('#name').value.trim():''), phone:(q('#phonePrefix')?q('#phonePrefix').value:'')+(q('#phone')?q('#phone').value.trim():''), code: meta.code||'', photoKey:'photo_client_'+OID },
+    tepiha: readRows('tepiha'),
+    staza:  readRows('staza'),
+    shkallore:{ qty: parseFloat(window.STAIRS_QTY||0)||0, per: parseFloat(window.STAIRS_PER||0.3)||0.3, photoKey: ('photo_shkallore_'+OID) },
+    pay: totalsObj()
+  };
+}
+function saveIndexEntry(){
+  let idx=[]; try{ idx=JSON.parse(localStorage.getItem(LIST_KEY)||'[]'); }catch(e){ idx=[]; }
+  const entry={ id:OID, name:(q('#name')?q('#name').value.trim():''), phone:(q('#phonePrefix')?q('#phonePrefix').value:'')+(q('#phone')?q('#phone').value.trim():'') };
+  const i=idx.findIndex(x=>x.id===entry.id); if(i>=0) idx[i]=entry; else idx.unshift(entry);
+  localStorage.setItem(LIST_KEY, JSON.stringify(idx.slice(0,200)));
+}
+function saveDraftLocal(status='pranim'){
+  const data=baseData(status);
+  try{ localStorage.setItem(KEY(OID), JSON.stringify(data)); saveIndexEntry(); return data; }
+  catch(e){ alert('S’u ruajt drafti (storage i plotë?)'); return null; }
+}
+async function saveDraftOnline(data){
+  try{
+    if(!CFG.syncOrders || !window.sb) return true;
+    const path = `orders/${data.id}.json`;
+    const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
+    const { error } = sb.storage.from(CFG.supabase.bucket)
+      .upload(path, blob, { upsert:true, contentType:'application/json' });
+    if(error) throw error;
+    // promote code if meaningful (now expects "-n")
+    if(data && data.client && /^-\d+$/.test(data.client.code||'')){
+      const n=(data.client.code||'').replace(/^-/,'');
+      const usedPath=`codes/d${n}.used`;
+      const info = new Blob([JSON.stringify({ts:Date.now(),id:data.id})],{type:'application/json'});
+      await sb.storage.from(CFG.supabase.bucket).upload(usedPath, info, { upsert:true, contentType:'application/json' });
+    }
+    return true;
+  }catch(err){
+    console.warn('Online sync failed:', err?.message||err);
+    return false;
+  }
+}
+
+/* ====== UI: rows add/remove ====== */
+const listFor=sec=> q('#list-'+sec);
+window.addRow=function(section,value, preset){
+  const list=listFor(section); if(!list) return;
+  const row=document.createElement('div'); row.className='piece-row';
+  const mWrap=document.createElement('div'); mWrap.className='mwrap';
+  const m2=document.createElement('input'); m2.className='input piece-input'; m2.placeholder='m²'; m2.inputMode='decimal';
+  if(value!=null) m2.value=value; if(preset&&preset.m2!=null) m2.value=preset.m2;
+  const cam=document.createElement('label'); cam.className='cam-btn'; cam.textContent='📷';
+  const file=document.createElement('input'); file.type='file'; file.accept='image/*;capture=camera'; file.capture='environment'; file.style.display='none';
+  cam.appendChild(file);
+  const thumb=document.createElement('img'); thumb.className='thumb';
+  const pKey = preset?.photoKey || (`photo_${section}_${OID}_`+Date.now().toString(36));
+  row.setAttribute('data-photo-key', pKey);
+  (async()=>{ const prev=await window._photoAPI.getPhotoUrl(pKey); if(prev){ thumb.src=prev; thumb.style.display='inline-block'; cam.style.display='none'; }})();
+  file.addEventListener('change', async (ev)=>{
+    const f=ev.target.files && ev.target.files[0]; if(!f) return;
+    try{ const url=await window._photoAPI.savePhoto(pKey,f); thumb.src=url; thumb.style.display='inline-block'; cam.style.display='none'; }catch(e){}
+    ev.target.value='';
+  });
+  thumb.addEventListener('click', async ()=>{ const url=await window._photoAPI.getPhotoUrl(pKey); if(url) window._photoAPI.preview(url); });
+  const qty=document.createElement('input'); qty.className='input piece-qty'; qty.placeholder='copë'; qty.inputMode='numeric'; qty.value= preset?.qty ?? '1';
+  m2.addEventListener('input', computeTotals);
+  qty.addEventListener('input', computeTotals);
+  mWrap.appendChild(m2); mWrap.appendChild(cam); mWrap.appendChild(thumb);
+  row.appendChild(mWrap); row.appendChild(qty);
+  list.appendChild(row);
+  computeTotals();
+};
+window.removeRow=function(section){
+  const list=listFor(section); const rows=qq('.piece-row',list);
+  if(rows.length){ rows[rows.length-1].remove(); }
+  computeTotals();
+};
+
+/* ====== SHKALLORE state ====== */
+window.STAIRS_QTY=0; window.STAIRS_PER=0.3; const STAIRS_PHOTO_KEY=()=>('photo_shkallore_'+OID);
+function computeStairs(){
+  const m2=r2((parseFloat(window.STAIRS_QTY)||0)*(parseFloat(window.STAIRS_PER)||0.3));
+  (q('#stairsM2')||{}).textContent=m2.toFixed(2)+' m²'; 
+  return m2;
+}
+
+/* ====== TOTALS ====== */
+window.computeTotals=function(){
+  const tT=readRows('tepiha').reduce((s,r)=>s+(r.m2||0)*(r.qty||1),0);
+  const tS=readRows('staza').reduce((s,r)=>s+(r.m2||0)*(r.qty||1),0);
+  const tSt=(window.STAIRS_QTY>0)? computeStairs() : 0;
+  (q('#tot-tepiha')||{}).textContent=r2(tT).toFixed(2)+' m²';
+  (q('#tot-staza')||{}).textContent=r2(tS).toFixed(2)+' m²';
+  if(window.STAIRS_QTY<=0){ (q('#stairsM2')||{}).textContent='0.00 m²'; }
+  const m2=r2(tT+tS+ (window.STAIRS_QTY>0? (window.STAIRS_QTY*window.STAIRS_PER):0));
+  (q('#m2Total')||{}).textContent=m2.toFixed(2);
+  const rate=parseFloat((q('#rate')&&q('#rate').value)||'0')||0;
+  (q('#euroTotal')||{}).textContent=r2(m2*rate).toFixed(2);
+};
+
+/* ====== INIT: load existing order + ensure code ====== */
+function loadOrder(id){ try{ return JSON.parse(localStorage.getItem(KEY(id))||'null'); }catch(e){ return null; } }
+function fillRowList(section, arr){ (arr||[]).forEach(item=> addRow(section, null, item)); }
+
+(async function init(){
+  // hidden calc inputs
+  const r=document.createElement('input'); r.id='rate'; r.type='hidden'; r.value='1';
+  const pu=document.createElement('input'); pu.id='paidUpfront'; pu.type='checkbox'; pu.style.display='none';
+  const cp=document.createElement('input'); cp.id='clientPaid'; cp.type='number'; cp.style.display='none';
+  const debt=document.createElement('input'); debt.id='debt'; debt.readOnly=true; debt.style.display='none';
+  const change=document.createElement('input'); change.id='change'; change.readOnly=true; change.style.display='none';
+  document.body.append(r,pu,cp,debt,change);
+
+  const existing = loadOrder(OID);
+  const metaKey='order_meta_'+OID; let meta={}; try{ meta=JSON.parse(localStorage.getItem(metaKey)||'{}')||{} }catch{}
+  if(existing){
+    q('#name').value = existing.client?.name || '';
+    const ph = existing.client?.phone || '';
+    const pfx = q('#phonePrefix')?.value || '+383';
+    q('#phone').value = ph.replace(pfx,'');
+    if(existing.shkallore){ window.STAIRS_QTY = existing.shkallore.qty||0; window.STAIRS_PER = existing.shkallore.per||0.3; }
+    r.value = existing.pay?.rate!=null ? existing.pay.rate : 1;
+    fillRowList('tepiha', existing.tepiha||[]);
+    fillRowList('staza', existing.staza||[]);
+    // prefer order code if present
+    if(existing.client?.code){ meta.code = existing.client.code; }
+  }
+  // migrate old "Xn" to "-n"
+  if(meta.code && /^X\d+$/i.test(meta.code)){ meta.code = '-' + meta.code.replace(/^X/i,''); }
+  // ensure code exists
+  if(!meta.code){
+    const dash = await reserveDashCode(); // "-n"
+    meta.code = dash;
+  }
+  localStorage.setItem(metaKey, JSON.stringify(meta));
+  displayCode(meta.code); // show "-n"
+
+  computeTotals();
+})();
+
+/* ====== Buttons ====== */
+q('#btnSaveDraft').addEventListener('click', async e=>{
+  e.preventDefault();
+  // validation minimale + unique check
+  const nm=(q('#name')?.value||'').trim();
+  const ph= sanitizePhone(`${q('#phonePrefix')?.value||''}${q('#phone')?.value||''}`);
+  if(!nm || nm.split(' ').length<2){ alert('Shkruaj emër dhe mbiemër.'); return; }
+  if(ph.length<6){ alert('Numri i telefonit nuk është valid.'); return; }
+  const res = await tryReserveUnique(nm, ph);
+  if(!res.ok){
+    if(res.reason==='phone_exists') alert('Ky numër telefoni ekziston te një klient tjetër.');
+    else if(res.reason==='name_exists') alert('Ky emër dhe mbiemër ekziston te një klient tjetër.');
+    else alert('Konflikt regjistrimi.');
+    return;
+  }
+  const data=saveDraftLocal('pranim'); if(!data) return; await saveDraftOnline(data);
+  alert('U ruajt.');
+});
+q('#btnContinue').addEventListener('click', async e=>{
+  e.preventDefault();
+  // gate: m² > 0
+  const m2=parseFloat((q('#m2Total')?.textContent||'0')); 
+  if(!m2 || m2<=0){ alert('Shto të paktën 1 m² para se të vazhdosh.'); return; }
+  const data=saveDraftLocal('pastrim'); if(!data) return; await saveDraftOnline(data);
+  location.href=`../pastrimi/?id=${encodeURIComponent(OID)}`;
+});
+
+/* ====== Chips handlers ====== */
+(function(){
+  function handle(section,e){
+    const chip=e.target.closest('.chip'); if(!chip) return;
+    const t=(chip.textContent||'').trim(); const num=parseFloat(t.replace(/[^\d\.]/g,'')); 
+    if(!isNaN(num)) addRow(section,num); else addRow(section,null);
+  }
+  q('#chips-tepiha')?.addEventListener('click',e=>handle('tepiha',e));
+  q('#chips-staza')?.addEventListener('click',e=>handle('staza',e));
+})();
+
+/* ====== Shkallore Sheet (me Foto) ====== */
+q('#openStairs').addEventListener('click', ()=>{
+  const ov=document.createElement('div'); ov.className='ov';
+  const box=document.createElement('div'); box.className='sheet';
+  box.innerHTML = `
+    <h3>Shkallore</h3>
+    <div class="row">
+      <div><label>Sasia (numri i hapave)</label><input class="input" id="stairsQtyIn" inputmode="numeric" value="${window.STAIRS_QTY||''}" placeholder="p.sh. 20"></div>
+      <div><label>M² për hap</label><input class="input" id="stairsPerIn" inputmode="decimal" value="${window.STAIRS_PER||0.3}"></div>
+    </div>
+    <div class="btnbar" id="stairsCamWrap">
+      <label class="cam-btn">📷
+        <input type="file" accept="image/*;capture=camera" capture="environment" id="stairsPhotoInput" style="display:none">
+      </label>
+    </div>
+    <div class="tot"><span>Prej kalkulimit:</span><b id="stairsPreview">${r2((window.STAIRS_QTY||0)*(window.STAIRS_PER||0.3)).toFixed(2)} m²</b></div>
+    <div class="hint">Shënim: M² e shkallores i shtohen totalit vetëm kur numri i hapave &gt; 0.</div>
+    <div class="btnbar">
+      <button class="btn" id="okStairs">Ruaj</button>
+      <button class="btn ghost" id="cancelStairs">Anulo</button>
+    </div>
+  `;
+  document.body.appendChild(ov); ov.appendChild(box);
+
+  // restore thumb if exists
+  (async()=>{ const sSaved=await window._photoAPI.getPhotoUrl(STAIRS_PHOTO_KEY());
+    if(sSaved){ const t=document.createElement('img'); t.className='thumb'; t.style.display='inline-block'; t.src=sSaved; t.addEventListener('click',()=>window._photoAPI.preview(sSaved)); box.querySelector('#stairsCamWrap').appendChild(t); box.querySelector('.cam-btn').style.display='none'; }
+  })();
+
+  const qIn=id=>box.querySelector(id);
+  const upd=()=>{
+    const qty=parseFloat(qIn('#stairsQtyIn').value||'0')||0;
+    const per=parseFloat(qIn('#stairsPerIn').value||'0.3')||0.3;
+    qIn('#stairsPreview').textContent = r2(qty*per).toFixed(2)+' m²';
+  };
+  qIn('#stairsQtyIn').addEventListener('input',upd);
+  qIn('#stairsPerIn').addEventListener('input',upd);
+
+  qIn('#stairsPhotoInput').addEventListener('change', async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{ const url=await window._photoAPI.savePhoto(STAIRS_PHOTO_KEY(), f); window._photoAPI.preview(url); }catch{}
+    e.target.value='';
+  });
+
+  qIn('#okStairs').addEventListener('click', ()=>{
+    window.STAIRS_QTY = parseFloat(qIn('#stairsQtyIn').value||'0')||0;
+    window.STAIRS_PER = parseFloat(qIn('#stairsPerIn').value||'0.3')||0.3;
+    computeTotals(); ov.remove();
+  });
+  qIn('#cancelStairs').addEventListener('click', ()=>ov.remove());
+  ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
+});
+
+/* ====== SMS (tap=SMS, mbaje=WhatsApp/Viber) ====== */
+(function(){
+  const btn = document.getElementById('btnSms'); if(!btn) return;
+  const sanitizeDigits = s => (s||'').replace(/[^\d]/g,'');
+  function buildMessage(){
+    const name  = (q('#name')?.value||'Klient');
+    const m2    = (q('#m2Total')?.textContent||'0.00');
+    const euro  = (q('#euroTotal')?.textContent||'0.00');
+    const rowsT = qq('#list-tepiha .piece-row').length;
+    const rowsS = qq('#list-staza .piece-row').length;
+    const stairsM2 = parseFloat((q('#stairsM2')?.textContent||'0').replace(/[^\d.]/g,''))||0;
+    const pieces = rowsT + rowsS + (stairsM2>0 ? 1 : 0);
+    return `Përshëndetje ${name}, procesi i pastrimit ka filluar.\nKeni ${pieces} copë = ${m2} m².\nTotali: ${euro} €.\nFaleminderit!`;
+  }
+  function openSMS(){
+    const digits = sanitizeDigits(`${q('#phonePrefix')?.value||''}${q('#phone')?.value||''}`);
+    const enc = encodeURIComponent(buildMessage());
+    const sms = digits ? `sms:${digits}?body=${enc}` : `sms:?body=${enc}`;
+    location.href=sms;
+  }
+  function openSheet(){
+    const msg=buildMessage();
+    const digits = sanitizeDigits(`${q('#phonePrefix')?.value||''}${q('#phone')?.value||''}`);
+    const enc = encodeURIComponent(msg);
+    const viber = `viber://forward?text=${enc}`;
+    const wa = digits ? `https://wa.me/${digits}?text=${enc}` : `https://wa.me/?text=${enc}`;
+    const ov=document.createElement('div'); ov.className='ov';
+    const box=document.createElement('div'); box.className='sheet';
+    function mkBtn(label, href){
+      const a=document.createElement('a'); a.textContent=label; a.href=href; a.target='_blank'; a.rel='noopener';
+      a.className='btn'; a.style.cssText='display:block;text-decoration:none;margin:8px 4px';
+      return a;
+    }
+    const title=document.createElement('div'); title.textContent='Dërgo me:'; title.style.cssText='color:#eaf1ff;font-weight:1000;font-size:1.2rem;margin:4px 4px 10px';
+    box.appendChild(title);
+    box.appendChild(mkBtn('Viber',viber));
+    box.appendChild(mkBtn('WhatsApp',wa));
+    const cancel=document.createElement('button'); cancel.textContent='Anulo'; cancel.className='btn ghost'; cancel.style.cssText='width:100%;margin:8px 4px 0'; cancel.onclick=()=>ov.remove(); box.appendChild(cancel);
+    ov.appendChild(box); ov.addEventListener('click',e=>{ if(e.target===ov) ov.remove(); });
+    document.body.appendChild(ov);
+  }
+  let pressTimer=null;
+  btn.addEventListener('touchstart',()=>{ pressTimer=setTimeout(openSheet,500) },{passive:true});
+  btn.addEventListener('touchend',()=>{ if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; openSMS(); } },{passive:true});
+  btn.addEventListener('mousedown',()=>{ pressTimer=setTimeout(openSheet,500) });
+  btn.addEventListener('mouseup',()=>{ if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; openSMS(); }});
+})();
+
+/* ====== € sheet ====== */
+q('#openPay').addEventListener('click', ()=>{
+  const euroNow = (q('#euroTotal')?.textContent)||'0.00';
+  const ov=document.createElement('div'); ov.className='ov';
+  const box=document.createElement('div'); box.className='sheet';
+  box.innerHTML = `
+    <h3>Pagesa</h3>
+    <div class="row">
+      <div><label>€ / m²</label><input class="input" id="rateIn" inputmode="decimal" value="${(q('#rate')?.value)||1}"></div>
+      <div class="pill"><b>Totali aktual:</b> <span id="totEuroIn">${euroNow}</span> €</div>
+    </div>
+    <div class="btnbar">
+      <button class="btn ghost pay-quick" data-val="10">10 €</button>
+      <button class="btn ghost pay-quick" data-val="20">20 €</button>
+      <button class="btn ghost pay-quick" data-val="50">50 €</button>
+      <button class="btn ghost pay-quick" data-val="100">100 €</button>
+    </div>
+    <div class="row">
+      <div><label>KLIENTI DHA (€)</label><input class="input" id="clientPaidIn" inputmode="decimal" placeholder="p.sh. 50"></div>
+      <div><label>KTHE (€)</label><input class="input" id="changeIn" readonly></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:12px;font-weight:1000;margin-top:6px">
+      <input type="checkbox" id="paidIn" style="width:22px;height:22px"> <span>E paguar</span>
+    </label>
+    <div class="btnbar" style="margin-top:10px">
+      <button class="btn" id="okPay">Ruaj</button>
+      <button class="btn ghost" id="cancelPay">Anulo</button>
+    </div>
+  `;
+  document.body.appendChild(ov); ov.appendChild(box);
+
+  const qIn=id=>box.querySelector(id);
+  const recalc=()=>{
+    const rateVal=parseFloat(qIn('#rateIn').value||'1')||1;
+    q('#rate').value=String(rateVal);
+    computeTotals();
+    qIn('#totEuroIn').textContent = q('#euroTotal').textContent;
+    const paid=parseFloat(qIn('#clientPaidIn').value||'0')||0;
+    const need=parseFloat(q('#euroTotal').textContent||'0')||0;
+    const change=Math.max(0, r2(paid-need));
+    qIn('#changeIn').value = change.toFixed(2);
+  };
+  qIn('#rateIn').addEventListener('input',recalc);
+  qIn('#clientPaidIn').addEventListener('input',recalc);
+  box.querySelectorAll('.pay-quick').forEach(b=>{
+    b.addEventListener('click', ()=>{ qIn('#clientPaidIn').value=b.dataset.val; qIn('#paidIn').checked=false; recalc(); });
+  });
+  qIn('#paidIn').addEventListener('change', ()=>{
+    if(qIn('#paidIn').checked){
+      qIn('#clientPaidIn').value = q('#euroTotal').textContent || '0';
+      recalc();
+    }
+  });
+  qIn('#okPay').addEventListener('click', ()=>{
+    q('#paidUpfront').checked = true;
+    q('#clientPaid').value = qIn('#clientPaidIn').value || '';
+    computeTotals();
+    ov.remove();
+  });
+  qIn('#cancelPay').addEventListener('click', ()=>ov.remove());
+  ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
+});
+
+/* ====== initial totals ====== */
+computeTotals();
+</script>
+
+<!-- Debug minimal -->
+<script>
+window.addEventListener('error', function(e){
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;left:8px;right:8px;bottom:8px;background:#220;color:#fff;padding:10px;border:1px solid #933;border-radius:8px;z-index:99999;font-family:monospace;white-space:pre-wrap';
+  div.textContent='JS ERROR: '+(e.message||'')+'\\n'+(e.filename||'')+':'+(e.lineno||'');
+  document.body.appendChild(div);
+});
+</script>
+
+<!-- Minimal add-on: admin reset for client codes (DASH SCHEME) -->
+<script>
+(function(){
+  try{
+    if (!window.supabase || !window.CFG || !CFG.supabase) return;
+    const sb2 = (window.sb) ? window.sb : supabase.createClient(CFG.supabase.url, CFG.supabase.anonKey);
+
+    async function resetCodeSequence() {
+      try{
+        // wipe local counters and any cached meta codes for current order
+        try{ localStorage.removeItem('code_counter'); }catch(e){}
+        // also wipe all 'order_meta_*' codes so next open will re-reserve
+        try{
+          Object.keys(localStorage).forEach(k=>{
+            if(/^order_meta_/.test(k)){
+              const v=JSON.parse(localStorage.getItem(k)||'{}'); if(v && v.code){ delete v.code; localStorage.setItem(k, JSON.stringify(v)); }
+            }
+          });
+        }catch(e){}
+
+        // remove all code files (old x*.* and new d*.*) from Supabase so numbering restarts at 1
+        const { data:list, error } = await sb2.storage.from(CFG.supabase.bucket).list('codes', { limit: 10000 });
+        if (error && error.message !== 'The resource was not found') throw error;
+        const paths = (list||[])
+          .filter(f => /^(x|d)\d+(\.|$)/i.test(f.name||''))
+          .map(f => 'codes/' + f.name);
+        if (paths.length){
+          const { error:remErr } = await sb2.storage.from(CFG.supabase.bucket).remove(paths);
+          if (remErr) throw remErr;
+        }
+        console.log('[codes] reset complete');
+        alert('KODAT u resetuan. Tani do fillojnë nga -1 për klientët e rinj.');
+      }catch(e){
+        console.warn('Reset codes failed:', e && (e.message || e));
+        alert('Reset i kodeve dështoi: ' + (e && (e.message || e)));
+      }
+    }
+    window.resetCodeSequence = resetCodeSequence;
+
+    // Optional one-time trigger via URL: ?resetCodes=1
+    const usp = new URLSearchParams(location.search);
+    if (usp.get('resetCodes') === '1') {
+      resetCodeSequence().then(() => {
+        usp.delete('resetCodes');
+        const newUrl = location.pathname + (usp.toString()?('?'+usp.toString()):'');
+        history.replaceState(null, '', newUrl);
+      });
+    }
+  }catch(_e){ /* silent */ }
+})();
+</script>
+
+<!-- *** Minimal functional patch (buttons + reliable reset) — added by assistant *** -->
+<script>
+(function(){
+  if (window.__MIN_PATCH__) return; window.__MIN_PATCH__ = true;
+
+  function onReady(fn){
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      setTimeout(fn, 0);
+    } else {
+      document.addEventListener('DOMContentLoaded', fn);
+    }
+  }
+
+  // Expose existing functions for inline onclicks on iOS Safari (no behavior change)
+  onReady(function(){
+    try{
+      if (typeof addRow === 'function')        window.addRow = addRow;
+      if (typeof removeRow === 'function')     window.removeRow = removeRow;
+      if (typeof computeTotals === 'function') window.computeTotals = computeTotals;
+    }catch(_){}
+  });
+
+  // Build a Supabase client from your existing page config if needed
+  function getSb(){
+    try{
+      if (window.sb) return window.sb;
+      if (window.supabase && window.CFG && CFG.supabase && CFG.supabase.url && CFG.supabase.anonKey){
+        return window.supabase.createClient(CFG.supabase.url, CFG.supabase.anonKey);
+      }
+    }catch(_){}
+    return null;
+  }
+
+  // Minimal, reliable reset that does NOT touch layout/flows
+  async function resetOnly(){
+    try{
+      // local counters
+      try{ localStorage.removeItem('code_counter'); }catch(_){}
+      try{
+        for (var i=0;i<localStorage.length;i++){
+          var k = localStorage.key(i)||'';
+          if(/^order_meta_/.test(k)){
+            try{ var v = JSON.parse(localStorage.getItem(k)||'{}')||{};
+                 if(v && v.code){ delete v.code; localStorage.setItem(k, JSON.stringify(v)); } }catch(_){}
+          }
+        }
+      }catch(_){}
+
+      // remove Supabase codes if client is available
+      try{
+        var sb = getSb();
+        if (sb && window.CFG && CFG.supabase && CFG.supabase.bucket){
+          var r = await sb.storage.from(CFG.supabase.bucket).list('codes',{limit:10000});
+          var list = (r && r.data) || [];
+          if (list.length){
+            await sb.storage.from(CFG.supabase.bucket).remove(list.map(function(f){return 'codes/'+f.name;}));
+          }
+        }
+      }catch(_){}
+
+      // re-issue a fresh code via your own functions
+      try{
+        var fresh = null;
+        if (typeof reserveDashCode === 'function'){ fresh = await reserveDashCode(); }
+        if (fresh && typeof displayCode === 'function'){ displayCode(fresh); }
+
+        // persist in current order meta
+        try{
+          var metaKey = 'order_meta_' + (window.OID || '');
+          var meta = (JSON.parse(localStorage.getItem(metaKey)||'{}')||{});
+          if (fresh){ meta.code = fresh; localStorage.setItem(metaKey, JSON.stringify(meta)); }
+        }catch(_){}
+      }catch(_){}
+
+      try{ alert('KODAT u resetuan. Fillon nga -1 dhe u caktua kod i ri.'); }catch(_){}
+      return true;
+    }catch(e){
+      try{ alert('Reset dështoi: ' + (e && (e.message || e))); }catch(_){}
+      return false;
+    }
+  }
+
+  // Do not replace your reset if you already have one; just provide a safe version if missing
+  onReady(function(){
+    if (typeof window.resetCodeSequence !== 'function'){
+      window.resetCodeSequence = resetOnly;
+    }
+  });
+
+  // Long-press on KODI badge to trigger the reset (uses your reset if present)
+  function bindLongPress(){
+    var badge = document.getElementById('ticketCode'); if(!badge) return;
+    if (badge.__minPatchBound) return; badge.__minPatchBound = true;
+    var t=null, start=function(){ t=setTimeout(function(){ 
+      try{
+        if (typeof window.resetCodeSequence === 'function'){ window.resetCodeSequence(); }
+        else { resetOnly(); }
+      }catch(_){ resetOnly(); }
+    },700); }, stop=function(){ if(t){clearTimeout(t); t=null;} };
+    try{ badge.addEventListener('touchstart', start, {passive:true}); }catch(_){ badge.addEventListener('touchstart', start, false); }
+    ['touchend','touchmove','touchcancel'].forEach(function(ev){
+      try{ badge.addEventListener(ev, stop, {passive:true}); }catch(_){ badge.addEventListener(ev, stop, false); }
+    });
+    badge.addEventListener('mousedown', start, false);
+    badge.addEventListener('mouseup',   stop,  false);
+    badge.addEventListener('mouseleave',stop,  false);
+  }
+  onReady(bindLongPress);
+
+  // URL trigger: ?resetCodes=1
+  onReady(function(){
+    try{
+      var q=(location.search||'').replace(/^\?/,'').split('&');
+      for (var i=0;i<q.length;i++){
+        var s=q[i].split('='); if(s[0]==='resetCodes' && decodeURIComponent(s[1]||'')==='1'){
+          (typeof window.resetCodeSequence==='function' ? window.resetCodeSequence() : resetOnly());
+          break;
+        }
+      }
+    }catch(_){}
+  });
+})();
+</script>
+<!-- *** End minimal functional patch *** -->
+
+<!-- === Assistant Patch: PIN 2380 reset + client photo save + dedupe + single-tap continue === -->
+<script id="assistant_pranimi_fix_pin2380">
+(function(){
+  const PIN_CODE = "2380";
+
+  function onReady(fn){
+    if(document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(fn,0);
+    else document.addEventListener('DOMContentLoaded', fn);
+  }
+
+  // 1) PIN-protected long-press on #ticketCode
+  onReady(function(){
+    var badge = document.getElementById('ticketCode');
+    if(!badge) return;
+    if(badge.__pinPatchBound) return; badge.__pinPatchBound = true;
+
+    var holdTimer=null, start=function(){
+      holdTimer = setTimeout(async function(){
+        try{
+          var pin = prompt("FUT PIN-in për RESET:");
+          if(!pin || pin.trim()!==PIN_CODE){ alert("PIN gabim."); return; }
+          if(typeof window.resetCodeSequence === 'function'){
+            await window.resetCodeSequence();
+          }else if(typeof window.resetOnly === 'function'){
+            await window.resetOnly();
+          }else{
+            // Fallback: clear sequence + meta codes locally
+            try{ localStorage.removeItem('code_counter'); }catch(_){}
+            try{
+              Object.keys(localStorage).forEach(function(k){
+                if(/^order_meta_/.test(k)){
+                  try{
+                    var v = JSON.parse(localStorage.getItem(k)||'{}')||{};
+                    if(v && v.code){ delete v.code; localStorage.setItem(k, JSON.stringify(v)); }
+                  }catch(_){}
+                }
+              });
+            }catch(_){}
+            alert("RESET lokal u krye.");
+            location.reload();
+          }
+        }catch(e){
+          alert("RESET dështoi: " + (e && (e.message||e)));
+        }
+      }, 800);
+    }, stop=function(){ if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; } };
+
+    try{ badge.addEventListener('touchstart', start, {passive:true}); }catch(_){ badge.addEventListener('touchstart', start, false); }
+    ['touchend','touchcancel','touchmove'].forEach(function(ev){
+      try{ badge.addEventListener(ev, stop, {passive:true}); }catch(_){ badge.addEventListener(ev, stop, false); }
+    });
+    badge.addEventListener('mousedown', start, false);
+    badge.addEventListener('mouseup',   stop,  false);
+    badge.addEventListener('mouseleave',stop,  false);
+  });
+
+  // 2) Client photo: save via _photoAPI using key 'photo_client_<OID>'
+  onReady(function(){
+    var input = document.getElementById('clientPhotoInput');
+    if(!input || input.__photoBound) return;
+    input.__photoBound = true;
+    input.addEventListener('change', async function(e){
+      try{
+        var f = e.target.files && e.target.files[0]; if(!f) return;
+        var key = 'photo_client_' + (window.OID || 'ord');
+        if(window._photoAPI && typeof window._photoAPI.savePhoto === 'function'){
+          await window._photoAPI.savePhoto(key, f);
+          // optional quick preview
+          var url = await window._photoAPI.getPhotoUrl(key);
+          if(url) { try{ window._photoAPI.preview(url); }catch(_){/* ignore */} }
+        }
+        e.target.value = '';
+      }catch(err){
+        alert('Foto e klientit s’u ruajt: ' + (err && (err.message||err)));
+      }
+    });
+  });
+
+  // 3) Duplicate guard + single-tap Continue
+  onReady(function(){
+    var btn = document.getElementById('btnContinue');
+    if(!btn || btn.__continueBound) return;
+    btn.__continueBound = true;
+    var busy = false;
+
+    btn.addEventListener('click', async function(e){
+      e.preventDefault();
+      if(busy) return;
+      busy = true;
+      btn.setAttribute('aria-disabled','true');
+      btn.style.opacity = '.6';
+
+      try{
+        // At least some m² to proceed
+        var m2Text = (document.getElementById('m2Total')||{}).textContent || '0';
+        var m2 = parseFloat(String(m2Text).replace(/[^\d.]/g,'')) || 0;
+        if(!m2 || m2<=0){
+          alert('Shto të paktën 1 m² para se të vazhdosh.');
+          throw new Error('no_m2');
+        }
+
+        // Dedupe via Supabase locks (name OR phone)
+        var nm = (document.getElementById('name')||{}).value || '';
+        var ph = ((document.getElementById('phonePrefix')||{}).value || '') + ((document.getElementById('phone')||{}).value || '');
+        // Sanity trim
+        nm = nm.trim();
+        ph = String(ph||'').trim();
+
+        if(typeof window.tryReserveUnique === 'function'){
+          var res = await window.tryReserveUnique(nm, (ph||'').replace(/[^\d]/g,''));
+          if(!res || res.ok===false){
+            if(res && res.reason==='phone_exists') alert('Ky numër telefoni ekziston te një klient tjetër.');
+            else if(res && res.reason==='name_exists') alert('Ky emër dhe mbiemër ekziston te një klient tjetër.');
+            else alert('Konflikt regjistrimi (emër/telefon).');
+            throw new Error('duplicate');
+          }
+        }
+        // Save as 'pastrim' and go (reuse your own helpers)
+        if(typeof window.saveDraftLocal === 'function'){
+          var data = window.saveDraftLocal('pastrim');
+          if(!data) throw new Error('save_failed');
+          if(typeof window.saveDraftOnline === 'function'){
+            await window.saveDraftOnline(data);
+          }
+        }
+        // Redirect same as your original
+        location.href = '../pastrimi/?id=' + encodeURIComponent(window.OID||'');
+      }catch(err){
+        // restore button
+        busy = false;
+        btn.removeAttribute('aria-disabled');
+        btn.style.opacity = '';
+        return;
+      }
+    }, false);
+  });
+})();
+</script>
+
+<script src="assets/tepiha_boot.js" defer></script>
+<script src="assets/diag_visible.js" defer></script>
+<script src="assets/app.js"></script>
+
+<script>
+// GPT-INJECT: ticketCode preview/refresh
+(function(){
+  function setBadge(code){
+    var el = document.getElementById('ticketCode');
+    if (el){ el.textContent = 'KODI: ' + (code || '——'); }
+  }
+  function preview(){
+    try{
+      if (typeof window.previewNextCode === 'function'){
+        setBadge(window.previewNextCode());
+        return;
+      }
+    }catch(e){}
+    // fallback to code_counter
+    try{
+      var n = parseInt(localStorage.getItem('code_counter')||'0',10) + 1;
+      setBadge('-'+n);
+    }catch(e){ setBadge('——'); }
+  }
+  // Initial paint
+  if (document.readyState === 'complete' || document.readyState === 'interactive'){
+    setTimeout(preview, 0);
+  } else {
+    document.addEventListener('DOMContentLoaded', preview);
+  }
+  // After claim, re-paint if claimNextCode used elsewhere
+  window.addEventListener('storage', function(ev){
+    if(ev && ev.key==='code_counter'){ preview(); }
+  });
+  // Expose for manual refresh
+  window.__refreshTicketCode = preview;
+})();
+</script>
+
+  <script src="assets/diag_autofix.js"></script>
+</body>

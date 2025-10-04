@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MARRJE SOT</title>
+  <style>
+    /* ===== Base ===== */
+    body{margin:0;background:#0b1220;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:14px}
+    .wrap{max-width:960px;margin:0 auto;padding:12px}
+    h1{font-size:22px;margin:0 0 12px;font-weight:800}
+    table{width:100%;border-collapse:collapse;margin-top:8px;table-layout:auto}
+    th,td{padding:6px 6px;border-bottom:1px solid #223;vertical-align:middle}
+    th{text-align:left;color:#9fb4d6;font-weight:700;font-size:13px}
+    #list td:nth-child(2){min-width:0;max-width:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+    /* ===== Buttons ===== */
+    .btn{padding:6px 8px;border-radius:8px;text-decoration:none;color:#fff;font-weight:700;
+         line-height:1.1;display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+    .msg{background:#1e60ff}
+    .done{background:#19a25f}
+
+    /* Actions responsive, no overlap */
+    #list td:last-child{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+
+    /* Footer bar */
+    .footbar{margin-top:12px;display:flex;gap:8px}
+    .footbar a{flex:1;text-align:center;padding:10px;border-radius:8px;text-decoration:none;font-weight:800;font-size:13px}
+    .home{background:#333;color:#fff}
+    .refresh{background:#1aa5d8}
+
+    /* Totals strip */
+    .totals{margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;color:#9fb4d6;font-size:13px}
+    .totals b{color:#fff}
+
+    /* ---------- Mobile tweaks ---------- */
+    @media (max-width: 430px){
+      /* hide m² and € to fit more rows; remove if you want them visible */
+      #list thead th:nth-child(3),
+      #list thead th:nth-child(4),
+      #list tbody td:nth-child(3),
+      #list tbody td:nth-child(4){display:none}
+      #list td:last-child{flex-direction:column;align-items:flex-end;gap:4px}
+      #list td:last-child .btn{width:150px}
+    }
+  </style>
+
+  <!-- Supabase (optional; safe to leave) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/assets/env.js"></script>
+  <script src="/assets/supabaseClient.js"></script>
+  <script src="/assets/flow-guard.js"></script>
+  <script src="/assets/flow-core.js"></script>
+  <script src="/assets/flow-bind.js"></script>
+</head>
+<body>
+
+<!-- GPT-INJECT: diagnostics gear (visible NOW, will hide later) -->
+<a href="diagnostics.html" style="position:fixed;top:8px;right:10px;text-decoration:none;
+font-size:22px;line-height:1;z-index:9999;background:#111a;backdrop-filter:blur(4px);
+padding:6px 10px;border-radius:10px;border:1px solid #2b3956;color:#eaf1ff">⚙️</a>
+
+  <div class="wrap">
+    <h1>📦 MARRJE SOT</h1>
+
+    <!-- Today totals -->
+    <div class="totals">
+      <div>Sot: <b id="t_count">0</b> porosi</div>
+      <div>m²: <b id="t_m2">0</b></div>
+      <div>€: <b id="t_eur">0.00</b></div>
+    </div>
+
+    <table id="list">
+      <thead>
+        <tr><th>KODI</th><th>KLIENTI</th><th>m²</th><th>€</th><th>VEPRIME</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="footbar">
+      <a href="../index.html" class="home">🏠 KTHEU</a>
+      <a href="" onclick="location.reload();return false;" class="refresh">🔄 RIFRESKO</a>
+    </div>
+  </div>
+
+<script>
+(function(){
+  /* ===== Local storage keys ===== */
+  const LIST_KEY = "order_list_v1";
+  const KEY = id => `order_${id}`;
+
+  /* ===== DOM ===== */
+  const tbody   = document.querySelector('#list tbody');
+  const t_count = document.getElementById('t_count');
+  const t_m2    = document.getElementById('t_m2');
+  const t_eur   = document.getElementById('t_eur');
+
+  /* ===== Utils ===== */
+  const todayStr = new Date().toISOString().slice(0,10);
+  function fmt2(n){ return (Number(n)||0).toFixed(2); }
+  function fmtM2(n){ n = Number(n)||0; return n%1===0 ? n.toFixed(0) : n.toFixed(1); }
+
+  function loadIdx(){ return JSON.parse(localStorage.getItem(LIST_KEY)||"[]"); }
+  function loadOrder(id){ return JSON.parse(localStorage.getItem(KEY(id))||"null"); }
+  function saveOrder(o){ localStorage.setItem(KEY(o.id), JSON.stringify(o)); }
+
+  /* ===== Build rows (only today's MARRJE SOT) ===== */
+  const idx = loadIdx();
+  let count = 0, sumM2 = 0, sumEur = 0;
+
+  for(const meta of idx){
+    const o = loadOrder(meta.id);
+    if(o && o.status === "marrje-sot" && o.marrje_date === todayStr){
+      tbody.appendChild(row(o));
+      count++;
+      sumM2 += Number((o.pay && o.pay.m2)   || 0);
+      sumEur+= Number((o.pay && o.pay.euro) || 0);
+    }
+  }
+  t_count.textContent = count;
+  t_m2.textContent    = fmtM2(sumM2);
+  t_eur.textContent   = fmt2(sumEur);
+
+  /* ===== Row template ===== */
+  function row(o){
+    const euro = (o.pay && o.pay.euro) || 0;
+    const m2   = (o.pay && o.pay.m2)   || 0;
+    const tr = document.createElement('tr');
+
+    // Build Viber text safely
+    const viberText =
+      `Përshëndetje ${o.client?.name||''}\n` +
+      `Porositë tuaja janë gati.\n` +
+      `Totali: ${fmt2(euro)} €.`;
+
+    tr.innerHTML = `
+      <td>${o.client?.code || ''}</td>
+      <td title="${o.client?.name || '(pa emër)'}">${o.client?.name || '(pa emër)'}</td>
+      <td>${fmtM2(m2)}</td>
+      <td>${fmt2(euro)}</td>
+      <td>
+        <a class="btn msg" href="viber://forward?text=${encodeURIComponent(viberText)}">MESAZH</a>
+        <a href="#" class="btn done">✅ DORËZUAR</a>
+      </td>`;
+
+    // Archive (do not delete) on "DORËZUAR"
+    tr.querySelector('.done').addEventListener('click', (e)=>{
+      e.preventDefault();
+      const key   = KEY(o.id);
+      const fresh = loadOrder(o.id) || o;
+      fresh.completed_date = todayStr;
+      fresh.status = "completed";  // archived status for history
+      saveOrder(fresh);
+      tr.remove();
+    });
+
+    return tr;
+  }
+})();
+</script>
+<script src="assets/app.js"></script>
+  <script src="assets/diag_autofix.js"></script>
+</body>
+</html>

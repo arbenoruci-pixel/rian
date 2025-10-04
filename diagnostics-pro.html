@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>Diagnostics PRO</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#0f1a2a; --line:#1f2e46; --ink:#eaf1ff; --muted:#9fb4d6;
+    --ok:#16a34a; --warn:#c78a2a; --bad:#ef4444;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-rounded,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  h1{margin:16px 16px 4px;font-size:22px}
+  h2{margin:12px 16px 6px;font-size:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:12px;padding:12px}
+  .pill{display:inline-block;margin:3px 4px;padding:4px 8px;border:1px solid var(--line);border-radius:999px;background:#101a31}
+  code{background:#0d1628;padding:2px 6px;border-radius:8px;border:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse}
+  th,td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  a{color:#9bd4ff}
+</style>
+</head>
+<body>
+<a href="diagnostics.html" style="position:fixed;top:8px;left:10px;text-decoration:none;font-size:22px;z-index:9999;background:#111a;padding:6px 10px;border-radius:10px;border:1px solid #2b3956;color:#eaf1ff">←</a>
+<h1>🧪 Diagnostics — PRO</h1>
+<div class="card">
+  <p>Kjo panel kontrollon: orphans, dublikime, lidhje të prishura, përdorim të vjetër të kodeve (X/#/timestamp),
+     mungesë <code>assets/app.js</code>, dhe thirrje funksionesh legacy.</p>
+  <p><button id="btnExport">Export JSON</button>
+     <button id="btnOpenScan" style="margin-left:8px">Open Simple Scan</button></p>
+</div>
+
+<div class="card">
+  <h2>Orphans (kandidatë për heqje)</h2>
+  <div id="orphans"></div>
+</div>
+
+<div class="card">
+  <h2>Duplicates by &lt;title&gt;</h2>
+  <div id="dupes"></div>
+</div>
+
+<div class="card">
+  <h2>Issues per file</h2>
+  <table>
+    <thead><tr><th>File</th><th>Issues</th></tr></thead>
+    <tbody id="files"></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Link Map (HTML → targets)</h2>
+  <pre id="linkmap" style="white-space:pre-wrap"></pre>
+</div>
+
+<script>
+const REPORT = {"files": [{"file": "check.html", "issues": []}, {"file": "index.html", "issues": ["legacy_X_codes_literal"]}, {"file": "index_patched.html", "issues": ["uses_saveDraftLocal"]}, {"file": "pranimi.html", "issues": ["uses_saveDraftLocal"]}, {"file": "reset.html", "issues": []}, {"file": "diagnostics.html", "issues": []}, {"file": "diagnostics-scan.html", "issues": []}, {"file": "arka/index.html", "issues": []}, {"file": "gati/index.html", "issues": []}, {"file": "marrje-sot/index.html", "issues": []}, {"file": "orders/index.html", "issues": []}, {"file": "pastrimi/index.html", "issues": []}, {"file": "pastrimi/pranimi_dash.html", "issues": ["uses_saveDraftLocal"]}, {"file": "pranimi/index.html", "issues": ["uses_saveDraftLocal"]}, {"file": "transporti/index.html", "issues": []}, {"file": "assets/app.js", "issues": ["uses_getOrderById", "uses_saveDraftLocal", "uses_mirrorToUnifiedStore"]}, {"file": "assets/env.js", "issues": []}, {"file": "assets/flow-bind.js", "issues": []}, {"file": "assets/flow-core.js", "issues": []}, {"file": "assets/restore_min.js", "issues": []}, {"file": "assets/supabaseClient.js", "issues": []}, {"file": "assets/tepiha_boot.js", "issues": ["uses_timestamp_as_code"]}, {"file": "assets/diag_visible.js", "issues": []}], "orphans": ["arka/index.html", "assets/env.js", "assets/flow-bind.js", "assets/flow-core.js", "assets/restore_min.js", "assets/styles.css", "assets/supabaseClient.js", "check.html", "gati/index.html", "index_patched.html", "marrje-sot/index.html", "orders/index.html", "pastrimi/index.html", "pastrimi/pranimi_dash.html", "pranimi.html", "pranimi/index.html", "reset.html", "sql/tepiha_setup_patch.sql", "transporti/index.html"], "dupes": [["index_patched.html", "pranimi.html"], ["index_patched.html", "pastrimi/pranimi_dash.html"], ["index_patched.html", "pranimi/index.html"]], "link_map": {"check.html": ["diagnostics.html", "/assets/env.js", "assets/app.js", "/assets/supabaseClient.js"], "index.html": ["/pranimi/", "assets/tepiha_boot.js", "/assets/flow-bind.js", "/pranimi/?id=${x.id}", "diagnostics.html", "/assets/flow-core.js", "assets/diag_visible.js", "/assets/flow-guard.js", "/pastrimi/", "/pranimi/?id=${r.id}", "/transporti/?id=${o.id}", "/marrje-sot/", "/arka/", "assets/app.js", "/gati/"], "index_patched.html": ["/assets/env.js", "assets/tepiha_boot.js", "/assets/flow-bind.js", "/assets/supabaseClient.js", "../", "diagnostics.html", "/assets/flow-core.js", "../pastrimi/", "assets/diag_visible.js", "/assets/flow-guard.js", "assets/app.js"], "pranimi.html": ["assets/tepiha_boot.js", "../", "diagnostics.html", "../pastrimi/", "assets/diag_visible.js", "assets/app.js"], "reset.html": ["diagnostics.html", "assets/app.js", "/"], "diagnostics.html": ["index.html", "assets/app.js", "diagnostics-scan.html"], "diagnostics-scan.html": ["diagnostics.html", "assets/app.js"], "arka/index.html": ["/assets/flow-bind.js", "/", "diagnostics.html", "/assets/flow-core.js", "/assets/flow-guard.js", "assets/app.js"], "gati/index.html": ["/assets/flow-bind.js", "/", "diagnostics.html", "/assets/flow-core.js", "/assets/flow-guard.js", "assets/app.js"], "marrje-sot/index.html": ["/assets/env.js", "/assets/flow-bind.js", "/assets/supabaseClient.js", "diagnostics.html", "/assets/flow-core.js", "index.html", "/assets/flow-guard.js", "viber://forward?text=${encodeURIComponent(viberText)}", "assets/app.js"], "orders/index.html": ["/assets/env.js", "/assets/styles.css", "/assets/supabaseClient.js", "diagnostics.html", "."], "pastrimi/index.html": ["/assets/flow-bind.js", "/", "diagnostics.html", "/assets/flow-core.js", "/assets/flow-guard.js", "assets/app.js"], "pastrimi/pranimi_dash.html": ["/assets/env.js", "assets/tepiha_boot.js", "/assets/flow-bind.js", "/assets/supabaseClient.js", "diagnostics.html", "/assets/flow-core.js", "assets/diag_visible.js", "/assets/flow-guard.js", "pastrimi", "assets/app.js", "."], "pranimi/index.html": ["/assets/env.js", "assets/tepiha_boot.js", "/assets/flow-bind.js", "/assets/supabaseClient.js", "diagnostics.html", "../pastrimi/?id=", "/assets/flow-core.js", "assets/diag_visible.js", "/assets/flow-guard.js", "pastrimi", "assets/app.js", "."], "transporti/index.html": ["/assets/env.js", "/assets/styles.css", "/assets/flow-bind.js", "/assets/supabaseClient.js", "diagnostics.html", "/assets/flow-core.js", "/assets/flow-guard.js", "."]}};
+function pill(s, cls=''){ return '<span class="pill '+cls+'">'+s+'</span>'; }
+
+function renderList(el, arr){
+  if(!arr || !arr.length){ el.innerHTML = pill('none','ok'); return; }
+  el.innerHTML = arr.map(x=> '<div>'+x+'</div>').join('');
+}
+function renderPairs(el, arr){
+  if(!arr || !arr.length){ el.innerHTML = pill('none','ok'); return; }
+  el.innerHTML = arr.map(x=> '<div>'+x[0]+'  →  '+x[1]+'</div>').join('');
+}
+function renderFiles(el, rows){
+  el.innerHTML = rows.map(r=>{
+    const issues = (r.issues&&r.issues.length) ? r.issues.map(i=>pill(i)).join(' ') : pill('OK','ok');
+    return '<tr><td><code>'+r.file+'</code></td><td>'+issues+'</td></tr>';
+  }).join('');
+}
+
+document.getElementById('orphans').innerHTML = '';
+renderList(document.getElementById('orphans'), REPORT.orphans);
+renderPairs(document.getElementById('dupes'), REPORT.dupes);
+renderFiles(document.getElementById('files'), REPORT.files);
+document.getElementById('linkmap').textContent = JSON.stringify(REPORT.link_map, null, 2);
+
+// Export as JSON
+document.getElementById('btnExport').onclick = function(){
+  const blob = new Blob([JSON.stringify(REPORT,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'diagnostics-pro-report.json'; a.click();
+  URL.revokeObjectURL(url);
+};
+document.getElementById('btnOpenScan').onclick = function(){
+  location.href = 'diagnostics-scan.html';
+};
+</script>
+  <script src="assets/diag_autofix.js"></script>
+</body>
+</html>
