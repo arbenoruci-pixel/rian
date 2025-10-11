@@ -1,0 +1,45 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Reset Code Counter</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;background:#0c0f14;color:#fff;margin:0;padding:24px}
+    .box{max-width:640px;margin:0 auto;background:#111826;border:1px solid #223;border-radius:14px;padding:16px}
+    .row{display:flex;gap:10px}
+    input,button{font-size:16px;padding:12px;border-radius:10px;border:1px solid #334;background:#0f141b;color:#fff}
+    button{background:#2463eb;border-color:#1e40af;cursor:pointer}
+    .muted{opacity:.75}
+    pre{white-space:pre-wrap;background:#0b1220;border:1px solid #223;padding:12px;border-radius:10px}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Reset Code Counter</h1>
+    <p class="muted">Sets <code>codes/v2/next.json</code> to <b>1</b> in your Supabase storage.</p>
+    <div class="row">
+      <input id="pin" placeholder="PIN (2380)" />
+      <button id="do">Reset</button>
+    </div>
+    <div id="out" style="margin-top:12px"></div>
+  </div>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="assets/engine/config.js"></script>
+  <script>
+    const out = document.getElementById('out');
+    document.getElementById('do').onclick = async () => {
+      const pin = document.getElementById('pin').value.trim();
+      if(pin !== (window.ADMIN_RESET_PIN||'2380')){ out.textContent = 'PIN gabim'; return; }
+      try{
+        const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
+        const payload = new Blob([JSON.stringify({next:1})], {type:'application/json'});
+        const { data, error } = await sb.storage.from(window.BUCKET_CODES||'codes').upload((window.NAMESPACE_PREFIX||'v2/') + 'next.json', payload, { upsert:true });
+        if (error) { out.textContent = 'Error: '+error.message; return; }
+        out.textContent = 'OK: Counter reset to 1';
+      }catch(e){ out.textContent = 'Thrown: '+e.message; }
+    };
+  </script>
+</body>
+</html>

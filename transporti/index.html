@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html><head><base href="/"/>
+<meta charset="utf-8"/><meta content="width=device-width, initial-scale=0.7, maximum-scale=0.7, user-scalable=no" name="viewport"/>
+<title>TRANSPORTI</title>
+<link href="/assets/styles.css" rel="stylesheet"/>
+<script type="module">
+import {ensureOrderFromURL, calcTotals, saveOrder, fmt2, openMessage, setStatusAndTheme} from '/assets/app.js';
+const o = ensureOrderFromURL();
+window.addEventListener('DOMContentLoaded', ()=>{ setStatusAndTheme(o, 'transport'); update(); });
+function update(){ calcTotals(o); saveOrder(o);
+  document.getElementById('oid').textContent = o.id;
+  document.getElementById('client').textContent = (o.client.name||'') + ' • ' + (o.client.phone||'');
+  document.getElementById('m2').textContent = fmt2(o.totals.m2);
+  document.getElementById('eur').textContent = fmt2(o.totals.eur);
+}
+window.msg = () => { calcTotals(o); saveOrder(o); openMessage(o, 'start', 'sms'); };
+window.setS = s => { setStatusAndTheme(o, s); };
+</script>
+<!-- injected by scale_65 -->
+<style id="global_scale_65">
+  /* 35% më e vogël (scale 0.65) – pa prek dizajnin, vetëm shrink */
+  html, body { height: auto !important; }
+  body {
+    transform: scale(0.65);
+    transform-origin: top left;
+    width: calc(100% / 0.65);
+  }
+</style>
+<!-- Supabase CDN (client-side) -->
+
+<!-- Project env and bootstrap -->
+<script src="/assets/env.js"></script>
+<script src="/assets/supabaseClient.js"></script>
+<script src="/assets/flow-guard.js"></script>
+<script src="/assets/flow-core.js"></script>
+<script src="/assets/flow-bind.js"></script>
+<link href="/clients_list_styles.css" rel="stylesheet">
+
+<script src="/assets/supabase.js"></script>
+<style>
+/* HARD HIDE: reset buttons & any error toasts/overlays */
+button#reset, .reset, [data-role="reset"], button[data-reset], a.reset, .btn-reset { display:none !important; }
+#js-error, .js-error, .error-toast, .error-bar, .dev-error, .error-overlay, .err-overlay, .toast-error { display:none !important; visibility:hidden !important; opacity:0 !important; pointer-events:none !important; }
+</style>
+</link><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>if(typeof supabase==='undefined'){document.write('<script src="https://unpkg.com/@supabase/supabase-js@2"><\/script>');}</script></head><body><div class="app">
+<div class="card">
+<div class="badge" id="oid"></div>
+<div class="small" id="client"></div>
+<div class="grid2" style="margin:10px 0">
+<div class="card">M²: <b id="m2">0.00</b></div>
+<div class="card">€: <b id="eur">0.00</b></div>
+</div>
+<div class="grid2">
+<a class="btn" href="javascript:setS('transport')">Ruaj statusin: TRANSPORT</a>
+<a class="btn" href="javascript:msg()">📩 Dërgo mesazh</a>
+</div>
+</div>
+<a class="btn" href="../">⇐ Home</a>
+</div>
+<script src="/home_search_patch.js"></script>
+<script src="/reset_admin.js"></script>
+<script src="/ux_fastlane.js"></script>
+<script src="/flow_fastlane.js"></script>
+<script src="/clients_quick_actions.js"></script>
+<script src="/home_buttons_hotfix.js"></script>
+<script src="/supabase_cleanup.js"></script>
+<script src="/assets/sync.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const renderFns = ["renderHome","renderList","render"].filter(fn => typeof window[fn] === 'function');
+  const doRender = () => { (renderFns[0] ? window[renderFns[0]] : (()=>{}))(); };
+  if(window.TepihaSync && window.TepihaSync.syncDownThenRender){
+    window.TepihaSync.syncDownThenRender(doRender);
+    const sub = window.TepihaSync.subscribeRealtime(()=>doRender());
+    window.addEventListener('beforeunload', ()=> sub.unsubscribe && sub.unsubscribe());
+  } else {
+    // fallback: render immediately
+    doRender();
+  }
+});
+</script>
+<script>
+// Silence overlay: log errors to console without UI blocking
+if(!window.__tepiha_error_patched){
+  window.__tepiha_error_patched = true;
+  const oldOnError = window.onerror;
+  window.onerror = function(message, source, lineno, colno, error){
+    try { console.log('JS ERROR (silenced):', message, 'at', source+':'+lineno); } catch(e){}
+    if(typeof oldOnError === 'function') return oldOnError(message, source, lineno, colno, error);
+    return false;
+  };
+}
+</script>
+<script>
+// Remove any element that looks like a JS error toast (contains "JS ERROR")
+document.addEventListener('DOMContentLoaded', ()=>{
+  Array.from(document.querySelectorAll('*')).forEach(el=>{
+    const t = (el.textContent||'').toUpperCase();
+    if(t.includes('JS ERROR')){ try{ el.remove(); }catch(e){ el.style.display='none'; } }
+    const id = (el.id||'').toLowerCase();
+    const cls= (el.className||'').toString().toLowerCase();
+    if(id.includes('error') || cls.includes('error-toast') || cls.includes('js-error')){
+      try{ el.remove(); }catch(e){ el.style.display='none'; }
+    }
+  });
+  // Kill any global onerror handlers that draw UI to the screen
+  const original = window.onerror;
+  window.onerror = function(){ return true; }; // swallow errors
+});
+</script>
+<script>
+(function(){
+  const gear = document.querySelector('#gearBtn,[data-debug-hold]');
+  if(gear){
+    gear.style.right = '10px';
+    gear.style.bottom = '80px'; /* move above bottom controls */
+    gear.style.opacity = '0.10';
+  }
+})();
+</script>
+</body></html>

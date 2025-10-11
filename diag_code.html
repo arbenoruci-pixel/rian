@@ -1,0 +1,57 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Code Diagnostics</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;background:#0c0f14;color:#fff;margin:0;padding:24px}
+    .box{max-width:640px;margin:0 auto;background:#111826;border:1px solid #223;border-radius:14px;padding:16px}
+    .row{display:flex;gap:10px}
+    input,button{font-size:16px;padding:12px;border-radius:10px;border:1px solid #334;background:#0f141b;color:#fff}
+    button{background:#2463eb;border-color:#1e40af;cursor:pointer}
+    pre{white-space:pre-wrap;background:#0b1220;border:1px solid #223;padding:12px;border-radius:10px}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Code Diagnostics</h1>
+    <div id="out">Running…</div>
+    <pre id="log"></pre>
+  </div>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="assets/engine/config.js"></script>
+  <script>
+    (async () => {
+      const out = document.getElementById('out');
+      const log = document.getElementById('log');
+      function println(x){ log.textContent += x + "\n"; }
+      try{
+        if(!window.SUPABASE_URL||!window.SUPABASE_KEY){ out.textContent='ERROR: config.js not loaded'; return; }
+        const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
+        out.textContent='Checking codes bucket…';
+        const pfx = (window.NAMESPACE_PREFIX||'v2/');
+        const { data, error } = await sb.storage.from(window.BUCKET_CODES||'codes').download(pfx+'next.json');
+        if (error) {
+          println('download error: '+error.message);
+        } else {
+          const txt = await data.text();
+          println('next.json content: '+txt);
+        }
+        // Try to increment and show next code
+        let next = 1;
+        if (!error && typeof data !== 'undefined'){
+          try{ next = (JSON.parse(await (await sb.storage.from(window.BUCKET_CODES||'codes').download(pfx+'next.json')).data.text()).next)||1 }catch(e){}
+        }
+        const payload = new Blob([JSON.stringify({next: next+1})], {type:'application/json'});
+        const up = await sb.storage.from(window.BUCKET_CODES||'codes').upload(pfx+'next.json', payload, { upsert:true });
+        if (up.error) { out.textContent = 'ERROR writing next.json: '+up.error.message; return; }
+        out.textContent = 'OK. New code should be: '+String(next);
+      }catch(e){
+        out.textContent = 'Thrown: '+e.message;
+      }
+    })();
+  </script>
+</body>
+</html>

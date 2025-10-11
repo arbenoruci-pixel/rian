@@ -1,0 +1,144 @@
+
+<!DOCTYPE html>
+<html lang="sq">
+<head><base href="/"/>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" name="viewport"/>
+<title>HOME • Big Buttons Inline Lists</title>
+<style>
+:root{
+  --bg:#0b1220; --bg2:#0a111c;
+  --panel:#0f1a2a; --panel2:#101a27;
+  --line:#1f2e46; --text:#eaf1ff; --muted:#9fb4d6;
+  --blue1:#1aa5d8; --blue2:#146b95;
+  --green1:#19a25f; --green2:#0e6d3d;
+  --amber1:#c78a2a; --amber2:#8a5f19;
+  --red1:#ff5a2a; --red2:#8b2a2a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1000px 600px at 50% -120px, rgba(255,255,255,.04), transparent), linear-gradient(180deg,var(--bg),var(--bg2));color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;letter-spacing:.2px}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer}
+.app{max-width:960px;margin:0 auto;padding:16px}
+.panel{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 0 0 1px rgba(255,255,255,.04) inset}
+
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(180deg,#254369,#15263c);border:1px solid #203651;display:flex;align-items:center;justify-content:center}
+.brand h1{margin:0;font-size:18px;letter-spacing:.6px}
+.badge{background:linear-gradient(180deg,var(--blue1),var(--blue2));border:1px solid #1f6f97;color:#eaffff;padding:6px 10px;border-radius:999px;font-weight:1000}
+
+.header-actions{display:flex;align-items:center;gap:8px}
+
+.segment{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:760px){.segment{grid-template-columns:repeat(2,minmax(0,1fr));}}
+.seg{position:relative;display:flex;align-items:center;justify-content:center;height:54px;border-radius:12px;border:1px solid var(--line);text-transform:uppercase;font-weight:1000;background:linear-gradient(180deg,#1c2f46,#111a2b)}
+.count{position:absolute;right:8px;top:8px;min-width:22px;height:22px;border-radius:999px;display:flex;align-items:center;justify-content:center;padding:0 7px;border:1px solid var(--line);font-size:12px}
+.cPa{background:linear-gradient(180deg,var(--blue1),var(--blue2))}
+.cPr{background:linear-gradient(180deg,#c44444,#812a2a)} /* fixed extra ) */
+.cGa{background:linear-gradient(180deg,#1b9b5a,#0f6b3d)}
+.cMa{background:linear-gradient(180deg,var(--amber1),var(--amber2))}
+
+.btnBigWrap{display:flex;justify-content:center;margin:12px 0}
+.btnBig{min-width:320px;max-width:520px;width:90%;padding:14px 18px;border-radius:14px;border:1px solid #2aa7d8;font-weight:1000;color:#fff;letter-spacing:.6px;text-transform:uppercase;box-shadow:0 2px 0 rgba(0,0,0,.25),0 0 0 1px rgba(255,255,255,.06) inset;text-align:center}
+.btnGreen{background:linear-gradient(180deg,var(--green1),var(--green2));}
+.btnRed{background:linear-gradient(180deg,#ff5a5a,#8b2a2a);border-color:#a94444}
+.btnOrange{background:linear-gradient(180deg,var(--amber1),var(--amber2));border-color:#8a5f19}
+.btnBig .pill{margin-left:8px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border-radius:999px;background:rgba(255,255,255,.15);border:1px solid rgba(0,0,0,.25);font-size:12px}
+
+.inlinePanel{display:none; max-width:720px; margin:8px auto 0; padding:0 8px}
+.list a.rowitem{display:flex;align-items:center;justify-content:space-between;padding:12px;border-radius:10px;background:#0e1930;border:1px solid var(--line);margin-top:8px}
+.muted{color:#9fb4d6;font-size:12px}
+
+.tools{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+@media (max-width:760px){.tools{grid-template-columns:1fr;}}
+.card{border:1px dashed var(--line);border-radius:12px;padding:10px;background:#101a31}
+.row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.tag{margin-bottom:6px;font-weight:900;letter-spacing:.6px;color:#cbd7ef}
+.input{flex:1;padding:12px;border-radius:10px;border:1px solid var(--line);background:#0e1730;color:#fff;font-weight:900;letter-spacing:1px}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 14px;border-radius:10px;border:1px solid #2aa7d8;text-transform:uppercase;font-weight:1000;color:#fff;letter-spacing:.6px;box-shadow:0 2px 0 rgba(0,0,0,.25),0 0 0 1px rgba(255,255,255,.06) inset}
+.btn.search{background:linear-gradient(180deg,var(--blue1),var(--blue2));}
+.small{font-size:12px;padding:8px 10px;border-radius:9px}
+
+/* NEW: search results styling */
+#homeSearchResults .rowitem small{ color:var(--muted); margin-left:6px }
+</style>
+<!-- Supabase CDN -->
+
+<!-- (Nëse ke /assets/env.js dhe /assets/supabaseClient.js lëri; nuk nevojiten këtu) -->
+
+
+<link href="clients_list_styles.css" rel="stylesheet"/>
+
+<style>
+/* HARD HIDE: reset buttons & any error toasts/overlays */
+button#reset, .reset, [data-role="reset"], button[data-reset], a.reset, .btn-reset { display:none !important; }
+#js-error, .js-error, .error-toast, .error-bar, .dev-error, .error-overlay, .err-overlay, .toast-error { display:none !important; visibility:hidden !important; opacity:0 !important; pointer-events:none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+<div class="header">
+<div class="brand">
+<div class="logo">🧼</div>
+<div><h1>KOMPANIA JONI</h1><div class="muted">HOME</div></div>
+</div>
+<div class="header-actions">
+<a class="badge" href="/arka/" title="Hap Arka">€ ARKA</a>
+</div>
+</div>
+<!-- MAIN STAGE BUTTONS -->
+<div class="panel">
+<div class="segment">
+<a class="seg" href="/pranimi/">PRANIMI <span class="count cPr" id="cPr">0</span></a>
+<a class="seg" href="/pastrimi/">PASTRIMI <span class="count cPa" id="cPa">0</span></a>
+<a class="seg" href="/gati/">GATI <span class="count cGa" id="cGa">0</span></a>
+<a class="seg" href="/marrje-sot/">MARRJE SOT <span class="count cMa" id="cMa">0</span></a>
+</div>
+</div>
+<!-- BIG BUTTONS STACKED -->
+<div class="btnBigWrap"><a class="btnBig btnGreen" href="/pranimi/" id="addX">＋ KLIENT I RI</a></div>
+<div class="btnBigWrap"><button class="btnBig btnRed" id="togglePap">PAPLOTËSUARA <span class="pill" id="countPap">0</span></button></div>
+<div class="inlinePanel" id="papPanel">
+<div class="list muted" id="papList">—</div>
+</div>
+<div class="btnBigWrap"><button class="btnBig btnOrange" id="toggleTA">🚚 TRANSPORT AKTIV <span class="pill" id="countTA">0</span></button></div>
+<div class="inlinePanel" id="taPanel">
+<div class="list muted" id="taList">—</div>
+</div>
+<!-- TOOLS -->
+<div class="tools">
+<div class="card">
+<div class="tag">KLIENTËT E BAZËS — KËRKO</div>
+<div class="row">
+<input class="input" id="qX" placeholder="Shkruaj: X01 ose emër ose telefon"/>
+<a class="btn search" id="searchX">KËRKO</a>
+</div>
+<div class="list" id="homeSearchResults"></div>
+</div>
+<div class="card">
+<div class="tag">TRANSPORT — KODI T</div>
+<div class="row">
+<input class="input" id="qT" placeholder="T2"/>
+<a class="btn search" id="searchT">KËRKO</a>
+</div>
+</div>
+</div>
+</div>
+<!-- Supabase SDK (konfig) -->
+
+<!-- ======= HOME LOGIC: cloud JSON for stages + ARKA view for Marrje Sot ======= -->
+
+
+
+
+
+
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="assets/engine/config.js"></script>
+  <script src="assets/engine/utils.js"></script>
+  <script src="assets/engine/app.js"></script>
+  <script src="assets/engine/adapter_home.js"></script>
+</body>
+</html>

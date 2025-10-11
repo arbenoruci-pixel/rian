@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+
+<html lang="sq">
+<head><base href="/"/>
+<meta charset="utf-8"/>
+<title>Supabase Check</title>
+
+<script src="/assets/env.js"></script>
+<script src="/assets/supabaseClient.js"></script>
+
+<script src="/assets/supabase.js"></script>
+<style>
+/* HARD HIDE: reset buttons & any error toasts/overlays */
+button#reset, .reset, [data-role="reset"], button[data-reset], a.reset, .btn-reset { display:none !important; }
+#js-error, .js-error, .error-toast, .error-bar, .dev-error, .error-overlay, .err-overlay, .toast-error { display:none !important; visibility:hidden !important; opacity:0 !important; pointer-events:none !important; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>if(typeof supabase==='undefined'){document.write('<script src="https://unpkg.com/@supabase/supabase-js@2"><\/script>');}</script></head>
+<body style="background:#0b1220;color:#fff;font-family:system-ui;padding:20px">
+<h1>🔍 Supabase Connection Test</h1>
+<pre id="out">Loading…</pre>
+<script>
+(async ()=>{
+  const out = document.getElementById('out');
+  try {
+    // Test SELECT
+    let sel = await sb.from('payments').select('*').limit(1);
+    // Test INSERT (harmless demo row)
+    let ins = await sb.from('payments').insert({
+      order_id:'TEST-CHECK',
+      client_code:'C000',
+      client_name:'Check Client',
+      total: 1, received: 1, change: 0, debt: 0
+    }).select();
+
+    out.textContent =
+      "✅ SELECT status: " + sel.status + "\\n" +
+      "✅ INSERT status: " + ins.status + "\\n" +
+      "Inserted row: " + JSON.stringify(ins.data, null, 2);
+  } catch(e){
+    out.textContent = "❌ ERROR:\\n" + e.message;
+  }
+})();
+</script>
+<script src="reset_admin.js"></script>
+<script src="ux_fastlane.js"></script>
+<script src="/flow_fastlane.js"></script>
+<script src="/assets/sync.js"></script>
+<script>
+// Silence overlay: log errors to console without UI blocking
+if(!window.__tepiha_error_patched){
+  window.__tepiha_error_patched = true;
+  const oldOnError = window.onerror;
+  window.onerror = function(message, source, lineno, colno, error){
+    try { console.log('JS ERROR (silenced):', message, 'at', source+':'+lineno); } catch(e){}
+    if(typeof oldOnError === 'function') return oldOnError(message, source, lineno, colno, error);
+    return false;
+  };
+}
+</script>
+<script>
+// Remove any element that looks like a JS error toast (contains "JS ERROR")
+document.addEventListener('DOMContentLoaded', ()=>{
+  Array.from(document.querySelectorAll('*')).forEach(el=>{
+    const t = (el.textContent||'').toUpperCase();
+    if(t.includes('JS ERROR')){ try{ el.remove(); }catch(e){ el.style.display='none'; } }
+    const id = (el.id||'').toLowerCase();
+    const cls= (el.className||'').toString().toLowerCase();
+    if(id.includes('error') || cls.includes('error-toast') || cls.includes('js-error')){
+      try{ el.remove(); }catch(e){ el.style.display='none'; }
+    }
+  });
+  // Kill any global onerror handlers that draw UI to the screen
+  const original = window.onerror;
+  window.onerror = function(){ return true; }; // swallow errors
+});
+</script>
+<script>
+(function(){
+  const gear = document.querySelector('#gearBtn,[data-debug-hold]');
+  if(gear){
+    gear.style.right = '10px';
+    gear.style.bottom = '80px'; /* move above bottom controls */
+    gear.style.opacity = '0.10';
+  }
+})();
+</script>
+</body>
+</html>

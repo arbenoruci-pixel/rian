@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+
+<html lang="sq">
+<head><base href="/"/>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" name="viewport"/>
+<title>RESET • Tepiha (Project-wide)</title>
+<style>
+  :root{ --bg:#0b1220; --bg2:#0a111c; --panel:#0f1a2a; --line:#1f2e46; --ink:#eaf1ff; --muted:#9fb4d6; --red:#ef4444; --green:#22c55e;}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;background:linear-gradient(180deg,#0b1220,#0a111c);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  .wrap{width:min(1000px,96vw);padding:16px}
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  h1{margin:0 0 8px 0;font-size:22px}
+  button{cursor:pointer;border-radius:10px;border:1px solid #2b3956;padding:12px 16px;font-weight:900;margin-right:8px}
+  .btn{background:#173555;color:#fff}
+  .btn.red{background:linear-gradient(180deg,var(--red),#9f1c1c);border-color:#7f1d1d}
+  .btn.green{background:linear-gradient(180deg,#16a34a,#0e6d3d);border-color:#0e6d3d}
+  .muted{color:var(--muted);font-size:12px}
+  #resetLog{height:260px;overflow:auto;border:1px solid var(--line);background:#0c1322;border-radius:10px;padding:10px;font:13px ui-monospace,Menlo,Consolas;white-space:pre-wrap}
+</style>
+<link href="/clients_list_styles.css" rel="stylesheet"/>
+
+<script src="/assets/supabase.js"></script>
+<style>
+/* HARD HIDE: reset buttons & any error toasts/overlays */
+button#reset, .reset, [data-role="reset"], button[data-reset], a.reset, .btn-reset { display:none !important; }
+#js-error, .js-error, .error-toast, .error-bar, .dev-error, .error-overlay, .err-overlay, .toast-error { display:none !important; visibility:hidden !important; opacity:0 !important; pointer-events:none !important; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>if(typeof supabase==='undefined'){document.write('<script src="https://unpkg.com/@supabase/supabase-js@2"><\/script>');}</script><script src="/assets/env.js"></script><script src="/assets/supabaseClient.js"></script></head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>RESET • Tepiha (Project-wide)</h1>
+<div class="muted">Kjo faqe pastron të dhënat lokale, mund të fshijë porositë në cloud dhe rivendos numërimin e klientëve.</div>
+</div>
+<div class="card">
+<button class="btn green" id="btnLocal">RESET LOKAL (vetëm pajisja)</button>
+<button class="btn red" id="btnFull">RESET I PLOTË (Cloud + Lokal)</button>
+<button class="btn" id="btnReseq">RESEQUENCE KLIENTËT (001…)</button>
+<div class="muted" id="info" style="margin-top:6px"></div>
+</div>
+<div class="card">
+<h2>Log</h2>
+<div id="resetLog"></div>
+</div>
+</div>
+<!-- Load your reset engine -->
+<script src="/assets/reset-all.js"></script>
+<script>
+(async function(){
+  const info = window.TepihaResetAll.info();
+  document.getElementById('info').textContent =
+    `Supabase: ${info.url} • Bucket: ${info.bucket} • Prefix: ${info.prefixes.join(', ')}`;
+
+  const btnLocal = document.getElementById('btnLocal');
+  const btnFull  = document.getElementById('btnFull');
+  const btnReseq = document.getElementById('btnReseq');
+
+  btnLocal.onclick = async ()=>{
+    if(!confirm("RESET LOKAL? Fshin të gjitha të dhënat në këtë pajisje dhe rivendos numërimin.")) return;
+    await window.TepihaResetAll.localOnly();
+    alert("✅ Reset lokal u krye. Rihap aplikacionin.");
+  };
+
+  btnFull.onclick = async ()=>{
+    if(!confirm("RESET I PLOTË? Fshin çdo orders/*.json në cloud dhe pastron lokalisht.")) return;
+    await window.TepihaResetAll.cloudAndLocal();
+    alert("✅ Reset i plotë u krye. Rihap aplikacionin.");
+  };
+
+  btnReseq.onclick = async ()=>{
+    const r = window.TepihaResetAll.resequenceClients({start:1, width:3});
+    if(r) alert(`Resequenced ${r.clients} klientë. Next: ${r.next||''}`);
+  };
+})();
+</script>
+<script src="/home_search_patch.js"></script>
+<script src="/reset_admin.js"></script>
+<script src="/ux_fastlane.js"></script>
+<script src="/flow_fastlane.js"></script>
+<script src="/clients_quick_actions.js"></script>
+<script src="/home_buttons_hotfix.js"></script>
+<script src="/supabase_cleanup.js"></script>
+<script src="/assets/sync.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const renderFns = ["renderHome","renderList","render"].filter(fn => typeof window[fn] === 'function');
+  const doRender = () => { (renderFns[0] ? window[renderFns[0]] : (()=>{}))(); };
+  if(window.TepihaSync && window.TepihaSync.syncDownThenRender){
+    window.TepihaSync.syncDownThenRender(doRender);
+    const sub = window.TepihaSync.subscribeRealtime(()=>doRender());
+    window.addEventListener('beforeunload', ()=> sub.unsubscribe && sub.unsubscribe());
+  } else {
+    // fallback: render immediately
+    doRender();
+  }
+});
+</script>
+<script>
+// Silence overlay: log errors to console without UI blocking
+if(!window.__tepiha_error_patched){
+  window.__tepiha_error_patched = true;
+  const oldOnError = window.onerror;
+  window.onerror = function(message, source, lineno, colno, error){
+    try { console.log('JS ERROR (silenced):', message, 'at', source+':'+lineno); } catch(e){}
+    if(typeof oldOnError === 'function') return oldOnError(message, source, lineno, colno, error);
+    return false;
+  };
+}
+</script>
+<script>
+// Remove any element that looks like a JS error toast (contains "JS ERROR")
+document.addEventListener('DOMContentLoaded', ()=>{
+  Array.from(document.querySelectorAll('*')).forEach(el=>{
+    const t = (el.textContent||'').toUpperCase();
+    if(t.includes('JS ERROR')){ try{ el.remove(); }catch(e){ el.style.display='none'; } }
+    const id = (el.id||'').toLowerCase();
+    const cls= (el.className||'').toString().toLowerCase();
+    if(id.includes('error') || cls.includes('error-toast') || cls.includes('js-error')){
+      try{ el.remove(); }catch(e){ el.style.display='none'; }
+    }
+  });
+  // Kill any global onerror handlers that draw UI to the screen
+  const original = window.onerror;
+  window.onerror = function(){ return true; }; // swallow errors
+});
+</script>
+<script>
+(function(){
+  const gear = document.querySelector('#gearBtn,[data-debug-hold]');
+  if(gear){
+    gear.style.right = '10px';
+    gear.style.bottom = '80px'; /* move above bottom controls */
+    gear.style.opacity = '0.10';
+  }
+})();
+</script>
+</body>
+</html>
