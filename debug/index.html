@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Supabase Debug</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 16px; }
+    h1 { margin: 0 0 12px; }
+    button { padding: 10px 14px; margin: 6px 8px 6px 0; border: 1px solid #ddd; border-radius: 8px; background:#fff; }
+    button:active { transform: translateY(1px); }
+    .ok { color: #0a0; }
+    .err { color: #c00; white-space: pre-wrap; }
+    #out { margin-top:12px; padding:12px; border:1px dashed #bbb; border-radius:8px; background:#fafafa; min-height:120px; white-space:pre-wrap; }
+    .row { margin: 10px 0; }
+    code { background:#f3f3f3; padding:2px 6px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <h1>Supabase Connectivity Test</h1>
+  <div class="row">URL: <code id="url"></code></div>
+  <div class="row">
+    <button id="btnPing">Ping REST</button>
+    <button id="btnRPC">RPC next_code()</button>
+    <button id="btnSelect">Select top 3 orders</button>
+    <button id="btnInsert">Insert test (code 900001)</button>
+    <button id="btnCleanup">Cleanup test rows</button>
+  </div>
+  <div id="out">Press a button…</div>
+
+  <script type="module" src="/assets/debug.js"></script>
+</body>
+</html>
