@@ -1,59 +1,110 @@
-// /assets/home.counters.js — v3 (adds countReadyToday and keeps existing exports)
-import { supabase } from '/assets/supabase.js';
+// /assets/home.counters.js — REST version compatible with /assets/supabase.js
+// Uses your SUPABASE_URL / SUPABASE_ANON; no supabase-js client required.
 
-export async function countStatus(status){
-  const { count, error } = await supabase
-    .from('orders')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', status);
-  if(error){ console.warn('[countStatus]', status, error); return 0; }
-  return Number(count||0);
+import { SUPABASE_URL, SUPABASE_ANON } from '/assets/supabase.js';
+
+// ---------- headers ----------
+function baseHeaders() {
+  return {
+    apikey: SUPABASE_ANON,
+    Authorization: `Bearer ${SUPABASE_ANON}`,
+  };
 }
 
-// Unfinished = anything not delivered. Adjust if you prefer a narrower definition.
-export async function countUnfinished(){
-  const { count, error } = await supabase
-    .from('orders')
-    .select('id', { count: 'exact', head: true })
-    .is('completed_at', null);
-  if(error){ console.warn('[countUnfinished]', error); return 0; }
-  return Number(count||0);
+// For accurate counts, PostgREST must receive Prefer: count=exact and any Range header
+function countHeaders() {
+  return {
+    ...baseHeaders(),
+    Prefer: 'count=exact',
+    Range: '0-0',               // tiny range; we only care about Content-Range */N
+    Accept: 'application/json',
+  };
 }
 
-// New: orders with status 'gati' and ready_at is today (local day window)
-export async function countReadyToday(){
-  const s = new Date(); s.setHours(0,0,0,0);
-  const e = new Date(s); e.setDate(s.getDate()+1);
+// ---------- generic head-count helper ----------
+async function headCount(filters) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/orders`);
+  url.searchParams.set('select', 'id');
 
-  const { count, error } = await supabase
-    .from('orders')
-    .select('id', { count: 'exact', head: true })
-    .eq('status','gati')
-    .gte('ready_at', s.toISOString())
-    .lt('ready_at', e.toISOString());
-  if(error){ console.warn('[countReadyToday]', error); return 0; }
-  return Number(count||0);
+  if (filters) {
+    for (const [k, v] of Object.entries(filters)) {
+      if (Array.isArray(v)) v.forEach(v2 => url.searchParams.append(k, v2));
+      else url.searchParams.set(k, v);
+    }
+  }
+
+  try {
+    const r = await fetch(url.toString(), { method: 'GET', headers: countHeaders() });
+    const cr = r.headers.get('Content-Range'); // e.g. "0-0/12"
+    if (cr && cr.includes('/')) {
+      const total = Number(cr.split('/').pop());
+      return Number.isFinite(total) ? total : 0;
+    }
+    // fallback if server didn’t return header
+    const data = await r.json().catch(() => []);
+    return Array.isArray(data) ? data.length : 0;
+  } catch (e) {
+    console.warn('[headCount error]', e);
+    return 0;
+  }
 }
 
-// Income from delivered orders today
-export async function incomeToday(){
-  const s = new Date(); s.setHours(0,0,0,0);
-  const e = new Date(s); e.setDate(s.getDate()+1);
-
-  const { data, error } = await supabase
-    .from('orders')
-    .select('total,picked_at,status')
-    .eq('status', 'dorzim')
-    .gte('picked_at', s.toISOString())
-    .lt('picked_at', e.toISOString());
-  if(error){ console.warn('[incomeToday]', error); return 0; }
-  return (data||[]).reduce((acc, r)=>acc + Number(r.total||0), 0);
+// ---------- public API (used by index.html) ----------
+export async function countStatus(status) {
+  // expects your statuses: 'pranim', 'pastrim', 'gati', ...
+  return headCount({ status: `eq.${status}` });
 }
 
-// Live updates from 'orders' table
-export function subscribeOrders(onChange){
-  return supabase
-    .channel('home-counters')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, onChange)
-    .subscribe();
+// unfinished = completed_at IS NULL  (change if your logic differs)
+export async function countUnfinished() {
+  return headCount({ 'completed_at': 'is.null' });
+}
+
+// "MARRJE SOT" = ready today (status='gati' AND ready_at ∈ today)
+// If your schema has no ready_at, we fallback to created_at.
+export async function countReadyToday() {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const end = new Date(start); end.setDate(start.getDate() + 1);
+
+  // primary: ready_at between [start, end)
+  const n1 = await headCount({
+    status: 'eq.gati',
+    ready_at: [`gte.${start.toISOString()}`, `lt.${end.toISOString()}`],
+  });
+  if (n1 > 0) return n1;
+
+  // fallback: created_at window, in case you don't store ready_at
+  const n2 = await headCount({
+    status: 'eq.gati',
+    created_at: [`gte.${start.toISOString()}`, `lt.${end.toISOString()}`],
+  });
+  return n2;
+}
+
+// € income from delivered orders today (status='dorzim' with picked_at today)
+export async function incomeToday() {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const end = new Date(start); end.setDate(start.getDate() + 1);
+
+  const url = new URL(`${SUPABASE_URL}/rest/v1/orders`);
+  url.searchParams.set('select', 'total,picked_at,status');
+  url.searchParams.set('status', 'eq.dorzim');
+  url.searchParams.append('picked_at', `gte.${start.toISOString()}`);
+  url.searchParams.append('picked_at', `lt.${end.toISOString()}`);
+
+  try {
+    const r = await fetch(url.toString(), { headers: baseHeaders() });
+    const data = await r.json();
+    return (Array.isArray(data) ? data : []).reduce((sum, row) => sum + Number(row.total || 0), 0);
+  } catch (e) {
+    console.warn('[incomeToday error]', e);
+    return 0;
+  }
+}
+
+// Lightweight "realtime": refresh counters when tab becomes visible again
+export function subscribeOrders(onChange) {
+  const handler = () => onChange?.();
+  document.addEventListener('visibilitychange', handler);
+  return { unsubscribe() { document.removeEventListener('visibilitychange', handler); } };
 }
