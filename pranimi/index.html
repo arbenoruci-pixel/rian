@@ -25,11 +25,9 @@ label{font-size:.9rem;color:var(--muted);font-weight:900;letter-spacing:.03em}
 @media (max-width:720px){.row{grid-template-columns:1fr}}
 .input{width:100%;min-height:56px;background:#070a12;border:2px solid var(--line);border-radius:14px;padding:14px 16px;font-size:1.25rem;font-weight:1000;color:var(--ink);outline:none}
 .input:focus{border-color:#6aa1ff;box-shadow:0 0 0 3px rgba(30,96,255,.25)}
-/* chips */
 .chips{display:flex;flex-wrap:wrap;gap:12px;padding:6px 0}
 .chip{border:2px solid var(--chip-br);background:var(--chip-bg);color:var(--chip-ink);border-radius:999px;padding:10px 16px;min-height:56px;font-weight:1000;cursor:pointer}
 .chip:active,.chip:hover{background:#18223a}
-/* rows */
 .list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
 .piece-row{display:grid;grid-template-columns: 1fr auto;gap:10px;align-items:center;padding:8px;border:1px solid var(--panel-br);border-radius:12px;background:#0b111d}
 .piece-row .left{display:grid;grid-template-columns: 1fr auto;gap:8px;align-items:center}
@@ -45,38 +43,26 @@ label{font-size:.9rem;color:var(--muted);font-weight:900;letter-spacing:.03em}
 .btn.ghost{background:#0c1220;color:#e6f0ff;border:2px solid #2b3956}
 .pill,.tot{display:flex;justify-content:space-between;align-items:center;background:#0b111d;border:1px solid var(--panel-br);border-radius:12px;padding:10px 12px;font-weight:1000}
 .tot{margin-top:8px}
-
-/* footer */
 .footer{position:fixed;left:0;right:0;bottom:0;z-index:10;background:rgba(5,7,12,.97);border-top:1px solid var(--panel-br);backdrop-filter:blur(6px)}
 .footwrap{max-width:980px;margin:0 auto;padding:12px 16px;display:grid;grid-template-columns:auto auto auto;gap:12px;align-items:center;justify-content:space-between}
 a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
-
-/* fixed KOD button size */
 #btnFindCode{min-height:40px;height:40px;padding:8px 12px;border-radius:12px;border:1px solid #2b3956;background:#0a1220;color:#d8ffe9;font-weight:1000}
-
-/* util row */
 .utilRow{display:flex;gap:10px;margin-top:12px}
 .utilBtn{flex:1;display:flex;align-items:center;justify-content:center;height:48px;border-radius:12px;border:1px solid #2b3956;font-weight:1000;cursor:pointer;user-select:none}
 .btn-sh{background:linear-gradient(180deg,rgba(120,180,255,.12),rgba(120,180,255,.05))}
 .btn-sms{background:linear-gradient(180deg,rgba(120,255,160,.12),rgba(120,255,160,.05))}
 .btn-eur{background:linear-gradient(180deg,rgba(255,220,140,.12),rgba(255,220,140,.05))}
 .utilBtn:active{transform:scale(.99)}
-
-/* === NEW: compact footer buttons (≈50% smaller) === */
 .footwrap.foot-compact{grid-template-columns:repeat(3,1fr);gap:10px;padding:8px 16px}
 .btn.btn-sm{min-height:32px;padding:6px 10px;font-size:.9rem;border-radius:12px;white-space:nowrap}
 </style>
-<link rel="stylesheet" href="/clients_list_styles.css"/>
 </head>
 <body>
-<h1>PRANIMI <span id="ticketCode" class="badge kodi" data-code="">KODI: ——</span>
-<button id="btnFindCode" title="Gjej klientin me -code">🔎 KOD</button>
+<h1>PRANIMI <span id="ticketCode" class="badge kodi" data-code="">KODI: —</span>
+<button id="btnFindCode" title="Gjej klientin me kod">🔎 KOD</button>
 </h1>
 
-<input id="orderId" type="hidden" value=""/>
-
 <div class="wrap">
-  <!-- KLIENTI -->
   <section class="card">
     <div class="title"><span>Hapi 1 — Klienti</span></div>
     <div class="row">
@@ -99,7 +85,6 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-conten
     </div>
   </section>
 
-  <!-- TEPIHA -->
   <section class="card" id="sec-tepiha">
     <div class="title"><span>Tepiha</span></div>
     <div id="chips-tepiha" class="chips">
@@ -115,7 +100,6 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-conten
     <div class="tot"><span>Totali tepiha:</span><b id="tot-tepiha">0.00 m²</b></div>
   </section>
 
-  <!-- STAZA -->
   <section class="card" id="sec-staza">
     <div class="title"><span>Staza</span></div>
     <div id="chips-staza" class="chips">
@@ -130,18 +114,16 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-conten
     <div class="tot"><span>Totali staza:</span><b id="tot-staza">0.00 m²</b></div>
   </section>
 
-  <!-- SHKALLORE -->
   <section class="card" id="sec-shkallore">
     <div class="title"><span>Shkallore</span></div>
     <div class="utilRow">
       <button id="openStairs" class="utilBtn btn-sh">🪜 +SHKALLORE</button>
-      <button id="btnSms" class="utilBtn btn-sms" title="Tap=SMS, Mbaje=WhatsApp/Viber">SMS</button>
+      <button id="btnSms" class="utilBtn btn-sms">SMS</button>
       <button id="openPay" class="utilBtn btn-eur">€</button>
     </div>
     <div class="tot"><span>M² shkallore:</span><b id="stairsM2">0.00 m²</b></div>
   </section>
 
-  <!-- PAGESA -->
   <section class="card">
     <div class="title"><span>Pagesa</span></div>
     <div class="row">
@@ -151,7 +133,6 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-conten
   </section>
 </div>
 
-<!-- FOOTER (updated labels + 50% smaller) -->
 <div class="footer">
   <div class="footwrap foot-compact">
     <a id="btnHome" class="btn ghost btn-sm" href="../">🏠 FILLIM</a>
@@ -160,8 +141,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-conten
   </div>
 </div>
 
-<!-- ONLY the two scripts below are required -->
 <script type="module" src="/assets/supabase.js?v=3"></script>
-<script type="module" src="/assets/pranimi.js?v=colored-cash"></script>
+<script type="module" src="/assets/pranimi.js?v=fix104"></script>
 </body>
 </html>
