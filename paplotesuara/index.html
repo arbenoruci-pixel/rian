@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PAPLOTËSUARA • TEPIHA</title>
+  <link rel="icon" href="/assets/icon.png">
+  <style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    body{margin:0;background:#0a0f16;color:#eaf1ff;font-family:system-ui,-apple-system,Segoe UI,Roboto}
+    header{position:sticky;top:0;z-index:5;background:#0e1724;border-bottom:1px solid #1a2434;padding:16px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{padding:10px 14px;border-radius:999px;border:1px solid #223148;background:#121b2a;color:#cfe3ff;text-decoration:none;font-weight:800}
+    .tab.active{background:#0f1826}
+    h1{margin:8px 0 16px 0;font-size:1.8rem;letter-spacing:.6px}
+    .list{padding:12px}
+    .card{background:linear-gradient(180deg,#0f1826,#0b121c);border:1px solid #1a2434;border-radius:16px;padding:14px;margin:12px 0}
+    .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid #26405f;background:#0e1622;color:#cfe3ff;font-weight:800}
+    .dot{width:8px;height:8px;border-radius:999px;background:#28cf73}
+    .muted{opacity:.7}
+    .right{margin-left:auto}
+    .btn{padding:10px 12px;border-radius:10px;border:1px solid #2a3b51;background:#17315a;color:#fff;font-weight:800;cursor:pointer}
+    .btn.warn{background:#6d1d26;border-color:#7a2630}
+    .btn.ok{background:#145a33;border-color:#1b7a45}
+    .kv{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;color:#b7c6de}
+    .age{padding:4px 8px;border-radius:8px;border:1px solid #2a3b51;background:#101826}
+    .pill{padding:4px 8px;border-radius:999px;border:1px solid #2a3b51;background:#101826}
+    .search{padding:12px}
+    .search input{width:100%;padding:12px;border-radius:12px;border:1px solid #233145;background:#0e1622;color:#eaf1ff}
+    .empty{opacity:.7;text-align:center;padding:24px}
+  </style>
+  <script type="module" src="/assets/paplotesuara.js?v=1"></script>
+</head>
+<body>
+  <header>
+    <div class="row">
+      <div style="font-weight:900;letter-spacing:.4px">KOMPANIA JONI</div>
+      <a class="tab" href="/">HOME</a>
+      <a class="tab" href="/pastrimi/">PASTRIMI</a>
+      <a class="tab" href="/gati/">GATI</a>
+      <span class="tab active">PAPLOTËSUARA</span>
+      <a class="tab" href="/arka/">€ ARKA</a>
+    </div>
+    <h1>PAPLOTËSUARA</h1>
+    <div class="search"><input id="q" placeholder="Kërko: kod, emër ose telefon"></div>
+  </header>
+
+  <div class="list" id="list"></div>
+
+  <!-- Simple template -->
+  <template id="tpl-card">
+    <div class="card">
+      <div class="row">
+        <div class="badge"><span class="dot"></span> <span class="code">—</span></div>
+        <strong class="name">—</strong>
+        <span class="muted phone"></span>
+        <span class="right pill status"></span>
+      </div>
+      <div class="kv">
+        <span class="pill pieces"></span>
+        <span class="pill m2"></span>
+        <span class="pill total"></span>
+        <span class="age when"></span>
+      </div>
+      <div class="row" style="margin-top:10px;gap:8px">
+        <button class="btn" data-act="sms">SMS</button>
+        <button class="btn ok" data-act="gati">▶ GATI</button>
+        <button class="btn ok" data-act="dorzo">✓ DORËZO</button>
+        <button class="btn warn right" data-act="noshow">NO-SHOW</button>
+      </div>
+    </div>
+  </template>
+</body>
+</html>
