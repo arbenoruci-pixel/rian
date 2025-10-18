@@ -1,23 +1,29 @@
-// /assets/home.counters.js — stable counters + proper "drafts" counter
+// /assets/home.counters.v2.js — REST version wired to your Supabase schema
+// Uses SUPABASE_URL / SUPABASE_ANON from /assets/supabase.js
+
 import { SUPABASE_URL, SUPABASE_ANON } from '/assets/supabase.js';
 
-/* ---------------- helpers ---------------- */
-function headersCount() {
+/* ----------------------------- helpers ---------------------------------- */
+
+function headersCount () {
   return {
     apikey: SUPABASE_ANON,
     Authorization: `Bearer ${SUPABASE_ANON}`,
     Accept: 'application/json',
-    Prefer: 'count=exact'
+    Prefer: 'count=exact' // ask server to include total in Content-Range
   };
 }
-function headersBase() {
+
+function headersBase () {
   return {
     apikey: SUPABASE_ANON,
     Authorization: `Bearer ${SUPABASE_ANON}`,
     Accept: 'application/json'
   };
 }
-function buildUrl(table, select, filters) {
+
+// Build a PostgREST URL: filters like { status:'eq.gati', ready_at:['gte.ISO','lt.ISO'] }
+function buildUrl (table, select, filters) {
   const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
   url.searchParams.set('select', select);
   if (filters) {
@@ -28,12 +34,11 @@ function buildUrl(table, select, filters) {
   }
   return url;
 }
-// read count from Content-Range; fall back to array length
-async function fetchCount(url) {
-  // ask for just 1 row; we only need the header (faster & avoids large payloads)
-  url.searchParams.set('limit', '1');
+
+// Read count from Content-Range or fallback to data length
+async function fetchCount (url) {
   const r = await fetch(url.toString(), { headers: headersCount() });
-  const cr = r.headers.get('Content-Range'); // e.g. "0-0/27"
+  const cr = r.headers.get('Content-Range'); // e.g. "0-9/27"
   if (cr && cr.includes('/')) {
     const total = Number(cr.split('/').pop());
     if (Number.isFinite(total)) return total;
@@ -41,17 +46,19 @@ async function fetchCount(url) {
   const data = await r.json().catch(() => []);
   return Array.isArray(data) ? data.length : 0;
 }
-function todayUtcWindowISO() {
+
+// UTC “today” window
+function todayUtcWindowISO () {
   const now = new Date();
   const startUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
   const endUtc   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
   return { start: startUtc.toISOString(), end: endUtc.toISOString() };
 }
 
-/* ---------------- public API ---------------- */
+/* ----------------------------- public API -------------------------------- */
 
-// exact status (pastrim, gati, dorzim, …)
-export async function countStatus(status) {
+// Count by exact status (e.g. 'pastrim', 'gati', 'dorzim')
+export async function countStatus (status) {
   const url = buildUrl('orders', 'id', {
     status: `eq.${status}`,
     archived: 'eq.false'
@@ -59,32 +66,51 @@ export async function countStatus(status) {
   return fetchCount(url);
 }
 
-// DRAFTS = “unfinished from Pranimi”
-// definition: not picked, not archived, and (status IS NULL OR status='draft')
-export async function countDrafts() {
-  const url = buildUrl('orders', 'id', {
-    picked_at: 'is.null',
+// DRAFTS ONLY for Paplotësuara.
+// Logic:
+// - not archived
+// - not picked
+// - and one of:
+//    a) status is NULL
+//    b) status = 'draft'
+//    c) status = 'pranim' but order is clearly incomplete (no m2 or total or pieces)
+export async function countDrafts () {
+  const baseFilters = {
     archived: 'eq.false',
-    // IMPORTANT: only ONE or= group; PostgREST ANDs multiple or= groups
+    picked_at: 'is.null',
+  };
+
+  // 1) status NULL or 'draft'
+  const url1 = buildUrl('orders', 'id', {
+    ...baseFilters,
     or: '(status.is.null,status.eq.draft)'
   });
-  return fetchCount(url);
+
+  // 2) status = 'pranim' and looks incomplete
+  const url2 = buildUrl('orders', 'id', {
+    ...baseFilters,
+    status: 'eq.pranim',
+    or: '(m2.is.null,total.is.null,pieces.is.null)'
+  });
+
+  const [a, b] = await Promise.all([fetchCount(url1), fetchCount(url2)]);
+  return a + b;
 }
 
-// “Marrje sot”
-export async function countReadyToday() {
+// MARRJE SOT
+export async function countReadyToday () {
   const { start, end } = todayUtcWindowISO();
 
-  // Prefer ready_at today
+  // Prefer ready today by ready_at
   const primaryUrl = buildUrl('orders', 'id', {
     status: 'eq.gati',
     archived: 'eq.false',
     ready_at: [`gte.${start}`, `lt.${end}`]
   });
-  const n1 = await fetchCount(primaryUrl);
-  if (n1 > 0) return n1;
+  const nPrimary = await fetchCount(primaryUrl);
+  if (nPrimary > 0) return nPrimary;
 
-  // Fallback: ready & not yet picked
+  // Fallback: all ready but not yet picked
   const fallbackUrl = buildUrl('orders', 'id', {
     status: 'eq.gati',
     archived: 'eq.false',
@@ -93,8 +119,8 @@ export async function countReadyToday() {
   return fetchCount(fallbackUrl);
 }
 
-// optional: € income today (left intact)
-export async function incomeToday() {
+// € income from delivered today (status='dorzim' and picked_at today)
+export async function incomeToday () {
   const { start, end } = todayUtcWindowISO();
   const url = buildUrl('orders', 'total,picked_at', {
     status: 'eq.dorzim',
@@ -118,9 +144,9 @@ export async function incomeToday() {
   return sum;
 }
 
-// simple auto-refresh when tab becomes active
-export function subscribeOrders(onChange) {
+// Lightweight refresh on tab visibility
+export function subscribeOrders (onChange) {
   const handler = () => onChange?.();
   document.addEventListener('visibilitychange', handler);
-  return { unsubscribe(){ document.removeEventListener('visibilitychange', handler); } };
+  return { unsubscribe () { document.removeEventListener('visibilitychange', handler); } };
 }
