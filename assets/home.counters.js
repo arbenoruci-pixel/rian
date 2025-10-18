@@ -1,11 +1,20 @@
-// /assets/home.counters.js — REST version wired to your schema
+// /assets/home.counters.js — REST version wired to your Supabase schema
 // Uses SUPABASE_URL / SUPABASE_ANON from /assets/supabase.js
 
 import { SUPABASE_URL, SUPABASE_ANON } from '/assets/supabase.js';
 
-// ---- helpers --------------------------------------------------------------
+/* ----------------------------- helpers ---------------------------------- */
 
-function baseHeaders() {
+function headersCount() {
+  return {
+    apikey: SUPABASE_ANON,
+    Authorization: `Bearer ${SUPABASE_ANON}`,
+    Accept: 'application/json',
+    Prefer: 'count=exact' // ask server to include total in Content-Range
+  };
+}
+
+function headersBase() {
   return {
     apikey: SUPABASE_ANON,
     Authorization: `Bearer ${SUPABASE_ANON}`,
@@ -13,117 +22,109 @@ function baseHeaders() {
   };
 }
 
-// generic SELECT with filters and pagination; returns full count
-async function selectCount(table, filters) {
+// Build a PostgREST URL: filters like { status:'eq.gati', ready_at:['gte.ISO','lt.ISO'] }
+function buildUrl(table, select, filters) {
   const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
-  url.searchParams.set('select', 'id'); // only need id for counting
-
+  url.searchParams.set('select', select);
   if (filters) {
     for (const [k, v] of Object.entries(filters)) {
-      if (Array.isArray(v)) v.forEach(v2 => url.searchParams.append(k, v2));
+      if (Array.isArray(v)) v.forEach(val => url.searchParams.append(k, val));
       else url.searchParams.set(k, v);
     }
   }
+  return url;
+}
 
-  let total = 0;
-  let offset = 0;
-  const limit = 1000; // fetch in chunks to be safe on large tables
-
-  while (true) {
-    const pageUrl = new URL(url);
-    pageUrl.searchParams.set('offset', String(offset));
-    pageUrl.searchParams.set('limit', String(limit));
-
-    const resp = await fetch(pageUrl.toString(), { headers: baseHeaders() });
-    if (!resp.ok) {
-      console.warn('[selectCount]', resp.status, await resp.text());
-      break;
-    }
-    const rows = await resp.json();
-    const n = Array.isArray(rows) ? rows.length : 0;
-    total += n;
-    if (n < limit) break;
-    offset += limit;
+// Read count from Content-Range or fallback to data length
+async function fetchCount(url) {
+  const r = await fetch(url.toString(), { headers: headersCount() });
+  const cr = r.headers.get('Content-Range'); // e.g. "0-9/27"
+  if (cr && cr.includes('/')) {
+    const total = Number(cr.split('/').pop());
+    if (Number.isFinite(total)) return total;
   }
-  return total;
+  const data = await r.json().catch(() => []);
+  return Array.isArray(data) ? data.length : 0;
 }
 
-// time window for "today" (local time on client)
-function todayWindowISO() {
-  const start = new Date(); start.setHours(0, 0, 0, 0);
-  const end = new Date(start); end.setDate(start.getDate() + 1);
-  return { start: start.toISOString(), end: end.toISOString() };
+// UTC “today” window (matches SQL: date_trunc('day', CURRENT_TIMESTAMP))
+function todayUtcWindowISO() {
+  const now = new Date();
+  const startUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+  const endUtc   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
+  return { start: startUtc.toISOString(), end: endUtc.toISOString() };
 }
 
-// ---- public API used by index.html ---------------------------------------
+/* ----------------------------- public API -------------------------------- */
 
-// Map your pipeline statuses here.
-// If your real values differ, change them below.
-const STATUSES = {
-  PRANIMI: 'pranim',
-  PASTRIMI: 'pastrim',
-  GATI: 'gati',
-  DORZIM: 'dorzim'
-};
-
-// Count by exact status
+// Count by exact status (e.g. 'pranim', 'pastrim', 'gati', 'dorzim')
 export async function countStatus(status) {
-  return selectCount('orders', { status: `eq.${status}` });
+  const url = buildUrl('orders', 'id', {
+    status: `eq.${status}`,
+    archived: 'eq.false'
+  });
+  return fetchCount(url);
 }
 
 // Unfinished = not picked yet AND not archived
 export async function countUnfinished() {
-  return selectCount('orders', {
+  const url = buildUrl('orders', 'id', {
     picked_at: 'is.null',
     archived: 'eq.false'
   });
+  return fetchCount(url);
 }
 
-// MARRJE SOT = orders with status 'gati' and ready_at within today
+// MARRJE SOT:
+// 1) Prefer ready orders TODAY (status='gati' AND ready_at in today's UTC window)
+// 2) If none found (ready_at not used), fall back to "ready but not yet picked"
 export async function countReadyToday() {
-  const { start, end } = todayWindowISO();
-  return selectCount('orders', {
-    status: `eq.${STATUSES.GATI}`,
+  const { start, end } = todayUtcWindowISO();
+
+  // Primary: ready today by ready_at
+  const primaryUrl = buildUrl('orders', 'id', {
+    status: 'eq.gati',
+    archived: 'eq.false',
     ready_at: [`gte.${start}`, `lt.${end}`]
   });
+  const nPrimary = await fetchCount(primaryUrl);
+  if (nPrimary > 0) return nPrimary;
+
+  // Fallback: all ready but not yet picked (useful if ready_at isn't filled)
+  const fallbackUrl = buildUrl('orders', 'id', {
+    status: 'eq.gati',
+    archived: 'eq.false',
+    picked_at: 'is.null'
+  });
+  return fetchCount(fallbackUrl);
 }
 
-// € income from delivered orders today (status='dorzim' and picked_at today)
-// Sums "total" field for those rows.
+// € income from delivered today (status='dorzim' and picked_at today)
 export async function incomeToday() {
-  const { start, end } = todayWindowISO();
-  const url = new URL(`${SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set('select', 'total,picked_at,status');
-  url.searchParams.set('status', `eq.${STATUSES.DORZIM}`);
-  url.searchParams.append('picked_at', `gte.${start}`);
-  url.searchParams.append('picked_at', `lt.${end}`);
+  const { start, end } = todayUtcWindowISO();
+  const url = buildUrl('orders', 'total,picked_at', {
+    status: 'eq.dorzim',
+    archived: 'eq.false',
+    picked_at: [`gte.${start}`, `lt.${end}`]
+  });
 
-  try {
-    let sum = 0, offset = 0, limit = 1000;
-    while (true) {
-      const pageUrl = new URL(url);
-      pageUrl.searchParams.set('offset', String(offset));
-      pageUrl.searchParams.set('limit', String(limit));
-
-      const resp = await fetch(pageUrl.toString(), { headers: baseHeaders() });
-      if (!resp.ok) {
-        console.warn('[incomeToday]', resp.status, await resp.text());
-        break;
-      }
-      const rows = await resp.json();
-      if (!Array.isArray(rows) || rows.length === 0) break;
-      sum += rows.reduce((acc, r) => acc + Number(r.total || 0), 0);
-      if (rows.length < limit) break;
-      offset += limit;
-    }
-    return sum;
-  } catch (e) {
-    console.warn('[incomeToday error]', e);
-    return 0;
+  let sum = 0, from = 0, size = 1000;
+  while (true) {
+    const pageUrl = new URL(url);
+    pageUrl.searchParams.set('offset', String(from));
+    pageUrl.searchParams.set('limit', String(size));
+    const r = await fetch(pageUrl.toString(), { headers: headersBase() });
+    if (!r.ok) break;
+    const rows = await r.json();
+    if (!Array.isArray(rows) || rows.length === 0) break;
+    sum += rows.reduce((acc, row) => acc + Number(row.total || 0), 0);
+    if (rows.length < size) break;
+    from += size;
   }
+  return sum;
 }
 
-// Lightweight refresh: reload counters when tab becomes visible
+// Lightweight refresh on tab visibility
 export function subscribeOrders(onChange) {
   const handler = () => onChange?.();
   document.addEventListener('visibilitychange', handler);
