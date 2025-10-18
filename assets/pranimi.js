@@ -1,19 +1,16 @@
-// ================= PRANIMI — FULL ENGINE (Supabase RPC code) =================
-// Reads the ticket code strictly from Supabase (rpc: next_code_num), then
-// handles chips, rows, stairs, client photo, totals, SMS/WA/Viber, payment,
-// and finally save() which INSERTs a new order row.
-// No ES module imports required — relies on /assets/supabase.js window shim:
-//   window.rpc, window.insert, window.update, window.nowISO
-// Compatible with older Safari/iOS (no optional chaining).
+// ================= PRANIMI — FULL ENGINE (legacy-safe) =================
+// code badge, chips, rows, stairs+photo, client photo, totals, SMS/WA/Viber,
+// € overlay (tap), €/m² changer (LONG-PRESS), and save() to Supabase.
+// No optional chaining; friendly to older Safari/iOS.
 
-/* ----------------------------- helpers ------------------------------------ */
+// -------- helpers --------
 function $(sel, root){ return (root||document).querySelector(sel); }
 function $all(sel, root){ return Array.prototype.slice.call((root||document).querySelectorAll(sel)); }
 function num(v){ var n = parseFloat(String(v==null?'':v).replace(',', '.')); return isFinite(n) ? n : 0; }
 function digits(v){ return String(v==null?'':v).replace(/\D/g,''); }
-function nowISO(){ try{ return window.nowISO ? window.nowISO() : new Date().toISOString(); }catch(_){return new Date().toISOString();} }
+function nowISO(){ return new Date().toISOString(); }
 
-/* ---- one-time visible error (handy while stabilizing; safe to remove) ----- */
+// --- on-screen error (remove when stable)
 window.addEventListener('error', function(e){
   var d=document.createElement('div');
   d.style='position:fixed;left:0;right:0;top:0;z-index:99999;background:#300;color:#fff;padding:8px;font:14px system-ui';
@@ -21,23 +18,10 @@ window.addEventListener('error', function(e){
   document.body.appendChild(d);
 },{once:true});
 
-/* ---------------------------- CODE (from Supabase) ------------------------- */
-// We ONLY fetch the code from Supabase RPC `next_code_num`. No local generation.
-// IMPORTANT: we DO NOT auto-claim on page load (prevents burning numbers).
-var assignedCode = null;  // numeric string like "104" once claimed
-
-function updateBadgeDisplay(codeStr){
-  var b = $('#ticketCode') || $('.badge.kodi');
-  if (!b) return;
-  if (!codeStr) { b.setAttribute('data-code', ''); b.textContent = 'KODI: —'; return; }
-  var padded = String(codeStr).padStart(6,'0');
-  b.setAttribute('data-code', String(Number(codeStr)||0));
-  b.textContent = 'KODI: ' + padded;
-}
-
+// -------- CODE badge (numeric only) --------
+var assignedCode = null;
 function ensureCode(){
   if (assignedCode) return Promise.resolve(assignedCode);
-  // REQUIRE: your database function `next_code_num()` returns a scalar number
   return rpc('next_code_num', {}).then(function(r){
     var code = r;
     if (Array.isArray(r)) {
@@ -47,14 +31,14 @@ function ensureCode(){
       code = r.next_code || r.code || r.id;
     }
     assignedCode = digits(code);
-    if (!assignedCode) throw new Error('Kodi nuk u gjenerua nga Supabase');
-
-    updateBadgeDisplay(assignedCode);
+    if (!assignedCode) throw new Error('Kodi nuk u gjenerua');
+    var b = $('#ticketCode') || $('.badge.kodi');
+    if (b) { b.setAttribute('data-code', assignedCode); b.textContent = 'KODI: ' + assignedCode; }
     return assignedCode;
   });
 }
 
-/* --------------------------- CAMERA SQUARE (1:1) --------------------------- */
+// -------- CAMERA SQUARE (1 photo per field; fills the button) --------
 function setupCamSquare(btn, storageKey){
   if (!btn) return;
   var existing = btn.querySelector('img.thumb');
@@ -94,13 +78,13 @@ function setupCamSquare(btn, storageKey){
   });
 }
 
-/* ---------------------------- CLIENT PHOTO --------------------------------- */
+// -------- CLIENT PHOTO (next to name) --------
 function wireClientPhoto(){
   var label=document.querySelector('label.cam-btn'); if(!label) return;
-  setupCamSquare(label, 'client_photo_thumb'); // session-based to avoid leaking to next client
+  setupCamSquare(label, 'client_photo_thumb'); // session-based so it doesn't leak to next client
 }
 
-/* ---------------------------- ROWS (tepiha/staza) -------------------------- */
+// -------- ROWS (tepiha / staza) --------
 function makeRow(m2){
   var row=document.createElement('div');
   row.className='piece-row';
@@ -138,7 +122,7 @@ function recalcSection(kind){
   if (out) out.textContent = s.m2.toFixed(2) + ' m²';
 }
 
-/* -------------------------------- SHKALLORE -------------------------------- */
+// -------- SHKALLORE --------
 var stairs = { qty:0, per:0.3, price:null, photo:null };
 function stairsM2(){ return Math.max(0, (stairs.qty||0) * (stairs.per||0)); }
 function openStairs(){
@@ -176,7 +160,7 @@ function openStairs(){
 }
 function wireOpenStairs(){ var btn=$('#openStairs'); if(btn) btn.addEventListener('click', openStairs); }
 
-/* ------------------------- €/m² storage + prompt --------------------------- */
+// -------- €/m² storage + prompt --------
 function getStoredPrice(){
   var s = localStorage.getItem('price_per_m2');
   return s==null ? 0 : num(s);
@@ -196,7 +180,7 @@ function promptSetPrice(defaultVal){
   return true;
 }
 
-/* -------------------------------- CHIPS ------------------------------------ */
+// -------- CHIPS --------
 function parseM2Label(label){ var m=String(label).match(/([\d.]+)\s*m²/i); return m ? num(m[1]) : null; }
 function wireChips(holderId, kind){
   var h = document.getElementById(holderId); if(!h) return;
@@ -209,7 +193,7 @@ function wireChips(holderId, kind){
   $all('.chip',h).forEach(function(c){ c.style.pointerEvents='auto'; });
 }
 
-/* -------------------------------- TOTALS ----------------------------------- */
+// -------- TOTALS --------
 function recalcTotals(){
   var t = sectionSum('tepiha');
   var s = sectionSum('staza');
@@ -251,7 +235,7 @@ document.addEventListener('input', function(e){
   }
 });
 
-/* --------------------------- SMS / WA / Viber ------------------------------ */
+// -------- SMS / WA / Viber --------
 function buildClientMessage(d){
   return 'Përshëndetje '+(d.name||'')+',\n'+
 'Procesi i pastrimit ka filluar.\n'+
@@ -272,7 +256,6 @@ function wireSmsButtons(){
   btn.addEventListener('mouseup', end);
   btn.addEventListener('mouseleave', function(){ clearTimeout(timer); });
   function getData(){
-    // Claiming a code via SMS will reserve one (by design).
     return ensureCode().then(function(code){
       var name=($('#name')&&$('#name').value||'').trim();
       var phone=($('#phone')&&$('#phone').value||'').replace(/\D/g,'');
@@ -284,7 +267,7 @@ function wireSmsButtons(){
   function openAlt(){ getData().then(function(d){ if(!d.phone){ alert('Shkruaj telefonin'); return; } var text=encodeURIComponent(buildClientMessage(d)); var wa='whatsapp://send?phone='+d.phone+'&text='+text; var vb='viber://chat?number='+d.phone+'&text='+text; location.href=wa; setTimeout(function(){ try{ location.href=vb; }catch(e){} },600); }); }
 }
 
-/* ----------------------------- PAYMENT UI --------------------------------- */
+// -------- PAYMENT (overlay, cash; long-press € sets €/m²) --------
 var payState = { isPaid:false, amount:0, method:'cash', note:'' };
 
 function ensurePayOverlay(){
@@ -382,7 +365,7 @@ function showPayOverlay(){
   render(); ov.style.display='flex';
 }
 
-/* --------------- wire € (tap=open overlay, long-press=set €/m²) ------------ */
+// wire € (tap=open table, LONG-PRESS=set €/m²)
 function wireEuro(){
   var btn=$('#openPay'); if(!btn) return;
   var timer=null,longPressed=false;
@@ -395,21 +378,19 @@ function wireEuro(){
   btn.addEventListener('mouseleave', function(){ clearTimeout(timer); });
 }
 
-/* --------------------------------- SAVE ------------------------------------ */
-// Insert a brand-new order row (AFTER we have the Supabase code from RPC).
+// -------- SAVE --------
 function save(){
   var name=($('#name')&&$('#name').value||'').trim();
   var phone=($('#phone')&&$('#phone').value||'').replace(/\D/g,'');
   return ensureCode().then(function(c){
-    var codeStr = digits(c);
+    var code=digits(c);
     if(!name) throw new Error('Shkruaj emrin');
     if(!phone) throw new Error('Shkruaj telefonin');
-    if(!/^\d+$/.test(codeStr)) throw new Error('Kodi pritet numer');
+    if(!/^\d+$/.test(code)) throw new Error('Kodi pritet numer');
 
-    var codeNum = Number(codeStr); // ensure numeric for bigint column
     var t=recalcTotals(), now=nowISO();
     return insert('orders', {
-      code: codeNum, name:name, phone:phone,
+      code:code, name:name, phone:phone,
       price_per_m2: Number((t&&t.price_general) || getStoredPrice() || 0),
       m2: Number((t&&t.m2)||0),
       pieces: Number((t&&t.pieces)||0),
@@ -427,10 +408,9 @@ function save(){
   });
 }
 
-/* --------------------------------- INIT ------------------------------------ */
+// -------- INIT --------
 document.addEventListener('DOMContentLoaded', function(){
-  // DO NOT auto-claim a code here — prevents burning codes!
-  updateBadgeDisplay(''); // show placeholder "KODI: —" until claimed
+  ensureCode().catch(function(e){ var b=$('#ticketCode')||$('.badge.kodi'); if(b) b.textContent='KODI: ?'; alert('Gabim kodi: '+(e&&e.message?e.message:e)); });
 
   wireChips('chips-tepiha','tepiha');
   wireChips('chips-staza','staza');
