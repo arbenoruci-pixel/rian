@@ -19,16 +19,14 @@
   .company .sub{opacity:.7;font-size:.9rem}
   .arka{position:absolute;right:16px;top:14px;text-decoration:none;padding:12px 16px;border-radius:999px;background:linear-gradient(180deg,#1c77b8,#16639a);border:1px solid #244264;color:#fff;font-weight:900;box-shadow:0 4px 16px #0006}
 
-  /* Scale down everything below the header on phones (~20%) */
+  /* Mobile scale */
   .page{transform-origin: top center}
-  @media (max-width:760px){
-    .page{transform:scale(.8)}
-  }
+  @media (max-width:760px){ .page{transform:scale(.8)} }
 
   /* Shell blocks */
   .shell{background:linear-gradient(180deg,#0f1723,#0c121b);border:1px solid #1a2434;border-radius:20px;padding:16px;margin:16px;box-shadow:inset 0 1px 0 #ffffff0a, 0 8px 18px #0005}
 
-  /* Tiles 2x2 */
+  /* Tiles */
   .tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   @media (max-width:760px){ .tiles{grid-template-columns:1fr} }
   .tile{position:relative;background:linear-gradient(180deg,#0f1826,#0c141f);border:1px solid #1c2737;border-radius:16px;padding:20px;text-decoration:none;color:inherit;box-shadow:inset 0 1px 0 #ffffff0a}
@@ -37,15 +35,14 @@
   .c-red{background:#3b1116;border-color:#6d1d26}
   .c-blue{background:#0d1a2e;border-color:#223856}
   .c-green{background:#0b1a12;border-color:#165f36}
-  .c-yellow{background:#2a2006;border-color:#6b5711}
 
-  /* Big CTA buttons */
+  /* Big buttons */
   .cta{display:block;text-align:center;padding:16px;border-radius:16px;margin:16px;text-decoration:none;font-weight:900;box-shadow:inset 0 1px 0 #ffffff0a, 0 8px 18px #0005}
   .cta.green{background:linear-gradient(180deg,#0f6c38,#0d4f2b);border:1px solid #16653d;color:#dcffe6}
   .cta.amber{background:linear-gradient(180deg,#8e6a19,#5d4610);border:1px solid #6b5711;color:#fff5cf}
   .cta .right{float:right;min-width:34px;height:34px;padding:0 12px;border-radius:999px;border:1px solid #0003;background:#0002;display:inline-flex;align-items:center;justify-content:center;margin-top:-4px}
 
-  /* Search groups */
+  /* Search boxes */
   .group{background:linear-gradient(180deg,#0f1723,#0c121b);border:1px solid #1a2434;border-radius:20px;padding:16px;margin:16px;box-shadow:inset 0 1px 0 #ffffff0a, 0 8px 18px #0005}
   .group h4{margin:0 0 10px 0;letter-spacing:.4px}
   .search{display:flex;gap:12px}
@@ -53,16 +50,15 @@
   .btn{padding:12px 18px;border-radius:12px;background:linear-gradient(180deg,#1c77b8,#16639a);border:1px solid #244264;color:#fff;font-weight:900;text-decoration:none}
 </style>
 
-<!-- Use the NEW counters file -->
 <script type="module">
-  import { countStatus, countDrafts, countReadyToday, subscribeOrders } from '/assets/home.counters.v2.js';
+  import { countStatus, countDrafts, countReadyToday, subscribeOrders } from '/assets/home.counters.js';
 
   async function loadCounters(){
     const [pas, gat, mar, pap] = await Promise.all([
       countStatus('pastrim'),
       countStatus('gati'),
       countReadyToday(),
-      countDrafts() // DRAFTS ONLY for Paplotësuara
+      countDrafts()
     ]);
     setVal('c-pastrim', pas);
     setVal('c-gati', gat);
@@ -93,26 +89,21 @@
     </div>
   </div>
 
-  <div class="page"><!-- everything below scales on phones -->
-    <!-- Tiles -->
+  <div class="page">
     <div class="shell">
       <div class="tiles">
-        <!-- PAPLOTËSUARA (top tile) -->
         <a class="tile" href="/paplotesuara/">
           <h3>PAPLOTËSUARA</h3>
           <div class="count c-red" id="c-paplo-top">0</div>
         </a>
-
         <a class="tile" href="/pastrimi/">
           <h3>PASTRIMI</h3>
           <div class="count c-blue" id="c-pastrim">0</div>
         </a>
-
         <a class="tile" href="/gati/">
           <h3>GATI</h3>
           <div class="count c-green" id="c-gati">0</div>
         </a>
-
         <a class="tile" href="/gati/">
           <h3>MARRJE SOT</h3>
           <div class="count c-green" id="c-marrje">0</div>
@@ -120,11 +111,9 @@
       </div>
     </div>
 
-    <!-- Big CTAs -->
     <a class="cta green" href="/pranimi/">+ KLIENT I RI</a>
     <a class="cta amber" href="/transport/">🚚 TRANSPORT AKTIV <span class="right" id="c-trans">0</span></a>
 
-    <!-- Search blocks -->
     <div class="group">
       <h4>KLIENTËT E BAZËS — KËRKO</h4>
       <div class="search">
@@ -139,11 +128,11 @@
         <a class="btn" href="/transport/">KËRKO</a>
       </div>
     </div>
-  </div><!-- /.page -->
+  </div>
 
-  <script src="assets/client_profile.js"></script>
+  <script src="/assets/client_profile.js"></script>
   <script>
-    document.addEventListener('DOMContentLoaded', function(){
+    document.addEventListener('DOMContentLoaded', ()=>{
       if (window.bindClientBadges) { try { window.bindClientBadges(); } catch(e){} }
     });
   </script>
