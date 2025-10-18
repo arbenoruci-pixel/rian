@@ -66,11 +66,21 @@ export async function countStatus(status) {
   return fetchCount(url);
 }
 
-// Unfinished = not picked yet AND not archived
+// OLD: Unfinished = not picked yet AND not archived (kept for other screens)
 export async function countUnfinished() {
   const url = buildUrl('orders', 'id', {
     picked_at: 'is.null',
     archived: 'eq.false'
+  });
+  return fetchCount(url);
+}
+
+// NEW: Drafts only = not picked, not archived, and status is 'draft' or NULL
+export async function countDrafts() {
+  const url = buildUrl('orders', 'id', {
+    archived: 'eq.false',
+    picked_at: 'is.null',
+    or: '(status.eq.draft,status.is.null)'
   });
   return fetchCount(url);
 }
