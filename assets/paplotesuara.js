@@ -1,7 +1,7 @@
-// PAPLOTËSUARA = "Drafts from Pranimi"
-// Shows unfinished orders. Badge and list now use the same rule:
-// 1) status = 'draft' OR status IS NULL
-// 2) OR "empty shell" created in last 30 minutes (code reserved, no data)
+// PAPLOTËSUARA (v3) — list unfinished orders
+// Rule (same as Home badge):
+//  • status = 'draft'  OR  status IS NULL
+//  • OR "empty shell" created in last 30min (no name/phone/pieces/m2/total)
 
 import { SUPABASE_URL, SUPABASE_ANON } from '/assets/supabase.js';
 
@@ -13,6 +13,7 @@ const headers = {
 
 const listEl = document.getElementById('list');
 const tpl = document.getElementById('tpl-card');
+const qInput = document.getElementById('q');
 
 function fmtMoney(n){ return (Number(n||0)).toLocaleString('sq-AL',{style:'currency',currency:'EUR',maximumFractionDigits:2}); }
 function daysAgo(iso){
@@ -29,15 +30,12 @@ async function cleanupStaleDrafts(){
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ttl_minutes: 30 })
     });
-  }catch(e){ /* silent */ }
+  }catch(_){}
 }
 
-function thirtyMinAgoISO(){
-  const d = new Date(Date.now() - 30*60*1000);
-  return d.toISOString();
-}
+function thirtyMinAgoISO(){ return new Date(Date.now() - 30*60*1000).toISOString(); }
 
-async function fetchDrafts(query){
+async function fetchDraftsServer(){
   const url = new URL(`${SUPABASE_URL}/rest/v1/orders`);
   url.searchParams.set(
     'select',
@@ -46,39 +44,37 @@ async function fetchDrafts(query){
   url.searchParams.set('archived','eq.false');
   url.searchParams.set('picked_at','is.null');
 
-  // include true drafts OR empty shells created in the last 30 minutes
-  // empty shell = no name/phone/pieces/m2/total
-  const t30 = encodeURIComponent(thirtyMinAgoISO());
-  const emptyShell =
-    `and(name.is.null,phone.is.null,pieces.is.null,m2.is.null,total.is.null,created_at.gte.${t30})`;
+  // empty shell = no name/phone/pieces/m2/total AND created in last 30min
+  const t30 = thirtyMinAgoISO();
+  // NOTE: use and=(...) not and(...), otherwise PostgREST ignores it
+  const emptyShell = `and=(name.is.null,phone.is.null,pieces.is.null,m2.is.null,total.is.null,created_at.gte.${encodeURIComponent(t30)})`;
+  const legacyQueue = `and=(status.is.null,stage.eq.queue)`;
 
-  // allow legacy "stage = queue" with null status to be treated as draft
-  const legacyQueue = `and(status.is.null,stage.eq.queue)`;
-
+  // single OR expression so we don't accidentally AND two ORs
   url.searchParams.append(
     'or',
     `(status.eq.draft,status.is.null,${emptyShell},${legacyQueue})`
   );
 
   url.searchParams.set('order','created_at.desc');
-
-  if(query){
-    const q = query.trim();
-    const parts = [];
-    if (/^\d+$/.test(q)) parts.push(`code.eq.${q}`);
-    parts.push(`name.ilike.*${encodeURIComponent(q)}*`);
-    parts.push(`phone.ilike.*${encodeURIComponent(q)}*`);
-    url.searchParams.append('or', `(${parts.join(',')})`);
-  }
-
   const r = await fetch(url.toString(), { headers });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
+function clientSearchFilter(rows, qRaw){
+  const q = (qRaw||'').trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter(r=>{
+    const code = (r.code==null?'':String(r.code)).toLowerCase();
+    const name = (r.name||'').toLowerCase();
+    const phone = (r.phone||'').toLowerCase();
+    return code.includes(q) || name.includes(q) || phone.includes(q);
+  });
+}
+
 function cardFor(row){
   const node = tpl.content.firstElementChild.cloneNode(true);
-
   node.querySelector('.code').textContent  = row.code ?? '—';
   node.querySelector('.name').textContent  = (row.name || 'Pa emër').toLowerCase();
   node.querySelector('.phone').textContent = row.phone ?? '';
@@ -89,14 +85,13 @@ function cardFor(row){
   node.querySelector('.total').textContent  = `Totali: ${fmtMoney(row.total||0)}`;
   node.querySelector('.when').textContent   = `Koha: ${daysAgo(row.created_at)}`;
 
-  // Open Pranimi to finish (pass BOTH id and code so the badge matches)
   node.style.cursor = 'pointer';
   node.addEventListener('click', (e)=>{
     if (e.target.closest('button')) return;
+    // pass both id and code so Pranimi can load & show the same badge
     window.location.href = `/pranimi/?id=${encodeURIComponent(row.id)}&code=${encodeURIComponent(row.code||'')}`;
   });
 
-  // SMS helper
   const smsBtn = node.querySelector('[data-act="sms"]');
   if (smsBtn) smsBtn.addEventListener('click', ()=>{
     const msg = encodeURIComponent(`Përshëndetje ${row.name || ''}! Porosia #${row.code} është regjistruar. Do ju kontaktojmë shpejt.`);
@@ -107,30 +102,32 @@ function cardFor(row){
   return node;
 }
 
-async function refresh(query){
+async function refresh(){
   listEl.innerHTML = '';
-  const rows = await fetchDrafts(query).catch(e=>{
+  const rows = await fetchDraftsServer().catch(e=>{
     console.warn(e);
     listEl.innerHTML = `<div class="empty">Gabim gjatë leximit…</div>`;
     return [];
   });
-  if (!rows.length){
+
+  const filtered = clientSearchFilter(rows, qInput && qInput.value);
+  if (!filtered.length){
     listEl.innerHTML = `<div class="empty">S’ka asnjë draft. 🎉</div>`;
     return;
   }
   const frag = document.createDocumentFragment();
-  rows.forEach(r => frag.appendChild(cardFor(r)));
+  filtered.forEach(r => frag.appendChild(cardFor(r)));
   listEl.appendChild(frag);
 }
 
 window.addEventListener('DOMContentLoaded', async ()=>{
-  await cleanupStaleDrafts();     // frees only empty shells (keeps partial-info drafts)
+  await cleanupStaleDrafts();
   await refresh();
-
-  const q = document.getElementById('q');
-  let t = null;
-  if (q) q.addEventListener('input', ()=>{
-    clearTimeout(t);
-    t = setTimeout(()=> refresh(q.value), 200);
-  });
+  if (qInput){
+    let t=null;
+    qInput.addEventListener('input', ()=>{
+      clearTimeout(t);
+      t=setTimeout(refresh, 180);
+    });
+  }
 });
