@@ -1,5 +1,7 @@
-// Lists all active, not-finished orders and offers quick actions.
-// Logic: archived=false AND picked_at IS NULL
+// PAPLOTËSUARA = "Drafts from Pranimi"
+// Shows orders created to reserve a code but not finished yet.
+// Rules: archived=false AND picked_at IS NULL AND (status='draft' OR status IS NULL)
+
 import { SUPABASE_URL, SUPABASE_ANON } from '/assets/supabase.js';
 
 const headers = {
@@ -11,7 +13,6 @@ const headers = {
 const listEl = document.getElementById('list');
 const tpl = document.getElementById('tpl-card');
 
-function isoNow() { return new Date().toISOString(); }
 function fmtMoney(n){ return (Number(n||0)).toLocaleString('sq-AL',{style:'currency',currency:'EUR',maximumFractionDigits:2}); }
 function daysAgo(iso){
   if(!iso) return '—';
@@ -20,18 +21,32 @@ function daysAgo(iso){
   return n<=0 ? 'sot' : `${n} ditë`;
 }
 
-async function fetchUnfinished(query){
+async function cleanupStaleDrafts(){
+  // Delete only truly empty drafts older than 30 minutes and release codes.
+  try{
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/cleanup_drafts`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ttl_minutes: 30 })
+    });
+  }catch(e){ /* silent */ }
+}
+
+async function fetchDrafts(query){
   const url = new URL(`${SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set('select','id,code,name,phone,pieces,m2,total,status,stage,stage_at,ready_at,picked_at,no_show');
+  url.searchParams.set(
+    'select',
+    'id,code,name,phone,pieces,m2,total,status,stage,stage_at,created_at'
+  );
   url.searchParams.set('archived','eq.false');
   url.searchParams.set('picked_at','is.null');
-  url.searchParams.set('order','stage_at.desc');
+  // drafts only
+  url.searchParams.append('or','(status.eq.draft,status.is.null)');
+  url.searchParams.set('order','created_at.desc');
 
-  // search by code/name/phone
   if(query){
-    // PostgREST OR is URL-encoded; we’ll use ilike for name/phone and equality for code
-    const orParts = [];
     const q = query.trim();
+    const orParts = [];
     if (/^\d+$/.test(q)) orParts.push(`code.eq.${q}`);
     orParts.push(`name.ilike.*${encodeURIComponent(q)}*`);
     orParts.push(`phone.ilike.*${encodeURIComponent(q)}*`);
@@ -45,39 +60,49 @@ async function fetchUnfinished(query){
 
 function cardFor(row){
   const node = tpl.content.firstElementChild.cloneNode(true);
+
   node.querySelector('.code').textContent = row.code ?? '—';
-  node.querySelector('.name').textContent = row.name ?? 'Pa emër';
+  node.querySelector('.name').textContent = (row.name || 'Pa emër').toLowerCase();
   node.querySelector('.phone').textContent = row.phone ?? '';
-  node.querySelector('.status').textContent = (row.status || row.stage || '—').toUpperCase();
+  node.querySelector('.status').textContent = 'DRAFT';
+
   node.querySelector('.pieces').textContent = `Copë: ${row.pieces ?? 0}`;
-  node.querySelector('.m2').textContent = `m²: ${Number(row.m2||0).toFixed(2)}`;
-  node.querySelector('.total').textContent = `Totali: ${fmtMoney(row.total||0)}`;
+  node.querySelector('.m2').textContent     = `m²: ${Number(row.m2||0).toFixed(2)}`;
+  node.querySelector('.total').textContent  = `Totali: ${fmtMoney(row.total||0)}`;
+  node.querySelector('.when').textContent   = `Koha: ${daysAgo(row.created_at)}`;
 
-  // age → prefer ready_at, else stage_at
-  const anchor = row.ready_at || row.stage_at;
-  node.querySelector('.when').textContent = `Koha: ${daysAgo(anchor)}`;
+  // Clicking the card (not the buttons) opens Pranimi with the draft id
+  node.style.cursor = 'pointer';
+  node.addEventListener('click', (e)=>{
+    if (e.target.closest('button')) return; // buttons keep their own actions if you add any later
+    window.location.href = `/pranimi/?id=${encodeURIComponent(row.id)}`;
+  });
 
-  // actions
-  node.querySelector('[data-act="sms"]').addEventListener('click', ()=> sendSMS(row));
-  node.querySelector('[data-act="gati"]').addEventListener('click', ()=> markGati(row, node));
-  node.querySelector('[data-act="dorzo"]').addEventListener('click', ()=> markDorzo(row, node));
-  node.querySelector('[data-act="noshow"]').addEventListener('click', ()=> toggleNoShow(row, node));
+  // Optional: a quick SMS button to confirm details with client (kept minimal)
+  node.querySelector('[data-act="sms"]').addEventListener('click', ()=>{
+    const msg = encodeURIComponent(`Përshëndetje ${row.name || ''}! Porosia #${row.code} është regjistruar si draft. Do ju kontaktojmë shpejt.`);
+    const phone = encodeURIComponent((row.phone||'').replace(/\s+/g,''));
+    window.location.href = `sms:${phone}?&body=${msg}`;
+  });
 
-  // style no_show
-  if (row.no_show) node.querySelector('[data-act="noshow"]').classList.add('warn');
+  // Hide buttons that don't apply to drafts (remove GATI/DORËZO if present in template)
+  const g = node.querySelector('[data-act="gati"]');
+  const d = node.querySelector('[data-act="dorzo"]');
+  if (g) g.remove();
+  if (d) d.remove();
 
   return node;
 }
 
 async function refresh(query){
   listEl.innerHTML = '';
-  const rows = await fetchUnfinished(query).catch(e=>{
+  const rows = await fetchDrafts(query).catch(e=>{
     console.warn(e);
     listEl.innerHTML = `<div class="empty">Gabim gjatë leximit…</div>`;
     return [];
   });
   if (!rows.length){
-    listEl.innerHTML = `<div class="empty">Asnjë porosi e papërfunduar 🎉</div>`;
+    listEl.innerHTML = `<div class="empty">S’ka asnjë draft. 🎉</div>`;
     return;
   }
   const frag = document.createDocumentFragment();
@@ -85,54 +110,10 @@ async function refresh(query){
   listEl.appendChild(frag);
 }
 
-/* -------------------- actions (PATCH) -------------------- */
-
-async function patch(id, body){
-  const url = `${SUPABASE_URL}/rest/v1/orders?id=eq.${encodeURIComponent(id)}`;
-  const r = await fetch(url, {
-    method: 'PATCH',
-    headers: { ...headers, 'Content-Type': 'application/json', Prefer: 'return=representation' },
-    body: JSON.stringify(body)
-  });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-
-function sendSMS(row){
-  const msg = encodeURIComponent(`Përshëndetje ${row.name || ''}! Porosia #${row.code} është gati për marrje. Faleminderit!`);
-  const phone = encodeURIComponent((row.phone||'').replace(/\s+/g,''));
-  // sms: works on iOS/Android
-  window.location.href = `sms:${phone}?&body=${msg}`;
-}
-
-async function markGati(row, node){
-  try{
-    await patch(row.id, { status: 'gati', ready_at: isoNow(), stage: 'gati', stage_at: isoNow() });
-    node.remove(); // disappears from "paplotesuara" if your workflow later picks it
-  }catch(e){ alert('Nuk u ruajt: ' + e.message); }
-}
-
-async function markDorzo(row, node){
-  try{
-    await patch(row.id, { status: 'dorzim', picked_at: isoNow(), stage: 'dorzim', stage_at: isoNow(), is_paid: true });
-    node.remove(); // completed
-  }catch(e){ alert('Nuk u ruajt: ' + e.message); }
-}
-
-async function toggleNoShow(row, node){
-  try{
-    const newVal = !row.no_show;
-    const data = await patch(row.id, { no_show: newVal });
-    row.no_show = data?.[0]?.no_show ?? newVal;
-    const btn = node.querySelector('[data-act="noshow"]');
-    btn.classList.toggle('warn', row.no_show);
-  }catch(e){ alert('Nuk u ruajt: ' + e.message); }
-}
-
-/* -------------------- init -------------------- */
-
-window.addEventListener('DOMContentLoaded', ()=>{
+window.addEventListener('DOMContentLoaded', async ()=>{
+  await cleanupStaleDrafts(); // frees only empty shells; keeps partial (name/phone/photo, etc.)
   refresh();
+
   const q = document.getElementById('q');
   let t = null;
   q.addEventListener('input', ()=>{
