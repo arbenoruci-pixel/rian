@@ -1,6 +1,7 @@
 // PAPLOTËSUARA = "Drafts from Pranimi"
-// Shows orders created to reserve a code but not finished yet.
-// Drafts with any info stay; only empty ones older than 30min are auto-deleted.
+// Shows unfinished orders. Badge and list now use the same rule:
+// 1) status = 'draft' OR status IS NULL
+// 2) OR "empty shell" created in last 30 minutes (code reserved, no data)
 
 import { SUPABASE_URL, SUPABASE_ANON } from '/assets/supabase.js';
 
@@ -31,6 +32,11 @@ async function cleanupStaleDrafts(){
   }catch(e){ /* silent */ }
 }
 
+function thirtyMinAgoISO(){
+  const d = new Date(Date.now() - 30*60*1000);
+  return d.toISOString();
+}
+
 async function fetchDrafts(query){
   const url = new URL(`${SUPABASE_URL}/rest/v1/orders`);
   url.searchParams.set(
@@ -39,17 +45,30 @@ async function fetchDrafts(query){
   );
   url.searchParams.set('archived','eq.false');
   url.searchParams.set('picked_at','is.null');
-  // drafts only (also allow legacy NULL)
-  url.searchParams.append('or','(status.eq.draft,status.is.null)');
+
+  // include true drafts OR empty shells created in the last 30 minutes
+  // empty shell = no name/phone/pieces/m2/total
+  const t30 = encodeURIComponent(thirtyMinAgoISO());
+  const emptyShell =
+    `and(name.is.null,phone.is.null,pieces.is.null,m2.is.null,total.is.null,created_at.gte.${t30})`;
+
+  // allow legacy "stage = queue" with null status to be treated as draft
+  const legacyQueue = `and(status.is.null,stage.eq.queue)`;
+
+  url.searchParams.append(
+    'or',
+    `(status.eq.draft,status.is.null,${emptyShell},${legacyQueue})`
+  );
+
   url.searchParams.set('order','created_at.desc');
 
   if(query){
     const q = query.trim();
-    const orParts = [];
-    if (/^\d+$/.test(q)) orParts.push(`code.eq.${q}`);
-    orParts.push(`name.ilike.*${encodeURIComponent(q)}*`);
-    orParts.push(`phone.ilike.*${encodeURIComponent(q)}*`);
-    url.searchParams.append('or', `(${orParts.join(',')})`);
+    const parts = [];
+    if (/^\d+$/.test(q)) parts.push(`code.eq.${q}`);
+    parts.push(`name.ilike.*${encodeURIComponent(q)}*`);
+    parts.push(`phone.ilike.*${encodeURIComponent(q)}*`);
+    url.searchParams.append('or', `(${parts.join(',')})`);
   }
 
   const r = await fetch(url.toString(), { headers });
@@ -70,15 +89,16 @@ function cardFor(row){
   node.querySelector('.total').textContent  = `Totali: ${fmtMoney(row.total||0)}`;
   node.querySelector('.when').textContent   = `Koha: ${daysAgo(row.created_at)}`;
 
-  // Open Pranimi to finish the draft (pass BOTH id and code)
+  // Open Pranimi to finish (pass BOTH id and code so the badge matches)
   node.style.cursor = 'pointer';
   node.addEventListener('click', (e)=>{
     if (e.target.closest('button')) return;
-    window.location.href = `/pranimi/?id=${encodeURIComponent(row.id)}&code=${encodeURIComponent(row.code)}`;
+    window.location.href = `/pranimi/?id=${encodeURIComponent(row.id)}&code=${encodeURIComponent(row.code||'')}`;
   });
 
-  // SMS helper (optional)
-  node.querySelector('[data-act="sms"]').addEventListener('click', ()=>{
+  // SMS helper
+  const smsBtn = node.querySelector('[data-act="sms"]');
+  if (smsBtn) smsBtn.addEventListener('click', ()=>{
     const msg = encodeURIComponent(`Përshëndetje ${row.name || ''}! Porosia #${row.code} është regjistruar. Do ju kontaktojmë shpejt.`);
     const phone = encodeURIComponent((row.phone||'').replace(/\s+/g,''));
     window.location.href = `sms:${phone}?&body=${msg}`;
@@ -109,7 +129,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   const q = document.getElementById('q');
   let t = null;
-  q.addEventListener('input', ()=>{
+  if (q) q.addEventListener('input', ()=>{
     clearTimeout(t);
     t = setTimeout(()=> refresh(q.value), 200);
   });
