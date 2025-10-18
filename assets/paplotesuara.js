@@ -70,11 +70,11 @@ function cardFor(row){
   node.querySelector('.total').textContent  = `Totali: ${fmtMoney(row.total||0)}`;
   node.querySelector('.when').textContent   = `Koha: ${daysAgo(row.created_at)}`;
 
-  // Open Pranimi to finish the draft (by id)
+  // Open Pranimi to finish the draft (pass BOTH id and code)
   node.style.cursor = 'pointer';
   node.addEventListener('click', (e)=>{
     if (e.target.closest('button')) return;
-    window.location.href = `/pranimi/?id=${encodeURIComponent(row.id)}`;
+    window.location.href = `/pranimi/?id=${encodeURIComponent(row.id)}&code=${encodeURIComponent(row.code)}`;
   });
 
   // SMS helper (optional)
