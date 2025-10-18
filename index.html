@@ -19,7 +19,7 @@
   .company .sub{opacity:.7;font-size:.9rem}
   .arka{position:absolute;right:16px;top:14px;text-decoration:none;padding:12px 16px;border-radius:999px;background:linear-gradient(180deg,#1c77b8,#16639a);border:1px solid #244264;color:#fff;font-weight:900;box-shadow:0 4px 16px #0006}
 
-  /* Scale down everything below the header on phones */
+  /* Scale down everything below the header on phones (~20%) */
   .page{transform-origin: top center}
   @media (max-width:760px){
     .page{transform:scale(.8)}
@@ -53,17 +53,17 @@
   .btn{padding:12px 18px;border-radius:12px;background:linear-gradient(180deg,#1c77b8,#16639a);border:1px solid #244264;color:#fff;font-weight:900;text-decoration:none}
 </style>
 
+<!-- Use the NEW counters file -->
 <script type="module">
-  import { countStatus, countUnfinished, countReadyToday, subscribeOrders } from '/assets/home.counters.js';
+  import { countStatus, countDrafts, countReadyToday, subscribeOrders } from '/assets/home.counters.v2.js';
 
   async function loadCounters(){
     const [pas, gat, mar, pap] = await Promise.all([
       countStatus('pastrim'),
       countStatus('gati'),
       countReadyToday(),
-      countUnfinished()
+      countDrafts() // DRAFTS ONLY for Paplotësuara
     ]);
-    // Top tiles
     setVal('c-pastrim', pas);
     setVal('c-gati', gat);
     setVal('c-marrje', mar);
@@ -122,7 +122,6 @@
 
     <!-- Big CTAs -->
     <a class="cta green" href="/pranimi/">+ KLIENT I RI</a>
-    <!-- (removed the duplicate red Paplotësuara CTA) -->
     <a class="cta amber" href="/transport/">🚚 TRANSPORT AKTIV <span class="right" id="c-trans">0</span></a>
 
     <!-- Search blocks -->
