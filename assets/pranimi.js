@@ -10,6 +10,10 @@ function num(v){ var n = parseFloat(String(v==null?'':v).replace(',', '.')); ret
 function digits(v){ return String(v==null?'':v).replace(/\D/g,''); }
 function nowISO(){ return new Date().toISOString(); }
 
+// -------- URL params (draft resume support) --------
+var URL_ID   = (function(){ try{ return new URLSearchParams(location.search).get('id'); }catch(e){ return null; } })() || null;
+var URL_CODE = (function(){ try{ return new URLSearchParams(location.search).get('code'); }catch(e){ return null; } })() || null;
+
 // --- on-screen error (remove when stable)
 window.addEventListener('error', function(e){
   var d=document.createElement('div');
@@ -21,7 +25,19 @@ window.addEventListener('error', function(e){
 // -------- CODE badge (numeric only) --------
 var assignedCode = null;
 function ensureCode(){
+  // If we came from PAPLOTËSUARA with an existing code, reuse it (no new reservation).
+  if (!assignedCode && URL_CODE) {
+    assignedCode = digits(URL_CODE);
+    if (assignedCode) {
+      var b = $('#ticketCode') || $('.badge.kodi');
+      if (b) { b.setAttribute('data-code', assignedCode); b.textContent = 'KODI: ' + assignedCode; }
+      return Promise.resolve(assignedCode);
+    }
+  }
+
   if (assignedCode) return Promise.resolve(assignedCode);
+
+  // Fresh flow → reserve a new code via RPC.
   return rpc('next_code_num', {}).then(function(r){
     var code = r;
     if (Array.isArray(r)) {
@@ -315,7 +331,7 @@ function ensurePayOverlay(){
           '<textarea id="pay-note" placeholder="Shënim (opsionale)" style="height:100px;background:#070a12;border:2px solid #2c3954;border-radius:14px;padding:12px 14px;font-size:1.05rem;font-weight:900;color:#fff;outline:none"></textarea>'+
           '<button id="pay-confirm">✅ E paguar në fillim (cash)</button>'+
           '<div style="font-size:.9rem;color:#b9c4da">Dritare miqësore për celularë.</div>'+
-        '</div>'+
+        </div>'+
       '</div>'+
     '</div>'+
   '</div>'+
@@ -378,7 +394,9 @@ function wireEuro(){
   btn.addEventListener('mouseleave', function(){ clearTimeout(timer); });
 }
 
-// -------- SAVE --------
+// -------- SAVE (now supports draft resume via URL_ID) --------
+var payState = { isPaid:false, amount:0, method:'cash', note:'' };
+
 function save(){
   var name=($('#name')&&$('#name').value||'').trim();
   var phone=($('#phone')&&$('#phone').value||'').replace(/\D/g,'');
@@ -389,19 +407,31 @@ function save(){
     if(!/^\d+$/.test(code)) throw new Error('Kodi pritet numer');
 
     var t=recalcTotals(), now=nowISO();
-    return insert('orders', {
+
+    // NOTE: if URL_ID exists → upsert same id (resume draft). Otherwise → new insert.
+    var payload = {
       code:code, name:name, phone:phone,
       price_per_m2: Number((t&&t.price_general) || getStoredPrice() || 0),
       m2: Number((t&&t.m2)||0),
       pieces: Number((t&&t.pieces)||0),
       total: Number((t&&t.euro_total)||0),
+      // move forward in pipeline
       status:'pastrim',
+      stage:'pastrim',
+      stage_at: now,
       is_paid: !!payState.isPaid,
       paid_amount: payState.isPaid ? Number(payState.amount||0) : 0,
       paid_method: payState.isPaid ? 'cash' : null,
       paid_note: payState.isPaid ? (payState.note || null) : null,
-      created_at: now, updated_at: now
-    }).then(function(){
+      updated_at: now
+    };
+    // keep created_at only for fresh rows (server default already sets it)
+    if (!URL_ID) payload.created_at = now;
+
+    // If resuming a draft: include 'id' so helper performs upsert on conflict.
+    var body = URL_ID ? Object.assign({ id: URL_ID }, payload) : payload;
+
+    return insert('orders', body).then(function(){
       try{ sessionStorage.removeItem('client_photo_thumb'); sessionStorage.removeItem('stairs_photo_thumb'); }catch(e){}
       location.href='/pastrimi/';
     });
@@ -410,6 +440,7 @@ function save(){
 
 // -------- INIT --------
 document.addEventListener('DOMContentLoaded', function(){
+  // If resuming: we already have URL_CODE → badge will show that; otherwise reserve a fresh one.
   ensureCode().catch(function(e){ var b=$('#ticketCode')||$('.badge.kodi'); if(b) b.textContent='KODI: ?'; alert('Gabim kodi: '+(e&&e.message?e.message:e)); });
 
   wireChips('chips-tepiha','tepiha');
