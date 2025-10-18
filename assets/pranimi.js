@@ -1,43 +1,40 @@
-// ================= PRANIMI — FULL ENGINE (legacy-safe) =================
-// code badge, chips, rows, stairs+photo, client photo, totals, SMS/WA/Viber,
-// € overlay (tap), €/m² changer (LONG-PRESS), and save() to Supabase.
-// No optional chaining; friendly to older Safari/iOS.
+// ================= PRANIMI — FULL ENGINE (with Auto-Drafts) =================
+// - KODI badge from Supabase rpc('next_code_num')
+// - Creates/updates a DRAFT row while you type (status:'draft')
+// - Save() promotes to 'pastrim' and redirects
+// - No optional chaining; friendly to older Safari/iOS.
 
-// -------- helpers --------
+// ---- import Supabase helpers exposed by /assets/supabase.js ----
+/* global SUPABASE_URL, SUPABASE_ANON, rpc, insert, update, select */
+
+// --------------------------- tiny DOM helpers -------------------------------
 function $(sel, root){ return (root||document).querySelector(sel); }
 function $all(sel, root){ return Array.prototype.slice.call((root||document).querySelectorAll(sel)); }
 function num(v){ var n = parseFloat(String(v==null?'':v).replace(',', '.')); return isFinite(n) ? n : 0; }
 function digits(v){ return String(v==null?'':v).replace(/\D/g,''); }
 function nowISO(){ return new Date().toISOString(); }
 
-// -------- URL params (draft resume support) --------
-var URL_ID   = (function(){ try{ return new URLSearchParams(location.search).get('id'); }catch(e){ return null; } })() || null;
-var URL_CODE = (function(){ try{ return new URLSearchParams(location.search).get('code'); }catch(e){ return null; } })() || null;
-
-// --- on-screen error (remove when stable)
+// --- on-screen error once (remove when stable)
 window.addEventListener('error', function(e){
-  var d=document.createElement('div');
-  d.style='position:fixed;left:0;right:0;top:0;z-index:99999;background:#300;color:#fff;padding:8px;font:14px system-ui';
-  d.textContent='[JS] '+(e.message || (e.error&&e.error.message) || 'unknown');
-  document.body.appendChild(d);
+  try{
+    var d=document.createElement('div');
+    d.style='position:fixed;left:0;right:0;top:0;z-index:99999;background:#300;color:#fff;padding:8px;font:14px system-ui';
+    d.textContent='[JS] '+(e.message || (e.error&&e.error.message) || 'unknown');
+    document.body.appendChild(d);
+  }catch(_){}
 },{once:true});
 
-// -------- CODE badge (numeric only) --------
+// ---------------------------- CODE badge ------------------------------------
 var assignedCode = null;
+var currentDraftId = null;   // orders.id after shell exists
+
+function setCodeBadge(v){
+  var b = $('#ticketCode') || $('.badge.kodi');
+  if (b) { b.setAttribute('data-code', v); b.textContent = 'KODI: ' + v; }
+}
+
 function ensureCode(){
-  // If we came from PAPLOTËSUARA with an existing code, reuse it (no new reservation).
-  if (!assignedCode && URL_CODE) {
-    assignedCode = digits(URL_CODE);
-    if (assignedCode) {
-      var b = $('#ticketCode') || $('.badge.kodi');
-      if (b) { b.setAttribute('data-code', assignedCode); b.textContent = 'KODI: ' + assignedCode; }
-      return Promise.resolve(assignedCode);
-    }
-  }
-
   if (assignedCode) return Promise.resolve(assignedCode);
-
-  // Fresh flow → reserve a new code via RPC.
   return rpc('next_code_num', {}).then(function(r){
     var code = r;
     if (Array.isArray(r)) {
@@ -48,16 +45,15 @@ function ensureCode(){
     }
     assignedCode = digits(code);
     if (!assignedCode) throw new Error('Kodi nuk u gjenerua');
-    var b = $('#ticketCode') || $('.badge.kodi');
-    if (b) { b.setAttribute('data-code', assignedCode); b.textContent = 'KODI: ' + assignedCode; }
+    setCodeBadge(assignedCode);
     return assignedCode;
   });
 }
 
-// -------- CAMERA SQUARE (1 photo per field; fills the button) --------
+// ------------------------ CAMERA SQUARE helpers -----------------------------
 function setupCamSquare(btn, storageKey){
   if (!btn) return;
-  var existing = btn.querySelector('img.thumb');
+  var existing = btn.querySelector && btn.querySelector('img.thumb');
   var thumb = existing || document.createElement('img');
   thumb.className = 'thumb';
   thumb.alt = '';
@@ -87,6 +83,7 @@ function setupCamSquare(btn, storageKey){
         var data=String(rd.result||''); thumb.src=data; thumb.style.display='block';
         if (storageKey){ try{ sessionStorage.setItem(storageKey, data); }catch(e){} }
         if(input.parentNode) input.parentNode.removeChild(input);
+        queueDraftSync(); // photo changed -> totals may not change, but we still persist
       };
       rd.readAsDataURL(f);
     });
@@ -94,13 +91,13 @@ function setupCamSquare(btn, storageKey){
   });
 }
 
-// -------- CLIENT PHOTO (next to name) --------
 function wireClientPhoto(){
-  var label=document.querySelector('label.cam-btn'); if(!label) return;
-  setupCamSquare(label, 'client_photo_thumb'); // session-based so it doesn't leak to next client
+  var label=document.querySelector && document.querySelector('label.cam-btn'); 
+  if(!label) return;
+  setupCamSquare(label, 'client_photo_thumb'); // session-based so it doesn't leak
 }
 
-// -------- ROWS (tepiha / staza) --------
+// ------------------------------ ROWS ----------------------------------------
 function makeRow(m2){
   var row=document.createElement('div');
   row.className='piece-row';
@@ -114,17 +111,18 @@ function makeRow(m2){
     '</div>';
   return row;
 }
-function listHolder(kind){ return $('#list-'+kind); }
+function listHolder(kind){ return document.getElementById('list-'+kind); }
 
 window.addRow=function(kind,m2){
   var h=listHolder(kind); if(!h) return;
   var row=makeRow(m2); h.appendChild(row);
-  var camBtn=row.querySelector('.cam-btn'); if(camBtn) setupCamSquare(camBtn, null);
-  recalcSection(kind); recalcTotals();
+  var camBtn=row.querySelector && row.querySelector('.cam-btn'); 
+  if(camBtn) setupCamSquare(camBtn, null);
+  recalcSection(kind); recalcTotals(); queueDraftSync();
 };
 window.removeRow=function(kind){
   var h=listHolder(kind); if(h && h.lastElementChild) h.removeChild(h.lastElementChild);
-  recalcSection(kind); recalcTotals();
+  recalcSection(kind); recalcTotals(); queueDraftSync();
 };
 
 function sectionSum(kind){
@@ -134,16 +132,16 @@ function sectionSum(kind){
   return { m2:sum, pieces:pcs };
 }
 function recalcSection(kind){
-  var out=$('#tot-'+kind), s=sectionSum(kind);
+  var out=document.getElementById('tot-'+kind), s=sectionSum(kind);
   if (out) out.textContent = s.m2.toFixed(2) + ' m²';
 }
 
-// -------- SHKALLORE --------
+// ----------------------------- SHKALLORE ------------------------------------
 var stairs = { qty:0, per:0.3, price:null, photo:null };
 function stairsM2(){ return Math.max(0, (stairs.qty||0) * (stairs.per||0)); }
 function openStairs(){
-  var sec=$('#sec-shkallore'); if(!sec) return;
-  var old=$('#stairsBox'); if(old && old.parentNode) old.parentNode.removeChild(old);
+  var sec=document.getElementById('sec-shkallore'); if(!sec) return;
+  var old=document.getElementById('stairsBox'); if(old && old.parentNode) old.parentNode.removeChild(old);
   var box=document.createElement('div');
   box.id='stairsBox';
   box.style.cssText='margin-top:10px;border:1px solid #273143;border-radius:12px;padding:10px;background:#0b111d';
@@ -160,23 +158,23 @@ function openStairs(){
     '</div>';
   sec.appendChild(box);
 
-  var qty=$('#stairsQty'), per=$('#stairsPer'), pr=$('#stairsPrice'), cam=$('#stairsCamBtn');
+  var qty=document.getElementById('stairsQty'), per=document.getElementById('stairsPer'), pr=document.getElementById('stairsPrice'), cam=document.getElementById('stairsCamBtn');
   if (cam) setupCamSquare(cam, 'stairs_photo_thumb');
 
   function sync(){
     stairs.qty   = Math.max(0, Math.floor(num(qty.value)));
     stairs.per   = Math.max(0, num(per.value));
     stairs.price = (pr.value==='' ? null : num(pr.value));
-    var lbl=$('#stairsM2Lbl'); if (lbl) lbl.textContent=stairsM2().toFixed(2);
-    var out=$('#stairsM2'); if (out) out.textContent=stairsM2().toFixed(2)+' m²';
-    recalcTotals();
+    var lbl=document.getElementById('stairsM2Lbl'); if (lbl) lbl.textContent=stairsM2().toFixed(2);
+    var out=document.getElementById('stairsM2'); if (out) out.textContent=stairsM2().toFixed(2)+' m²';
+    recalcTotals(); queueDraftSync();
   }
   qty.addEventListener('input',sync); per.addEventListener('input',sync); pr.addEventListener('input',sync);
-  $('#stairsClose').addEventListener('click', function(){ if(box.parentNode) box.parentNode.removeChild(box); });
+  document.getElementById('stairsClose').addEventListener('click', function(){ if(box.parentNode) box.parentNode.removeChild(box); });
 }
-function wireOpenStairs(){ var btn=$('#openStairs'); if(btn) btn.addEventListener('click', openStairs); }
+function wireOpenStairs(){ var btn=document.getElementById('openStairs'); if(btn) btn.addEventListener('click', openStairs); }
 
-// -------- €/m² storage + prompt --------
+// --------------------------- €/m² storage -----------------------------------
 function getStoredPrice(){
   var s = localStorage.getItem('price_per_m2');
   return s==null ? 0 : num(s);
@@ -184,7 +182,8 @@ function getStoredPrice(){
 function setStoredPrice(v){
   var n = num(v);
   try { localStorage.setItem('price_per_m2', String(n)); } catch(e){}
-  var hidden = $('#pricePerM2'); if(!hidden){ hidden=document.createElement('input'); hidden.type='hidden'; hidden.id='pricePerM2'; document.body.appendChild(hidden); }
+  var hidden = document.getElementById('pricePerM2'); 
+  if(!hidden){ hidden=document.createElement('input'); hidden.type='hidden'; hidden.id='pricePerM2'; document.body.appendChild(hidden); }
   hidden.value = String(n);
 }
 function promptSetPrice(defaultVal){
@@ -192,11 +191,11 @@ function promptSetPrice(defaultVal){
   var v = window.prompt('Çmimi (€) për m² (për tepiha & staza):', cur);
   if (v===null) return false;
   setStoredPrice(v);
-  recalcTotals();
+  recalcTotals(); queueDraftSync();
   return true;
 }
 
-// -------- CHIPS --------
+// ------------------------------ CHIPS ---------------------------------------
 function parseM2Label(label){ var m=String(label).match(/([\d.]+)\s*m²/i); return m ? num(m[1]) : null; }
 function wireChips(holderId, kind){
   var h = document.getElementById(holderId); if(!h) return;
@@ -209,26 +208,26 @@ function wireChips(holderId, kind){
   $all('.chip',h).forEach(function(c){ c.style.pointerEvents='auto'; });
 }
 
-// -------- TOTALS --------
+// ------------------------------ TOTALS --------------------------------------
 function recalcTotals(){
   var t = sectionSum('tepiha');
   var s = sectionSum('staza');
   var stair = stairsM2();
 
   var m2Total = t.m2 + s.m2 + stair;
-  var m2TotEl = $('#m2Total'); if (m2TotEl) m2TotEl.textContent = m2Total.toFixed(2);
-  var tt = $('#tot-tepiha'); if (tt) tt.textContent = t.m2.toFixed(2) + ' m²';
-  var ts = $('#tot-staza');  if (ts) ts.textContent = s.m2.toFixed(2) + ' m²';
-  var sm = $('#stairsM2');   if (sm) sm.textContent = stair.toFixed(2) + ' m²';
+  var m2TotEl = document.getElementById('m2Total'); if (m2TotEl) m2TotEl.textContent = m2Total.toFixed(2);
+  var tt = document.getElementById('tot-tepiha'); if (tt) tt.textContent = t.m2.toFixed(2) + ' m²';
+  var ts = document.getElementById('tot-staza');  if (ts) ts.textContent = s.m2.toFixed(2) + ' m²';
+  var sm = document.getElementById('stairsM2');   if (sm) sm.textContent = stair.toFixed(2) + ' m²';
 
-  var priceInp = $('#pricePerM2');
+  var priceInp = document.getElementById('pricePerM2');
   if (!priceInp) { priceInp=document.createElement('input'); priceInp.type='hidden'; priceInp.id='pricePerM2'; document.body.appendChild(priceInp); }
   if (!priceInp.value && localStorage.getItem('price_per_m2')) priceInp.value = localStorage.getItem('price_per_m2');
   var general = num(priceInp.value);
 
   var stairPrice = (stairs.price==null ? general : stairs.price);
   var euro = (t.m2 + s.m2) * general + stair * stairPrice;
-  var eurEl = $('#euroTotal'); if (eurEl) eurEl.textContent = euro.toFixed(2);
+  var eurEl = document.getElementById('euroTotal'); if (eurEl) eurEl.textContent = euro.toFixed(2);
 
   window.__TOTALS__ = {
     m2: m2Total,
@@ -239,7 +238,6 @@ function recalcTotals(){
   };
   return window.__TOTALS__;
 }
-window.recalcTotals = recalcTotals;
 
 // live recalcs
 document.addEventListener('input', function(e){
@@ -247,11 +245,11 @@ document.addEventListener('input', function(e){
   if (t && t.classList && t.classList.contains('m2')) {
     if (t.closest && t.closest('#list-tepiha')) recalcSection('tepiha');
     if (t.closest && t.closest('#list-staza'))  recalcSection('staza');
-    recalcTotals();
+    recalcTotals(); queueDraftSync();
   }
 });
 
-// -------- SMS / WA / Viber --------
+// ----------------------- SMS / WA quick message -----------------------------
 function buildClientMessage(d){
   return 'Përshëndetje '+(d.name||'')+',\n'+
 'Procesi i pastrimit ka filluar.\n'+
@@ -262,7 +260,7 @@ function buildClientMessage(d){
 'Faleminderit!';
 }
 function wireSmsButtons(){
-  var btn = $('#btnSms'); if(!btn) return;
+  var btn = document.getElementById('btnSms'); if(!btn) return;
   var timer=null, longPressed=false;
   function start(){ longPressed=false; timer=setTimeout(function(){ longPressed=true; openAlt(); },450); }
   function end(){ clearTimeout(timer); if(!longPressed) openSms(); }
@@ -273,8 +271,8 @@ function wireSmsButtons(){
   btn.addEventListener('mouseleave', function(){ clearTimeout(timer); });
   function getData(){
     return ensureCode().then(function(code){
-      var name=($('#name')&&$('#name').value||'').trim();
-      var phone=($('#phone')&&$('#phone').value||'').replace(/\D/g,'');
+      var name=(document.getElementById('name')&&document.getElementById('name').value||'').trim();
+      var phone=(document.getElementById('phone')&&document.getElementById('phone').value||'').replace(/\D/g,'');
       var t=recalcTotals()||{m2:0,pieces:0,euro_total:0};
       return { name:name, phone:phone, code:code, pieces:(t.pieces||0), m2:Number(t.m2||0), total:Number(t.euro_total||0) };
     });
@@ -283,11 +281,11 @@ function wireSmsButtons(){
   function openAlt(){ getData().then(function(d){ if(!d.phone){ alert('Shkruaj telefonin'); return; } var text=encodeURIComponent(buildClientMessage(d)); var wa='whatsapp://send?phone='+d.phone+'&text='+text; var vb='viber://chat?number='+d.phone+'&text='+text; location.href=wa; setTimeout(function(){ try{ location.href=vb; }catch(e){} },600); }); }
 }
 
-// -------- PAYMENT (overlay, cash; long-press € sets €/m²) --------
+// ----------------------------- PAYMENT --------------------------------------
 var payState = { isPaid:false, amount:0, method:'cash', note:'' };
 
 function ensurePayOverlay(){
-  var ex=$('#pay-ov'); if(ex) return ex;
+  var ex=document.getElementById('pay-ov'); if(ex) return ex;
   var wrap=document.createElement('div'); wrap.id='pay-ov';
   wrap.innerHTML =
 '<style id="pay-css">#pay-ov{position:fixed;inset:0;background:rgba(3,6,12,.88);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;padding:12px;z-index:9999}'+
@@ -331,7 +329,7 @@ function ensurePayOverlay(){
           '<textarea id="pay-note" placeholder="Shënim (opsionale)" style="height:100px;background:#070a12;border:2px solid #2c3954;border-radius:14px;padding:12px 14px;font-size:1.05rem;font-weight:900;color:#fff;outline:none"></textarea>'+
           '<button id="pay-confirm">✅ E paguar në fillim (cash)</button>'+
           '<div style="font-size:.9rem;color:#b9c4da">Dritare miqësore për celularë.</div>'+
-        </div>'+
+        '</div>'+
       '</div>'+
     '</div>'+
   '</div>'+
@@ -343,13 +341,16 @@ function ensurePayOverlay(){
 function showPayOverlay(){
   var ov=ensurePayOverlay();
 
-  // Ensure €/m² exists on phones (localStorage can be empty)
+  // Ensure €/m² on first use
   var totalsBefore = recalcTotals();
   if ((totalsBefore && totalsBefore.m2 || 0) > 0 && (!getStoredPrice() || getStoredPrice()<=0)) {
-    promptSetPrice(5); recalcTotals();
+    promptSetPrice(5); recalcTotals(); queueDraftSync();
   }
 
-  var dueLbl=$('#pay-due', ov), givenLbl=$('#pay-given span', ov), changeLbl=$('#pay-change span', ov), changeB=$('#pay-change b', ov);
+  var dueLbl=document.querySelector && document.querySelector('#pay-due');
+  var givenLbl=document.querySelector && document.querySelector('#pay-given span');
+  var changeLbl=document.querySelector && document.querySelector('#pay-change span');
+  var changeB=document.querySelector && document.querySelector('#pay-change b');
   var t=recalcTotals(); var due=Number((t&&t.euro_total)||0); var given=0;
 
   function fmt(n){ return '€'+Number(n||0).toFixed(2); }
@@ -361,21 +362,22 @@ function showPayOverlay(){
     else { if(changeB) changeB.textContent='Mungesë:'; if(changeLbl){ changeLbl.textContent=fmt(-diff); changeLbl.className='mungese'; } }
   }
 
-  var chips=$('#pay-chips', ov); if (chips) chips.onclick=function(e){
+  var chips=document.getElementById('pay-chips'); if (chips) chips.onclick=function(e){
     var c=e.target.closest?e.target.closest('.chip'):null; if(!c) return;
     if(c.dataset && c.dataset.add) given+=Number(c.dataset.add);
     else if(c.dataset && c.dataset.exact) given=due;
     else if(c.dataset && c.dataset.clear) given=0;
     render();
   };
-  var cbtn=$('#pay-close', ov); if (cbtn) cbtn.onclick=function(){ ov.style.display='none'; };
-  var conf=$('#pay-confirm', ov); if (conf) conf.onclick=function(){
+  var cbtn=document.getElementById('pay-close'); if (cbtn) cbtn.onclick=function(){ ov.style.display='none'; };
+  var conf=document.getElementById('pay-confirm'); if (conf) conf.onclick=function(){
     payState.isPaid=true; payState.amount=given; payState.method='cash';
-    var noteEl=$('#pay-note', ov); payState.note=noteEl?(noteEl.value||'').trim():'';
+    var noteEl=document.getElementById('pay-note'); payState.note=noteEl?(noteEl.value||'').trim():'';
     ov.style.display='none';
     var el=document.createElement('div'); el.textContent='✅ E paguar në fillim: '+fmt(given);
     el.style='position:fixed;left:50%;transform:translateX(-50%);bottom:90px;background:#0c1220;border:1px solid #2b3956;padding:8px 12px;border-radius:10px;color:#d7ffe7;font-weight:900;z-index:99999';
     document.body.appendChild(el); setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); },1600);
+    queueDraftSync();
   };
 
   render(); ov.style.display='flex';
@@ -383,7 +385,7 @@ function showPayOverlay(){
 
 // wire € (tap=open table, LONG-PRESS=set €/m²)
 function wireEuro(){
-  var btn=$('#openPay'); if(!btn) return;
+  var btn=document.getElementById('openPay'); if(!btn) return;
   var timer=null,longPressed=false;
   function start(){ longPressed=false; timer=setTimeout(function(){ longPressed=true; promptSetPrice(getStoredPrice()||5); },600); }
   function end(){ clearTimeout(timer); if(!longPressed){ recalcTotals(); showPayOverlay(); } }
@@ -394,54 +396,133 @@ function wireEuro(){
   btn.addEventListener('mouseleave', function(){ clearTimeout(timer); });
 }
 
-// -------- SAVE (now supports draft resume via URL_ID) --------
-var payState = { isPaid:false, amount:0, method:'cash', note:'' };
+// --------------------------- AUTO-DRAFT ENGINE ------------------------------
+// We store a row as soon as we have a code. Then, on any change, we PATCH it.
+// Draft policy you requested:
+//   - Empty shells (name=null & phone=null & totals=0) auto-deleted by DB
+//     (handled server-side via your cleanup function / policy).
+//   - Partial info persists until finished.
+// This client-side keeps status='draft' until save().
 
+var draftTimer = null;
+
+function queueDraftSync(){
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(syncDraft, 400);
+}
+
+function getFormSnapshot(code){
+  var name=(document.getElementById('name')&&document.getElementById('name').value||'').trim();
+  var phone=(document.getElementById('phone')&&document.getElementById('phone').value||'').replace(/\D/g,'');
+  var t=recalcTotals()||{m2:0,pieces:0,euro_total:0,price_general:0};
+  return {
+    code: Number(code),
+    name: name || null,
+    phone: phone || null,
+    price_per_m2: Number(t.price_general||0) || null,
+    m2: Number(t.m2||0) || null,
+    pieces: Number(t.pieces||0) || null,
+    total: Number(t.euro_total||0) || null,
+    status: 'draft',
+    stage: 'pranim',
+    updated_at: nowISO(),
+    stage_at: nowISO(),
+    is_paid: !!payState.isPaid,
+    paid_amount: payState.isPaid ? Number(payState.amount||0) : 0,
+    paid_method: payState.isPaid ? 'cash' : null,
+    paid_note: payState.isPaid ? (payState.note || null) : null,
+    archived: false
+  };
+}
+
+function syncDraft(){
+  if(!assignedCode) return;
+  var code = Number(assignedCode);
+  var patch = getFormSnapshot(code);
+
+  // First try PATCH by code; if nothing updated, INSERT a new shell draft
+  update('orders', patch, { code: code }).then(function(rows){
+    var updated = Array.isArray(rows) ? rows.length : 0;
+    if (updated>0){
+      currentDraftId = rows[0] && rows[0].id || currentDraftId;
+      return;
+    }
+    // Insert a new draft shell
+    var base = {
+      code: code,
+      status: 'draft',
+      stage: 'pranim',
+      created_at: nowISO(),
+      updated_at: nowISO(),
+      stage_at: nowISO(),
+      archived: false
+    };
+    // Insert with whatever we already have
+    for (var k in patch){ if(patch[k]!=null) base[k]=patch[k]; }
+    return insert('orders', base).then(function(ret){
+      if (Array.isArray(ret) && ret[0]) currentDraftId = ret[0].id;
+    });
+  }).catch(function(e){
+    // silent fail (network hiccup) — we’ll try on next keystroke
+    if (window && window.console) console.warn('[draft sync]', e);
+  });
+}
+
+// ------------------------------- SAVE ---------------------------------------
 function save(){
-  var name=($('#name')&&$('#name').value||'').trim();
-  var phone=($('#phone')&&$('#phone').value||'').replace(/\D/g,'');
+  var name=(document.getElementById('name')&&document.getElementById('name').value||'').trim();
+  var phone=(document.getElementById('phone')&&document.getElementById('phone').value||'').replace(/\D/g,'');
+  if(!name)  return Promise.reject(new Error('Shkruaj emrin'));
+  if(!phone) return Promise.reject(new Error('Shkruaj telefonin'));
+
   return ensureCode().then(function(c){
     var code=digits(c);
-    if(!name) throw new Error('Shkruaj emrin');
-    if(!phone) throw new Error('Shkruaj telefonin');
     if(!/^\d+$/.test(code)) throw new Error('Kodi pritet numer');
 
     var t=recalcTotals(), now=nowISO();
-
-    // NOTE: if URL_ID exists → upsert same id (resume draft). Otherwise → new insert.
-    var payload = {
-      code:code, name:name, phone:phone,
+    var patch = {
+      code: Number(code),
+      name: name,
+      phone: phone,
       price_per_m2: Number((t&&t.price_general) || getStoredPrice() || 0),
       m2: Number((t&&t.m2)||0),
       pieces: Number((t&&t.pieces)||0),
       total: Number((t&&t.euro_total)||0),
-      // move forward in pipeline
       status:'pastrim',
-      stage:'pastrim',
+      stage: 'pastrim',
+      updated_at: now,
       stage_at: now,
       is_paid: !!payState.isPaid,
       paid_amount: payState.isPaid ? Number(payState.amount||0) : 0,
       paid_method: payState.isPaid ? 'cash' : null,
       paid_note: payState.isPaid ? (payState.note || null) : null,
-      updated_at: now
+      archived: false
     };
-    // keep created_at only for fresh rows (server default already sets it)
-    if (!URL_ID) payload.created_at = now;
 
-    // If resuming a draft: include 'id' so helper performs upsert on conflict.
-    var body = URL_ID ? Object.assign({ id: URL_ID }, payload) : payload;
-
-    return insert('orders', body).then(function(){
+    return update('orders', patch, { code: Number(code) }).then(function(rows){
+      if (!rows || rows.length===0){
+        // If for any reason there was no draft, insert as final row
+        patch.created_at = now;
+        return insert('orders', patch);
+      }
+      return rows;
+    }).then(function(){
       try{ sessionStorage.removeItem('client_photo_thumb'); sessionStorage.removeItem('stairs_photo_thumb'); }catch(e){}
       location.href='/pastrimi/';
     });
   });
 }
 
-// -------- INIT --------
+// ------------------------------ INIT ----------------------------------------
 document.addEventListener('DOMContentLoaded', function(){
-  // If resuming: we already have URL_CODE → badge will show that; otherwise reserve a fresh one.
-  ensureCode().catch(function(e){ var b=$('#ticketCode')||$('.badge.kodi'); if(b) b.textContent='KODI: ?'; alert('Gabim kodi: '+(e&&e.message?e.message:e)); });
+  ensureCode().then(function(){
+    // create a shell immediately (so code is reserved & visible in drafts)
+    syncDraft();
+  }).catch(function(e){
+    var b=document.getElementById('ticketCode')||document.querySelector('.badge.kodi');
+    if(b) b.textContent='KODI: ?';
+    alert('Gabim kodi: '+(e&&e.message?e.message:e));
+  });
 
   wireChips('chips-tepiha','tepiha');
   wireChips('chips-staza','staza');
@@ -456,8 +537,15 @@ document.addEventListener('DOMContentLoaded', function(){
   wireSmsButtons();
   wireEuro();
 
-  var go=$('#btnContinue');
-  if(go) go.addEventListener('click', function(e){ e.preventDefault(); save().catch(function(err){ alert('Ruajtja dështoi:\n'+(err&&err.message?err.message:err)); }); });
+  var go=document.getElementById('btnContinue');
+  if(go) go.addEventListener('click', function(e){ 
+    e.preventDefault(); 
+    save().catch(function(err){ alert('Ruajtja dështoi:\n'+(err&&err.message?err.message:err)); }); 
+  });
+
+  // Draft updates from typing name/phone too
+  var nm=document.getElementById('name'); if(nm) nm.addEventListener('input', queueDraftSync);
+  var ph=document.getElementById('phone'); if(ph) ph.addEventListener('input', queueDraftSync);
 
   recalcSection('tepiha'); recalcSection('staza'); recalcTotals();
 });
