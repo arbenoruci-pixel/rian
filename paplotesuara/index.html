@@ -22,8 +22,6 @@
     .muted{opacity:.7}
     .right{margin-left:auto}
     .btn{padding:10px 12px;border-radius:10px;border:1px solid #2a3b51;background:#17315a;color:#fff;font-weight:800;cursor:pointer}
-    .btn.warn{background:#6d1d26;border-color:#7a2630}
-    .btn.ok{background:#145a33;border-color:#1b7a45}
     .kv{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;color:#b7c6de}
     .age{padding:4px 8px;border-radius:8px;border:1px solid #2a3b51;background:#101826}
     .pill{padding:4px 8px;border-radius:999px;border:1px solid #2a3b51;background:#101826}
@@ -31,7 +29,7 @@
     .search input{width:100%;padding:12px;border-radius:12px;border:1px solid #233145;background:#0e1622;color:#eaf1ff}
     .empty{opacity:.7;text-align:center;padding:24px}
   </style>
-  <script type="module" src="/assets/paplotesuara.js?v=1"></script>
+  <script type="module" src="/assets/paplotesuara.js?v=2"></script>
 </head>
 <body>
   <header>
@@ -49,7 +47,6 @@
 
   <div class="list" id="list"></div>
 
-  <!-- Simple template -->
   <template id="tpl-card">
     <div class="card">
       <div class="row">
@@ -66,9 +63,7 @@
       </div>
       <div class="row" style="margin-top:10px;gap:8px">
         <button class="btn" data-act="sms">SMS</button>
-        <button class="btn ok" data-act="gati">▶ GATI</button>
-        <button class="btn ok" data-act="dorzo">✓ DORËZO</button>
-        <button class="btn warn right" data-act="noshow">NO-SHOW</button>
+        <!-- no GATI/DORËZO here; drafts are finished in Pranimi -->
       </div>
     </div>
   </template>
