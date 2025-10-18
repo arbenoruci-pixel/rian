@@ -1,8 +1,8 @@
-// ================= PRANIMI — FULL ENGINE (with Auto-Drafts) =================
-// - KODI badge from Supabase rpc('next_code_num')
-// - Creates/updates a DRAFT row while you type (status:'draft')
-// - Save() promotes to 'pastrim' and redirects
-// - No optional chaining; friendly to older Safari/iOS.
+// ================= PRANIMI — FULL ENGINE (Draft-aware) =====================
+// - If ?id=<order_id> is present: load that draft, keep its existing CODE.
+// - Otherwise: reserve a new CODE via rpc('next_code_num') and create auto-draft.
+// - Live draft updates; save() promotes to 'pastrim' and redirects.
+// - No optional chaining; works on older iOS/Safari.
 
 // ---- import Supabase helpers exposed by /assets/supabase.js ----
 /* global SUPABASE_URL, SUPABASE_ANON, rpc, insert, update, select */
@@ -13,6 +13,10 @@ function $all(sel, root){ return Array.prototype.slice.call((root||document).que
 function num(v){ var n = parseFloat(String(v==null?'':v).replace(',', '.')); return isFinite(n) ? n : 0; }
 function digits(v){ return String(v==null?'':v).replace(/\D/g,''); }
 function nowISO(){ return new Date().toISOString(); }
+function getParam(name){
+  var m = new RegExp('[?&]'+name+'=([^&#]*)').exec(location.search);
+  return m ? decodeURIComponent(m[1]) : null;
+}
 
 // --- on-screen error once (remove when stable)
 window.addEventListener('error', function(e){
@@ -24,17 +28,21 @@ window.addEventListener('error', function(e){
   }catch(_){}
 },{once:true});
 
-// ---------------------------- CODE badge ------------------------------------
-var assignedCode = null;
-var currentDraftId = null;   // orders.id after shell exists
+// ---------------------------- CODE / DRAFT ----------------------------------
+var assignedCode = null;     // numeric code shown in the badge
+var currentDraftId = null;   // orders.id when editing an existing row
+var editingExisting = false; // true when URL has ?id=...
 
 function setCodeBadge(v){
   var b = $('#ticketCode') || $('.badge.kodi');
   if (b) { b.setAttribute('data-code', v); b.textContent = 'KODI: ' + v; }
 }
 
+// If we are editing an existing draft, DO NOT generate a new code.
+// Otherwise, ask the DB for the next available code.
 function ensureCode(){
   if (assignedCode) return Promise.resolve(assignedCode);
+  if (editingExisting) return Promise.resolve(assignedCode); // already set by loadExistingDraft
   return rpc('next_code_num', {}).then(function(r){
     var code = r;
     if (Array.isArray(r)) {
@@ -47,6 +55,48 @@ function ensureCode(){
     if (!assignedCode) throw new Error('Kodi nuk u gjenerua');
     setCodeBadge(assignedCode);
     return assignedCode;
+  });
+}
+
+// Load an existing draft by id, use its code, and prefill simple fields.
+function loadExistingDraftById(id){
+  var url = new URL(SUPABASE_URL + '/rest/v1/orders');
+  url.searchParams.set('select','id,code,name,phone,price_per_m2,m2,pieces,total,status,stage');
+  url.searchParams.set('id','eq.'+id);
+  return fetch(url.toString(), {
+    headers: {
+      apikey: SUPABASE_ANON,
+      Authorization: 'Bearer '+SUPABASE_ANON,
+      Accept: 'application/json'
+    }
+  }).then(function(r){ return r.json(); }).then(function(rows){
+    if (!Array.isArray(rows) || rows.length===0) throw new Error('Draft nuk u gjet');
+    var row = rows[0];
+    currentDraftId = row.id;
+    editingExisting = true;
+    assignedCode = String(row.code||'').replace(/\D/g,'');
+    if (!assignedCode) throw new Error('Kodi i draftit mungon');
+
+    // badge
+    setCodeBadge(assignedCode);
+
+    // prefill simple fields if present
+    var nm = $('#name');  if(nm && row.name!=null) nm.value = row.name;
+    var ph = $('#phone'); if(ph && row.phone!=null) ph.value = row.phone;
+
+    // store €/m² in hidden/local so totals match visual
+    if (row.price_per_m2!=null) {
+      try { localStorage.setItem('price_per_m2', String(row.price_per_m2)); } catch(e){}
+      var hidden = $('#pricePerM2'); 
+      if (!hidden){ hidden=document.createElement('input'); hidden.type='hidden'; hidden.id='pricePerM2'; document.body.appendChild(hidden); }
+      hidden.value = String(row.price_per_m2);
+    }
+
+    // We cannot reconstruct per-piece rows from totals (not stored), but we
+    // at least display totals immediately so the € overlay is correct.
+    recalcTotals();
+
+    return row;
   });
 }
 
@@ -81,9 +131,9 @@ function setupCamSquare(btn, storageKey){
       var rd=new FileReader();
       rd.onload=function(){
         var data=String(rd.result||''); thumb.src=data; thumb.style.display='block';
-        if (storageKey){ try{ sessionStorage.setItem(storageKey, data); }catch(e){} }
+        try{ if (storageKey) sessionStorage.setItem(storageKey, data); }catch(e){}
         if(input.parentNode) input.parentNode.removeChild(input);
-        queueDraftSync(); // photo changed -> totals may not change, but we still persist
+        queueDraftSync();
       };
       rd.readAsDataURL(f);
     });
@@ -132,7 +182,7 @@ function sectionSum(kind){
   return { m2:sum, pieces:pcs };
 }
 function recalcSection(kind){
-  var out=document.getElementById('tot-'+kind), s=sectionSum(kind);
+  var out=document.getElementById('tot-'+kind'), s=sectionSum(kind);
   if (out) out.textContent = s.m2.toFixed(2) + ' m²';
 }
 
@@ -341,7 +391,6 @@ function ensurePayOverlay(){
 function showPayOverlay(){
   var ov=ensurePayOverlay();
 
-  // Ensure €/m² on first use
   var totalsBefore = recalcTotals();
   if ((totalsBefore && totalsBefore.m2 || 0) > 0 && (!getStoredPrice() || getStoredPrice()<=0)) {
     promptSetPrice(5); recalcTotals(); queueDraftSync();
@@ -397,13 +446,6 @@ function wireEuro(){
 }
 
 // --------------------------- AUTO-DRAFT ENGINE ------------------------------
-// We store a row as soon as we have a code. Then, on any change, we PATCH it.
-// Draft policy you requested:
-//   - Empty shells (name=null & phone=null & totals=0) auto-deleted by DB
-//     (handled server-side via your cleanup function / policy).
-//   - Partial info persists until finished.
-// This client-side keeps status='draft' until save().
-
 var draftTimer = null;
 
 function queueDraftSync(){
@@ -440,6 +482,13 @@ function syncDraft(){
   var code = Number(assignedCode);
   var patch = getFormSnapshot(code);
 
+  // If editing an existing draft, PATCH by id and never INSERT a new row.
+  if (editingExisting && currentDraftId){
+    return update('orders', patch, { id: currentDraftId }).catch(function(e){
+      if (window && window.console) console.warn('[draft sync by id]', e);
+    });
+  }
+
   // First try PATCH by code; if nothing updated, INSERT a new shell draft
   update('orders', patch, { code: code }).then(function(rows){
     var updated = Array.isArray(rows) ? rows.length : 0;
@@ -447,7 +496,6 @@ function syncDraft(){
       currentDraftId = rows[0] && rows[0].id || currentDraftId;
       return;
     }
-    // Insert a new draft shell
     var base = {
       code: code,
       status: 'draft',
@@ -457,13 +505,11 @@ function syncDraft(){
       stage_at: nowISO(),
       archived: false
     };
-    // Insert with whatever we already have
     for (var k in patch){ if(patch[k]!=null) base[k]=patch[k]; }
     return insert('orders', base).then(function(ret){
       if (Array.isArray(ret) && ret[0]) currentDraftId = ret[0].id;
     });
   }).catch(function(e){
-    // silent fail (network hiccup) — we’ll try on next keystroke
     if (window && window.console) console.warn('[draft sync]', e);
   });
 }
@@ -475,10 +521,7 @@ function save(){
   if(!name)  return Promise.reject(new Error('Shkruaj emrin'));
   if(!phone) return Promise.reject(new Error('Shkruaj telefonin'));
 
-  return ensureCode().then(function(c){
-    var code=digits(c);
-    if(!/^\d+$/.test(code)) throw new Error('Kodi pritet numer');
-
+  var doPatch = function(code){
     var t=recalcTotals(), now=nowISO();
     var patch = {
       code: Number(code),
@@ -489,7 +532,7 @@ function save(){
       pieces: Number((t&&t.pieces)||0),
       total: Number((t&&t.euro_total)||0),
       status:'pastrim',
-      stage: 'pastrim',
+      stage:'pastrim',
       updated_at: now,
       stage_at: now,
       is_paid: !!payState.isPaid,
@@ -498,15 +541,27 @@ function save(){
       paid_note: payState.isPaid ? (payState.note || null) : null,
       archived: false
     };
-
+    if (editingExisting && currentDraftId){
+      return update('orders', patch, { id: currentDraftId });
+    }
     return update('orders', patch, { code: Number(code) }).then(function(rows){
       if (!rows || rows.length===0){
-        // If for any reason there was no draft, insert as final row
         patch.created_at = now;
         return insert('orders', patch);
       }
       return rows;
-    }).then(function(){
+    });
+  };
+
+  if (assignedCode) {
+    return doPatch(assignedCode).then(function(){
+      try{ sessionStorage.removeItem('client_photo_thumb'); sessionStorage.removeItem('stairs_photo_thumb'); }catch(e){}
+      location.href='/pastrimi/';
+    });
+  }
+
+  return ensureCode().then(function(c){
+    return doPatch(c).then(function(){
       try{ sessionStorage.removeItem('client_photo_thumb'); sessionStorage.removeItem('stairs_photo_thumb'); }catch(e){}
       location.href='/pastrimi/';
     });
@@ -515,14 +570,20 @@ function save(){
 
 // ------------------------------ INIT ----------------------------------------
 document.addEventListener('DOMContentLoaded', function(){
-  ensureCode().then(function(){
-    // create a shell immediately (so code is reserved & visible in drafts)
-    syncDraft();
-  }).catch(function(e){
-    var b=document.getElementById('ticketCode')||document.querySelector('.badge.kodi');
-    if(b) b.textContent='KODI: ?';
-    alert('Gabim kodi: '+(e&&e.message?e.message:e));
-  });
+  // If opened from Paplotësuara card, it passes ?id=<uuid>
+  var id = getParam('id');
+  if (id){
+    loadExistingDraftById(id).catch(function(e){
+      alert('S’mund të hap draftin: '+(e&&e.message?e.message:e));
+    });
+  } else {
+    // No id → reserve a new code and create a shell draft immediately
+    ensureCode().then(function(){ syncDraft(); }).catch(function(e){
+      var b=$('#ticketCode')||document.querySelector('.badge.kodi');
+      if(b) b.textContent='KODI: ?';
+      alert('Gabim kodi: '+(e&&e.message?e.message:e));
+    });
+  }
 
   wireChips('chips-tepiha','tepiha');
   wireChips('chips-staza','staza');
@@ -543,7 +604,6 @@ document.addEventListener('DOMContentLoaded', function(){
     save().catch(function(err){ alert('Ruajtja dështoi:\n'+(err&&err.message?err.message:err)); }); 
   });
 
-  // Draft updates from typing name/phone too
   var nm=document.getElementById('name'); if(nm) nm.addEventListener('input', queueDraftSync);
   var ph=document.getElementById('phone'); if(ph) ph.addEventListener('input', queueDraftSync);
 
