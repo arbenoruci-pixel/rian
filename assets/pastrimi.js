@@ -1,5 +1,7 @@
 // /assets/pastrimi.js — compact list + SMS + GATI + long-press stage
 // Works with /assets/supabase.js (window.select/update) OR direct supabase-js.
+// Updated: removed optional chaining for older Safari, simplified filtering/sort,
+// robust stats rendering, and small polish per review.
 
 const $  = (s, r=document) => r.querySelector(s);
 const $$ = (s, r=document) => [].slice.call(r.querySelectorAll ? r.querySelectorAll(s) : []);
@@ -64,7 +66,7 @@ function banner(msg) {
   }
   el.textContent = 'SUPABASE: ' + (msg||'ERR');
   el.style.display = 'block';
-  setTimeout(()=>{ el.style.display = 'none'; }, 3500);
+  setTimeout(function(){ el.style.display = 'none'; }, 3500);
 }
 function daysAgo(iso){
   if (!iso) return 99;
@@ -90,8 +92,8 @@ function nextStageVal(label){
   return m[label] || 'radhe';
 }
 function smsReadyText(o){
-  return `Përshëndetje ${o.name||''}, tepihet me kod ${o.code} janë gati për marrje. \
-Gjithsej ${o.pieces||0} copë / ${n2(o.m2||0)} m². Totali: €${n2(o.total||0)}. Faleminderit!`;
+  return 'Përshëndetje ' + (o.name||'') + ', tepihet me kod ' + (o.code) + ' janë gati për marrje. ' +
+         'Gjithsej ' + (o.pieces||0) + ' copë / ' + n2(o.m2||0) + ' m². Totali: €' + n2(o.total||0) + '. Faleminderit!';
 }
 
 // ---------- Stage sheet (long-press) ----------
@@ -100,30 +102,32 @@ function ensureStageSheet(){
   const sh = document.createElement('div');
   sh.id = 'stageSheet';
   sh.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:9998;align-items:center;justify-content:center;padding:16px';
-  sh.innerHTML = `
-    <div style="background:#0c0f16;border:1px solid #273143;border-radius:16px;padding:12px;max-width:520px;width:100%">
-      <div style="font-weight:1000;margin-bottom:10px">Zgjidh fazën</div>
-      <div id="stageBtns" style="display:flex;flex-wrap:wrap;gap:10px">
-        <button class="chip">RADHË</button>
-        <button class="chip">LAJ</button>
-        <button class="chip">THAJ</button>
-        <button class="chip">PAKO</button></div>
-      <div style="display:flex;justify-content:flex-end;margin-top:10px">
-        <button id="stageCancel" class="chip" style="background:#0b111d;border:2px solid #2c3a55">Mbyll</button></div></div>`;
+  sh.innerHTML = '\
+    <div style="background:#0c0f16;border:1px solid #273143;border-radius:16px;padding:12px;max-width:520px;width:100%">\
+      <div style="font-weight:1000;margin-bottom:10px">Zgjidh fazën</div>\
+      <div id="stageBtns" style="display:flex;flex-wrap:wrap;gap:10px">\
+        <button class="chip">RADHË</button>\
+        <button class="chip">LAJ</button>\
+        <button class="chip">THAJ</button>\
+        <button class="chip">PAKO</button></div>\
+      <div style="display:flex;justify-content:flex-end;margin-top:10px">\
+        <button id="stageCancel" class="chip" style="background:#0b111d;border:2px solid #2c3a55">Mbyll</button></div></div>';
   document.body.appendChild(sh);
 }
 let __sheetCtx = null;
 function openStagePicker(order, stageEl, rowEl){
   ensureStageSheet();
-  __sheetCtx = { order, stageEl, rowEl };
+  __sheetCtx = { order: order, stageEl: stageEl, rowEl: rowEl };
   $('#stageSheet').style.display='flex';
 }
-(document.body.addEventListener?document.body.addEventListener('click',e=>{
-  if (e.target.id==='stageCancel' || e.target.id==='stageSheet') {
-    $('#stageSheet').style.display='none';
-  }
-}, true):0);
-document.addEventListener('click', (e)=>{
+if (document.body.addEventListener){
+  document.body.addEventListener('click', function(e){
+    if (e.target && (e.target.id==='stageCancel' || e.target.id==='stageSheet')) {
+      $('#stageSheet').style.display='none';
+    }
+  }, true);
+}
+document.addEventListener('click', function(e){
   const sh = $('#stageSheet'); if (!sh || sh.style.display!=='flex') return;
   const b = e.target.closest && e.target.closest('#stageBtns .chip');
   if (!b) return;
@@ -131,7 +135,7 @@ document.addEventListener('click', (e)=>{
   const val   = nextStageVal(label);
   const ctx   = __sheetCtx; __sheetCtx=null;
   if (!ctx) return;
-  (async ()=>{
+  (async function(){
     try{
       await sbUpdateOrder(ctx.order.id, { stage: val, stage_at: new Date().toISOString() });
       ctx.stageEl.textContent = label;
@@ -148,19 +152,19 @@ function rowEl(o){
   el.className = 'card';
   const label = stageLabel(o.stage);
 
-  el.innerHTML = `
-    <div class="head">
-      <span class="code">${o.code||''}</span>
-      <span class="name">${(o.name||'').slice(0,30)}</span>
-      <span class="pieces">${o.pieces||0} copë</span>
-      <span class="m2">${n2(o.m2||0)} m²</span>
-      <span class="total">€${n2(o.total||0)}</span>
-      <button class="stage badge">${label}</button>
-      <span class="age ${ageClass(o.stage_at||o.created_at)}"></span></div>
-    <div class="actions">
-      <button class="det" data-client="${o.id}">📋 DETAJE</button> <button class="sms">SMS</button>
-      <button class="go">▶ GATI</button></div>
-  `;
+  el.innerHTML = '\
+    <div class="head">\
+      <span class="code">'+(o.code||'')+'</span>\
+      <span class="name">'+String(o.name||'').slice(0,30)+'</span>\
+      <span class="pieces">'+(o.pieces||0)+' copë</span>\
+      <span class="m2">'+n2(o.m2||0)+' m²</span>\
+      <span class="total">€'+n2(o.total||0)+'</span>\
+      <button class="stage badge">'+label+'</button>\
+      <span class="age '+ageClass(o.stage_at||o.created_at)+'"></span></div>\
+    <div class="actions">\
+      <button class="det" data-client="'+(o.id||'')+'">📋 DETAJE</button> <button class="sms">SMS</button>\
+      <button class="go">▶ GATI</button></div>\
+  ';
 
   // style (tiny CSS inline to keep single-file)
   el.style.cssText = 'border:1px solid #273143;background:#0c0f16;border-radius:14px;padding:10px;margin:10px 0';
@@ -171,87 +175,86 @@ function rowEl(o){
     const codeEl = el.querySelector('.code');
     if (codeEl) {
       let _t;
-      const OPEN = () => { try { window.openClientById && window.openClientById(o.id); } catch(e){} };
-      codeEl.addEventListener('touchstart', ()=>{ _t = setTimeout(OPEN, 600); }, {passive:true});
-      codeEl.addEventListener('touchend',   ()=>{ clearTimeout(_t); });
-      codeEl.addEventListener('mousedown',  ()=>{ _t = setTimeout(OPEN, 600); });
-      codeEl.addEventListener('mouseup',    ()=>{ clearTimeout(_t); });
-      codeEl.addEventListener('mouseleave', ()=>{ clearTimeout(_t); });
+      const OPEN = function(){ try { window.openClientById && window.openClientById(o.id); } catch(e){} };
+      codeEl.addEventListener('touchstart', function(){ _t = setTimeout(OPEN, 600); }, {passive:true});
+      codeEl.addEventListener('touchend',   function(){ clearTimeout(_t); });
+      codeEl.addEventListener('mousedown',  function(){ _t = setTimeout(OPEN, 600); });
+      codeEl.addEventListener('mouseup',    function(){ clearTimeout(_t); });
+      codeEl.addEventListener('mouseleave', function(){ clearTimeout(_t); });
     }
   } catch(e){}
 
-  el.querySelector('.det').onclick = ()=>{ try{ window.openClientById && window.openClientById(o.id); }catch(e){ console.warn(e); } };
-  $$('.badge', el).forEach(b=>{ b.style.cssText='background:#0b111d;border:1px solid #2c3a55;border-radius:999px;padding:6px 10px;font-weight:900;color:#e6f0ff' });
-  $$('.actions button', el).forEach(b=>{ b.style.cssText='border:0;border-radius:12px;padding:10px 14px;font-weight:1000;background:#0c1220;color:#e6f0ff;border:1px solid #2b3956' });
+  el.querySelector('.det').onclick = function(){ try{ window.openClientById && window.openClientById(o.id); }catch(e){ console.warn(e); } };
+  $$('.badge', el).forEach(function(b){ b.style.cssText='background:#0b111d;border:1px solid #2c3a55;border-radius:999px;padding:6px 10px;font-weight:900;color:#e6f0ff'; });
+  $$('.actions button', el).forEach(function(b){ b.style.cssText='border:0;border-radius:12px;padding:10px 14px;font-weight:1000;background:#0c0f20;color:#e6f0ff;border:1px solid #2b3956'; });
   el.querySelector('.go').style.background='#1e60ff';
 
   // SMS
-  el.querySelector('.sms').onclick = ()=>{
+  el.querySelector('.sms').onclick = function(){
     const phone = String(o.phone||'').replace(/\D/g,'');
     if (!phone) { alert('S’ka telefon'); return; }
-    location.href = `sms:${phone}?&body=${encodeURIComponent(smsReadyText(o))}`;
+    location.href = 'sms:' + phone + '?&body=' + encodeURIComponent(smsReadyText(o));
   };
 
   // GATI
-  el.querySelector('.go').onclick = async ()=>{
+  el.querySelector('.go').onclick = async function(){
     try {
       await sbUpdateOrder(o.id, { status:'gati', stage:'pako', stage_at: new Date().toISOString() });
       el.style.opacity = .4;
-      setTimeout(()=> el.remove(), 300);
+      setTimeout(function(){ el.remove(); }, 300);
     } catch (e) { console.error(e); banner('ERR'); }
   };
 
   // long-press stage to change
   const stageBtn = el.querySelector('.stage');
   let t=null, long=false;
-  const start = ()=>{ long=false; t=setTimeout(()=>{ long=true; openStagePicker(o, stageBtn, el); }, 500); };
-  const end   = ()=>{ clearTimeout(t); };
-  ['mousedown','touchstart'].forEach(evt=> stageBtn.addEventListener(evt, start, {passive:true}));
-  ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt=> stageBtn.addEventListener(evt, end));
+  const start = function(){ long=false; t=setTimeout(function(){ long=true; openStagePicker(o, stageBtn, el); }, 500); };
+  const end   = function(){ clearTimeout(t); };
+  ['mousedown','touchstart'].forEach(function(evt){ stageBtn.addEventListener(evt, start, {passive:true}); });
+  ['mouseup','mouseleave','touchend','touchcancel'].forEach(function(evt){ stageBtn.addEventListener(evt, end); });
 
   return el;
 }
 
 // ---------- top stats ----------
 function renderStats(rows){
-  const sumM2 = rows.reduce((s,x)=>s+Number(x.m2||0),0);
+  const sumM2 = rows.reduce(function(s,x){ return s + Number(x.m2||0); }, 0);
   const bar = document.createElement('div');
   bar.style.cssText='display:flex;flex-wrap:wrap;gap:12px;margin:6px 0';
-  bar.innerHTML = `
-    <div class="pill">🧾 ${rows.length} porosi</div>
-    <div class="pill">📐 ${n2(sumM2)} m²</div>
-    <div class="pill">Radhë: ${rows.filter(x=>/radhe|queue/i.test(x.stage)).length}</div>
-    <div class="pill">Laj: ${rows.filter(x=>/laj|wash/i.test(x.stage)).length}</div>
-    <div class="pill">Thaj: ${rows.filter(x=>/thaj|dry/i.test(x.stage)).length}</div>
-    <div class="pill">Pako: ${rows.filter(x=>/pako|pack/i.test(x.stage)).length}</div>
-    <button id="btnRefresh" class="pill">↻ Rifresko</button>
-  `;
-  $$('.pill', bar).forEach(p=> p.style.cssText='background:#0b111d;border:1px solid #273143;border-radius:12px;padding:10px 12px;font-weight:1000');
-  $('#stats')?.replaceChildren(bar);
-  $('#btnRefresh').onclick = render;
+  bar.innerHTML = '\
+    <div class="pill">🧾 ' + rows.length + ' porosi</div>\
+    <div class="pill">📐 ' + n2(sumM2) + ' m²</div>\
+    <div class="pill">Radhë: ' + rows.filter(function(x){ return /radhe|queue/i.test(String(x.stage)); }).length + '</div>\
+    <div class="pill">Laj: ' + rows.filter(function(x){ return /laj|wash/i.test(String(x.stage)); }).length + '</div>\
+    <div class="pill">Thaj: ' + rows.filter(function(x){ return /thaj|dry/i.test(String(x.stage)); }).length + '</div>\
+    <div class="pill">Pako: ' + rows.filter(function(x){ return /pako|pack/i.test(String(x.stage)); }).length + '</div>\
+    <button id="btnRefresh" class="pill">↻ Rifresko</button>\
+  ';
+  const pills = bar.querySelectorAll('.pill');
+  [].forEach.call(pills, function(p){ p.style.cssText='background:#0b111d;border:1px solid #273143;border-radius:12px;padding:10px 12px;font-weight:1000'; });
+  var host = $('#stats'); if (host) { host.innerHTML = ''; host.appendChild(bar); }
+  var btn = $('#btnRefresh'); if (btn) btn.onclick = render;
 }
 
 // ---------- main render ----------
 async function render(){
   try{
-    // Prefer server-side filtered (pastrim or dorzim depending your flow)
-    let rows = await sbSelect('orders', { status:'in:pastrim,dorzim', order:'created_at.desc' });
+    // Simple: fetch newest first, then filter out 'gati'
+    let rows = await sbSelect('orders', { order:'created_at.desc' });
     if (!Array.isArray(rows)) rows = [];
 
-    // Fallback: basic select if server didn’t accept filter
-    if (!rows.length) rows = await sbSelect('orders', {});
-
-    // Only “in process” (not gati)
-    rows = rows.filter(o => String(o.status||'').toLowerCase() !== 'gati')
-               .sort((a,b)=> String(b.status).localeCompare(String(a.status)) || 
-                             String(b.created_at||'').localeCompare(String(a.created_at||'')));
+    rows = rows
+      .filter(function(o){ return String(o.status||'').toLowerCase() !== 'gati'; })
+      .sort(function(a,b){
+        return String(b.created_at||'').localeCompare(String(a.created_at||''));
+      });
 
     renderStats(rows);
 
     const host = $('#list');
     if (!host) return;
     host.innerHTML = '';
-    rows.forEach(o => host.appendChild(rowEl(o)));
+    rows.forEach(function(o){ host.appendChild(rowEl(o)); });
   }catch(e){
     console.error(e);
     banner('ERR');
@@ -259,7 +262,7 @@ async function render(){
 }
 
 // ---------- boot ----------
-document.addEventListener('DOMContentLoaded', ()=>{
+document.addEventListener('DOMContentLoaded', function(){
   // make sure containers exist (defensive)
   if (!$('#stats')) { const d=document.createElement('div'); d.id='stats'; document.body.prepend(d); }
   if (!$('#list'))  { const d=document.createElement('div'); d.id='list';  document.body.appendChild(d); }
