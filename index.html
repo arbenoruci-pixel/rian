@@ -41,26 +41,24 @@
   .search{display:flex;gap:12px}
   .search input{flex:1;background:#0e1622;border:1px solid #233145;border-radius:12px;padding:14px;color:#eaf1ff}
   .btn{padding:12px 18px;border-radius:12px;background:linear-gradient(180deg,#1c77b8,#16639a);border:1px solid #244264;color:#fff;font-weight:900;text-decoration:none}
-
-  /* SCALE: 20% smaller */
-  .wrap-scale{ transform: scale(.8); transform-origin: top center; }
 </style>
 
 <script type="module">
   import { countStatus, countUnfinished, incomeToday, countReadyToday, subscribeOrders } from '/assets/home.counters.js';
 
   async function loadCounters(){
-    const [prn, pas, gat, mar, pap] = await Promise.all([
-      countStatus('pranim'),
-      countStatus('pastrim'),     // fixed spelling
+    const [pas, gat, mar, pap] = await Promise.all([
+      countStatus('pastrim'),
       countStatus('gati'),
-      countReadyToday(),          // NEW: ready today counter
+      countReadyToday(),
       countUnfinished()
     ]);
-    setVal('c-pranim', prn);
+    // Top tiles
     setVal('c-pastrim', pas);
     setVal('c-gati', gat);
     setVal('c-marrje', mar);
+    setVal('c-paplo-top', pap);
+    // CTAs
     setVal('c-paplo', pap);
   }
 
@@ -71,8 +69,7 @@
 
   window.addEventListener('DOMContentLoaded', ()=>{
     loadCounters();
-    const sub = subscribeOrders(()=> loadCounters());
-    window.addEventListener('beforeunload', ()=> sub?.unsubscribe?.());
+    subscribeOrders(()=> loadCounters());
   });
 </script>
 </head>
@@ -88,176 +85,54 @@
     </div>
   </div>
 
-  <!-- 20% smaller wrapper -->
-  <div class="wrap-scale">
+  <!-- Tiles -->
+  <div class="shell">
+    <div class="tiles">
+      <!-- PRANIMI removed; replaced by PAPLOTËSUARA -->
+      <a class="tile" href="/paplotesuara/">
+        <h3>PAPLOTËSUARA</h3>
+        <div class="count c-red" id="c-paplo-top">0</div>
+      </a>
 
-    <!-- Tiles -->
-    <div class="shell">
-      <div class="tiles">
-        <a class="tile" href="/pranimi/">
-          <h3>PRANIMI</h3>
-          <div class="count c-red" id="c-pranim">0</div>
-        </a>
+      <a class="tile" href="/pastrimi/">
+        <h3>PASTRIMI</h3>
+        <div class="count c-blue" id="c-pastrim">0</div>
+      </a>
 
-        <a class="tile" href="/pastrimi/">
-          <h3>PASTRIMI</h3>
-          <div class="count c-blue" id="c-pastrim">0</div>
-        </a>
+      <a class="tile" href="/gati/">
+        <h3>GATI</h3>
+        <div class="count c-green" id="c-gati">0</div>
+      </a>
 
-        <a class="tile" href="/gati/">
-          <h3>GATI</h3>
-          <div class="count c-green" id="c-gati">0</div>
-        </a>
-
-        <!-- NEW: MARRJE SOT (ready today) -->
-        <a class="tile" href="/marrje-sot/">
-          <h3>MARRJE SOT</h3>
-          <div class="count c-green" id="c-marrje">0</div>
-        </a>
-      </div>
+      <a class="tile" href="/gati/">
+        <h3>MARRJE SOT</h3>
+        <div class="count c-green" id="c-marrje">0</div>
+      </a>
     </div>
+  </div>
 
-    <!-- Big CTAs -->
-    <a class="cta green" href="/pranimi/">+ KLIENT I RI</a>
-    <a class="cta red" href="/paplotesuara/">PAPLOTËSUARA <span class="right" id="c-paplo">0</span></a>
-    <a class="cta amber" href="/transport/">🚚 TRANSPORT AKTIV <span class="right" id="c-trans">0</span></a>
+  <!-- Big CTAs (kept as before; we can remove the red one later if you want) -->
+  <a class="cta green" href="/pranimi/">+ KLIENT I RI</a>
+  <a class="cta red" href="/paplotesuara/">PAPLOTËSUARA <span class="right" id="c-paplo">0</span></a>
+  <a class="cta amber" href="/transport/">🚚 TRANSPORT AKTIV <span class="right" id="c-trans">0</span></a>
 
-    <!-- Search blocks -->
-    <div class="group">
-      <h4>KLIENTËT E BAZËS — KËRKO</h4>
-      <div class="search">
-        <input placeholder="Shkruaj: X01 ose emër ose telefon">
-      </div>
+  <!-- Search blocks -->
+  <div class="group">
+    <h4>KLIENTËT E BAZËS — KËRKO</h4>
+    <div class="search">
+      <input placeholder="Shkruaj: X01 ose emër ose telefon">
     </div>
+  </div>
 
-    <div class="group">
-      <h4>TRANSPORT — KODI T</h4>
-      <div class="search">
-        <input placeholder="T2">
-        <a class="btn" href="/transport/">KËRKO</a>
-      </div>
+  <div class="group">
+    <h4>TRANSPORT — KODI T</h4>
+    <div class="search">
+      <input placeholder="T2">
+      <a class="btn" href="/transport/">KËRKO</a>
     </div>
+  </div>
 
-  </div><!-- /.wrap-scale -->
-
-  <!-- keep your client profile bindings -->
   <script src="assets/client_profile.js"></script>
-
-  <!-- Client Profile (user template) — one clean copy -->
-  <!doctype html>
-  <html lang="sq">
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>Client Template • Sample 3 (TEPIHA/STAZA/SHKALLORE)</title>
-      <style>
-        :root{color-scheme:dark}
-        body{margin:0;background:#0a0f16;color:#eaf1ff;font-family:system-ui, -apple-system, Segoe UI, Roboto, Ubuntu}
-        .panel{position:fixed;inset:0;z-index:9999;background:#0a0f16f2;backdrop-filter:blur(4px);overflow:auto}
-        header{position:sticky;top:0;background:#0e1622;border-bottom:1px solid #1b2738;padding:12px}
-        header .row{display:flex;justify-content:space-between;align-items:center}
-        .badge{display:inline-block;padding:6px 10px;border:1px solid #165f36;border-radius:9999px;background:#0b1a12;color:#b6f0c2;font-weight:700}
-        .container{max-width:880px;margin:0 auto;padding:16px}
-        h1{font-size:1.15rem;margin:0 0 6px 0;letter-spacing:.5px}
-        .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-        .section{background:#0e141d;border:1px solid #1b2738;border-radius:12px;padding:12px;margin:10px 0}
-        .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-        .kv span{display:inline-block;margin-right:16px;color:#b3c1d6}
-        .photos{display:flex;flex-wrap:wrap;gap:10px}
-        .photos img{width:130px;height:130px;border-radius:10px;object-fit:cover;border:1px solid #2a3b51;cursor:pointer}
-        .photos img.enlarge{width:100%;height:auto}
-        .chip{padding:.45rem .7rem;border-radius:999px;border:1px solid #2a3b51;background:#111a27;color:#dfe8ff}
-        .btn{padding:.55rem .9rem;border-radius:10px;border:1px solid #2a3b51;background:#17315a;color:#fff;cursor:pointer}
-        .footer{position:sticky;bottom:0;background:#0e141d;border-top:1px solid #1b2738;padding:12px}
-        .type{font-weight:700;letter-spacing:.3px;color:#b6c8e1}
-      </style>
-    </head>
-    <body>
-      <div class="panel" style="display:none">
-        <header>
-          <div class="row">
-            <div><strong>PROFILI I KLIENTIT</strong></div>
-            <a class="badge" href="#" onclick="window.tpClientProfile && window.tpClientProfile.close(); return false;">MBYLL ✕</a>
-          </div>
-        </header>
-
-        <div class="container">
-          <div class="section">
-            <div class="row">
-              <div class="badge">103</div>
-              <h1>Arben Oruci</h1>
-            </div>
-            <div class="kv">
-              <span>TELEFONI: <strong>044 987 654</strong></span>
-              <span>COPË: <strong>5</strong></span>
-              <span>m²: <strong>14.70</strong></span>
-              <span>TOTAL (€): <strong>22.05</strong></span>
-              <span>BORXH (€): <strong>5.00</strong></span>
-            </div>
-          </div>
-
-          <div class="grid">
-            <div class="section">
-              <h2 style="margin:0 0 8px 0;font-size:1rem">COPËT</h2>
-              <div class="row" style="justify-content:space-between">
-                <div><span class="type">TEPIHA</span> • Copë 1</div>
-                <div class="chip">3.50 m²</div>
-              </div>
-              <div class="row" style="justify-content:space-between">
-                <div><span class="type">TEPIHA</span> • Copë 2</div>
-                <div class="chip">3.20 m²</div>
-              </div>
-              <div class="row" style="justify-content:space-between">
-                <div><span class="type">STAZA</span> • Copë 3</div>
-                <div class="chip">2.10 m²</div>
-              </div>
-              <div class="row" style="justify-content:space-between">
-                <div><span class="type">STAZA</span> • Copë 4</div>
-                <div class="chip">2.20 m²</div>
-              </div>
-              <div class="row" style="justify-content:space-between">
-                <div><span class="type">SHKALLORE</span> • Copë 5</div>
-                <div class="chip">3.70 m²</div>
-              </div>
-            </div>
-
-            <div class="section">
-              <h2 style="margin:0 0 8px 0;font-size:1rem">FOTO</h2>
-              <div class="photos">
-                <figure style="margin:0">
-                  <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MDAiIGhlaWdodD0iNDAwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMzc0Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZmZmZiI+Rm90byAxPC90ZXh0Pjwvc3ZnPg==" alt="Foto 1" onclick="this.classList.toggle('enlarge')">
-                  <figcaption style="font-size:.8rem;color:#9fb0c6">Foto 1</figcaption>
-                </figure>
-                <figure style="margin:0">
-                  <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MDAiIGhlaWdodD0iNDAwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNjM4Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZmZmZiI+Rm90byAyPC90ZXh0Pjwvc3ZnPg==" alt="Foto 2" onclick="this.classList.toggle('enlarge')">
-                  <figcaption style="font-size:.8rem;color:#9fb0c6">Foto 2</figcaption>
-                </figure>
-                <figure style="margin:0">
-                  <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MDAiIGhlaWdodD0iNDAwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjOTM1Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZmZmZiI+Rm90byAzPC90ZXh0Pjwvc3ZnPg==" alt="Foto 3" onclick="this.classList.toggle('enlarge')">
-                  <figcaption style="font-size:.8rem;color:#9fb0c6">Foto 3</figcaption>
-                </figure>
-                <figure style="margin:0">
-                  <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MDAiIGhlaWdodD0iNDAwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjYjc0Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZmZmZiI+Rm90byA0PC90ZXh0Pjwvc3ZnPg==" alt="Foto 4" onclick="this.classList.toggle('enlarge')">
-                  <figcaption style="font-size:.8rem;color:#9fb0c6">Foto 4</figcaption>
-                </figure>
-              </div>
-            </div>
-          </div>
-
-          <div class="section">
-            <div class="row" style="justify-content:flex-end">
-              <button class="btn">PAGESA</button>
-              <button class="btn">RUAJ SHËNIM</button>
-            </div>
-          </div>
-        </div>
-
-        <a class="badge" href="#" onclick="window.scrollTo({top:0,behavior:'smooth'})">NË KRYE ↑</a>
-      </div>
-      <script>/* tap photos to enlarge */</script>
-    </body>
-  </html>
-
   <script>
     document.addEventListener('DOMContentLoaded', function(){
       if (window.bindClientBadges) { try { window.bindClientBadges(); } catch(e){} }
