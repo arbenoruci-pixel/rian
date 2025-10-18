@@ -1,6 +1,6 @@
 // PAPLOTËSUARA = "Drafts from Pranimi"
 // Shows orders created to reserve a code but not finished yet.
-// Rules: archived=false AND picked_at IS NULL AND (status='draft' OR status IS NULL)
+// Drafts with any info stay; only empty ones older than 30min are auto-deleted.
 
 import { SUPABASE_URL, SUPABASE_ANON } from '/assets/supabase.js';
 
@@ -22,7 +22,6 @@ function daysAgo(iso){
 }
 
 async function cleanupStaleDrafts(){
-  // Delete only truly empty drafts older than 30 minutes and release codes.
   try{
     await fetch(`${SUPABASE_URL}/rest/v1/rpc/cleanup_drafts`, {
       method: 'POST',
@@ -40,7 +39,7 @@ async function fetchDrafts(query){
   );
   url.searchParams.set('archived','eq.false');
   url.searchParams.set('picked_at','is.null');
-  // drafts only
+  // drafts only (also allow legacy NULL)
   url.searchParams.append('or','(status.eq.draft,status.is.null)');
   url.searchParams.set('order','created_at.desc');
 
@@ -61,8 +60,8 @@ async function fetchDrafts(query){
 function cardFor(row){
   const node = tpl.content.firstElementChild.cloneNode(true);
 
-  node.querySelector('.code').textContent = row.code ?? '—';
-  node.querySelector('.name').textContent = (row.name || 'Pa emër').toLowerCase();
+  node.querySelector('.code').textContent  = row.code ?? '—';
+  node.querySelector('.name').textContent  = (row.name || 'Pa emër').toLowerCase();
   node.querySelector('.phone').textContent = row.phone ?? '';
   node.querySelector('.status').textContent = 'DRAFT';
 
@@ -71,25 +70,19 @@ function cardFor(row){
   node.querySelector('.total').textContent  = `Totali: ${fmtMoney(row.total||0)}`;
   node.querySelector('.when').textContent   = `Koha: ${daysAgo(row.created_at)}`;
 
-  // Clicking the card (not the buttons) opens Pranimi with the draft id
+  // Open Pranimi to finish the draft (by id)
   node.style.cursor = 'pointer';
   node.addEventListener('click', (e)=>{
-    if (e.target.closest('button')) return; // buttons keep their own actions if you add any later
+    if (e.target.closest('button')) return;
     window.location.href = `/pranimi/?id=${encodeURIComponent(row.id)}`;
   });
 
-  // Optional: a quick SMS button to confirm details with client (kept minimal)
+  // SMS helper (optional)
   node.querySelector('[data-act="sms"]').addEventListener('click', ()=>{
-    const msg = encodeURIComponent(`Përshëndetje ${row.name || ''}! Porosia #${row.code} është regjistruar si draft. Do ju kontaktojmë shpejt.`);
+    const msg = encodeURIComponent(`Përshëndetje ${row.name || ''}! Porosia #${row.code} është regjistruar. Do ju kontaktojmë shpejt.`);
     const phone = encodeURIComponent((row.phone||'').replace(/\s+/g,''));
     window.location.href = `sms:${phone}?&body=${msg}`;
   });
-
-  // Hide buttons that don't apply to drafts (remove GATI/DORËZO if present in template)
-  const g = node.querySelector('[data-act="gati"]');
-  const d = node.querySelector('[data-act="dorzo"]');
-  if (g) g.remove();
-  if (d) d.remove();
 
   return node;
 }
@@ -111,8 +104,8 @@ async function refresh(query){
 }
 
 window.addEventListener('DOMContentLoaded', async ()=>{
-  await cleanupStaleDrafts(); // frees only empty shells; keeps partial (name/phone/photo, etc.)
-  refresh();
+  await cleanupStaleDrafts();     // frees only empty shells (keeps partial-info drafts)
+  await refresh();
 
   const q = document.getElementById('q');
   let t = null;
