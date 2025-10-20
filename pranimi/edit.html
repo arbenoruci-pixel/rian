@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head><base href="/"/>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>PRANIMI</title>
+<style>
+:root{
+  --bg:#000; --ink:#fff; --muted:#b9c4da;
+  --panel:#0c0f16; --panel-br:#273143; --line:#2c3954;
+  --chip-bg:#121829; --chip-br:#2c3a55; --chip-ink:#e6f0ff;
+  --btn:#1e60ff; --btn-ink:#fff; --danger:#ef4444;
+  --uiScale:.85; --h:56px; --rad:14px;
+  --fs:calc(16px*var(--uiScale));
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-rounded,system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:var(--fs);line-height:1.25}
+.wrap{max-width:980px;margin:0 auto;padding:0 16px 120px}
+h1{font-size:clamp(34px,5.4vw,50px);margin:20px 6px 6px;font-weight:1000;letter-spacing:.01em;display:flex;align-items:center;gap:12px}
+.badge{display:inline-flex;align-items:center;gap:10px;background:linear-gradient(180deg,rgba(34,197,94,.18),rgba(34,197,94,.08));border:1px solid rgba(34,197,94,.6);color:#d8ffe9;padding:10px 16px;border-radius:999px;font-weight:1000;font-size:1.1rem}
+.card{background:var(--panel);border:1px solid var(--panel-br);border-radius:18px;padding:18px;margin:16px 0;box-shadow:0 12px 40px rgba(0,0,0,.55)}
+.title{display:flex;align-items:center;justify-content:space-between;font-size:clamp(20px,2.6vw,28px);font-weight:1000;margin-bottom:12px}
+label{font-size:.9rem;color:var(--muted);font-weight:900;letter-spacing:.03em}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:720px){.row{grid-template-columns:1fr}}
+.input{width:100%;min-height:56px;background:#070a12;border:2px solid var(--line);border-radius:14px;padding:14px 16px;font-size:1.25rem;font-weight:1000;color:var(--ink);outline:none}
+.input:focus{border-color:#6aa1ff;box-shadow:0 0 0 3px rgba(30,96,255,.25)}
+/* chips */
+.chips{display:flex;flex-wrap:wrap;gap:12px;padding:6px 0}
+.chip{border:2px solid var(--chip-br);background:var(--chip-bg);color:var(--chip-ink);border-radius:999px;padding:10px 16px;min-height:56px;font-weight:1000;cursor:pointer}
+.chip:active,.chip:hover{background:#18223a}
+/* rows */
+.list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.piece-row{display:grid;grid-template-columns: 1fr auto;gap:10px;align-items:center;padding:8px;border:1px solid var(--panel-br);border-radius:12px;background:#0b111d}
+.piece-row .left{display:grid;grid-template-columns: 1fr auto;gap:8px;align-items:center}
+.cam-holder{display:flex;align-items:center;gap:8px}
+.cam-btn{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;min-width:44px;border:1px solid #2b3956;border-radius:10px;background:#0a1220;color:#e6f0ff;font-size:16px;cursor:pointer;padding:0}
+.thumb{width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid #2b3956;display:none;cursor:pointer}
+.piece-row .input{min-height:44px;border-radius:10px;font-size:1.05rem;line-height:1.1;padding:8px;border-width:1px}
+.piece-row .piece-input{ font-weight:900; }
+.mwrap{display:flex;align-items:center;gap:10px}
+.btnbar{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+.btn{border:0;border-radius:14px;padding:14px 18px;min-height:56px;font-weight:1000;font-size:1.05rem;cursor:pointer;background:var(--btn);color:var(--btn-ink)}
+.btn.red{background:var(--danger)}
+.btn.ghost{background:#0c1220;color:#e6f0ff;border:2px solid #2b3956}
+.pill,.tot{display:flex;justify-content:space-between;align-items:center;background:#0b111d;border:1px solid var(--panel-br);border-radius:12px;padding:10px 12px;font-weight:1000}
+.tot{margin-top:8px}
+
+/* footer */
+.footer{position:fixed;left:0;right:0;bottom:0;z-index:10;background:rgba(5,7,12,.97);border-top:1px solid var(--panel-br);backdrop-filter:blur(6px)}
+.footwrap{max-width:980px;margin:0 auto;padding:12px 16px;display:grid;grid-template-columns:auto auto auto;gap:12px;align-items:center;justify-content:space-between}
+a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+
+/* fixed KOD button size */
+#btnFindCode{min-height:40px;height:40px;padding:8px 12px;border-radius:12px;border:1px solid #2b3956;background:#0a1220;color:#d8ffe9;font-weight:1000}
+
+/* util row */
+.utilRow{display:flex;gap:10px;margin-top:12px}
+.utilBtn{flex:1;display:flex;align-items:center;justify-content:center;height:48px;border-radius:12px;border:1px solid #2b3956;font-weight:1000;cursor:pointer;user-select:none}
+.btn-sh{background:linear-gradient(180deg,rgba(120,180,255,.12),rgba(120,180,255,.05))}
+.btn-sms{background:linear-gradient(180deg,rgba(120,255,160,.12),rgba(120,255,160,.05))}
+.btn-eur{background:linear-gradient(180deg,rgba(255,220,140,.12),rgba(255,220,140,.05))}
+.utilBtn:active{transform:scale(.99)}
+
+/* === NEW: compact footer buttons (≈50% smaller) === */
+.footwrap.foot-compact{grid-template-columns:repeat(3,1fr);gap:10px;padding:8px 16px}
+.btn.btn-sm{min-height:32px;padding:6px 10px;font-size:.9rem;border-radius:12px;white-space:nowrap}
+</style>
+<link rel="stylesheet" href="/clients_list_styles.css"/>
+</head>
+<body>
+<h1>PRANIMI <span id="ticketCode" class="badge kodi" data-code="">KODI: ——</span>
+<button id="btnFindCode" title="Gjej klientin me -code">🔎 KOD</button>
+</h1>
+
+<input id="orderId" type="hidden" value=""/>
+
+<div class="wrap">
+  <!-- KLIENTI -->
+  <section class="card">
+    <div class="title"><span>Hapi 1 — Klienti</span></div>
+    <div class="row">
+      <div>
+        <label>EMRI &amp; MBIEMRI*</label>
+        <div class="row" style="grid-template-columns:1fr 60px">
+          <input id="name" class="input" placeholder=""/>
+          <label class="cam-btn" title="Foto klientit">📷
+            <input id="clientPhotoInput" type="file" accept="image/*;capture=camera" capture="environment" style="display:none"/>
+          </label>
+        </div>
+      </div>
+      <div>
+        <label>TELEFONI*</label>
+        <div class="row" style="grid-template-columns:160px 1fr">
+          <input id="phonePrefix" class="input" value="+383" readonly/>
+          <input id="phone" class="input" inputmode="numeric" placeholder="44177778"/>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEPIHA -->
+  <section class="card" id="sec-tepiha">
+    <div class="title"><span>Tepiha</span></div>
+    <div id="chips-tepiha" class="chips">
+      <button class="chip">2.0 m²</button><button class="chip">2.5 m²</button><button class="chip">3.0 m²</button>
+      <button class="chip">3.2 m²</button><button class="chip">3.5 m²</button><button class="chip">3.7 m²</button>
+      <button class="chip">6.0 m²</button><button class="chip">Manual</button>
+    </div>
+    <div id="list-tepiha" class="list"></div>
+    <div class="btnbar">
+      <button class="btn" onclick="addRow('tepiha', null)">+ Rresht</button>
+      <button class="btn red" onclick="removeRow('tepiha')">− Rresht</button>
+    </div>
+    <div class="tot"><span>Totali tepiha:</span><b id="tot-tepiha">0.00 m²</b></div>
+  </section>
+
+  <!-- STAZA -->
+  <section class="card" id="sec-staza">
+    <div class="title"><span>Staza</span></div>
+    <div id="chips-staza" class="chips">
+      <button class="chip">1.5 m²</button><button class="chip">2.0 m²</button><button class="chip">2.2 m²</button>
+      <button class="chip">3.0 m²</button><button class="chip">Manual</button>
+    </div>
+    <div id="list-staza" class="list"></div>
+    <div class="btnbar">
+      <button class="btn" onclick="addRow('staza', null)">+ Rresht</button>
+      <button class="btn red" onclick="removeRow('staza')">− Rresht</button>
+    </div>
+    <div class="tot"><span>Totali staza:</span><b id="tot-staza">0.00 m²</b></div>
+  </section>
+
+  <!-- SHKALLORE -->
+  <section class="card" id="sec-shkallore">
+    <div class="title"><span>Shkallore</span></div>
+    <div class="utilRow">
+      <button id="openStairs" class="utilBtn btn-sh">🪜 +SHKALLORE</button>
+      <button id="btnSms" class="utilBtn btn-sms" title="Tap=SMS, Mbaje=WhatsApp/Viber">SMS</button>
+      <button id="openPay" class="utilBtn btn-eur">€</button>
+    </div>
+    <div class="tot"><span>M² shkallore:</span><b id="stairsM2">0.00 m²</b></div>
+  </section>
+
+  <!-- PAGESA -->
+  <section class="card">
+    <div class="title"><span>Pagesa</span></div>
+    <div class="row">
+      <div class="pill"><b>Total (€):</b> <span id="euroTotal">0.00</span></div>
+      <div class="pill"><b>M² total:</b> <span id="m2Total">0.00</span></div>
+    </div>
+  </section>
+</div>
+
+<!-- FOOTER (updated labels + 50% smaller) -->
+<div class="footer">
+  <div class="footwrap foot-compact">
+    <a id="btnHome" class="btn ghost btn-sm" href="../">🏠 FILLIM</a>
+    <button id="btnSaveDraft" class="btn ghost btn-sm">💾 RUAJ</button>
+    <a id="btnContinue" class="btn btn-sm" href="../pastrimi/">▶ VAZHDO</a>
+  </div>
+</div>
+
+<!-- ONLY the two scripts below are required -->
+<script type="module" src="/assets/supabase.js?v=3"></script>
+<script type="module" src="/assets/pranimi.js?v=colored-cash"></script>
+
+<script>
+  // EDIT MODE for PRANIMI — load order by ?id= or ?code= and update in place
+  window.P_EDIT_MODE = true;
+</script>
+<script src="../assets/pranimi_edit.js"></script>
+
+<div id="items_mount"></div>
+<script>window.P_ITEMS_MOUNT = '#items_mount';</script>
+<script src="../assets/items_editor.js"></script>
+</body>
+</html>
