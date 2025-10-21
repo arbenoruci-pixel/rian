@@ -1,0 +1,455 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MOZULUK • Lane Calc</title>
+<meta name="theme-color" content="#0b0f14">
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121821;
+    --muted: #7c8da6;
+    --text: #e7eefc;
+    --accent: #3aa0ff;
+    --good: #41d27d;
+    --warn: #ffb020;
+    --bad: #ff5d5d;
+    --pill: #1c2532;
+    --border: #202a36;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:0; }
+  .brand { text-align:center; margin-top:18px; letter-spacing:2px; font-weight:900; color:var(--accent); font-size:1.6rem; }
+  h1 { text-align: center; font-size: 1.3rem; margin: 6px 0 8px; letter-spacing:.04em; }
+  .sub { text-align:center; color: var(--muted); font-size: .85rem; margin-bottom: 16px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .span6 { grid-column: span 6; }
+  .span4 { grid-column: span 4; }
+  .span3 { grid-column: span 3; }
+  .span12 { grid-column: span 12; }
+  .row { display:flex; gap:10px; align-items:center; }
+  label { font-size: 0.78rem; color: var(--muted); display:block; margin-bottom: 6px; }
+  input[type="number"], input[type="text"], select {
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--pill); color: var(--text); outline: none; font-size: .95rem;
+  }
+  input[type="checkbox"]{transform: scale(1.1);}
+  .pill { background: var(--pill); padding: 6px 10px; border-radius: 999px; display:inline-block; font-size:.8rem; color: var(--muted); border:1px solid var(--border); }
+  .btn {
+    background: var(--accent); color: #02101f; border: none; border-radius: 10px; padding: 11px 14px; font-weight: 700;
+    cursor: pointer; letter-spacing: .03em;
+  }
+  .btn.secondary { background: #182233; color: var(--text); border:1px solid var(--border); }
+  .btn.ghost { background: transparent; color: var(--text); border:1px dashed var(--border); }
+  .btn.small { padding: 7px 10px; font-weight:600; }
+  .kpi { display:flex; gap:10px; flex-wrap:wrap; }
+  .kpi .item { background: var(--panel); border:1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-width: 160px; }
+  .kpi .item h3 { margin: 0; font-size: .85rem; color: var(--muted); }
+  .kpi .item .v { font-size: 1.1rem; font-weight: 700; }
+  .v.good { color: var(--good); }
+  .v.warn { color: var(--warn); }
+  .v.bad { color: var(--bad); }
+  .meter { width:100%; height: 12px; background:#111720; border:1px solid var(--border); border-radius: 999px; overflow:hidden; }
+  .bar { height:100%; width:0%; background: linear-gradient(90deg, #ff5d5d, #ffb020, #41d27d); }
+  .footer { text-align:center; color:var(--muted); margin-top: 16px; font-size: .8rem; }
+  .two { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  @media (max-width: 860px) {
+    .span6, .span4, .span3, .span12 { grid-column: span 12; }
+    .two { grid-template-columns: 1fr; }
+  }
+  .hr { height:1px; background: var(--border); margin: 12px 0; }
+  .right { text-align:right; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+</style>
+</head>
+<body>
+  <div class="brand">MOZULUK</div>
+  <h1>LANE CALC • BROKER / SUBCONTRACTOR</h1>
+  <div class="sub">10% to “Wall Street” • Remaining profit split 80% YOU / 20% CONTRACTOR • Smart sell‑chance + counteroffer</div>
+
+  <div class="wrap">
+    <div class="grid">
+      <div class="card span6">
+        <h3>INPUTS</h3>
+        <div class="grid">
+          <div class="span6">
+            <label>Shipper Pay (all‑in) — USD</label>
+            <input id="shipperPay" type="number" inputmode="decimal" placeholder="e.g., 775" value="775">
+          </div>
+          <div class="span6">
+            <label>Carrier Pay (your offer) — USD <span class="pill">Leave empty to auto‑estimate</span></label>
+            <input id="carrierPay" type="number" inputmode="decimal" placeholder="e.g., 650">
+          </div>
+          <div class="span6">
+            <label>Distance (miles)</label>
+            <input id="miles" type="number" inputmode="decimal" placeholder="e.g., 85" value="85">
+          </div>
+          <div class="span6">
+            <label>Distance Mode</label>
+            <select id="distanceMode">
+              <option value="oneway" selected>One‑way miles (dray default)</option>
+              <option value="round">Round‑trip miles</option>
+            </select>
+          </div>
+          <div class="span6">
+            <label>Lane Type (sets baseline RPM)</label>
+            <select id="laneType">
+              <option value="vs">Very Short (≤ 85 mi)</option>
+              <option value="s" selected>Short (86–150 mi)</option>
+              <option value="m">Medium (151–300 mi)</option>
+              <option value="l">Long (300+ mi)</option>
+            </select>
+          </div>
+          <div class="span6">
+            <label>Market Pressure (region factor)</label>
+            <select id="regionFactor">
+              <option value="-0.1">Soft (−10%)</option>
+              <option value="-0.05">Below avg (−5%)</option>
+              <option value="0" selected>Normal</option>
+              <option value="0.05">Tight (+5%)</option>
+              <option value="0.1">Hot (+10%)</option>
+            </select>
+          </div>
+
+          <div class="span12 hr"></div>
+
+          <div class="span6">
+            <label>Included Free Time</label>
+            <div class="two">
+              <div>
+                <label class="mono">Chassis Days (incl.)</label>
+                <input id="inclChassis" type="number" value="2">
+              </div>
+              <div>
+                <label class="mono">Storage Days (incl.)</label>
+                <input id="inclStorage" type="number" value="1">
+              </div>
+            </div>
+          </div>
+
+          <div class="span6">
+            <label>Your Extra Cost Assumptions</label>
+            <div class="two">
+              <div>
+                <label class="mono">Chassis $/extra day</label>
+                <input id="rateChassis" type="number" value="25">
+              </div>
+              <div>
+                <label class="mono">Storage $/extra day</label>
+                <input id="rateStorage" type="number" value="150">
+              </div>
+            </div>
+            <div class="two" style="margin-top:10px;">
+              <div>
+                <label class="mono">Detention beyond free (hrs)</label>
+                <input id="detentionHrs" type="number" value="0">
+              </div>
+              <div>
+                <label class="mono">Detention $/hr</label>
+                <input id="rateDetention" type="number" value="85">
+              </div>
+            </div>
+          </div>
+
+          <div class="span12 hr"></div>
+
+          <div class="span6">
+            <label>Risk Factors</label>
+            <div class="two">
+              <div>
+                <label>Yard Congestion</label>
+                <select id="congestion">
+                  <option value="low" selected>Low</option>
+                  <option value="med">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+              <div>
+                <label>Appointment Strictness</label>
+                <select id="strictness">
+                  <option value="low" selected>Flexible</option>
+                  <option value="med">Moderate</option>
+                  <option value="high">Strict</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="span6">
+            <label>Desired Profit (before 80/20 split)</label>
+            <input id="desiredProfit" type="number" value="150">
+            <div style="margin-top:8px" class="row">
+              <input id="autosuggest" type="checkbox" checked>
+              <label for="autosuggest" style="margin:0 0 0 6px;">Suggest counteroffer to shipper</label>
+            </div>
+          </div>
+
+          <div class="span12" style="margin-top:10px;">
+            <button class="btn" onclick="compute()">CALCULATE</button>
+            <button class="btn secondary" onclick="resetForm()">RESET</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card span6">
+        <h3>RESULTS</h3>
+        <div class="kpi">
+          <div class="item">
+            <h3>10% WALL STREET</h3>
+            <div class="v mono" id="wsCut">$0.00</div>
+          </div>
+          <div class="item">
+            <h3>REMAINING AFTER WS</h3>
+            <div class="v mono" id="remaining">$0.00</div>
+          </div>
+          <div class="item">
+            <h3>EST. CARRIER BASELINE</h3>
+            <div class="v mono" id="carrierBase">$0.00</div>
+          </div>
+          <div class="item">
+            <h3>YOUR PROFIT (pre‑split)</h3>
+            <div class="v mono" id="profit">$0.00</div>
+          </div>
+          <div class="item">
+            <h3>YOU 80% / CONTRACTOR 20%</h3>
+            <div class="v mono" id="split">$0.00 / $0.00</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;">
+          <label>Sell Chance</label>
+          <div class="meter"><div class="bar" id="meterBar"></div></div>
+          <div class="row" style="justify-content:space-between; margin-top:6px;">
+            <div id="sellText" class="pill">—</div>
+            <div id="payRatio" class="pill">Carrier pay vs baseline: —</div>
+          </div>
+        </div>
+
+        <div id="suggest" class="card" style="margin-top:12px;">
+          <h3>COUNTEROFFERS TO SHIPPER</h3>
+          <div class="two">
+            <div>
+              <div class="pill">Aggressive</div>
+              <div class="v mono" id="coAgg">$0</div>
+            </div>
+            <div>
+              <div class="pill">Balanced</div>
+              <div class="v mono" id="coBal">$0</div>
+            </div>
+          </div>
+          <div class="two" style="margin-top:10px;">
+            <div>
+              <div class="pill">Safe</div>
+              <div class="v mono" id="coSafe">$0</div>
+            </div>
+            <div class="right" style="align-self:end;">
+              <button class="btn small ghost" onclick="copySummary()">Copy Summary</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">Heuristics only. Tune RPM & costs per your lanes. Works offline. Embed as <span class="mono">/lane-calc.html</span> in your app.</div>
+      </div>
+
+      <div class="card span12">
+        <h3>TUNING (Optional)</h3>
+        <div class="grid">
+          <div class="span3">
+            <label>Base RPM — Very Short (≤85mi)</label>
+            <input id="rpmVS" type="number" value="4.75" step="0.05">
+          </div>
+          <div class="span3">
+            <label>Base RPM — Short (86–150mi)</label>
+            <input id="rpmS" type="number" value="4.25" step="0.05">
+          </div>
+          <div class="span3">
+            <label>Base RPM — Medium (151–300mi)</label>
+            <input id="rpmM" type="number" value="3.50" step="0.05">
+          </div>
+          <div class="span3">
+            <label>Base RPM — Long (300+ mi)</label>
+            <input id="rpmL" type="number" value="2.75" step="0.05">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+function num(v){ const n = parseFloat(v); return isFinite(n) ? n : 0; }
+function fmt(n){ return '$' + n.toFixed(2); }
+function round25(n){ return Math.round(n/25)*25; }
+
+function getBaselineRPM(){
+  const vs = num(document.getElementById('rpmVS').value);
+  const s  = num(document.getElementById('rpmS').value);
+  const m  = num(document.getElementById('rpmM').value);
+  const l  = num(document.getElementById('rpmL').value);
+  const miles = num(document.getElementById('miles').value);
+  const lane = document.getElementById('laneType').value;
+  let base = s;
+  if(lane==='vs' || miles<=85) base = vs;
+  else if(lane==='s' || (miles>85 && miles<=150)) base = s;
+  else if(lane==='m' || (miles>150 && miles<=300)) base = m;
+  else base = l;
+  const region = num(document.getElementById('regionFactor').value);
+  return base * (1 + region);
+}
+
+function compute(){
+  const shipperPay = num(document.getElementById('shipperPay').value);
+  const milesInput = num(document.getElementById('miles').value);
+  const distanceMode = document.getElementById('distanceMode').value;
+  const miles = distanceMode==='round' ? milesInput : milesInput; // keep one-way as operational baseline for dray
+  const inclChassis = num(document.getElementById('inclChassis').value);
+  const inclStorage = num(document.getElementById('inclStorage').value);
+  const rateChassis = num(document.getElementById('rateChassis').value);
+  const rateStorage = num(document.getElementById('rateStorage').value);
+  const detentionHrs = num(document.getElementById('detentionHrs').value);
+  const rateDetention = num(document.getElementById('rateDetention').value);
+  const congestion = document.getElementById('congestion').value;
+  const strictness = document.getElementById('strictness').value;
+  const desiredProfit = num(document.getElementById('desiredProfit').value);
+  const carrierPayField = document.getElementById('carrierPay').value.trim();
+
+  const wsCut = shipperPay * 0.10;
+  const remaining = shipperPay - wsCut;
+
+  const baselineRPM = getBaselineRPM();
+  const carrierBaseline = miles * baselineRPM;
+
+  // Extra costs beyond included free time (user can model expected overages by entering positive numbers in detentionHrs; chassis/storage extra assumed 0 by default)
+  const extraChassisDays = 0;
+  const extraStorageDays = 0;
+  const extraCosts = (extraChassisDays * rateChassis) + (extraStorageDays * rateStorage) + (detentionHrs * rateDetention);
+
+  // Carrier pay (offer) either provided or estimated slightly above baseline to improve sell chance
+  let carrierPay = carrierBaseline + extraCosts;
+  if(carrierPayField !== '') carrierPay = num(carrierPayField);
+
+  // Profit before 80/20 split
+  const profit = remaining - (carrierPay + extraCosts);
+
+  // Split
+  const you80 = profit * 0.80;
+  const contractor20 = profit * 0.20;
+
+  // Sell chance (heuristic): ratio of offered carrier pay to baseline
+  let payRatio = carrierPay / Math.max(1, carrierBaseline);
+  let chance = 0.25;
+  if(payRatio >= 1.10) chance = 0.90;
+  else if(payRatio >= 1.00) chance = 0.80;
+  else if(payRatio >= 0.90) chance = 0.60;
+  else if(payRatio >= 0.80) chance = 0.40;
+  else chance = 0.25;
+
+  // Risk penalties
+  const riskPenalty = (congestion==='med'?0.07:(congestion==='high'?0.14:0)) + (strictness==='med'?0.05:(strictness==='high'?0.10:0));
+  chance = Math.max(0.05, chance - riskPenalty);
+
+  // Counteroffers to shipper
+  const needForDesiredProfit = (carrierPay + extraCosts + desiredProfit);
+  const minGrossToHitDesired = needForDesiredProfit / 0.90; // because 10% WS is taken from gross
+  const coAgg = round25(minGrossToHitDesired);
+  const coBal = round25(minGrossToHitDesired + 50);
+  const coSafe = round25(minGrossToHitDesired + 100);
+
+  // Update UI
+  document.getElementById('wsCut').textContent = fmt(wsCut);
+  document.getElementById('remaining').textContent = fmt(remaining);
+  document.getElementById('carrierBase').textContent = fmt(carrierBaseline);
+  const profitEl = document.getElementById('profit');
+  profitEl.textContent = fmt(profit);
+  profitEl.className = 'v mono ' + (profit>150 ? 'good' : profit>=50 ? 'warn' : 'bad');
+  document.getElementById('split').textContent = fmt(you80) + ' / ' + fmt(contractor20);
+
+  const meter = document.getElementById('meterBar');
+  meter.style.width = Math.round(chance*100) + '%';
+  const sellText = document.getElementById('sellText');
+  let tier = 'HARD';
+  if(chance>=0.85){ tier='VERY LIKELY'; }
+  else if(chance>=0.65){ tier='LIKELY'; }
+  else if(chance>=0.45){ tier='FAIR'; }
+  else if(chance>=0.30){ tier='TOUGH'; }
+  sellText.textContent = 'Sell chance: ' + Math.round(chance*100) + '% • ' + tier;
+
+  const pr = (payRatio*100).toFixed(0);
+  document.getElementById('payRatio').textContent = 'Carrier pay vs baseline: ' + pr + '%';
+
+  if(document.getElementById('autosuggest').checked){
+    document.getElementById('coAgg').textContent = fmt(coAgg);
+    document.getElementById('coBal').textContent = fmt(coBal);
+    document.getElementById('coSafe').textContent = fmt(coSafe);
+  } else {
+    document.getElementById('coAgg').textContent = '$—';
+    document.getElementById('coBal').textContent = '$—';
+    document.getElementById('coSafe').textContent = '$—';
+  }
+}
+
+function resetForm(){
+  document.getElementById('shipperPay').value = 775;
+  document.getElementById('carrierPay').value = '';
+  document.getElementById('miles').value = 85;
+  document.getElementById('distanceMode').value = 'oneway';
+  document.getElementById('laneType').value = 's';
+  document.getElementById('regionFactor').value = '0';
+  document.getElementById('inclChassis').value = 2;
+  document.getElementById('inclStorage').value = 1;
+  document.getElementById('rateChassis').value = 25;
+  document.getElementById('rateStorage').value = 150;
+  document.getElementById('detentionHrs').value = 0;
+  document.getElementById('rateDetention').value = 85;
+  document.getElementById('congestion').value = 'low';
+  document.getElementById('strictness').value = 'low';
+  document.getElementById('desiredProfit').value = 150;
+  document.getElementById('rpmVS').value = 4.75;
+  document.getElementById('rpmS').value = 4.25;
+  document.getElementById('rpmM').value = 3.50;
+  document.getElementById('rpmL').value = 2.75;
+  compute();
+}
+
+function copySummary(){
+  const ws = document.getElementById('wsCut').textContent;
+  const rem = document.getElementById('remaining').textContent;
+  const base = document.getElementById('carrierBase').textContent;
+  const profit = document.getElementById('profit').textContent;
+  const split = document.getElementById('split').textContent;
+  const coA = document.getElementById('coAgg').textContent;
+  const coB = document.getElementById('coBal').textContent;
+  const coS = document.getElementById('coSafe').textContent;
+  const sell = document.getElementById('sellText').textContent;
+
+  const txt = `MOZULUK — LANE SUMMARY
+10% WS: ${ws}
+Remaining: ${rem}
+Carrier Baseline: ${base}
+Profit (pre-split): ${profit}
+You/Contractor (80/20): ${split}
+Counteroffers → Aggressive: ${coA} • Balanced: ${coB} • Safe: ${coS}
+${sell}`;
+
+  try {
+    navigator.clipboard.writeText(txt).then(()=>{
+      alert('Summary copied!');
+    }).catch(()=>{
+      throw new Error('Clipboard API not available');
+    });
+  } catch(e){
+    const ta = document.createElement('textarea');
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); alert('Summary copied!'); }
+    catch(e2){ alert('Copy failed.'); }
+    document.body.removeChild(ta);
+  }
+}
+
+window.addEventListener('load', compute);
+</script>
+</body>
+</html>
