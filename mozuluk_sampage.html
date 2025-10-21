@@ -1,0 +1,425 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MOZULUK • SamPage (Calculator + Lead Finder)</title>
+<meta name="theme-color" content="#070a0f">
+<style>
+  :root{
+    --bg:#070a0f;
+    --panel:#0e1520;
+    --panel2:#0b111a;
+    --text:#eaf2ff;
+    --muted:#8aa3c2;
+    --accent:#67e8f9;      /* cyan glow */
+    --accent2:#a78bfa;     /* violet glow */
+    --danger:#ff6b6b;
+    --warn:#ffd166;
+    --good:#7df9a3;
+    --stroke:#152235;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1200px 800px at 25% -10%, #162033 0%, #0a111c 35%, #070a0f 70%);
+            color:var(--text);font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  /* Neon frame */
+  .frame{
+    position:fixed; inset:0; pointer-events:none;
+    background:
+      radial-gradient(80vw 40vh at 10% -10%, rgba(103,232,249,0.10), transparent 60%),
+      radial-gradient(60vw 30vh at 85% -5%, rgba(167,139,250,0.10), transparent 60%),
+      radial-gradient(50vw 40vh at 50% 110%, rgba(125,249,163,0.10), transparent 60%);
+    filter: blur(30px);
+  }
+  .brand{padding-top:18px;text-align:center;font-weight:900;letter-spacing:4px;
+         background:linear-gradient(90deg,var(--accent),var(--accent2));
+         -webkit-background-clip:text;background-clip:text;color:transparent;font-size:1.7rem;text-shadow:0 0 12px rgba(103,232,249,.25)}
+  .wrap{max-width:1200px;margin:0 auto;padding:12px}
+  .tabs{display:flex;gap:10px;justify-content:center;margin:10px 0 16px}
+  .tab{
+    padding:10px 14px;border:1px solid var(--stroke);border-radius:14px;
+    background:linear-gradient(180deg, rgba(30,43,67,.6), rgba(14,21,32,.6));
+    color:var(--text);font-weight:800;letter-spacing:.04em;cursor:pointer;position:relative;overflow:hidden;
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .tab:before{
+    content:""; position:absolute; inset:-2px; border-radius:16px;
+    background: conic-gradient(from 0deg, rgba(103,232,249,.35), rgba(167,139,250,.35), rgba(125,249,163,.35), rgba(103,232,249,.35));
+    filter: blur(12px); opacity:.0; transition:opacity .2s ease;
+  }
+  .tab:hover{ transform:translateY(-1px); }
+  .tab.active{ box-shadow:0 0 30px rgba(103,232,249,.25), inset 0 0 0 1px rgba(103,232,249,.35); }
+  .tab.active:before{ opacity:.7; }
+  .view{display:none}
+  .view.active{display:block}
+  .card{
+    background:linear-gradient(180deg, rgba(25,36,55,.7), rgba(12,18,29,.7));
+    border:1px solid var(--stroke); border-radius:16px; padding:14px; position:relative; overflow:hidden;
+  }
+  .card:after{content:""; position:absolute; inset:0; pointer-events:none; border-radius:16px;
+              box-shadow:0 0 60px rgba(103,232,249,.07) inset;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  @media (max-width:980px){ .grid2,.grid3{grid-template-columns:1fr} }
+  label{font-size:.82rem;color:var(--muted);display:block;margin-bottom:6px}
+  input,select,textarea{
+    width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--stroke);
+    background:rgba(12,18,29,.75);color:var(--text);font-size:1rem;outline:none;
+    box-shadow:0 0 0 2px rgba(103,232,249,.0);
+    transition: box-shadow .15s ease, border-color .15s ease;
+  }
+  input:focus,select:focus,textarea:focus{ box-shadow:0 0 0 2px rgba(103,232,249,.4); border-color:rgba(103,232,249,.5);}
+  .btn{
+    background: radial-gradient(120% 180% at 0% 0%, rgba(103,232,249,.9), rgba(167,139,250,.9));
+    color:#03121a; border:none; padding:12px 16px; border-radius:12px; font-weight:900; letter-spacing:.04em; cursor:pointer;
+    box-shadow:0 8px 20px rgba(103,232,249,.25), inset 0 0 18px rgba(255,255,255,.15);
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:hover{ transform:translateY(-1px); box-shadow:0 10px 26px rgba(103,232,249,.35), inset 0 0 22px rgba(255,255,255,.18); }
+  .btn.secondary{
+    background: linear-gradient(180deg, rgba(27,39,60,.9), rgba(12,18,29,.9));
+    color:var(--text); border:1px solid var(--stroke);
+    box-shadow:0 6px 16px rgba(0,0,0,.35), inset 0 0 0 rgba(255,255,255,0);
+  }
+  .kpi{display:flex;gap:10px;flex-wrap:wrap}
+  .kpi .item{flex:1;min-width:170px;background:rgba(10,16,26,.7);border:1px solid var(--stroke);border-radius:14px;padding:10px 12px}
+  .kpi h4{margin:0 0 6px 0;color:var(--muted);font-size:.85rem}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .v{font-weight:800}
+  .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--danger)}
+  table{width:100%;border-collapse:collapse;margin-top:10px}
+  th,td{border-bottom:1px solid var(--stroke);padding:8px 6px;text-align:left;vertical-align:top}
+  th{color:var(--muted)}
+  td a{color:var(--accent)}
+  .status{font-size:.92rem;color:var(--muted);margin-top:8px}
+  .footer{opacity:.7;font-size:.8rem;text-align:center;margin:10px 0 20px}
+</style>
+</head>
+<body>
+<div class="frame"></div>
+<div class="brand">MOZULUK</div>
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-view="calc">CALCULATOR 2</div>
+    <div class="tab" data-view="leads">ONE‑CLICK LEAD FINDER</div>
+  </div>
+
+  <!-- ===== CALCULATOR VIEW ===== -->
+  <section id="view-calc" class="view active">
+    <div class="card">
+      <div class="grid2">
+        <div>
+          <label>Shipper Pay (all‑in) — USD</label>
+          <input id="shipperPay" type="number" inputmode="decimal" placeholder="e.g., 1200">
+        </div>
+        <div>
+          <label>Carrier Pay (your offer) — USD <span style="opacity:.6">(optional)</span></label>
+          <input id="carrierPay" type="number" inputmode="decimal" placeholder="leave blank to auto">
+        </div>
+      </div>
+
+      <div class="grid3" style="margin-top:10px;">
+        <div>
+          <label>Distance (miles)</label>
+          <input id="miles" type="number" inputmode="decimal" placeholder="e.g., 150">
+        </div>
+        <div>
+          <label>Lane Type</label>
+          <select id="laneType">
+            <option value="vs">Very Short (≤85)</option>
+            <option value="s" selected>Short (86–150)</option>
+            <option value="m">Medium (151–300)</option>
+            <option value="l">Long (300+)</option>
+          </select>
+        </div>
+        <div>
+          <label>Market Pressure</label>
+          <select id="regionFactor">
+            <option value="-0.1">Soft (−10%)</option>
+            <option value="-0.05">Below avg (−5%)</option>
+            <option value="0" selected>Normal</option>
+            <option value="0.05">Tight (+5%)</option>
+            <option value="0.1">Hot (+10%)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid3" style="margin-top:10px;">
+        <div>
+          <label>Included Free Time — Chassis (days)</label>
+          <input id="inclChassis" type="number" value="2">
+        </div>
+        <div>
+          <label>Included Free Time — Storage (days)</label>
+          <input id="inclStorage" type="number" value="1">
+        </div>
+        <div>
+          <label>Detention beyond free (hrs)</label>
+          <input id="detentionHrs" type="number" value="0">
+        </div>
+      </div>
+
+      <div class="grid3" style="margin-top:10px;">
+        <div>
+          <label>Chassis $/extra day</label>
+          <input id="rateChassis" type="number" value="25">
+        </div>
+        <div>
+          <label>Storage $/extra day</label>
+          <input id="rateStorage" type="number" value="150">
+        </div>
+        <div>
+          <label>Detention $/hr</label>
+          <input id="rateDetention" type="number" value="85">
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:10px;">
+        <div>
+          <label>Risk — Yard Congestion</label>
+          <select id="congestion">
+            <option value="low" selected>Low</option>
+            <option value="med">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+        <div>
+          <label>Risk — Appointment Strictness</label>
+          <select id="strictness">
+            <option value="low" selected>Flexible</option>
+            <option value="med">Moderate</option>
+            <option value="high">Strict</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:10px;">
+        <div>
+          <label>Desired Profit (pre‑split)</label>
+          <input id="desiredProfit" type="number" value="150">
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:10px">
+          <button class="btn" onclick="compute()">CALCULATE</button>
+          <button class="btn secondary" onclick="resetForm()">RESET</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="kpi">
+        <div class="item">
+          <h4>10% WALL STREET</h4>
+          <div class="v mono" id="wsCut">$0.00</div>
+        </div>
+        <div class="item">
+          <h4>REMAINING AFTER WS</h4>
+          <div class="v mono" id="remaining">$0.00</div>
+        </div>
+        <div class="item">
+          <h4>EST. CARRIER BASELINE</h4>
+          <div class="v mono" id="carrierBase">$0.00</div>
+        </div>
+        <div class="item">
+          <h4>YOUR PROFIT (pre‑split)</h4>
+          <div class="v mono" id="profit">$0.00</div>
+        </div>
+        <div class="item">
+          <h4>YOU 80% / CONTRACTOR 20%</h4>
+          <div class="v mono" id="split">$0.00 / $0.00</div>
+        </div>
+      </div>
+      <div class="status" id="sellText">—</div>
+    </div>
+  </section>
+
+  <!-- ===== LEAD FINDER VIEW ===== -->
+  <section id="view-leads" class="view">
+    <div class="card">
+      <label>City / Region</label>
+      <div class="grid2">
+        <input id="region" placeholder="e.g., Houston TX, Newark NJ, Chicago IL">
+        <select id="mode">
+          <option value="both" selected>Ocean + Air</option>
+          <option value="ocean">Ocean only</option>
+          <option value="air">Air only</option>
+        </select>
+      </div>
+      <div style="margin-top:10px">
+        <button class="btn" onclick="search()">SEARCH</button>
+        <button class="btn secondary" onclick="fallbackTabs()">Fallback: Open Google tabs</button>
+      </div>
+      <div id="status" class="status">—</div>
+    </div>
+
+    <div class="card">
+      <h4 style="margin:0 0 6px 0">Results</h4>
+      <table id="tbl">
+        <thead><tr><th>#</th><th>Lead</th><th>Snippet</th><th>Open</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="footer">MOZULUK • Neon Edition — calculator + lead finder. Works on mobile.</div>
+</div>
+
+<script>
+/* ===== Tabs ===== */
+Array.from(document.querySelectorAll('.tab')).forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  const v = t.dataset.view;
+  document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+  document.getElementById('view-' + v).classList.add('active');
+}));
+
+/* ===== Calculator 2 ===== */
+function num(v){ const n = parseFloat(v); return isFinite(n) ? n : 0; }
+function fmt(n){ return '$' + n.toFixed(2); }
+
+function getBaselineRPM(miles, lane, factor){
+  // Tunable RPMs
+  const rpmVS=4.75, rpmS=4.25, rpmM=3.50, rpmL=2.75;
+  let base = rpmS;
+  if(lane==='vs'||miles<=85) base=rpmVS;
+  else if(lane==='s'||(miles>85&&miles<=150)) base=rpmS;
+  else if(lane==='m'||(miles>150&&miles<=300)) base=rpmM;
+  else base=rpmL;
+  return base*(1+factor);
+}
+
+function compute(){
+  const shipperPay=num(document.getElementById('shipperPay').value);
+  const miles=num(document.getElementById('miles').value);
+  const lane=document.getElementById('laneType').value;
+  const factor=num(document.getElementById('regionFactor').value);
+  const inclChassis=num(document.getElementById('inclChassis').value);
+  const inclStorage=num(document.getElementById('inclStorage').value);
+  const detentionHrs=num(document.getElementById('detentionHrs').value);
+  const rateChassis=num(document.getElementById('rateChassis').value);
+  const rateStorage=num(document.getElementById('rateStorage').value);
+  const rateDetention=num(document.getElementById('rateDetention').value);
+  const congestion=document.getElementById('congestion').value;
+  const strictness=document.getElementById('strictness').value;
+  const desiredProfit=num(document.getElementById('desiredProfit').value);
+  const carrierPayField=document.getElementById('carrierPay').value.trim();
+
+  const wsCut=shipperPay*0.10;
+  const remaining=shipperPay-wsCut;
+
+  const baselineRPM=getBaselineRPM(miles,lane,factor);
+  const carrierBaseline=miles*baselineRPM;
+
+  const extraCosts=(0*rateChassis)+(0*rateStorage)+(detentionHrs*rateDetention);
+
+  let carrierPay=carrierBaseline+extraCosts;
+  if(carrierPayField!=='') carrierPay=num(carrierPayField);
+
+  const profit=remaining-(carrierPay+extraCosts);
+  const you80=profit*0.80;
+  const contr20=profit*0.20;
+
+  let payRatio=carrierPay/Math.max(1,carrierBaseline);
+  let chance=0.25;
+  if(payRatio>=1.10) chance=0.90;
+  else if(payRatio>=1.00) chance=0.80;
+  else if(payRatio>=0.90) chance=0.60;
+  else if(payRatio>=0.80) chance=0.40;
+  else chance=0.25;
+
+  const riskPenalty=(congestion==='med'?0.07:(congestion==='high'?0.14:0)) + (strictness==='med'?0.05:(strictness==='high'?0.10:0));
+  chance=Math.max(0.05, chance-riskPenalty);
+
+  const need=carrierPay+extraCosts+desiredProfit;
+  const minGross=need/0.90;
+
+  document.getElementById('wsCut').textContent=fmt(wsCut);
+  document.getElementById('remaining').textContent=fmt(remaining);
+  document.getElementById('carrierBase').textContent=fmt(carrierBaseline);
+  const pEl=document.getElementById('profit');
+  pEl.textContent=fmt(profit);
+  pEl.className='v mono ' + (profit>150 ? 'good' : profit>=50 ? 'warn' : 'bad');
+  document.getElementById('split').textContent=fmt(you80)+' / '+fmt(contr20);
+
+  const sell=document.getElementById('sellText');
+  let tier='HARD';
+  if(chance>=0.85) tier='VERY LIKELY';
+  else if(chance>=0.65) tier='LIKELY';
+  else if(chance>=0.45) tier='FAIR';
+  else if(chance>=0.30) tier='TOUGH';
+  sell.textContent=`Sell chance: ${Math.round(chance*100)}% • ${tier}`;
+}
+function resetForm(){
+  ['shipperPay','carrierPay','miles','inclChassis','inclStorage','detentionHrs','rateChassis','rateStorage','rateDetention','desiredProfit']
+    .forEach(id=>document.getElementById(id).value='');
+  document.getElementById('laneType').value='s';
+  document.getElementById('regionFactor').value='0';
+  document.getElementById('congestion').value='low';
+  document.getElementById('strictness').value='low';
+  document.getElementById('wsCut').textContent='$0.00';
+  document.getElementById('remaining').textContent='$0.00';
+  document.getElementById('carrierBase').textContent='$0.00';
+  document.getElementById('profit').textContent='$0.00';
+  document.getElementById('split').textContent='$0.00 / $0.00';
+  document.getElementById('sellText').textContent='—';
+}
+
+/* ===== One-Click Lead Finder ===== */
+function toast(msg, cls=''){ const el=document.getElementById('status'); el.textContent=msg; el.className='status '+(cls||''); }
+function render(rows){
+  const tb=document.querySelector('#tbl tbody'); tb.innerHTML='';
+  rows.forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${i+1}</td><td>${r.title||''}</td><td>${r.snippet||''}</td><td>${r.link?`<a href="${r.link}" target="_blank">Open</a>`:''}</td>`;
+    tb.appendChild(tr);
+  });
+}
+function queries(region,mode){
+  const modeTerms=mode==='both'?'(air cargo OR IATA OR ocean freight OR NVOCC OR OTI)':(mode==='air'?'(air cargo OR IATA)':'(ocean freight OR NVOCC OR OTI)');
+  const geo=`"${region}" "United States"`;
+  const people='site:linkedin.com/in OR site:rocketreach.co OR site:signalhire.com';
+  const roles='(sales OR "business development" OR commercial OR pricing OR "account executive")';
+  const comps='(freight forwarder OR nvocc OR "customs broker" OR logistics OR 3pl)';
+  const companySites='site:linkedin.com/company OR site:zoominfo.com OR site:crunchbase.com/organization OR site:owler.com/company';
+  return [
+    `${people} ${roles} ${comps} ${modeTerms} ${geo}`,
+    `${companySites} ${comps} ${modeTerms} ${geo}`
+  ];
+}
+async function callAPI(q){
+  const url=`/api/leads?q=${encodeURIComponent(q)}`;
+  const r=await fetch(url);
+  if(!r.ok){ throw new Error(await r.text()); }
+  return r.json();
+}
+function norm(j){
+  return (j.organic_results||[]).map(it=>({title:(it.title||'').replace(/\s+\-\s+.*$/,''),snippet:(it.snippet||'').slice(0,200),link:it.link||''}));
+}
+function dedupe(rows){
+  const seen=new Set(), out=[];
+  rows.forEach(r=>{ const k=(r.link||'').replace(/^https?:\/\//,'').replace(/\/$/,''); if(!seen.has(k)){ seen.add(k); out.push(r); } });
+  return out;
+}
+async function search(){
+  const region=(document.getElementById('region').value||'').trim();
+  const mode=document.getElementById('mode').value;
+  if(!region){ toast('Type a city/region first',''); return; }
+  toast('Searching…');
+  try{
+    let all=[]; for(const q of queries(region,mode)){ const j=await callAPI(q); all.push(...norm(j)); await new Promise(r=>setTimeout(r,180)); }
+    all=dedupe(all); render(all); toast(`Found ${all.length} leads for ${region}`,'')
+  }catch(e){
+    const msg=String(e.message||e);
+    toast(msg.includes('SERPAPI_KEY')?'Server key missing in Vercel env. Add SERPAPI_KEY and redeploy.':msg,'')
+  }
+}
+function fallbackTabs(){
+  const region=(document.getElementById('region').value||'').trim(); const mode=document.getElementById('mode').value;
+  if(!region){ toast('Type a city/region first'); return; }
+  for(const q of queries(region,mode)){ window.open(`https://www.google.com/search?q=${encodeURIComponent(q)}`,'_blank'); }
+  toast('Opened Google tabs (allow popups).');
+}
+</script>
+</body>
+</html>
