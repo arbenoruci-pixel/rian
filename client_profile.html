@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Profili i Klientit</title>
+  <style>
+    body{background:#0b0b0f;color:#eaeaea;font-family:system-ui,Arial;margin:0;padding:18px}
+    h1{margin:0 0 10px;font-size:18px;letter-spacing:.8px}
+    .badge{display:inline-block;background:#0f2630;border:1px solid #1e5568;border-radius:10px;padding:6px 10px;margin-left:8px}
+    .row{margin:10px 0;display:flex;gap:10px}
+    .row>label{width:120px;opacity:.8}
+    .box{background:#13131a;border:1px solid #2d2d39;border-radius:10px;padding:12px;margin:10px 0}
+    .photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+    .photos img{width:100%;height:120px;object-fit:cover;border-radius:8px;border:1px solid #2d2d39}
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#112a11;border:1px solid #204220;margin-right:8px}
+    a.btn{display:inline-block;padding:10px 12px;border:1px solid #2d2d39;border-radius:8px;color:#eaeaea;text-decoration:none;margin-right:8px}
+  </style>
+</head>
+<body>
+  <h1>PROFILI • <span class="badge"><span id="code">—</span></span></h1>
+  <div class="box">
+    <div class="row"><label>Emri</label><div id="name">—</div></div>
+    <div class="row"><label>Telefoni</label><div id="phone">—</div></div>
+    <div class="row"><label>Statusi</label><div id="status">—</div></div>
+    <div class="row"><label>Copë</label><div id="pieces">—</div></div>
+    <div class="row"><label>m² TOTAL</label><div id="m2">—</div></div>
+    <div class="row"><label>Totali €</label><div id="total">—</div></div>
+    <div class="row"><label>Shënim</label><div id="note">—</div></div>
+  </div>
+
+  <div class="box">
+    <div style="margin-bottom:6px;opacity:.9">FOTO</div>
+    <div class="photos" id="photos"></div>
+  </div>
+
+  <div class="box">
+    <a class="btn" id="back">← Kthehu</a>
+    <a class="btn" id="markReady">✅ Kalo në GATI</a>
+  </div>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="assets/supabase.js"></script>
+  
+  <script>
+    // Injected for client_profile.js (UMD)
+    window.SUPABASE_URL = 'https://vnidjrxidvusulinozbn.supabase.co';
+    window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaWRqcnhpZHZ1c3VsaW5vemJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1MTk0NjAsImV4cCI6MjA3MzA5NTQ2MH0.hzGSFKU3sKuUKBUBsTE0rKIerj2uhG9pGS8_K9N7tpA';
+  </script>
+
+  <script src="assets/client_profile.js"></script>
+</body>
+</html>
