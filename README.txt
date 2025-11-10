@@ -3,6 +3,7 @@ TEPIHA — Clean Fresh Build v3 (PRANIMI + PASTRIMI + GATI + ARKA) — 2025-10-1
 This is a brand-new project (no legacy code). It uses Supabase only.
 
 PAGES
+
 - /                Home (links)
 - /pranimi/        PRANIMI with chips (tepiha/staza), totals, €/m², note, photo thumb, code from next_code(), save -> pastrim
 - /pastrimi/       Lists status='pastrim'; button BËJE GATI -> status='gati'
