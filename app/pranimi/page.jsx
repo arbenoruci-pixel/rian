@@ -123,6 +123,7 @@ function saveDraftLocal(order, status) {
 
   const row = {
     id,
+    status,
     name: order.client?.name || '',
     phone: order.client?.phone || '',
     ts: now,
@@ -159,6 +160,7 @@ export default function PranimiPage() {
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [notes, setNotes] = useState('');
   const phonePrefix = '+383';
 
   const [tepihaRows, setTepihaRows] = useState([{ id: 't1', m2: '', qty: '1', photoUrl: '' }]);
@@ -171,7 +173,6 @@ export default function PranimiPage() {
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
   const [paidUpfront, setPaidUpfront] = useState(false);
-  const [specialNotes, setSpecialNotes] = useState('');
 
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
@@ -194,6 +195,11 @@ export default function PranimiPage() {
           const phoneVal = (saved.client.phone || '').replace(/^\+383/, '');
           setPhone(phoneVal);
           if (saved.client.code) setCodeRaw(saved.client.code);
+        }
+        if (saved.notes) {
+          setNotes(saved.notes || '');
+        } else if (saved.client && saved.client.note) {
+          setNotes(saved.client.note || '');
         }
         if (Array.isArray(saved.tepiha) && saved.tepiha.length) {
           setTepihaRows(
@@ -224,9 +230,6 @@ export default function PranimiPage() {
           setPricePerM2(Number(saved.pay.rate || PRICE_DEFAULT));
           setClientPaid(Number(saved.pay.paid || 0));
           setPaidUpfront(Boolean(saved.pay.paidUpfront));
-        }
-        if (typeof saved.notes === 'string') {
-          setSpecialNotes(saved.notes);
         }
       }
     } catch (err) {
@@ -401,7 +404,7 @@ export default function PranimiPage() {
       staza,
       shkallore,
       pay,
-      notes: specialNotes.trim(),
+      notes: notes.trim(),
     };
   }
 
@@ -708,19 +711,19 @@ export default function PranimiPage() {
       <section className="card">
         <h2 className="card-title">KËRKESË SPECIALE / SHËNIME</h2>
         <div className="field-group">
-          <label className="label">Shënime që duhen parë në PASTRIMI, GATI dhe MARRJE SOT</label>
+          <label className="label">Shënime të veçanta</label>
           <textarea
             className="input"
             rows={3}
-            value={specialNotes}
-            onChange={(e) => setSpecialNotes(e.target.value)}
-            placeholder="Shembull: mos përdor zbardhues; njolla shumë e fortë në njërin cep..."
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="P.sh. njolla shumë të vjetra, dëmtime, kërkesa speciale..."
           />
         </div>
       </section>
 
       <section className="card">
-        <h2 className="card-title">Pagesa</h2
+        <h2 className="card-title">Pagesa</h2>
         <div className="tot-line">
           M² total: <strong>{totalM2.toFixed(2)} m²</strong>
         </div>

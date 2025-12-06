@@ -44,6 +44,7 @@ function saveOrderLocal(order) {
   const idx = list.findIndex((o) => o.id === id);
   const entry = {
     id,
+    status: order.status || 'pastrim',
     name: order.client?.name || '',
     phone: order.client?.phone || '',
     ts: order.ts || Date.now(),
@@ -172,17 +173,6 @@ export default function PastrimiPage() {
               ...(prev.pay || {}),
               [field]: value,
             },
-          },
-    );
-  }
-
-  function updateNotes(value) {
-    setDetail((prev) =>
-      !prev
-        ? prev
-        : {
-            ...prev,
-            notes: value,
           },
     );
   }
@@ -336,15 +326,16 @@ export default function PastrimiPage() {
               onChange={(e) => updateClient('phone', e.target.value)}
             />
           </div>
-
           <div className="field-group">
             <label className="label">KËRKESË SPECIALE / SHËNIME</label>
             <textarea
               className="input"
               rows={3}
               value={detail.notes || ''}
-              onChange={(e) => updateNotes(e.target.value)}
-              placeholder="Shënime nga PRANIMI për pastrim, njolla të veçanta, kërkesa të klientit..."
+              onChange={(e) =>
+                setDetail((prev) => (prev ? { ...prev, notes: e.target.value } : prev))
+              }
+              placeholder="Shënime të veçanta nga PRANIMI ose gjatë pastrimit..."
             />
           </div>
 
