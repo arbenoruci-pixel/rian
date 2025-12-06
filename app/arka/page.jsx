@@ -1,168 +1,228 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
-function loadOrdersIndex() {
+function normalizeCode(raw) {
+  if (!raw) return '';
+  const n = String(raw).replace(/^X/i, '').replace(/^0+/, '');
+  return n || '0';
+}
+
+function formatCode(raw) {
+  const n = normalizeCode(raw);
+  return n || '?';
+}
+
+function isSameDay(ts, now) {
+  if (!ts) return false;
+  const d = new Date(ts);
+  const n = new Date(now);
+  return (
+    d.getFullYear() === n.getFullYear() &&
+    d.getMonth() === n.getMonth() &&
+    d.getDate() === n.getDate()
+  );
+}
+
+function loadAllLocalOrders() {
   if (typeof window === 'undefined') return [];
+  let list = [];
   try {
-    const list = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
-    return Array.isArray(list) ? list : [];
+    const raw = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
+    list = Array.isArray(raw) ? raw : [];
   } catch {
-    return [];
+    list = [];
   }
+  if (!Array.isArray(list)) return [];
+
+  const result = [];
+  for (const entry of list) {
+    try {
+      const rawOrder = localStorage.getItem(`order_${entry.id}`);
+      if (!rawOrder) continue;
+      const order = JSON.parse(rawOrder);
+      if (!order || !order.id) continue;
+      result.push(order);
+    } catch {
+    }
+  }
+  return result;
 }
 
-function loadOrderById(id) {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(`order_${id}`);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+function getPay(order) {
+  const p = order?.pay || {};
+  return {
+    euro: Number(p.euro) || 0,
+    paid: Number(p.paid) || 0,
+    debt: Number(p.debt) || 0,
+  };
 }
 
-export default function Page() {
-  const [rows, setRows] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [totals, setTotals] = useState({ euro: 0, paid: 0, debt: 0 });
+export default function ArkaPage() {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  function refresh() {
+    try {
+      setLoading(true);
+      const all = loadAllLocalOrders();
+      setOrders(all);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const idx = loadOrdersIndex();
-    const enriched = idx.map((entry) => {
-      const full = loadOrderById(entry.id) || {};
-      const pay = full.pay || {};
-      const euroVal =
-        typeof pay.euro === 'number' ? pay.euro : Number(pay.euro || 0) || 0;
-      const paidVal =
-        typeof pay.paid === 'number' ? pay.paid : Number(pay.paid || 0) || 0;
-      const debtVal =
-        typeof pay.debt === 'number' ? pay.debt : Number(pay.debt || 0) || 0;
-      return {
-        ...entry,
-        status: full.status || entry.status || '',
-        totalEuro: euroVal,
-        paid: paidVal,
-        debt: debtVal,
-      };
-    });
-    setRows(enriched);
-    const euro = enriched.reduce((s, r) => s + (r.totalEuro || 0), 0);
-    const paid = enriched.reduce((s, r) => s + (r.paid || 0), 0);
-    const debt = enriched.reduce((s, r) => s + (r.debt || 0), 0);
-    setTotals({ euro, paid, debt });
+    refresh();
   }, []);
 
-  useEffect(() => {
-    if (!selectedId) {
-      setSelectedOrder(null);
-      return;
+  const { todayDelivered, todayTotals, allTotals } = useMemo(() => {
+    const now = Date.now();
+    const delivered = [];
+    let today = { euro: 0, paid: 0, debt: 0 };
+    let all = { euro: 0, paid: 0, debt: 0 };
+
+    for (const o of orders) {
+      if (o.status !== 'dorzim') continue;
+      const pay = getPay(o);
+      all.euro += pay.euro;
+      all.paid += pay.paid;
+      all.debt += pay.debt;
+
+      if (isSameDay(o.deliveredAt || o.readyAt || o.ts, now)) {
+        today.euro += pay.euro;
+        today.paid += pay.paid;
+        today.debt += pay.debt;
+        delivered.push(o);
+      }
     }
-    const full = loadOrderById(selectedId);
-    setSelectedOrder(full);
-  }, [selectedId]);
+
+    return {
+      todayDelivered: delivered,
+      todayTotals: today,
+      allTotals: all,
+    };
+  }, [orders]);
 
   return (
     <div className="wrap">
       <header className="header-row">
         <div>
           <h1 className="title">ARKA</h1>
-          <div className="subtitle">Përmbledhje e thjeshtë e pagesave</div>
+          <div className="subtitle">PAGESAT &amp; BORXHET</div>
+        </div>
+        <div>
+          <button
+            type="button"
+            className="btn secondary"
+            style={{ padding: '4px 10px', fontSize: 12 }}
+            onClick={refresh}
+          >
+            🔄 Rifresko
+          </button>
         </div>
       </header>
 
       <section className="card">
-        <h2 className="card-title">Përmbledhje</h2>
-        <div className="tot-line">
-          Xhiro totale: <strong>{totals.euro.toFixed(2)} €</strong>
-        </div>
-        <div className="tot-line small">
-          Paguar: <strong>{totals.paid.toFixed(2)} €</strong> · Borxh:{' '}
-          <strong>{totals.debt.toFixed(2)} €</strong>
-        </div>
+        {loading && <p>Duke llogaritur...</p>}
+        {!loading && (
+          <>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>SOT • TOTAL FATURE</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>
+                  {todayTotals.euro.toFixed(2)} €
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>SOT • PAGUAR CASH</div>
+                <div style={{ fontSize: 16, fontWeight: 600 }}>
+                  {todayTotals.paid.toFixed(2)} €
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>SOT • BORXH</div>
+                <div style={{ fontSize: 16, fontWeight: 600 }}>
+                  {todayTotals.debt.toFixed(2)} €
+                </div>
+              </div>
+            </div>
+
+            <hr style={{ margin: '12px 0', borderColor: 'rgba(255,255,255,0.08)' }} />
+
+            <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}>
+              <div style={{ opacity: 0.8 }}>TOTAL HISTORIK FATURE</div>
+              <div style={{ fontWeight: 600 }}>{allTotals.euro.toFixed(2)} €</div>
+            </div>
+            <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}>
+              <div style={{ opacity: 0.8 }}>TOTAL HISTORIK PAGUAR</div>
+              <div style={{ fontWeight: 600 }}>{allTotals.paid.toFixed(2)} €</div>
+            </div>
+            <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}>
+              <div style={{ opacity: 0.8 }}>TOTAL HISTORIK BORXH</div>
+              <div style={{ fontWeight: 600 }}>{allTotals.debt.toFixed(2)} €</div>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="card">
-        <h2 className="card-title">Lista e porosive</h2>
-        {rows.length === 0 && <p>Nuk ka porosi të ruajtura ende.</p>}
-        {rows.map((r) => {
-          const total = typeof r.totalEuro === 'number' ? r.totalEuro : 0;
-          const status =
-            typeof r.status === 'string' && r.status
-              ? r.status.toUpperCase()
-              : '—';
-          return (
-            <button
-              key={r.id}
-              type="button"
-              className="home-btn"
-              style={{
-                marginBottom: 8,
-                borderColor: selectedId === r.id ? '#196bff' : undefined,
-              }}
-              onClick={() => setSelectedId(r.id)}
-            >
-              <div>
-                <div>
-                  <span className="badge" style={{ marginRight: 8 }}>
-                    {r.id}
+        <h2 className="card-title">MARRJE SOT</h2>
+        {loading && <p>Duke lexuar porositë...</p>}
+        {!loading && todayDelivered.length === 0 && <p>Nuk ka porosi të marra sot.</p>}
+
+        {!loading &&
+          todayDelivered.map((o) => {
+            const pay = getPay(o);
+            return (
+              <div
+                key={o.id}
+                className="home-btn"
+                style={{
+                  marginBottom: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    gap: 12,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 14,
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      backgroundColor: '#16a34a',
+                      color: '#ffffff',
+                      minWidth: 32,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {formatCode(o.client?.code)}
                   </span>
-                  <strong>{r.name || 'Pa emër'}</strong>
-                </div>
-                <div className="tot-line small">
-                  {status} · {total.toFixed(2)} €
+                  <span>{o.client?.name || 'Pa emër'}</span>
+                  <span style={{ fontSize: 12, opacity: 0.8 }}>
+                    {pay.euro.toFixed(2)} € • pagoi {pay.paid.toFixed(2)} € • borxh{' '}
+                    {pay.debt.toFixed(2)} €
+                  </span>
                 </div>
               </div>
-              <span>DETALJE</span>
-            </button>
-          );
-        })}
+            );
+          })}
       </section>
-
-      {selectedOrder && (
-        <section className="card">
-          <h2 className="card-title">Detajet e porosisë</h2>
-          <div className="field-group">
-            <label className="label">Klienti</label>
-            <div className="readonly">
-              {selectedOrder.client?.name || 'Pa emër'}
-            </div>
-          </div>
-          <div className="field-group">
-            <label className="label">Telefoni</label>
-            <div className="readonly">
-              {selectedOrder.client?.phone || '—'}
-            </div>
-          </div>
-          <div className="field-group">
-            <label className="label">KËRKESË SPECIALE / SHËNIME</label>
-            <div className="readonly">
-              {selectedOrder.notes || '—'}
-            </div>
-          </div>
-          <div className="field-group">
-            <label className="label">Pagesa</label>
-            <div className="tot-line small">
-              Total:{' '}
-              <strong>
-                {(selectedOrder.pay?.euro ?? 0).toFixed(2)} €
-              </strong>{' '}
-              · Paguar:{' '}
-              <strong>
-                {(selectedOrder.pay?.paid ?? 0).toFixed(2)} €
-              </strong>{' '}
-              · Borxh:{' '}
-              <strong>
-                {(selectedOrder.pay?.debt ?? 0).toFixed(2)} €
-              </strong>
-            </div>
-          </div>
-        </section>
-      )}
 
       <footer className="footer-bar">
         <Link className="btn secondary" href="/">

@@ -26,21 +26,21 @@ export default function HomePage() {
             <span>🧼</span>
             <div>
               <div>PASTRIMI</div>
-              <small>Lista në pastrim</small>
+              <small>Lista në pastrim + detaje</small>
             </div>
           </Link>
           <Link className="home-btn" href="/gati">
             <span>✅</span>
             <div>
               <div>GATI</div>
-              <small>Gati për marrje</small>
+              <small>Gati për marrje (placeholder)</small>
             </div>
           </Link>
           <Link className="home-btn" href="/marrje-sot">
             <span>📦</span>
             <div>
               <div>MARRJE SOT</div>
-              <small>Planifiko dorëzimet e sotme</small>
+              <small>Planifiko dorëzimet e sotme (placeholder)</small>
             </div>
           </Link>
           <Link className="home-btn" href="/arka">

@@ -282,3 +282,26 @@ a {
 .home-btn span {
   font-size: 20px;
 }
+
+
+.camera-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid #141a33;
+  background: #050b23;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.photo-thumb {
+  margin-top: 4px;
+  max-width: 72px;
+  max-height: 72px;
+  border-radius: 8px;
+  border: 1px solid #141a33;
+  object-fit: cover;
+}

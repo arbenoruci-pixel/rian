@@ -19,19 +19,29 @@ function sanitizePhone(full) {
   return String(full).replace(/\D+/g, '');
 }
 
+function normalizeCode(raw) {
+  if (!raw) return '';
+  let n = String(raw).replace(/^X/i, '').replace(/^0+/, '');
+  if (n.startsWith('-')) n = n.slice(1);
+  return n || '0';
+}
+
 function displayCode(raw) {
   if (!raw) return 'KODI: ——';
-  const n = String(raw).replace(/^X/i, '');
-  return `KODI: -${n}`;
+  const n = normalizeCode(raw);
+  return `KODI: ${n}`;
 }
 
 // Reserve shared numeric code with Supabase Storage locks (codes/xN.lock + codes/xN.used)
 async function reserveSharedCode() {
   if (!supabase) {
+    if (typeof window === 'undefined') return null;
     const key = 'client_code_counter';
-    const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
+    const prev = parseInt(localStorage.getItem(key) || '0', 10);
+    const base = Number.isFinite(prev) && prev > 0 ? prev : 0;
+    const n = base + 1;
     localStorage.setItem(key, String(n));
-    return 'X' + n;
+    return String(n);
   }
 
   const { data, error } = await supabase.storage.from(BUCKET).list('codes', {
@@ -69,15 +79,32 @@ async function reserveSharedCode() {
   while (used.has(candidate) || active.has(candidate)) candidate++;
 
   const lockName = `codes/x${candidate}.${Date.now()}.lock`;
-  const file = new File([String(Date.now())], 'lock.txt', { type: 'text/plain' });
+  const file = typeof File !== 'undefined'
+    ? new File([String(Date.now())], 'lock.txt', { type: 'text/plain' })
+    : null;
+
+  if (!file) {
+    // Fallback to local counter
+    if (typeof window === 'undefined') return String(candidate);
+    const key = 'client_code_counter';
+    const prev = parseInt(localStorage.getItem(key) || '0', 10);
+    const base = Number.isFinite(prev) && prev > 0 ? prev : 0;
+    const n = base + 1;
+    localStorage.setItem(key, String(n));
+    return String(n);
+  }
+
   const { error: upErr } = await supabase.storage.from(BUCKET).upload(lockName, file);
   if (upErr) {
+    if (typeof window === 'undefined') return String(candidate);
     const key = 'client_code_counter';
-    const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
+    const prev = parseInt(localStorage.getItem(key) || '0', 10);
+    const base = Number.isFinite(prev) && prev > 0 ? prev : 0;
+    const n = base + 1;
     localStorage.setItem(key, String(n));
-    return 'X' + n;
+    return String(n);
   }
-  return 'X' + candidate;
+  return String(candidate);
 }
 
 async function saveDraftOnline(order) {
@@ -86,22 +113,33 @@ async function saveDraftOnline(order) {
   if (!id) return;
 
   const path = `orders/${id}.json`;
-  const blob = new Blob([JSON.stringify(order)], { type: 'application/json' });
+  const blob =
+    typeof Blob !== 'undefined'
+      ? new Blob([JSON.stringify(order)], { type: 'application/json' })
+      : null;
 
-  await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
+  if (blob) {
+    await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
+  }
 
   const code = client?.code;
-  if (code && /^X\d+$/i.test(code)) {
-    const n = String(code).replace(/^X/i, '');
-    const usedPath = `codes/x${n}.used`;
-    const usedBlob = new Blob([JSON.stringify({ at: new Date().toISOString() })], {
-      type: 'application/json',
-    });
-    await supabase.storage.from(BUCKET).upload(usedPath, usedBlob, { upsert: true });
+  const norm = normalizeCode(code);
+  if (norm) {
+    const usedPath = `codes/x${norm}.used`;
+    const usedBlob =
+      typeof Blob !== 'undefined'
+        ? new Blob([JSON.stringify({ at: new Date().toISOString() })], {
+            type: 'application/json',
+          })
+        : null;
+    if (usedBlob) {
+      await supabase.storage.from(BUCKET).upload(usedPath, usedBlob, { upsert: true });
+    }
   }
 }
 
 function saveDraftLocal(order, status) {
+  if (typeof window === 'undefined') return;
   const id = order.id;
   const now = order.ts || nowTs();
 
@@ -121,11 +159,17 @@ function saveDraftLocal(order, status) {
     list = [];
   }
 
+  const pieces =
+    (Array.isArray(order.tepiha) ? order.tepiha.length : 0) +
+    (Array.isArray(order.staza) ? order.staza.length : 0) +
+    (order.shkallore && Number(order.shkallore.qty) > 0 ? 1 : 0);
+
   const row = {
     id,
-    status,
     name: order.client?.name || '',
     phone: order.client?.phone || '',
+    code: order.client?.code || '',
+    pieces,
     ts: now,
   };
 
@@ -152,7 +196,6 @@ async function uploadPhoto(file, oid, key) {
 }
 
 export default function PranimiPage() {
-  // NOTE: search params lexohen nga window.location.search (jo useSearchParams, për Next export)
   const router = useRouter();
 
   const [oid, setOid] = useState('');
@@ -160,8 +203,9 @@ export default function PranimiPage() {
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [notes, setNotes] = useState('');
   const phonePrefix = '+383';
+
+  const [clientPhotoUrl, setClientPhotoUrl] = useState('');
 
   const [tepihaRows, setTepihaRows] = useState([{ id: 't1', m2: '', qty: '1', photoUrl: '' }]);
   const [stazaRows, setStazaRows] = useState([{ id: 's1', m2: '', qty: '1', photoUrl: '' }]);
@@ -173,6 +217,7 @@ export default function PranimiPage() {
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
   const [paidUpfront, setPaidUpfront] = useState(false);
+  const [notes, setNotes] = useState('');
 
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
@@ -180,96 +225,39 @@ export default function PranimiPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    let id = null;
-    try {
-      const url = new URL(window.location.href);
-      id = url.searchParams.get('id');
-    } catch (e) {
-      id = null;
-    }
-    if (!id) {
-      id = `ord_${Date.now()}`;
-    }
+    // Always create a fresh local ID when opening PRANIMI for new order
+    const id = `ord_${Date.now()}`;
     setOid(id);
-
-    try {
-      const raw = localStorage.getItem(`order_${id}`);
-      if (raw) {
-        const saved = JSON.parse(raw);
-        if (saved.client) {
-          setName(saved.client.name || '');
-          const phoneVal = (saved.client.phone || '').replace(/^\+383/, '');
-          setPhone(phoneVal);
-          if (saved.client.code) setCodeRaw(saved.client.code);
-        }
-        if (saved.notes) {
-          setNotes(saved.notes || '');
-        } else if (saved.client && saved.client.note) {
-          setNotes(saved.client.note || '');
-        }
-        if (Array.isArray(saved.tepiha) && saved.tepiha.length) {
-          setTepihaRows(
-            saved.tepiha.map((p, idx) => ({
-              id: `t${idx + 1}`,
-              m2: String(p.m2 ?? ''),
-              qty: String(p.qty ?? '1'),
-              photoUrl: p.photoUrl || '',
-            })),
-          );
-        }
-        if (Array.isArray(saved.staza) && saved.staza.length) {
-          setStazaRows(
-            saved.staza.map((p, idx) => ({
-              id: `s${idx + 1}`,
-              m2: String(p.m2 ?? ''),
-              qty: String(p.qty ?? '1'),
-              photoUrl: p.photoUrl || '',
-            })),
-          );
-        }
-        if (saved.shkallore) {
-          setStairsQty(Number(saved.shkallore.qty || 0));
-          setStairsPer(Number(saved.shkallore.per || SHKALLORE_M2_PER_STEP_DEFAULT));
-          setStairsPhotoUrl(saved.shkallore.photoUrl || '');
-        }
-        if (saved.pay) {
-          setPricePerM2(Number(saved.pay.rate || PRICE_DEFAULT));
-          setClientPaid(Number(saved.pay.paid || 0));
-          setPaidUpfront(Boolean(saved.pay.paidUpfront));
-        }
-      }
-    } catch (err) {
-      console.error('Error loading existing order', err);
-    }
 
     (async () => {
       try {
-        if (!codeRaw) {
-          const reserved = await reserveSharedCode();
-          setCodeRaw(reserved);
-        }
+        const reserved = await reserveSharedCode();
+        setCodeRaw(reserved);
       } catch (e) {
         console.error('Error reserving code', e);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const totalTepihaM2 = useMemo(() => {
-    return tepihaRows.reduce((sum, r) => {
-      const m2 = Number(r.m2) || 0;
-      const qty = Number(r.qty) || 0;
-      return sum + m2 * qty;
-    }, 0);
-  }, [tepihaRows]);
+  const totalTepihaM2 = useMemo(
+    () =>
+      tepihaRows.reduce((sum, r) => {
+        const m2 = Number(r.m2) || 0;
+        const qty = Number(r.qty) || 0;
+        return sum + m2 * qty;
+      }, 0),
+    [tepihaRows],
+  );
 
-  const totalStazaM2 = useMemo(() => {
-    return stazaRows.reduce((sum, r) => {
-      const m2 = Number(r.m2) || 0;
-      const qty = Number(r.qty) || 0;
-      return sum + m2 * qty;
-    }, 0);
-  }, [stazaRows]);
+  const totalStazaM2 = useMemo(
+    () =>
+      stazaRows.reduce((sum, r) => {
+        const m2 = Number(r.m2) || 0;
+        const qty = Number(r.qty) || 0;
+        return sum + m2 * qty;
+      }, 0),
+    [stazaRows],
+  );
 
   const totalStairsM2 = useMemo(() => {
     const qty = Number(stairsQty) || 0;
@@ -277,13 +265,15 @@ export default function PranimiPage() {
     return qty * per;
   }, [stairsQty, stairsPer]);
 
-  const totalM2 = useMemo(() => {
-    return Number((totalTepihaM2 + totalStazaM2 + totalStairsM2).toFixed(2));
-  }, [totalTepihaM2, totalStazaM2, totalStairsM2]);
+  const totalM2 = useMemo(
+    () => Number((totalTepihaM2 + totalStazaM2 + totalStairsM2).toFixed(2)),
+    [totalTepihaM2, totalStazaM2, totalStairsM2],
+  );
 
-  const totalEuro = useMemo(() => {
-    return Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2));
-  }, [totalM2, pricePerM2]);
+  const totalEuro = useMemo(
+    () => Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2)),
+    [totalM2, pricePerM2],
+  );
 
   const debt = useMemo(() => {
     const diff = totalEuro - (Number(clientPaid) || 0);
@@ -298,36 +288,50 @@ export default function PranimiPage() {
   function handleChipClick(kind, value) {
     if (kind === 'tepiha') {
       setTepihaRows((rows) => {
-        if (!rows.length) return [{ id: 't1', m2: value.toFixed(1), qty: '1', photoUrl: '' }];
+        if (!rows.length)
+          return [{ id: 't1', m2: value ? value.toFixed(1) : '', qty: '1', photoUrl: '' }];
         const last = rows[rows.length - 1];
         if (!last.m2) {
           return [
             ...rows.slice(0, -1),
-            { ...last, m2: value.toFixed(1) },
+            { ...last, m2: value ? value.toFixed(1) : '' },
           ];
         }
-        return [...rows, { id: `t${rows.length + 1}`, m2: value.toFixed(1), qty: '1', photoUrl: '' }];
+        return [
+          ...rows,
+          { id: `t${rows.length + 1}`, m2: value ? value.toFixed(1) : '', qty: '1', photoUrl: '' },
+        ];
       });
     } else if (kind === 'staza') {
       setStazaRows((rows) => {
-        if (!rows.length) return [{ id: 's1', m2: value.toFixed(1), qty: '1', photoUrl: '' }];
+        if (!rows.length)
+          return [{ id: 's1', m2: value ? value.toFixed(1) : '', qty: '1', photoUrl: '' }];
         const last = rows[rows.length - 1];
         if (!last.m2) {
           return [
             ...rows.slice(0, -1),
-            { ...last, m2: value.toFixed(1) },
+            { ...last, m2: value ? value.toFixed(1) : '' },
           ];
         }
-        return [...rows, { id: `s${rows.length + 1}`, m2: value.toFixed(1), qty: '1', photoUrl: '' }];
+        return [
+          ...rows,
+          { id: `s${rows.length + 1}`, m2: value ? value.toFixed(1) : '', qty: '1', photoUrl: '' },
+        ];
       });
     }
   }
 
   function addRow(kind) {
     if (kind === 'tepiha') {
-      setTepihaRows((rows) => [...rows, { id: `t${rows.length + 1}`, m2: '', qty: '1', photoUrl: '' }]);
+      setTepihaRows((rows) => [
+        ...rows,
+        { id: `t${rows.length + 1}`, m2: '', qty: '1', photoUrl: '' },
+      ]);
     } else {
-      setStazaRows((rows) => [...rows, { id: `s${rows.length + 1}`, m2: '', qty: '1', photoUrl: '' }]);
+      setStazaRows((rows) => [
+        ...rows,
+        { id: `s${rows.length + 1}`, m2: '', qty: '1', photoUrl: '' },
+      ]);
     }
   }
 
@@ -341,9 +345,7 @@ export default function PranimiPage() {
 
   function handleRowChange(kind, id, field, value) {
     const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
-    setter((rows) =>
-      rows.map((r) => (r.id === id ? { ...r, [field]: value } : r)),
-    );
+    setter((rows) => rows.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   }
 
   async function handleRowPhotoChange(kind, id, file) {
@@ -352,9 +354,7 @@ export default function PranimiPage() {
     const url = await uploadPhoto(file, oid, key);
     if (!url) return;
     const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
-    setter((rows) =>
-      rows.map((r) => (r.id === id ? { ...r, photoUrl: url } : r)),
-    );
+    setter((rows) => rows.map((r) => (r.id === id ? { ...r, photoUrl: url } : r)));
   }
 
   async function handleStairsPhotoChange(file) {
@@ -365,8 +365,23 @@ export default function PranimiPage() {
     setStairsPhotoUrl(url);
   }
 
+  async function handleClientPhotoChange(file) {
+    if (!file || !oid) return;
+    const key = 'client';
+    const url = await uploadPhoto(file, oid, key);
+    if (!url) return;
+    setClientPhotoUrl(url);
+  }
+
   function handleQuickPaid(amount) {
     setClientPaid(amount);
+  }
+
+  // FSHI SHKALLORE
+  function clearStairs() {
+    setStairsQty(0);
+    setStairsPer(SHKALLORE_M2_PER_STEP_DEFAULT);
+    setStairsPhotoUrl('');
   }
 
   function buildOrder(status) {
@@ -374,7 +389,8 @@ export default function PranimiPage() {
     const client = {
       name: name.trim(),
       phone: fullPhone,
-      code: codeRaw,
+      code: normalizeCode(codeRaw),
+      photoUrl: clientPhotoUrl || '',
     };
     const tepiha = tepihaRows.map((r) => ({
       m2: Number(r.m2) || 0,
@@ -454,12 +470,14 @@ export default function PranimiPage() {
     const order = buildOrder('pastrim');
     saveDraftLocal(order, 'pastrim');
     await saveDraftOnline(order);
-    router.push(`/pastrimi?id=${encodeURIComponent(oid)}`);
+    router.push('/pastrimi');
   }
 
   function openSmsSheet() {
     setShowShareSheet(true);
   }
+
+  const piecesCount = tepihaRows.length + stazaRows.length + (stairsQty > 0 ? 1 : 0);
 
   function sendSms() {
     const fullPhone = phonePrefix + (phone || '');
@@ -468,9 +486,8 @@ export default function PranimiPage() {
       alert('Nuk ka numër telefoni për SMS.');
       return;
     }
-    const pieces = tepihaRows.length + stazaRows.length + (stairsQty > 0 ? 1 : 0);
     const body = encodeURIComponent(
-      `Përshëndetje ${name || 'klient'}, procesi i pastrimit ka filluar. Keni ${pieces} copë = ${totalM2.toFixed(
+      `Përshëndetje ${name || 'klient'}, procesi i pastrimit ka filluar. Keni ${piecesCount} copë = ${totalM2.toFixed(
         2,
       )} m². Totali: ${totalEuro.toFixed(2)} €. Faleminderit!`,
     );
@@ -479,9 +496,8 @@ export default function PranimiPage() {
   }
 
   function sendViber() {
-    const pieces = tepihaRows.length + stazaRows.length + (stairsQty > 0 ? 1 : 0);
     const txt = encodeURIComponent(
-      `Përshëndetje ${name || 'klient'}, procesi i pastrimit ka filluar. Keni ${pieces} copë = ${totalM2.toFixed(
+      `Përshëndetje ${name || 'klient'}, procesi i pastrimit ka filluar. Keni ${piecesCount} copë = ${totalM2.toFixed(
         2,
       )} m². Totali: ${totalEuro.toFixed(2)} €. Faleminderit!`,
     );
@@ -496,9 +512,8 @@ export default function PranimiPage() {
       alert('Nuk ka numër telefoni për WhatsApp.');
       return;
     }
-    const pieces = tepihaRows.length + stazaRows.length + (stairsQty > 0 ? 1 : 0);
     const txt = encodeURIComponent(
-      `Përshëndetje ${name || 'klient'}, procesi i pastrimit ka filluar. Keni ${pieces} copë = ${totalM2.toFixed(
+      `Përshëndetje ${name || 'klient'}, procesi i pastrimit ka filluar. Keni ${piecesCount} copë = ${totalM2.toFixed(
         2,
       )} m². Totali: ${totalEuro.toFixed(2)} €. Faleminderit!`,
     );
@@ -545,6 +560,27 @@ export default function PranimiPage() {
             />
           </div>
         </div>
+        <div className="field-group">
+          <label className="label">Foto klienti / porosie</label>
+          <label className="camera-btn">
+            📷
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={(e) => handleClientPhotoChange(e.target.files?.[0] || null)}
+            />
+          </label>
+          {clientPhotoUrl && (
+            <div className="thumb-row">
+              <img
+                src={clientPhotoUrl}
+                alt="Foto klienti"
+                className="photo-thumb"
+              />
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="card">
@@ -590,20 +626,30 @@ export default function PranimiPage() {
                   onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)}
                   placeholder="copë"
                 />
-                <input
-                  className="input"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) =>
-                    handleRowPhotoChange('tepiha', row.id, e.target.files?.[0] || null)
-                  }
-                />
+                <label className="camera-btn">
+                  📷
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) =>
+                      handleRowPhotoChange('tepiha', row.id, e.target.files?.[0] || null)
+                    }
+                  />
+                </label>
               </div>
               {row.photoUrl && (
                 <div className="thumb-row">
                   <a href={row.photoUrl} target="_blank" rel="noreferrer">
                     Shiko foton
                   </a>
+                  <div>
+                    <img
+                      src={row.photoUrl}
+                      alt="Foto tepih"
+                      className="photo-thumb"
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -665,20 +711,30 @@ export default function PranimiPage() {
                   onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)}
                   placeholder="copë"
                 />
-                <input
-                  className="input"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) =>
-                    handleRowPhotoChange('staza', row.id, e.target.files?.[0] || null)
-                  }
-                />
+                <label className="camera-btn">
+                  📷
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) =>
+                      handleRowPhotoChange('staza', row.id, e.target.files?.[0] || null)
+                    }
+                  />
+                </label>
               </div>
               {row.photoUrl && (
                 <div className="thumb-row">
                   <a href={row.photoUrl} target="_blank" rel="noreferrer">
                     Shiko foton
                   </a>
+                  <div>
+                    <img
+                      src={row.photoUrl}
+                      alt="Foto staza"
+                      className="photo-thumb"
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -698,6 +754,19 @@ export default function PranimiPage() {
       </section>
 
       <section className="card">
+        <h2 className="card-title">KËRKESË SPECIALE / SHËNIME</h2>
+        <div className="field-group">
+          <textarea
+            className="input"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="P.sh. njolla që nuk dalin, kërkesa speciale të klientit, etj."
+          />
+        </div>
+      </section>
+
+      <section className="card">
         <div className="row util-row">
           <button type="button" className="btn secondary" onClick={() => setShowStairsSheet(true)}>
             🪜 +SHKALLORE
@@ -712,20 +781,17 @@ export default function PranimiPage() {
         <div className="tot-line">
           M² shkallore: <strong>{totalStairsM2.toFixed(2)} m²</strong>
         </div>
-      </section>
-
-      <section className="card">
-        <h2 className="card-title">KËRKESË SPECIALE / SHËNIME</h2>
-        <div className="field-group">
-          <label className="label">Shënime të veçanta</label>
-          <textarea
-            className="input"
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="P.sh. njolla shumë të vjetra, dëmtime, kërkesa speciale..."
-          />
-        </div>
+        {stairsPhotoUrl && (
+          <div className="thumb-row">
+            <div>
+              <img
+                src={stairsPhotoUrl}
+                alt="Foto shkallore"
+                className="photo-thumb"
+              />
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="card">
@@ -744,13 +810,28 @@ export default function PranimiPage() {
       </section>
 
       <footer className="footer-bar">
-        <button type="button" className="btn secondary" onClick={() => router.push('/')}>
-          🏠 KTHEU NË FILLIM
+        <button
+          type="button"
+          className="btn secondary"
+          style={{ fontSize: '0.9rem', padding: '8px 10px' }}
+          onClick={() => router.push('/')}
+        >
+          🏠 FILLIM
         </button>
-        <button type="button" className="btn" onClick={handleSaveDraft}>
-          💾 RUAJ DRAFT
+        <button
+          type="button"
+          className="btn"
+          style={{ fontSize: '0.9rem', padding: '8px 10px' }}
+          onClick={handleSaveDraft}
+        >
+          💾 RUAJ
         </button>
-        <button type="button" className="btn primary" onClick={handleContinue}>
+        <button
+          type="button"
+          className="btn primary"
+          style={{ fontSize: '0.9rem', padding: '8px 10px' }}
+          onClick={handleContinue}
+        >
           ▶ VAZHDO
         </button>
       </footer>
@@ -809,7 +890,11 @@ export default function PranimiPage() {
               <strong>{change.toFixed(2)} €</strong>
             </div>
             <div className="row btn-row">
-              <button type="button" className="btn secondary" onClick={() => setShowPaySheet(false)}>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setShowPaySheet(false)}
+              >
                 MBYLL
               </button>
             </div>
@@ -845,17 +930,27 @@ export default function PranimiPage() {
             </div>
             <div className="field-group">
               <label className="label">Foto</label>
-              <input
-                className="input"
-                type="file"
-                accept="image/*"
-                onChange={(e) => handleStairsPhotoChange(e.target.files?.[0] || null)}
-              />
+              <label className="camera-btn">
+                📷
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleStairsPhotoChange(e.target.files?.[0] || null)}
+                />
+              </label>
               {stairsPhotoUrl && (
                 <div className="thumb-row">
                   <a href={stairsPhotoUrl} target="_blank" rel="noreferrer">
                     Shiko foton e shkallëve
                   </a>
+                  <div>
+                    <img
+                      src={stairsPhotoUrl}
+                      alt="Foto shkallore"
+                      className="photo-thumb"
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -863,8 +958,22 @@ export default function PranimiPage() {
               Totali shkallore: <strong>{totalStairsM2.toFixed(2)} m²</strong>
             </div>
             <div className="row btn-row">
-              <button type="button" className="btn secondary" onClick={() => setShowStairsSheet(false)}>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setShowStairsSheet(false)}
+              >
                 MBYLL
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  clearStairs();
+                  setShowStairsSheet(false);
+                }}
+              >
+                FSHI SHKALLORE
               </button>
             </div>
           </div>
@@ -887,7 +996,11 @@ export default function PranimiPage() {
               </button>
             </div>
             <div className="row btn-row">
-              <button type="button" className="btn secondary" onClick={() => setShowShareSheet(false)}>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setShowShareSheet(false)}
+              >
                 MBYLL
               </button>
             </div>
