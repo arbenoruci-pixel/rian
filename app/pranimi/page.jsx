@@ -199,12 +199,11 @@ export default function PranimiPage() {
   const phonePrefix = '+383';
 
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
-  const [notes, setNotes] = useState('');
 
   const [tepihaRows, setTepihaRows] = useState([{ id: 't1', m2: '', qty: '1', photoUrl: '' }]);
   const [stazaRows, setStazaRows] = useState([{ id: 's1', m2: '', qty: '1', photoUrl: '' }]);
 
-  const [stairsQty, setStairsQty] = useState('');
+  const [stairsQty, setStairsQty] = useState(0);
   const [stairsPer, setStairsPer] = useState(SHKALLORE_M2_PER_STEP_DEFAULT);
   const [stairsPhotoUrl, setStairsPhotoUrl] = useState('');
 
@@ -372,7 +371,7 @@ export default function PranimiPage() {
 
   // FSHI SHKALLORE
   function clearStairs() {
-    setStairsQty('');
+    setStairsQty(0);
     setStairsPer(SHKALLORE_M2_PER_STEP_DEFAULT);
     setStairsPhotoUrl('');
   }
@@ -419,7 +418,6 @@ export default function PranimiPage() {
       staza,
       shkallore,
       pay,
-      notes: notes.trim(),
     };
   }
 
@@ -573,16 +571,6 @@ export default function PranimiPage() {
               />
             </div>
           )}
-        </div>
-        <div className="field-group">
-          <label className="label">KËRKESË SPECIALE / SHËNIME</label>
-          <textarea
-            className="input"
-            rows={2}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="P.sh. njolla shumë të vjetra, dëmtime, kërkesa speciale..."
-          />
         </div>
       </section>
 
