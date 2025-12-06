@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
@@ -152,7 +152,7 @@ async function uploadPhoto(file, oid, key) {
 }
 
 export default function PranimiPage() {
-  const searchParams = useSearchParams();
+  // NOTE: search params lexohen nga window.location.search (jo useSearchParams, për Next export)
   const router = useRouter();
 
   const [oid, setOid] = useState('');
@@ -180,7 +180,13 @@ export default function PranimiPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    let id = searchParams.get('id');
+    let id = null;
+    try {
+      const url = new URL(window.location.href);
+      id = url.searchParams.get('id');
+    } catch (e) {
+      id = null;
+    }
     if (!id) {
       id = `ord_${Date.now()}`;
     }
