@@ -792,34 +792,32 @@ export default function PastrimiPage() {
               onChange={(e) => updateClient('phone', e.target.value)}
             />
           </div>
-
-          {detail.client?.photoUrl && (
-            <div className="field-group">
-              <label className="label">Foto e klientit</label>
-              <div className="thumb-row">
-                <img
-                  src={detail.client.photoUrl}
-                  alt="Foto e klientit"
-                  className="photo-thumb"
-                />
+            {detail.client?.photoUrl && (
+              <div className="field-group">
+                <label className="label">Foto klienti / porosie</label>
+                <div className="thumb-row">
+                  <img
+                    src={detail.client.photoUrl}
+                    alt="Foto klienti"
+                    className="photo-thumb"
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="field-group">
-            <label className="label">Shënime</label>
-            <textarea
-              className="input"
-              rows={2}
-              value={detail.notes || ''}
-              onChange={(e) =>
-                setDetail((prev) =>
-                  prev ? { ...prev, notes: e.target.value } : prev,
-                )
-              }
-              placeholder="P.sh. njolla të vjetra, dëmtime, kërkesa speciale..."
-            />
-          </div>
+            <div className="field-group">
+              <label className="label">KËRKESË SPECIALE / SHËNIME</label>
+              <textarea
+                className="input"
+                rows={2}
+                value={detail.notes || ''}
+                onChange={(e) =>
+                  setDetail((prev) => (prev ? { ...prev, notes: e.target.value } : prev)),
+                }
+                placeholder="P.sh. njolla shumë të vjetra, dëmtime, kërkesa speciale..."
+              />
+            </div>
+
 
           {/* TEPIHA */}
           <div className="field-group">

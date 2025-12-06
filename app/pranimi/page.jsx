@@ -199,6 +199,7 @@ export default function PranimiPage() {
   const phonePrefix = '+383';
 
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
+  const [notes, setNotes] = useState('');
 
   const [tepihaRows, setTepihaRows] = useState([{ id: 't1', m2: '', qty: '1', photoUrl: '' }]);
   const [stazaRows, setStazaRows] = useState([{ id: 's1', m2: '', qty: '1', photoUrl: '' }]);
@@ -206,7 +207,6 @@ export default function PranimiPage() {
   const [stairsQty, setStairsQty] = useState('');
   const [stairsPer, setStairsPer] = useState(SHKALLORE_M2_PER_STEP_DEFAULT);
   const [stairsPhotoUrl, setStairsPhotoUrl] = useState('');
-  const [notes, setNotes] = useState('');
 
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
@@ -411,6 +411,7 @@ export default function PranimiPage() {
       change,
     };
     return {
+      id: oid,
       ts: nowTs(),
       status,
       client,
@@ -583,7 +584,6 @@ export default function PranimiPage() {
             placeholder="P.sh. njolla shumë të vjetra, dëmtime, kërkesa speciale..."
           />
         </div>
-
       </section>
 
       <section className="card">
