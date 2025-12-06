@@ -21,8 +21,7 @@ function sanitizePhone(full) {
 
 function normalizeCode(raw) {
   if (!raw) return '';
-  let n = String(raw).replace(/^X/i, '').replace(/^0+/, '');
-  if (n.startsWith('-')) n = n.slice(1);
+  const n = String(raw).replace(/^X/i, '').replace(/^0+/, '');
   return n || '0';
 }
 
@@ -37,9 +36,7 @@ async function reserveSharedCode() {
   if (!supabase) {
     if (typeof window === 'undefined') return null;
     const key = 'client_code_counter';
-    const prev = parseInt(localStorage.getItem(key) || '0', 10);
-    const base = Number.isFinite(prev) && prev > 0 ? prev : 0;
-    const n = base + 1;
+    const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
     localStorage.setItem(key, String(n));
     return String(n);
   }
@@ -87,9 +84,7 @@ async function reserveSharedCode() {
     // Fallback to local counter
     if (typeof window === 'undefined') return String(candidate);
     const key = 'client_code_counter';
-    const prev = parseInt(localStorage.getItem(key) || '0', 10);
-    const base = Number.isFinite(prev) && prev > 0 ? prev : 0;
-    const n = base + 1;
+    const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
     localStorage.setItem(key, String(n));
     return String(n);
   }
@@ -98,9 +93,7 @@ async function reserveSharedCode() {
   if (upErr) {
     if (typeof window === 'undefined') return String(candidate);
     const key = 'client_code_counter';
-    const prev = parseInt(localStorage.getItem(key) || '0', 10);
-    const base = Number.isFinite(prev) && prev > 0 ? prev : 0;
-    const n = base + 1;
+    const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
     localStorage.setItem(key, String(n));
     return String(n);
   }
@@ -217,7 +210,6 @@ export default function PranimiPage() {
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
   const [paidUpfront, setPaidUpfront] = useState(false);
-  const [notes, setNotes] = useState('');
 
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
@@ -426,7 +418,6 @@ export default function PranimiPage() {
       staza,
       shkallore,
       pay,
-      notes: notes.trim(),
     };
   }
 
@@ -750,19 +741,6 @@ export default function PranimiPage() {
         </div>
         <div className="tot-line">
           Totali staza: <strong>{totalStazaM2.toFixed(2)} m²</strong>
-        </div>
-      </section>
-
-      <section className="card">
-        <h2 className="card-title">KËRKESË SPECIALE / SHËNIME</h2>
-        <div className="field-group">
-          <textarea
-            className="input"
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="P.sh. njolla që nuk dalin, kërkesa speciale të klientit, etj."
-          />
         </div>
       </section>
 

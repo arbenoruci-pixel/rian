@@ -783,6 +783,31 @@ export default function PastrimiPage() {
               onChange={(e) => updateClient('name', e.target.value)}
             />
           </div>
+          {detail.clientPhoto && (
+            <div className="field-group">
+              <label className="label">Foto e klientit</label>
+              <div>
+                <img
+                  src={detail.clientPhoto}
+                  alt="Foto e klientit"
+                  className="photo-thumb"
+                />
+              </div>
+            </div>
+          )}
+
+          {detail.notes && (
+            <div className="field-group">
+              <label className="label">Shënime</label>
+              <textarea
+                className="input"
+                rows={2}
+                value={detail.notes}
+                readOnly
+              />
+            </div>
+          )}
+
           <div className="field-group">
             <label className="label">Telefoni</label>
             <input
