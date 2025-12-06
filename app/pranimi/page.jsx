@@ -203,9 +203,10 @@ export default function PranimiPage() {
   const [tepihaRows, setTepihaRows] = useState([{ id: 't1', m2: '', qty: '1', photoUrl: '' }]);
   const [stazaRows, setStazaRows] = useState([{ id: 's1', m2: '', qty: '1', photoUrl: '' }]);
 
-  const [stairsQty, setStairsQty] = useState(0);
+  const [stairsQty, setStairsQty] = useState('');
   const [stairsPer, setStairsPer] = useState(SHKALLORE_M2_PER_STEP_DEFAULT);
   const [stairsPhotoUrl, setStairsPhotoUrl] = useState('');
+  const [notes, setNotes] = useState('');
 
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
@@ -371,7 +372,7 @@ export default function PranimiPage() {
 
   // FSHI SHKALLORE
   function clearStairs() {
-    setStairsQty(0);
+    setStairsQty('');
     setStairsPer(SHKALLORE_M2_PER_STEP_DEFAULT);
     setStairsPhotoUrl('');
   }
@@ -410,7 +411,6 @@ export default function PranimiPage() {
       change,
     };
     return {
-      id: oid,
       ts: nowTs(),
       status,
       client,
@@ -418,6 +418,7 @@ export default function PranimiPage() {
       staza,
       shkallore,
       pay,
+      notes: notes.trim(),
     };
   }
 
@@ -572,6 +573,17 @@ export default function PranimiPage() {
             </div>
           )}
         </div>
+        <div className="field-group">
+          <label className="label">KËRKESË SPECIALE / SHËNIME</label>
+          <textarea
+            className="input"
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="P.sh. njolla shumë të vjetra, dëmtime, kërkesa speciale..."
+          />
+        </div>
+
       </section>
 
       <section className="card">

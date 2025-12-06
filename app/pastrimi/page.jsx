@@ -783,31 +783,6 @@ export default function PastrimiPage() {
               onChange={(e) => updateClient('name', e.target.value)}
             />
           </div>
-          {detail.clientPhoto && (
-            <div className="field-group">
-              <label className="label">Foto e klientit</label>
-              <div>
-                <img
-                  src={detail.clientPhoto}
-                  alt="Foto e klientit"
-                  className="photo-thumb"
-                />
-              </div>
-            </div>
-          )}
-
-          {detail.notes && (
-            <div className="field-group">
-              <label className="label">Shënime</label>
-              <textarea
-                className="input"
-                rows={2}
-                value={detail.notes}
-                readOnly
-              />
-            </div>
-          )}
-
           <div className="field-group">
             <label className="label">Telefoni</label>
             <input
@@ -815,6 +790,34 @@ export default function PastrimiPage() {
               type="text"
               value={detail.client?.phone || ''}
               onChange={(e) => updateClient('phone', e.target.value)}
+            />
+          </div>
+
+          {detail.client?.photoUrl && (
+            <div className="field-group">
+              <label className="label">Foto e klientit</label>
+              <div className="thumb-row">
+                <img
+                  src={detail.client.photoUrl}
+                  alt="Foto e klientit"
+                  className="photo-thumb"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="field-group">
+            <label className="label">Shënime</label>
+            <textarea
+              className="input"
+              rows={2}
+              value={detail.notes || ''}
+              onChange={(e) =>
+                setDetail((prev) =>
+                  prev ? { ...prev, notes: e.target.value } : prev,
+                )
+              }
+              placeholder="P.sh. njolla të vjetra, dëmtime, kërkesa speciale..."
             />
           </div>
 
