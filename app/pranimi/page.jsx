@@ -62,7 +62,7 @@ function computeM2(order) {
 
 // Lexon nga localStorage vetëm porositë me status 'pastrim' dhe kthen total m2
 function calcPastrimCapacityFromLocal() {
-  if (typeof window === 'undefined') return { m2: 0, days: 0 };
+  if (typeof window === 'undefined') return 0;
   let list = [];
   try {
     list = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
@@ -85,14 +85,7 @@ function calcPastrimCapacityFromLocal() {
     }
   }
 
-  let days = 0;
-  if (totalM2 > 400 && totalM2 <= 600) {
-    days = 1; // gati pas 2 ditësh (mas qit nesër)
-  } else if (totalM2 > 600) {
-    days = 2; // edhe me shumë kohë
-  }
-
-  return { m2: totalM2, days };
+  return totalM2;
 }
 
 // Reserve shared numeric code with Supabase Storage locks (codes/xN.lock + codes/xN.used)
@@ -283,9 +276,9 @@ export default function PranimiPage() {
   // Kapaciteti i PASTRIMIT + rekomandimi
   const [capacity, setCapacity] = useState({
     m2: 0,
-    days: 0,
-    text: '',
-    color: '#9ca3af',
+    days: 2,
+    label: 'NORMAL',
+    color: '#22c55e',
   });
 
   useEffect(() => {
@@ -304,31 +297,34 @@ export default function PranimiPage() {
     })();
   }, []);
 
-  // Lexo kapacitetin aktual nga PASTRIMI dhe ndërto rekomandimin
+  // Lexo kapacitetin aktual nga PASTRIMI dhe ndërto rekomandimin (2–5 ditë)
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const { m2, days } = calcPastrimCapacityFromLocal();
+    const totalM2 = calcPastrimCapacityFromLocal();
 
-    let color = '#22c55e'; // green
-    let text = '';
+    let days = 2;
+    let label = 'NORMAL';
+    let color = '#22c55e';
 
-    if (m2 <= 0) {
+    if (totalM2 <= 0) {
+      label = 'GATI';
       color = '#9ca3af';
-      text = 'Ende nuk ka porosi në PASTRIMI.';
-    } else if (days === 0) {
-      color = '#22c55e'; // green
-      text =
-        'KAPACITET NORMAL — mund t’i thuash klientit: "Hajde mas nesër" (1–2 ditë për marrje).';
-    } else if (days === 1) {
+      days = 2;
+    } else if (totalM2 > 400 && totalM2 <= 600) {
+      label = 'NGARKIM';
       color = '#f97316'; // orange
-      text =
-        'KAPACITET I NGARKUAR — rekomando: "Hajde pas 2 ditësh (mas qit nesër)" për marrje.';
-    } else {
+      days = 3;
+    } else if (totalM2 > 600 && totalM2 <= 800) {
+      label = 'MBINGARKIM';
+      color = '#eab308'; // yellow
+      days = 4;
+    } else if (totalM2 > 800) {
+      label = 'EKSTREM';
       color = '#ef4444'; // red
-      text = 'SHUMË I NGARKUAR — rekomando: "Hajde pas 3 ditësh" për marrje.';
+      days = 5;
     }
 
-    setCapacity({ m2, days, text, color });
+    setCapacity({ m2: totalM2, days, label, color });
   }, []);
 
   const totalTepihaM2 = useMemo(
@@ -625,12 +621,14 @@ export default function PranimiPage() {
         </div>
       </header>
 
-      {/* KAPACITETI I PASTRIMIT + REKOMANDIMI PËR KLIENTIN */}
+      {/* KAPACITETI I PASTRIMIT + REKOMANDIMI PËR MARRJE */}
       <div className="tot-line small" style={{ marginTop: 4, marginBottom: 8 }}>
         KAPACITETI NË PASTRIMI:{' '}
         <strong>{capacity.m2.toFixed(2)} m²</strong>
         <br />
-        <span style={{ color: capacity.color }}>{capacity.text}</span>
+        <span style={{ color: capacity.color }}>
+          {capacity.label} • MARRJE PAS {capacity.days} DITËVE
+        </span>
       </div>
 
       <section className="card">
@@ -879,7 +877,7 @@ export default function PranimiPage() {
         </div>
       </section>
 
-      {/* NOTS / SHËNIME që shkojnë në PASRIMI & GATI */}
+      {/* NOTS / SHËNIME */}
       <section className="card">
         <h2 className="card-title">NOTS / SHËNIME</h2>
         <textarea
