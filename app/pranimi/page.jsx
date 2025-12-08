@@ -31,6 +31,70 @@ function displayCode(raw) {
   return `KODI: ${n}`;
 }
 
+// Llogarit m2 nga order-i (përdoret për kapacitetin e PASTRIMIT)
+function computeM2(order) {
+  if (!order) return 0;
+  if (order.pay && typeof order.pay.m2 === 'number') {
+    return Number(order.pay.m2) || 0;
+  }
+  let total = 0;
+  if (Array.isArray(order.tepiha)) {
+    for (const r of order.tepiha) {
+      const m2 = Number(r.m2) || 0;
+      const qty = Number(r.qty) || 0;
+      total += m2 * qty;
+    }
+  }
+  if (Array.isArray(order.staza)) {
+    for (const r of order.staza) {
+      const m2 = Number(r.m2) || 0;
+      const qty = Number(r.qty) || 0;
+      total += m2 * qty;
+    }
+  }
+  if (order.shkallore) {
+    const qty = Number(order.shkallore.qty) || 0;
+    const per = Number(order.shkallore.per) || 0;
+    total += qty * per;
+  }
+  return Number(total.toFixed(2));
+}
+
+// Lexon nga localStorage vetëm porositë me status 'pastrim' dhe kthen total m2
+function calcPastrimCapacityFromLocal() {
+  if (typeof window === 'undefined') return { m2: 0, days: 0 };
+  let list = [];
+  try {
+    list = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
+  } catch {
+    list = [];
+  }
+  if (!Array.isArray(list)) list = [];
+
+  let totalM2 = 0;
+  for (const row of list) {
+    if (!row || !row.id) continue;
+    try {
+      const raw = localStorage.getItem(`order_${row.id}`);
+      if (!raw) continue;
+      const ord = JSON.parse(raw);
+      if (!ord || ord.status !== 'pastrim') continue;
+      totalM2 += computeM2(ord);
+    } catch {
+      // ignore
+    }
+  }
+
+  let days = 0;
+  if (totalM2 > 400 && totalM2 <= 600) {
+    days = 1; // gati pas 2 ditësh (mas qit nesër)
+  } else if (totalM2 > 600) {
+    days = 2; // edhe me shumë kohë
+  }
+
+  return { m2: totalM2, days };
+}
+
 // Reserve shared numeric code with Supabase Storage locks (codes/xN.lock + codes/xN.used)
 async function reserveSharedCode() {
   if (!supabase) {
@@ -76,9 +140,10 @@ async function reserveSharedCode() {
   while (used.has(candidate) || active.has(candidate)) candidate++;
 
   const lockName = `codes/x${candidate}.${Date.now()}.lock`;
-  const file = typeof File !== 'undefined'
-    ? new File([String(Date.now())], 'lock.txt', { type: 'text/plain' })
-    : null;
+  const file =
+    typeof File !== 'undefined'
+      ? new File([String(Date.now())], 'lock.txt', { type: 'text/plain' })
+      : null;
 
   if (!file) {
     // Fallback to local counter
@@ -180,9 +245,7 @@ async function uploadPhoto(file, oid, key) {
   if (!supabase || !file) return null;
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, {
-    upsert: true,
-  });
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file);
   if (error) return null;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
@@ -217,6 +280,14 @@ export default function PranimiPage() {
   const [showStairsSheet, setShowStairsSheet] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
 
+  // Kapaciteti i PASTRIMIT + rekomandimi
+  const [capacity, setCapacity] = useState({
+    m2: 0,
+    days: 0,
+    text: '',
+    color: '#9ca3af',
+  });
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     // Always create a fresh local ID when opening PRANIMI for new order
@@ -231,6 +302,33 @@ export default function PranimiPage() {
         console.error('Error reserving code', e);
       }
     })();
+  }, []);
+
+  // Lexo kapacitetin aktual nga PASTRIMI dhe ndërto rekomandimin
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const { m2, days } = calcPastrimCapacityFromLocal();
+
+    let color = '#22c55e'; // green
+    let text = '';
+
+    if (m2 <= 0) {
+      color = '#9ca3af';
+      text = 'Ende nuk ka porosi në PASTRIMI.';
+    } else if (days === 0) {
+      color = '#22c55e'; // green
+      text =
+        'KAPACITET NORMAL — mund t’i thuash klientit: "Hajde mas nesër" (1–2 ditë për marrje).';
+    } else if (days === 1) {
+      color = '#f97316'; // orange
+      text =
+        'KAPACITET I NGARKUAR — rekomando: "Hajde pas 2 ditësh (mas qit nesër)" për marrje.';
+    } else {
+      color = '#ef4444'; // red
+      text = 'SHUMË I NGARKUAR — rekomando: "Hajde pas 3 ditësh" për marrje.';
+    }
+
+    setCapacity({ m2, days, text, color });
   }, []);
 
   const totalTepihaM2 = useMemo(
@@ -278,12 +376,6 @@ export default function PranimiPage() {
     const diff = (Number(clientPaid) || 0) - totalEuro;
     return diff > 0 ? Number(diff.toFixed(2)) : 0;
   }, [totalEuro, clientPaid]);
-
-  const capacityColor = useMemo(() => {
-    if (totalM2 >= 600) return 'red';
-    if (totalM2 >= 400) return 'orange';
-    return 'green';
-  }, [totalM2]);
 
   function handleChipClick(kind, value) {
     if (kind === 'tepiha') {
@@ -533,6 +625,14 @@ export default function PranimiPage() {
         </div>
       </header>
 
+      {/* KAPACITETI I PASTRIMIT + REKOMANDIMI PËR KLIENTIN */}
+      <div className="tot-line small" style={{ marginTop: 4, marginBottom: 8 }}>
+        KAPACITETI NË PASTRIMI:{' '}
+        <strong>{capacity.m2.toFixed(2)} m²</strong>
+        <br />
+        <span style={{ color: capacity.color }}>{capacity.text}</span>
+      </div>
+
       <section className="card">
         <div className="card-title-row">
           <h2 className="card-title">Klienti</h2>
@@ -573,11 +673,7 @@ export default function PranimiPage() {
           </label>
           {clientPhotoUrl && (
             <div className="thumb-row">
-              <img
-                src={clientPhotoUrl}
-                alt="Foto klienti"
-                className="photo-thumb"
-              />
+              <img src={clientPhotoUrl} alt="Foto klienti" className="photo-thumb" />
             </div>
           )}
         </div>
@@ -644,11 +740,7 @@ export default function PranimiPage() {
                     Shiko foton
                   </a>
                   <div>
-                    <img
-                      src={row.photoUrl}
-                      alt="Foto tepih"
-                      className="photo-thumb"
-                    />
+                    <img src={row.photoUrl} alt="Foto tepih" className="photo-thumb" />
                   </div>
                 </div>
               )}
@@ -729,11 +821,7 @@ export default function PranimiPage() {
                     Shiko foton
                   </a>
                   <div>
-                    <img
-                      src={row.photoUrl}
-                      alt="Foto staza"
-                      className="photo-thumb"
-                    />
+                    <img src={row.photoUrl} alt="Foto staza" className="photo-thumb" />
                   </div>
                 </div>
               )}
@@ -771,11 +859,7 @@ export default function PranimiPage() {
         {stairsPhotoUrl && (
           <div className="thumb-row">
             <div>
-              <img
-                src={stairsPhotoUrl}
-                alt="Foto shkallore"
-                className="photo-thumb"
-              />
+              <img src={stairsPhotoUrl} alt="Foto shkallore" className="photo-thumb" />
             </div>
           </div>
         )}
@@ -791,28 +875,20 @@ export default function PranimiPage() {
         </div>
         <div className="tot-line small">
           Klienti dha: <strong>{Number(clientPaid || 0).toFixed(2)} €</strong> · Borxh:{' '}
-          <strong>{debt.toFixed(2)} €</strong> · Kthim:{' '}
-          <strong>{change.toFixed(2)} €</strong>
-        </div>
-        <div className="tot-line small" style={{ color: capacityColor }}>
-          Kapaciteti:
-          {totalM2 < 400 && ' NORMAL'}
-          {totalM2 >= 400 && totalM2 < 600 && ' AFËR LIMITIT'}
-          {totalM2 >= 600 && ' MBIKAPACITET (vonesë 2–3 ditë)'}
+          <strong>{debt.toFixed(2)} €</strong> · Kthim: <strong>{change.toFixed(2)} €</strong>
         </div>
       </section>
 
+      {/* NOTS / SHËNIME që shkojnë në PASRIMI & GATI */}
       <section className="card">
         <h2 className="card-title">NOTS / SHËNIME</h2>
-        <div className="field-group">
-          <textarea
-            className="input"
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="P.sh. njolla që nuk hiqen, dëmtime, kthime, kërkesa speciale..."
-          />
-        </div>
+        <textarea
+          className="input"
+          rows={3}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="P.sh. njolla, dëmtime, kërkesë speciale, kthime..."
+        />
       </section>
 
       <footer className="footer-bar">
@@ -951,11 +1027,7 @@ export default function PranimiPage() {
                     Shiko foton e shkallëve
                   </a>
                   <div>
-                    <img
-                      src={stairsPhotoUrl}
-                      alt="Foto shkallore"
-                      className="photo-thumb"
-                    />
+                    <img src={stairsPhotoUrl} alt="Foto shkallore" className="photo-thumb" />
                   </div>
                 </div>
               )}
