@@ -214,6 +214,45 @@ function loadOrdersIndexLocal() {
 
   result.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   return result;
+
+
+// Regjistro pagesën në ARKA (local + Supabase)
+async function addToArka(order, amount) {
+  const rec = {
+    id: `${order.id || 'order'}_${Date.now()}`,
+    orderId: order.id || '',
+    code: order.client?.code || '',
+    name: order.client?.name || '',
+    phone: order.client?.phone || '',
+    total: Number(order.pay?.euro || order.total || 0),
+    paid: Number(amount) || 0,
+    ts: Date.now(),
+  };
+
+  // localStorage list
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
+      const list = Array.isArray(raw) ? raw : [];
+      list.unshift(rec);
+      localStorage.setItem('arka_list_v1', JSON.stringify(list.slice(0, 500)));
+    } catch (e) {
+      console.error('Error updating arka_list_v1', e);
+    }
+  }
+
+  // Supabase JSON
+  try {
+    if (supabase) {
+      const blob = new Blob([JSON.stringify(rec)], { type: 'application/json' });
+      const path = `arka/${rec.id}.json`;
+      await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
+    }
+  } catch (e) {
+    console.error('Error uploading arka record', e);
+  }
+}
+
 }
 
 function formatCodeForList(raw) {
@@ -251,76 +290,6 @@ export default function GatiPage() {
     refreshOrders();
   }, []);
 
-  const [payTarget, setPayTarget] = useState(null);
-  const [payAmount, setPayAmount] = useState('');
-  const [showPaySheet, setShowPaySheet] = useState(false);
-
-  function openPaySheet(row) {
-    if (!row) return;
-    setPayTarget(row);
-    const base =
-      typeof row.total === 'number' && row.total > 0 ? row.total : 0;
-    setPayAmount(base ? String(base.toFixed(2)) : '');
-    setShowPaySheet(true);
-  }
-
-  async function confirmPayment() {
-    if (!payTarget) return;
-    const value = Number(payAmount) || 0;
-    if (value <= 0) {
-      alert('Shkruaj shumën e pagesës.');
-      return;
-    }
-
-    if (typeof window === 'undefined') return;
-
-    const payment = {
-      id: `pay_${Date.now()}`,
-      orderId: payTarget.id,
-      code: normalizeCode(payTarget.code || ''),
-      name: payTarget.name || '',
-      phone: payTarget.phone || '',
-      amount: value,
-      ts: Date.now(),
-    };
-
-    try {
-      // Local cache
-      let arr = [];
-      try {
-        arr = JSON.parse(window.localStorage.getItem('payments_v1') || '[]');
-      } catch {
-        arr = [];
-      }
-      if (!Array.isArray(arr)) arr = [];
-      arr.unshift(payment);
-      window.localStorage.setItem('payments_v1', JSON.stringify(arr));
-    } catch {
-      // ignore local errors
-    }
-
-    try {
-      // Supabase storage: ruajmë pagesën si json
-      const path = `cash/${payment.id}.json`;
-      const blob =
-        typeof Blob !== 'undefined'
-          ? new Blob([JSON.stringify(payment)], { type: 'application/json' })
-          : null;
-      if (blob) {
-        await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
-      }
-    } catch (e) {
-      console.error('Error saving payment to Supabase', e);
-    }
-
-    // Tani shëno porosinë si DORZIM / MARRE
-    await changeStatus(payTarget, 'dorzim');
-
-    setShowPaySheet(false);
-    setPayTarget(null);
-    setPayAmount('');
-  }
-
   const listTotalM2 = useMemo(() => {
     return orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
   }, [orders]);
@@ -354,6 +323,49 @@ export default function GatiPage() {
     if (typeof window !== 'undefined') {
       window.location.href = `sms:${digits}?&body=${encoded}`;
     }
+  }
+
+
+  async function markPaid(row) {
+    if (!row || !row.id) return;
+    if (typeof window === 'undefined') return;
+
+    let full = null;
+    try {
+      const raw = localStorage.getItem(`order_${row.id}`);
+      if (raw) full = JSON.parse(raw);
+    } catch {
+      full = null;
+    }
+    if (!full) {
+      alert('Nuk u gjet porosia e plotë.');
+      return;
+    }
+
+    const suggested = Number(full.pay?.euro || row.total || 0) || 0;
+    const input = prompt('Shuma e paguar (€):', suggested.toFixed(2));
+    if (input === null) return;
+    const paid = Number(input);
+    if (Number.isNaN(paid) || paid < 0) {
+      alert('Shkruaj një vlerë të vlefshme.');
+      return;
+    }
+
+    const updated = {
+      ...full,
+      status: 'dorzim',
+      deliveredAt: Date.now(),
+      pay: {
+        ...(full.pay || {}),
+        paid,
+      },
+    };
+
+    saveOrderLocal(updated);
+    await saveOrderOnline(updated);
+    await addToArka(updated, paid);
+    await refreshOrders();
+    alert('Pagesa u regjistrua dhe porosia u shënua si MARRE / DORËZUAR.');
   }
 
   async function changeStatus(row, newStatus) {
@@ -484,9 +496,9 @@ export default function GatiPage() {
                   type="button"
                   className="btn primary"
                   style={{ padding: '4px 8px', fontSize: 12 }}
-                  onClick={() => changeStatus(o, 'dorzim')}
+                  onClick={() => markPaid(o)}
                 >
-                  ✅ MARRE
+                  💶 PAGUAJE
                 </button>
               </div>
             </div>

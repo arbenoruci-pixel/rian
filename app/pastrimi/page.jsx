@@ -180,8 +180,6 @@ async function loadOrdersFromSupabase() {
       const text = await file.text();
       const order = JSON.parse(text);
       if (!order || !order.id) continue;
-      // për PASTRIMI shfaqim vetëm porositë me status 'pastrim'
-      if (order.status !== 'pastrim') continue;
       const idxEntry = buildIndexFromOrder(order);
       orders.push(idxEntry);
       // mirror te local
@@ -200,8 +198,7 @@ function loadOrdersIndexLocal() {
   try {
     const raw = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
     const list = Array.isArray(raw) ? raw : [];
-    // vetëm porositë me status 'pastrim'
-    return list.filter((o) => o && o.status === 'pastrim');
+    return list;
   } catch {
     return [];
   }
@@ -404,18 +401,7 @@ export default function PastrimiPage() {
     );
   }
 
-  function updateNotes(value) {
-    setDetail((prev) =>
-      !prev
-        ? prev
-        : {
-            ...prev,
-            notes: value,
-          },
-    );
-  }
-
-// <<< LOGJIKA E CHIPS SI NË PRANIMI >>>
+  // <<< LOGJIKA E CHIPS SI NË PRANIMI >>>
   function handleChip(section, value) {
     setDetail((prev) => {
       if (!prev) return prev;
@@ -1091,17 +1077,6 @@ export default function PastrimiPage() {
               <strong>{debtDetail.toFixed(2)} €</strong> · Kthim:{' '}
               <strong>{changeDetail.toFixed(2)} €</strong>
             </div>
-          </div>
-
-          <div className="field-group">
-            <label className="label">SHËNIME / KËRKESË SPECIALE</label>
-            <textarea
-              className="input"
-              rows={3}
-              value={detail.notes || ''}
-              onChange={(e) => updateNotes(e.target.value)}
-              placeholder="Shkruaj nots për këtë porosi (p.sh. njolla, kujdes i veçantë)..."
-            />
           </div>
 
           <div className="btn-row">

@@ -11,18 +11,6 @@ const PRICE_DEFAULT = 3.0;
 const BUCKET = 'tepiha-photos';
 const CODE_LEASE_MINUTES = 30;
 
-function getOfflineCode() {
-  if (typeof window === 'undefined') return '700';
-  const key = 'client_offline_code_counter';
-  let n = parseInt(localStorage.getItem(key) || '699', 10);
-  if (!Number.isFinite(n)) n = 699;
-  if (n < 699 || n >= 799) n = 699;
-  n += 1;
-  localStorage.setItem(key, String(n));
-  return String(n);
-}
-
-
 function nowTs() {
   return Date.now();
 }
@@ -46,8 +34,11 @@ function displayCode(raw) {
 // Reserve shared numeric code with Supabase Storage locks (codes/xN.lock + codes/xN.used)
 async function reserveSharedCode() {
   if (!supabase) {
-    // Offline fallback: use dedicated 700–799 range
-    return getOfflineCode();
+    if (typeof window === 'undefined') return null;
+    const key = 'client_code_counter';
+    const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
+    localStorage.setItem(key, String(n));
+    return String(n);
   }
 
   const { data, error } = await supabase.storage.from(BUCKET).list('codes', {
@@ -90,14 +81,21 @@ async function reserveSharedCode() {
     : null;
 
   if (!file) {
-    // Fallback to offline code range 700–799
-    return getOfflineCode();
+    // Fallback to local counter
+    if (typeof window === 'undefined') return String(candidate);
+    const key = 'client_code_counter';
+    const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
+    localStorage.setItem(key, String(n));
+    return String(n);
   }
 
   const { error: upErr } = await supabase.storage.from(BUCKET).upload(lockName, file);
   if (upErr) {
-    // If upload fails, still return an offline code
-    return getOfflineCode();
+    if (typeof window === 'undefined') return String(candidate);
+    const key = 'client_code_counter';
+    const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
+    localStorage.setItem(key, String(n));
+    return String(n);
   }
   return String(candidate);
 }
@@ -201,8 +199,6 @@ export default function PranimiPage() {
   const phonePrefix = '+383';
 
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
-  const [notes, setNotes] = useState('');
-
 
   const [tepihaRows, setTepihaRows] = useState([{ id: 't1', m2: '', qty: '1', photoUrl: '' }]);
   const [stazaRows, setStazaRows] = useState([{ id: 's1', m2: '', qty: '1', photoUrl: '' }]);
@@ -413,7 +409,6 @@ export default function PranimiPage() {
       debt,
       change,
     };
-    const notesClean = (notes || '').trim();
     return {
       id: oid,
       ts: nowTs(),
@@ -423,7 +418,6 @@ export default function PranimiPage() {
       staza,
       shkallore,
       pay,
-      notes: notesClean,
     };
   }
 
@@ -776,21 +770,6 @@ export default function PranimiPage() {
             </div>
           </div>
         )}
-      </section>
-
-      
-      <section className="card">
-        <h2 className="card-title">SHËNIME / KËRKESË SPECIALE</h2>
-        <div className="field-group">
-          <label className="label">Nots</label>
-          <textarea
-            className="input"
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="P.sh. njolla e fortë, mos përdor parfum, mos e hekuros..."
-          />
-        </div>
       </section>
 
       <section className="card">

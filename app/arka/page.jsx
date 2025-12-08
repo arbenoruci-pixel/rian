@@ -6,44 +6,9 @@ import { supabase } from '@/lib/supabaseClient';
 
 const BUCKET = 'tepiha-photos';
 
-async function loadPaymentsFromSupabase() {
-  if (!supabase) return [];
-  const { data, error } = await supabase.storage.from(BUCKET).list('cash', {
-    limit: 1000,
-  });
-  if (error || !data) return [];
-
-  const result = [];
-  for (const item of data) {
-    if (!item.name.endsWith('.json')) continue;
-    const path = `cash/${item.name}`;
-    const { data: file } = await supabase.storage.from(BUCKET).download(path);
-    if (!file) continue;
-    try {
-      const text = await file.text();
-      const obj = JSON.parse(text);
-      if (obj && obj.id && typeof obj.amount === 'number') {
-        result.push(obj);
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return result;
-}
-
-function loadPaymentsLocal() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem('payments_v1') || '[]';
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-
-function sameDay(a, b) {
+function isSameDay(tsA, tsB) {
+  const a = new Date(tsA);
+  const b = new Date(tsB);
   return (
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
@@ -51,216 +16,168 @@ function sameDay(a, b) {
   );
 }
 
-export default function ArkaPage() {
-  const [payments, setPayments] = useState([]);
+async function loadArkaFromSupabase() {
+  if (!supabase) return [];
+  const { data, error } = await supabase.storage.from(BUCKET).list('arka', {
+    limit: 1000,
+  });
+  if (error || !data) return [];
+
+  const list = [];
+  for (const item of data) {
+    if (!item || !item.name) continue;
+    try {
+      const { data: file, error: dErr } = await supabase.storage
+        .from(BUCKET)
+        .download(`arka/${item.name}`);
+      if (dErr || !file) continue;
+      const text = await file.text();
+      const rec = JSON.parse(text);
+      if (rec && rec.id) list.push(rec);
+    } catch (e) {
+      console.error('Error parsing arka record', item.name, e);
+    }
+  }
+
+  list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return list;
+}
+
+function loadArkaLocal() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+async function factoryResetAll(setRecords) {
+  const ok = confirm(
+    'Factory reset: do të fshihen të gjitha porositë, pagesat dhe cache lokale. Vazhdosh?'
+  );
+  if (!ok) return;
+
+  try {
+    if (supabase) {
+      const folders = ['orders', 'arka'];
+      for (const folder of folders) {
+        const { data, error } = await supabase.storage.from(BUCKET).list(folder, {
+          limit: 1000,
+        });
+        if (!error && data && data.length > 0) {
+          const paths = data.map((item) => `${folder}/${item.name}`);
+          if (paths.length > 0) {
+            await supabase.storage.from(BUCKET).remove(paths);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error during factory reset Supabase', e);
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.clear();
+    } catch (e) {
+      console.error('Error clearing localStorage', e);
+    }
+  }
+
+  setRecords([]);
+  alert('Sistemi u resetua (factory reset). Tani mund të fillosh nga zero.');
+}
+
+export default function Page() {
+  const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+
+  async function refresh() {
+    try {
+      setLoading(true);
+      let online = [];
+      try {
+        online = await loadArkaFromSupabase();
+      } catch (e) {
+        console.error('Error loading ARKA from Supabase, fallback local', e);
+      }
+      if (online && online.length > 0) {
+        setRecords(online);
+      } else {
+        setRecords(loadArkaLocal());
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function refresh() {
-      if (typeof window === 'undefined') return;
-      setLoading(true);
-      try {
-        let online = [];
-        try {
-          online = await loadPaymentsFromSupabase();
-        } catch (e) {
-          console.error('Error loading ARKA from Supabase', e);
-        }
-        const local = loadPaymentsLocal();
-
-        const byId = new Map();
-        for (const p of local) {
-          if (p && p.id) byId.set(p.id, p);
-        }
-        for (const p of online) {
-          if (p && p.id) byId.set(p.id, p);
-        }
-        const merged = Array.from(byId.values()).sort((a, b) => {
-          const ta = a.ts || 0;
-          const tb = b.ts || 0;
-          return tb - ta;
-        });
-
-        if (!cancelled) {
-          setPayments(merged);
-        }
-
-        // Also keep localStorage updated
-        try {
-          window.localStorage.setItem('payments_v1', JSON.stringify(merged));
-        } catch {
-          // ignore
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
+    if (typeof window === 'undefined') return;
     refresh();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return payments;
-    return payments.filter((p) => {
-      const code = String(p.code || '').toLowerCase();
-      const name = String(p.name || '').toLowerCase();
-      const phone = String(p.phone || '').toLowerCase();
-      return (
-        code.includes(q) ||
-        name.includes(q) ||
-        phone.includes(q) ||
-        String(p.orderId || '').toLowerCase().includes(q)
-      );
-    });
-  }, [payments, search]);
-
-  const totals = useMemo(() => {
-    const today = new Date();
-    let all = 0;
-    let todaySum = 0;
-    for (const p of filtered) {
-      const val = Number(p.amount) || 0;
-      all += val;
-      if (p.ts) {
-        const d = new Date(p.ts);
-        if (sameDay(d, today)) todaySum += val;
-      }
-    }
-    return {
-      all: Number(all.toFixed(2)),
-      today: Number(todaySum.toFixed(2)),
-    };
-  }, [filtered]);
+  const todayTotal = useMemo(() => {
+    const now = Date.now();
+    return records
+      .filter((r) => r.ts && isSameDay(r.ts, now))
+      .reduce((sum, r) => sum + (Number(r.paid) || 0), 0);
+  }, [records]);
 
   return (
-    <div className="wrap" style={{ paddingBottom: '80px' }}>
+    <div className="wrap">
       <header className="header-row">
         <div>
           <h1 className="title">ARKA</h1>
-          <div className="subtitle">Pagesat e ruajtura nga GATI</div>
+          <div className="subtitle">Pagesat nga porositë GATI</div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
           <div>
-            SOT: <strong>{totals.today.toFixed(2)} €</strong>
+            SOT: <strong>{todayTotal.toFixed(2)} €</strong>
           </div>
-          <div>
-            TOTAL: <strong>{totals.all.toFixed(2)} €</strong>
-          </div>
+          <button
+            type="button"
+            className="btn secondary"
+            style={{ marginTop: 8, padding: '4px 8px', fontSize: 10 }}
+            onClick={() => factoryResetAll(setRecords)}
+          >
+            RESET SISTEMIN
+          </button>
         </div>
       </header>
 
       <section className="card">
-        <div className="field-group">
-          <label className="label">KËRKO (kod, emër, telefon)</label>
-          <input
-            className="input"
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="P.sh. 12, ARBEN, +383..."
-          />
-        </div>
-
-        {loading && <p>Duke i lexuar pagesat...</p>}
-        {!loading && filtered.length === 0 && (
-          <p style={{ marginTop: 12 }}>Nuk ka pagesa të ruajtura.</p>
-        )}
+        <h2 className="card-title">Lista e pagesave</h2>
+        {loading && <p>Duke i lexuar të dhënat...</p>}
+        {!loading && records.length === 0 && <p>Nuk ka ende pagesa të regjistruara.</p>}
 
         {!loading &&
-          filtered.map((p) => {
-            const d = p.ts ? new Date(p.ts) : null;
-            const dateLabel = d
-              ? d.toLocaleDateString(undefined, {
-                  day: '2-digit',
-                  month: '2-digit',
-                  year: '2-digit',
-                })
-              : '';
-            const timeLabel = d
-              ? d.toLocaleTimeString(undefined, {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
-              : '';
-
-            return (
-              <div
-                key={p.id}
-                className="home-btn"
-                style={{
-                  marginTop: 8,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                }}
-              >
-                <div
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    minWidth: 0,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      fontSize: 14,
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      backgroundColor: '#1d283a',
-                      color: '#ffffff',
-                      minWidth: 32,
-                      textAlign: 'center',
-                    }}
-                  >
-                    {p.code || p.orderId || ''}
-                  </span>
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 2,
-                      minWidth: 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontWeight: 600,
-                        fontSize: 13,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {p.name || 'klient pa emër'}
-                    </div>
-                    <div style={{ fontSize: 11, opacity: 0.8 }}>
-                      {dateLabel} {timeLabel}
-                    </div>
+          records.map((r) => (
+            <div key={r.id} className="home-btn">
+              <div className="home-btn-main">
+                <div>
+                  <div style={{ fontWeight: 700 }}>
+                    {r.code ? `KODI: ${r.code}` : 'PA KOD'}
+                  </div>
+                  <div style={{ fontSize: 12 }}>
+                    {r.name || 'Klient pa emër'} • {(r.phone || '').trim()}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', fontSize: 12 }}>
                   <div>
-                    Shuma:{' '}
-                    <strong>{Number(p.amount || 0).toFixed(2)} €</strong>
+                    <strong>{(Number(r.paid) || 0).toFixed(2)} €</strong>
                   </div>
-                  {p.phone && (
-                    <div style={{ fontSize: 11, opacity: 0.7 }}>{p.phone}</div>
-                  )}
+                  <div>
+                    {new Date(r.ts || Date.now()).toLocaleTimeString('sq-AL', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </div>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
       </section>
 
       <footer className="footer-bar">
