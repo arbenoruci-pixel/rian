@@ -25,9 +25,9 @@ async function uploadPhoto(file, oid, key) {
   if (!supabase || !file) return null;
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, {
-    upsert: true,
-  });
+
+  // pa upsert – si në PRANIMI
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file);
   if (error) return null;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
@@ -264,6 +264,37 @@ export default function PastrimiPage() {
     return orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
   }, [orders]);
 
+  // SMART CAPACITY: 0 / 1 / 2 ditë sipas m²
+  const capacityInfo = useMemo(() => {
+    const m2 = listTotalM2;
+    if (m2 <= 0) {
+      return {
+        text: 'Nuk ka porosi për pastrim.',
+        color: '#9ca3af',
+        days: 0,
+      };
+    }
+
+    let days = 0;
+    if (m2 > 400 && m2 <= 600) {
+      days = 1; // gati nesër
+    } else if (m2 > 600) {
+      days = 2; // edhe një ditë më shumë
+    }
+
+    let text;
+    if (days === 0) {
+      text = 'KAPACITET NORMAL — mund t’u premtosh sot / nesër pa problem.';
+    } else if (days === 1) {
+      text = 'MBUSHUR — premtim: gati pas 1 dite (nesër).';
+    } else {
+      text = 'SHUMË MBUSHUR — premtim: gati pas 2 ditësh.';
+    }
+
+    const color = days === 0 ? 'green' : days === 1 ? 'orange' : 'red';
+    return { text, color, days };
+  }, [listTotalM2]);
+
   function formatCodeForList(raw) {
     const n = normalizeCode(raw);
     return n || '?';
@@ -344,9 +375,6 @@ export default function PastrimiPage() {
     saveOrderLocal(updated);
     await saveOrderOnline(updated);
 
-    // SMS nuk thirret më automatikisht nga GATI
-    // openReadySms(row, updated);
-
     alert('Porosia u kalua ne GATI.');
     await refreshOrders();
   }
@@ -399,6 +427,10 @@ export default function PastrimiPage() {
             },
           },
     );
+  }
+
+  function updateNotes(value) {
+    setDetail((prev) => (!prev ? prev : { ...prev, notes: value }));
   }
 
   // <<< LOGJIKA E CHIPS SI NË PRANIMI >>>
@@ -626,6 +658,16 @@ export default function PastrimiPage() {
           <div>
             TOTAL M²: <strong>{listTotalM2.toFixed(2)} m²</strong>
           </div>
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 11,
+              color: capacityInfo.color,
+              maxWidth: 220,
+            }}
+          >
+            {capacityInfo.text}
+          </div>
           <button
             type="button"
             className="btn secondary"
@@ -773,6 +815,19 @@ export default function PastrimiPage() {
                 : 'KODI: ——'}
             </strong>
           </div>
+
+          {/* FOTO KLIENTI NGA PRANIMI */}
+          {detail.client?.photoUrl && (
+            <div className="thumb-row" style={{ marginBottom: 8 }}>
+              <div>
+                <img
+                  src={detail.client.photoUrl}
+                  alt="Foto klienti"
+                  className="photo-thumb"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="field-group">
             <label className="label">Klienti</label>
@@ -1077,6 +1132,18 @@ export default function PastrimiPage() {
               <strong>{debtDetail.toFixed(2)} €</strong> · Kthim:{' '}
               <strong>{changeDetail.toFixed(2)} €</strong>
             </div>
+          </div>
+
+          {/* NOTES / SHËNIME NGA PRANIMI */}
+          <div className="field-group">
+            <label className="label">NOTS / SHËNIME</label>
+            <textarea
+              className="input"
+              rows={3}
+              value={detail.notes || ''}
+              onChange={(e) => updateNotes(e.target.value)}
+              placeholder="P.sh. njolla, dëmtime, kërkesa speciale, kthime..."
+            />
           </div>
 
           <div className="btn-row">
