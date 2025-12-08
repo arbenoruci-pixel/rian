@@ -211,6 +211,8 @@ export default function PranimiPage() {
   const [clientPaid, setClientPaid] = useState(0);
   const [paidUpfront, setPaidUpfront] = useState(false);
 
+  const [notes, setNotes] = useState('');
+
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
@@ -276,6 +278,12 @@ export default function PranimiPage() {
     const diff = (Number(clientPaid) || 0) - totalEuro;
     return diff > 0 ? Number(diff.toFixed(2)) : 0;
   }, [totalEuro, clientPaid]);
+
+  const capacityColor = useMemo(() => {
+    if (totalM2 >= 600) return 'red';
+    if (totalM2 >= 400) return 'orange';
+    return 'green';
+  }, [totalM2]);
 
   function handleChipClick(kind, value) {
     if (kind === 'tepiha') {
@@ -418,6 +426,7 @@ export default function PranimiPage() {
       staza,
       shkallore,
       pay,
+      notes: notes || '',
     };
   }
 
@@ -784,6 +793,25 @@ export default function PranimiPage() {
           Klienti dha: <strong>{Number(clientPaid || 0).toFixed(2)} €</strong> · Borxh:{' '}
           <strong>{debt.toFixed(2)} €</strong> · Kthim:{' '}
           <strong>{change.toFixed(2)} €</strong>
+        </div>
+        <div className="tot-line small" style={{ color: capacityColor }}>
+          Kapaciteti:
+          {totalM2 < 400 && ' NORMAL'}
+          {totalM2 >= 400 && totalM2 < 600 && ' AFËR LIMITIT'}
+          {totalM2 >= 600 && ' MBIKAPACITET (vonesë 2–3 ditë)'}
+        </div>
+      </section>
+
+      <section className="card">
+        <h2 className="card-title">NOTS / SHËNIME</h2>
+        <div className="field-group">
+          <textarea
+            className="input"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="P.sh. njolla që nuk hiqen, dëmtime, kthime, kërkesa speciale..."
+          />
         </div>
       </section>
 
