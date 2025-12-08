@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 const BUCKET = 'tepiha-photos';
@@ -26,7 +27,7 @@ async function uploadPhoto(file, oid, key) {
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
 
-  // pa upsert – si në PRANIMI
+  // si në PRANIMI – pa upsert
   const { data, error } = await supabase.storage.from(BUCKET).upload(path, file);
   if (error) return null;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
@@ -207,8 +208,10 @@ function loadOrdersIndexLocal() {
 // -------------------- COMPONENT --------------------
 
 export default function PastrimiPage() {
+  const router = useRouter();
+
   const [orders, setOrders] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  the [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [saving, setSaving] = useState(false);
   const [fullDetail, setFullDetail] = useState(false);
@@ -264,7 +267,7 @@ export default function PastrimiPage() {
     return orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
   }, [orders]);
 
-  // SMART CAPACITY: 0 / 1 / 2 ditë sipas m²
+  // SMART CAPACITY – e njëjta logjikë si pranimi (400 / 600)
   const capacityInfo = useMemo(() => {
     const m2 = listTotalM2;
     if (m2 <= 0) {
@@ -286,12 +289,12 @@ export default function PastrimiPage() {
     if (days === 0) {
       text = 'KAPACITET NORMAL — mund t’u premtosh sot / nesër pa problem.';
     } else if (days === 1) {
-      text = 'MBUSHUR — premtim: gati pas 1 dite (nesër).';
+      text = 'KAPACITET NË NGARKIM — premtim: gati pas 1 dite (nesër).';
     } else {
-      text = 'SHUMË MBUSHUR — premtim: gati pas 2 ditësh.';
+      text = 'KAPACITET I MBINGARKUAR — premtim: gati pas 2 ditësh.';
     }
 
-    const color = days === 0 ? 'green' : days === 1 ? 'orange' : 'red';
+    const color = days === 0 ? '#22c55e' : days === 1 ? '#f97316' : '#ef4444';
     return { text, color, days };
   }, [listTotalM2]);
 
@@ -375,8 +378,9 @@ export default function PastrimiPage() {
     saveOrderLocal(updated);
     await saveOrderOnline(updated);
 
-    alert('Porosia u kalua ne GATI.');
+    // rifresko listën (për siguri) dhe shko direkt në GATI
     await refreshOrders();
+    router.push('/gati');
   }
 
   async function toggleQueued(row) {
@@ -819,6 +823,9 @@ export default function PastrimiPage() {
           {/* FOTO KLIENTI NGA PRANIMI */}
           {detail.client?.photoUrl && (
             <div className="thumb-row" style={{ marginBottom: 8 }}>
+              <a href={detail.client.photoUrl} target="_blank" rel="noreferrer">
+                Shiko foton
+              </a>
               <div>
                 <img
                   src={detail.client.photoUrl}
