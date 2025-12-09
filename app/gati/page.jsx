@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 const BUCKET = 'tepiha-photos';
 
-// -------------------- HELPERS TË PËRBASHKËTA --------------------
+// -------------------- HELPERS --------------------
 
 function normalizeCode(raw) {
   if (!raw) return '';
@@ -75,72 +75,39 @@ function buildIndexFromOrder(order) {
     pieces,
     m2,
     total,
-    status: order.status || 'pranim',
-    returned: !!(order.returnInfo && order.returnInfo.active),
+    status: order.status || '',
     ts: order.ts || Date.now(),
   };
 }
 
-function saveOrderLocal(order) {
-  if (typeof window === 'undefined') return;
-  const { id } = order;
-  localStorage.setItem(`order_${id}`, JSON.stringify(order));
+// -------------------- ARKA HELPERS --------------------
 
+function saveArkaLocal(record) {
+  if (typeof window === 'undefined') return;
   let list = [];
   try {
-    list = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
+    list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
   } catch {
     list = [];
   }
   if (!Array.isArray(list)) list = [];
-
-  const entry = buildIndexFromOrder(order);
-  const idx = list.findIndex((o) => o.id === id);
-  if (idx >= 0) list[idx] = entry;
-  else list.unshift(entry);
-  list = list.slice(0, 200);
-  localStorage.setItem('order_list_v1', JSON.stringify(list));
+  list.unshift(record);
+  list = list.slice(0, 500);
+  localStorage.setItem('arka_list_v1', JSON.stringify(list));
 }
 
-async function saveOrderOnline(order) {
+async function saveArkaOnline(record) {
   if (!supabase) return;
-  const { id, client } = order;
-  if (!id) return;
-
-  const path = `orders/${id}.json`;
+  const path = `arka/${record.id}.json`;
   const blob =
     typeof Blob !== 'undefined'
-      ? new Blob([JSON.stringify(order)], { type: 'application/json' })
+      ? new Blob([JSON.stringify(record)], { type: 'application/json' })
       : null;
-  if (blob) {
-    await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
-  }
-
-  const code = client?.code;
-  if (code) {
-    const n = normalizeCode(code);
-    const usedPath = `codes/x${n}.used`;
-    const usedBlob =
-      typeof Blob !== 'undefined'
-        ? new Blob([JSON.stringify({ at: new Date().toISOString() })], {
-            type: 'application/json',
-          })
-        : null;
-    if (usedBlob) {
-      await supabase.storage.from(BUCKET).upload(usedPath, usedBlob, { upsert: true });
-    }
-  }
+  if (!blob) return;
+  await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
 }
 
-async function uploadPhoto(file, oid, key) {
-  if (!supabase || !file) return null;
-  const ext = file.name.split('.').pop() || 'jpg';
-  const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file);
-  if (error) return null;
-  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
-  return pub?.publicUrl || null;
-}
+// -------------------- LOAD ORDERS --------------------
 
 async function loadOrdersFromSupabase() {
   if (!supabase) return [];
@@ -149,7 +116,7 @@ async function loadOrdersFromSupabase() {
   });
   if (error || !data) return [];
 
-  const orders = [];
+  const list = [];
   for (const item of data) {
     if (!item || !item.name) continue;
     try {
@@ -160,121 +127,67 @@ async function loadOrdersFromSupabase() {
       const text = await file.text();
       const order = JSON.parse(text);
       if (!order || !order.id) continue;
-      if (order.status !== 'gati') continue; // vetëm GATI
-      const idxEntry = buildIndexFromOrder(order);
-      orders.push(idxEntry);
-      saveOrderLocal(order);
+      if ((order.status || '') !== 'gati') continue;
+      list.push(buildIndexFromOrder(order));
+      // mirror edhe lokalisht
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`order_${order.id}`, JSON.stringify(order));
+      }
     } catch (e) {
-      console.error('Error parsing order from Supabase', item.name, e);
+      console.error('Error parsing order from Supabase (GATI)', item.name, e);
     }
   }
 
-  orders.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  return orders;
+  // rendit sipas kodit numerik (desc)
+  list.sort((a, b) => {
+    const ac = Number(normalizeCode(a.code));
+    const bc = Number(normalizeCode(b.code));
+    if (bc !== ac) return bc - ac;
+    return (b.ts || 0) - (a.ts || 0);
+  });
+
+  return list;
 }
 
-function loadOrdersIndexLocal() {
+function loadOrdersFromLocal() {
   if (typeof window === 'undefined') return [];
+  let idx = [];
   try {
     const raw = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
-    const list = Array.isArray(raw) ? raw : [];
-    return list.filter((o) => !o.status || o.status === 'gati');
+    idx = Array.isArray(raw) ? raw : [];
   } catch {
-    return [];
+    idx = [];
   }
-}
-
-async function loadFullOrder(id) {
-  if (!id) return null;
-
-  if (typeof window !== 'undefined') {
+  const result = [];
+  for (const row of idx) {
     try {
-      const raw = localStorage.getItem(`order_${id}`);
-      if (raw) {
-        return JSON.parse(raw);
-      }
+      const rawOrder = localStorage.getItem(`order_${row.id}`);
+      if (!rawOrder) continue;
+      const order = JSON.parse(rawOrder);
+      if (!order || !order.id) continue;
+      if ((order.status || '') !== 'gati') continue;
+      result.push(buildIndexFromOrder(order));
     } catch {
       // ignore
     }
   }
 
-  if (!supabase) return null;
-  try {
-    const { data, error } = await supabase.storage
-      .from(BUCKET)
-      .download(`orders/${id}.json`);
-    if (error || !data) return null;
-    const text = await data.text();
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
+  result.sort((a, b) => {
+    const ac = Number(normalizeCode(a.code));
+    const bc = Number(normalizeCode(b.code));
+    if (bc !== ac) return bc - ac;
+    return (b.ts || 0) - (a.ts || 0);
+  });
+
+  return result;
 }
 
-// -------------------- ARKA HELPERS --------------------
-
-async function saveArkaRecord(order, paidAmount) {
-  if (!order || !order.id) return;
-
-  const ts = Date.now();
-  const rec = {
-    id: `arka_${order.id}_${ts}`,
-    orderId: order.id,
-    code: normalizeCode(order.client?.code || ''),
-    name: order.client?.name || '',
-    phone: order.client?.phone || '',
-    paid: Number(paidAmount) || 0,
-    ts,
-  };
-
-  if (typeof window !== 'undefined') {
-    try {
-      let list = [];
-      try {
-        list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
-      } catch {
-        list = [];
-      }
-      if (!Array.isArray(list)) list = [];
-      list.unshift(rec);
-      list = list.slice(0, 500);
-      localStorage.setItem('arka_list_v1', JSON.stringify(list));
-    } catch (e) {
-      console.error('Error saving ARKA locally', e);
-    }
-  }
-
-  if (supabase) {
-    try {
-      const path = `arka/${rec.id}.json`;
-      const blob =
-        typeof Blob !== 'undefined'
-          ? new Blob([JSON.stringify(rec)], { type: 'application/json' })
-          : null;
-      if (blob) {
-        await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
-      }
-    } catch (e) {
-      console.error('Error saving ARKA to Supabase', e);
-    }
-  }
-}
-
-// -------------------- KOMPONENTA GATI --------------------
+// -------------------- COMPONENT --------------------
 
 export default function GatiPage() {
   const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-
-  const [panelOrder, setPanelOrder] = useState(null); // full order
-  const [panelMode, setPanelMode] = useState('pay'); // 'pay' | 'return'
-  const [panelPaid, setPanelPaid] = useState('');
-  const [panelSaving, setPanelSaving] = useState(false);
-
-  const [returnReason, setReturnReason] = useState('');
-  const [returnNotes, setReturnNotes] = useState('');
-  const [returnPhotoUrl, setReturnPhotoUrl] = useState('');
+  const [loading, setLoading] = useState(true);
 
   async function refresh() {
     try {
@@ -288,7 +201,7 @@ export default function GatiPage() {
       if (online && online.length > 0) {
         setOrders(online);
       } else {
-        setOrders(loadOrdersIndexLocal());
+        setOrders(loadOrdersFromLocal());
       }
     } finally {
       setLoading(false);
@@ -305,196 +218,145 @@ export default function GatiPage() {
     [orders],
   );
 
-  // >>> RENDITJA: sipas KODIT (zbritës), pastaj sipas TS
-  const filteredOrders = useMemo(() => {
-    const q = search.trim().toLowerCase();
-
-    const base = [...orders].sort((a, b) => {
-      const ca = Number(normalizeCode(a.code) || 0);
-      const cb = Number(normalizeCode(b.code) || 0);
-      if (cb !== ca) return cb - ca;
-      return (b.ts || 0) - (a.ts || 0);
-    });
-
-    if (!q) return base;
-
-    return base.filter((o) => {
+  const filtered = useMemo(() => {
+    const q = (search || '').trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((o) => {
       const name = (o.name || '').toLowerCase();
       const phone = (o.phone || '').toLowerCase();
-      const code = String(o.code || '').toLowerCase();
-      return name.includes(q) || phone.includes(q) || code.includes(q);
+      const code = normalizeCode(o.code).toLowerCase();
+      return (
+        name.includes(q) ||
+        phone.includes(q) ||
+        code.includes(q)
+      );
     });
   }, [orders, search]);
 
-  function formatCode(raw) {
-    const n = normalizeCode(raw);
-    return n || '?';
-  }
+  // -------------------- ACTIONS --------------------
 
-  function openReadySms(row, fullOrder) {
-    const order = fullOrder || panelOrder || {};
-
-    const phone = row?.phone || order?.client?.phone || '';
-    const digits = sanitizePhone(phone);
-    if (!digits) {
+  function openSms(row) {
+    const phone = sanitizePhone(row.phone || '');
+    if (!phone) {
       alert('Nuk ka numër telefoni për SMS.');
       return;
     }
-
-    const name = row?.name || order?.client?.name || 'klient';
-    const codeRaw = order?.client?.code || row?.code || '';
-    const codeClean = normalizeCode(codeRaw);
-
-    const pieces = computePieces(order);
-    const m2 = computeM2(order);
-    const euro = computeTotalEuro(order);
-
+    const code = normalizeCode(row.code);
     const text =
-      `Përshëndetje ${name}, ` +
-      `porosia juaj e tepihave${codeClean ? ` (kodi ${codeClean})` : ''} është GATI për t'u marrë.\n` +
-      `Keni ${pieces} copë = ${m2.toFixed(2)} m². Totali për pagesë: ${euro.toFixed(2)} €.\n` +
+      `Përshëndetje ${row.name || 'klient'}, ` +
+      `porosia juaj${code ? ` (kodi ${code})` : ''} është gati për marrje.\n` +
+      `Keni ${row.pieces || 0} copë • ${(Number(row.m2) || 0).toFixed(2)} m².\n` +
       `Faleminderit!`;
-
     const encoded = encodeURIComponent(text);
-
     if (typeof window !== 'undefined') {
-      window.location.href = `sms:${digits}?&body=${encoded}`;
+      window.location.href = `sms:${phone}?&body=${encoded}`;
     }
   }
 
-  async function handleOpenPanel(row) {
-    const full = await loadFullOrder(row.id);
-    if (!full) {
-      alert('Nuk u gjet porosia e plotë.');
-      return;
-    }
-    setPanelOrder(full);
-    setPanelMode('pay');
-    const euro = computeTotalEuro(full);
-    setPanelPaid(euro ? String(euro) : '');
-    setReturnReason('');
-    setReturnNotes('');
-    setReturnPhotoUrl(full.returnInfo?.photoUrl || '');
-  }
+  async function handlePay(row) {
+    if (typeof window === 'undefined') return;
 
-  function closePanel() {
-    setPanelOrder(null);
-    setPanelSaving(false);
-  }
-
-  const panelTotalEuro = useMemo(
-    () => (panelOrder ? computeTotalEuro(panelOrder) : 0),
-    [panelOrder],
-  );
-
-  const panelChange = useMemo(() => {
-    const paid = Number(panelPaid) || 0;
-    const total = panelTotalEuro;
-    const diff = paid - total;
-    return diff > 0 ? Number(diff.toFixed(2)) : 0;
-  }, [panelPaid, panelTotalEuro]);
-
-  const panelDebt = useMemo(() => {
-    const paid = Number(panelPaid) || 0;
-    const total = panelTotalEuro;
-    const diff = total - paid;
-    return diff > 0 ? Number(diff.toFixed(2)) : 0;
-  }, [panelPaid, panelTotalEuro]);
-
-  async function handleUploadReturnPhoto(file) {
-    if (!file || !panelOrder) return;
-    const url = await uploadPhoto(file, panelOrder.id, 'return');
-    if (url) setReturnPhotoUrl(url);
-  }
-
-  async function handleSavePayment() {
-    if (!panelOrder) return;
-    const paid = Number(panelPaid) || 0;
-    const total = panelTotalEuro;
-
+    // lexo porosinë e plotë
+    let order = null;
     try {
-      setPanelSaving(true);
-
-      const newPay = {
-        ...(panelOrder.pay || {}),
-        m2: computeM2(panelOrder),
-        euro: total,
-        rate: Number(panelOrder.pay?.rate) || 0,
-        paid,
-        debt: panelDebt,
-        change: panelChange,
-      };
-
-      const updated = {
-        ...panelOrder,
-        pay: newPay,
-        status: 'dorzim',
-        deliveredAt: Date.now(),
-      };
-
-      saveOrderLocal(updated);
-      await saveOrderOnline(updated);
-      await saveArkaRecord(updated, paid || total);
-
-      setOrders((prev) => prev.filter((o) => o.id !== updated.id));
-      closePanel();
-      alert('Pagesa u regjistrua dhe porosia u kalua në DORZIM.');
-    } catch (e) {
-      console.error('Error saving payment', e);
-      alert('Ndodhi një gabim gjatë ruajtjes së pagesës.');
-    } finally {
-      setPanelSaving(false);
+      const raw = localStorage.getItem(`order_${row.id}`);
+      if (raw) order = JSON.parse(raw);
+    } catch {
+      order = null;
     }
-  }
-
-  async function handleSaveReturn() {
-    if (!panelOrder) return;
-    if (!returnReason.trim()) {
-      alert('Shkruaj arsyen e kthimit.');
+    if (!order) {
+      alert('Nuk u gjet porosia e plotë për pagesë.');
       return;
     }
 
-    try {
-      setPanelSaving(true);
-
-      const updated = {
-        ...panelOrder,
-        status: 'pastrim',
-        returnInfo: {
-          active: true,
-          reason: returnReason.trim(),
-          notes: returnNotes.trim(),
-          photoUrl: returnPhotoUrl || panelOrder.returnInfo?.photoUrl || '',
-          ts: Date.now(),
-        },
-      };
-
-      saveOrderLocal(updated);
-      await saveOrderOnline(updated);
-
-      setOrders((prev) => prev.filter((o) => o.id !== updated.id));
-      closePanel();
-      alert('Porosia u shënua si KTHIM dhe u kthye në PASTRIMI.');
-    } catch (e) {
-      console.error('Error saving return', e);
-      alert('Ndodhi një gabim gjatë ruajtjes së kthimit.');
-    } finally {
-      setPanelSaving(false);
+    const total = computeTotalEuro(order);
+    const paidStr = prompt(
+      'Shuma që dha klienti (€):',
+      total > 0 ? total.toFixed(2) : '',
+    );
+    if (paidStr === null) return;
+    const paid = Number(paidStr.replace(',', '.')) || 0;
+    if (paid <= 0) {
+      alert('Shuma duhet të jetë më e madhe se zero.');
+      return;
     }
+
+    const change = paid - total;
+    if (!confirm(
+      `Totali: ${total.toFixed(2)} €\n` +
+        `Klienti dha: ${paid.toFixed(2)} €\n` +
+        `Kthim: ${change > 0 ? change.toFixed(2) : '0.00'} €\n\n` +
+        'Konfirmo pagesën dhe dorëzimin?',
+    )) {
+      return;
+    }
+
+    // përditëso porosinë si DORZIM
+    const newPay = {
+      ...(order.pay || {}),
+      m2: computeM2(order),
+      euro: total,
+      paid,
+      debt: paid < total ? Number((total - paid).toFixed(2)) : 0,
+      change: change > 0 ? Number(change.toFixed(2)) : 0,
+    };
+
+    const updatedOrder = {
+      ...order,
+      pay: newPay,
+      status: 'dorzim',
+      deliveredAt: Date.now(),
+    };
+
+    // ruaj lokalisht + online
+    try {
+      localStorage.setItem(`order_${updatedOrder.id}`, JSON.stringify(updatedOrder));
+
+      const path = `orders/${updatedOrder.id}.json`;
+      const blob =
+        typeof Blob !== 'undefined'
+          ? new Blob([JSON.stringify(updatedOrder)], { type: 'application/json' })
+          : null;
+      if (blob && supabase) {
+        await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
+      }
+    } catch (e) {
+      console.error('Gabim gjatë ruajtjes së porosisë DORZIM', e);
+    }
+
+    // regjistro ARKA
+    const arkaRecord = {
+      id: `arka_${updatedOrder.id}_${Date.now()}`,
+      orderId: updatedOrder.id,
+      code: normalizeCode(updatedOrder.client?.code),
+      name: updatedOrder.client?.name || '',
+      phone: updatedOrder.client?.phone || '',
+      paid,
+      ts: Date.now(),
+    };
+
+    saveArkaLocal(arkaRecord);
+    await saveArkaOnline(arkaRecord);
+
+    alert('Pagesa u regjistrua dhe porosia u dorëzua.');
+
+    // hiqe nga lista GATI
+    setOrders((prev) => prev.filter((o) => o.id !== row.id));
   }
 
   // -------------------- RENDER --------------------
 
   return (
-    <div className="wrap" style={{ paddingBottom: '90px' }}>
+    <div className="wrap" style={{ paddingBottom: '80px' }}>
       <header className="header-row">
         <div>
           <h1 className="title">GATI</h1>
-          <div className="subtitle">POROSITË E GATSHME PËR MARRJE</div>
+          <div className="subtitle">Porositë e gatshme për marrje</div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
           <div>
-            TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong>
+            TOTAL M²:{' '}
+            <strong>{totalM2.toFixed(2)} m²</strong>
           </div>
         </div>
       </header>
@@ -502,26 +364,51 @@ export default function GatiPage() {
       <section className="card">
         <h2 className="card-title">Lista e porosive GATI</h2>
 
-        <div className="field-group" style={{ marginBottom: 8 }}>
+        <div className="field-group" style={{ marginBottom: 12 }}>
           <input
             className="input"
-            type="search"
-            placeholder="Kërko me emër / telefon / kod..."
+            type="text"
+            placeholder="Kërko me emër / telefon / kod"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
 
         {loading && <p>Duke i lexuar porositë...</p>}
-        {!loading && filteredOrders.length === 0 && (
-          <p>Nuk ka porosi GATI. Kalo nga PASTRIMI.</p>
+        {!loading && filtered.length === 0 && (
+          <p>Nuk ka porosi GATI. Kaloi nga PASTRIMI.</p>
         )}
 
         {!loading &&
-          filteredOrders.map((o) => (
-            <div key={o.id} className="home-btn" style={{ marginBottom: 8 }}>
-              <div className="home-btn-main" style={{ alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          filtered.map((o) => (
+            <div
+              key={o.id}
+              className="home-btn"
+              style={{
+                marginBottom: 8,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              <div
+                className="home-btn-main"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                {/* MAJTA: kodi + emri */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    minWidth: 0,
+                  }}
+                >
                   <span
                     style={{
                       fontWeight: 700,
@@ -532,274 +419,72 @@ export default function GatiPage() {
                       color: '#ffffff',
                       minWidth: 32,
                       textAlign: 'center',
+                      flexShrink: 0,
                     }}
                   >
-                    {formatCode(o.code)}
+                    {normalizeCode(o.code)}
                   </span>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span>{o.name || 'Pa emër'}</span>
-                    <span style={{ fontSize: 11, opacity: 0.8 }}>
-                      {o.pieces || 0} cop •{' '}
-                      {o.m2?.toFixed?.(2) || Number(o.m2 || 0).toFixed(2)} m²
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {o.name || 'Pa emër'}
+                    </span>
+                    <span style={{ fontSize: 12, opacity: 0.85 }}>
+                      {(o.pieces || 0) + ' cop • ' + (Number(o.m2) || 0).toFixed(2) + ' m²'}
                     </span>
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 4,
-                    alignItems: 'flex-end',
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    style={{ padding: '4px 10px', fontSize: 12 }}
-                    onClick={() => openReadySms(o, null)}
-                  >
-                    SMS
-                  </button>
-                  <button
-                    type="button"
-                    className="btn primary"
-                    style={{ padding: '4px 10px', fontSize: 12 }}
-                    onClick={() => handleOpenPanel(o)}
-                  >
-                    💶 PAGUAJE
-                  </button>
+                {/* DJATHTA: totali € (optional) */}
+                <div style={{ textAlign: 'right', fontSize: 12 }}>
+                  {typeof o.total === 'number' && o.total > 0 && (
+                    <div>
+                      <strong>{o.total.toFixed(2)} €</strong>
+                    </div>
+                  )}
                 </div>
+              </div>
+
+              {/* RRESHTI I BUTONAVE: SMS MAJTAS, PAGUAJE DJATHTAS */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  gap: 8,
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ flex: 1, padding: '4px 8px', fontSize: 12 }}
+                  onClick={() => openSms(o)}
+                >
+                  SMS
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  style={{ flex: 1, padding: '4px 8px', fontSize: 12 }}
+                  onClick={() => handlePay(o)}
+                >
+                  💶 PAGUAJE
+                </button>
               </div>
             </div>
           ))}
       </section>
-
-      {panelOrder && (
-        <div
-          className="dialog-backdrop"
-          style={{
-            position: 'fixed',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            top: 0,
-            background: 'rgba(0,0,0,0.6)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'flex-end',
-            zIndex: 40,
-          }}
-          onClick={closePanel}
-        >
-          <div
-            className="card"
-            style={{
-              width: '100%',
-              maxWidth: 520,
-              margin: 0,
-              borderRadius: '16px 16px 0 0',
-              paddingBottom: 16,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              className="header-row"
-              style={{ justifyContent: 'space-between', marginBottom: 8 }}
-            >
-              <div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>KODI</div>
-                <div style={{ fontWeight: 700 }}>
-                  {panelOrder.client?.code
-                    ? normalizeCode(panelOrder.client.code)
-                    : '—'}
-                </div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>
-                  {panelOrder.client?.name || 'Pa emër'} •{' '}
-                  {(panelOrder.client?.phone || '').trim()}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="btn secondary"
-                onClick={closePanel}
-                style={{ padding: '4px 10px', fontSize: 12 }}
-              >
-                MBYLL
-              </button>
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                gap: 8,
-                marginBottom: 12,
-                borderRadius: 999,
-                padding: 2,
-                background: '#020617',
-              }}
-            >
-              <button
-                type="button"
-                className="btn"
-                style={{
-                  flex: 1,
-                  fontSize: 12,
-                  padding: '6px 0',
-                  borderRadius: 999,
-                  background:
-                    panelMode === 'pay' ? '#2563eb' : 'transparent',
-                  border: 'none',
-                }}
-                onClick={() => setPanelMode('pay')}
-              >
-                💵 PAGESA
-              </button>
-              <button
-                type="button"
-                className="btn"
-                style={{
-                  flex: 1,
-                  fontSize: 12,
-                  padding: '6px 0',
-                  borderRadius: 999,
-                  background:
-                    panelMode === 'return' ? '#dc2626' : 'transparent',
-                  border: 'none',
-                }}
-                onClick={() => setPanelMode('return')}
-              >
-                ↩️ KTHIM
-              </button>
-            </div>
-
-            {panelMode === 'pay' && (
-              <>
-                <div className="field-group">
-                  <label className="label">PAGESA</label>
-                  <div className="tot-line small">
-                    Totali: <strong>{panelTotalEuro.toFixed(2)} €</strong> · Borxh:{' '}
-                    <strong>{panelDebt.toFixed(2)} €</strong> · Kthim:{' '}
-                    <strong>{panelChange.toFixed(2)} €</strong>
-                  </div>
-
-                  <div className="row" style={{ marginTop: 8, marginBottom: 8 }}>
-                    <input
-                      className="input small"
-                      type="number"
-                      min="0"
-                      step="0.1"
-                      value={panelPaid}
-                      onChange={(e) => setPanelPaid(e.target.value)}
-                      placeholder="KLIENTI DHA"
-                    />
-                  </div>
-
-                  <div className="chip-row">
-                    {[10, 20, 30, 50].map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        className="chip"
-                        onClick={() =>
-                          setPanelPaid(String((Number(panelPaid) || 0) + v))
-                        }
-                      >
-                        +{v} €
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      className="chip chip-outline"
-                      onClick={() =>
-                        setPanelPaid(String(panelTotalEuro.toFixed(2)))
-                      }
-                    >
-                      = TOTALI
-                    </button>
-                  </div>
-                </div>
-
-                <div className="btn-row">
-                  <button
-                    type="button"
-                    className="btn primary"
-                    onClick={handleSavePayment}
-                    disabled={panelSaving}
-                  >
-                    {panelSaving ? 'Duke ruajtur...' : 'RUAJ PAGESËN'}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {panelMode === 'return' && (
-              <>
-                <div className="field-group">
-                  <label className="label">ARSYE KTHIMI</label>
-                  <textarea
-                    className="input"
-                    rows={3}
-                    value={returnReason}
-                    onChange={(e) => setReturnReason(e.target.value)}
-                    placeholder="P.sh. njolla nuk janë hequr, tepihu ka problem, kërkesë e klientit..."
-                  />
-                </div>
-
-                <div className="field-group">
-                  <label className="label">SHËNIME</label>
-                  <textarea
-                    className="input"
-                    rows={2}
-                    value={returnNotes}
-                    onChange={(e) => setReturnNotes(e.target.value)}
-                    placeholder="Opsionale: komente të tjera."
-                  />
-                </div>
-
-                <div className="field-group">
-                  <label className="label">FOTO KTHIMI</label>
-                  <div className="row" style={{ alignItems: 'center', gap: 12 }}>
-                    <label className="camera-btn">
-                      📷
-                      <input
-                        type="file"
-                        accept="image/*"
-                        style={{ display: 'none' }}
-                        onChange={(e) =>
-                          handleUploadReturnPhoto(e.target.files?.[0] || null)
-                        }
-                      />
-                    </label>
-                    {returnPhotoUrl && (
-                      <a
-                        href={returnPhotoUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ fontSize: 13 }}
-                      >
-                        Shiko foton
-                      </a>
-                    )}
-                  </div>
-                </div>
-
-                <div className="btn-row">
-                  <button
-                    type="button"
-                    className="btn primary"
-                    style={{ backgroundColor: '#dc2626' }}
-                    onClick={handleSaveReturn}
-                    disabled={panelSaving}
-                  >
-                    {panelSaving ? 'Duke ruajtur...' : 'RUAJ KTHIMIN'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
 
       <footer className="footer-bar">
         <Link className="btn secondary" href="/">
