@@ -178,7 +178,6 @@ function loadOrdersIndexLocal() {
   try {
     const raw = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
     const list = Array.isArray(raw) ? raw : [];
-    // fallback: filtro sipas statusit nëse ekziston
     return list.filter((o) => !o.status || o.status === 'gati');
   } catch {
     return [];
@@ -199,7 +198,6 @@ async function loadFullOrder(id) {
     }
   }
 
-  // fallback nga Supabase
   if (!supabase) return null;
   try {
     const { data, error } = await supabase.storage
@@ -229,7 +227,6 @@ async function saveArkaRecord(order, paidAmount) {
     ts,
   };
 
-  // local
   if (typeof window !== 'undefined') {
     try {
       let list = [];
@@ -247,7 +244,6 @@ async function saveArkaRecord(order, paidAmount) {
     }
   }
 
-  // supabase
   if (supabase) {
     try {
       const path = `arka/${rec.id}.json`;
@@ -309,18 +305,24 @@ export default function GatiPage() {
     [orders],
   );
 
+  // >>> RENDITJA: sipas KODIT (zbritës), pastaj sipas TS
   const filteredOrders = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return orders;
-    return orders.filter((o) => {
+
+    const base = [...orders].sort((a, b) => {
+      const ca = Number(normalizeCode(a.code) || 0);
+      const cb = Number(normalizeCode(b.code) || 0);
+      if (cb !== ca) return cb - ca;
+      return (b.ts || 0) - (a.ts || 0);
+    });
+
+    if (!q) return base;
+
+    return base.filter((o) => {
       const name = (o.name || '').toLowerCase();
       const phone = (o.phone || '').toLowerCase();
       const code = String(o.code || '').toLowerCase();
-      return (
-        name.includes(q) ||
-        phone.includes(q) ||
-        code.includes(q)
-      );
+      return name.includes(q) || phone.includes(q) || code.includes(q);
     });
   }, [orders, search]);
 
@@ -434,7 +436,6 @@ export default function GatiPage() {
       await saveOrderOnline(updated);
       await saveArkaRecord(updated, paid || total);
 
-      // hiqe nga lista GATI
       setOrders((prev) => prev.filter((o) => o.id !== updated.id));
       closePanel();
       alert('Pagesa u regjistrua dhe porosia u kalua në DORZIM.');
@@ -538,7 +539,8 @@ export default function GatiPage() {
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span>{o.name || 'Pa emër'}</span>
                     <span style={{ fontSize: 11, opacity: 0.8 }}>
-                      {o.pieces || 0} cop • {o.m2?.toFixed?.(2) || Number(o.m2 || 0).toFixed(2)} m²
+                      {o.pieces || 0} cop •{' '}
+                      {o.m2?.toFixed?.(2) || Number(o.m2 || 0).toFixed(2)} m²
                     </span>
                   </div>
                 </div>
@@ -573,7 +575,6 @@ export default function GatiPage() {
           ))}
       </section>
 
-      {/* PANELI PËR PAGESË / KTHIM */}
       {panelOrder && (
         <div
           className="dialog-backdrop"
@@ -700,7 +701,9 @@ export default function GatiPage() {
                         key={v}
                         type="button"
                         className="chip"
-                        onClick={() => setPanelPaid(String((Number(panelPaid) || 0) + v))}
+                        onClick={() =>
+                          setPanelPaid(String((Number(panelPaid) || 0) + v))
+                        }
                       >
                         +{v} €
                       </button>
@@ -708,7 +711,9 @@ export default function GatiPage() {
                     <button
                       type="button"
                       className="chip chip-outline"
-                      onClick={() => setPanelPaid(String(panelTotalEuro.toFixed(2)))}
+                      onClick={() =>
+                        setPanelPaid(String(panelTotalEuro.toFixed(2)))
+                      }
                     >
                       = TOTALI
                     </button>
