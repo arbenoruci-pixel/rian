@@ -27,7 +27,7 @@ async function uploadPhoto(file, oid, key) {
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
 
-  // si në PRANIMI – pa upsert
+  // njësoj si PRANIMI – pa upsert
   const { data, error } = await supabase.storage.from(BUCKET).upload(path, file);
   if (error) return null;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
@@ -263,11 +263,12 @@ export default function PastrimiPage() {
     }
   }, [selectedId, fullDetail]);
 
-  const listTotalM2 = useMemo(() => {
-    return orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
-  }, [orders]);
+  const listTotalM2 = useMemo(
+    () => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0),
+    [orders],
+  );
 
-  // SMART CAPACITY (e njëjtë si në PRANIMI – 400 / 600)
+  // SMART KAPACITET – njësoj si PRANIMI (2/3/4/5 ditë)
   const capacityInfo = useMemo(() => {
     const m2 = listTotalM2;
     if (m2 <= 0) {
@@ -278,23 +279,25 @@ export default function PastrimiPage() {
       };
     }
 
-    let days = 0;
+    let label = 'KAPACITET NORMAL';
+    let days = 2;
+    let color = '#22c55e';
+
     if (m2 > 400 && m2 <= 600) {
-      days = 1; // gati nesër
-    } else if (m2 > 600) {
-      days = 2; // edhe një ditë më shumë
+      label = 'KAPACITET NË NGARKIM';
+      days = 3;
+      color = '#f97316';
+    } else if (m2 > 600 && m2 <= 800) {
+      label = 'KAPACITET I MBINGARKUAR';
+      days = 4;
+      color = '#ef4444';
+    } else if (m2 > 800) {
+      label = 'KAPACITET EKSTREM';
+      days = 5;
+      color = '#a855f7';
     }
 
-    let text;
-    if (days === 0) {
-      text = 'KAPACITET NORMAL — mund t’u premtosh sot / nesër pa problem.';
-    } else if (days === 1) {
-      text = 'KAPACITET NË NGARKIM — premtim: gati pas 1 dite (nesër).';
-    } else {
-      text = 'KAPACITET I MBINGARKUAR — premtim: gati pas 2 ditësh.';
-    }
-
-    const color = days === 0 ? '#22c55e' : days === 1 ? '#f97316' : '#ef4444';
+    const text = `${label} • MARRJE PAS ${days} DITËVE`;
     return { text, color, days };
   }, [listTotalM2]);
 
@@ -308,7 +311,7 @@ export default function PastrimiPage() {
     longPressTimer.current = setTimeout(() => {
       setSelectedId(id);
       setFullDetail(true);
-    }, 500); // 0.5s
+    }, 500);
   }
 
   function cancelLongPress() {
@@ -340,8 +343,7 @@ export default function PastrimiPage() {
       `Përshëndetje ${name}, ` +
       `porosia juaj e tepihave${codeClean ? ` (kodi ${codeClean})` : ''} është GATI për t'u marrë.\n` +
       `Keni ${pieces} copë = ${m2.toFixed(2)} m². Totali për pagesë: ${euro.toFixed(2)} €.\n` +
-      `Ju lutemi t’i tërhiqni sa më shpejt të jetë e mundur, ` +
-      `pasi kemi mungesë hapësire dhe duam të shmangim çdo ngatërresë me porositë e tjera.\n` +
+      `Ju lutemi t’i tërhiqni sa më shpejt të jetë e mundur.\n` +
       `Faleminderit!`;
 
     const encoded = encodeURIComponent(text);
@@ -374,7 +376,6 @@ export default function PastrimiPage() {
       readyAt: Date.now(),
     };
 
-    // ruajmë porosinë lokalisht + online
     saveOrderLocal(updated);
     await saveOrderOnline(updated);
 
@@ -436,7 +437,6 @@ export default function PastrimiPage() {
     setDetail((prev) => (!prev ? prev : { ...prev, notes: value }));
   }
 
-  // <<< LOGJIKA E CHIPS SI NË PRANIMI >>>
   function handleChip(section, value) {
     setDetail((prev) => {
       if (!prev) return prev;
@@ -476,7 +476,6 @@ export default function PastrimiPage() {
     });
   }
 
-  // LEJON ME U FSHI EDHE I FUNDIT
   function removePiece(section) {
     setDetail((prev) => {
       if (!prev) return prev;
@@ -496,7 +495,6 @@ export default function PastrimiPage() {
     });
   }
 
-  // FSHI SHKALLORET
   async function clearStairs() {
     if (!detail) return;
     const updated = {
@@ -655,7 +653,7 @@ export default function PastrimiPage() {
       <header className="header-row">
         <div>
           <h1 className="title">PASTRIMI</h1>
-          <div className="subtitle">Lista dhe detajet</div>
+          <div className="subtitle">LISTA DHE DETAJET</div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
           <div>
@@ -666,7 +664,7 @@ export default function PastrimiPage() {
               marginTop: 4,
               fontSize: 11,
               color: capacityInfo.color,
-              maxWidth: 220,
+              maxWidth: 260,
             }}
           >
             {capacityInfo.text}
@@ -836,11 +834,7 @@ export default function PastrimiPage() {
                 </a>
                 <div>
                   <a href={clientPhoto} target="_blank" rel="noreferrer">
-                    <img
-                      src={clientPhoto}
-                      alt="Foto klienti"
-                      className="photo-thumb"
-                    />
+                    <img src={clientPhoto} alt="Foto klienti" className="photo-thumb" />
                   </a>
                 </div>
               </div>
@@ -867,9 +861,317 @@ export default function PastrimiPage() {
           </div>
 
           {/* TEPIHA */}
-          {/* (pjesa tjetër mbetet njësoj si më lart – nuk e shkurtoj këtu që ta kesh komplet) */}
-          {/* ... gjithë pjesa e TEPIHA, STAZA, SHKALLORE, PAGESA, NOTES ... identike me kodin më sipër ... */}
+          <div className="field-group">
+            <label className="label">Tepiha</label>
 
+            <div className="chip-row">
+              {TEPIHA_CHIPS.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className="chip"
+                  onClick={() => handleChip('tepiha', v)}
+                >
+                  {v.toFixed(1)} m²
+                </button>
+              ))}
+              <button
+                type="button"
+                className="chip chip-outline"
+                onClick={() => handleChip('tepiha', 0)}
+              >
+                Manual
+              </button>
+            </div>
+
+            {(!detail.tepiha || detail.tepiha.length === 0) && (
+              <p style={{ fontSize: 12, opacity: 0.8 }}>Shto tepihë me + Rresht.</p>
+            )}
+
+            {Array.isArray(detail.tepiha) &&
+              detail.tepiha.map((r, idx) => (
+                <div key={idx} className="piece-row">
+                  <div className="row">
+                    <input
+                      className="input small"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={r.m2 ?? ''}
+                      onChange={(e) => updatePiece('tepiha', idx, 'm2', e.target.value)}
+                      placeholder="m²"
+                    />
+                    <input
+                      className="input small"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={r.qty ?? ''}
+                      onChange={(e) => updatePiece('tepiha', idx, 'qty', e.target.value)}
+                      placeholder="copë"
+                    />
+                    <label className="camera-btn">
+                      📷
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        onChange={(e) =>
+                          handlePiecePhotoChange('tepiha', idx, e.target.files?.[0] || null)
+                        }
+                      />
+                    </label>
+                  </div>
+                  {r.photoUrl && (
+                    <div className="thumb-row">
+                      <a href={r.photoUrl} target="_blank" rel="noreferrer">
+                        Shiko foton
+                      </a>
+                      <div>
+                        <img src={r.photoUrl} alt="Foto tepih" className="photo-thumb" />
+                      </div>
+                    </div>
+                  )}
+                  <div className="tot-line small">
+                    M²:{' '}
+                    <strong>
+                      {((Number(r.m2) || 0) * (Number(r.qty) || 0)).toFixed(2)} m²
+                    </strong>
+                  </div>
+                </div>
+              ))}
+
+            <div className="row btn-row">
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => addPiece('tepiha')}
+              >
+                + RRESHT
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => removePiece('tepiha')}
+              >
+                − RRESHT
+              </button>
+            </div>
+          </div>
+
+          {/* STAZA */}
+          <div className="field-group">
+            <label className="label">Staza</label>
+
+            <div className="chip-row">
+              {STAZA_CHIPS.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className="chip"
+                  onClick={() => handleChip('staza', v)}
+                >
+                  {v.toFixed(1)} m²
+                </button>
+              ))}
+              <button
+                type="button"
+                className="chip chip-outline"
+                onClick={() => handleChip('staza', 0)}
+              >
+                Manual
+              </button>
+            </div>
+
+            {(!detail.staza || detail.staza.length === 0) && (
+              <p style={{ fontSize: 12, opacity: 0.8 }}>Shto staza me + Rresht.</p>
+            )}
+
+            {Array.isArray(detail.staza) &&
+              detail.staza.map((r, idx) => (
+                <div key={idx} className="piece-row">
+                  <div className="row">
+                    <input
+                      className="input small"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={r.m2 ?? ''}
+                      onChange={(e) => updatePiece('staza', idx, 'm2', e.target.value)}
+                      placeholder="m²"
+                    />
+                    <input
+                      className="input small"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={r.qty ?? ''}
+                      onChange={(e) => updatePiece('staza', idx, 'qty', e.target.value)}
+                      placeholder="copë"
+                    />
+                    <label className="camera-btn">
+                      📷
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        onChange={(e) =>
+                          handlePiecePhotoChange('staza', idx, e.target.files?.[0] || null)
+                        }
+                      />
+                    </label>
+                  </div>
+                  {r.photoUrl && (
+                    <div className="thumb-row">
+                      <a href={r.photoUrl} target="_blank" rel="noreferrer">
+                        Shiko foton
+                      </a>
+                      <div>
+                        <img src={r.photoUrl} alt="Foto staza" className="photo-thumb" />
+                      </div>
+                    </div>
+                  )}
+                  <div className="tot-line small">
+                    M²:{' '}
+                    <strong>
+                      {((Number(r.m2) || 0) * (Number(r.qty) || 0)).toFixed(2)} m²
+                    </strong>
+                  </div>
+                </div>
+              ))}
+
+            <div className="row btn-row">
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => addPiece('staza')}
+              >
+                + RRESHT
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => removePiece('staza')}
+              >
+                − RRESHT
+              </button>
+            </div>
+          </div>
+
+          {/* SHKALLORE */}
+          <div className="field-group">
+            <label className="label">Shkallore</label>
+            <div className="row">
+              <input
+                className="input small"
+                type="number"
+                min="0"
+                step="1"
+                value={detail.shkallore?.qty ?? 0}
+                onChange={(e) => updateStairs('qty', e.target.value)}
+                placeholder="Sasia"
+              />
+              <input
+                className="input small"
+                type="number"
+                min="0"
+                step="0.01"
+                value={detail.shkallore?.per ?? 0}
+                onChange={(e) => updateStairs('per', e.target.value)}
+                placeholder="m² / hap"
+              />
+              <label className="camera-btn">
+                📷
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleStairsPhotoChange(e.target.files?.[0] || null)}
+                />
+              </label>
+            </div>
+            {detail.shkallore?.photoUrl && (
+              <div className="thumb-row">
+                <a href={detail.shkallore.photoUrl} target="_blank" rel="noreferrer">
+                  Shiko foton
+                </a>
+                <div>
+                  <img
+                    src={detail.shkallore.photoUrl}
+                    alt="Foto shkallore"
+                    className="photo-thumb"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="tot-line small">
+              Totali shkallore:{' '}
+              <strong>
+                {(Number(detail.shkallore?.qty || 0) *
+                  Number(detail.shkallore?.per || 0)
+                ).toFixed(2)}{' '}
+                m²
+              </strong>
+            </div>
+            <div className="row btn-row">
+              <button type="button" className="btn secondary" onClick={clearStairs}>
+                FSHIJ SHKALLORET
+              </button>
+            </div>
+          </div>
+
+          {/* PAGESA */}
+          <div className="field-group">
+            <label className="label">Pagesa</label>
+            <div className="row">
+              <input
+                className="input small"
+                type="number"
+                min="0"
+                step="0.1"
+                value={detail.pay?.rate ?? 0}
+                onChange={(e) => updatePay('rate', e.target.value)}
+                placeholder="€ / m²"
+              />
+              <input
+                className="input small"
+                type="number"
+                min="0"
+                step="0.1"
+                value={detail.pay?.paid ?? 0}
+                onChange={(e) => updatePay('paid', e.target.value)}
+                placeholder="KLIENTI DHA"
+              />
+            </div>
+            <div className="tot-line small">
+              Total: <strong>{totalEuroDetail.toFixed(2)} €</strong> · Borxh:{' '}
+              <strong>{debtDetail.toFixed(2)} €</strong> · Kthim:{' '}
+              <strong>{changeDetail.toFixed(2)} €</strong>
+            </div>
+          </div>
+
+          {/* NOTES */}
+          <div className="field-group">
+            <label className="label">NOTS / SHËNIME</label>
+            <textarea
+              className="input"
+              rows={3}
+              value={detail.notes || ''}
+              onChange={(e) => updateNotes(e.target.value)}
+              placeholder="P.sh. njolla, dëmtime, kërkesa speciale..."
+            />
+          </div>
+
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn primary"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? 'Duke ruajtur...' : 'RUAJ NDRYSHIMET'}
+            </button>
+          </div>
         </section>
       )}
 
