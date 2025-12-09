@@ -77,6 +77,7 @@ function buildIndexFromOrder(order) {
     total,
     status: order.status || '',
     ts: order.ts || Date.now(),
+    isReturn: !!order.returnInfo?.active,
   };
 }
 
@@ -138,7 +139,6 @@ async function loadOrdersFromSupabase() {
     }
   }
 
-  // rendit sipas kodit numerik (desc)
   list.sort((a, b) => {
     const ac = Number(normalizeCode(a.code));
     const bc = Number(normalizeCode(b.code));
@@ -189,6 +189,12 @@ export default function GatiPage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // paneli i pagesës / kthimit
+  const [payOrder, setPayOrder] = useState(null); // { row, order, total }
+  const [payPaid, setPayPaid] = useState('');
+  const [payMode, setPayMode] = useState('normal'); // 'normal' | 'return'
+  const [payNote, setPayNote] = useState('');
+
   async function refresh() {
     try {
       setLoading(true);
@@ -225,11 +231,7 @@ export default function GatiPage() {
       const name = (o.name || '').toLowerCase();
       const phone = (o.phone || '').toLowerCase();
       const code = normalizeCode(o.code).toLowerCase();
-      return (
-        name.includes(q) ||
-        phone.includes(q) ||
-        code.includes(q)
-      );
+      return name.includes(q) || phone.includes(q) || code.includes(q);
     });
   }, [orders, search]);
 
@@ -244,19 +246,21 @@ export default function GatiPage() {
     const code = normalizeCode(row.code);
     const text =
       `Përshëndetje ${row.name || 'klient'}, ` +
-      `porosia juaj${code ? ` (kodi ${code})` : ''} është gati për marrje.\n` +
-      `Keni ${row.pieces || 0} copë • ${(Number(row.m2) || 0).toFixed(2)} m².\n` +
-      `Faleminderit!`;
+      `porosia juaj e tepihave${code ? ` (kodi ${code})` : ''} është GATI për marrje.\n` +
+      `Keni ${row.pieces || 0} copë • ${(Number(row.m2) || 0).toFixed(2)} m².\n\n` +
+      `Për shkak të hapësirës së kufizuar, ju lutemi t’i tërhiqni brenda 2 ditësh. ` +
+      `Pas këtij afati rritet rreziku që tepihët të përzihen ose të humben mes porosive të tjera, ` +
+      `prandaj pas këtij afati subjekti ynë nuk mban përgjegjësi për humbje apo ngatërresa.\n` +
+      `Faleminderit për mirëkuptimin.`;
     const encoded = encodeURIComponent(text);
     if (typeof window !== 'undefined') {
       window.location.href = `sms:${phone}?&body=${encoded}`;
     }
   }
 
-  async function handlePay(row) {
+  async function openPayPanel(row) {
     if (typeof window === 'undefined') return;
 
-    // lexo porosinë e plotë
     let order = null;
     try {
       const raw = localStorage.getItem(`order_${row.id}`);
@@ -265,84 +269,166 @@ export default function GatiPage() {
       order = null;
     }
     if (!order) {
-      alert('Nuk u gjet porosia e plotë për pagesë.');
+      alert('Nuk u gjet porosia e plotë për pagesë / kthim.');
       return;
     }
 
     const total = computeTotalEuro(order);
-    const paidStr = prompt(
-      'Shuma që dha klienti (€):',
-      total > 0 ? total.toFixed(2) : '',
-    );
-    if (paidStr === null) return;
-    const paid = Number(paidStr.replace(',', '.')) || 0;
-    if (paid <= 0) {
-      alert('Shuma duhet të jetë më e madhe se zero.');
-      return;
-    }
-
-    const change = paid - total;
-    if (!confirm(
-      `Totali: ${total.toFixed(2)} €\n` +
-        `Klienti dha: ${paid.toFixed(2)} €\n` +
-        `Kthim: ${change > 0 ? change.toFixed(2) : '0.00'} €\n\n` +
-        'Konfirmo pagesën dhe dorëzimin?',
-    )) {
-      return;
-    }
-
-    // përditëso porosinë si DORZIM
-    const newPay = {
-      ...(order.pay || {}),
-      m2: computeM2(order),
-      euro: total,
-      paid,
-      debt: paid < total ? Number((total - paid).toFixed(2)) : 0,
-      change: change > 0 ? Number(change.toFixed(2)) : 0,
-    };
-
-    const updatedOrder = {
-      ...order,
-      pay: newPay,
-      status: 'dorzim',
-      deliveredAt: Date.now(),
-    };
-
-    // ruaj lokalisht + online
-    try {
-      localStorage.setItem(`order_${updatedOrder.id}`, JSON.stringify(updatedOrder));
-
-      const path = `orders/${updatedOrder.id}.json`;
-      const blob =
-        typeof Blob !== 'undefined'
-          ? new Blob([JSON.stringify(updatedOrder)], { type: 'application/json' })
-          : null;
-      if (blob && supabase) {
-        await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
-      }
-    } catch (e) {
-      console.error('Gabim gjatë ruajtjes së porosisë DORZIM', e);
-    }
-
-    // regjistro ARKA
-    const arkaRecord = {
-      id: `arka_${updatedOrder.id}_${Date.now()}`,
-      orderId: updatedOrder.id,
-      code: normalizeCode(updatedOrder.client?.code),
-      name: updatedOrder.client?.name || '',
-      phone: updatedOrder.client?.phone || '',
-      paid,
-      ts: Date.now(),
-    };
-
-    saveArkaLocal(arkaRecord);
-    await saveArkaOnline(arkaRecord);
-
-    alert('Pagesa u regjistrua dhe porosia u dorëzua.');
-
-    // hiqe nga lista GATI
-    setOrders((prev) => prev.filter((o) => o.id !== row.id));
+    setPayOrder({ row, order, total });
+    setPayPaid(total > 0 ? total.toFixed(2) : '');
+    setPayMode('normal');
+    setPayNote('');
   }
+
+  function closePayPanel() {
+    setPayOrder(null);
+    setPayPaid('');
+    setPayMode('normal');
+    setPayNote('');
+  }
+
+  function chipSetExact() {
+    if (!payOrder) return;
+    setPayPaid(payOrder.total.toFixed(2));
+  }
+
+  function chipAdd(amount) {
+    const current = Number(String(payPaid).replace(',', '.')) || 0;
+    const next = current + amount;
+    setPayPaid(next.toFixed(2));
+  }
+
+  async function confirmPayOrReturn() {
+    if (!payOrder) return;
+    const { row, order, total } = payOrder;
+
+    const paidNum = Number(String(payPaid).replace(',', '.')) || 0;
+    const totalNum = Number(total) || 0;
+
+    if (payMode === 'normal') {
+      if (paidNum <= 0) {
+        alert('Shuma që dha klienti duhet të jetë më e madhe se zero.');
+        return;
+      }
+
+      const change = paidNum - totalNum;
+      const debt = totalNum - paidNum;
+
+      if (
+        !confirm(
+          `Totali: ${totalNum.toFixed(2)} €\n` +
+            `Klienti dha: ${paidNum.toFixed(2)} €\n` +
+            `Kthim: ${change > 0 ? change.toFixed(2) : '0.00'} €\n` +
+            `Borxh: ${debt > 0 ? debt.toFixed(2) : '0.00'} €\n\n` +
+            'Konfirmo pagesën dhe dorëzimin?',
+        )
+      ) {
+        return;
+      }
+
+      const newPay = {
+        ...(order.pay || {}),
+        m2: computeM2(order),
+        euro: totalNum,
+        paid: paidNum,
+        debt: debt > 0 ? Number(debt.toFixed(2)) : 0,
+        change: change > 0 ? Number(change.toFixed(2)) : 0,
+      };
+
+      const updatedOrder = {
+        ...order,
+        pay: newPay,
+        status: 'dorzim',
+        deliveredAt: Date.now(),
+        returnInfo: {
+          ...(order.returnInfo || {}),
+          active: false,
+        },
+      };
+
+      try {
+        // ruaj porosinë
+        localStorage.setItem(`order_${updatedOrder.id}`, JSON.stringify(updatedOrder));
+        const path = `orders/${updatedOrder.id}.json`;
+        const blob =
+          typeof Blob !== 'undefined'
+            ? new Blob([JSON.stringify(updatedOrder)], {
+                type: 'application/json',
+              })
+            : null;
+        if (blob && supabase) {
+          await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
+        }
+      } catch (e) {
+        console.error('Gabim gjatë ruajtjes së porosisë DORZIM', e);
+      }
+
+      // ARKA
+      const arkaRecord = {
+        id: `arka_${updatedOrder.id}_${Date.now()}`,
+        orderId: updatedOrder.id,
+        code: normalizeCode(updatedOrder.client?.code),
+        name: updatedOrder.client?.name || '',
+        phone: updatedOrder.client?.phone || '',
+        paid: paidNum,
+        ts: Date.now(),
+      };
+      saveArkaLocal(arkaRecord);
+      await saveArkaOnline(arkaRecord);
+
+      alert('Pagesa u regjistrua dhe porosia u dorëzua.');
+      setOrders((prev) => prev.filter((o) => o.id !== row.id));
+      closePayPanel();
+    } else if (payMode === 'return') {
+      // KTHIM NË PASTRIM
+      if (
+        !confirm(
+          'Kjo porosi do të kthehet në PASTRIM si KTHIM.\n' +
+            'Jeni i sigurt që dëshironi ta ktheni?',
+        )
+      ) {
+        return;
+      }
+
+      const updatedOrder = {
+        ...order,
+        status: 'pastrim',
+        returnInfo: {
+          active: true,
+          at: Date.now(),
+          note: payNote || '',
+          from: 'gati',
+        },
+      };
+
+      try {
+        localStorage.setItem(`order_${updatedOrder.id}`, JSON.stringify(updatedOrder));
+        const path = `orders/${updatedOrder.id}.json`;
+        const blob =
+          typeof Blob !== 'undefined'
+            ? new Blob([JSON.stringify(updatedOrder)], {
+                type: 'application/json',
+              })
+            : null;
+        if (blob && supabase) {
+          await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
+        }
+      } catch (e) {
+        console.error('Gabim gjatë ruajtjes së porosisë KTHIM', e);
+      }
+
+      alert('Porosia u kthye në PASTRIM si KTHIM.');
+      setOrders((prev) => prev.filter((o) => o.id !== row.id));
+      closePayPanel();
+    }
+  }
+
+  // -------------------- DERIVED FOR PANEL --------------------
+
+  const payTotal = payOrder ? Number(payOrder.total) || 0 : 0;
+  const payPaidNum = Number(String(payPaid).replace(',', '.')) || 0;
+  const payChange = payPaidNum - payTotal;
+  const payDebt = payTotal - payPaidNum;
 
   // -------------------- RENDER --------------------
 
@@ -355,8 +441,7 @@ export default function GatiPage() {
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
           <div>
-            TOTAL M²:{' '}
-            <strong>{totalM2.toFixed(2)} m²</strong>
+            TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong>
           </div>
         </div>
       </header>
@@ -389,6 +474,7 @@ export default function GatiPage() {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 6,
+                borderColor: o.isReturn ? '#f97316' : undefined,
               }}
             >
               <div
@@ -400,7 +486,7 @@ export default function GatiPage() {
                   gap: 12,
                 }}
               >
-                {/* MAJTA: kodi + emri */}
+                {/* Majtas: kodi + emri */}
                 <div
                   style={{
                     display: 'flex',
@@ -415,7 +501,7 @@ export default function GatiPage() {
                       fontSize: 14,
                       padding: '2px 8px',
                       borderRadius: 4,
-                      backgroundColor: '#16a34a',
+                      backgroundColor: o.isReturn ? '#f97316' : '#16a34a',
                       color: '#ffffff',
                       minWidth: 32,
                       textAlign: 'center',
@@ -437,6 +523,7 @@ export default function GatiPage() {
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
+                        color: o.isReturn ? '#f97316' : undefined,
                       }}
                     >
                       {o.name || 'Pa emër'}
@@ -447,17 +534,20 @@ export default function GatiPage() {
                   </div>
                 </div>
 
-                {/* DJATHTA: totali € (optional) */}
+                {/* Djathtas: totali € */}
                 <div style={{ textAlign: 'right', fontSize: 12 }}>
                   {typeof o.total === 'number' && o.total > 0 && (
                     <div>
                       <strong>{o.total.toFixed(2)} €</strong>
                     </div>
                   )}
+                  {o.isReturn && (
+                    <div style={{ fontSize: 10, color: '#f97316' }}>KTHIM</div>
+                  )}
                 </div>
               </div>
 
-              {/* RRESHTI I BUTONAVE: SMS MAJTAS, PAGUAJE DJATHTAS */}
+              {/* Rreshti i butonave: SMS majtas, PAGUAJE djathtas */}
               <div
                 style={{
                   display: 'flex',
@@ -477,9 +567,9 @@ export default function GatiPage() {
                   type="button"
                   className="btn primary"
                   style={{ flex: 1, padding: '4px 8px', fontSize: 12 }}
-                  onClick={() => handlePay(o)}
+                  onClick={() => openPayPanel(o)}
                 >
-                  💶 PAGUAJE
+                  💶 PAGUAJE / KTHIM
                 </button>
               </div>
             </div>
@@ -491,6 +581,192 @@ export default function GatiPage() {
           🏠 HOME
         </Link>
       </footer>
+
+      {/* PANELI I PAGESËS / KTHIMIT */}
+      {payOrder && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            zIndex: 50,
+          }}
+          onClick={closePayPanel}
+        >
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: 480,
+              marginBottom: 0,
+              borderRadius: '16px 16px 0 0',
+              boxShadow: '0 -6px 24px rgba(0,0,0,0.6)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="header-row"
+              style={{ justifyContent: 'space-between', marginBottom: 8 }}
+            >
+              <div>
+                <div className="card-title" style={{ marginBottom: 4 }}>
+                  {payMode === 'normal' ? 'Pagesa & dorëzimi' : 'Kthim në pastrim'}
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.9 }}>
+                  {payOrder.order.client?.name || 'Klient pa emër'} • kodi{' '}
+                  {normalizeCode(payOrder.order.client?.code)}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ padding: '2px 8px', fontSize: 11 }}
+                onClick={closePayPanel}
+              >
+                MBYLL
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                marginBottom: 12,
+              }}
+            >
+              <button
+                type="button"
+                className="btn secondary"
+                style={{
+                  flex: 1,
+                  fontSize: 11,
+                  borderColor: payMode === 'normal' ? '#22c55e' : undefined,
+                }}
+                onClick={() => setPayMode('normal')}
+              >
+                PAGUAJ
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{
+                  flex: 1,
+                  fontSize: 11,
+                  borderColor: payMode === 'return' ? '#f97316' : undefined,
+                }}
+                onClick={() => setPayMode('return')}
+              >
+                KTHE NË PASTRIM (KTHIM)
+              </button>
+            </div>
+
+            {payMode === 'normal' && (
+              <>
+                <div className="tot-line small" style={{ marginBottom: 8 }}>
+                  Totali: <strong>{payTotal.toFixed(2)} €</strong> · KLIENTI DHA:{' '}
+                  <strong>{payPaidNum.toFixed(2)} €</strong>
+                  <br />
+                  Borxh:{' '}
+                  <strong style={{ color: payDebt > 0 ? '#f97316' : undefined }}>
+                    {payDebt > 0 ? payDebt.toFixed(2) : '0.00'} €
+                  </strong>{' '}
+                  · Kthim:{' '}
+                  <strong style={{ color: payChange > 0 ? '#22c55e' : undefined }}>
+                    {payChange > 0 ? payChange.toFixed(2) : '0.00'} €
+                  </strong>
+                </div>
+
+                <div className="field-group">
+                  <label className="label">Shuma që dha klienti (€)</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={payPaid}
+                    onChange={(e) => setPayPaid(e.target.value)}
+                  />
+                  <div
+                    className="chip-row"
+                    style={{ marginTop: 8, flexWrap: 'wrap', gap: 6 }}
+                  >
+                    <button
+                      type="button"
+                      className="chip"
+                      style={{ fontSize: 11 }}
+                      onClick={chipSetExact}
+                    >
+                      SAKT ( {payTotal.toFixed(2)} € )
+                    </button>
+                    <button
+                      type="button"
+                      className="chip chip-outline"
+                      style={{ fontSize: 11 }}
+                      onClick={() => chipAdd(5)}
+                    >
+                      +5 €
+                    </button>
+                    <button
+                      type="button"
+                      className="chip chip-outline"
+                      style={{ fontSize: 11 }}
+                      onClick={() => chipAdd(10)}
+                    >
+                      +10 €
+                    </button>
+                    <button
+                      type="button"
+                      className="chip chip-outline"
+                      style={{ fontSize: 11 }}
+                      onClick={() => chipAdd(20)}
+                    >
+                      +20 €
+                    </button>
+                    <button
+                      type="button"
+                      className="chip chip-outline"
+                      style={{ fontSize: 11 }}
+                      onClick={() => chipAdd(50)}
+                    >
+                      +50 €
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {payMode === 'return' && (
+              <div className="field-group">
+                <label className="label">Arsyeja e kthimit / vërejtje</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={payNote}
+                  onChange={(e) => setPayNote(e.target.value)}
+                  placeholder="P.sh. njollat nuk janë hequr, klienti kërkon larje shtesë, problem me erë, etj."
+                />
+                <p style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
+                  Kjo shënim do të shihet në PASTRIM për këtë porosi, që stafi ta dijë
+                  pse është KTHIM.
+                </p>
+              </div>
+            )}
+
+            <div className="btn-row" style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={confirmPayOrReturn}
+              >
+                {payMode === 'normal' ? 'KONFIRMO PAGESËN & DORËZIMIN' : 'KONFIRMO KTHIMIN'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
