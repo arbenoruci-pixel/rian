@@ -2,11 +2,58 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient'; // për të ardhmen, tani nuk po e përdorim shumë
 
-const BUCKET = 'tepiha-photos';
+const LS_USERS = 'arka_users_v1';
+const LS_CURRENT_USER = 'arka_current_user_v1';
+const LS_RECORDS = 'arka_records_v1';
+const LS_DAYS = 'arka_days_v1';
+const LS_BUDGET = 'arka_company_budget_v1';
+const LS_WORKERS = 'arka_workers_v1';
 
-// ------------------------- HELPERS -------------------------
+const RECORD_TYPES = {
+  PAY_CLIENT: 'PAGESË KLIENTI',
+  EXPENSE: 'SHPENZIM',
+  ADVANCE: 'AVANS PUNTORI',
+  TOPUP: 'TOP-UP BUXHETI',
+};
+
+const SOURCES = {
+  ARKA: 'ARKA',
+  BUXHET: 'BUXHET KOMPANIE',
+  EXTERNAL: 'EKSTERNE',
+};
+
+// ----------------- HELPERS -----------------
+
+function todayKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function loadState(key, fallback) {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const val = JSON.parse(raw);
+    return val == null ? fallback : val;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveState(key, value) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
 
 function isSameDay(tsA, tsB) {
   const a = new Date(tsA);
@@ -18,799 +65,965 @@ function isSameDay(tsA, tsB) {
   );
 }
 
-function monthKeyFromTs(ts) {
-  const d = new Date(ts);
-  const y = d.getFullYear();
-  const m = `${d.getMonth() + 1}`.padStart(2, '0');
-  return `${y}-${m}`; // p.sh. 2025-12
+function generateId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1_000_000)}`;
 }
 
-// ------------------------- ARKA (PAGESAT NGA GATI) -------------------------
+// ----------------- DEFAULT DATA -----------------
 
-async function loadArkaFromSupabase() {
-  if (!supabase) return [];
-  const { data, error } = await supabase.storage.from(BUCKET).list('arka', {
-    limit: 1000,
-  });
-  if (error || !data) return [];
-
-  const list = [];
-  for (const item of data) {
-    if (!item || !item.name) continue;
-    try {
-      const { data: file, error: dErr } = await supabase.storage
-        .from(BUCKET)
-        .download(`arka/${item.name}`);
-      if (dErr || !file) continue;
-      const text = await file.text();
-      const rec = JSON.parse(text);
-      if (rec && rec.id) list.push(rec);
-    } catch (e) {
-      console.error('Error parsing arka record', item.name, e);
-    }
+function ensureDefaultUsers() {
+  let users = loadState(LS_USERS, null);
+  if (!users || !Array.isArray(users) || users.length === 0) {
+    users = [
+      {
+        id: 'admin',
+        name: 'ADMIN',
+        role: 'ADMIN',
+        pin: '1234',
+      },
+      {
+        id: 'worker1',
+        name: 'PUNTOR 1',
+        role: 'WORKER',
+        pin: '1111',
+      },
+    ];
+    saveState(LS_USERS, users);
   }
-
-  list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  return list;
+  return users;
 }
 
-function loadArkaLocal() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
+function initialBudget() {
+  const b = loadState(LS_BUDGET, null);
+  if (typeof b === 'number') return b;
+  // default: 0€ derisa ta fusësh vet
+  return 0;
 }
 
-function saveArkaLocal(list) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem('arka_list_v1', JSON.stringify(list || []));
-  } catch (e) {
-    console.error('Error saving arka_list_v1', e);
-  }
-}
+// ----------------- MAIN COMPONENT -----------------
 
-// ------------------------- WORKERS / EXPENSES / ADVANCES / DAY -------------------------
+export default function ArkaPage() {
+  const [users, setUsers] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
 
-function loadWorkersLocal() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = JSON.parse(localStorage.getItem('workers_v1') || '[]');
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveWorkersLocal(list) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem('workers_v1', JSON.stringify(list || []));
-  } catch (e) {
-    console.error('Error saving workers_v1', e);
-  }
-}
-
-function loadExpensesLocal() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = JSON.parse(localStorage.getItem('arka_expenses_v1') || '[]');
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveExpensesLocal(list) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem('arka_expenses_v1', JSON.stringify(list || []));
-  } catch (e) {
-    console.error('Error saving arka_expenses_v1', e);
-  }
-}
-
-function loadAdvancesLocal() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = JSON.parse(localStorage.getItem('worker_advances_v1') || '[]');
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveAdvancesLocal(list) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem('worker_advances_v1', JSON.stringify(list || []));
-  } catch (e) {
-    console.error('Error saving worker_advances_v1', e);
-  }
-}
-
-function loadDayOpenLocal() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem('arka_day_open_v1');
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function saveDayOpenLocal(rec) {
-  if (typeof window === 'undefined') return;
-  try {
-    if (!rec) {
-      localStorage.removeItem('arka_day_open_v1');
-    } else {
-      localStorage.setItem('arka_day_open_v1', JSON.stringify(rec));
-    }
-  } catch (e) {
-    console.error('Error saving arka_day_open_v1', e);
-  }
-}
-
-// ------------------------- FACTORY RESET -------------------------
-
-async function factoryResetAll(setRecords, setWorkers, setExpenses, setAdvances, setDayOpen) {
-  const ok = confirm(
-    'Factory reset: do të fshihen të gjitha porositë, pagesat, puntorët dhe cache lokale. Vazhdosh?'
-  );
-  if (!ok) return;
-
-  try {
-    if (supabase) {
-      const folders = ['orders', 'arka'];
-      for (const folder of folders) {
-        const { data, error } = await supabase.storage.from(BUCKET).list(folder, {
-          limit: 1000,
-        });
-        if (!error && data && data.length > 0) {
-          const paths = data.map((item) => `${folder}/${item.name}`);
-          if (paths.length > 0) {
-            await supabase.storage.from(BUCKET).remove(paths);
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.error('Error during factory reset Supabase', e);
-  }
-
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.clear();
-    } catch (e) {
-      console.error('Error clearing localStorage', e);
-    }
-  }
-
-  setRecords([]);
-  setWorkers([]);
-  setExpenses([]);
-  setAdvances([]);
-  setDayOpen(null);
-
-  alert('Sistemi u resetua (factory reset). Tani mund të fillosh nga zero.');
-}
-
-// ------------------------- COMPONENT -------------------------
-
-export default function Page() {
-  const [records, setRecords] = useState([]);
+  const [records, setRecords] = useState([]); // të gjitha hyrje/daljet
+  const [days, setDays] = useState([]); // ditët me opening/closing
+  const [companyBudget, setCompanyBudget] = useState(0);
   const [workers, setWorkers] = useState([]);
-  const [expenses, setExpenses] = useState([]);
-  const [advances, setAdvances] = useState([]);
-  const [dayOpen, setDayOpen] = useState(null);
 
   const [loading, setLoading] = useState(true);
+  const [loginPin, setLoginPin] = useState('');
+  const [loginError, setLoginError] = useState('');
 
-  // Form state për hapjen e ditës
-  const [openAmount, setOpenAmount] = useState('');
-
-  // Form state për shpenzime
-  const [expLabel, setExpLabel] = useState('');
-  const [expAmount, setExpAmount] = useState('');
-
-  // Form state për puntorë
-  const [workerName, setWorkerName] = useState('');
-  const [workerSalary, setWorkerSalary] = useState('');
-
-  // Form state për avans puntori
-  const [selectedWorkerId, setSelectedWorkerId] = useState('');
+  // forma për ditën
+  const [openingAmount, setOpeningAmount] = useState('');
+  // forma shpenzim
+  const [expenseAmount, setExpenseAmount] = useState('');
+  const [expenseSource, setExpenseSource] = useState('ARKA');
+  const [expenseCategory, setExpenseCategory] = useState('');
+  const [expenseNote, setExpenseNote] = useState('');
+  // forma avans
   const [advanceAmount, setAdvanceAmount] = useState('');
+  const [advanceSource, setAdvanceSource] = useState('ARKA');
+  const [advanceWorkerId, setAdvanceWorkerId] = useState('');
   const [advanceNote, setAdvanceNote] = useState('');
+  // forma topup
+  const [topupAmount, setTopupAmount] = useState('');
+  const [topupFrom, setTopupFrom] = useState('');
+  const [topupNote, setTopupNote] = useState('');
 
-  // Muaji për payroll
-  const [selectedMonth, setSelectedMonth] = useState(() => monthKeyFromTs(Date.now()));
+  // forma worker
+  const [newWorkerName, setNewWorkerName] = useState('');
+  const [newWorkerSalary, setNewWorkerSalary] = useState('');
 
-  async function refreshArka() {
-    try {
-      setLoading(true);
-      let online = [];
-      try {
-        online = await loadArkaFromSupabase();
-      } catch (e) {
-        console.error('Error loading ARKA from Supabase, fallback local', e);
-      }
-      if (online && online.length > 0) {
-        setRecords(online);
-        saveArkaLocal(online);
-      } else {
-        setRecords(loadArkaLocal());
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
+  // forma buxhet
+  const [budgetInput, setBudgetInput] = useState('');
+
+  // ----------------- LOAD INITIAL -----------------
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    refreshArka();
-    setWorkers(loadWorkersLocal());
-    setExpenses(loadExpensesLocal());
-    setAdvances(loadAdvancesLocal());
-    setDayOpen(loadDayOpenLocal());
+
+    const u = ensureDefaultUsers();
+    setUsers(u);
+
+    const cur = loadState(LS_CURRENT_USER, null);
+    setCurrentUser(cur);
+
+    const recs = loadState(LS_RECORDS, []);
+    setRecords(Array.isArray(recs) ? recs : []);
+
+    const d = loadState(LS_DAYS, []);
+    setDays(Array.isArray(d) ? d : []);
+
+    const b = initialBudget();
+    setCompanyBudget(b);
+    setBudgetInput(String(b || ''));
+
+    const ws = loadState(LS_WORKERS, []);
+    setWorkers(Array.isArray(ws) ? ws : []);
+
+    setLoading(false);
   }, []);
 
-  // ------------------------- DERIVED VALUES -------------------------
+  // persist
+  useEffect(() => {
+    if (!loading) saveState(LS_RECORDS, records);
+  }, [records, loading]);
 
-  const todayTotalPaid = useMemo(() => {
-    const now = Date.now();
-    return records
-      .filter((r) => r.ts && isSameDay(r.ts, now))
-      .reduce((sum, r) => sum + (Number(r.paid) || 0), 0);
-  }, [records]);
+  useEffect(() => {
+    if (!loading) saveState(LS_DAYS, days);
+  }, [days, loading]);
 
-  const todayExpenses = useMemo(() => {
-    const now = Date.now();
-    return expenses.filter((e) => e.ts && isSameDay(e.ts, now));
-  }, [expenses]);
+  useEffect(() => {
+    if (!loading) saveState(LS_BUDGET, companyBudget);
+  }, [companyBudget, loading]);
 
-  const todayExpensesSum = useMemo(() => {
-    return todayExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  }, [todayExpenses]);
+  useEffect(() => {
+    if (!loading) saveState(LS_WORKERS, workers);
+  }, [workers, loading]);
 
-  const todayNetCash = useMemo(() => {
-    const base = Number(dayOpen?.amount || 0);
-    return base + todayTotalPaid - todayExpensesSum;
-  }, [dayOpen, todayTotalPaid, todayExpensesSum]);
+  useEffect(() => {
+    if (!loading) saveState(LS_CURRENT_USER, currentUser);
+  }, [currentUser, loading]);
 
+  const today = todayKey();
+  const todayDay = useMemo(
+    () => days.find((d) => d.dayKey === today) || null,
+    [days, today],
+  );
+
+  const todaysRecords = useMemo(
+    () => records.filter((r) => r.dayKey === today),
+    [records, today],
+  );
+
+  const todayTotals = useMemo(() => {
+    if (!todayDay) return { in: 0, out: 0, net: 0, closing: 0 };
+    let inSum = 0;
+    let outSum = 0;
+    for (const r of todaysRecords) {
+      if (r.direction === 'IN' && r.source === 'ARKA') inSum += Number(r.amount) || 0;
+      if (r.direction === 'OUT' && r.source === 'ARKA') outSum += Number(r.amount) || 0;
+    }
+    const net = inSum - outSum;
+    const closing = (Number(todayDay.openingCash) || 0) + net;
+    return {
+      in: Number(inSum.toFixed(2)),
+      out: Number(outSum.toFixed(2)),
+      net: Number(net.toFixed(2)),
+      closing: Number(closing.toFixed(2)),
+    };
+  }, [todaysRecords, todayDay]);
+
+  // payroll per muaj
   const payrollSummary = useMemo(() => {
-    const month = selectedMonth || monthKeyFromTs(Date.now());
-    const perWorker = workers.map((w) => {
-      const salary = Number(w.salary) || 0;
-      const totalAdvForMonth = advances
-        .filter(
-          (a) =>
-            a.workerId === w.id &&
-            monthKeyFromTs(a.ts || Date.now()) === month
-        )
-        .reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
-      const toPay = salary - totalAdvForMonth;
-      return {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const isSameMonth = (ts) => {
+      const d = new Date(ts);
+      return (
+        d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+      );
+    };
+
+    const map = {};
+    for (const w of workers) {
+      map[w.id] = {
         worker: w,
+        advances: 0,
+      };
+    }
+
+    for (const r of records) {
+      if (r.type === 'ADVANCE' && r.workerId && isSameMonth(r.ts)) {
+        if (!map[r.workerId]) continue;
+        map[r.workerId].advances += Number(r.amount) || 0;
+      }
+    }
+
+    const list = Object.values(map).map((entry) => {
+      const salary = Number(entry.worker.salary) || 0;
+      const advances = Number(entry.advances.toFixed(2));
+      const remaining = Number((salary - advances).toFixed(2));
+      return {
+        id: entry.worker.id,
+        name: entry.worker.name,
         salary,
-        totalAdvForMonth,
-        toPay,
+        advances,
+        remaining,
       };
     });
-    return perWorker;
-  }, [workers, advances, selectedMonth]);
 
-  // ------------------------- ACTIONS -------------------------
+    return { ym, list };
+  }, [workers, records]);
 
-  function handleOpenDay() {
-    const amt = Number(openAmount || 0);
-    const now = Date.now();
-    const rec = {
-      date: monthKeyFromTs(now) + '-DAY', // thjesht simbolik
-      ts: now,
-      amount: amt,
+  // ----------------- AUTH -----------------
+
+  function handleLogin(e) {
+    e.preventDefault();
+    setLoginError('');
+    const pin = (loginPin || '').trim();
+    if (!pin) {
+      setLoginError('Shkruaj PIN-in.');
+      return;
+    }
+    const u = users.find((u) => String(u.pin) === pin);
+    if (!u) {
+      setLoginError('PIN i pasaktë.');
+      return;
+    }
+    setCurrentUser(u);
+    setLoginPin('');
+  }
+
+  function handleLogout() {
+    setCurrentUser(null);
+  }
+
+  const isAdmin = currentUser && currentUser.role === 'ADMIN';
+
+  // ----------------- ACTIONS -----------------
+
+  function openDay() {
+    if (!isAdmin) {
+      alert('Vetëm ADMIN mund ta hapë ditën.');
+      return;
+    }
+    const v = Number(openingAmount);
+    if (Number.isNaN(v) || v < 0) {
+      alert('Shkruaj një shumë të vlefshme për hapjen e ditës.');
+      return;
+    }
+    if (todayDay) {
+      alert('Dita është e hapur tashmë.');
+      return;
+    }
+    const day = {
+      dayKey: today,
+      openingCash: v,
+      openedBy: currentUser?.name || 'ADMIN',
+      tsOpen: Date.now(),
       closed: false,
     };
-    setDayOpen(rec);
-    saveDayOpenLocal(rec);
-    alert('Dita u hap me sukses.');
+    setDays((prev) => [...prev, day]);
+    setOpeningAmount('');
   }
 
-  function handleCloseDay() {
-    if (!dayOpen) {
-      alert('S’ka ditë të hapur.');
+  function closeDay() {
+    if (!isAdmin) {
+      alert('Vetëm ADMIN mund ta mbyllë ditën.');
       return;
     }
-    const now = Date.now();
-    const updated = {
-      ...dayOpen,
+    if (!todayDay) {
+      alert('Së pari hape ditën.');
+      return;
+    }
+    if (todayDay.closed) {
+      alert('Dita është e mbyllur tashmë.');
+      return;
+    }
+
+    const { closing } = todayTotals;
+    const ok = confirm(
+      `Do ta mbyllësh ditën me CASH NË ARKË: ${closing.toFixed(
+        2,
+      )} €.\nKjo shumë do t'i shtohet buxhetit të kompanisë.\nVazhdosh?`,
+    );
+    if (!ok) return;
+
+    const newDay = {
+      ...todayDay,
       closed: true,
-      closedAt: now,
-      closedNet: todayNetCash,
+      closingCash: closing,
+      tsClose: Date.now(),
     };
-    setDayOpen(updated);
-    saveDayOpenLocal(updated);
-    alert(
-      `Dita u mbyll.\nCash neto: ${todayNetCash.toFixed(2)} €`
-    );
+    setDays((prev) => prev.map((d) => (d.dayKey === today ? newDay : d)));
+    setCompanyBudget((prev) => Number((prev + closing).toFixed(2)));
   }
 
-  function handleAddExpense(isWorkerExpense = false, workerId = null, noteOverride = null, amountOverride = null) {
-    const now = Date.now();
-
-    let label = expLabel.trim();
-    let amount = Number(expAmount || 0);
-
-    if (isWorkerExpense) {
-      amount = Number(amountOverride || 0);
-      const w = workers.find((w) => w.id === workerId);
-      const workerNameSafe = w ? w.name : 'Puntor';
-      label = noteOverride || `Avans ${workerNameSafe}`;
+  function addExpense() {
+    if (!todayDay) {
+      alert('Së pari hape ditën në ARKË.');
+      return;
     }
-
-    if (!label || amount <= 0) {
-      if (!isWorkerExpense) {
-        alert('Shëno përshkrimin dhe shumën e shpenzimit.');
-      }
+    const amt = Number(expenseAmount);
+    if (Number.isNaN(amt) || amt <= 0) {
+      alert('Shkruaj shumën e shpenzimit.');
+      return;
+    }
+    const src = expenseSource;
+    if (!['ARKA', 'BUXHET'].includes(src)) {
+      alert('Zgjidh burimin (ARKA ose BUXHET).');
       return;
     }
 
-    const newRec = {
-      id: `exp_${now}_${Math.random().toString(16).slice(2)}`,
-      ts: now,
-      label,
-      amount,
-      type: isWorkerExpense ? 'worker' : 'normal',
-      workerId: isWorkerExpense ? workerId : null,
+    const rec = {
+      id: generateId('exp'),
+      type: 'EXPENSE',
+      dayKey: today,
+      amount: amt,
+      direction: 'OUT',
+      source: src,
+      category: expenseCategory || '',
+      note: expenseNote || '',
+      byUser: currentUser?.name || '',
+      ts: Date.now(),
     };
 
-    const updated = [newRec, ...expenses];
-    setExpenses(updated);
-    saveExpensesLocal(updated);
+    setRecords((prev) => [rec, ...prev]);
 
-    if (!isWorkerExpense) {
-      setExpLabel('');
-      setExpAmount('');
+    if (src === 'BUXHET') {
+      setCompanyBudget((prev) => Number((prev - amt).toFixed(2)));
     }
+
+    setExpenseAmount('');
+    setExpenseCategory('');
+    setExpenseNote('');
   }
 
-  function handleAddWorker() {
-    const name = workerName.trim();
-    const salary = Number(workerSalary || 0);
-    if (!name || salary <= 0) {
-      alert('Shkruaj emrin e puntorit dhe pagën mujore (>0).');
+  function addAdvance() {
+    if (!todayDay) {
+      alert('Së pari hape ditën në ARKË.');
       return;
     }
-    const now = Date.now();
-    const newWorker = {
-      id: `w_${now}_${Math.random().toString(16).slice(2)}`,
-      name,
-      salary,
-      active: true,
-    };
-    const updated = [...workers, newWorker];
-    setWorkers(updated);
-    saveWorkersLocal(updated);
-    setWorkerName('');
-    setWorkerSalary('');
-  }
-
-  function handleToggleWorkerActive(id) {
-    const updated = workers.map((w) =>
-      w.id === id ? { ...w, active: !w.active } : w
-    );
-    setWorkers(updated);
-    saveWorkersLocal(updated);
-  }
-
-  function handleAddAdvance() {
-    if (!selectedWorkerId) {
-      alert('Zgjedh puntorin.');
+    const amt = Number(advanceAmount);
+    if (Number.isNaN(amt) || amt <= 0) {
+      alert('Shkruaj shumën e avansit.');
       return;
     }
-    const amount = Number(advanceAmount || 0);
-    if (amount <= 0) {
-      alert('Shkruaj shumën e avansit (>0).');
+    if (!advanceWorkerId) {
+      alert('Zgjidh puntorin.');
+      return;
+    }
+    const src = advanceSource;
+    if (!['ARKA', 'BUXHET'].includes(src)) {
+      alert('Zgjidh burimin (ARKA ose BUXHET).');
       return;
     }
 
-    const now = Date.now();
-    const note = advanceNote.trim() || 'Avans';
-
-    // 1) Regjistrojmë avansin te tabela worker_advances_v1
-    const newAdv = {
-      id: `adv_${now}_${Math.random().toString(16).slice(2)}`,
-      workerId: selectedWorkerId,
-      amount,
-      note,
-      ts: now,
+    const rec = {
+      id: generateId('adv'),
+      type: 'ADVANCE',
+      dayKey: today,
+      amount: amt,
+      direction: 'OUT',
+      source: src,
+      workerId: advanceWorkerId,
+      note: advanceNote || '',
+      byUser: currentUser?.name || '',
+      ts: Date.now(),
     };
-    const updatedAdv = [newAdv, ...advances];
-    setAdvances(updatedAdv);
-    saveAdvancesLocal(updatedAdv);
 
-    // 2) Shtojmë edhe si shpenzim në ARKA
-    handleAddExpense(true, selectedWorkerId, note, amount);
+    setRecords((prev) => [rec, ...prev]);
+
+    if (src === 'BUXHET') {
+      setCompanyBudget((prev) => Number((prev - amt).toFixed(2)));
+    }
 
     setAdvanceAmount('');
+    setAdvanceWorkerId('');
     setAdvanceNote('');
-    alert('Avansi u regjistrua dhe u llogarit si shpenzim.');
   }
 
-  function handleChangeMonth(e) {
-    setSelectedMonth(e.target.value);
+  function addTopup() {
+    if (!todayDay) {
+      alert('Së pari hape ditën në ARKË.');
+      return;
+    }
+    const amt = Number(topupAmount);
+    if (Number.isNaN(amt) || amt <= 0) {
+      alert('Shkruaj shumën e top-up.');
+      return;
+    }
+    const from = (topupFrom || '').trim();
+    if (!from) {
+      alert('Shkruaj kush i dha paratë (p.sh. ARBEN).');
+      return;
+    }
+
+    const rec = {
+      id: generateId('top'),
+      type: 'TOPUP',
+      dayKey: today,
+      amount: amt,
+      direction: 'IN',
+      source: 'EXTERNAL',
+      note: `${from}: ${topupNote || ''}`,
+      byUser: currentUser?.name || '',
+      ts: Date.now(),
+    };
+
+    setRecords((prev) => [rec, ...prev]);
+
+    setTopupAmount('');
+    setTopupFrom('');
+    setTopupNote('');
   }
 
-  // ------------------------- RENDER -------------------------
+  function addWorker() {
+    const name = (newWorkerName || '').trim();
+    if (!name) {
+      alert('Shkruaj emrin e puntorit.');
+      return;
+    }
+    const sal = Number(newWorkerSalary);
+    if (Number.isNaN(sal) || sal < 0) {
+      alert('Shkruaj pagën mujore (mund edhe 0).');
+      return;
+    }
+    const w = {
+      id: generateId('w'),
+      name,
+      salary: sal,
+    };
+    setWorkers((prev) => [...prev, w]);
+    setNewWorkerName('');
+    setNewWorkerSalary('');
+  }
 
-  const today = new Date();
-  const thisMonthKey = monthKeyFromTs(Date.now());
-  const nextMonths = [0, 1, 2].map((offset) => {
-    const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
-    const key = monthKeyFromTs(d.getTime());
-    return key;
-  });
+  function updateBudget() {
+    const v = Number(budgetInput);
+    if (Number.isNaN(v) || v < 0) {
+      alert('Shkruaj buxhet valid.');
+      return;
+    }
+    setCompanyBudget(v);
+  }
+
+  // ----------------- RESET -----------------
+
+  function handleReset() {
+    if (!isAdmin) {
+      alert('Vetëm ADMIN mund ta bëjë reset.');
+      return;
+    }
+    const pin = prompt('Shkruaj PIN-in ADMIN për RESET:');
+    if (!pin || !currentUser || String(currentUser.pin) !== String(pin)) {
+      alert('PIN i pasaktë. RESET u anullua.');
+      return;
+    }
+
+    const choice = prompt(
+      'Zgjedh çka don me resetu:\n' +
+        '1 = FACTORY RESET (krejt sistemi)\n' +
+        '2 = VETËM ARKA (pagesa, shpenzime, avansa, ditë)\n' +
+        '3 = VETËM DITËN E SOTME\n' +
+        '4 = VETËM LOGIN & PREFERENCA',
+    );
+    if (!choice) return;
+
+    if (choice === '1') {
+      const ok = confirm(
+        'FACTORY RESET: do të fshihen të gjitha porositë, ARKA, buxhet, puntorë, etj.\nJe i sigurt?',
+      );
+      if (!ok) return;
+
+      // fshi krejt localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.clear();
+      }
+      setRecords([]);
+      setDays([]);
+      setCompanyBudget(0);
+      setWorkers([]);
+      setCurrentUser(null);
+      setUsers(ensureDefaultUsers());
+      alert('FACTORY RESET u krye. Sistemi u kthye në zero.');
+      return;
+    }
+
+    if (choice === '2') {
+      const ok = confirm(
+        'RESET ARKA: do të fshihen pagesat, shpenzimet, avanset dhe ditët në ARKA.\nPorositë nuk preken.\nJe i sigurt?',
+      );
+      if (!ok) return;
+
+      setRecords([]);
+      setDays([]);
+      saveState(LS_RECORDS, []);
+      saveState(LS_DAYS, []);
+      alert('ARKA u resetua. Porositë mbetën të paprekura.');
+      return;
+    }
+
+    if (choice === '3') {
+      if (!todayDay) {
+        alert('Nuk ka ditë të hapur për sot.');
+        return;
+      }
+      const ok = confirm(
+        'RESET VETËM DITËN E SOTME: do të fshihen hyrje/daljet e ditës së sotme.\nJe i sigurt?',
+      );
+      if (!ok) return;
+
+      setRecords((prev) => prev.filter((r) => r.dayKey !== today));
+      setDays((prev) => prev.filter((d) => d.dayKey !== today));
+      alert('Dita e sotme në ARKA u fshi.');
+      return;
+    }
+
+    if (choice === '4') {
+      const ok = confirm(
+        'RESET LOGIN & PREFERENCA: do të fshihen user-i aktual dhe disa preferenca, por ARKA dhe porositë nuk preken.\nJe i sigurt?',
+      );
+      if (!ok) return;
+
+      setCurrentUser(null);
+      saveState(LS_CURRENT_USER, null);
+      alert('Login u resetua. Duhet të hysh përsëri me PIN.');
+      return;
+    }
+
+    alert('Opsion i panjohur. RESET u anullua.');
+  }
+
+  // ----------------- RENDER -----------------
+
+  if (loading) {
+    return (
+      <div className="wrap">
+        <header className="header-row">
+          <h1 className="title">ARKA</h1>
+        </header>
+        <p>Duke i lexuar të dhënat...</p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="wrap" style={{ maxWidth: 420, margin: '0 auto' }}>
+        <header className="header-row">
+          <h1 className="title">ARKA</h1>
+          <div className="subtitle">HYRJE ME PIN</div>
+        </header>
+        <section className="card">
+          <h2 className="card-title">Vendos PIN</h2>
+          <form onSubmit={handleLogin}>
+            <div className="field-group">
+              <label className="label">PIN</label>
+              <input
+                className="input"
+                type="password"
+                value={loginPin}
+                onChange={(e) => setLoginPin(e.target.value)}
+                placeholder="p.sh. 1234"
+              />
+            </div>
+            {loginError && (
+              <p style={{ color: '#f97373', fontSize: 12, marginTop: 4 }}>{loginError}</p>
+            )}
+            <div className="btn-row" style={{ marginTop: 12 }}>
+              <button type="submit" className="btn primary">
+                HYR NË ARKË
+              </button>
+            </div>
+          </form>
+          <p style={{ fontSize: 11, opacity: 0.7, marginTop: 12 }}>
+            DEFAULT: ADMIN PIN <strong>1234</strong> • PUNTOR PIN <strong>1111</strong>
+          </p>
+        </section>
+
+        <footer className="footer-bar">
+          <Link className="btn secondary" href="/">
+            🏠 HOME
+          </Link>
+        </footer>
+      </div>
+    );
+  }
 
   return (
-    <div className="wrap" style={{ paddingBottom: '80px' }}>
+    <div className="wrap">
       <header className="header-row">
         <div>
           <h1 className="title">ARKA</h1>
-          <div className="subtitle">Pagesat, shpenzimet & PAYROLL</div>
+          <div className="subtitle">
+            {currentUser.name} ({currentUser.role})
+          </div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
           <div>
-            SOT PAGUAN NGA GATI: <strong>{todayTotalPaid.toFixed(2)} €</strong>
+            BUXHET KOMPANIE:{' '}
+            <strong>{Number(companyBudget || 0).toFixed(2)} €</strong>
           </div>
-          <div>
-            SHPENZIME SOT: <strong>{todayExpensesSum.toFixed(2)} €</strong>
+          {todayDay ? (
+            <div>
+              HAPUR SOT:{' '}
+              <strong>{Number(todayDay.openingCash || 0).toFixed(2)} €</strong>
+            </div>
+          ) : (
+            <div style={{ opacity: 0.8 }}>Dita e sotme nuk është hapur ende.</div>
+          )}
+          <div style={{ marginTop: 4, fontSize: 11 }}>
+            SOT ARKA: hyrje{' '}
+            <strong>{todayTotals.in.toFixed(2)} €</strong> · dalje{' '}
+            <strong>{todayTotals.out.toFixed(2)} €</strong> ·
+            neto <strong>{todayTotals.net.toFixed(2)} €</strong> ·
+            mbyllje <strong>{todayTotals.closing.toFixed(2)} €</strong>
           </div>
-          <div>
-            CASH NETO SOT: <strong>{todayNetCash.toFixed(2)} €</strong>
+          <div style={{ marginTop: 8, display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ padding: '4px 8px', fontSize: 10 }}
+                onClick={handleReset}
+              >
+                RESET
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn secondary"
+              style={{ padding: '4px 8px', fontSize: 10 }}
+              onClick={handleLogout}
+            >
+              DALJE
+            </button>
           </div>
-          <button
-            type="button"
-            className="btn secondary"
-            style={{ marginTop: 8, padding: '4px 8px', fontSize: 10 }}
-            onClick={() =>
-              factoryResetAll(
-                setRecords,
-                setWorkers,
-                setExpenses,
-                setAdvances,
-                setDayOpen
-              )
-            }
-          >
-            RESET SISTEMIN
-          </button>
         </div>
       </header>
 
-      {/* HAP / MBYLL DITËN */}
+      {/* DITA E SOTME */}
       <section className="card">
-        <h2 className="card-title">DITA E SOTME</h2>
-        {dayOpen && !isSameDay(dayOpen.ts, Date.now()) && (
-          <p style={{ fontSize: 12, color: '#f97316' }}>
-            Ditë e hapur më herët ({new Date(dayOpen.ts).toLocaleDateString('sq-AL')}). 
-            Mund të mbyllet ose të hapet e re duke bërë reset total.
-          </p>
-        )}
-        {!dayOpen && (
-          <div className="field-group">
-            <label className="label">HAPE DITËN ME CASH</label>
+        <h2 className="card-title">DITA E SOTME ({today})</h2>
+        {!todayDay && isAdmin && (
+          <div>
+            <p style={{ fontSize: 12, opacity: 0.8 }}>
+              Hape ditën duke vendosur sa cash ke në arkë në mëngjes.
+            </p>
             <div className="row">
               <input
                 className="input small"
                 type="number"
                 min="0"
                 step="0.1"
-                placeholder="p.sh. 50 €"
-                value={openAmount}
-                onChange={(e) => setOpenAmount(e.target.value)}
+                value={openingAmount}
+                onChange={(e) => setOpeningAmount(e.target.value)}
+                placeholder="p.sh. 100 €"
               />
-              <button
-                type="button"
-                className="btn primary"
-                onClick={handleOpenDay}
-              >
+              <button type="button" className="btn primary" onClick={openDay}>
                 HAP DITËN
               </button>
             </div>
           </div>
         )}
-        {dayOpen && (
-          <div style={{ fontSize: 12, marginTop: 4 }}>
-            <div>
-              HAPUR ME: <strong>{Number(dayOpen.amount || 0).toFixed(2)} €</strong> në{' '}
-              {new Date(dayOpen.ts).toLocaleDateString('sq-AL')}{' '}
-              {new Date(dayOpen.ts).toLocaleTimeString('sq-AL', {
+
+        {todayDay && (
+          <div>
+            <p style={{ fontSize: 12, opacity: 0.8 }}>
+              Dita është hapur nga {todayDay.openedBy} në{' '}
+              {new Date(todayDay.tsOpen).toLocaleTimeString('sq-AL', {
                 hour: '2-digit',
                 minute: '2-digit',
               })}
-            </div>
-            {dayOpen.closed ? (
-              <div style={{ marginTop: 4, color: '#22c55e' }}>
-                DITA U MBYLL NË:{' '}
-                {new Date(dayOpen.closedAt || Date.now()).toLocaleTimeString('sq-AL', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}{' '}
-                • CASH NETO: <strong>{Number(dayOpen.closedNet || 0).toFixed(2)} €</strong>
+              .
+            </p>
+            <div className="row" style={{ marginTop: 4, gap: 8, flexWrap: 'wrap' }}>
+              <div className="tot-line small">
+                CASH START: <strong>{todayDay.openingCash.toFixed(2)} €</strong>
               </div>
-            ) : (
-              <button
-                type="button"
-                className="btn secondary"
-                style={{ marginTop: 8 }}
-                onClick={handleCloseDay}
-              >
-                MBYLLE DITËN
-              </button>
+              <div className="tot-line small">
+                NETO SOT (ARKA): <strong>{todayTotals.net.toFixed(2)} €</strong>
+              </div>
+              <div className="tot-line small">
+                CASH NË FUND DITE:{' '}
+                <strong>{todayTotals.closing.toFixed(2)} €</strong>
+              </div>
+            </div>
+            {isAdmin && !todayDay.closed && (
+              <div className="btn-row" style={{ marginTop: 8 }}>
+                <button type="button" className="btn secondary" onClick={closeDay}>
+                  MBYLLE DITËN & TRANSFERO NË BUXHET
+                </button>
+              </div>
+            )}
+            {todayDay.closed && (
+              <p style={{ marginTop: 8, fontSize: 12, color: '#22c55e' }}>
+                Dita është mbyllur. CASH i ditës u shtua në buxhetin e kompanisë.
+              </p>
             )}
           </div>
         )}
       </section>
 
-      {/* LISTA E PAGESAVE NGA GATI */}
-      <section className="card">
-        <h2 className="card-title">PAGESAT NGA GATI</h2>
-        {loading && <p>Duke i lexuar të dhënat...</p>}
-        {!loading && records.length === 0 && (
-          <p>Nuk ka ende pagesa të regjistruara nga GATI.</p>
-        )}
+      {/* SHPENZIME & AVANSA */}
+      {todayDay && (
+        <section className="card">
+          <h2 className="card-title">SHPENZIME & AVANSA</h2>
 
-        {!loading &&
-          records.map((r) => (
-            <div key={r.id} className="home-btn">
-              <div className="home-btn-main">
-                <div>
-                  <div style={{ fontWeight: 700 }}>
-                    {r.code ? `KODI: ${r.code}` : 'PA KOD'}
-                  </div>
-                  <div style={{ fontSize: 12 }}>
-                    {r.name || 'Klient pa emër'} • {(r.phone || '').trim()}
-                  </div>
+          {/* EXPENSE */}
+          <div className="field-group">
+            <label className="label">Shpenzim i ri</label>
+            <div className="row">
+              <input
+                className="input small"
+                type="number"
+                min="0"
+                step="0.1"
+                value={expenseAmount}
+                onChange={(e) => setExpenseAmount(e.target.value)}
+                placeholder="Shuma €"
+              />
+              <select
+                className="input small"
+                value={expenseSource}
+                onChange={(e) => setExpenseSource(e.target.value)}
+              >
+                <option value="ARKA">Nga ARKA</option>
+                <option value="BUXHET">Nga BUXHETI</option>
+              </select>
+            </div>
+            <div className="row" style={{ marginTop: 4 }}>
+              <input
+                className="input small"
+                type="text"
+                value={expenseCategory}
+                onChange={(e) => setExpenseCategory(e.target.value)}
+                placeholder="Kategoria (p.sh. naftë, qira...)"
+              />
+              <input
+                className="input small"
+                type="text"
+                value={expenseNote}
+                onChange={(e) => setExpenseNote(e.target.value)}
+                placeholder="Shënim opsional"
+              />
+            </div>
+            <div className="btn-row" style={{ marginTop: 4 }}>
+              <button type="button" className="btn secondary" onClick={addExpense}>
+                SHTO SHPENZIM
+              </button>
+            </div>
+          </div>
+
+          {/* ADVANCE */}
+          <div className="field-group" style={{ marginTop: 12 }}>
+            <label className="label">Avans për puntor</label>
+            <div className="row">
+              <input
+                className="input small"
+                type="number"
+                min="0"
+                step="0.1"
+                value={advanceAmount}
+                onChange={(e) => setAdvanceAmount(e.target.value)}
+                placeholder="Shuma €"
+              />
+              <select
+                className="input small"
+                value={advanceSource}
+                onChange={(e) => setAdvanceSource(e.target.value)}
+              >
+                <option value="ARKA">Nga ARKA</option>
+                <option value="BUXHET">Nga BUXHETI</option>
+              </select>
+            </div>
+            <div className="row" style={{ marginTop: 4 }}>
+              <select
+                className="input small"
+                value={advanceWorkerId}
+                onChange={(e) => setAdvanceWorkerId(e.target.value)}
+              >
+                <option value="">Zgjedh puntorin</option>
+                {workers.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="input small"
+                type="text"
+                value={advanceNote}
+                onChange={(e) => setAdvanceNote(e.target.value)}
+                placeholder="Shënim (p.sh. kafe, buke...)"
+              />
+            </div>
+            <div className="btn-row" style={{ marginTop: 4 }}>
+              <button type="button" className="btn secondary" onClick={addAdvance}>
+                SHTO AVANS
+              </button>
+            </div>
+          </div>
+
+          {/* TOPUP */}
+          <div className="field-group" style={{ marginTop: 12 }}>
+            <label className="label">Top-up për kompani (dikush i jep para)</label>
+            <div className="row">
+              <input
+                className="input small"
+                type="number"
+                min="0"
+                step="0.1"
+                value={topupAmount}
+                onChange={(e) => setTopupAmount(e.target.value)}
+                placeholder="Shuma €"
+              />
+              <input
+                className="input small"
+                type="text"
+                value={topupFrom}
+                onChange={(e) => setTopupFrom(e.target.value)}
+                placeholder="Kush i dha? (p.sh. Arben)"
+              />
+            </div>
+            <input
+              className="input"
+              style={{ marginTop: 4 }}
+              type="text"
+              value={topupNote}
+              onChange={(e) => setTopupNote(e.target.value)}
+              placeholder="Shënim opsional (p.sh. hua për 1 muaj)"
+            />
+            <div className="btn-row" style={{ marginTop: 4 }}>
+              <button type="button" className="btn secondary" onClick={addTopup}>
+                SHTO TOP-UP
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* LISTA E REGJISTRIMEVE TË DITËS */}
+      <section className="card">
+        <h2 className="card-title">Lëvizjet e ditës</h2>
+        {todaysRecords.length === 0 && (
+          <p style={{ fontSize: 12, opacity: 0.8 }}>Nuk ka ende lëvizje për sot.</p>
+        )}
+        {todaysRecords.map((r) => (
+          <div key={r.id} className="home-btn" style={{ marginBottom: 6 }}>
+            <div className="home-btn-main">
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 12 }}>
+                  {RECORD_TYPES[r.type] || r.type}{' '}
+                  <span style={{ fontSize: 10, opacity: 0.7 }}>
+                    • {SOURCES[r.source] || r.source}
+                  </span>
                 </div>
-                <div style={{ textAlign: 'right', fontSize: 12 }}>
-                  <div>
-                    <strong>{(Number(r.paid) || 0).toFixed(2)} €</strong>
-                  </div>
-                  <div>
-                    {new Date(r.ts || Date.now()).toLocaleTimeString('sq-AL', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </div>
+                <div style={{ fontSize: 11, opacity: 0.85 }}>
+                  {r.type === 'ADVANCE' && r.workerId && (
+                    <>
+                      Puntor:{' '}
+                      {workers.find((w) => w.id === r.workerId)?.name || '??'} •{' '}
+                    </>
+                  )}
+                  {r.category && <>[{r.category}] • </>}
+                  {r.note}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', fontSize: 12 }}>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    color: r.direction === 'IN' ? '#22c55e' : '#f97373',
+                  }}
+                >
+                  {r.direction === 'IN' ? '+' : '-'}
+                  {Number(r.amount || 0).toFixed(2)} €
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.8 }}>
+                  {new Date(r.ts).toLocaleTimeString('sq-AL', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
                 </div>
               </div>
             </div>
-          ))}
+          </div>
+        ))}
       </section>
 
-      {/* SHPENZIMET */}
-      <section className="card">
-        <h2 className="card-title">SHPENZIME</h2>
-        <div className="field-group">
-          <label className="label">SHTO SHPENZIM</label>
-          <div className="row">
-            <input
-              className="input"
-              type="text"
-              placeholder="P.sh. detergjent, naftë, qira..."
-              value={expLabel}
-              onChange={(e) => setExpLabel(e.target.value)}
-            />
-          </div>
-          <div className="row" style={{ marginTop: 4 }}>
-            <input
-              className="input small"
-              type="number"
-              min="0"
-              step="0.1"
-              placeholder="Shuma (€)"
-              value={expAmount}
-              onChange={(e) => setExpAmount(e.target.value)}
-            />
-            <button
-              type="button"
-              className="btn secondary"
-              onClick={() => handleAddExpense(false)}
-            >
-              SHTO SHPENZIM
-            </button>
-          </div>
-        </div>
+      {/* ADMIN PANEL: BUXHET & PUNTORËT */}
+      {isAdmin && (
+        <section className="card">
+          <h2 className="card-title">BUXHET & PUNTORË (ADMIN)</h2>
 
-        {todayExpenses.length > 0 && (
-          <div style={{ marginTop: 8, fontSize: 12 }}>
-            <div style={{ marginBottom: 4, fontWeight: 600 }}>SHPENZIMET SOT:</div>
-            {todayExpenses.map((e) => (
-              <div key={e.id} style={{ marginBottom: 2 }}>
-                • {e.label} — {Number(e.amount || 0).toFixed(2)} €{' '}
-                {e.type === 'worker' && (
-                  <span style={{ color: '#f97316' }}>(AVANS PUNTOR)</span>
-                )}
+          {/* BUXHET */}
+          <div className="field-group">
+            <label className="label">Buxheti total i kompanisë</label>
+            <div className="row">
+              <input
+                className="input small"
+                type="number"
+                min="0"
+                step="0.1"
+                value={budgetInput}
+                onChange={(e) => setBudgetInput(e.target.value)}
+              />
+              <button type="button" className="btn secondary" onClick={updateBudget}>
+                RUAJ BUXHETIN
+              </button>
+            </div>
+          </div>
+
+          {/* PUNTORËT */}
+          <div className="field-group" style={{ marginTop: 12 }}>
+            <label className="label">Shto puntor</label>
+            <div className="row">
+              <input
+                className="input small"
+                type="text"
+                value={newWorkerName}
+                onChange={(e) => setNewWorkerName(e.target.value)}
+                placeholder="Emri"
+              />
+              <input
+                className="input small"
+                type="number"
+                min="0"
+                step="0.1"
+                value={newWorkerSalary}
+                onChange={(e) => setNewWorkerSalary(e.target.value)}
+                placeholder="Paga mujore €"
+              />
+            </div>
+            <div className="btn-row" style={{ marginTop: 4 }}>
+              <button type="button" className="btn secondary" onClick={addWorker}>
+                SHTO PUNTOR
+              </button>
+            </div>
+          </div>
+
+          {workers.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div className="tot-line small">
+                PAYROLL ({payrollSummary.ym})
               </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* PUNTORËT */}
-      <section className="card">
-        <h2 className="card-title">PUNTORËT</h2>
-        <div className="field-group">
-          <label className="label">SHTO PUNTOR</label>
-          <div className="row">
-            <input
-              className="input"
-              type="text"
-              placeholder="Emri i puntorit"
-              value={workerName}
-              onChange={(e) => setWorkerName(e.target.value)}
-            />
-          </div>
-          <div className="row" style={{ marginTop: 4 }}>
-            <input
-              className="input small"
-              type="number"
-              min="0"
-              step="1"
-              placeholder="Paga mujore (€)"
-              value={workerSalary}
-              onChange={(e) => setWorkerSalary(e.target.value)}
-            />
-            <button
-              type="button"
-              className="btn secondary"
-              onClick={handleAddWorker}
-            >
-              SHTO
-            </button>
-          </div>
-        </div>
-
-        {workers.length > 0 && (
-          <div style={{ marginTop: 8, fontSize: 12 }}>
-            <div style={{ marginBottom: 4, fontWeight: 600 }}>LISTA E PUNTORËVE:</div>
-            {workers.map((w) => (
-              <div
-                key={w.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: 4,
-                }}
-              >
-                <div>
-                  <strong>{w.name}</strong> • {Number(w.salary || 0).toFixed(2)} €/muaj{' '}
-                  {!w.active && (
-                    <span style={{ color: '#f97316', marginLeft: 4 }}> (JO AKTIV)</span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="btn secondary"
-                  style={{ padding: '2px 8px', fontSize: 10 }}
-                  onClick={() => handleToggleWorkerActive(w.id)}
+              {payrollSummary.list.map((p) => (
+                <div
+                  key={p.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: 11,
+                    padding: '4px 0',
+                    borderBottom: '1px solid rgba(255,255,255,0.05)',
+                  }}
                 >
-                  {w.active ? 'DEAKTIVO' : 'AKTIVO'}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* AVANS PËR PUNTOR */}
-      <section className="card">
-        <h2 className="card-title">AVANS PËR PUNTOR</h2>
-        <div className="field-group">
-          <label className="label">ZGJEDH PUNTORIN</label>
-          <select
-            className="input"
-            value={selectedWorkerId}
-            onChange={(e) => setSelectedWorkerId(e.target.value)}
-          >
-            <option value="">— ZGJEDH —</option>
-            {workers
-              .filter((w) => w.active)
-              .map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name} ({Number(w.salary || 0).toFixed(2)} €/muaj)
-                </option>
-              ))}
-          </select>
-        </div>
-        <div className="field-group">
-          <label className="label">SHUMA & SHËNIMI</label>
-          <div className="row">
-            <input
-              className="input small"
-              type="number"
-              min="0"
-              step="0.1"
-              placeholder="P.sh. 3 €"
-              value={advanceAmount}
-              onChange={(e) => setAdvanceAmount(e.target.value)}
-            />
-            <input
-              className="input"
-              type="text"
-              placeholder="P.sh. kafe, ushqim..."
-              value={advanceNote}
-              onChange={(e) => setAdvanceNote(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="btn-row">
-          <button
-            type="button"
-            className="btn primary"
-            onClick={handleAddAdvance}
-          >
-            JEP AVANS
-          </button>
-        </div>
-      </section>
-
-      {/* PAYROLL MUJOR */}
-      <section className="card">
-        <h2 className="card-title">PAYROLL MUJOR</h2>
-        <div className="field-group">
-          <label className="label">MUUJI</label>
-          <select
-            className="input"
-            value={selectedMonth}
-            onChange={handleChangeMonth}
-          >
-            {nextMonths.map((m) => (
-              <option key={m} value={m}>
-                {m === thisMonthKey ? `${m} (aktual)` : m}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {payrollSummary.length === 0 && (
-          <p style={{ fontSize: 12 }}>Nuk ka puntor për payroll.</p>
-        )}
-
-        {payrollSummary.length > 0 && (
-          <div style={{ marginTop: 8, fontSize: 12 }}>
-            {payrollSummary.map(({ worker, salary, totalAdvForMonth, toPay }) => (
-              <div
-                key={worker.id}
-                style={{
-                  marginBottom: 6,
-                  padding: '4px 6px',
-                  borderRadius: 4,
-                  border: '1px solid #374151',
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>{worker.name}</div>
-                <div>
-                  PAGA: <strong>{salary.toFixed(2)} €</strong> • AVANS:{' '}
-                  <strong>{totalAdvForMonth.toFixed(2)} €</strong> • PËR T'U PAGU:{' '}
-                  <strong
-                    style={{
-                      color: toPay <= 0 ? '#22c55e' : '#e5e7eb',
-                    }}
-                  >
-                    {toPay.toFixed(2)} €
-                  </strong>
+                  <div>
+                    <strong>{p.name}</strong>
+                    <div style={{ opacity: 0.8 }}>
+                      Paga: {p.salary.toFixed(2)} € • Avanse:{' '}
+                      {p.advances.toFixed(2)} €
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div>MBETET:</div>
+                    <strong
+                      style={{ color: p.remaining < 0 ? '#f97373' : '#22c55e' }}
+                    >
+                      {p.remaining.toFixed(2)} €
+                    </strong>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <footer className="footer-bar">
         <Link className="btn secondary" href="/">
