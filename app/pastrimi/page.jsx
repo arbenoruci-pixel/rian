@@ -25,9 +25,8 @@ async function uploadPhoto(file, oid, key) {
   if (!supabase || !file) return null;
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, {
-    upsert: true,
-  });
+
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file);
   if (error) return null;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
@@ -103,6 +102,7 @@ function saveOrderLocal(order) {
     m2,
     total,
     queued: !!order.queued,
+    status: order.status || 'pastrim',
     ts: order.ts || Date.now(),
   };
 
@@ -158,6 +158,7 @@ function buildIndexFromOrder(order) {
     m2,
     total,
     queued: !!order.queued,
+    status: order.status || 'pastrim',
     ts: order.ts || Date.now(),
   };
 }
@@ -182,7 +183,6 @@ async function loadOrdersFromSupabase() {
       if (!order || !order.id) continue;
       const idxEntry = buildIndexFromOrder(order);
       orders.push(idxEntry);
-      // mirror te local
       saveOrderLocal(order);
     } catch (e) {
       console.error('Error parsing order from Supabase', item.name, e);
@@ -198,7 +198,8 @@ function loadOrdersIndexLocal() {
   try {
     const raw = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
     const list = Array.isArray(raw) ? raw : [];
-    return list;
+    // siguro status default
+    return list.map((o) => ({ status: 'pastrim', ...o }));
   } catch {
     return [];
   }
@@ -260,9 +261,52 @@ export default function PastrimiPage() {
     }
   }, [selectedId, fullDetail]);
 
+  // vetëm porositë me status 'pastrim' për këtë faqe
+  const pastrimOrders = useMemo(
+    () => orders.filter((o) => (o.status || 'pastrim') === 'pastrim'),
+    [orders],
+  );
+
   const listTotalM2 = useMemo(() => {
-    return orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
-  }, [orders]);
+    return pastrimOrders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
+  }, [pastrimOrders]);
+
+  // SMART CAPACITY – njëjt stil me PRANIMI
+  const capacityInfo = useMemo(() => {
+    const m2 = listTotalM2;
+
+    if (m2 <= 0) {
+      return {
+        text: 'NORMAL • MARRJE PAS 2 DITËVE',
+        color: '#22c55e',
+        days: 2,
+      };
+    }
+
+    let label = 'NORMAL';
+    let days = 2;
+    let color = '#22c55e';
+
+    if (m2 > 400 && m2 <= 600) {
+      label = 'NË NGARKIM';
+      days = 3;
+      color = '#f97316';
+    } else if (m2 > 600 && m2 <= 800) {
+      label = 'I MBINGARKUAR';
+      days = 4;
+      color = '#ef4444';
+    } else if (m2 > 800) {
+      label = 'EKSTREM';
+      days = 5;
+      color = '#dc2626';
+    }
+
+    return {
+      text: `${label} • MARRJE PAS ${days} DITËVE`,
+      color,
+      days,
+    };
+  }, [listTotalM2]);
 
   function formatCodeForList(raw) {
     const n = normalizeCode(raw);
@@ -274,7 +318,7 @@ export default function PastrimiPage() {
     longPressTimer.current = setTimeout(() => {
       setSelectedId(id);
       setFullDetail(true);
-    }, 500); // 0.5s
+    }, 500);
   }
 
   function cancelLongPress() {
@@ -317,6 +361,7 @@ export default function PastrimiPage() {
     }
   }
 
+  // GATI – veç e çon porosinë në status 'gati', pa navigim
   async function handleMarkReady(row) {
     if (!row || !row.id) return;
     if (typeof window === 'undefined') return;
@@ -340,15 +385,11 @@ export default function PastrimiPage() {
       readyAt: Date.now(),
     };
 
-    // ruajmë porosinë lokalisht + online
     saveOrderLocal(updated);
     await saveOrderOnline(updated);
 
-    // SMS nuk thirret më automatikisht nga GATI
-    // openReadySms(row, updated);
-
-    alert('Porosia u kalua ne GATI.');
-    await refreshOrders();
+    alert('Porosia u kalua në GATI.');
+    await refreshOrders(); // lista rifreskohet, por je prap në PASTRIMI
   }
 
   async function toggleQueued(row) {
@@ -401,7 +442,10 @@ export default function PastrimiPage() {
     );
   }
 
-  // <<< LOGJIKA E CHIPS SI NË PRANIMI >>>
+  function updateNotes(value) {
+    setDetail((prev) => (!prev ? prev : { ...prev, notes: value }));
+  }
+
   function handleChip(section, value) {
     setDetail((prev) => {
       if (!prev) return prev;
@@ -441,7 +485,6 @@ export default function PastrimiPage() {
     });
   }
 
-  // LEJON ME U FSHI EDHE I FUNDIT
   function removePiece(section) {
     setDetail((prev) => {
       if (!prev) return prev;
@@ -461,7 +504,6 @@ export default function PastrimiPage() {
     });
   }
 
-  // FSHI SHKALLORET
   async function clearStairs() {
     if (!detail) return;
     const updated = {
@@ -620,11 +662,21 @@ export default function PastrimiPage() {
       <header className="header-row">
         <div>
           <h1 className="title">PASTRIMI</h1>
-          <div className="subtitle">Lista dhe detajet</div>
+          <div className="subtitle">LISTA DHE DETAJET</div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
           <div>
             TOTAL M²: <strong>{listTotalM2.toFixed(2)} m²</strong>
+          </div>
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 11,
+              color: capacityInfo.color,
+              maxWidth: 220,
+            }}
+          >
+            {capacityInfo.text}
           </div>
           <button
             type="button"
@@ -641,9 +693,9 @@ export default function PastrimiPage() {
         <section className="card">
           <h2 className="card-title">Lista e porosive</h2>
           {loading && <p>Duke i lexuar porositë...</p>}
-          {!loading && orders.length === 0 && <p>Nuk ka porosi. Shto nga PRANIMI.</p>}
+          {!loading && pastrimOrders.length === 0 && <p>Nuk ka porosi. Shto nga PRANIMI.</p>}
           {!loading &&
-            orders.map((o) => (
+            pastrimOrders.map((o) => (
               <div
                 key={o.id}
                 className="home-btn"
@@ -773,6 +825,22 @@ export default function PastrimiPage() {
                 : 'KODI: ——'}
             </strong>
           </div>
+
+          {/* FOTO KLIENTI NGA PRANIMI */}
+          {detail.client?.photoUrl && (
+            <div className="thumb-row" style={{ marginBottom: 8 }}>
+              <a href={detail.client.photoUrl} target="_blank" rel="noreferrer">
+                Shiko foton
+              </a>
+              <div>
+                <img
+                  src={detail.client.photoUrl}
+                  alt="Foto klienti"
+                  className="photo-thumb"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="field-group">
             <label className="label">Klienti</label>
@@ -1077,6 +1145,18 @@ export default function PastrimiPage() {
               <strong>{debtDetail.toFixed(2)} €</strong> · Kthim:{' '}
               <strong>{changeDetail.toFixed(2)} €</strong>
             </div>
+          </div>
+
+          {/* NOTES */}
+          <div className="field-group">
+            <label className="label">NOTS / SHËNIME</label>
+            <textarea
+              className="input"
+              rows={3}
+              value={detail.notes || ''}
+              onChange={(e) => updateNotes(e.target.value)}
+              placeholder="P.sh. njolla, dëmtime, kërkesa speciale, kthime..."
+            />
           </div>
 
           <div className="btn-row">

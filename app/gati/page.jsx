@@ -62,59 +62,6 @@ function computeTotalEuro(order) {
   return Number((m2 * rate).toFixed(2));
 }
 
-function saveOrderLocal(order) {
-  if (typeof window === 'undefined') return;
-  const { id } = order;
-  localStorage.setItem(`order_${id}`, JSON.stringify(order));
-
-  let list = [];
-  try {
-    list = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
-  } catch {
-    list = [];
-  }
-  if (!Array.isArray(list)) list = [];
-
-  const pieces = computePieces(order);
-  const m2 = computeM2(order);
-  const total = computeTotalEuro(order);
-
-  const entry = {
-    id,
-    name: order.client?.name || '',
-    phone: order.client?.phone || '',
-    code: order.client?.code || '',
-    pieces,
-    m2,
-    total,
-    status: order.status || '',
-    ts: order.ts || Date.now(),
-    readyAt: order.readyAt || null,
-  };
-
-  const idx = list.findIndex((o) => o.id === id);
-  if (idx >= 0) list[idx] = entry;
-  else list.unshift(entry);
-
-  list = list.slice(0, 200);
-  localStorage.setItem('order_list_v1', JSON.stringify(list));
-}
-
-async function saveOrderOnline(order) {
-  if (!supabase) return;
-  const { id } = order;
-  if (!id) return;
-
-  const path = `orders/${id}.json`;
-  const blob =
-    typeof Blob !== 'undefined'
-      ? new Blob([JSON.stringify(order)], { type: 'application/json' })
-      : null;
-  if (blob) {
-    await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
-  }
-}
-
 function buildIndexFromOrder(order) {
   const pieces = computePieces(order);
   const m2 = computeM2(order);
@@ -130,32 +77,39 @@ function buildIndexFromOrder(order) {
     total,
     status: order.status || '',
     ts: order.ts || Date.now(),
-    readyAt: order.readyAt || null,
+    isReturn: !!order.returnInfo?.active,
   };
 }
 
-// Ngjyra sipas sa ditë ka që është GATI
-function getGatiBadgeColor(entry) {
-  const baseTs = entry.readyAt || entry.ts;
-  if (!baseTs) return '#16a34a'; // default green
+// -------------------- ARKA HELPERS --------------------
 
-  const now = Date.now();
-  const diffMs = now - baseTs;
-  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
-
-  if (days <= 0) {
-    // Sot
-    return '#16a34a'; // green
-  } else if (days === 1) {
-    // Nesër
-    return '#f97316'; // orange/yellow
-  } else {
-    // 2+ ditë
-    return '#dc2626'; // red
+function saveArkaLocal(record) {
+  if (typeof window === 'undefined') return;
+  let list = [];
+  try {
+    list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
+  } catch {
+    list = [];
   }
+  if (!Array.isArray(list)) list = [];
+  list.unshift(record);
+  list = list.slice(0, 500);
+  localStorage.setItem('arka_list_v1', JSON.stringify(list));
 }
 
-// Lexim nga Supabase – vetëm status 'gati'
+async function saveArkaOnline(record) {
+  if (!supabase) return;
+  const path = `arka/${record.id}.json`;
+  const blob =
+    typeof Blob !== 'undefined'
+      ? new Blob([JSON.stringify(record)], { type: 'application/json' })
+      : null;
+  if (!blob) return;
+  await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
+}
+
+// -------------------- LOAD ORDERS --------------------
+
 async function loadOrdersFromSupabase() {
   if (!supabase) return [];
   const { data, error } = await supabase.storage.from(BUCKET).list('orders', {
@@ -163,7 +117,7 @@ async function loadOrdersFromSupabase() {
   });
   if (error || !data) return [];
 
-  const orders = [];
+  const list = [];
   for (const item of data) {
     if (!item || !item.name) continue;
     try {
@@ -174,111 +128,86 @@ async function loadOrdersFromSupabase() {
       const text = await file.text();
       const order = JSON.parse(text);
       if (!order || !order.id) continue;
-      if (order.status !== 'gati') continue;
-      const idxEntry = buildIndexFromOrder(order);
-      orders.push(idxEntry);
-      saveOrderLocal(order);
+      if ((order.status || '') !== 'gati') continue;
+      list.push(buildIndexFromOrder(order));
+      // mirror edhe lokalisht
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`order_${order.id}`, JSON.stringify(order));
+      }
     } catch (e) {
-      console.error('Error parsing order from Supabase', item.name, e);
+      console.error('Error parsing order from Supabase (GATI)', item.name, e);
     }
   }
 
-  orders.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  return orders;
+  list.sort((a, b) => {
+    const ac = Number(normalizeCode(a.code));
+    const bc = Number(normalizeCode(b.code));
+    if (bc !== ac) return bc - ac;
+    return (b.ts || 0) - (a.ts || 0);
+  });
+
+  return list;
 }
 
-// Fallback: lexo nga localStorage, filtro vetëm 'gati'
-function loadOrdersIndexLocal() {
+function loadOrdersFromLocal() {
   if (typeof window === 'undefined') return [];
-  let list = [];
+  let idx = [];
   try {
     const raw = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
-    list = Array.isArray(raw) ? raw : [];
+    idx = Array.isArray(raw) ? raw : [];
   } catch {
-    list = [];
+    idx = [];
   }
-  if (!Array.isArray(list)) return [];
-
   const result = [];
-  for (const entry of list) {
+  for (const row of idx) {
     try {
-      const rawOrder = localStorage.getItem(`order_${entry.id}`);
+      const rawOrder = localStorage.getItem(`order_${row.id}`);
       if (!rawOrder) continue;
       const order = JSON.parse(rawOrder);
-      if (order.status !== 'gati') continue;
+      if (!order || !order.id) continue;
+      if ((order.status || '') !== 'gati') continue;
       result.push(buildIndexFromOrder(order));
     } catch {
       // ignore
     }
   }
 
-  result.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  result.sort((a, b) => {
+    const ac = Number(normalizeCode(a.code));
+    const bc = Number(normalizeCode(b.code));
+    if (bc !== ac) return bc - ac;
+    return (b.ts || 0) - (a.ts || 0);
+  });
+
   return result;
-
-
-// Regjistro pagesën në ARKA (local + Supabase)
-async function addToArka(order, amount) {
-  const rec = {
-    id: `${order.id || 'order'}_${Date.now()}`,
-    orderId: order.id || '',
-    code: order.client?.code || '',
-    name: order.client?.name || '',
-    phone: order.client?.phone || '',
-    total: Number(order.pay?.euro || order.total || 0),
-    paid: Number(amount) || 0,
-    ts: Date.now(),
-  };
-
-  // localStorage list
-  if (typeof window !== 'undefined') {
-    try {
-      const raw = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
-      const list = Array.isArray(raw) ? raw : [];
-      list.unshift(rec);
-      localStorage.setItem('arka_list_v1', JSON.stringify(list.slice(0, 500)));
-    } catch (e) {
-      console.error('Error updating arka_list_v1', e);
-    }
-  }
-
-  // Supabase JSON
-  try {
-    if (supabase) {
-      const blob = new Blob([JSON.stringify(rec)], { type: 'application/json' });
-      const path = `arka/${rec.id}.json`;
-      await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
-    }
-  } catch (e) {
-    console.error('Error uploading arka record', e);
-  }
-}
-
-}
-
-function formatCodeForList(raw) {
-  const n = normalizeCode(raw);
-  return n || '?';
 }
 
 // -------------------- COMPONENT --------------------
 
 export default function GatiPage() {
   const [orders, setOrders] = useState([]);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
-  async function refreshOrders() {
+  // paneli i pagesës / kthimit
+  const [payOrder, setPayOrder] = useState(null); // { row, order, total }
+  const [payPaid, setPayPaid] = useState('');
+  const [payMode, setPayMode] = useState('normal'); // 'normal' | 'return'
+  const [payNote, setPayNote] = useState('');
+
+  async function refresh() {
     try {
       setLoading(true);
       let online = [];
       try {
         online = await loadOrdersFromSupabase();
       } catch (e) {
-        console.error('Error loading from Supabase in GATI, falling back to local', e);
+        console.error('Error loading GATI from Supabase, fallback local', e);
       }
       if (online && online.length > 0) {
         setOrders(online);
       } else {
-        setOrders(loadOrdersIndexLocal());
+        setOrders(loadOrdersFromLocal());
       }
     } finally {
       setLoading(false);
@@ -287,122 +216,221 @@ export default function GatiPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    refreshOrders();
+    refresh();
   }, []);
 
-  const listTotalM2 = useMemo(() => {
-    return orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
-  }, [orders]);
+  const totalM2 = useMemo(
+    () => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0),
+    [orders],
+  );
 
-  function openGatiSms(row) {
-    const phone = row?.phone || '';
-    const digits = sanitizePhone(phone);
-    if (!digits) {
+  const filtered = useMemo(() => {
+    const q = (search || '').trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((o) => {
+      const name = (o.name || '').toLowerCase();
+      const phone = (o.phone || '').toLowerCase();
+      const code = normalizeCode(o.code).toLowerCase();
+      return name.includes(q) || phone.includes(q) || code.includes(q);
+    });
+  }, [orders, search]);
+
+  // -------------------- ACTIONS --------------------
+
+  function openSms(row) {
+    const phone = sanitizePhone(row.phone || '');
+    if (!phone) {
       alert('Nuk ka numër telefoni për SMS.');
       return;
     }
-
-    const name = row?.name || 'klient';
-    const codeClean = normalizeCode(row?.code || '');
-
-    const pieces = typeof row.pieces === 'number' ? row.pieces : 0;
-    const m2 = typeof row.m2 === 'number' ? row.m2 : 0;
-    const euro = typeof row.total === 'number' ? row.total : 0;
-
+    const code = normalizeCode(row.code);
     const text =
-      `Përshëndetje ${name}, ` +
-      `porosia juaj e tepihave${codeClean ? ` (kodi ${codeClean})` : ''} është GATI për t'u marrë.\n` +
-      `Keni ${pieces} copë = ${m2.toFixed(2)} m². Totali për pagesë: ${euro.toFixed(
-        2,
-      )} €.\n` +
-      `Ju lutemi t’i tërhiqni sa më shpejt të jetë e mundur.\n` +
-      `Faleminderit!`;
-
+      `Përshëndetje ${row.name || 'klient'}, ` +
+      `porosia juaj e tepihave${code ? ` (kodi ${code})` : ''} është GATI për marrje.\n` +
+      `Keni ${row.pieces || 0} copë • ${(Number(row.m2) || 0).toFixed(2)} m².\n\n` +
+      `Për shkak të hapësirës së kufizuar, ju lutemi t’i tërhiqni brenda 2 ditësh. ` +
+      `Pas këtij afati rritet rreziku që tepihët të përzihen ose të humben mes porosive të tjera, ` +
+      `prandaj pas këtij afati subjekti ynë nuk mban përgjegjësi për humbje apo ngatërresa.\n` +
+      `Faleminderit për mirëkuptimin.`;
     const encoded = encodeURIComponent(text);
-
     if (typeof window !== 'undefined') {
-      window.location.href = `sms:${digits}?&body=${encoded}`;
+      window.location.href = `sms:${phone}?&body=${encoded}`;
     }
   }
 
-
-  async function markPaid(row) {
-    if (!row || !row.id) return;
+  async function openPayPanel(row) {
     if (typeof window === 'undefined') return;
 
-    let full = null;
+    let order = null;
     try {
       const raw = localStorage.getItem(`order_${row.id}`);
-      if (raw) full = JSON.parse(raw);
+      if (raw) order = JSON.parse(raw);
     } catch {
-      full = null;
+      order = null;
     }
-    if (!full) {
-      alert('Nuk u gjet porosia e plotë.');
+    if (!order) {
+      alert('Nuk u gjet porosia e plotë për pagesë / kthim.');
       return;
     }
 
-    const suggested = Number(full.pay?.euro || row.total || 0) || 0;
-    const input = prompt('Shuma e paguar (€):', suggested.toFixed(2));
-    if (input === null) return;
-    const paid = Number(input);
-    if (Number.isNaN(paid) || paid < 0) {
-      alert('Shkruaj një vlerë të vlefshme.');
-      return;
-    }
-
-    const updated = {
-      ...full,
-      status: 'dorzim',
-      deliveredAt: Date.now(),
-      pay: {
-        ...(full.pay || {}),
-        paid,
-      },
-    };
-
-    saveOrderLocal(updated);
-    await saveOrderOnline(updated);
-    await addToArka(updated, paid);
-    await refreshOrders();
-    alert('Pagesa u regjistrua dhe porosia u shënua si MARRE / DORËZUAR.');
+    const total = computeTotalEuro(order);
+    setPayOrder({ row, order, total });
+    setPayPaid(total > 0 ? total.toFixed(2) : '');
+    setPayMode('normal');
+    setPayNote('');
   }
 
-  async function changeStatus(row, newStatus) {
-    if (!row || !row.id) return;
-    if (typeof window === 'undefined') return;
+  function closePayPanel() {
+    setPayOrder(null);
+    setPayPaid('');
+    setPayMode('normal');
+    setPayNote('');
+  }
 
-    let full = null;
-    try {
-      const raw = localStorage.getItem(`order_${row.id}`);
-      if (raw) full = JSON.parse(raw);
-    } catch {
-      full = null;
-    }
-    if (!full) {
-      alert('Nuk u gjet porosia e plotë.');
-      return;
-    }
+  function chipSetExact() {
+    if (!payOrder) return;
+    setPayPaid(payOrder.total.toFixed(2));
+  }
 
-    const updated = {
-      ...full,
-      status: newStatus,
-    };
+  function chipAdd(amount) {
+    const current = Number(String(payPaid).replace(',', '.')) || 0;
+    const next = current + amount;
+    setPayPaid(next.toFixed(2));
+  }
 
-    if (newStatus === 'dorzim') {
-      updated.deliveredAt = Date.now();
-    }
+  async function confirmPayOrReturn() {
+    if (!payOrder) return;
+    const { row, order, total } = payOrder;
 
-    saveOrderLocal(updated);
-    await saveOrderOnline(updated);
-    await refreshOrders();
+    const paidNum = Number(String(payPaid).replace(',', '.')) || 0;
+    const totalNum = Number(total) || 0;
 
-    if (newStatus === 'pastrim') {
-      alert('Porosia u kthye përsëri në PASTRIM.');
-    } else if (newStatus === 'dorzim') {
-      alert('Porosia u shënua si MARRE / DORËZUAR.');
+    if (payMode === 'normal') {
+      if (paidNum <= 0) {
+        alert('Shuma që dha klienti duhet të jetë më e madhe se zero.');
+        return;
+      }
+
+      const change = paidNum - totalNum;
+      const debt = totalNum - paidNum;
+
+      if (
+        !confirm(
+          `Totali: ${totalNum.toFixed(2)} €\n` +
+            `Klienti dha: ${paidNum.toFixed(2)} €\n` +
+            `Kthim: ${change > 0 ? change.toFixed(2) : '0.00'} €\n` +
+            `Borxh: ${debt > 0 ? debt.toFixed(2) : '0.00'} €\n\n` +
+            'Konfirmo pagesën dhe dorëzimin?',
+        )
+      ) {
+        return;
+      }
+
+      const newPay = {
+        ...(order.pay || {}),
+        m2: computeM2(order),
+        euro: totalNum,
+        paid: paidNum,
+        debt: debt > 0 ? Number(debt.toFixed(2)) : 0,
+        change: change > 0 ? Number(change.toFixed(2)) : 0,
+      };
+
+      const updatedOrder = {
+        ...order,
+        pay: newPay,
+        status: 'dorzim',
+        deliveredAt: Date.now(),
+        returnInfo: {
+          ...(order.returnInfo || {}),
+          active: false,
+        },
+      };
+
+      try {
+        // ruaj porosinë
+        localStorage.setItem(`order_${updatedOrder.id}`, JSON.stringify(updatedOrder));
+        const path = `orders/${updatedOrder.id}.json`;
+        const blob =
+          typeof Blob !== 'undefined'
+            ? new Blob([JSON.stringify(updatedOrder)], {
+                type: 'application/json',
+              })
+            : null;
+        if (blob && supabase) {
+          await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
+        }
+      } catch (e) {
+        console.error('Gabim gjatë ruajtjes së porosisë DORZIM', e);
+      }
+
+      // ARKA
+      const arkaRecord = {
+        id: `arka_${updatedOrder.id}_${Date.now()}`,
+        orderId: updatedOrder.id,
+        code: normalizeCode(updatedOrder.client?.code),
+        name: updatedOrder.client?.name || '',
+        phone: updatedOrder.client?.phone || '',
+        paid: paidNum,
+        ts: Date.now(),
+      };
+      saveArkaLocal(arkaRecord);
+      await saveArkaOnline(arkaRecord);
+
+      alert('Pagesa u regjistrua dhe porosia u dorëzua.');
+      setOrders((prev) => prev.filter((o) => o.id !== row.id));
+      closePayPanel();
+    } else if (payMode === 'return') {
+      // KTHIM NË PASTRIM
+      if (
+        !confirm(
+          'Kjo porosi do të kthehet në PASTRIM si KTHIM.\n' +
+            'Jeni i sigurt që dëshironi ta ktheni?',
+        )
+      ) {
+        return;
+      }
+
+      const updatedOrder = {
+        ...order,
+        status: 'pastrim',
+        returnInfo: {
+          active: true,
+          at: Date.now(),
+          note: payNote || '',
+          from: 'gati',
+        },
+      };
+
+      try {
+        localStorage.setItem(`order_${updatedOrder.id}`, JSON.stringify(updatedOrder));
+        const path = `orders/${updatedOrder.id}.json`;
+        const blob =
+          typeof Blob !== 'undefined'
+            ? new Blob([JSON.stringify(updatedOrder)], {
+                type: 'application/json',
+              })
+            : null;
+        if (blob && supabase) {
+          await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true });
+        }
+      } catch (e) {
+        console.error('Gabim gjatë ruajtjes së porosisë KTHIM', e);
+      }
+
+      alert('Porosia u kthye në PASTRIM si KTHIM.');
+      setOrders((prev) => prev.filter((o) => o.id !== row.id));
+      closePayPanel();
     }
   }
+
+  // -------------------- DERIVED FOR PANEL --------------------
+
+  const payTotal = payOrder ? Number(payOrder.total) || 0 : 0;
+  const payPaidNum = Number(String(payPaid).replace(',', '.')) || 0;
+  const payChange = payPaidNum - payTotal;
+  const payDebt = payTotal - payPaidNum;
+
+  // -------------------- RENDER --------------------
 
   return (
     <div className="wrap" style={{ paddingBottom: '80px' }}>
@@ -413,92 +441,135 @@ export default function GatiPage() {
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
           <div>
-            TOTAL M²: <strong>{listTotalM2.toFixed(2)} m²</strong>
+            TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong>
           </div>
         </div>
       </header>
 
       <section className="card">
         <h2 className="card-title">Lista e porosive GATI</h2>
+
+        <div className="field-group" style={{ marginBottom: 12 }}>
+          <input
+            className="input"
+            type="text"
+            placeholder="Kërko me emër / telefon / kod"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
         {loading && <p>Duke i lexuar porositë...</p>}
-        {!loading && orders.length === 0 && <p>Nuk ka porosi GATI.</p>}
+        {!loading && filtered.length === 0 && (
+          <p>Nuk ka porosi GATI. Kaloi nga PASTRIMI.</p>
+        )}
 
         {!loading &&
-          orders.map((o) => (
+          filtered.map((o) => (
             <div
               key={o.id}
               className="home-btn"
               style={{
                 marginBottom: 8,
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 8,
+                flexDirection: 'column',
+                gap: 6,
+                borderColor: o.isReturn ? '#f97316' : undefined,
               }}
             >
               <div
+                className="home-btn-main"
                 style={{
-                  flex: 1,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'flex-start',
+                  justifyContent: 'space-between',
                   gap: 12,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
                 }}
               >
-                <span
+                {/* Majtas: kodi + emri */}
+                <div
                   style={{
-                    fontWeight: 700,
-                    fontSize: 14,
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    backgroundColor: getGatiBadgeColor(o),
-                    color: '#ffffff',
-                    minWidth: 32,
-                    textAlign: 'center',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    minWidth: 0,
                   }}
                 >
-                  {formatCodeForList(o.code)}
-                </span>
-                <span>{o.name || 'Pa emër'}</span>
-                {typeof o.pieces === 'number' && o.pieces > 0 && (
-                  <span style={{ fontSize: 12, opacity: 0.85 }}>
-                    {o.pieces} cop
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 14,
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      backgroundColor: o.isReturn ? '#f97316' : '#16a34a',
+                      color: '#ffffff',
+                      minWidth: 32,
+                      textAlign: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {normalizeCode(o.code)}
                   </span>
-                )}
-                {typeof o.total === 'number' && o.total > 0 && (
-                  <span style={{ fontSize: 12, opacity: 0.85 }}>
-                    {o.total.toFixed(2)} €
-                  </span>
-                )}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        color: o.isReturn ? '#f97316' : undefined,
+                      }}
+                    >
+                      {o.name || 'Pa emër'}
+                    </span>
+                    <span style={{ fontSize: 12, opacity: 0.85 }}>
+                      {(o.pieces || 0) + ' cop • ' + (Number(o.m2) || 0).toFixed(2) + ' m²'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Djathtas: totali € */}
+                <div style={{ textAlign: 'right', fontSize: 12 }}>
+                  {typeof o.total === 'number' && o.total > 0 && (
+                    <div>
+                      <strong>{o.total.toFixed(2)} €</strong>
+                    </div>
+                  )}
+                  {o.isReturn && (
+                    <div style={{ fontSize: 10, color: '#f97316' }}>KTHIM</div>
+                  )}
+                </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {/* Rreshti i butonave: SMS majtas, PAGUAJE djathtas */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  gap: 8,
+                }}
+              >
                 <button
                   type="button"
                   className="btn secondary"
-                  style={{ padding: '4px 8px', fontSize: 12 }}
-                  onClick={() => openGatiSms(o)}
+                  style={{ flex: 1, padding: '4px 8px', fontSize: 12 }}
+                  onClick={() => openSms(o)}
                 >
                   SMS
                 </button>
                 <button
                   type="button"
-                  className="btn secondary"
-                  style={{ padding: '4px 8px', fontSize: 12 }}
-                  onClick={() => changeStatus(o, 'pastrim')}
-                >
-                  ⇦ KTHE NË PASTRIM
-                </button>
-                <button
-                  type="button"
                   className="btn primary"
-                  style={{ padding: '4px 8px', fontSize: 12 }}
-                  onClick={() => markPaid(o)}
+                  style={{ flex: 1, padding: '4px 8px', fontSize: 12 }}
+                  onClick={() => openPayPanel(o)}
                 >
-                  💶 PAGUAJE
+                  💶 PAGUAJE / KTHIM
                 </button>
               </div>
             </div>
@@ -510,6 +581,192 @@ export default function GatiPage() {
           🏠 HOME
         </Link>
       </footer>
+
+      {/* PANELI I PAGESËS / KTHIMIT */}
+      {payOrder && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            zIndex: 50,
+          }}
+          onClick={closePayPanel}
+        >
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: 480,
+              marginBottom: 0,
+              borderRadius: '16px 16px 0 0',
+              boxShadow: '0 -6px 24px rgba(0,0,0,0.6)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="header-row"
+              style={{ justifyContent: 'space-between', marginBottom: 8 }}
+            >
+              <div>
+                <div className="card-title" style={{ marginBottom: 4 }}>
+                  {payMode === 'normal' ? 'Pagesa & dorëzimi' : 'Kthim në pastrim'}
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.9 }}>
+                  {payOrder.order.client?.name || 'Klient pa emër'} • kodi{' '}
+                  {normalizeCode(payOrder.order.client?.code)}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ padding: '2px 8px', fontSize: 11 }}
+                onClick={closePayPanel}
+              >
+                MBYLL
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                marginBottom: 12,
+              }}
+            >
+              <button
+                type="button"
+                className="btn secondary"
+                style={{
+                  flex: 1,
+                  fontSize: 11,
+                  borderColor: payMode === 'normal' ? '#22c55e' : undefined,
+                }}
+                onClick={() => setPayMode('normal')}
+              >
+                PAGUAJ
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{
+                  flex: 1,
+                  fontSize: 11,
+                  borderColor: payMode === 'return' ? '#f97316' : undefined,
+                }}
+                onClick={() => setPayMode('return')}
+              >
+                KTHE NË PASTRIM (KTHIM)
+              </button>
+            </div>
+
+            {payMode === 'normal' && (
+              <>
+                <div className="tot-line small" style={{ marginBottom: 8 }}>
+                  Totali: <strong>{payTotal.toFixed(2)} €</strong> · KLIENTI DHA:{' '}
+                  <strong>{payPaidNum.toFixed(2)} €</strong>
+                  <br />
+                  Borxh:{' '}
+                  <strong style={{ color: payDebt > 0 ? '#f97316' : undefined }}>
+                    {payDebt > 0 ? payDebt.toFixed(2) : '0.00'} €
+                  </strong>{' '}
+                  · Kthim:{' '}
+                  <strong style={{ color: payChange > 0 ? '#22c55e' : undefined }}>
+                    {payChange > 0 ? payChange.toFixed(2) : '0.00'} €
+                  </strong>
+                </div>
+
+                <div className="field-group">
+                  <label className="label">Shuma që dha klienti (€)</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={payPaid}
+                    onChange={(e) => setPayPaid(e.target.value)}
+                  />
+                  <div
+                    className="chip-row"
+                    style={{ marginTop: 8, flexWrap: 'wrap', gap: 6 }}
+                  >
+                    <button
+                      type="button"
+                      className="chip"
+                      style={{ fontSize: 11 }}
+                      onClick={chipSetExact}
+                    >
+                      SAKT ( {payTotal.toFixed(2)} € )
+                    </button>
+                    <button
+                      type="button"
+                      className="chip chip-outline"
+                      style={{ fontSize: 11 }}
+                      onClick={() => chipAdd(5)}
+                    >
+                      +5 €
+                    </button>
+                    <button
+                      type="button"
+                      className="chip chip-outline"
+                      style={{ fontSize: 11 }}
+                      onClick={() => chipAdd(10)}
+                    >
+                      +10 €
+                    </button>
+                    <button
+                      type="button"
+                      className="chip chip-outline"
+                      style={{ fontSize: 11 }}
+                      onClick={() => chipAdd(20)}
+                    >
+                      +20 €
+                    </button>
+                    <button
+                      type="button"
+                      className="chip chip-outline"
+                      style={{ fontSize: 11 }}
+                      onClick={() => chipAdd(50)}
+                    >
+                      +50 €
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {payMode === 'return' && (
+              <div className="field-group">
+                <label className="label">Arsyeja e kthimit / vërejtje</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={payNote}
+                  onChange={(e) => setPayNote(e.target.value)}
+                  placeholder="P.sh. njollat nuk janë hequr, klienti kërkon larje shtesë, problem me erë, etj."
+                />
+                <p style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
+                  Kjo shënim do të shihet në PASTRIM për këtë porosi, që stafi ta dijë
+                  pse është KTHIM.
+                </p>
+              </div>
+            )}
+
+            <div className="btn-row" style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={confirmPayOrReturn}
+              >
+                {payMode === 'normal' ? 'KONFIRMO PAGESËN & DORËZIMIN' : 'KONFIRMO KTHIMIN'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
