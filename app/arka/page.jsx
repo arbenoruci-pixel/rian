@@ -23,7 +23,7 @@ const RECORD_TYPES = {
 const SOURCES = {
   ARKA: 'ARKA',
   BUXHET: 'BUXHET KOMPANIE',
-  EXTERNAL: 'EKSTERNE',
+  EXTERNAL: 'EKSTERNE / BORXH',
 };
 
 // ----------------- HELPERS -----------------
@@ -108,7 +108,6 @@ async function loadMarrjeSotPaymentsOnline() {
     const list = [];
     for (const item of data) {
       if (!item || !item.name) continue;
-      // mos e lexo state.json nëse ndodh të jetë aty
       if (item.name === 'state.json') continue;
 
       const { data: file, error: dErr } = await supabase.storage
@@ -120,7 +119,6 @@ async function loadMarrjeSotPaymentsOnline() {
         const text = await file.text();
         const rec = JSON.parse(text);
         if (!rec || !rec.id) continue;
-        // presim strukturë: { id, code, name, phone, paid, ts }
         if (typeof rec.paid === 'undefined') continue;
         list.push(rec);
       } catch {
@@ -176,7 +174,6 @@ function ensureDefaultUsers() {
 function initialBudget() {
   const b = loadState(LS_BUDGET, null);
   if (typeof b === 'number') return b;
-  // default: 0€ derisa ta fusësh vet
   return 0;
 }
 
@@ -186,8 +183,8 @@ export default function ArkaPage() {
   const [users, setUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
 
-  const [records, setRecords] = useState([]); // të gjitha hyrje/daljet
-  const [days, setDays] = useState([]); // ditët me opening/closing
+  const [records, setRecords] = useState([]);
+  const [days, setDays] = useState([]);
   const [companyBudget, setCompanyBudget] = useState(0);
   const [workers, setWorkers] = useState([]);
 
@@ -219,7 +216,20 @@ export default function ArkaPage() {
   // forma buxhet
   const [budgetInput, setBudgetInput] = useState('');
 
-  // ----------------- LOAD INITIAL (LOCAL + SUPABASE + MARRJE SOT) -----------------
+  // *** PANELI I RI PAGUAJ ***
+  const [payMode, setPayMode] = useState('WORKER'); // WORKER | EXPENSE
+  const [payWorkerId, setPayWorkerId] = useState('');
+  const [payWorkerAmount, setPayWorkerAmount] = useState('');
+  const [payWorkerSource, setPayWorkerSource] = useState('ARKA');
+  const [payWorkerNote, setPayWorkerNote] = useState('');
+
+  const [payExpAmount, setPayExpAmount] = useState('');
+  const [payExpSource, setPayExpSource] = useState('ARKA'); // ARKA | BUXHET | EXTERNAL
+  const [payExpCategory, setPayExpCategory] = useState('');
+  const [payExpFrom, setPayExpFrom] = useState('');
+  const [payExpNote, setPayExpNote] = useState('');
+
+  // ----------------- LOAD INITIAL -----------------
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -238,7 +248,7 @@ export default function ArkaPage() {
       if (!Array.isArray(localDays)) localDays = [];
       if (!Array.isArray(localWorkers)) localWorkers = [];
 
-      // 2) ONLINE STATE (arka/state.json)
+      // 2) ONLINE STATE
       let online = null;
       try {
         online = await loadArkaStateOnline();
@@ -270,7 +280,7 @@ export default function ArkaPage() {
         }
       }
 
-      // 3) PAGESAT NGA MARRJE SOT (SUPABASE bucket/arka/)
+      // 3) PAGESAT NGA MARRJE SOT
       try {
         const pays = await loadMarrjeSotPaymentsOnline();
         if (pays && pays.length > 0) {
@@ -319,7 +329,7 @@ export default function ArkaPage() {
       setWorkers(mergedWorkers);
       setBudgetInput(String(mergedBudget || ''));
 
-      // 5) CACHE BACK TO LOCAL
+      // 5) CACHE LOCAL
       saveState(LS_USERS, mergedUsers);
       saveState(LS_RECORDS, mergedRecords);
       saveState(LS_DAYS, mergedDays);
@@ -332,7 +342,7 @@ export default function ArkaPage() {
     init();
   }, []);
 
-  // PERSIST TO LOCAL ON CHANGE
+  // PERSIST LOCAL
   useEffect(() => {
     if (loading) return;
     saveState(LS_RECORDS, records);
@@ -358,7 +368,7 @@ export default function ArkaPage() {
     saveState(LS_CURRENT_USER, currentUser);
   }, [currentUser, loading]);
 
-  // PERSIST TO SUPABASE ON CHANGE
+  // PERSIST ONLINE
   useEffect(() => {
     if (loading) return;
     const state = {
@@ -400,7 +410,7 @@ export default function ArkaPage() {
     };
   }, [todaysRecords, todayDay]);
 
-  // payroll per muaj
+  // payroll për muaj
   const payrollSummary = useMemo(() => {
     const now = new Date();
     const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -441,6 +451,11 @@ export default function ArkaPage() {
 
     return { ym, list };
   }, [workers, records]);
+
+  const getWorkerRemaining = (workerId) => {
+    const p = payrollSummary.list.find((x) => x.id === workerId);
+    return p ? p.remaining : 0;
+  };
 
   // ----------------- AUTH -----------------
 
@@ -675,6 +690,107 @@ export default function ArkaPage() {
     setCompanyBudget(v);
   }
 
+  // *** BUTONI I RI PAGUAJ ***
+  function handleUnifiedPay() {
+    if (!todayDay) {
+      alert('Së pari hape ditën në ARKË.');
+      return;
+    }
+
+    if (payMode === 'WORKER') {
+      if (!payWorkerId) {
+        alert('Zgjedh puntorin që po e paguan.');
+        return;
+      }
+      const remaining = getWorkerRemaining(payWorkerId);
+      let amt = payWorkerAmount ? Number(payWorkerAmount) : remaining;
+      if (Number.isNaN(amt) || amt <= 0) {
+        alert('Shkruaj shumën për pagesën e puntorit.');
+        return;
+      }
+      const src = payWorkerSource;
+      if (!['ARKA', 'BUXHET'].includes(src)) {
+        alert('Zgjidh burimin (ARKA ose BUXHET).');
+        return;
+      }
+
+      const rec = {
+        id: generateId('adv'),
+        type: 'ADVANCE',
+        dayKey: today,
+        amount: amt,
+        direction: 'OUT',
+        source: src,
+        workerId: payWorkerId,
+        note: payWorkerNote || 'Pagesë paga / borxh puntori',
+        byUser: currentUser?.name || '',
+        ts: Date.now(),
+      };
+
+      setRecords((prev) => [rec, ...prev]);
+      if (src === 'BUXHET') {
+        setCompanyBudget((prev) => Number((prev - amt).toFixed(2)));
+      }
+
+      setPayWorkerAmount('');
+      setPayWorkerNote('');
+
+      alert('Pagesa e puntorit u regjistrua.');
+      return;
+    }
+
+    // MODE EXPENSE / BORXH
+    const amt = Number(payExpAmount);
+    if (Number.isNaN(amt) || amt <= 0) {
+      alert('Shkruaj shumën e pagesës.');
+      return;
+    }
+    const src = payExpSource;
+    if (!['ARKA', 'BUXHET', 'EXTERNAL'].includes(src)) {
+      alert('Zgjidh burimin.');
+      return;
+    }
+
+    let note = payExpNote || '';
+    const cat = payExpCategory || '';
+
+    if (src === 'EXTERNAL') {
+      const from = (payExpFrom || '').trim();
+      if (!from) {
+        alert('Shkruaj kush e pagoi shpenzimin (dikush tjetër).');
+        return;
+      }
+      note = `Borxh ndaj ${from}. ${note}`;
+    }
+
+    const rec = {
+      id: generateId('exp'),
+      type: 'EXPENSE',
+      dayKey: today,
+      amount: amt,
+      direction: 'OUT',
+      source: src === 'EXTERNAL' ? 'EXTERNAL' : src,
+      category: cat,
+      note,
+      byUser: currentUser?.name || '',
+      ts: Date.now(),
+    };
+
+    setRecords((prev) => [rec, ...prev]);
+
+    if (src === 'BUXHET') {
+      setCompanyBudget((prev) => Number((prev - amt).toFixed(2)));
+    }
+    // ARKA ndryshon vetëm arken e dites (totali), EXTERNAL vetëm regjistron borxh
+
+    setPayExpAmount('');
+    setPayExpCategory('');
+    setPayExpFrom('');
+    setPayExpNote('');
+
+    alert('Pagesa / borxhi u regjistrua.');
+  }
+
   // ----------------- RESET -----------------
 
   function handleReset() {
@@ -713,7 +829,6 @@ export default function ArkaPage() {
       setCurrentUser(null);
       const u = ensureDefaultUsers();
       setUsers(u);
-      // online state gjithashtu në zero
       saveArkaStateOnline({
         users: u,
         records: [],
@@ -961,6 +1076,132 @@ export default function ArkaPage() {
       {todayDay && (
         <section className="card">
           <h2 className="card-title">SHPENZIME & AVANSA</h2>
+
+          {/* PANELI I RI: PAGUAJ */}
+          <div className="field-group" style={{ marginBottom: 12 }}>
+            <label className="label">PAGUAJ (puntor ose shpenzim)</label>
+            <div className="chip-row" style={{ marginBottom: 6 }}>
+              <button
+                type="button"
+                className={`chip ${payMode === 'WORKER' ? 'chip-active' : ''}`}
+                onClick={() => setPayMode('WORKER')}
+              >
+                PUNTOR
+              </button>
+              <button
+                type="button"
+                className={`chip ${payMode === 'EXPENSE' ? 'chip-active' : ''}`}
+                onClick={() => setPayMode('EXPENSE')}
+              >
+                SHPENZIM / BORXH
+              </button>
+            </div>
+
+            {payMode === 'WORKER' && (
+              <>
+                <div className="row">
+                  <select
+                    className="input small"
+                    value={payWorkerId}
+                    onChange={(e) => setPayWorkerId(e.target.value)}
+                  >
+                    <option value="">Zgjedh puntorin</option>
+                    {workers.map((w) => {
+                      const rem = getWorkerRemaining(w.id);
+                      return (
+                        <option key={w.id} value={w.id}>
+                          {w.name} — mbetet {rem.toFixed(2)} €
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <select
+                    className="input small"
+                    value={payWorkerSource}
+                    onChange={(e) => setPayWorkerSource(e.target.value)}
+                  >
+                    <option value="ARKA">Nga ARKA</option>
+                    <option value="BUXHET">Nga BUXHETI</option>
+                  </select>
+                </div>
+                <div className="row" style={{ marginTop: 4 }}>
+                  <input
+                    className="input small"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={payWorkerAmount}
+                    onChange={(e) => setPayWorkerAmount(e.target.value)}
+                    placeholder="Shuma € (nëse e le bosh = mbetja)"
+                  />
+                  <input
+                    className="input small"
+                    type="text"
+                    value={payWorkerNote}
+                    onChange={(e) => setPayWorkerNote(e.target.value)}
+                    placeholder="Shënim (p.sh. paga mujore)"
+                  />
+                </div>
+              </>
+            )}
+
+            {payMode === 'EXPENSE' && (
+              <>
+                <div className="row">
+                  <input
+                    className="input small"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={payExpAmount}
+                    onChange={(e) => setPayExpAmount(e.target.value)}
+                    placeholder="Shuma €"
+                  />
+                  <select
+                    className="input small"
+                    value={payExpSource}
+                    onChange={(e) => setPayExpSource(e.target.value)}
+                  >
+                    <option value="ARKA">Paguan ARKA</option>
+                    <option value="BUXHET">Paguan BUXHETI</option>
+                    <option value="EXTERNAL">Paguan dikush tjetër (borxh)</option>
+                  </select>
+                </div>
+                <div className="row" style={{ marginTop: 4 }}>
+                  <input
+                    className="input small"
+                    type="text"
+                    value={payExpCategory}
+                    onChange={(e) => setPayExpCategory(e.target.value)}
+                    placeholder="Kategoria (rrymë, shampo...)"
+                  />
+                  {payExpSource === 'EXTERNAL' && (
+                    <input
+                      className="input small"
+                      type="text"
+                      value={payExpFrom}
+                      onChange={(e) => setPayExpFrom(e.target.value)}
+                      placeholder="Kush pagoi (p.sh. Arben)"
+                    />
+                  )}
+                </div>
+                <input
+                  className="input"
+                  style={{ marginTop: 4 }}
+                  type="text"
+                  value={payExpNote}
+                  onChange={(e) => setPayExpNote(e.target.value)}
+                  placeholder="Shënim opsional (p.sh. borxh për 1 muaj)"
+                />
+              </>
+            )}
+
+            <div className="btn-row" style={{ marginTop: 6 }}>
+              <button type="button" className="btn primary" onClick={handleUnifiedPay}>
+                💸 EKSEKUTO PAGUAN
+              </button>
+            </div>
+          </div>
 
           {/* EXPENSE */}
           <div className="field-group">
