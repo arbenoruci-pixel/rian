@@ -4,13 +4,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
-// Tabela të Postgres të përdorura
-const ARKA_TABLE = 'arka_records';
-const MOVES_TABLE = 'arka_moves';
-const DAYS_TABLE = 'arka_days';
-const BUCKET = 'tepiha-photos'; // Ende përdoret për Factory Reset (folderi 'orders')
+const BUCKET = 'tepiha-photos';
 
-// ------------- HELPERA PËR LLOGARITJET & DATËN -------------
+// ------------- HELPERS PËR PAGESA (ARKA E VJETËR) -------------
 
 function isSameDay(tsA, tsB) {
   const a = new Date(tsA);
@@ -22,127 +18,48 @@ function isSameDay(tsA, tsB) {
   );
 }
 
-function todayKey() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-// LLOGARITJET ME CENTË
-function toCents(euro) {
-  return Math.round(Number(euro) * 100); 
-}
-
-function toEuros(cents) {
-  return (Number(cents) / 100);
-}
-
-// ------------- NGARKIMI/RUAJTJA NGA POSTGRES (ARKA & MOVES & DAY) -------------
-
-async function loadArkaFromPostgres() {
+async function loadArkaFromSupabase() {
   if (!supabase) return [];
-  
-  const { data, error } = await supabase
-    .from(ARKA_TABLE)
-    .select('id, ts, paid, code, name, phone, byUserName')
-    .limit(1000)
-    .order('ts', { ascending: false });
-  
-  if (error) {
-    console.error('Error loading ARKA records from Postgres:', error);
+  const { data, error } = await supabase.storage.from(BUCKET).list('arka', {
+    limit: 1000,
+  });
+  if (error || !data) return [];
+
+  const list = [];
+  for (const item of data) {
+    if (!item || !item.name) continue;
+    try {
+      const { data: file, error: dErr } = await supabase.storage
+        .from(BUCKET)
+        .download(`arka/${item.name}`);
+      if (dErr || !file) continue;
+      const text = await file.text();
+      const rec = JSON.parse(text);
+      if (rec && rec.id) list.push(rec);
+    } catch (e) {
+      console.error('Error parsing arka record', item.name, e);
+    }
+  }
+
+  list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return list;
+}
+
+function loadArkaLocal() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
     return [];
   }
-  
-  return data || [];
 }
 
-async function loadMovesFromPostgres() {
-  if (!supabase) return [];
-  const today = todayKey();
-  
-  const { data, error } = await supabase
-    .from(MOVES_TABLE)
-    .select('*')
-    .eq('dateKey', today)
-    .order('ts', { ascending: false });
-    
-  if (error) {
-    console.error('Error loading moves from Postgres:', error);
-    return [];
-  }
-  
-  return data || [];
-}
-
-async function saveMoveToPostgres(move) {
-    if (!supabase) return { error: 'Supabase not initialized' };
-    
-    const moveWithKey = { ...move, dateKey: todayKey() };
-
-    const { error } = await supabase
-        .from(MOVES_TABLE)
-        .insert(moveWithKey);
-
-    return { error }; 
-}
-
-async function loadDayFromPostgres() {
-  if (!supabase) return null;
-  const today = todayKey();
-  
-  const { data, error } = await supabase
-    .from(DAYS_TABLE)
-    .select('*')
-    .eq('dateKey', today)
-    .single();
-    
-  if (error && error.code !== 'PGRST116') { // PGRST116 = asnjë rresht nuk u gjet
-    console.error('Error loading day from Postgres:', error);
-    return null;
-  }
-  
-  return data || null;
-}
-
-async function saveDayToPostgres(dayData) {
-    if (!supabase) return { error: 'Supabase not initialized' };
-    
-    // 1. Provo të bësh UPDATE (për mbylljen e ditës)
-    const { error: updateError, count } = await supabase
-        .from(DAYS_TABLE)
-        .update(dayData)
-        .eq('dateKey', dayData.dateKey)
-        .select('*', { count: 'exact' });
-
-    if (updateError && updateError.code !== 'PGRST103') { 
-        console.error('Error updating day in Postgres:', updateError);
-        return { error: updateError };
-    }
-
-    // 2. Nëse nuk u azhurnua (rekordi nuk ekziston) dhe dita nuk është e mbyllur, fut rekord të ri (Hapja e Ditës)
-    if (dayData.closed === false && count === 0) {
-        const { error: insertError } = await supabase
-            .from(DAYS_TABLE)
-            .insert(dayData)
-            .select();
-        
-        if (insertError) {
-            console.error('Error inserting day in Postgres:', insertError);
-            return { error: insertError };
-        }
-    }
-    
-    return { error: null };
-}
-
-// ------------- USERS, ROLET & SIGURIA (PIN HASHING) -------------
+// ------------- USERS & ROLET (LOKALE) -------------
 
 const USERS_KEY = 'arka_users_v1';
 const CURRENT_USER_KEY = 'arka_current_user_v1';
-// Hash-i i '4563' (MASTER_PIN)
-const MASTER_PIN_HASHED = '7c5798e8f813e3322d7d8e4125b28a9b31d8c1c54b6807865239e3f9a721d604';
+const MASTER_PIN = '4563';
 
 const ROLE_LABELS = {
   admin: 'ADMIN',
@@ -150,21 +67,6 @@ const ROLE_LABELS = {
   transport: 'TRANSPORT',
   dispatch: 'DISPATCH',
 };
-
-// Funksioni asinkron për Hash-imin e PIN-it (SHA-256)
-async function hashPin(pin) {
-  if (typeof window === 'undefined') return pin;
-  try {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(pin);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  } catch (e) {
-    console.error('Crypto API not available/failed', e);
-    return pin; // Fallback, though unsafe
-  }
-}
 
 function loadUsers() {
   if (typeof window === 'undefined') return [];
@@ -176,8 +78,7 @@ function loadUsers() {
         {
           id: 'admin-1',
           name: 'ADMIN',
-          // Ruajmë HASH-in në localStorage
-          pin: MASTER_PIN_HASHED, 
+          pin: MASTER_PIN,
           role: 'admin',
         },
       ];
@@ -189,7 +90,7 @@ function loadUsers() {
       {
         id: 'admin-1',
         name: 'ADMIN',
-        pin: MASTER_PIN_HASHED, 
+        pin: MASTER_PIN,
         role: 'admin',
       },
     ];
@@ -205,9 +106,8 @@ function saveUsers(users) {
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }
 
-// Tani kërkon PIN-in e hash-uar
-function findUserByHashedPin(users, hashedPin) {
-  return users.find((u) => u.pin === hashedPin);
+function findUserByPin(users, pin) {
+  return users.find((u) => u.pin === pin);
 }
 
 function loadCurrentUser(users) {
@@ -234,15 +134,29 @@ function saveCurrentUser(user) {
   }
 }
 
-// ------------- BUXHETI (Mbetet Lokale për Thjeshtësi) -------------
+// ------------- DITA E SOTME, BUXHETI & LËVIZJET -------------
 
 const BUDGET_KEY = 'arka_budget_total_v1';
+
+function todayKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function dayStorageKey() {
+  return `arka_day_${todayKey()}`;
+}
+function movesStorageKey() {
+  return `arka_moves_${todayKey()}`;
+}
 
 function loadBudget() {
   if (typeof window === 'undefined') return 0;
   try {
-    // Kthen Centë
-    const v = Number(localStorage.getItem(BUDGET_KEY)); 
+    const v = Number(localStorage.getItem(BUDGET_KEY));
     return isNaN(v) ? 0 : v;
   } catch {
     return 0;
@@ -251,38 +165,63 @@ function loadBudget() {
 
 function saveBudget(v) {
   if (typeof window === 'undefined') return;
-  // Ruhet si Centë
   localStorage.setItem(BUDGET_KEY, String(v));
 }
 
-// ------------- FACTORY RESET ALL -------------
+function loadDay() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = JSON.parse(localStorage.getItem(dayStorageKey()) || 'null');
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+function saveDay(day) {
+  if (typeof window === 'undefined') return;
+  if (!day) {
+    localStorage.removeItem(dayStorageKey());
+  } else {
+    localStorage.setItem(dayStorageKey(), JSON.stringify(day));
+  }
+}
+
+function loadMoves() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(movesStorageKey()) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMoves(moves) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(movesStorageKey(), JSON.stringify(moves));
+}
+
+// movement: { id, ts, type: 'expense'|'advance'|'topup', source:'arka'|'budget'|'external', amount, who?, note?, byUserName, byUserRole }
 
 async function factoryResetAll(currentUser, setRecords, setDay, setMoves, setBudget) {
-  // Përdorni PIN-in default për konfirmim
-  const MASTER_PIN = '4563'; 
-  
   if (!currentUser || currentUser.role !== 'admin') {
     alert('Vetëm ADMINI mund ta përdor reset-in.');
     return;
   }
   const pin = prompt('Shkruaj PIN-in e ADMINIT për reset:');
-  
-  // Kontrolli i PIN-it me hash-ing
-  const hashedPin = await hashPin(pin); 
-  if (hashedPin !== MASTER_PIN_HASHED) { 
+  if (pin !== currentUser.pin) {
     alert('PIN i gabuar. Reset u anullua.');
     return;
   }
-  
   const ok = confirm(
-    'Factory reset: do të fshihen të gjitha POROSITË, PAGESAT (ARKA), LËVIZJET dhe gjendja ditore. PËRDORUESIT do të mbesin. Vazhdon?',
+    'Factory reset: do të fshihen të gjitha POROSITË dhe PAGESAT (ARKA), si dhe të dhënat ditore. PËRDORUESIT do të mbesin. Vazhdon?',
   );
   if (!ok) return;
 
   try {
     if (supabase) {
-      // 1. Fshirja nga Supabase Storage (vetëm 'orders')
-      const folders = ['orders']; 
+      const folders = ['orders', 'arka'];
       for (const folder of folders) {
         const { data, error } = await supabase.storage.from(BUCKET).list(folder, {
           limit: 1000,
@@ -294,22 +233,11 @@ async function factoryResetAll(currentUser, setRecords, setDay, setMoves, setBud
           }
         }
       }
-
-      // 2. Fshirja nga Tabela e Postgres (Historiku i Arkës)
-      await supabase.from(ARKA_TABLE).delete().not('id', 'is', null);
-      
-      // 3. Fshirja nga Tabela e Postgres (Lëvizjet Ditore)
-      await supabase.from(MOVES_TABLE).delete().not('id', 'is', null);
-      
-      // 4. Fshirja nga Tabela e Postgres (Gjendja e Ditës)
-      await supabase.from(DAYS_TABLE).delete().not('dateKey', 'is', null);
-
     }
   } catch (e) {
     console.error('Error during factory reset Supabase', e);
   }
 
-  // 5. Fshirja nga LocalStorage (cache/buxheti)
   if (typeof window !== 'undefined') {
     try {
       localStorage.removeItem('order_list_v1');
@@ -350,25 +278,25 @@ export default function Page() {
   const [newUserRole, setNewUserRole] = useState('worker');
 
   const [day, setDay] = useState(null);
-  const [budget, setBudget] = useState(0); // Në centë
+  const [budget, setBudget] = useState(0);
   const [moves, setMoves] = useState([]);
 
-  const [openCashInput, setOpenCashInput] = useState(''); // Input në Euro
+  const [openCashInput, setOpenCashInput] = useState('');
 
-  const [expAmount, setExpAmount] = useState(''); // Input në Euro
-  const [expSource, setExpSource] = useState('arka');
+  const [expAmount, setExpAmount] = useState('');
+  const [expSource, setExpSource] = useState('arka'); // arka | budget
   const [expNote, setExpNote] = useState('');
 
-  const [advAmount, setAdvAmount] = useState(''); // Input në Euro
+  const [advAmount, setAdvAmount] = useState('');
   const [advSource, setAdvSource] = useState('arka');
   const [advWho, setAdvWho] = useState('');
   const [advNote, setAdvNote] = useState('');
 
-  const [topAmount, setTopAmount] = useState(''); // Input në Euro
+  const [topAmount, setTopAmount] = useState('');
   const [topWho, setTopWho] = useState('');
   const [topNote, setTopNote] = useState('');
 
-  // Ngarkojmë user-at dhe currentUser
+  // ngarkojmë user-at dhe currentUser
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const u = loadUsers();
@@ -380,12 +308,17 @@ export default function Page() {
   async function refreshRecords() {
     try {
       setLoading(true);
-      // Ngarkojmë direkt nga Postgres
-      const onlineRecords = await loadArkaFromPostgres();
-      setRecords(onlineRecords);
-      // Nuk ka më fallback lokal, përveç nëse e ruajmë cache-in nga Postgres.
-    } catch (e) {
-      console.error('Error loading ARKA records', e);
+      let online = [];
+      try {
+        online = await loadArkaFromSupabase();
+      } catch (e) {
+        console.error('Error loading ARKA from Supabase, fallback local', e);
+      }
+      if (online && online.length > 0) {
+        setRecords(online);
+      } else {
+        setRecords(loadArkaLocal());
+      }
     } finally {
       setLoading(false);
     }
@@ -396,27 +329,23 @@ export default function Page() {
     refreshRecords();
   }, []);
 
-  // Ngarkojmë buxhetin / ditën / lëvizjet kur ka user
+  // ngarkojmë buxhetin / ditën / lëvizjet kur ka user
   useEffect(() => {
     if (!currentUser) return;
     if (typeof window === 'undefined') return;
     setBudget(loadBudget());
-    
-    // Ngarkojmë nga Postgres
-    loadDayFromPostgres().then(setDay);
-    loadMovesFromPostgres().then(setMoves);
+    setDay(loadDay());
+    setMoves(loadMoves());
   }, [currentUser]);
 
-  // LLOGARITJET ME CENTË
-  const todayTotalCents = useMemo(() => {
+  const todayTotal = useMemo(() => {
     const now = Date.now();
     return records
       .filter((r) => r.ts && isSameDay(r.ts, now))
-      // Supozojmë se r.paid është Euro nga sistemi tjetër (e konvertojmë në Centë)
-      .reduce((sum, r) => sum + toCents(r.paid), 0);
+      .reduce((sum, r) => sum + (Number(r.paid) || 0), 0);
   }, [records]);
 
-  const cashOutFromArkaCents = useMemo(
+  const cashOutFromArka = useMemo(
     () =>
       moves
         .filter(
@@ -424,32 +353,26 @@ export default function Page() {
             (m.type === 'expense' || m.type === 'advance') &&
             m.source === 'arka',
         )
-        // Lëvizjet e ruajtura në moves tashmë janë në Centë
         .reduce((sum, m) => sum + (Number(m.amount) || 0), 0),
     [moves],
   );
 
-  // CashStart është në Centë nga objekti Day (i marrë nga DB)
-  const cashStartCents = Number(day?.cashStart || 0) || 0; 
-  
-  const cashEndCalcCents = useMemo(
-    () => cashStartCents + todayTotalCents - cashOutFromArkaCents,
-    [cashStartCents, todayTotalCents, cashOutFromArkaCents],
+  const cashStart = Number(day?.cashStart || 0) || 0;
+  const cashEndCalc = useMemo(
+    () => Number((cashStart + todayTotal - cashOutFromArka).toFixed(2)),
+    [cashStart, todayTotal, cashOutFromArka],
   );
 
   // ---------- LOGIN ----------
 
-  async function handleLogin(e) { // ASYNCHRONOUS
+  function handleLogin(e) {
     e?.preventDefault?.();
     const pin = (pinInput || '').trim();
     if (!pin) {
       alert('Shkruaj PIN-in.');
       return;
     }
-    
-    const hashedPin = await hashPin(pin);
-
-    const u = findUserByHashedPin(users, hashedPin);
+    const u = findUserByPin(users, pin);
     if (!u) {
       alert('PIN i gabuar.');
       return;
@@ -470,7 +393,7 @@ export default function Page() {
     return currentUser && currentUser.role === 'admin';
   }
 
-  async function handleAddUser(e) { // ASYNCHRONOUS
+  function handleAddUser(e) {
     e?.preventDefault?.();
     const name = newUserName.trim();
     const pin = newUserPin.trim();
@@ -482,10 +405,7 @@ export default function Page() {
       alert('PIN rekomandohet të ketë së paku 4 shifra.');
       return;
     }
-    
-    const hashedPin = await hashPin(pin);
-
-    if (findUserByHashedPin(users, hashedPin)) {
+    if (findUserByPin(users, pin)) {
       alert('Ky PIN tashmë ekziston.');
       return;
     }
@@ -493,7 +413,7 @@ export default function Page() {
     const user = {
       id: `u-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
       name,
-      pin: hashedPin, // Ruajmë Hash-in
+      pin,
       role: newUserRole,
     };
     const updated = [user, ...users];
@@ -503,45 +423,58 @@ export default function Page() {
     setNewUserPin('');
     setNewUserRole('worker');
   }
-  // ... handleChangeRole dhe handleDeleteUser mbeten pothuajse të njëjta ...
+
+  function handleChangeRole(userId, newRole) {
+    const updated = users.map((u) =>
+      u.id === userId ? { ...u, role: newRole } : u,
+    );
+    setUsers(updated);
+    saveUsers(updated);
+    if (currentUser && currentUser.id === userId) {
+      const me = updated.find((u) => u.id === userId);
+      setCurrentUser(me || null);
+      saveCurrentUser(me || null);
+    }
+  }
+
+  function handleDeleteUser(userId) {
+    const u = users.find((x) => x.id === userId);
+    if (!u) return;
+    if (u.role === 'admin') {
+      alert('Mos e fshij admin-in bazë.');
+      return;
+    }
+    const ok = confirm(`Me fshi përdoruesin "${u.name}"?`);
+    if (!ok) return;
+    const updated = users.filter((x) => x.id !== userId);
+    setUsers(updated);
+    saveUsers(updated);
+  }
 
   // ---------- DITA E SOTME & BUXHET ----------
 
-  async function handleOpenDay() { // ASYNCHRONOUS
-    if (day) {
-        alert('Dita është hapur tashmë.');
-        return;
-    }
-    const valEuro = Number(openCashInput || 0);
-    if (isNaN(valEuro) || valEuro < 0) {
+  function handleOpenDay() {
+    const val = Number(openCashInput || 0);
+    if (isNaN(val) || val < 0) {
       alert('Shkruaj një shumë valide për CASH START.');
       return;
     }
-    const valCents = toCents(valEuro); // Konverto në centë
-
     const d = {
       dateKey: todayKey(),
       openedByName: currentUser?.name || 'ADMIN',
       openedByRole: currentUser?.role || 'admin',
       openedTs: Date.now(),
-      cashStart: valCents, // Ruaj Centët
+      cashStart: val,
       closed: false,
       closedTs: null,
       transferred: 0,
     };
-    
-    const { error } = await saveDayToPostgres(d);
-
-    if (error) {
-        alert('Gabim gjatë hapjes së ditës: ' + error.message);
-        return;
-    }
-
     setDay(d);
+    saveDay(d);
     setOpenCashInput('');
   }
 
-  async function handleCloseDay() { // ASYNCHRONOUS
+  function handleCloseDay() {
     if (!day) {
       alert('Së pari hape ditën.');
       return;
@@ -550,81 +483,56 @@ export default function Page() {
       alert('Dita tashmë është e mbyllur.');
       return;
     }
-    
-    const transferredCents = cashEndCalcCents;
-    const transferredEuros = toEuros(transferredCents); // Për shfaqje
-
     const msg =
-      `Cash në fund të ditës: ${transferredEuros.toFixed(2)} €.\n` +
+      `Cash në fund të ditës: ${cashEndCalc.toFixed(2)} €.\n` +
       `Dëshiron ta mbyllësh ditën dhe ta shtosh këtë shumë në BUXHETIN e kompanisë?`;
     const ok = confirm(msg);
     if (!ok) return;
-    
-    // Llogaritjet në Centë
-    const newBudgetCents = budget + transferredCents;
-    
+    const newBudget = Number((budget + cashEndCalc).toFixed(2));
+    setBudget(newBudget);
+    saveBudget(newBudget);
+
     const d = {
       ...day,
       closed: true,
       closedTs: Date.now(),
-      transferred: transferredCents, // Ruaj Centët
+      transferred: cashEndCalc,
     };
-    
-    const { error } = await saveDayToPostgres(d);
-
-    if (error) {
-        alert('Gabim gjatë mbylljes së ditës: ' + error.message);
-        return;
-    }
-
-    setBudget(newBudgetCents);
-    saveBudget(newBudgetCents); 
     setDay(d);
-    
+    saveDay(d);
     alert('Dita u mbyll dhe shuma u shtua në buxhet.');
   }
 
-  // ---------- SHPENZIM I RI (ADD MOVE) ----------
-  
-  // addMove tani bën saveMoveToPostgres
-  async function addMove(m) {
-    const { error } = await saveMoveToPostgres(m);
-    
-    if (error) {
-        alert('Gabim gjatë ruajtjes së lëvizjes në databazë: ' + error.message);
-        return; 
-    }
-    
-    // Përditësoni gjendjen lokale
+  // ---------- SHPENZIM I RI ----------
+
+  function addMove(m) {
     const updated = [m, ...moves];
     setMoves(updated);
+    saveMoves(updated);
   }
 
-  async function handleAddExpense() { // ASYNCHRONOUS
-    const amountEuro = Number(expAmount || 0);
-    if (!amountEuro || amountEuro <= 0) {
+  function handleAddExpense() {
+    const amount = Number(expAmount || 0);
+    if (!amount || amount <= 0) {
       alert('Shkruaj shumën e shpenzimit.');
       return;
     }
-    const amountCents = toCents(amountEuro); // Konverto në Centë
-    
     const m = {
       id: `m-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
       ts: Date.now(),
       type: 'expense',
       source: expSource, // arka/budget
-      amount: amountCents, // Ruaj Centët
+      amount,
       note: expNote.trim(),
       byUserName: currentUser?.name || '',
       byUserRole: currentUser?.role || '',
     };
-    
-    await addMove(m);
+    addMove(m);
 
     if (expSource === 'budget') {
-      const nbCents = budget - amountCents; // Llogaritje e saktë në Centë
-      setBudget(nbCents);
-      saveBudget(nbCents);
+      const nb = Number((budget - amount).toFixed(2));
+      setBudget(nb);
+      saveBudget(nb);
     }
     setExpAmount('');
     setExpNote('');
@@ -633,36 +541,33 @@ export default function Page() {
 
   // ---------- AVANS PËR PUNTOR ----------
 
-  async function handleAddAdvance() { // ASYNCHRONOUS
-    const amountEuro = Number(advAmount || 0);
+  function handleAddAdvance() {
+    const amount = Number(advAmount || 0);
     if (!advWho.trim()) {
       alert('Shkruaj emrin e puntorit.');
       return;
     }
-    if (!amountEuro || amountEuro <= 0) {
+    if (!amount || amount <= 0) {
       alert('Shkruaj shumën e avansit.');
       return;
     }
-    const amountCents = toCents(amountEuro); // Konverto në Centë
-
     const m = {
       id: `m-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
       ts: Date.now(),
       type: 'advance',
       source: advSource,
-      amount: amountCents, // Ruaj Centët
+      amount,
       who: advWho.trim(),
       note: advNote.trim(),
       byUserName: currentUser?.name || '',
       byUserRole: currentUser?.role || '',
     };
-    
-    await addMove(m);
+    addMove(m);
 
     if (advSource === 'budget') {
-      const nbCents = budget - amountCents; // Llogaritje e saktë në Centë
-      setBudget(nbCents);
-      saveBudget(nbCents);
+      const nb = Number((budget - amount).toFixed(2));
+      setBudget(nb);
+      saveBudget(nb);
     }
     setAdvAmount('');
     setAdvWho('');
@@ -672,31 +577,28 @@ export default function Page() {
 
   // ---------- TOP-UP BUXHETI (DIKUSH I JEP PARA KOMPANIS) ----------
 
-  async function handleAddTopup() { // ASYNCHRONOUS
-    const amountEuro = Number(topAmount || 0);
-    if (!amountEuro || amountEuro <= 0) {
+  function handleAddTopup() {
+    const amount = Number(topAmount || 0);
+    if (!amount || amount <= 0) {
       alert('Shkruaj shumën e top-up-it.');
       return;
     }
-    const amountCents = toCents(amountEuro); // Konverto në Centë
-
     const m = {
       id: `m-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
       ts: Date.now(),
       type: 'topup',
       source: 'external',
-      amount: amountCents, // Ruaj Centët
+      amount,
       who: topWho.trim(),
       note: topNote.trim(),
       byUserName: currentUser?.name || '',
       byUserRole: currentUser?.role || '',
     };
-    
-    await addMove(m);
+    addMove(m);
 
-    const nbCents = budget + amountCents; // Llogaritje e saktë në Centë
-    setBudget(nbCents);
-    saveBudget(nbCents);
+    const nb = Number((budget + amount).toFixed(2));
+    setBudget(nb);
+    saveBudget(nb);
 
     setTopAmount('');
     setTopWho('');
@@ -761,10 +663,10 @@ export default function Page() {
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
           <div>
-            SOT: <strong>{toEuros(todayTotalCents).toFixed(2)} €</strong>
+            SOT: <strong>{todayTotal.toFixed(2)} €</strong>
           </div>
           <div>
-            BUXHETI: <strong>{toEuros(budget).toFixed(2)} €</strong>
+            BUXHETI: <strong>{budget.toFixed(2)} €</strong>
           </div>
           {isAdmin() && (
             <button
@@ -808,18 +710,13 @@ export default function Page() {
               .
             </p>
             <p style={{ fontSize: 12 }}>
-              CASH START: <strong>{toEuros(cashStartCents).toFixed(2)} €</strong> · NETO SOT (ARKA):{' '}
-              <strong>{toEuros(todayTotalCents).toFixed(2)} €</strong> · SHPENZIME NGA ARKA:{' '}
-              <strong>{toEuros(cashOutFromArkaCents).toFixed(2)} €</strong>
+              CASH START: <strong>{cashStart.toFixed(2)} €</strong> · NETO SOT (ARKA):{' '}
+              <strong>{todayTotal.toFixed(2)} €</strong> · SHPENZIME NGA ARKA:{' '}
+              <strong>{cashOutFromArka.toFixed(2)} €</strong>
             </p>
             <p style={{ fontSize: 12, marginTop: 4 }}>
               CASH NË FUND DITE:{' '}
-              <strong>
-                {day.closed
-                  ? toEuros(day.transferred).toFixed(2)
-                  : toEuros(cashEndCalcCents).toFixed(2)}{' '}
-                €
-              </strong>
+              <strong>{day.closed ? day.transferred.toFixed(2) : cashEndCalc.toFixed(2)} €</strong>
             </p>
             {!day.closed && (
               <button
@@ -834,7 +731,7 @@ export default function Page() {
             {day.closed && (
               <p style={{ fontSize: 11, marginTop: 6, opacity: 0.8 }}>
                 Dita është e mbyllur. U transferuan{' '}
-                <strong>{toEuros(day.transferred).toFixed(2)} €</strong> në buxhet në{' '}
+                <strong>{day.transferred.toFixed(2)} €</strong> në buxhet në{' '}
                 {new Date(day.closedTs).toLocaleTimeString('sq-AL', {
                   hour: '2-digit',
                   minute: '2-digit',
@@ -1043,7 +940,7 @@ export default function Page() {
               <div style={{ textAlign: 'right', fontSize: 13 }}>
                 <strong>
                   {m.type === 'topup' ? '+' : '-'}
-                  {toEuros(Number(m.amount || 0)).toFixed(2)} €
+                  {Number(m.amount || 0).toFixed(2)} €
                 </strong>
               </div>
             </div>
@@ -1054,7 +951,7 @@ export default function Page() {
       {/* LISTA E PAGESAVE NGA GATI */}
 
       <section className="card">
-        <h2 className="card-title">Lista e pagesave (Historiku)</h2>
+        <h2 className="card-title">Lista e pagesave</h2>
         {loading && <p>Duke i lexuar të dhënat...</p>}
         {!loading && records.length === 0 && <p>Nuk ka ende pagesa të regjistruara.</p>}
 
@@ -1077,7 +974,6 @@ export default function Page() {
                 </div>
                 <div style={{ textAlign: 'right', fontSize: 12 }}>
                   <div>
-                    {/* Shuma e pagesës ruhet si Euro (NUMERIC) në arka_records */}
                     <strong>{(Number(r.paid) || 0).toFixed(2)} €</strong>
                   </div>
                   <div>
