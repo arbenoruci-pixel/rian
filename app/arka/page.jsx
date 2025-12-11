@@ -2,7 +2,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient'; // për të ardhmen, tani nuk po e përdorim shumë
+import { supabase } from '@/lib/supabaseClient';
+
+const BUCKET = 'tepiha-photos';
 
 const LS_USERS = 'arka_users_v1';
 const LS_CURRENT_USER = 'arka_current_user_v1';
@@ -28,6 +30,14 @@ const SOURCES = {
 
 function todayKey() {
   const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function dayKeyFromTs(ts) {
+  const d = new Date(ts || Date.now());
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -67,6 +77,76 @@ function isSameDay(tsA, tsB) {
 
 function generateId(prefix) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1_000_000)}`;
+}
+
+// ----------------- SUPABASE HELPERS -----------------
+
+async function loadArkaStateOnline() {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .download('arka/state.json');
+    if (error || !data) return null;
+    const text = await data.text();
+    const json = JSON.parse(text);
+    return json && typeof json === 'object' ? json : null;
+  } catch {
+    return null;
+  }
+}
+
+// Lexon pagesat ekzistuese nga MARRJE SOT (skedarët e vjetër në bucket/arka/)
+async function loadMarrjeSotPaymentsOnline() {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.storage.from(BUCKET).list('arka', {
+      limit: 1000,
+    });
+    if (error || !data) return [];
+
+    const list = [];
+    for (const item of data) {
+      if (!item || !item.name) continue;
+      // mos e lexo state.json nëse ndodh të jetë aty
+      if (item.name === 'state.json') continue;
+
+      const { data: file, error: dErr } = await supabase.storage
+        .from(BUCKET)
+        .download(`arka/${item.name}`);
+      if (dErr || !file) continue;
+
+      try {
+        const text = await file.text();
+        const rec = JSON.parse(text);
+        if (!rec || !rec.id) continue;
+        // presim strukturë: { id, code, name, phone, paid, ts }
+        if (typeof rec.paid === 'undefined') continue;
+        list.push(rec);
+      } catch {
+        // skip
+      }
+    }
+    return list;
+  } catch {
+    return [];
+  }
+}
+
+async function saveArkaStateOnline(state) {
+  if (!supabase) return;
+  try {
+    const blob =
+      typeof Blob !== 'undefined'
+        ? new Blob([JSON.stringify(state)], { type: 'application/json' })
+        : null;
+    if (!blob) return;
+    await supabase.storage
+      .from(BUCKET)
+      .upload('arka/state.json', blob, { upsert: true });
+  } catch (e) {
+    console.error('Error saving ARKA state online', e);
+  }
 }
 
 // ----------------- DEFAULT DATA -----------------
@@ -139,53 +219,157 @@ export default function ArkaPage() {
   // forma buxhet
   const [budgetInput, setBudgetInput] = useState('');
 
-  // ----------------- LOAD INITIAL -----------------
+  // ----------------- LOAD INITIAL (LOCAL + SUPABASE + MARRJE SOT) -----------------
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const u = ensureDefaultUsers();
-    setUsers(u);
+    async function init() {
+      setLoading(true);
+      // 1) LOCAL DEFAULTS
+      let localUsers = ensureDefaultUsers();
+      let localCurrent = loadState(LS_CURRENT_USER, null);
+      let localRecords = loadState(LS_RECORDS, []);
+      let localDays = loadState(LS_DAYS, []);
+      let localBudget = initialBudget();
+      let localWorkers = loadState(LS_WORKERS, []);
 
-    const cur = loadState(LS_CURRENT_USER, null);
-    setCurrentUser(cur);
+      if (!Array.isArray(localRecords)) localRecords = [];
+      if (!Array.isArray(localDays)) localDays = [];
+      if (!Array.isArray(localWorkers)) localWorkers = [];
 
-    const recs = loadState(LS_RECORDS, []);
-    setRecords(Array.isArray(recs) ? recs : []);
+      // 2) ONLINE STATE (arka/state.json)
+      let online = null;
+      try {
+        online = await loadArkaStateOnline();
+      } catch (e) {
+        console.error('Error loading ARKA state online', e);
+      }
 
-    const d = loadState(LS_DAYS, []);
-    setDays(Array.isArray(d) ? d : []);
+      let mergedUsers = localUsers;
+      let mergedRecords = localRecords;
+      let mergedDays = localDays;
+      let mergedBudget = localBudget;
+      let mergedWorkers = localWorkers;
 
-    const b = initialBudget();
-    setCompanyBudget(b);
-    setBudgetInput(String(b || ''));
+      if (online) {
+        if (Array.isArray(online.users) && online.users.length > 0) {
+          mergedUsers = online.users;
+        }
+        if (Array.isArray(online.records)) {
+          mergedRecords = online.records;
+        }
+        if (Array.isArray(online.days)) {
+          mergedDays = online.days;
+        }
+        if (typeof online.companyBudget === 'number') {
+          mergedBudget = online.companyBudget;
+        }
+        if (Array.isArray(online.workers)) {
+          mergedWorkers = online.workers;
+        }
+      }
 
-    const ws = loadState(LS_WORKERS, []);
-    setWorkers(Array.isArray(ws) ? ws : []);
+      // 3) PAGESAT NGA MARRJE SOT (SUPABASE bucket/arka/)
+      try {
+        const pays = await loadMarrjeSotPaymentsOnline();
+        if (pays && pays.length > 0) {
+          const existingExternalIds = new Set(
+            mergedRecords
+              .filter((r) => r.externalSource === 'MARRJE_SOT' && r.externalId)
+              .map((r) => r.externalId),
+          );
 
-    setLoading(false);
+          const converted = pays
+            .filter((p) => !existingExternalIds.has(p.id))
+            .map((p) => {
+              const amt = Number(p.paid) || 0;
+              const ts = p.ts || Date.now();
+              return {
+                id: generateId('pay'),
+                type: 'PAY_CLIENT',
+                dayKey: dayKeyFromTs(ts),
+                amount: amt,
+                direction: 'IN',
+                source: 'ARKA',
+                externalSource: 'MARRJE_SOT',
+                externalId: p.id,
+                orderCode: p.code || '',
+                orderName: p.name || '',
+                byUser: p.byUser || '',
+                note: `Pagesë klienti (kodi ${p.code || '??'})`,
+                ts,
+              };
+            });
+
+          if (converted.length > 0) {
+            mergedRecords = [...converted, ...mergedRecords];
+          }
+        }
+      } catch (e) {
+        console.error('Error importing payments from MARRJE SOT', e);
+      }
+
+      // 4) SET STATE
+      setUsers(mergedUsers);
+      setCurrentUser(localCurrent);
+      setRecords(mergedRecords);
+      setDays(mergedDays);
+      setCompanyBudget(mergedBudget);
+      setWorkers(mergedWorkers);
+      setBudgetInput(String(mergedBudget || ''));
+
+      // 5) CACHE BACK TO LOCAL
+      saveState(LS_USERS, mergedUsers);
+      saveState(LS_RECORDS, mergedRecords);
+      saveState(LS_DAYS, mergedDays);
+      saveState(LS_BUDGET, mergedBudget);
+      saveState(LS_WORKERS, mergedWorkers);
+
+      setLoading(false);
+    }
+
+    init();
   }, []);
 
-  // persist
+  // PERSIST TO LOCAL ON CHANGE
   useEffect(() => {
-    if (!loading) saveState(LS_RECORDS, records);
+    if (loading) return;
+    saveState(LS_RECORDS, records);
   }, [records, loading]);
 
   useEffect(() => {
-    if (!loading) saveState(LS_DAYS, days);
+    if (loading) return;
+    saveState(LS_DAYS, days);
   }, [days, loading]);
 
   useEffect(() => {
-    if (!loading) saveState(LS_BUDGET, companyBudget);
+    if (loading) return;
+    saveState(LS_BUDGET, companyBudget);
   }, [companyBudget, loading]);
 
   useEffect(() => {
-    if (!loading) saveState(LS_WORKERS, workers);
+    if (loading) return;
+    saveState(LS_WORKERS, workers);
   }, [workers, loading]);
 
   useEffect(() => {
-    if (!loading) saveState(LS_CURRENT_USER, currentUser);
+    if (loading) return;
+    saveState(LS_CURRENT_USER, currentUser);
   }, [currentUser, loading]);
+
+  // PERSIST TO SUPABASE ON CHANGE
+  useEffect(() => {
+    if (loading) return;
+    const state = {
+      users,
+      records,
+      days,
+      companyBudget,
+      workers,
+    };
+    saveArkaStateOnline(state);
+  }, [users, records, days, companyBudget, workers, loading]);
 
   const today = todayKey();
   const todayDay = useMemo(
@@ -438,7 +622,7 @@ export default function ArkaPage() {
     }
     const from = (topupFrom || '').trim();
     if (!from) {
-      alert('Shkruaj kush i dha paratë (p.sh. ARBEN).');
+      alert('Shkruaj kush i dha paratë (p.sh. Arben).');
       return;
     }
 
@@ -519,7 +703,6 @@ export default function ArkaPage() {
       );
       if (!ok) return;
 
-      // fshi krejt localStorage
       if (typeof window !== 'undefined') {
         localStorage.clear();
       }
@@ -528,7 +711,16 @@ export default function ArkaPage() {
       setCompanyBudget(0);
       setWorkers([]);
       setCurrentUser(null);
-      setUsers(ensureDefaultUsers());
+      const u = ensureDefaultUsers();
+      setUsers(u);
+      // online state gjithashtu në zero
+      saveArkaStateOnline({
+        users: u,
+        records: [],
+        days: [],
+        companyBudget: 0,
+        workers: [],
+      });
       alert('FACTORY RESET u krye. Sistemi u kthye në zero.');
       return;
     }
@@ -543,6 +735,13 @@ export default function ArkaPage() {
       setDays([]);
       saveState(LS_RECORDS, []);
       saveState(LS_DAYS, []);
+      saveArkaStateOnline({
+        users,
+        records: [],
+        days: [],
+        companyBudget,
+        workers,
+      });
       alert('ARKA u resetua. Porositë mbetën të paprekura.');
       return;
     }
@@ -557,8 +756,17 @@ export default function ArkaPage() {
       );
       if (!ok) return;
 
-      setRecords((prev) => prev.filter((r) => r.dayKey !== today));
-      setDays((prev) => prev.filter((d) => d.dayKey !== today));
+      const newRecords = records.filter((r) => r.dayKey !== today);
+      const newDays = days.filter((d) => d.dayKey !== today);
+      setRecords(newRecords);
+      setDays(newDays);
+      saveArkaStateOnline({
+        users,
+        records: newRecords,
+        days: newDays,
+        companyBudget,
+        workers,
+      });
       alert('Dita e sotme në ARKA u fshi.');
       return;
     }
@@ -659,9 +867,9 @@ export default function ArkaPage() {
           <div style={{ marginTop: 4, fontSize: 11 }}>
             SOT ARKA: hyrje{' '}
             <strong>{todayTotals.in.toFixed(2)} €</strong> · dalje{' '}
-            <strong>{todayTotals.out.toFixed(2)} €</strong> ·
-            neto <strong>{todayTotals.net.toFixed(2)} €</strong> ·
-            mbyllje <strong>{todayTotals.closing.toFixed(2)} €</strong>
+            <strong>{todayTotals.out.toFixed(2)} €</strong> · neto{' '}
+            <strong>{todayTotals.net.toFixed(2)} €</strong> · mbyllje{' '}
+            <strong>{todayTotals.closing.toFixed(2)} €</strong>
           </div>
           <div style={{ marginTop: 8, display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
             {isAdmin && (
@@ -908,6 +1116,12 @@ export default function ArkaPage() {
                     <>
                       Puntor:{' '}
                       {workers.find((w) => w.id === r.workerId)?.name || '??'} •{' '}
+                    </>
+                  )}
+                  {r.orderCode && (
+                    <>
+                      Kodi: {r.orderCode}{' '}
+                      {r.orderName ? `(${r.orderName})` : ''} •{' '}
                     </>
                   )}
                   {r.category && <>[{r.category}] • </>}
