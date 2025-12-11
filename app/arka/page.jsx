@@ -13,6 +13,7 @@ const MASTER_PIN = '4563';
 const ROLE_ADMIN = 'ADMIN';
 const ROLE_WORKER = 'PUNTOR';
 const ROLE_TRANSPORT = 'TRANSPORT';
+const ROLE_DISPATCH = 'DISPATCH'; // ROL I RI
 
 const ARKA_CONFIG_KEY = 'arka_config_v1';
 const ARKA_USER_KEY = 'arka_current_user_v1';
@@ -143,7 +144,7 @@ async function loadArkaTxFromSupabase() {
         const rec = JSON.parse(text);
         if (!rec || !rec.id) continue;
 
-        // kompatibilitet me versionin e vjetër (ku ishte vetëm pagesë)
+        // kompatibilitet me versionin e vjetër
         if (!rec.kind) {
           rec.kind = TX_ORDER_PAYMENT;
         }
@@ -226,7 +227,7 @@ function saveCurrentUser(user) {
 
 async function factoryResetArkaOnly(setTx, setConfig, setUser) {
   const ok = confirm(
-    'Do FSHIHEN VETËM TË DHËNAT E ARKËS (transaksionet + config). Vazhdosh?'
+    'Factory reset: do të fshihen të gjitha të dhënat e ARKËS (transaksionet + config). Vazhdosh?'
   );
   if (!ok) return;
 
@@ -344,15 +345,11 @@ export default function Page() {
       const amt = safeNumber(tx.amount);
       if (!amt) continue;
 
-      // OPEN_DAY: rishkruajmë bazën e arkes për atë ditë
       if (tx.kind === TX_OPEN_DAY) {
-        // e nis nga e para atë ditë – por si jemi pa datë baze, thjesht e mbledhim
         total += amt;
         continue;
       }
 
-      // çdo transaksion tjetër që prek ARKËN
-      // direction: IN rrit, OUT zvogëlon
       if (tx.source === 'ARKA') {
         if (tx.direction === 'IN') total += amt;
         else if (tx.direction === 'OUT') total -= amt;
@@ -385,17 +382,26 @@ export default function Page() {
   const todayTotalCash = useMemo(() => {
     return txList
       .filter((tx) => tx.kind !== TX_OPEN_DAY && isSameDay(tx.ts, today))
-      .reduce((sum, tx) => sum + (tx.direction === 'IN' ? safeNumber(tx.amount) : -safeNumber(tx.amount)), 0);
+      .reduce(
+        (sum, tx) =>
+          sum +
+          (tx.direction === 'IN' ? safeNumber(tx.amount) : -safeNumber(tx.amount)),
+        0,
+      );
   }, [txList, today]);
 
-  // transaksionet e përdoruesit
   const userTodayTotal = useMemo(() => {
     if (!currentUser) return 0;
     return txList
       .filter(
         (tx) => tx.workerId === currentUser.id && isSameDay(tx.ts, today),
       )
-      .reduce((sum, tx) => sum + (tx.direction === 'IN' ? safeNumber(tx.amount) : -safeNumber(tx.amount)), 0);
+      .reduce(
+        (sum, tx) =>
+          sum +
+          (tx.direction === 'IN' ? safeNumber(tx.amount) : -safeNumber(tx.amount)),
+        0,
+      );
   }, [txList, currentUser, today]);
 
   const isAdmin = currentUser?.role === ROLE_ADMIN;
@@ -403,7 +409,6 @@ export default function Page() {
   // lista e punëtorëve nga config
   const workers = config?.workers || [];
 
-  // gjej emrin e punëtorit nga id
   function getWorkerNameById(id) {
     if (!config || !config.workers) return '';
     const w = config.workers.find((x) => x.id === id);
@@ -556,13 +561,6 @@ export default function Page() {
 
     let direction = 'IN';
 
-    // logjika:
-    // ORDER_PAYMENT – nëse vijnë lekt prej klientit → ARKA IN
-    // ADVANCE – lekt dalin prej ARKËS ose BUGJETIT
-    // EXPENSE – lekt dalin prej ARKËS ose BUGJETIT
-    // BUDGET_IN – lekt hyjnë në BUGJET
-    // BUDGET_OUT – lekt dalin prej BUGJETIT
-
     if (txKind === TX_ORDER_PAYMENT) {
       direction = 'IN';
     } else if (txKind === TX_ADVANCE || txKind === TX_EXPENSE || txKind === TX_BUDGET_OUT) {
@@ -592,7 +590,6 @@ export default function Page() {
     saveArkaTxLocal(newList);
     await saveArkaTxToSupabase(tx);
 
-    // përditëso companyBudget në config nëse prek BUGJET
     if (txSource === 'BUDGET') {
       const base = config || { companyBudget: 0, workers: [] };
       let cb = safeNumber(base.companyBudget || 0);
@@ -617,7 +614,6 @@ export default function Page() {
   }
 
   async function handleDoReset(option) {
-    // option: 'ARKA_ONLY' apo 'ALL'
     if (resetPin !== MASTER_PIN) {
       alert('PIN i gabuar. Vetëm master mund të bëjë reset.');
       return;
@@ -742,16 +738,22 @@ export default function Page() {
           )}
           {todayOpen ? (
             <div style={{ marginTop: 4, fontSize: 11 }}>
-              HAPJA SOT: <strong>{todayOpen.amount.toFixed(2)} €</strong> •
-              Lëvizje sot:{' '}
-              <strong>{todayTotalCash.toFixed(2)} €</strong>
+              HAPJA SOT: <strong>{todayOpen.amount.toFixed(2)} €</strong> • Lëvizje
+              sot: <strong>{todayTotalCash.toFixed(2)} €</strong>
             </div>
           ) : (
             <div style={{ marginTop: 4, fontSize: 11 }}>
               DITA NUK ËSHTË HAPUR NË ARKË.
             </div>
           )}
-          <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div
+            style={{
+              marginTop: 8,
+              display: 'flex',
+              gap: 8,
+              justifyContent: 'flex-end',
+            }}
+          >
             {isAdmin && (
               <button
                 type="button"
@@ -804,7 +806,7 @@ export default function Page() {
       {/* PUNËTORËT (ADMIN) */}
       {isAdmin && (
         <section className="card">
-          <h2 className="card-title">Përdoruesit (PUNTOR / TRANSPORT / ADMIN)</h2>
+          <h2 className="card-title">Përdoruesit (PUNTOR / TRANSPORT / DISPATCH / ADMIN)</h2>
           <div style={{ fontSize: 12, marginBottom: 8 }}>
             Përdor PIN-e të thjeshta për puntorët. Master PIN **4563** është vetëm
             për ty (ADMIN).
@@ -812,7 +814,12 @@ export default function Page() {
 
           <form
             onSubmit={handleAddWorker}
-            style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              marginBottom: 12,
+            }}
           >
             <div className="row" style={{ gap: 6 }}>
               <input
@@ -821,7 +828,7 @@ export default function Page() {
                 type="text"
                 placeholder="Emri i puntorit"
                 value={newWorkerName}
-                onChange={(e) => setNewWorkerName(e.target.value)}
+                onChange={(e) => setNewWorkerName(e.targetValue || e.target.value)}
               />
               <select
                 className="input"
@@ -831,6 +838,7 @@ export default function Page() {
               >
                 <option value={ROLE_WORKER}>PUNTOR</option>
                 <option value={ROLE_TRANSPORT}>TRANSPORT</option>
+                <option value={ROLE_DISPATCH}>DISPATCH</option>
                 <option value={ROLE_ADMIN}>ADMIN</option>
               </select>
               <input
@@ -1024,7 +1032,7 @@ export default function Page() {
               {(txKind === TX_ADVANCE || txKind === TX_EXPENSE) && (
                 <div className="field-group">
                   <label className="label">
-                    Për kë (puntori / transportusi)? (opsionale)
+                    Për kë (puntori / transportusi / dispatch)? (opsionale)
                   </label>
                   <select
                     className="input"
