@@ -1,1086 +1,490 @@
-'use client';
+// assets/arka.js
 
-import React, { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
+(function () {
+  // =========================
+  //  KONSTANTAT & ÇELËSAT
+  // =========================
+  const LS_USERS_KEY = 'tepiha_users_v1';
+  const LS_ARKA_KEY = 'tepiha_arka_state_v1';
 
-const BUCKET = 'tepiha-photos';
+  // nëse ke master PIN diku tjetër, mund ta sinkronizosh me këtë, ose mos e përdor
+  const DEFAULT_ADMIN_PIN = '4563';
 
-// ------------- HELPERS PËR PAGESA (ARKA E VJETËR) -------------
+  // =========================
+  //  HELPERS TË THJESHTA
+  // =========================
 
-function isSameDay(tsA, tsB) {
-  const a = new Date(tsA);
-  const b = new Date(tsB);
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
+  function hashPin(pin) {
+    // Obfuskim i thjeshtë
+    return btoa('tepiha_salt_' + String(pin));
+  }
 
-async function loadArkaFromSupabase() {
-  if (!supabase) return [];
-  const { data, error } = await supabase.storage.from(BUCKET).list('arka', {
-    limit: 1000,
-  });
-  if (error || !data) return [];
+  function formatEuros(cents) {
+    return (cents / 100).toFixed(2);
+  }
 
-  const list = [];
-  for (const item of data) {
-    if (!item || !item.name) continue;
+  function todayId() {
+    return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  }
+
+  // =========================
+  //  USERS: LOAD / SAVE
+  // =========================
+
+  function loadUsers() {
+    const raw = localStorage.getItem(LS_USERS_KEY);
+    if (!raw) return [];
     try {
-      const { data: file, error: dErr } = await supabase.storage
-        .from(BUCKET)
-        .download(`arka/${item.name}`);
-      if (dErr || !file) continue;
-      const text = await file.text();
-      const rec = JSON.parse(text);
-      if (rec && rec.id) list.push(rec);
+      return JSON.parse(raw);
     } catch (e) {
-      console.error('Error parsing arka record', item.name, e);
+      console.error('Users corrupt, resetting', e);
+      return [];
     }
   }
 
-  list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  return list;
-}
-
-function loadArkaLocal() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
+  function saveUsers(users) {
+    localStorage.setItem(LS_USERS_KEY, JSON.stringify(users));
   }
-}
 
-// ------------- USERS & ROLET (LOKALE) -------------
-
-const USERS_KEY = 'arka_users_v1';
-const CURRENT_USER_KEY = 'arka_current_user_v1';
-const MASTER_PIN = '4563';
-
-const ROLE_LABELS = {
-  admin: 'ADMIN',
-  worker: 'PUNTOR',
-  transport: 'TRANSPORT',
-  dispatch: 'DISPATCH',
-};
-
-function loadUsers() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    let users = Array.isArray(raw) ? raw : [];
-    if (!users.length) {
-      users = [
-        {
-          id: 'admin-1',
-          name: 'ADMIN',
-          pin: MASTER_PIN,
-          role: 'admin',
-        },
-      ];
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    }
-    return users;
-  } catch {
-    const users = [
-      {
-        id: 'admin-1',
+  function ensureDefaultAdmin() {
+    const users = loadUsers();
+    const hasAdmin = users.some(u => u.role === 'admin');
+    if (!hasAdmin) {
+      const id = 'u_' + Date.now();
+      users.push({
+        id,
         name: 'ADMIN',
-        pin: MASTER_PIN,
         role: 'admin',
-      },
-    ];
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        pinHash: hashPin(DEFAULT_ADMIN_PIN),
+        active: true
+      });
+      saveUsers(users);
+      console.info('[ARKA] Default ADMIN (PIN 4563) u krijua.');
     }
-    return users;
   }
-}
 
-function saveUsers(users) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
+  // =========================
+  //  CURRENT USER (SESSION)
+  // =========================
 
-function findUserByPin(users, pin) {
-  return users.find((u) => u.pin === pin);
-}
+  const SESSION_USER_KEY = 'tepiha_current_user';
 
-function loadCurrentUser(users) {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = JSON.parse(localStorage.getItem(CURRENT_USER_KEY) || 'null');
-    if (!raw || !raw.id) return null;
-    const found = users.find((u) => u.id === raw.id);
-    return found || null;
-  } catch {
-    return null;
-  }
-}
-
-function saveCurrentUser(user) {
-  if (typeof window === 'undefined') return;
-  if (user) {
-    localStorage.setItem(
-      CURRENT_USER_KEY,
-      JSON.stringify({ id: user.id, role: user.role }),
-    );
-  } else {
-    localStorage.removeItem(CURRENT_USER_KEY);
-  }
-}
-
-// ------------- DITA E SOTME, BUXHETI & LËVIZJET -------------
-
-const BUDGET_KEY = 'arka_budget_total_v1';
-
-function todayKey() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function dayStorageKey() {
-  return `arka_day_${todayKey()}`;
-}
-function movesStorageKey() {
-  return `arka_moves_${todayKey()}`;
-}
-
-function loadBudget() {
-  if (typeof window === 'undefined') return 0;
-  try {
-    const v = Number(localStorage.getItem(BUDGET_KEY));
-    return isNaN(v) ? 0 : v;
-  } catch {
-    return 0;
-  }
-}
-
-function saveBudget(v) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(BUDGET_KEY, String(v));
-}
-
-function loadDay() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = JSON.parse(localStorage.getItem(dayStorageKey()) || 'null');
-    return raw;
-  } catch {
-    return null;
-  }
-}
-
-function saveDay(day) {
-  if (typeof window === 'undefined') return;
-  if (!day) {
-    localStorage.removeItem(dayStorageKey());
-  } else {
-    localStorage.setItem(dayStorageKey(), JSON.stringify(day));
-  }
-}
-
-function loadMoves() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = JSON.parse(localStorage.getItem(movesStorageKey()) || '[]');
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveMoves(moves) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(movesStorageKey(), JSON.stringify(moves));
-}
-
-// movement: { id, ts, type: 'expense'|'advance'|'topup', source:'arka'|'budget'|'external', amount, who?, note?, byUserName, byUserRole }
-
-async function factoryResetAll(currentUser, setRecords, setDay, setMoves, setBudget) {
-  if (!currentUser || currentUser.role !== 'admin') {
-    alert('Vetëm ADMINI mund ta përdor reset-in.');
-    return;
-  }
-  const pin = prompt('Shkruaj PIN-in e ADMINIT për reset:');
-  if (pin !== currentUser.pin) {
-    alert('PIN i gabuar. Reset u anullua.');
-    return;
-  }
-  const ok = confirm(
-    'Factory reset: do të fshihen të gjitha POROSITË dhe PAGESAT (ARKA), si dhe të dhënat ditore. PËRDORUESIT do të mbesin. Vazhdon?',
-  );
-  if (!ok) return;
-
-  try {
-    if (supabase) {
-      const folders = ['orders', 'arka'];
-      for (const folder of folders) {
-        const { data, error } = await supabase.storage.from(BUCKET).list(folder, {
-          limit: 1000,
-        });
-        if (!error && data && data.length > 0) {
-          const paths = data.map((item) => `${folder}/${item.name}`);
-          if (paths.length > 0) {
-            await supabase.storage.from(BUCKET).remove(paths);
-          }
-        }
-      }
+  function setCurrentUser(user) {
+    if (!user) {
+      sessionStorage.removeItem(SESSION_USER_KEY);
+    } else {
+      sessionStorage.setItem(SESSION_USER_KEY, JSON.stringify(user));
     }
-  } catch (e) {
-    console.error('Error during factory reset Supabase', e);
   }
 
-  if (typeof window !== 'undefined') {
+  function getCurrentUser() {
+    const raw = sessionStorage.getItem(SESSION_USER_KEY);
+    if (!raw) return null;
     try {
-      localStorage.removeItem('order_list_v1');
-      localStorage.removeItem('arka_list_v1');
-      localStorage.removeItem(BUDGET_KEY);
-
-      const keys = Object.keys(localStorage);
-      for (const k of keys) {
-        if (k.startsWith('order_')) localStorage.removeItem(k);
-        if (k.startsWith('arka_day_')) localStorage.removeItem(k);
-        if (k.startsWith('arka_moves_')) localStorage.removeItem(k);
-      }
-    } catch (e) {
-      console.error('Error clearing localStorage for reset', e);
+      return JSON.parse(raw);
+    } catch {
+      return null;
     }
   }
 
-  setRecords([]);
-  setDay(null);
-  setMoves([]);
-  setBudget(0);
-
-  alert('Sistemi u resetua. Përdoruesit dhe PIN-at mbetën.');
-}
-
-// ------------- KOMPONENTI KRYESOR -------------
-
-export default function Page() {
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const [users, setUsers] = useState([]);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [pinInput, setPinInput] = useState('');
-
-  const [newUserName, setNewUserName] = useState('');
-  const [newUserPin, setNewUserPin] = useState('');
-  const [newUserRole, setNewUserRole] = useState('worker');
-
-  const [day, setDay] = useState(null);
-  const [budget, setBudget] = useState(0);
-  const [moves, setMoves] = useState([]);
-
-  const [openCashInput, setOpenCashInput] = useState('');
-
-  const [expAmount, setExpAmount] = useState('');
-  const [expSource, setExpSource] = useState('arka'); // arka | budget
-  const [expNote, setExpNote] = useState('');
-
-  const [advAmount, setAdvAmount] = useState('');
-  const [advSource, setAdvSource] = useState('arka');
-  const [advWho, setAdvWho] = useState('');
-  const [advNote, setAdvNote] = useState('');
-
-  const [topAmount, setTopAmount] = useState('');
-  const [topWho, setTopWho] = useState('');
-  const [topNote, setTopNote] = useState('');
-
-  // ngarkojmë user-at dhe currentUser
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const u = loadUsers();
-    setUsers(u);
-    const cu = loadCurrentUser(u);
-    if (cu) setCurrentUser(cu);
-  }, []);
-
-  async function refreshRecords() {
-    try {
-      setLoading(true);
-      let online = [];
-      try {
-        online = await loadArkaFromSupabase();
-      } catch (e) {
-        console.error('Error loading ARKA from Supabase, fallback local', e);
-      }
-      if (online && online.length > 0) {
-        setRecords(online);
-      } else {
-        setRecords(loadArkaLocal());
-      }
-    } finally {
-      setLoading(false);
-    }
+  function loginWithPin(pin) {
+    const users = loadUsers();
+    const h = hashPin(pin);
+    const user = users.find(u => u.pinHash === h && u.active !== false);
+    if (!user) return null;
+    setCurrentUser(user);
+    return user;
   }
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    refreshRecords();
-  }, []);
-
-  // ngarkojmë buxhetin / ditën / lëvizjet kur ka user
-  useEffect(() => {
-    if (!currentUser) return;
-    if (typeof window === 'undefined') return;
-    setBudget(loadBudget());
-    setDay(loadDay());
-    setMoves(loadMoves());
-  }, [currentUser]);
-
-  const todayTotal = useMemo(() => {
-    const now = Date.now();
-    return records
-      .filter((r) => r.ts && isSameDay(r.ts, now))
-      .reduce((sum, r) => sum + (Number(r.paid) || 0), 0);
-  }, [records]);
-
-  const cashOutFromArka = useMemo(
-    () =>
-      moves
-        .filter(
-          (m) =>
-            (m.type === 'expense' || m.type === 'advance') &&
-            m.source === 'arka',
-        )
-        .reduce((sum, m) => sum + (Number(m.amount) || 0), 0),
-    [moves],
-  );
-
-  const cashStart = Number(day?.cashStart || 0) || 0;
-  const cashEndCalc = useMemo(
-    () => Number((cashStart + todayTotal - cashOutFromArka).toFixed(2)),
-    [cashStart, todayTotal, cashOutFromArka],
-  );
-
-  // ---------- LOGIN ----------
-
-  function handleLogin(e) {
-    e?.preventDefault?.();
-    const pin = (pinInput || '').trim();
-    if (!pin) {
-      alert('Shkruaj PIN-in.');
-      return;
-    }
-    const u = findUserByPin(users, pin);
-    if (!u) {
-      alert('PIN i gabuar.');
-      return;
-    }
-    setCurrentUser(u);
-    saveCurrentUser(u);
-    setPinInput('');
-  }
-
-  function handleLogout() {
+  function logout() {
     setCurrentUser(null);
-    saveCurrentUser(null);
   }
 
-  // ---------- ADMIN USER MANAGEMENT ----------
+  // =========================
+  //  ROLE HELPERS
+  // =========================
 
-  function isAdmin() {
-    return currentUser && currentUser.role === 'admin';
+  function canSeeCompanyBudget(user) {
+    return user && user.role === 'admin';
   }
 
-  function handleAddUser(e) {
-    e?.preventDefault?.();
-    const name = newUserName.trim();
-    const pin = newUserPin.trim();
-    if (!name || !pin) {
-      alert('Emri dhe PIN-i janë të detyrueshëm.');
-      return;
-    }
-    if (pin.length < 4) {
-      alert('PIN rekomandohet të ketë së paku 4 shifra.');
-      return;
-    }
-    if (findUserByPin(users, pin)) {
-      alert('Ky PIN tashmë ekziston.');
-      return;
-    }
+  function canSeeAllMoves(user) {
+    return user && (user.role === 'admin' || user.role === 'dispatch');
+  }
 
-    const user = {
-      id: `u-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+  function filterMovesForUser(allMovesObj, user) {
+    if (!user) return [];
+    const arr = Object.values(allMovesObj || {});
+    if (canSeeAllMoves(user)) return arr;
+    // worker / transport: vetëm lëvizjet që i kanë regjistru vet
+    return arr.filter(m => m.byUserName === user.name);
+  }
+
+  // =========================
+  //  KRIJIM / EDITIM PËRDORUESISH
+  // =========================
+
+  function addUser({ name, pin, role }) {
+    const current = getCurrentUser();
+    if (!current || current.role !== 'admin') {
+      throw new Error('Vetëm ADMIN mund të shtojë përdorues.');
+    }
+    const users = loadUsers();
+    const id = 'u_' + Date.now();
+    users.push({
+      id,
       name,
-      pin,
-      role: newUserRole,
-    };
-    const updated = [user, ...users];
-    setUsers(updated);
-    saveUsers(updated);
-    setNewUserName('');
-    setNewUserPin('');
-    setNewUserRole('worker');
+      role, // 'admin' | 'worker' | 'transport' | 'dispatch'
+      pinHash: hashPin(pin),
+      active: true
+    });
+    saveUsers(users);
+    return id;
   }
 
-  function handleChangeRole(userId, newRole) {
-    const updated = users.map((u) =>
-      u.id === userId ? { ...u, role: newRole } : u,
-    );
-    setUsers(updated);
-    saveUsers(updated);
-    if (currentUser && currentUser.id === userId) {
-      const me = updated.find((u) => u.id === userId);
-      setCurrentUser(me || null);
-      saveCurrentUser(me || null);
+  function listUsers() {
+    return loadUsers();
+  }
+
+  function deactivateUser(userId) {
+    const current = getCurrentUser();
+    if (!current || current.role !== 'admin') {
+      throw new Error('Vetëm ADMIN mund të ç’aktivizojë përdorues.');
+    }
+    const users = loadUsers();
+    const u = users.find(x => x.id === userId);
+    if (u) {
+      u.active = false;
+      saveUsers(users);
     }
   }
 
-  function handleDeleteUser(userId) {
-    const u = users.find((x) => x.id === userId);
-    if (!u) return;
-    if (u.role === 'admin') {
-      alert('Mos e fshij admin-in bazë.');
-      return;
+  // =========================
+  //  ARKA STATE: LOAD / SAVE
+  // =========================
+
+  function loadArkaState() {
+    const raw = localStorage.getItem(LS_ARKA_KEY);
+    if (!raw) {
+      return {
+        budgetCents: 0,
+        currentDay: null,
+        days: {},
+        moves: {},
+        arkaRecords: {}
+      };
     }
-    const ok = confirm(`Me fshi përdoruesin "${u.name}"?`);
-    if (!ok) return;
-    const updated = users.filter((x) => x.id !== userId);
-    setUsers(updated);
-    saveUsers(updated);
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      console.error('ARKA state corrupt, resetting', e);
+      return {
+        budgetCents: 0,
+        currentDay: null,
+        days: {},
+        moves: {},
+        arkaRecords: {}
+      };
+    }
   }
 
-  // ---------- DITA E SOTME & BUXHET ----------
+  function saveArkaState(state) {
+    localStorage.setItem(LS_ARKA_KEY, JSON.stringify(state));
+  }
 
-  function handleOpenDay() {
-    const val = Number(openCashInput || 0);
-    if (isNaN(val) || val < 0) {
-      alert('Shkruaj një shumë valide për CASH START.');
-      return;
+  // =========================
+  //  HAPJA E DITËS
+  // =========================
+
+  function openDay(cashStartEuros) {
+    const user = getCurrentUser();
+    if (!user) throw new Error('Duhet login para hapjes së ditës.');
+
+    const state = loadArkaState();
+    if (state.currentDay && !state.currentDay.closed) {
+      throw new Error('Dita ekzistuese nuk është mbyllur ende.');
     }
-    const d = {
-      dateKey: todayKey(),
-      openedByName: currentUser?.name || 'ADMIN',
-      openedByRole: currentUser?.role || 'admin',
-      openedTs: Date.now(),
-      cashStart: val,
+
+    const id = todayId();
+    const cashStartCents = Math.round(Number(cashStartEuros || 0) * 100);
+
+    const day = {
+      id,
+      cashStartCents,
+      cashNowCents: cashStartCents,
+      incomeCents: 0,
+      arkaExpensesCents: 0,
+      arkaAdvancesCents: 0,
       closed: false,
-      closedTs: null,
-      transferred: 0,
+      closedAt: null
     };
-    setDay(d);
-    saveDay(d);
-    setOpenCashInput('');
+
+    state.currentDay = day;
+    state.days[id] = day;
+    saveArkaState(state);
+
+    return day;
   }
 
-  function handleCloseDay() {
-    if (!day) {
-      alert('Së pari hape ditën.');
-      return;
+  // =========================
+  //  REGISTER MOVE (expense / advance / topup)
+  // =========================
+
+  function registerMove({ type, source, amountEuros, who, note }) {
+    const user = getCurrentUser();
+    if (!user) throw new Error('Duhet login për të regjistruar lëvizje.');
+
+    const state = loadArkaState();
+    if (!state.currentDay || state.currentDay.closed) {
+      throw new Error('Nuk ka ditë të hapur në ARKË.');
     }
-    if (day.closed) {
-      alert('Dita tashmë është e mbyllur.');
-      return;
-    }
-    const msg =
-      `Cash në fund të ditës: ${cashEndCalc.toFixed(2)} €.\n` +
-      `Dëshiron ta mbyllësh ditën dhe ta shtosh këtë shumë në BUXHETIN e kompanisë?`;
-    const ok = confirm(msg);
-    if (!ok) return;
-    const newBudget = Number((budget + cashEndCalc).toFixed(2));
-    setBudget(newBudget);
-    saveBudget(newBudget);
 
-    const d = {
-      ...day,
-      closed: true,
-      closedTs: Date.now(),
-      transferred: cashEndCalc,
-    };
-    setDay(d);
-    saveDay(d);
-    alert('Dita u mbyll dhe shuma u shtua në buxhet.');
-  }
+    const amountCents = Math.round(Number(amountEuros || 0) * 100);
+    const dayId = state.currentDay.id;
+    const id =
+      'm_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
 
-  // ---------- SHPENZIM I RI ----------
-
-  function addMove(m) {
-    const updated = [m, ...moves];
-    setMoves(updated);
-    saveMoves(updated);
-  }
-
-  function handleAddExpense() {
-    const amount = Number(expAmount || 0);
-    if (!amount || amount <= 0) {
-      alert('Shkruaj shumën e shpenzimit.');
-      return;
-    }
-    const m = {
-      id: `m-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+    const move = {
+      id,
+      type, // 'expense' | 'advance' | 'topup'
+      source, // 'arka' | 'budget' | 'external'
+      amountCents,
+      who: who || null,
+      note: note || null,
+      byUserName: user.name,
+      byUserRole: user.role,
       ts: Date.now(),
-      type: 'expense',
-      source: expSource, // arka/budget
-      amount,
-      note: expNote.trim(),
-      byUserName: currentUser?.name || '',
-      byUserRole: currentUser?.role || '',
+      dayId
     };
-    addMove(m);
 
-    if (expSource === 'budget') {
-      const nb = Number((budget - amount).toFixed(2));
-      setBudget(nb);
-      saveBudget(nb);
+    state.moves[id] = move;
+
+    // Efekti në buxhet / arka:
+    if (type === 'expense') {
+      if (source === 'arka') {
+        state.currentDay.cashNowCents -= amountCents;
+        state.currentDay.arkaExpensesCents += amountCents;
+      } else if (source === 'budget') {
+        state.budgetCents -= amountCents;
+      }
     }
-    setExpAmount('');
-    setExpNote('');
-    setExpSource('arka');
+
+    if (type === 'advance') {
+      if (source === 'arka') {
+        state.currentDay.cashNowCents -= amountCents;
+        state.currentDay.arkaAdvancesCents += amountCents;
+      } else if (source === 'budget') {
+        state.budgetCents -= amountCents;
+      }
+    }
+
+    if (type === 'topup') {
+      if (source === 'external') {
+        // dikush i jep para kompanisë
+        state.budgetCents += amountCents;
+      }
+      // nëse në të ardhmen don topup nga arka -> budget, e trajtojmë ndryshe
+    }
+
+    saveArkaState(state);
+    return move;
   }
 
-  // ---------- AVANS PËR PUNTOR ----------
+  // =========================
+  //  PAGESAT NGA KLIENTËT (GATI / MARRJE SOT)
+  // =========================
 
-  function handleAddAdvance() {
-    const amount = Number(advAmount || 0);
-    if (!advWho.trim()) {
-      alert('Shkruaj emrin e puntorit.');
-      return;
+  function registerClientPayment({ code, name, phone, amountEuros }) {
+    const user = getCurrentUser();
+    if (!user) throw new Error('Duhet login për të pranuar pagesë.');
+
+    const state = loadArkaState();
+    if (!state.currentDay || state.currentDay.closed) {
+      throw new Error('Nuk ka ditë të hapur në ARKË.');
     }
-    if (!amount || amount <= 0) {
-      alert('Shkruaj shumën e avansit.');
-      return;
-    }
-    const m = {
-      id: `m-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+
+    const amountCents = Math.round(Number(amountEuros || 0) * 100);
+    const dayId = state.currentDay.id;
+    const id =
+      'p_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
+
+    const rec = {
+      id,
       ts: Date.now(),
-      type: 'advance',
-      source: advSource,
-      amount,
-      who: advWho.trim(),
-      note: advNote.trim(),
-      byUserName: currentUser?.name || '',
-      byUserRole: currentUser?.role || '',
+      code,
+      name,
+      phone,
+      paidCents: amountCents,
+      byUserName: user.name,
+      byUserRole: user.role,
+      dayId
     };
-    addMove(m);
 
-    if (advSource === 'budget') {
-      const nb = Number((budget - amount).toFixed(2));
-      setBudget(nb);
-      saveBudget(nb);
-    }
-    setAdvAmount('');
-    setAdvWho('');
-    setAdvNote('');
-    setAdvSource('arka');
+    state.arkaRecords[id] = rec;
+
+    // Efekti në arkë:
+    state.currentDay.cashNowCents += amountCents;
+    state.currentDay.incomeCents += amountCents;
+
+    saveArkaState(state);
+    return rec;
   }
 
-  // ---------- TOP-UP BUXHETI (DIKUSH I JEP PARA KOMPANIS) ----------
+  // =========================
+  //  MBYLLJA E DITËS + TRANSFER NË BUXHET
+  // =========================
 
-  function handleAddTopup() {
-    const amount = Number(topAmount || 0);
-    if (!amount || amount <= 0) {
-      alert('Shkruaj shumën e top-up-it.');
-      return;
+  function closeDayAndProposeTransfer() {
+    const user = getCurrentUser();
+    if (!user) throw new Error('Duhet login.');
+
+    const state = loadArkaState();
+    const day = state.currentDay;
+    if (!day || day.closed) {
+      throw new Error('Nuk ka ditë të hapur për t’u mbyllur.');
     }
-    const m = {
-      id: `m-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
-      ts: Date.now(),
-      type: 'topup',
-      source: 'external',
-      amount,
-      who: topWho.trim(),
-      note: topNote.trim(),
-      byUserName: currentUser?.name || '',
-      byUserRole: currentUser?.role || '',
+
+    const cashEndCents = day.cashNowCents;
+
+    day.closed = true;
+    day.closedAt = Date.now();
+    state.days[day.id] = day;
+    state.currentDay = null;
+
+    saveArkaState(state);
+
+    return {
+      cashEndCents,
+      day
     };
-    addMove(m);
-
-    const nb = Number((budget + amount).toFixed(2));
-    setBudget(nb);
-    saveBudget(nb);
-
-    setTopAmount('');
-    setTopWho('');
-    setTopNote('');
   }
 
-  // ---------- LOGIN SCREEN NËSE S'KA USER ----------
+  function transferCashEndToBudget(dayId, amountCents) {
+    const user = getCurrentUser();
+    if (!user || user.role !== 'admin') {
+      throw new Error('Vetëm ADMIN mund të transferojë në buxhet.');
+    }
 
-  if (!currentUser) {
-    return (
-      <div className="wrap">
-        <header className="header-row">
-          <div>
-            <h1 className="title">ARKA</h1>
-            <div className="subtitle">HYRJE ME PIN</div>
-          </div>
-        </header>
+    const state = loadArkaState();
+    const day = state.days[dayId];
+    if (!day) throw new Error('Dita nuk u gjet.');
 
-        <section className="card">
-          <h2 className="card-title">SHKRUJ PIN-IN</h2>
-          <form
-            onSubmit={handleLogin}
-            style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
-          >
-            <input
-              className="input"
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              placeholder="PIN (p.sh. 4563)"
-              value={pinInput}
-              onChange={(e) => setPinInput(e.target.value)}
-            />
-            <button type="submit" className="btn primary">
-              HYR NË ARKË
-            </button>
-          </form>
-          <p style={{ fontSize: 11, opacity: 0.7, marginTop: 8 }}>
-            * PIN-i i parë default është <strong>4563</strong> (ADMIN).
-          </p>
-        </section>
+    state.budgetCents += amountCents;
+    saveArkaState(state);
+    return state.budgetCents;
+  }
 
-        <footer className="footer-bar">
-          <Link className="btn secondary" href="/">
-            🏠 HOME
-          </Link>
-        </footer>
-      </div>
+  // =========================
+  //  HARD RESET SISTEMI
+  // =========================
+
+  function hardResetSystem(confirmPin) {
+    const users = loadUsers();
+    const h = hashPin(confirmPin);
+    const admin = users.find(u => u.role === 'admin' && u.pinHash === h);
+    if (!admin) {
+      throw new Error('PIN i gabuar ose nuk je ADMIN.');
+    }
+
+    // Fshijmë krejt ARKA state dhe porositë të tjera lokale
+    localStorage.removeItem(LS_ARKA_KEY);
+
+    // Këtu SHTO të gjithë çelësat tjerë që do me i pastru:
+    localStorage.removeItem('tepiha_orders_v1');
+    localStorage.removeItem('tepiha_photos_v1');
+    localStorage.removeItem('tepiha_days_v1');
+    localStorage.removeItem('tepiha_arka_records_v1');
+    // ... nëse ke edhe çelësa të tjerë, shtoji këtu.
+
+    // PËRDO-RUESIT NUK FSHIHEN (LS_USERS_KEY mbetet)
+    // current user log-out
+    setCurrentUser(null);
+  }
+
+  // =========================
+  //  RAPORTE TË THJESHTA
+  // =========================
+
+  function getArkaSummary() {
+    const state = loadArkaState();
+    const user = getCurrentUser();
+    const day = state.currentDay;
+
+    const moves = filterMovesForUser(state.moves, user);
+
+    return {
+      user,
+      budgetCents: state.budgetCents,
+      canSeeBudget: canSeeCompanyBudget(user),
+      currentDay: day,
+      moves,
+      arkaRecords: state.arkaRecords
+    };
+  }
+
+  function getAdvancesForWorker(name) {
+    const state = loadArkaState();
+    const moves = Object.values(state.moves || {});
+    return moves.filter(
+      m => m.type === 'advance' && m.who === name
     );
   }
 
-  // ---------- MAIN ARKA SCREEN ----------
+  function getTotalAdvanceForWorker(name) {
+    return getAdvancesForWorker(name).reduce(
+      (sum, m) => sum + m.amountCents,
+      0
+    );
+  }
 
-  return (
-    <div className="wrap">
-      <header className="header-row">
-        <div>
-          <h1 className="title">ARKA</h1>
-          <div className="subtitle">
-            {currentUser.name} • {ROLE_LABELS[currentUser.role] || currentUser.role}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right', fontSize: 12 }}>
-          <div>
-            SOT: <strong>{todayTotal.toFixed(2)} €</strong>
-          </div>
-          <div>
-            BUXHETI: <strong>{budget.toFixed(2)} €</strong>
-          </div>
-          {isAdmin() && (
-            <button
-              type="button"
-              className="btn secondary"
-              style={{ marginTop: 6, padding: '4px 8px', fontSize: 10 }}
-              onClick={() =>
-                factoryResetAll(currentUser, setRecords, setDay, setMoves, setBudget)
-              }
-            >
-              RESET SISTEMIN
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn secondary"
-            style={{ marginTop: 6, marginLeft: 6, padding: '4px 8px', fontSize: 10 }}
-            onClick={handleLogout}
-          >
-            DALJE
-          </button>
-        </div>
-      </header>
+  // =========================
+  //  INIT – krijo admin nëse s’ka
+  // =========================
 
-      {/* DITA E SOTME */}
+  function init() {
+    ensureDefaultAdmin();
+  }
 
-      <section className="card">
-        <h2 className="card-title">DITA E SOTME ({todayKey()})</h2>
-        {day ? (
-          <>
-            <p style={{ fontSize: 12, marginBottom: 4 }}>
-              Dita është hapur nga{' '}
-              <strong>
-                {day.openedByName} ({ROLE_LABELS[day.openedByRole] || day.openedByRole})
-              </strong>{' '}
-              në{' '}
-              {new Date(day.openedTs).toLocaleTimeString('sq-AL', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-              .
-            </p>
-            <p style={{ fontSize: 12 }}>
-              CASH START: <strong>{cashStart.toFixed(2)} €</strong> · NETO SOT (ARKA):{' '}
-              <strong>{todayTotal.toFixed(2)} €</strong> · SHPENZIME NGA ARKA:{' '}
-              <strong>{cashOutFromArka.toFixed(2)} €</strong>
-            </p>
-            <p style={{ fontSize: 12, marginTop: 4 }}>
-              CASH NË FUND DITE:{' '}
-              <strong>{day.closed ? day.transferred.toFixed(2) : cashEndCalc.toFixed(2)} €</strong>
-            </p>
-            {!day.closed && (
-              <button
-                type="button"
-                className="btn primary"
-                style={{ marginTop: 10 }}
-                onClick={handleCloseDay}
-              >
-                MBYLLE DITËN & TRANSFERO NË BUXHET
-              </button>
-            )}
-            {day.closed && (
-              <p style={{ fontSize: 11, marginTop: 6, opacity: 0.8 }}>
-                Dita është e mbyllur. U transferuan{' '}
-                <strong>{day.transferred.toFixed(2)} €</strong> në buxhet në{' '}
-                {new Date(day.closedTs).toLocaleTimeString('sq-AL', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-                .
-              </p>
-            )}
-          </>
-        ) : (
-          <>
-            <p style={{ fontSize: 12, marginBottom: 6 }}>
-              Hape ditën me shumë fillestare në arkë (cash fizik).
-            </p>
-            <div className="row" style={{ alignItems: 'center', gap: 8 }}>
-              <input
-                className="input small"
-                type="number"
-                min="0"
-                step="0.1"
-                placeholder="CASH START €"
-                value={openCashInput}
-                onChange={(e) => setOpenCashInput(e.target.value)}
-              />
-              <button type="button" className="btn primary" onClick={handleOpenDay}>
-                HAP DITËN
-              </button>
-            </div>
-          </>
-        )}
-      </section>
+  // =========================
+  //  EXPORT NË WINDOW
+  // =========================
 
-      {/* SHPENZIME & AVANSA */}
+  window.TepihaArka = {
+    // init
+    init,
 
-      <section className="card">
-        <h2 className="card-title">SHPENZIME & AVANSA</h2>
+    // users
+    loginWithPin,
+    logout,
+    getCurrentUser,
+    addUser,
+    listUsers,
+    deactivateUser,
 
-        {/* PUNTOR / AVANS */}
-        <div style={{ marginBottom: 16 }}>
-          <div className="subtitle" style={{ marginBottom: 6 }}>
-            AVANS PËR PUNTOR
-          </div>
-          <div className="row" style={{ marginBottom: 6 }}>
-            <input
-              className="input small"
-              type="text"
-              placeholder="Emri i puntorit"
-              value={advWho}
-              onChange={(e) => setAdvWho(e.target.value)}
-            />
-            <input
-              className="input small"
-              type="number"
-              min="0"
-              step="0.1"
-              placeholder="Shuma €"
-              value={advAmount}
-              onChange={(e) => setAdvAmount(e.target.value)}
-            />
-          </div>
-          <div className="row" style={{ marginBottom: 6 }}>
-            <select
-              className="input small"
-              value={advSource}
-              onChange={(e) => setAdvSource(e.target.value)}
-            >
-              <option value="arka">Nga ARKA</option>
-              <option value="budget">Nga BUXHETI</option>
-            </select>
-            <input
-              className="input small"
-              type="text"
-              placeholder="Shënim (p.sh. rrogë, avans)"
-              value={advNote}
-              onChange={(e) => setAdvNote(e.target.value)}
-            />
-          </div>
-          <button type="button" className="btn secondary" onClick={handleAddAdvance}>
-            SHTO AVANS
-          </button>
-        </div>
+    // arka state
+    loadArkaState,
+    getArkaSummary,
 
-        {/* SHPENZIM I RI */}
-        <div style={{ marginBottom: 16 }}>
-          <div className="subtitle" style={{ marginBottom: 6 }}>
-            SHPENZIM I RI
-          </div>
-          <div className="row" style={{ marginBottom: 6 }}>
-            <input
-              className="input small"
-              type="number"
-              min="0"
-              step="0.1"
-              placeholder="Shuma €"
-              value={expAmount}
-              onChange={(e) => setExpAmount(e.target.value)}
-            />
-            <select
-              className="input small"
-              value={expSource}
-              onChange={(e) => setExpSource(e.target.value)}
-            >
-              <option value="arka">Nga ARKA</option>
-              <option value="budget">Nga BUXHETI</option>
-            </select>
-          </div>
-          <input
-            className="input"
-            type="text"
-            placeholder="Kategoria / shënim (p.sh. shampo, rrymë...)"
-            value={expNote}
-            onChange={(e) => setExpNote(e.target.value)}
-          />
-          <button
-            type="button"
-            className="btn secondary"
-            style={{ marginTop: 6 }}
-            onClick={handleAddExpense}
-          >
-            SHTO SHPENZIM
-          </button>
-        </div>
+    // day
+    openDay,
+    closeDayAndProposeTransfer,
+    transferCashEndToBudget,
 
-        {/* TOP-UP PËR BUXHETIN */}
-        <div>
-          <div className="subtitle" style={{ marginBottom: 6 }}>
-            TOP-UP PËR KOMPANI (DIKUSH I JEP PARA)
-          </div>
-          <div className="row" style={{ marginBottom: 6 }}>
-            <input
-              className="input small"
-              type="number"
-              min="0"
-              step="0.1"
-              placeholder="Shuma €"
-              value={topAmount}
-              onChange={(e) => setTopAmount(e.target.value)}
-            />
-            <input
-              className="input small"
-              type="text"
-              placeholder="Kush i dha? (p.sh. Arben)"
-              value={topWho}
-              onChange={(e) => setTopWho(e.target.value)}
-            />
-          </div>
-          <input
-            className="input"
-            type="text"
-            placeholder="Shënim opsional (p.sh. hua, investim)"
-            value={topNote}
-            onChange={(e) => setTopNote(e.target.value)}
-          />
-          <button
-            type="button"
-            className="btn secondary"
-            style={{ marginTop: 6 }}
-            onClick={handleAddTopup}
-          >
-            SHTO TOP-UP
-          </button>
-        </div>
-      </section>
+    // moves
+    registerMove,
+    registerClientPayment,
 
-      {/* LËVIZJET E DITËS */}
+    // reports
+    getAdvancesForWorker,
+    getTotalAdvanceForWorker,
 
-      <section className="card">
-        <h2 className="card-title">Lëvizjet e ditës</h2>
-        {moves.length === 0 && (
-          <p style={{ fontSize: 12 }}>Ende nuk ka lëvizje për sot.</p>
-        )}
-        {moves.map((m) => (
-          <div key={m.id} className="home-btn" style={{ marginBottom: 6 }}>
-            <div className="home-btn-main" style={{ alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>
-                  {m.type === 'expense'
-                    ? 'SHPENZIM'
-                    : m.type === 'advance'
-                    ? 'AVANS'
-                    : 'TOP-UP BUXHETI'}
-                  {' • '}
-                  {m.source === 'arka'
-                    ? 'NGA ARKA'
-                    : m.source === 'budget'
-                    ? 'NGA BUXHETI'
-                    : 'EKSTERNE'}
-                </div>
-                <div style={{ fontSize: 12 }}>
-                  {m.who ? `${m.who}: ` : ''}
-                  {m.note || ''}
-                </div>
-                <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>
-                  {m.byUserName && (
-                    <>
-                      Regjistroi: {m.byUserName}{' '}
-                      {m.byUserRole && `(${ROLE_LABELS[m.byUserRole] || m.byUserRole})`}
-                      {' • '}
-                    </>
-                  )}
-                  {new Date(m.ts).toLocaleTimeString('sq-AL', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </div>
-              </div>
-              <div style={{ textAlign: 'right', fontSize: 13 }}>
-                <strong>
-                  {m.type === 'topup' ? '+' : '-'}
-                  {Number(m.amount || 0).toFixed(2)} €
-                </strong>
-              </div>
-            </div>
-          </div>
-        ))}
-      </section>
+    // utils
+    formatEuros,
 
-      {/* LISTA E PAGESAVE NGA GATI */}
+    // reset
+    hardResetSystem
+  };
 
-      <section className="card">
-        <h2 className="card-title">Lista e pagesave</h2>
-        {loading && <p>Duke i lexuar të dhënat...</p>}
-        {!loading && records.length === 0 && <p>Nuk ka ende pagesa të regjistruara.</p>}
-
-        {!loading &&
-          records.map((r) => (
-            <div key={r.id} className="home-btn">
-              <div className="home-btn-main">
-                <div>
-                  <div style={{ fontWeight: 700 }}>
-                    {r.code ? `KODI: ${r.code}` : 'PA KOD'}
-                  </div>
-                  <div style={{ fontSize: 12 }}>
-                    {r.name || 'Klient pa emër'} • {(r.phone || '').trim()}
-                  </div>
-                  {r.byUserName && (
-                    <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>
-                      Regjistroi: {r.byUserName}
-                    </div>
-                  )}
-                </div>
-                <div style={{ textAlign: 'right', fontSize: 12 }}>
-                  <div>
-                    <strong>{(Number(r.paid) || 0).toFixed(2)} €</strong>
-                  </div>
-                  <div>
-                    {new Date(r.ts || Date.now()).toLocaleTimeString('sq-AL', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-      </section>
-
-      {/* ADMIN – PËRDORUESIT */}
-
-      {isAdmin() && (
-        <section className="card">
-          <h2 className="card-title">PËRDORUESIT & ROLET</h2>
-
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-              marginBottom: 12,
-            }}
-          >
-            <label className="label">SHTO PËRDORUES</label>
-            <input
-              className="input"
-              type="text"
-              placeholder="Emri (p.sh. Ardi)"
-              value={newUserName}
-              onChange={(e) => setNewUserName(e.target.value)}
-            />
-            <input
-              className="input"
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              placeholder="PIN (p.sh. 1234)"
-              value={newUserPin}
-              onChange={(e) => setNewUserPin(e.target.value)}
-            />
-            <select
-              className="input"
-              value={newUserRole}
-              onChange={(e) => setNewUserRole(e.target.value)}
-            >
-              <option value="worker">PUNTOR</option>
-              <option value="transport">TRANSPORT</option>
-              <option value="dispatch">DISPATCH</option>
-              <option value="admin">ADMIN</option>
-            </select>
-            <button type="button" className="btn primary" onClick={handleAddUser}>
-              SHTO PËRDORUES
-            </button>
-          </div>
-
-          {users.map((u) => (
-            <div
-              key={u.id}
-              className="home-btn"
-              style={{ marginBottom: 6, padding: '6px 8px' }}
-            >
-              <div className="home-btn-main" style={{ alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontWeight: 700 }}>{u.name}</div>
-                  <div style={{ fontSize: 11, opacity: 0.8 }}>
-                    PIN: **** ({ROLE_LABELS[u.role] || u.role})
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right', fontSize: 11 }}>
-                  <select
-                    className="input"
-                    value={u.role}
-                    style={{ padding: '2px 4px', fontSize: 11, marginBottom: 4 }}
-                    onChange={(e) => handleChangeRole(u.id, e.target.value)}
-                  >
-                    <option value="worker">PUNTOR</option>
-                    <option value="transport">TRANSPORT</option>
-                    <option value="dispatch">DISPATCH</option>
-                    <option value="admin">ADMIN</option>
-                  </select>
-                  {u.id !== 'admin-1' && (
-                    <button
-                      type="button"
-                      className="btn secondary"
-                      style={{ padding: '2px 6px', fontSize: 10 }}
-                      onClick={() => handleDeleteUser(u.id)}
-                    >
-                      FSHI
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
-
-      <footer className="footer-bar">
-        <Link className="btn secondary" href="/">
-          🏠 HOME
-        </Link>
-      </footer>
-    </div>
-  );
-}
+  // auto-init një herë
+  init();
+})();
