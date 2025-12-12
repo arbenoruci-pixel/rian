@@ -1,13 +1,14 @@
-// =================================================================
-// MODULI ARKA – Version i Plotë + i Sigurt për Next.js
+ =================================================================
+// MODULI ARKA (Kodi i Plotë i Integruar)
+// Version i sigurt për Next.js (me guard për window & export në window.TepihaArka)
 // =================================================================
 
 (function () {
-  // Mos e ekzekuto në server (Next.js SSR / build)
+  // 🚫 MOS ekzekuto në server (Next.js SSR / build)
   if (typeof window === "undefined") return;
 
   // -----------------------------------------------------
-  // 1. KONFIGURIMI & HELPERS
+  // 1. KONFIGURIMI & FUNKSIONET NDIHMËSË (HELPERS)
   // -----------------------------------------------------
 
   const LS_KEYS = {
@@ -27,37 +28,13 @@
     return `hash_${pin}`;
   }
 
-  // getData i rregulluar që STATE me kon objekt, të tjerat array
   function getData(key) {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      if (key === LS_KEYS.STATE) {
-        return {
-          COMPANY_BUDGET: 0,
-          DAILY_CASH: 0,
-          CASH_START_TODAY: 0,
-          currentDayOpened: null
-        };
-      }
-      return [];
-    }
+    const data = localStorage.getItem(key);
     try {
-      const parsed = JSON.parse(raw);
-      if (key === LS_KEYS.STATE && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed;
-      }
-      if (Array.isArray(parsed)) return parsed;
-      return parsed;
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : (data ? parsed : []);
     } catch (e) {
-      if (key === LS_KEYS.STATE) {
-        return {
-          COMPANY_BUDGET: 0,
-          DAILY_CASH: 0,
-          CASH_START_TODAY: 0,
-          currentDayOpened: null
-        };
-      }
-      return [];
+      return data || [];
     }
   }
 
@@ -72,10 +49,6 @@
   function getCurrentUser() {
     return JSON.parse(localStorage.getItem(LS_KEYS.CURRENT_USER) || '{}');
   }
-
-  // -----------------------------------------------------
-  // 2. INIT SISTEMI (krijon ADMIN-in e parë)
-  // -----------------------------------------------------
 
   function initializeSystem() {
     let users = getData(LS_KEYS.USERS);
@@ -95,15 +68,13 @@
         currentDayOpened: null
       };
       setData(LS_KEYS.STATE, initialState);
-
       console.log('✅ Sistemi u inicializua me ADMIN-in (PIN: 4563).');
     }
   }
-
   initializeSystem();
 
   // -----------------------------------------------------
-  // 3. HYRJA & MENAXHIMI I PËRDORUESVE
+  // 2. LOGJIKA E HYRJES DHE MENAXHIMI I PËRDORUESVE
   // -----------------------------------------------------
 
   function handleLogin(pin) {
@@ -138,6 +109,7 @@
       };
       users.push(newUser);
       console.log(`✅ Përdoruesi ${data.name} u shtua.`);
+
     } else if (action === 'DELETE' && data.id !== getCurrentUser().id) {
       users = users.filter(u => u.id !== data.id);
       console.log(`✅ Përdoruesi u fshi.`);
@@ -146,12 +118,8 @@
     return { success: true, users };
   }
 
-  function listUsers() {
-    return getData(LS_KEYS.USERS);
-  }
-
   // -----------------------------------------------------
-  // 4. GJENDJA FINANCIARE & LËVIZJET (MOVES)
+  // 3. LOGJIKA E BUXHETIT DHE LËVIZJEVE (MOVES)
   // -----------------------------------------------------
 
   function getFinancialState() {
@@ -159,7 +127,7 @@
     console.log(`\n--- GJENDJA FINANCIARE AKTUALE ---`);
     console.log(`💰 BUXHETI KOMPANISË (Total): ${formatEuro(state.COMPANY_BUDGET)}`);
     console.log(`💵 CASH DITOR (Arka): ${formatEuro(state.DAILY_CASH)} (Fillimi: ${formatEuro(state.CASH_START_TODAY)})`);
-    console.log(`-----------------------------------`);
+    console.log('-----------------------------------');
     return state;
   }
 
@@ -178,7 +146,7 @@
     if (type === 'expense' || type === 'advance') {
       if (source === 'arka') {
         if (state.DAILY_CASH < amountCent) {
-          console.error(`❌ Nuk ka KESH në arkë.`);
+          console.error('❌ Nuk ka KESH në arkë.');
           return { success: false };
         }
         state.DAILY_CASH -= amountCent;
@@ -192,7 +160,7 @@
     }
 
     // REGJISTRIMI I LËVIZJES
-    const moves = getData(LS_KEYS.MOVES) || [];
+    const moves = getData(LS_KEYS.MOVES);
     const newMove = {
       id: `m${Date.now()}`,
       ts: Date.now(),
@@ -222,7 +190,7 @@
     state.DAILY_CASH += amountCent;
     setData(LS_KEYS.STATE, state);
 
-    const records = getData(LS_KEYS.RECORDS) || [];
+    const records = getData(LS_KEYS.RECORDS);
     const newRecord = {
       id: `r${Date.now()}`,
       ts: Date.now(),
@@ -239,7 +207,7 @@
   }
 
   // -----------------------------------------------------
-  // 5. DITA – HAPJE, MBYLLJE, RESET
+  // 4. LOGJIKA E DITËS DHE FACTORY RESET
   // -----------------------------------------------------
 
   function initializeDay(startCashCent) {
@@ -247,7 +215,7 @@
     const today = new Date().toISOString().split('T')[0];
 
     if (state.currentDayOpened === today) {
-      console.warn(`⚠️ Dita tashmë është hapur.`);
+      console.warn('⚠️ Dita tashmë është hapur.');
       return { success: false };
     }
 
@@ -277,7 +245,7 @@
 
     setData(LS_KEYS.STATE, state);
 
-    console.log(`\n🌙 Dita u mbyll me sukses.`);
+    console.log('\n🌙 Dita u mbyll me sukses.');
     console.log(`   Fitimi Ditor: ${formatEuro(dailyProfit)}`);
     console.log(`   Buxheti i Ri Total: ${formatEuro(state.COMPANY_BUDGET)}`);
     return { success: true };
@@ -308,20 +276,20 @@
     state.currentDayOpened = null;
     setData(LS_KEYS.STATE, state);
 
-    console.log(`\n💣 FACTORY RESET TOTAL u krye me sukses!`);
+    console.log('\n💣 FACTORY RESET TOTAL u krye me sukses!');
     return { success: true };
   }
 
   // -----------------------------------------------------
-  // 6. RAPORTET
+  // 5. LOGJIKA E RAPORTIMIT
   // -----------------------------------------------------
 
   function generateReport(days) {
     const endTime = Date.now();
     const startTime = endTime - (days * 24 * 60 * 60 * 1000);
 
-    const moves = (getData(LS_KEYS.MOVES) || []).filter(m => m.ts >= startTime);
-    const records = (getData(LS_KEYS.RECORDS) || []).filter(r => r.ts >= startTime);
+    const moves = getData(LS_KEYS.MOVES).filter(m => m.ts >= startTime);
+    const records = getData(LS_KEYS.RECORDS).filter(r => r.ts >= startTime);
 
     let totalIncomeClients = 0;
     let totalIncomeTopup = 0;
@@ -339,24 +307,24 @@
     const totalOutgoing = totalExpense + totalAdvance;
     const netProfit = totalIncome - totalOutgoing;
 
-    console.log(`\n==========================================`);
+    console.log('\n==========================================');
     console.log(`📊 RAPORTI I ${days} DITËVE TË FUNDIT`);
-    console.log(`==========================================`);
+    console.log('==========================================');
     console.log(`💰 TË ARDHURAT TOTALE: ${formatEuro(totalIncome)}`);
     console.log(`   - Nga Klientët: ${formatEuro(totalIncomeClients)}`);
     console.log(`   - Nga Top-Up:   ${formatEuro(totalIncomeTopup)}`);
-    console.log(`------------------------------------------`);
+    console.log('------------------------------------------');
     console.log(`💸 SHPENZIMET DHE AVANSET: ${formatEuro(totalOutgoing)}`);
     console.log(`   - Shpenzime (Operative): ${formatEuro(totalExpense)}`);
-    console.log(`   - Avansa (Borxh):        ${formatEuro(totalAdvance)}`);
-    console.log(`------------------------------------------`);
+    console.log(`   - Avansa (Borxh):       ${formatEuro(totalAdvance)}`);
+    console.log('------------------------------------------');
     console.log(`📈 FITIMI NETO I PERIUDHËS: ${formatEuro(netProfit)}`);
-    console.log(`==========================================`);
+    console.log('==========================================');
     return { totalIncome, totalOutgoing, netProfit };
   }
 
   function generateAdvanceReport() {
-    const moves = getData(LS_KEYS.MOVES) || [];
+    const moves = getData(LS_KEYS.MOVES);
     const advancesMap = {};
 
     moves.forEach(m => {
@@ -373,9 +341,9 @@
       }
     });
 
-    console.log(`\n==========================================`);
-    console.log(`📋 RAPORTI I AVANSAVE DHE BORXHEVE`);
-    console.log(`==========================================`);
+    console.log('\n==========================================');
+    console.log('📋 RAPORTI I AVANSAVE DHE BORXHEVE');
+    console.log('==========================================');
 
     Object.keys(advancesMap).forEach(who => {
       const data = advancesMap[who];
@@ -385,13 +353,13 @@
       console.log(`   - Avans i Dhënë Total: ${formatEuro(data.given)}`);
       console.log(`   - Borxh i Kthyer:      ${formatEuro(data.repaid)}`);
       console.log(`   - BORXHI I MBETUR:     ${formatEuro(balance)}`);
-      console.log(`------------------------------------------`);
+      console.log('------------------------------------------');
     });
     return advancesMap;
   }
 
   // -----------------------------------------------------
-  // 7. EXPORT NË window.TepihaArka
+  // 6. EXPORT NË window.TepihaArka
   // -----------------------------------------------------
 
   window.TepihaArka = {
@@ -402,7 +370,7 @@
     handleLogin,
     loginWithPin: handleLogin,
     manageUsers,
-    listUsers,
+    listUsers: () => getData(LS_KEYS.USERS),
 
     getFinancialState,
     recordMove,
