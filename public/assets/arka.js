@@ -1,15 +1,11 @@
- =================================================================
-// MODULI ARKA (Kodi i Plotë i Integruar)
-// Version i sigurt për Next.js (me guard për window & export në window.TepihaArka)
-// =================================================================
+/* =================================================================
+   ARKA ENGINE (SAFE for Next.js SSR)
+   Runs ONLY in browser (guards window/localStorage)
+   ================================================================= */
 
 (function () {
-  // 🚫 MOS ekzekuto në server (Next.js SSR / build)
-  if (typeof window === "undefined") return;
-
-  // -----------------------------------------------------
-  // 1. KONFIGURIMI & FUNKSIONET NDIHMËSË (HELPERS)
-  // -----------------------------------------------------
+  if (typeof window === 'undefined') return;
+  if (typeof localStorage === 'undefined') return;
 
   const LS_KEYS = {
     USERS: 'ARKA_USERS',
@@ -28,31 +24,49 @@
     return `hash_${pin}`;
   }
 
+  function safeJsonParse(str, fallback) {
+    try { return JSON.parse(str); } catch { return fallback; }
+  }
+
   function getData(key) {
-    const data = localStorage.getItem(key);
-    try {
-      const parsed = JSON.parse(data);
-      return Array.isArray(parsed) ? parsed : (data ? parsed : []);
-    } catch (e) {
-      return data || [];
-    }
+    const raw = localStorage.getItem(key);
+    if (raw == null) return null;
+    return safeJsonParse(raw, null);
   }
 
   function setData(key, data) {
     localStorage.setItem(key, JSON.stringify(data));
   }
 
+  function ensureArray(v) {
+    return Array.isArray(v) ? v : [];
+  }
+
   function formatEuro(cent) {
-    return (cent / 100).toFixed(2) + '€';
+    const n = Number(cent || 0);
+    return (n / 100).toFixed(2) + '€';
   }
 
   function getCurrentUser() {
-    return JSON.parse(localStorage.getItem(LS_KEYS.CURRENT_USER) || '{}');
+    return safeJsonParse(localStorage.getItem(LS_KEYS.CURRENT_USER) || '{}', {});
+  }
+
+  function getFinancialState() {
+    const state = getData(LS_KEYS.STATE);
+    if (!state || typeof state !== 'object' || Array.isArray(state)) {
+      return { COMPANY_BUDGET: 0, DAILY_CASH: 0, CASH_START_TODAY: 0, currentDayOpened: null };
+    }
+    return {
+      COMPANY_BUDGET: Number(state.COMPANY_BUDGET || 0),
+      DAILY_CASH: Number(state.DAILY_CASH || 0),
+      CASH_START_TODAY: Number(state.CASH_START_TODAY || 0),
+      currentDayOpened: state.currentDayOpened || null
+    };
   }
 
   function initializeSystem() {
-    let users = getData(LS_KEYS.USERS);
-    if (!Array.isArray(users) || users.length === 0) {
+    let users = ensureArray(getData(LS_KEYS.USERS));
+    if (users.length === 0) {
       users = [{
         id: 'u1',
         name: 'Admini Kryesor',
@@ -61,306 +75,248 @@
       }];
       setData(LS_KEYS.USERS, users);
 
-      const initialState = {
+      setData(LS_KEYS.STATE, {
         COMPANY_BUDGET: 0,
         DAILY_CASH: 0,
         CASH_START_TODAY: 0,
         currentDayOpened: null
-      };
-      setData(LS_KEYS.STATE, initialState);
-      console.log('✅ Sistemi u inicializua me ADMIN-in (PIN: 4563).');
+      });
+
+      console.log('✅ ARKA init OK (ADMIN PIN 4563).');
+    } else {
+      const st = getData(LS_KEYS.STATE);
+      if (!st || typeof st !== 'object' || Array.isArray(st)) {
+        setData(LS_KEYS.STATE, {
+          COMPANY_BUDGET: 0,
+          DAILY_CASH: 0,
+          CASH_START_TODAY: 0,
+          currentDayOpened: null
+        });
+      }
     }
   }
   initializeSystem();
 
-  // -----------------------------------------------------
-  // 2. LOGJIKA E HYRJES DHE MENAXHIMI I PËRDORUESVE
-  // -----------------------------------------------------
-
   function handleLogin(pin) {
-    const hashedPin = hashPin(pin);
-    const users = getData(LS_KEYS.USERS);
-
-    const user = users.find(u => u.hashedPin === hashedPin);
+    const hashedPin = hashPin(String(pin || '').trim());
+    const users = ensureArray(getData(LS_KEYS.USERS));
+    const user = users.find(u => u && u.hashedPin === hashedPin);
 
     if (user) {
       setData(LS_KEYS.CURRENT_USER, { name: user.name, role: user.role, id: user.id });
-      console.log(`✨ Mirësevjen, ${user.name} (${user.role})!`);
-      return { success: true, role: user.role };
-    } else {
-      console.error('❌ PIN i gabuar!');
-      return { success: false, message: 'PIN i gabuar!' };
+      return { success: true, role: user.role, user: { name: user.name, role: user.role, id: user.id } };
     }
+    return { success: false, message: 'PIN i gabuar!' };
   }
 
   function manageUsers(action, data) {
-    if (getCurrentUser().role !== 'ADMIN') {
-      return { success: false, message: 'Nuk jeni ADMIN!' };
-    }
+    const cur = getCurrentUser();
+    if (cur.role !== 'ADMIN') return { success: false, message: 'Nuk jeni ADMIN!' };
 
-    let users = getData(LS_KEYS.USERS);
+    let users = ensureArray(getData(LS_KEYS.USERS));
 
     if (action === 'ADD') {
-      const newUser = {
-        id: `u${Date.now()}`,
-        name: data.name,
-        role: data.role,
-        hashedPin: hashPin(data.pin)
-      };
+      const name = String(data?.name || '').trim();
+      const pin = String(data?.pin || '').trim();
+      const role = String(data?.role || '').trim().toUpperCase();
+
+      if (!name) return { success: false, message: 'Emri mungon.' };
+      if (!pin) return { success: false, message: 'PIN mungon.' };
+      if (!ROLES.includes(role)) return { success: false, message: 'Roli i pavlefshëm.' };
+
+      const newUser = { id: `u${Date.now()}`, name, role, hashedPin: hashPin(pin) };
       users.push(newUser);
-      console.log(`✅ Përdoruesi ${data.name} u shtua.`);
-
-    } else if (action === 'DELETE' && data.id !== getCurrentUser().id) {
-      users = users.filter(u => u.id !== data.id);
-      console.log(`✅ Përdoruesi u fshi.`);
+      setData(LS_KEYS.USERS, users);
+      return { success: true, users };
     }
-    setData(LS_KEYS.USERS, users);
-    return { success: true, users };
-  }
 
-  // -----------------------------------------------------
-  // 3. LOGJIKA E BUXHETIT DHE LËVIZJEVE (MOVES)
-  // -----------------------------------------------------
+    if (action === 'DELETE') {
+      const id = String(data?.id || '');
+      if (!id) return { success: false, message: 'ID mungon.' };
+      if (id === cur.id) return { success: false, message: 'S’mundesh me fshi veten.' };
 
-  function getFinancialState() {
-    const state = getData(LS_KEYS.STATE);
-    console.log(`\n--- GJENDJA FINANCIARE AKTUALE ---`);
-    console.log(`💰 BUXHETI KOMPANISË (Total): ${formatEuro(state.COMPANY_BUDGET)}`);
-    console.log(`💵 CASH DITOR (Arka): ${formatEuro(state.DAILY_CASH)} (Fillimi: ${formatEuro(state.CASH_START_TODAY)})`);
-    console.log('-----------------------------------');
-    return state;
+      users = users.filter(u => u && u.id !== id);
+      setData(LS_KEYS.USERS, users);
+      return { success: true, users };
+    }
+
+    return { success: false, message: 'Action e panjohur.' };
   }
 
   function recordMove(type, amountCent, source, who, note, durationType = null, installmentAmountCent = null) {
     const user = getCurrentUser();
-    if (!user.name) return { success: false, message: 'Duhet të jeni i kyçur.' };
+    if (!user?.name) return { success: false, message: 'Duhet login.' };
 
-    const state = getData(LS_KEYS.STATE);
+    type = String(type || '').toLowerCase();
+    source = String(source || '').toLowerCase();
+
+    const amt = Number(amountCent || 0);
+    if (!(amt > 0)) return { success: false, message: 'Shuma jo valide.' };
+
+    const state = getFinancialState();
 
     if (type === 'topup' && user.role !== 'ADMIN') {
-      console.error('❌ Vetëm ADMIN mund të regjistrojë TOP-UP.');
-      return { success: false };
+      return { success: false, message: 'Vetëm ADMIN mund TOP-UP.' };
     }
 
-    // KONTROLLI I FONDEVE & LLOGARITJA
     if (type === 'expense' || type === 'advance') {
       if (source === 'arka') {
-        if (state.DAILY_CASH < amountCent) {
-          console.error('❌ Nuk ka KESH në arkë.');
-          return { success: false };
-        }
-        state.DAILY_CASH -= amountCent;
+        if (state.DAILY_CASH < amt) return { success: false, message: 'Nuk ka cash në arkë.' };
+        state.DAILY_CASH -= amt;
       } else if (source === 'budget') {
-        state.COMPANY_BUDGET -= amountCent;
+        state.COMPANY_BUDGET -= amt;
+      } else {
+        return { success: false, message: 'Burimi jo valid.' };
       }
-    } else if (type === 'topup') {
-      state.COMPANY_BUDGET += amountCent;
-    } else if (type === 'repayment') {
-      state.COMPANY_BUDGET += amountCent;
+    } else if (type === 'topup' || type === 'repayment') {
+      state.COMPANY_BUDGET += amt;
+    } else {
+      return { success: false, message: 'Tipi jo valid.' };
     }
 
-    // REGJISTRIMI I LËVIZJES
-    const moves = getData(LS_KEYS.MOVES);
+    const moves = ensureArray(getData(LS_KEYS.MOVES));
     const newMove = {
       id: `m${Date.now()}`,
       ts: Date.now(),
       type,
       source,
-      amount: amountCent,
-      who,
-      note,
+      amount: amt,
+      who: who || '',
+      note: note || '',
       byUserName: user.name,
       byUserRole: user.role,
       durationType,
       installmentAmount: installmentAmountCent
     };
     moves.push(newMove);
+
     setData(LS_KEYS.MOVES, moves);
     setData(LS_KEYS.STATE, state);
 
-    console.log(`✅ Lëvizje e re (${type}) prej ${formatEuro(amountCent)} u regjistrua.`);
-    return { success: true, move: newMove };
+    return { success: true, move: newMove, state };
   }
 
   function recordClientPayment(amountCent, orderDetails) {
     const user = getCurrentUser();
-    if (!user.name) return { success: false, message: 'Duhet të jeni i kyçur.' };
+    if (!user?.name) return { success: false, message: 'Duhet login.' };
 
-    const state = getData(LS_KEYS.STATE);
-    state.DAILY_CASH += amountCent;
+    const amt = Number(amountCent || 0);
+    if (!(amt > 0)) return { success: false, message: 'Shuma jo valide.' };
+
+    const state = getFinancialState();
+    state.DAILY_CASH += amt;
     setData(LS_KEYS.STATE, state);
 
-    const records = getData(LS_KEYS.RECORDS);
+    const records = ensureArray(getData(LS_KEYS.RECORDS));
     const newRecord = {
       id: `r${Date.now()}`,
       ts: Date.now(),
-      paid: amountCent,
+      paid: amt,
       byUserName: user.name,
       byUserRole: user.role,
-      ...orderDetails
+      ...(orderDetails || {})
     };
     records.push(newRecord);
     setData(LS_KEYS.RECORDS, records);
 
-    console.log(`✅ Pagesa e klientit (${orderDetails.code}) prej ${formatEuro(amountCent)} u regjistrua.`);
-    return { success: true };
+    return { success: true, record: newRecord, state };
   }
 
-  // -----------------------------------------------------
-  // 4. LOGJIKA E DITËS DHE FACTORY RESET
-  // -----------------------------------------------------
-
   function initializeDay(startCashCent) {
-    const state = getData(LS_KEYS.STATE);
+    const state = getFinancialState();
     const today = new Date().toISOString().split('T')[0];
 
-    if (state.currentDayOpened === today) {
-      console.warn('⚠️ Dita tashmë është hapur.');
-      return { success: false };
-    }
+    if (state.currentDayOpened === today) return { success: false, message: 'Dita e hapur.' };
 
-    state.DAILY_CASH = startCashCent;
-    state.CASH_START_TODAY = startCashCent;
+    const start = Number(startCashCent || 0);
+    state.DAILY_CASH = start;
+    state.CASH_START_TODAY = start;
     state.currentDayOpened = today;
     setData(LS_KEYS.STATE, state);
 
-    console.log(`\n☀️ Dita e re u hap: CASH START ${formatEuro(startCashCent)}.`);
-    return { success: true };
+    return { success: true, state };
   }
 
   function closeDay() {
-    const state = getData(LS_KEYS.STATE);
+    const state = getFinancialState();
+    if (!state.currentDayOpened) return { success: false, message: 'Dita s’është hapur.' };
 
-    if (!state.currentDayOpened) {
-      console.error('❌ Dita nuk është hapur.');
-      return { success: false };
-    }
-
-    const cashStart = state.CASH_START_TODAY;
-    const cashEnd = state.DAILY_CASH;
-    const dailyProfit = cashEnd - cashStart;
-
+    const dailyProfit = Number(state.DAILY_CASH || 0) - Number(state.CASH_START_TODAY || 0);
     state.COMPANY_BUDGET += dailyProfit;
     state.currentDayOpened = null;
-
     setData(LS_KEYS.STATE, state);
 
-    console.log('\n🌙 Dita u mbyll me sukses.');
-    console.log(`   Fitimi Ditor: ${formatEuro(dailyProfit)}`);
-    console.log(`   Buxheti i Ri Total: ${formatEuro(state.COMPANY_BUDGET)}`);
-    return { success: true };
+    return { success: true, dailyProfit, state };
   }
 
   function resetSystem(adminPin) {
     const user = getCurrentUser();
+    if (user.role !== 'ADMIN') return { success: false, message: 'Vetëm ADMIN.' };
 
-    if (user.role !== 'ADMIN') {
-      console.error('❌ Vetëm ADMIN mund të bëjë Factory Reset.');
-      return { success: false };
+    const users = ensureArray(getData(LS_KEYS.USERS));
+    const actualAdmin = users.find(u => u && u.id === user.id);
+    if (!actualAdmin) return { success: false, message: 'Admin missing.' };
+
+    if (hashPin(String(adminPin || '').trim()) !== actualAdmin.hashedPin) {
+      return { success: false, message: 'PIN gabim.' };
     }
-
-    const actualAdmin = getData(LS_KEYS.USERS).find(u => u.id === user.id);
-    if (hashPin(adminPin) !== actualAdmin.hashedPin) {
-      console.error('❌ PIN-i i ADMIN-it është i gabuar. Reset i anuluar.');
-      return { success: false };
-    }
-
-    const state = getData(LS_KEYS.STATE);
 
     localStorage.removeItem(LS_KEYS.MOVES);
     localStorage.removeItem(LS_KEYS.RECORDS);
 
-    state.COMPANY_BUDGET = 0;
-    state.DAILY_CASH = 0;
-    state.CASH_START_TODAY = 0;
-    state.currentDayOpened = null;
-    setData(LS_KEYS.STATE, state);
+    setData(LS_KEYS.STATE, {
+      COMPANY_BUDGET: 0,
+      DAILY_CASH: 0,
+      CASH_START_TODAY: 0,
+      currentDayOpened: null
+    });
 
-    console.log('\n💣 FACTORY RESET TOTAL u krye me sukses!');
     return { success: true };
   }
 
-  // -----------------------------------------------------
-  // 5. LOGJIKA E RAPORTIMIT
-  // -----------------------------------------------------
-
   function generateReport(days) {
+    const d = Number(days || 0);
     const endTime = Date.now();
-    const startTime = endTime - (days * 24 * 60 * 60 * 1000);
+    const startTime = endTime - (d * 24 * 60 * 60 * 1000);
 
-    const moves = getData(LS_KEYS.MOVES).filter(m => m.ts >= startTime);
-    const records = getData(LS_KEYS.RECORDS).filter(r => r.ts >= startTime);
+    const moves = ensureArray(getData(LS_KEYS.MOVES)).filter(m => m && m.ts >= startTime);
+    const records = ensureArray(getData(LS_KEYS.RECORDS)).filter(r => r && r.ts >= startTime);
 
     let totalIncomeClients = 0;
     let totalIncomeTopup = 0;
     let totalExpense = 0;
     let totalAdvance = 0;
 
-    records.forEach(r => totalIncomeClients += r.paid);
+    records.forEach(r => totalIncomeClients += Number(r.paid || 0));
     moves.forEach(m => {
-      if (m.type === 'expense') totalExpense += m.amount;
-      if (m.type === 'advance') totalAdvance += m.amount;
-      if (m.type === 'topup') totalIncomeTopup += m.amount;
+      if (m.type === 'expense') totalExpense += Number(m.amount || 0);
+      if (m.type === 'advance') totalAdvance += Number(m.amount || 0);
+      if (m.type === 'topup') totalIncomeTopup += Number(m.amount || 0);
     });
 
     const totalIncome = totalIncomeClients + totalIncomeTopup;
     const totalOutgoing = totalExpense + totalAdvance;
     const netProfit = totalIncome - totalOutgoing;
 
-    console.log('\n==========================================');
-    console.log(`📊 RAPORTI I ${days} DITËVE TË FUNDIT`);
-    console.log('==========================================');
-    console.log(`💰 TË ARDHURAT TOTALE: ${formatEuro(totalIncome)}`);
-    console.log(`   - Nga Klientët: ${formatEuro(totalIncomeClients)}`);
-    console.log(`   - Nga Top-Up:   ${formatEuro(totalIncomeTopup)}`);
-    console.log('------------------------------------------');
-    console.log(`💸 SHPENZIMET DHE AVANSET: ${formatEuro(totalOutgoing)}`);
-    console.log(`   - Shpenzime (Operative): ${formatEuro(totalExpense)}`);
-    console.log(`   - Avansa (Borxh):       ${formatEuro(totalAdvance)}`);
-    console.log('------------------------------------------');
-    console.log(`📈 FITIMI NETO I PERIUDHËS: ${formatEuro(netProfit)}`);
-    console.log('==========================================');
     return { totalIncome, totalOutgoing, netProfit };
   }
 
   function generateAdvanceReport() {
-    const moves = getData(LS_KEYS.MOVES);
+    const moves = ensureArray(getData(LS_KEYS.MOVES));
     const advancesMap = {};
 
     moves.forEach(m => {
+      if (!m) return;
       if (m.type === 'advance' || m.type === 'repayment') {
-        if (!advancesMap[m.who]) {
-          advancesMap[m.who] = { given: 0, repaid: 0 };
-        }
-
-        if (m.type === 'advance') {
-          advancesMap[m.who].given += m.amount;
-        } else if (m.type === 'repayment') {
-          advancesMap[m.who].repaid += m.amount;
-        }
+        const key = String(m.who || '').trim() || 'PA_EMER';
+        if (!advancesMap[key]) advancesMap[key] = { given: 0, repaid: 0 };
+        if (m.type === 'advance') advancesMap[key].given += Number(m.amount || 0);
+        if (m.type === 'repayment') advancesMap[key].repaid += Number(m.amount || 0);
       }
     });
 
-    console.log('\n==========================================');
-    console.log('📋 RAPORTI I AVANSAVE DHE BORXHEVE');
-    console.log('==========================================');
-
-    Object.keys(advancesMap).forEach(who => {
-      const data = advancesMap[who];
-      const balance = data.given - data.repaid;
-
-      console.log(`👤 ${who}:`);
-      console.log(`   - Avans i Dhënë Total: ${formatEuro(data.given)}`);
-      console.log(`   - Borxh i Kthyer:      ${formatEuro(data.repaid)}`);
-      console.log(`   - BORXHI I MBETUR:     ${formatEuro(balance)}`);
-      console.log('------------------------------------------');
-    });
     return advancesMap;
   }
-
-  // -----------------------------------------------------
-  // 6. EXPORT NË window.TepihaArka
-  // -----------------------------------------------------
 
   window.TepihaArka = {
     ROLES,
@@ -370,9 +326,9 @@
     handleLogin,
     loginWithPin: handleLogin,
     manageUsers,
-    listUsers: () => getData(LS_KEYS.USERS),
+    listUsers: () => ensureArray(getData(LS_KEYS.USERS)),
 
-    getFinancialState,
+    getFinancialState: () => getFinancialState(),
     recordMove,
     recordClientPayment,
     initializeDay,
@@ -381,5 +337,4 @@
     generateReport,
     generateAdvanceReport
   };
-
 })();

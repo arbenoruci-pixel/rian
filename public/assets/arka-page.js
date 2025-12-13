@@ -1,266 +1,68 @@
-// public/assets/arka-page.js
-document.addEventListener("DOMContentLoaded", () => {
-  if (!window.TepihaArka) return;
+(function () {
+  if (typeof window === 'undefined') return;
 
-  const Arka = window.TepihaArka;
-  const user = Arka.getCurrentUser();
-
-  if (!user) {
-    // Nëse nuk ka user në session, le të vazhdojë UI, por njofto përdoruesin
-    console.warn("Nuk ka user të loguar në ARKË. Disa veprime nuk do të funksionojnë pa PIN.");
+  function el(tag, attrs = {}, children = []) {
+    const n = document.createElement(tag);
+    Object.entries(attrs).forEach(([k, v]) => {
+      if (k === 'class') n.className = v;
+      else if (k === 'html') n.innerHTML = v;
+      else n.setAttribute(k, v);
+    });
+    children.forEach(c => n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c));
+    return n;
   }
 
-  // PANELI I PËRDORUESVE (vetëm ADMIN)
-  const userPanel = document.getElementById("user_admin_panel");
-  if (userPanel) {
-    if (!user || user.role !== "admin") {
-      userPanel.style.display = "none";
-    } else {
-      const nameInput = document.getElementById("user_name_input");
-      const pinInput = document.getElementById("user_pin_input");
-      const roleSelect = document.getElementById("user_role_select");
-      const addBtn = document.getElementById("btn_add_user");
-      const listEl = document.getElementById("user_list");
-      const emptyEl = document.getElementById("user_list_empty");
+  function render() {
+    const root = document.getElementById('arkaApp');
+    if (!root) return;
+    root.innerHTML = '';
 
-      function renderUsers() {
-        const users = Arka.listUsers();
-        listEl.innerHTML = "";
-        const visible = users.filter(u => u.active !== false);
-
-        if (!visible.length) {
-          emptyEl.style.display = "block";
-          return;
-        }
-        emptyEl.style.display = "none";
-
-        visible.forEach(u => {
-          const li = document.createElement("li");
-          li.textContent = `${u.name} • ${u.role.toUpperCase()}`;
-          listEl.appendChild(li);
-        });
-      }
-
-      addBtn.addEventListener("click", () => {
-        const name = nameInput.value.trim();
-        const pin = pinInput.value.trim();
-        const role = roleSelect.value;
-
-        if (!name || !pin) {
-          alert("Emri dhe PIN-i janë të obligueshëm.");
-          return;
-        }
-        try {
-          Arka.addUser({ name, pin, role });
-          nameInput.value = "";
-          pinInput.value = "";
-          roleSelect.value = "worker";
-          renderUsers();
-          alert("Përdoruesi u shtua.");
-        } catch (e) {
-          alert(e.message || "Gabim gjatë shtimit të përdoruesit.");
-        }
-      });
-
-      renderUsers();
-    }
-  }
-
-  // DITA: HAPJE + MBYLLJE
-  const openCashInput = document.getElementById("open_cash_input");
-  const btnOpenDay = document.getElementById("btn_open_day");
-  const btnCloseDay = document.getElementById("btn_close_day");
-  const dayInfoText = document.getElementById("day_info_text");
-
-  function renderDayInfo() {
-    const summary = Arka.getArkaSummary();
-    const day = summary.currentDay;
-    if (!day) {
-      if (dayInfoText) {
-        dayInfoText.textContent =
-          "Nuk ka ditë të hapur. Shkruaj CASH START dhe shtyp HAPE DITËN.";
-      }
+    const api = window.TepihaArka;
+    if (!api) {
+      root.appendChild(el('div', { html: 'ARKA engine missing (arka.js not loaded).' }));
       return;
     }
-    if (dayInfoText) {
-      dayInfoText.textContent =
-        `DITA: ${day.id} • CASH START: ${Arka.formatEuros(day.cashStartCents)} €` +
-        ` • CASH TANI: ${Arka.formatEuros(day.cashNowCents)} €` +
-        ` • TË ARDHURA SOT: ${Arka.formatEuros(day.incomeCents)} €` +
-        ` • SHPENZIME ARKA: ${Arka.formatEuros(day.arkaExpensesCents)} €` +
-        ` • AVANSA ARKA: ${Arka.formatEuros(day.arkaAdvancesCents)} €`;
-    }
-  }
 
-  if (btnOpenDay) {
-    btnOpenDay.addEventListener("click", () => {
-      const val = openCashInput ? openCashInput.value : "0";
-      try {
-        Arka.openDay(val || 0);
-        renderDayInfo();
-        alert("Dita u hap.");
-      } catch (e) {
-        alert(e.message || "Gabim gjatë hapjes së ditës.");
-      }
-    });
-  }
+    const cur = api.getCurrentUser();
+    root.appendChild(el('div', { html: `<b>ARKA</b> — ${cur?.name ? (cur.name + ' (' + cur.role + ')') : 'JO I KYÇUR'}` }));
 
-  if (btnCloseDay) {
-    btnCloseDay.addEventListener("click", () => {
-      try {
-        const { cashEndCents, day } = Arka.closeDayAndProposeTransfer();
-        const ok = confirm(
-          `CASH NË FUND DITE: ${Arka.formatEuros(cashEndCents)} €.\n` +
-          `Dëshiron ta transferosh këtë shumë në BUXHET? (Vetëm ADMIN)`
-        );
-        if (ok) {
-          try {
-            Arka.transferCashEndToBudget(day.id, cashEndCents);
-            alert("Shuma u transferua në BUXHET.");
-          } catch (e2) {
-            alert(e2.message || "Gabim gjatë transferit në buxhet.");
-          }
-        }
-        renderDayInfo();
-      } catch (e) {
-        alert(e.message || "Gabim gjatë mbylljes së ditës.");
-      }
-    });
-  }
+    const pin = el('input', { type: 'password', placeholder: 'PIN', style: 'padding:10px;font-size:16px;width:140px;margin-top:10px;' });
+    const btn = el('button', { style: 'padding:10px 12px;font-size:14px;cursor:pointer;margin-left:8px;' }, ['HYJ']);
+    btn.onclick = () => {
+      const res = api.handleLogin(pin.value);
+      if (!res.success) alert(res.message || 'PIN gabim');
+      render();
+    };
 
-  // AVANS / SHPENZIM / TOP-UP
-  const avansBtn = document.getElementById("btn_avans");
-  if (avansBtn) {
-    avansBtn.addEventListener("click", () => {
-      const nameEl = document.getElementById("avans_name");
-      const amountEl = document.getElementById("avans_amount");
-      const sourceEl = document.getElementById("avans_source");
-      const noteEl = document.getElementById("avans_note");
+    root.appendChild(el('div', { style: 'display:flex;align-items:center;margin:10px 0;' }, [pin, btn]));
 
-      const name = nameEl ? nameEl.value.trim() : "";
-      const amount = amountEl ? amountEl.value : "";
-      const source = sourceEl ? sourceEl.value : "arka";
-      const note = noteEl ? noteEl.value : "";
+    if (cur?.role === 'ADMIN') {
+      const name = el('input', { placeholder: 'EMRI', style: 'padding:10px;font-size:14px;width:160px;' });
+      const upin = el('input', { type: 'password', placeholder: 'PIN', style: 'padding:10px;font-size:14px;width:120px;' });
+      const role = el('select', { style: 'padding:10px;font-size:14px;' }, api.ROLES.map(r => el('option', { value: r }, [r])));
+      const add = el('button', { style: 'padding:10px 12px;font-size:14px;cursor:pointer;' }, ['SHTO PËRDORUES']);
+      add.onclick = () => {
+        const res = api.manageUsers('ADD', { name: name.value, pin: upin.value, role: role.value });
+        if (!res.success) alert(res.message || 'Gabim');
+        name.value = ''; upin.value = '';
+        render();
+      };
 
-      if (!name || !amount) {
-        alert("Emri dhe shuma janë të obligueshme.");
-        return;
-      }
+      root.appendChild(el('div', { style: 'display:flex;gap:10px;align-items:center;margin:12px 0;flex-wrap:wrap;' }, [name, upin, role, add]));
 
-      try {
-        Arka.registerMove({
-          type: "advance",
-          source,
-          amountEuros: amount,
-          who: name,
-          note
-        });
-        alert("Avansi u regjistrua.");
-        renderDayInfo();
-        renderMoves();
-      } catch (e) {
-        alert(e.message || "Gabim gjatë regjistrimit të avansit.");
-      }
-    });
-  }
-
-  const shpenzimBtn = document.getElementById("btn_shpenzim");
-  if (shpenzimBtn) {
-    shpenzimBtn.addEventListener("click", () => {
-      const amountEl = document.getElementById("shpenzim_amount");
-      const sourceEl = document.getElementById("shpenzim_source");
-      const noteEl = document.getElementById("shpenzim_note");
-
-      const amount = amountEl ? amountEl.value : "";
-      const source = sourceEl ? sourceEl.value : "arka";
-      const note = noteEl ? noteEl.value : "";
-
-      if (!amount) {
-        alert("Shuma është e obligueshme.");
-        return;
-      }
-
-      try {
-        Arka.registerMove({
-          type: "expense",
-          source,
-          amountEuros: amount,
-          who: null,
-          note
-        });
-        alert("Shpenzimi u regjistrua.");
-        renderDayInfo();
-        renderMoves();
-      } catch (e) {
-        alert(e.message || "Gabim gjatë regjistrimit të shpenzimit.");
-      }
-    });
-  }
-
-  const topupBtn = document.getElementById("btn_topup");
-  if (topupBtn) {
-    topupBtn.addEventListener("click", () => {
-      const amountEl = document.getElementById("topup_amount");
-      const whoEl = document.getElementById("topup_who");
-      const noteEl = document.getElementById("topup_note");
-
-      const amount = amountEl ? amountEl.value : "";
-      const who = whoEl ? whoEl.value.trim() : "";
-      const note = noteEl ? noteEl.value : "";
-
-      if (!amount || !who) {
-        alert("Shuma dhe kush i dha janë të obligueshme.");
-        return;
-      }
-
-      try {
-        Arka.registerMove({
-          type: "topup",
-          source: "external",
-          amountEuros: amount,
-          who,
-          note
-        });
-        alert("TOP-UP u regjistrua.");
-        renderDayInfo();
-        renderMoves();
-      } catch (e) {
-        alert(e.message || "Gabim gjatë TOP-UP.");
-      }
-    });
-  }
-
-  // LISTA E LËVIZJEVE
-  const movesEmpty = document.getElementById("moves_empty");
-  const movesList = document.getElementById("moves_list");
-
-  function renderMoves() {
-    if (!movesList || !movesEmpty) return;
-    const summary = Arka.getArkaSummary();
-    const today = summary.currentDay ? summary.currentDay.id : new Date().toISOString().slice(0, 10);
-    const moves = summary.moves.filter(m => m.dayId === today);
-
-    movesList.innerHTML = "";
-    if (!moves.length) {
-      movesEmpty.style.display = "block";
-      return;
-    }
-    movesEmpty.style.display = "none";
-
-    moves
-      .sort((a, b) => a.ts - b.ts)
-      .forEach(m => {
-        const li = document.createElement("li");
-        const amount = Arka.formatEuros(m.amountCents);
-        li.textContent =
-          `[${m.type.toUpperCase()} • ${m.source}] ` +
-          `${amount} €` +
-          (m.who ? ` • ${m.who}` : "") +
-          (m.note ? ` • ${m.note}` : "");
-        movesList.appendChild(li);
+      const list = api.listUsers();
+      const box = el('div', { style: 'border:1px solid #333;padding:10px;border-radius:8px;' });
+      list.forEach(u => {
+        const row = el('div', { style: 'display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dashed #333;' });
+        row.appendChild(el('div', { html: `<b>${u.name}</b> — ${u.role}` }));
+        const del = el('button', { style: 'padding:6px 10px;cursor:pointer;' }, ['FSHI']);
+        del.onclick = () => { api.manageUsers('DELETE', { id: u.id }); render(); };
+        row.appendChild(del);
+        box.appendChild(row);
       });
+      root.appendChild(box);
+    }
   }
 
-  renderDayInfo();
-  renderMoves();
-});
+  setTimeout(render, 50);
+})();
