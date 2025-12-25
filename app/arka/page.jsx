@@ -2,95 +2,35 @@
 
 import Link from 'next/link';
 
-// ARKA MENU — ekran i pastër (MODULAR)
-// Qëllimi: preke ARKA -> hapet vetëm menyja me module.
-// MODULËT (HAPI B):
-// - /arka/puntoret
-// - /arka/cash
-// - /arka/shpenzime
-// - /arka/debts
-// - /arka/owners
-
 function Tile({ href, title, desc, icon }) {
   return (
     <Link href={href} className="arkaTile">
-      <div className="arkaTileIcon" aria-hidden="true">{icon}</div>
-      <div className="arkaTileText">
-        <div className="arkaTileTitle">{title}</div>
-        <div className="arkaTileDesc">{desc}</div>
+      <div className="arkaTileTop">
+        <div className="arkaTileIcon" aria-hidden="true">{icon}</div>
+        <div className="arkaTileArrow" aria-hidden="true">›</div>
       </div>
-      <div className="arkaTileArrow" aria-hidden="true">›</div>
+      <div className="arkaTileTitle">{title}</div>
+      <div className="arkaTileDesc">{desc}</div>
     </Link>
   );
 }
 
 export default function ArkaMenuPage() {
   return (
-    <div className="arkaWrap">
-      <div className="arkaHeader">
-        <div className="arkaH1">ARKA</div>
-        <div className="arkaH2">ZGJEDH MODULIN</div>
-        {/* BUILD label u hoq (s’duhet në UI prod) */}
+    <div>
+      <div className="arkaHomeHeader">
+        <div className="arkaHomeTitle">MENU</div>
+        <div className="arkaHomeSub">ZGJEDH MODULIN</div>
       </div>
 
-      <div className="arkaGrid">
-        <Tile
-          href="/arka/cash"
-          icon="💶"
-          title="BUXHETI"
-          desc="CASH SOT, HAP/MBYLLE DITËN"
-        />
-
-        <Tile
-          href="/arka/shpenzime"
-          icon="🧾"
-          title="SHPENZIME"
-          desc="DALJE CASH (OUT), LISTË + SHTO"
-        />
-        <Tile
-          href="/arka/puntoret"
-          icon="👷"
-          title="PUNTORËT"
-          desc="LISTA, ROLE, PIN (ADMIN/DISPATCH/PUNTOR/TRANSPORT)"
-        />
-        <Tile
-          href="/arka/debts"
-          icon="📌"
-          title="BORXHET"
-          desc="KUSH NA KA BORXH / KUJT I KEMI BORXH"
-        />
-        <Tile
-          href="/arka/owners"
-          icon="📈"
-          title="INVESTIMET"
-          desc="OWNER-AT, % PROFITIT, NDAHJE MUJORE"
-        />
-
+      <div className="arkaTiles">
+        <Tile href="/arka/cash" icon="💶" title="CASH" desc="HAP / MBYLLE • LËVIZJE SOT" />
+        <Tile href="/arka/shpenzime" icon="🧾" title="SHPENZIME" desc="DALJE CASH • LISTË + SHTO" />
+        <Tile href="/arka/puntoret" icon="👷" title="PUNTORËT" desc="ROLE • PIN • AKSES" />
+        <Tile href="/arka/debts" icon="📌" title="BORXHET" desc="KUSH NA KA / KUJT I KEMI" />
+        <Tile href="/arka/owners" icon="📈" title="INVESTIME" desc="OWNER SPLIT • MUJOR" />
+        <Tile href="/" icon="🏠" title="HOME" desc="KTHEHU NË HOME" />
       </div>
-
-      <div className="arkaFooter">
-        <Link href="/" className="arkaBtn">HOME</Link>
-      </div>
-
-      <style jsx>{`
-        /* ARKA MENU — më "PRO" (më kompakt, hierarki më e qartë) */
-        .arkaWrap{min-height:100vh;padding:16px 14px 26px;max-width:720px;margin:0 auto;}
-        .arkaHeader{padding:6px 4px 14px;}
-        .arkaH1{font-size:38px;letter-spacing:.06em;font-weight:900;line-height:1.05;}
-        .arkaH2{margin-top:6px;opacity:.72;font-weight:800;font-size:12px;letter-spacing:.18em;}
-
-        .arkaGrid{display:grid;gap:10px;margin-top:10px;}
-        .arkaTile{display:flex;align-items:center;gap:12px;padding:12px 12px;border-radius:14px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.09);text-decoration:none;}
-        .arkaTile:active{transform:translateY(1px);}
-        .arkaTileIcon{font-size:20px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);}
-        .arkaTileText{flex:1;min-width:0;}
-        .arkaTileTitle{font-weight:950;letter-spacing:.12em;font-size:13px;}
-        .arkaTileDesc{margin-top:4px;opacity:.72;font-size:11px;letter-spacing:.06em;line-height:1.25;}
-        .arkaTileArrow{opacity:.45;font-size:22px;padding-left:6px;}
-
-        .arkaFooter{margin-top:16px;display:flex;justify-content:center;}
-        .arkaBtn{display:inline-flex;align-items:center;justify-content:center;padding:9px 14px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);text-decoration:none;font-weight:950;letter-spacing:.14em;font-size:12px;}
-      `}</style>
     </div>
   );
 }
