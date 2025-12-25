@@ -1,6 +1,7 @@
 'use client';
-import WorkersPage from '../workers/page';
+
+import StaffPage from '../staff/page';
 
 export default function PuntoretPage() {
-  return <WorkersPage />;
+  return <StaffPage />;
 }
