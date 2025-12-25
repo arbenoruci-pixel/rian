@@ -30,6 +30,8 @@ export default function ArkaMenuPage() {
       <div className="arkaHeader">
         <div className="arkaH1">ARKA</div>
         <div className="arkaH2">ZGJEDH MODULIN</div>
+        <div className="arkaBuild">BUILD: B-FIX-01</div>
+
       </div>
 
       <div className="arkaGrid">
