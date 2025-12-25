@@ -1,0 +1,72 @@
+/* PRO wrapper for all ARKA modules (no logic changes) */
+
+.arkaProRoot{
+  min-height: 100vh;
+  padding: 18px 14px 28px;
+}
+
+.arkaProContainer{
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+/* Compact, pro spacing defaults */
+.arkaProContainer h1{
+  letter-spacing: 0.06em;
+  line-height: 1.05;
+}
+
+.arkaProContainer h2{
+  letter-spacing: 0.04em;
+}
+
+/* Buttons: slightly more pro (does not override existing classes if they set their own) */
+.arkaProContainer button{
+  border-radius: 14px;
+}
+
+/* Inputs: consistent */
+.arkaProContainer input,
+.arkaProContainer select,
+.arkaProContainer textarea{
+  border-radius: 12px;
+}
+
+/* Lists/cards spacing helpers if modules already use simple divs */
+.arkaProContainer .arkaCard{
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  border-radius: 16px;
+  padding: 12px 12px;
+}
+
+.arkaProContainer .arkaRow{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.arkaProContainer .arkaBadges{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.arkaProContainer .arkaBadge{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 420px){
+  .arkaProRoot{ padding: 16px 12px 24px; }
+  .arkaProContainer button{ border-radius: 12px; }
+}
