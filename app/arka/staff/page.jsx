@@ -17,13 +17,27 @@ function jparse(s, fallback) {
   }
 }
 
+function RoleBadge({ role, isAdmin }) {
+  const label = String(role || "PUNTOR").toUpperCase();
+  const extra = isAdmin ? " • ADMIN" : "";
+  return (
+    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-800 bg-black/40 text-[10px] font-black tracking-widest text-gray-200">
+      {label}
+      {extra}
+    </span>
+  );
+}
+
 export default function ArkaStaffPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [mode, setMode] = useState("checking"); // db|local
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState({ name: "", role: "PUNTOR", is_admin: false, is_active: true });
+
+  // modal
+  const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ name: "", role: "PUNTOR", is_admin: false, is_active: true });
 
   const canManage = useMemo(() => user?.role === "OWNER" || user?.role === "ADMIN", [user]);
 
@@ -56,9 +70,29 @@ export default function ArkaStaffPage() {
     if (!error) setItems(data || []);
   }
 
-  function resetForm() {
-    setForm({ name: "", role: "PUNTOR", is_admin: false, is_active: true });
+  function openCreate() {
+    if (!canManage) return;
     setEditingId(null);
+    setForm({ name: "", role: "PUNTOR", is_admin: false, is_active: true });
+    setIsOpen(true);
+  }
+
+  function openEdit(row) {
+    if (!canManage) return;
+    setEditingId(row.id);
+    setForm({
+      name: row.name || "",
+      role: row.role || "PUNTOR",
+      is_admin: !!row.is_admin,
+      is_active: row.is_active !== false,
+    });
+    setIsOpen(true);
+  }
+
+  function closeModal() {
+    setIsOpen(false);
+    setEditingId(null);
+    setForm({ name: "", role: "PUNTOR", is_admin: false, is_active: true });
   }
 
   async function save() {
@@ -69,17 +103,29 @@ export default function ArkaStaffPage() {
       if (editingId) {
         const { error } = await supabase
           .from("arka_staff")
-          .update({ name: form.name.trim(), role: form.role, is_admin: !!form.is_admin, is_active: !!form.is_active })
+          .update({
+            name: form.name.trim(),
+            role: form.role,
+            is_admin: !!form.is_admin,
+            is_active: !!form.is_active,
+          })
           .eq("id", editingId);
         if (error) return alert(error.message);
       } else {
         const { error } = await supabase
           .from("arka_staff")
-          .insert([{ name: form.name.trim(), role: form.role, is_admin: !!form.is_admin, is_active: !!form.is_active }]);
+          .insert([
+            {
+              name: form.name.trim(),
+              role: form.role,
+              is_admin: !!form.is_admin,
+              is_active: !!form.is_active,
+            },
+          ]);
         if (error) return alert(error.message);
       }
       await reloadDb();
-      resetForm();
+      closeModal();
       return;
     }
 
@@ -93,13 +139,7 @@ export default function ArkaStaffPage() {
     }
     localStorage.setItem(LS_KEY, JSON.stringify(next));
     setItems(next);
-    resetForm();
-  }
-
-  async function editRow(row) {
-    if (!canManage) return;
-    setEditingId(row.id);
-    setForm({ name: row.name || "", role: row.role || "PUNTOR", is_admin: !!row.is_admin, is_active: row.is_active !== false });
+    closeModal();
   }
 
   async function removeRow(row) {
@@ -125,87 +165,180 @@ export default function ArkaStaffPage() {
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between border-b border-gray-800 pb-4 mb-6">
           <div>
-            <h1 className="text-xl font-black text-white tracking-tighter">ARKA • PUNTORËT</h1>
-            <p className="text-[10px] text-gray-500 tracking-widest">{user.name} • {user.role} • {mode === "db" ? "ONLINE" : "LOCAL"}</p>
+            <h1 className="text-2xl font-black text-white tracking-tighter">ARKA • PUNTORËT</h1>
+            <p className="text-[10px] text-gray-500 tracking-widest">
+              {user.name} • {user.role} • {mode === "db" ? "ONLINE" : "LOCAL"}
+            </p>
           </div>
-          <Link href="/arka" className="text-[10px] font-black px-3 py-2 rounded border border-gray-800 hover:bg-gray-900">KTHEHU</Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/arka"
+              className="text-[10px] font-black px-3 py-2 rounded border border-gray-800 hover:bg-gray-900"
+            >
+              KTHEHU
+            </Link>
+            {canManage && (
+              <button
+                onClick={openCreate}
+                className="text-[10px] font-black px-3 py-2 rounded border border-blue-900/60 bg-blue-600/20 text-blue-200 hover:bg-blue-600 hover:text-white transition"
+              >
+                + SHTO PUNTOR
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-1">
-            <div className="bg-gray-900 border border-gray-800 rounded p-4">
-              <p className="text-[10px] font-black text-gray-400 tracking-widest mb-3">SHTO / EDIT</p>
-              {!canManage ? (
-                <p className="text-[10px] text-red-400 font-black tracking-widest bg-red-900/10 p-2 border border-red-900/20 rounded">
-                  VETËM OWNER/ADMIN MUND TË MENAXHOJË PUNTORËT
+        {!canManage && (
+          <div className="mb-4 text-[10px] text-red-300 font-black tracking-widest bg-red-900/10 p-3 border border-red-900/20 rounded">
+            VETËM OWNER/ADMIN MUND TË MENAXHOJË PUNTORËT
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {items.length === 0 ? (
+            <div className="col-span-full bg-gray-900 border border-gray-800 rounded p-10 text-center">
+              <p className="text-[10px] text-gray-600 tracking-widest italic">NUK KA PUNTORË</p>
+            </div>
+          ) : (
+            items.map((r) => (
+              <div key={r.id} className="bg-gray-900 border border-gray-800 rounded p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[14px] font-black text-white tracking-tight truncate">
+                      {String(r.name || "").toUpperCase()}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <RoleBadge role={r.role} isAdmin={!!r.is_admin} />
+                      {r.is_active === false ? (
+                        <span className="inline-flex items-center px-3 py-1 rounded-full border border-red-900/50 bg-red-900/20 text-[10px] font-black tracking-widest text-red-200">
+                          PA AKTIV
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-3 py-1 rounded-full border border-green-900/40 bg-green-900/10 text-[10px] font-black tracking-widest text-green-200">
+                          AKTIV
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {canManage && (
+                    <div className="flex flex-col gap-2 shrink-0">
+                      <button
+                        onClick={() => openEdit(r)}
+                        className="px-3 py-2 rounded border border-gray-800 text-[10px] font-black text-gray-200 hover:bg-gray-950"
+                      >
+                        EDIT
+                      </button>
+                      <button
+                        onClick={() => removeRow(r)}
+                        className="px-3 py-2 rounded border border-red-900/50 text-[10px] font-black text-red-200 hover:bg-red-900/20"
+                      >
+                        FSHI
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {isOpen && (
+          <div className="fixed inset-0 z-50">
+            <button aria-label="CLOSE" onClick={closeModal} className="absolute inset-0 bg-black/70" />
+            <div className="absolute inset-x-0 bottom-0 md:inset-y-0 md:right-0 md:left-auto md:w-[420px] bg-gray-950 border-t md:border-t-0 md:border-l border-gray-800 p-4">
+              <div className="flex items-center justify-between pb-3 border-b border-gray-800">
+                <p className="text-[10px] text-gray-500 tracking-widest font-black">
+                  {editingId ? "EDIT PUNTOR" : "SHTO PUNTOR"}
                 </p>
-              ) : (
-                <>
+                <button
+                  onClick={closeModal}
+                  className="px-3 py-2 rounded border border-gray-800 text-[10px] font-black text-gray-300 hover:bg-gray-900"
+                >
+                  MBYLLE
+                </button>
+              </div>
+
+              <div className="pt-4 space-y-3">
+                <div>
+                  <p className="text-[9px] text-gray-500 tracking-widest font-black mb-2">EMRI</p>
                   <input
-                    className="w-full bg-black border border-gray-700 p-2 rounded text-sm text-white mb-2"
+                    className="w-full bg-black border border-gray-700 p-3 rounded text-sm text-white"
                     aria-label="EMRI"
                     value={form.name}
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="EMRI I PUNTORIT"
                   />
+                </div>
+
+                <div>
+                  <p className="text-[9px] text-gray-500 tracking-widest font-black mb-2">ROLI</p>
                   <select
-                    className="w-full bg-black border border-gray-700 p-2 rounded text-sm text-white mb-2"
+                    className="w-full bg-black border border-gray-700 p-3 rounded text-sm text-white"
                     value={form.role}
                     onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
                   >
                     {ROLES.map((r) => (
-                      <option key={r} value={r}>{r}</option>
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
                     ))}
                   </select>
-                  <label className="flex items-center gap-2 text-[10px] text-gray-300 mb-2">
-                    <input type="checkbox" checked={!!form.is_admin} onChange={(e) => setForm((f) => ({ ...f, is_admin: e.target.checked }))} />
-                    ADMIN ACCESS
-                  </label>
-                  <label className="flex items-center gap-2 text-[10px] text-gray-300 mb-4">
-                    <input type="checkbox" checked={!!form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} />
-                    AKTIV
-                  </label>
-                  <div className="flex gap-2">
-                    <button onClick={save} className="flex-1 bg-blue-600/20 text-blue-300 border border-blue-900/60 py-2 rounded text-[10px] font-black hover:bg-blue-600 hover:text-white transition">
-                      {editingId ? "RUAJ" : "SHTO"}
-                    </button>
-                    <button onClick={resetForm} className="px-3 py-2 rounded border border-gray-800 text-[10px] font-black text-gray-400 hover:bg-gray-900">
-                      CLEAR
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+                </div>
 
-          <div className="md:col-span-2">
-            <div className="bg-gray-900 border border-gray-800 rounded">
-              <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-                <p className="text-[10px] font-black text-gray-400 tracking-widest">LISTA</p>
-                <p className="text-[9px] text-gray-600">{items.length} RRESHTA</p>
-              </div>
-              <div className="divide-y divide-gray-800">
-                {items.length === 0 ? (
-                  <p className="p-10 text-center text-[10px] text-gray-600 tracking-widest italic">NUK KA PUNTORË</p>
-                ) : (
-                  items.map((r) => (
-                    <div key={r.id} className="p-3 flex items-center justify-between hover:bg-black/20">
-                      <div>
-                        <p className="text-[11px] font-black text-gray-200">{String(r.name || "").toUpperCase()}</p>
-                        <p className="text-[8px] text-gray-500 tracking-widest">{r.role} {r.is_admin ? "• ADMIN" : ""} {r.is_active === false ? "• PA AKTIV" : ""}</p>
-                      </div>
-                      {canManage && (
-                        <div className="flex gap-2">
-                          <button onClick={() => editRow(r)} className="px-2 py-1 rounded border border-gray-800 text-[8px] font-black text-gray-300 hover:bg-gray-900">EDIT</button>
-                          <button onClick={() => removeRow(r)} className="px-2 py-1 rounded border border-red-900/50 text-[8px] font-black text-red-300 hover:bg-red-900/20">FSHI</button>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
+                <div className="flex items-center justify-between gap-3 border border-gray-800 rounded p-3 bg-black/30">
+                  <div>
+                    <p className="text-[10px] font-black text-gray-200 tracking-widest">ADMIN ACCESS</p>
+                    <p className="text-[9px] text-gray-500 tracking-widest">VETËM KUR DUHET</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!form.is_admin}
+                    onChange={(e) => setForm((f) => ({ ...f, is_admin: e.target.checked }))}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-3 border border-gray-800 rounded p-3 bg-black/30">
+                  <div>
+                    <p className="text-[10px] font-black text-gray-200 tracking-widest">AKTIV</p>
+                    <p className="text-[9px] text-gray-500 tracking-widest">NËSE ËSHTË NË PUNË</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!form.is_active}
+                    onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-2">
+                  <button
+                    onClick={save}
+                    className="flex-1 bg-blue-600/20 text-blue-200 border border-blue-900/60 py-3 rounded text-[10px] font-black hover:bg-blue-600 hover:text-white transition"
+                  >
+                    {editingId ? "RUAJ" : "SHTO"}
+                  </button>
+                  <button
+                    onClick={closeModal}
+                    className="px-4 py-3 rounded border border-gray-800 text-[10px] font-black text-gray-400 hover:bg-gray-900"
+                  >
+                    ANULO
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {canManage && (
+          <div className="fixed bottom-4 left-0 right-0 px-4 md:hidden z-40">
+            <button
+              onClick={openCreate}
+              className="w-full bg-blue-600 text-white py-3 rounded font-black text-[11px] tracking-widest shadow-lg"
+            >
+              + SHTO PUNTOR
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
