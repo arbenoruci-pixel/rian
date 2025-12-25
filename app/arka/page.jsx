@@ -30,8 +30,7 @@ export default function ArkaMenuPage() {
       <div className="arkaHeader">
         <div className="arkaH1">ARKA</div>
         <div className="arkaH2">ZGJEDH MODULIN</div>
-        <div className="arkaBuild">BUILD: B-FIX-01</div>
-
+        {/* BUILD label u hoq (s’duhet në UI prod) */}
       </div>
 
       <div className="arkaGrid">
@@ -74,19 +73,23 @@ export default function ArkaMenuPage() {
       </div>
 
       <style jsx>{`
-        .arkaWrap{min-height:100vh;padding:18px 14px 30px;max-width:720px;margin:0 auto;}
-        .arkaHeader{padding:6px 4px 16px;}
-        .arkaH1{font-size:44px;letter-spacing:1px;font-weight:900;}
-        .arkaH2{margin-top:6px;opacity:.75;font-weight:700;letter-spacing:.18em;}
-        .arkaGrid{display:grid;gap:12px;margin-top:12px;}
-        .arkaTile{display:flex;align-items:center;gap:12px;padding:14px 14px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);text-decoration:none;}
-        .arkaTileIcon{font-size:26px;width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:12px;background:rgba(255,255,255,.06);}
+        /* ARKA MENU — më "PRO" (më kompakt, hierarki më e qartë) */
+        .arkaWrap{min-height:100vh;padding:16px 14px 26px;max-width:720px;margin:0 auto;}
+        .arkaHeader{padding:6px 4px 14px;}
+        .arkaH1{font-size:38px;letter-spacing:.06em;font-weight:900;line-height:1.05;}
+        .arkaH2{margin-top:6px;opacity:.72;font-weight:800;font-size:12px;letter-spacing:.18em;}
+
+        .arkaGrid{display:grid;gap:10px;margin-top:10px;}
+        .arkaTile{display:flex;align-items:center;gap:12px;padding:12px 12px;border-radius:14px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.09);text-decoration:none;}
+        .arkaTile:active{transform:translateY(1px);}
+        .arkaTileIcon{font-size:20px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);}
         .arkaTileText{flex:1;min-width:0;}
-        .arkaTileTitle{font-weight:900;letter-spacing:.14em;}
-        .arkaTileDesc{margin-top:6px;opacity:.75;font-size:12px;letter-spacing:.08em;line-height:1.3;}
-        .arkaTileArrow{opacity:.5;font-size:26px;padding-left:6px;}
-        .arkaFooter{margin-top:18px;display:flex;justify-content:center;}
-        .arkaBtn{display:inline-flex;align-items:center;justify-content:center;padding:10px 16px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);text-decoration:none;font-weight:900;letter-spacing:.14em;}
+        .arkaTileTitle{font-weight:950;letter-spacing:.12em;font-size:13px;}
+        .arkaTileDesc{margin-top:4px;opacity:.72;font-size:11px;letter-spacing:.06em;line-height:1.25;}
+        .arkaTileArrow{opacity:.45;font-size:22px;padding-left:6px;}
+
+        .arkaFooter{margin-top:16px;display:flex;justify-content:center;}
+        .arkaBtn{display:inline-flex;align-items:center;justify-content:center;padding:9px 14px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);text-decoration:none;font-weight:950;letter-spacing:.14em;font-size:12px;}
       `}</style>
     </div>
   );
