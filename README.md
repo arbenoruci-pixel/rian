@@ -6,6 +6,7 @@ Kjo README është “source of truth” për rregullat e aplikacionit. Qëllimi
 
 ## 1) ROLLET / PIN / PAGESA ME ORË
 
+
 - **Përdoruesit** ruhen në LocalStorage: `tepiha_users_v1`.
 - Login ruhet te: `tepiha_current_user_v1`.
 - Role:
