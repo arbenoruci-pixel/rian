@@ -2,186 +2,253 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { dbListClosedDays, dbReceiveFromDispatch } from '@/lib/arkaDb';
-import { findUserByPin as findUserByPinDb } from '@/lib/usersDb';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+import { findUserByPin } from '@/lib/usersDb';
 
-const fmtEur = (n) => {
-  const x = Number(n || 0);
-  return x.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
-
-function readMe() {
+function jparse(s, fallback) {
   try {
-    const raw = localStorage.getItem('CURRENT_USER_DATA') || localStorage.getItem('arka_user');
-    if (!raw) return null;
-    return JSON.parse(raw);
+    const v = JSON.parse(s);
+    return v ?? fallback;
   } catch {
-    return null;
+    return fallback;
   }
 }
 
-export default function BuxhetiPage() {
-  const [me, setMe] = useState(null);
+function euro(n) {
+  const x = Number(n || 0);
+  return `€${x.toFixed(2)}`;
+}
+
+export default function CompanyBudgetPage() {
+  const router = useRouter();
+  const [user, setUser] = useState(null);
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
 
   const [showPin, setShowPin] = useState(false);
   const [pin, setPin] = useState('');
-  const [pinErr, setPinErr] = useState('');
-  const [pinAction, setPinAction] = useState(null);
+  const [pendingDay, setPendingDay] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setMe(readMe());
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function refresh() {
-    setErr('');
-    try {
-      const list = await dbListClosedDays(80);
-      setRows(Array.isArray(list) ? list : []);
-    } catch (e) {
-      setErr(e?.message || 'S’u lexua buxheti.');
+    const u = jparse(localStorage.getItem('CURRENT_USER_DATA'), null);
+    if (!u) {
+      router.push('/login');
+      return;
     }
+    setUser(u);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
+
+  async function load() {
+    setErr('');
+    const { data, error } = await supabase
+      .from('arka_days')
+      .select(
+        'id,day_key,opened_by,opened_at,closed_by,closed_at,expected_cash,cash_counted,discrepancy,handoff_status,handed_by,handed_at,received_by,received_at,received_amount'
+      )
+      .order('day_key', { ascending: false })
+      .limit(90);
+
+    if (error) {
+      setErr(error.message);
+      setRows([]);
+      return;
+    }
+    setRows(data || []);
   }
 
-  const totalReceived = useMemo(() => {
-    return (rows || []).reduce((s, r) => s + Number(r?.received_amount || 0), 0);
+  useEffect(() => {
+    if (!user) return;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const totalBudget = useMemo(() => {
+    return (rows || []).reduce((sum, r) => sum + Number(r?.received_amount || 0), 0);
   }, [rows]);
 
-  function requirePin(action) {
+  const canReceive = useMemo(() => {
+    const role = String(user?.role || '').toUpperCase();
+    return role === 'DISPATCH' || role === 'ADMIN' || role === 'OWNER';
+  }, [user]);
+
+  function openReceive(day) {
+    if (!canReceive) return alert('VETËM DISPATCH/ADMIN');
+    setPendingDay(day);
     setPin('');
-    setPinErr('');
-    setPinAction(() => action);
     setShowPin(true);
   }
 
-  async function submitPin() {
-    const clean = String(pin || '').trim();
-    if (!clean) {
-      setPinErr('SHKRUAJ PIN');
-      return;
-    }
-    setPinErr('');
+  function closePin() {
+    setShowPin(false);
+    setPin('');
+    setPendingDay(null);
+  }
+
+  async function confirmReceive() {
+    if (!pendingDay) return;
+    const clean = String(pin).replace(/\D+/g, '').slice(0, 4);
+    if (clean.length !== 4) return alert('SHKRUAJ PIN (4 SHIFRA)');
+
+    setBusy(true);
     try {
-      const res = await findUserByPinDb(clean);
-      if (!res?.ok || !res?.item) {
-        setPinErr('PIN I GABUAR');
-        return;
-      }
-      const u = { id: res.item.id, name: res.item.name, role: res.item.role };
-      setShowPin(false);
-      if (typeof pinAction === 'function') await pinAction(u);
+      // validate PIN belongs to current user
+      const res = await findUserByPin(clean);
+      const item = res?.item || res?.user || null;
+      if (!item) throw new Error('PIN I GABUAR');
+
+      const currentId = String(user?.id || '');
+      const matchId = String(item.id || item.user_id || '');
+      if (currentId && matchId && currentId !== matchId) throw new Error('PIN NUK PËRPUTHET ME USER-IN');
+
+      const amount = Number(pendingDay.cash_counted ?? pendingDay.expected_cash ?? 0);
+
+      const { error } = await supabase
+        .from('arka_days')
+        .update({
+          handoff_status: 'RECEIVED',
+          received_by: user?.name || 'DISPATCH',
+          received_at: new Date().toISOString(),
+          received_amount: amount,
+        })
+        .eq('id', pendingDay.id);
+
+      if (error) throw error;
+      await load();
+      closePin();
     } catch (e) {
-      setPinErr(e?.message || 'GABIM PIN');
+      alert(e?.message || String(e));
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function onReceive(day) {
-    requirePin(async (u) => {
-      setBusy(true);
-      setErr('');
-      try {
-        if (String(u?.role || '').toUpperCase() !== 'DISPATCH' && String(u?.role || '').toUpperCase() !== 'ADMIN') {
-          setErr('VETËM DISPATCH/ADMIN MUND TA PRANOJË DORËZIMIN.');
-          return;
-        }
-        const amt = day?.cash_counted ?? day?.expected_cash ?? 0;
-        await dbReceiveFromDispatch({ day_id: day.id, received_by: u.name, received_amount: amt });
-        await refresh();
-      } catch (e) {
-        setErr(e?.message || 'S’u pranua dorëzimi.');
-      } finally {
-        setBusy(false);
-      }
-    });
-  }
+  if (!user) return null;
 
   return (
-    <div className="pageWrap">
-      <div className="topRow">
-        <div>
-          <div className="title">COMPANY BUDGET</div>
-          <div className="sub">{(me?.name || "LOCAL").toLowerCase()} • {(me?.role || "DISPATCH")} • LOCAL</div>
-          <div className="sub">TOTALI I PRANUAR: €{fmtEur(totalReceived)}</div>
-        </div>
-        <div className="topActions">
-          <Link href="/arka/cash" className="ghostBtn">CASH</Link>
-          <Link href="/arka" className="ghostBtn">KTHEHU</Link>
-        </div>
-      </div>
-
-      {!!err && <div className="errBox">{err}</div>}
-
-      <div className="card">
-        <div className="cardHead">
-          <div className="cardTitle">DITËT E MBYLLURA</div>
-        </div>
-
-        <div className="list">
-          {(rows || []).map((d) => {
-            const status = String(d?.handoff_status || '').toUpperCase() || 'CLOSED';
-            const cash = Number(d?.cash_counted ?? d?.expected_cash ?? 0);
-            const disc = Number(d?.discrepancy ?? 0);
-            const received = d?.received_at ? true : false;
-            const canReceive = !received && (status === 'HANDED' || status === 'PENDING');
-
-            return (
-              <div className="moveRow" key={d.id}>
-                <div className="moveLeft">
-                  <div className="moveType">
-                    <span className={received ? "tag tagIn" : (status === "HANDED" ? "tag tagOut" : "tag")}>
-                      {received ? "RECEIVED" : status}
-                    </span>
-                    <span className="src">{String(d.day_key || "—")}</span>
-                  </div>
-
-                  <div className="note">
-                    CASH: €{fmtEur(cash)} • DISK: €{fmtEur(disc)}
-                  </div>
-
-                  <div className="meta">
-                    CLOSED BY: {(d.closed_by || "—").toLowerCase()}
-                    {d.closed_at ? " • " + String(d.closed_at).replace("T"," ").slice(0,16) : ""}
-                    {d.received_at ? " • PRANUAR NGA: " + String(d.received_by || "—").toLowerCase() + " • " + String(d.received_at).replace("T"," ").slice(0,16) : ""}
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-                  <div className="moveAmt">€{fmtEur(d.received_amount ?? (received ? cash : 0))}</div>
-                  {canReceive ? (
-                    <button className="primaryBtn" disabled={busy} onClick={() => onReceive(d)}>
-                      PRANO
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-          {(!rows || rows.length === 0) ? <div className="hint">S’ka ditë të mbyllura ende.</div> : null}
-        </div>
-
-      </div>
-
-      {showPin ? (
- ? (
-        <div className="modalBack">
-          <div className="modalCard">
-            <div className="modalTitle">PRANO DORËZIMIN (PIN)</div>
-            <div className="field">
-              <div className="label">PIN</div>
-              <input className="input" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="****" />
-              {pinErr ? <div className="error">{pinErr}</div> : null}
-            </div>
-            <div className="rowBtns">
-              <button className="ghostBtn" type="button" onClick={() => setShowPin(false)} disabled={busy}>ANULO</button>
-              <button className="primaryBtn" type="button" onClick={submitPin} disabled={busy}>VAZHDO</button>
-            </div>
+    <div className="min-h-screen bg-black text-gray-200 p-4 font-sans uppercase">
+      <div className="max-w-4xl mx-auto">
+        <div className="arkaTop">
+          <div>
+            <h1 className="arkaH1">COMPANY BUDGET</h1>
+            <p className="arkaMeta">
+              {user.name} • {user.role} • TOTALI: {euro(totalBudget)}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={load} className="arkaGhost">RIFRESKO</button>
+            <Link href="/arka/cash" className="arkaBack">KTHEHU</Link>
           </div>
         </div>
-      ) : null}
+
+        {err ? <div className="arkaError">{err}</div> : null}
+
+        <div className="arkaPanel">
+          <div className="arkaPanelHead">
+            <p className="arkaPanelTitle">DITËT / DORËZIMET</p>
+            <p className="arkaCount">{rows.length} RRESHTA</p>
+          </div>
+
+          <div className="arkaList">
+            {rows.length === 0 ? (
+              <p className="arkaEmpty">NUK KA TË DHËNA</p>
+            ) : (
+              rows.map((d) => {
+                const status = String(d.handoff_status || (d.received_at ? 'RECEIVED' : d.closed_at ? 'PENDING' : 'OPEN')).toUpperCase();
+                const received = !!d.received_at;
+                const showReceive = canReceive && !received && (status === 'HANDED' || status === 'PENDING');
+
+                return (
+                  <div key={d.id} className="arkaRow">
+                    <div className="arkaRowMain">
+                      <div className="arkaRowName">{d.day_key}</div>
+                      <div className="arkaRowMeta">
+                        <span className="arkaBadge">{status}</span>
+                        {d.discrepancy != null ? <span className="arkaBadge arkaBadgeBlue">DISK: {euro(d.discrepancy)}</span> : null}
+                        {received ? <span className="arkaBadge arkaBadgeGreen">PRANUAR</span> : null}
+                      </div>
+                      <div className="arkaSmall">
+                        CASH PRITET: {euro(d.expected_cash)} • CASH REAL: {euro(d.cash_counted)} • PRANUAR: {euro(d.received_amount)}
+                      </div>
+                    </div>
+
+                    <div className="arkaRowActions">
+                      {showReceive ? (
+                        <button onClick={() => openReceive(d)} className="arkaMini arkaMiniPrimary">PRANO</button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {showPin && (
+          <div className="modalBack" onClick={closePin}>
+            <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+              <div className="modalTitle">PRANO DORËZIMIN (PIN)</div>
+              <div className="modalSub">DITA: {pendingDay?.day_key}</div>
+
+              <input
+                value={pin}
+                onChange={(e) => setPin(String(e.target.value).replace(/\D+/g, '').slice(0, 4))}
+                inputMode="numeric"
+                placeholder="PIN (4 SHIFRA)"
+                className="modalInput"
+              />
+
+              <div className="modalBtns">
+                <button disabled={busy} onClick={confirmReceive} className="modalPrimary">
+                  {busy ? 'DUKE RUJT...' : 'KONFIRMO'}
+                </button>
+                <button disabled={busy} onClick={closePin} className="modalGhost">ANULO</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <style jsx>{`
+        .arkaTop{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:12px;margin-bottom:14px;gap:12px;}
+        .arkaH1{font-size:18px;font-weight:950;letter-spacing:.06em;line-height:1.1;color:#fff;}
+        .arkaMeta{font-size:10px;letter-spacing:.18em;opacity:.62;margin-top:6px;}
+        .arkaBack{font-size:10px;font-weight:950;letter-spacing:.16em;padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);text-decoration:none;}
+        .arkaGhost{font-size:10px;font-weight:950;letter-spacing:.16em;padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.03);}
+
+        .arkaError{margin:10px 0;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,80,80,.28);background:rgba(255,80,80,.08);color:#ffd1d1;font-size:10px;letter-spacing:.14em;}
+
+        .arkaPanel{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.09);border-radius:14px;overflow:hidden;}
+        .arkaPanelHead{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);}
+        .arkaPanelTitle{font-size:10px;font-weight:950;letter-spacing:.18em;opacity:.75;}
+        .arkaCount{font-size:10px;letter-spacing:.12em;opacity:.5;}
+        .arkaList{padding:8px;display:flex;flex-direction:column;gap:8px;}
+        .arkaEmpty{padding:28px 12px;text-align:center;font-size:10px;letter-spacing:.18em;opacity:.55;font-style:italic;}
+
+        .arkaRow{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 10px;border-radius:12px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);}
+        .arkaRowMain{min-width:0;flex:1;}
+        .arkaRowName{font-size:12px;font-weight:950;letter-spacing:.08em;}
+        .arkaRowMeta{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;}
+        .arkaBadge{font-size:9px;font-weight:950;letter-spacing:.14em;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);opacity:.92;}
+        .arkaBadgeGreen{border-color:rgba(0,255,170,.25);background:rgba(0,255,170,.08);}
+        .arkaBadgeBlue{border-color:rgba(0,150,255,.30);background:rgba(0,150,255,.10);}
+        .arkaSmall{margin-top:8px;font-size:10px;letter-spacing:.14em;opacity:.65;}
+
+        .arkaRowActions{display:flex;gap:8px;flex-shrink:0;align-items:center;}
+        .arkaMini{padding:8px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);font-size:10px;font-weight:950;letter-spacing:.14em;}
+        .arkaMiniPrimary{border-color:rgba(0,150,255,.35);background:rgba(0,150,255,.12);color:rgba(190,230,255,.95);}
+
+        .modalBack{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50;}
+        .modalCard{width:100%;max-width:420px;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(20,20,20,.98);padding:14px;}
+        .modalTitle{font-size:12px;font-weight:950;letter-spacing:.16em;color:#fff;}
+        .modalSub{margin-top:6px;font-size:10px;letter-spacing:.14em;opacity:.65;}
+        .modalInput{width:100%;margin-top:12px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.16);padding:12px;border-radius:12px;font-size:18px;color:#fff;letter-spacing:.25em;text-align:center;outline:none;}
+        .modalBtns{display:flex;gap:10px;margin-top:12px;}
+        .modalPrimary{flex:1;background:rgba(0,150,255,.12);border:1px solid rgba(0,150,255,.35);color:rgba(190,230,255,.95);padding:10px;border-radius:12px;font-size:10px;font-weight:950;letter-spacing:.16em;}
+        .modalGhost{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.03);font-size:10px;font-weight:950;letter-spacing:.16em;opacity:.85;}
+      `}</style>
     </div>
   );
 }
