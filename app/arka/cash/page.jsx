@@ -30,7 +30,6 @@ export default function ArkaCashPage() {
   const [note, setNote] = useState("");
 
   const [opening, setOpening] = useState("0");
-  const [suggestOpen, setSuggestOpen] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -92,8 +91,7 @@ export default function ArkaCashPage() {
     try {
       const init = Number(String(opening || "0").replace(",", "."));
       const opened_by = me?.name || "LOCAL";
-      const day_key = new Date().toISOString().slice(0, 10);
-      const d = await dbOpenDay({ initial_cash: isFinite(init) ? init : 0, opened_by, day_key });
+      const d = await dbOpenDay({ initial_cash: isFinite(init) ? init : 0, opened_by });
       setDay(d);
       const list = await dbListMoves(d.id);
       setMoves(Array.isArray(list) ? list : []);
@@ -110,23 +108,7 @@ export default function ArkaCashPage() {
     setErr("");
     try {
       const closed_by = me?.name || "LOCAL";
-      
-      // Optional: transfer cash out to company budget/bank (recorded as OUT move)
-      if (doTransfer) {
-        const t = Number(String(transferAmt || "").replace(",", "."));
-        if (Number.isFinite(t) && t > 0) {
-          await dbAddMove({
-            day_id: day.id,
-            type: "OUT",
-            amount: t,
-            note: "TRANSFER NË BUXHET",
-            source: "ARKA_CLOSE",
-            created_by: me?.name || "LOCAL",
-            external_id: `transfer_${day.id}_${Date.now()}`,
-          });
-        }
-      }
-await dbCloseDay({ day_id: day.id, closed_by });
+      await dbCloseDay({ day_id: day.id, closed_by });
       setDay(null);
       setMoves([]);
       setOpening("0");
@@ -186,6 +168,9 @@ await dbCloseDay({ day_id: day.id, closed_by });
           </div>
         </div>
         <div className="topActions">
+          <Link className="ghostBtn" href="/arka/buxheti">
+            COMPANY BUDGET
+          </Link>
           <Link className="ghostBtn" href="/arka">
             KTHEHU
           </Link>
@@ -212,12 +197,6 @@ await dbCloseDay({ day_id: day.id, closed_by });
                 inputMode="decimal"
                 placeholder="0"
               />
-          {suggestOpen ? (
-            <div className="muted" style={{ marginTop: 6 }}>
-              SUGJERIM NGA DITA E FUNDIT: €{suggestOpen}
-            </div>
-          ) : null}
-
             </div>
             <div className="field">
               <div className="label">DATA</div>
