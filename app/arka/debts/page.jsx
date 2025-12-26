@@ -166,7 +166,6 @@ export default function ArkaDebtsPage() {
           <Link href="/arka" className="arka-back">KTHEHU</Link>
         </div>
 
-        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="arka-card">

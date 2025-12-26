@@ -148,7 +148,6 @@ export default function ArkaCashPage() {
           <Link href="/arka" className="arka-back">KTHEHU</Link>
         </div>
 
-        </div>
 
         {!day.isOpen ? (
           <div className="arka-card">
