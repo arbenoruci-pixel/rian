@@ -2,13 +2,23 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { supabase } from "../../../lib/supabaseClient";
-import { dbGetOpenDay, dbOpenDay, dbCloseDay, dbListMoves, dbAddMove, dbHandoffToDispatch } from "../../../lib/arkaDb";
+
+import {
+  dbGetOpenDay,
+  dbOpenDay,
+  dbCloseDay,
+  dbListMoves,
+  dbAddMove,
+  dbHandoffToDispatch,
+} from "../../../lib/arkaDb";
 import { findUserByPin as findUserByPinDb } from "../../../lib/usersDb";
 
 const fmtEur = (n) => {
   const x = Number(n || 0);
-  return x.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return x.toLocaleString("de-DE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 };
 
 function todayKey() {
@@ -21,33 +31,35 @@ function todayKey() {
 
 export default function ArkaCashPage() {
   const [me, setMe] = useState(null);
-  const [loading, setLoading] = useState(true);
 
   const dayKey = todayKey();
 
-  const [day, setDay] = useState(null);
+  const [day, setDay] = useState(null); // OPEN day only
   const [moves, setMoves] = useState([]);
+
+  const [opening, setOpening] = useState("0");
 
   const [mode, setMode] = useState("IN"); // IN | OUT
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
-  const [opening, setOpening] = useState("0");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
+  // PIN modal
   const [showPin, setShowPin] = useState(false);
   const [pinTitle, setPinTitle] = useState("");
-  const [pinAction, setPinAction] = useState(null); // async (user) => void
   const [pinValue, setPinValue] = useState("");
   const [pinError, setPinError] = useState("");
+  const [pinAction, setPinAction] = useState(null); // async (user)=>void
 
+  // Close modal
   const [showClose, setShowClose] = useState(false);
   const [counted, setCounted] = useState("");
   const [closeNote, setCloseNote] = useState("");
-  const [lastClosed, setLastClosed] = useState(null); // keep last closed day for handoff
 
-  const dayLabel = useMemo(() => (day ? day.day_key || todayKey() : todayKey()), [day]);
+  // After closing, allow handoff + show status
+  const [lastClosed, setLastClosed] = useState(null);
 
   const totals = useMemo(() => {
     const initial = Number(day?.initial_cash || 0);
@@ -62,43 +74,38 @@ export default function ArkaCashPage() {
       initial,
       inSum,
       outSum,
-      total: initial + inSum - outSum,
+      expected: initial + inSum - outSum,
     };
   }, [day, moves]);
 
   async function loadMe() {
     try {
-      const raw = localStorage.getItem("CURRENT_USER_DATA") || localStorage.getItem("arka_user");
+      const raw =
+        localStorage.getItem("CURRENT_USER_DATA") ||
+        localStorage.getItem("arka_user");
       if (raw) setMe(JSON.parse(raw));
     } catch {}
   }
 
   async function refresh() {
     setErr("");
-    setLoading(true);
     try {
-      // 1) current open day
       const d = await dbGetOpenDay(dayKey);
       setDay(d || null);
-
-      // 2) list moves (if day open)
       if (d?.id) {
         const list = await dbListMoves(d.id);
-        setMoves([]);
-      s(Array.isArray(list) ? list : []);
+        setMoves(Array.isArray(list) ? list : []);
       } else {
         setMoves([]);
-      s([]);
       }
     } catch (e) {
       setErr(e?.message || "Gabim gjatë ngarkimit.");
-    } finally {
-      setLoading(false);
     }
   }
 
   useEffect(() => {
     loadMe().then(refresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function requirePin(title, action) {
@@ -111,7 +118,10 @@ export default function ArkaCashPage() {
 
   async function submitPin() {
     const clean = String(pinValue || "").trim();
-    if (!clean) { setPinError("SHKRUAJ PIN"); return; }
+    if (!clean) {
+      setPinError("SHKRUAJ PIN");
+      return;
+    }
     setPinError("");
     try {
       const res = await findUserByPinDb(clean);
@@ -119,7 +129,11 @@ export default function ArkaCashPage() {
         setPinError("PIN I GABUAR");
         return;
       }
-      const u = { id: res.item.id, name: res.item.name, role: res.item.role };
+      const u = {
+        id: res.item.id,
+        name: res.item.name,
+        role: res.item.role,
+      };
       setShowPin(false);
       if (typeof pinAction === "function") await pinAction(u);
     } catch (e) {
@@ -134,10 +148,18 @@ export default function ArkaCashPage() {
       try {
         const opened_by = u?.name || me?.name || "LOCAL";
         const init = Number(String(opening || "0").replace(",", "."));
-        const d = await dbOpenDay({ initial_cash: isFinite(init) ? init : 0, opened_by, day_key: dayKey });
-        setDay(d);
-        const list = await dbListMoves(d.id);
-        setMoves(Array.isArray(list) ? list : []);
+        const d = await dbOpenDay({
+          day_key: dayKey,
+          initial_cash: Number.isFinite(init) ? init : 0,
+          opened_by,
+        });
+        setDay(d || null);
+        if (d?.id) {
+          const list = await dbListMoves(d.id);
+          setMoves(Array.isArray(list) ? list : []);
+        } else {
+          setMoves([]);
+        }
       } catch (e) {
         setErr(e?.message || "S’u hap dita.");
       } finally {
@@ -146,7 +168,7 @@ export default function ArkaCashPage() {
     });
   }
 
-  async function onCloseDay() {
+  function onCloseDay() {
     if (!day?.id) return;
     setCounted("");
     setCloseNote("");
@@ -155,9 +177,10 @@ export default function ArkaCashPage() {
 
   async function confirmCloseDay() {
     if (!day?.id) return;
-    const expected = Number(totals.total || 0);
+
+    const expected = Number(totals.expected || 0);
     const countedNum = Number(String(counted || "").replace(",", "."));
-    if (!isFinite(countedNum)) {
+    if (!Number.isFinite(countedNum)) {
       setErr("Shkruaj CASH REAL (numëruar).");
       return;
     }
@@ -173,12 +196,13 @@ export default function ArkaCashPage() {
           expected_cash: expected,
           cash_counted: countedNum,
           discrepancy: countedNum - expected,
-          close_note: closeNote || null,
+          close_note: (closeNote || "").trim() || null,
         });
+
         setLastClosed(res || { ...day, closed_by });
         setShowClose(false);
 
-        // After close, hide day + moves (CASH view shows only OPEN day)
+        // CASH screen should show ONLY OPEN day. After close, hide everything.
         setDay(null);
         setMoves([]);
         setOpening("0");
@@ -190,16 +214,19 @@ export default function ArkaCashPage() {
     });
   }
 
-  
-  async function onHandoffToDispatch() {
+  async function onHandoff() {
     if (!lastClosed?.id) return;
+
     await requirePin("DORËZO TE DISPATCH (PIN)", async (u) => {
       setBusy(true);
       setErr("");
       try {
         const handed_by = u?.name || me?.name || "LOCAL";
-        const updated = await dbHandoffToDispatch({ day_id: lastClosed.id, handed_by });
-        setLastClosed(updated);
+        const updated = await dbHandoffToDispatch({
+          day_id: lastClosed.id,
+          handed_by,
+        });
+        setLastClosed(updated || { ...lastClosed, handoff_status: "HANDED" });
       } catch (e) {
         setErr(e?.message || "S’u dorëzua.");
       } finally {
@@ -208,13 +235,14 @@ export default function ArkaCashPage() {
     });
   }
 
-async function onAddMove() {
+  async function onAddMove() {
     if (!day?.id) {
       setErr("HAPE DITËN fillimisht.");
       return;
     }
+
     const n = Number(String(amount || "").replace(",", "."));
-    if (!isFinite(n) || n <= 0) {
+    if (!Number.isFinite(n) || n <= 0) {
       setErr("Shuma duhet me qenë > 0.");
       return;
     }
@@ -222,23 +250,18 @@ async function onAddMove() {
     setBusy(true);
     setErr("");
     try {
-      const created_by = me?.name || "LOCAL";
       const payload = {
         day_id: day.id,
         type: mode,
         amount: n,
-        note: (note || "").trim(),
+        note: (note || "").trim() || null,
         source: "MANUAL",
-        created_by,
+        created_by: me?.name || "LOCAL",
         external_id: null,
       };
 
-      // Write to DB via helper (also writes local cache)
       const inserted = await dbAddMove(payload);
-
-      // Optimistic UI
-      setMoves([]);
-      s((prev) => [inserted, ...(prev || [])]);
+      setMoves((prev) => [inserted, ...(prev || [])]);
       setAmount("");
       setNote("");
     } catch (e) {
@@ -248,34 +271,54 @@ async function onAddMove() {
     }
   }
 
+  const canHandoff = useMemo(() => {
+    if (!lastClosed) return false;
+    const status = String(lastClosed.handoff_status || "PENDING");
+    if (status === "RECEIVED") return false;
+    // Prefer: only the closer can handoff. Allow ADMIN too.
+    const closer = String(lastClosed.closed_by || "");
+    const myName = String(me?.name || "");
+    if (!myName) return true; // if no user loaded, still show (LOCAL)
+    if (me?.role === "ADMIN") return true;
+    return closer && closer === myName;
+  }, [lastClosed, me]);
+
   return (
     <div className="pageWrap">
       <div className="topRow">
         <div>
           <div className="title">ARKA • CASH</div>
           <div className="sub">
-            {(me?.name || "LOCAL").toLowerCase()} • {(me?.role || "ADMIN")} • LOCAL
+            {(me?.name || "LOCAL").toLowerCase()} • {(me?.role || "ADMIN")} • {dayKey}
           </div>
         </div>
         <div className="topActions">
-          <Link className="ghostBtn" href="/arka">
+          <Link href="/arka/buxheti" className="btn ghost">
+            COMPANY BUDGET
+          </Link>
+          <Link href="/arka" className="btn ghost">
             KTHEHU
           </Link>
         </div>
       </div>
 
-      {!!err && <div className="errBox">{err}</div>}
+      {err ? <div className="errorBox">{err}</div> : null}
 
-      {/* DAY CARD */}
-      <div className="card">
-        <div className="cardHead">
-          <div className="cardTitle">DITA</div>
-          <div className="pill">{day ? "E HAPUR" : "E MBYLLUR"}</div>
-        </div>
+      {/* OPEN DAY PANEL */}
+      {!day ? (
+        <div className="card">
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <div>
+              <div className="h2">DITA ËSHTË E MBYLLUR</div>
+              <div className="muted">Për me pranu pagesa, hape ditën me PIN.</div>
+            </div>
+            <button className="btn" disabled={busy} onClick={refresh}>
+              RIFRESKO
+            </button>
+          </div>
 
-        {!day ? (
-          <div className="grid2">
-            <div className="field">
+          <div className="grid2" style={{ marginTop: 12 }}>
+            <div>
               <div className="label">FILLIMI (€)</div>
               <input
                 className="input"
@@ -285,214 +328,143 @@ async function onAddMove() {
                 placeholder="0"
               />
             </div>
-            <div className="field">
-              <div className="label">DATA</div>
-              <input className="input" value={todayKey()} readOnly />
+            <div style={{ display: "flex", alignItems: "flex-end" }}>
+              <button className="btn primary" disabled={busy} onClick={onOpenDay}>
+                HAP DITËN
+              </button>
             </div>
+          </div>
 
-            <button className="btn" onClick={onOpenDay} disabled={busy}>
-              HAPE DITËN
-            </button>
-            <div className="hint">Hap ditën para se me i regjistru pagesat/shpenzimet.</div>
-            {lastClosed?.id && lastClosed?.handoff_status === "PENDING" && (String(lastClosed?.closed_by || "") === String(me?.name || "")) ? (
-              <div style={{ marginTop: 12 }}>
-                <div className="hint" style={{ marginBottom: 8 }}>DITA ËSHTË MBYLLUR. DORËZO CASH TE DISPATCH.</div>
-                <button className="primaryBtn" onClick={onHandoffToDispatch} disabled={busy}>
-                  DORËZO TE DISPATCH
+          {lastClosed ? (
+            <div className="sep" style={{ marginTop: 14 }}>
+              <div className="muted">DITA E FUNDIT E MBYLLUR</div>
+              <div className="row" style={{ justifyContent: "space-between", marginTop: 6 }}>
+                <div>
+                  <div className="strong">{lastClosed.day_key || "(pa datë)"}</div>
+                  <div className="muted">
+                    Closed by: {lastClosed.closed_by || "?"} • Status: {lastClosed.handoff_status || "PENDING"}
+                  </div>
+                </div>
+                {canHandoff ? (
+                  <button className="btn" disabled={busy} onClick={onHandoff}>
+                    DORËZO TE DISPATCH
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          {/* OPEN DAY SUMMARY */}
+          <div className="statsRow">
+            <div className="statCard">
+              <div className="muted">FILLIMI</div>
+              <div className="big">€{fmtEur(totals.initial)}</div>
+            </div>
+            <div className="statCard">
+              <div className="muted">HYRJE</div>
+              <div className="big">€{fmtEur(totals.inSum)}</div>
+            </div>
+            <div className="statCard">
+              <div className="muted">DALJE</div>
+              <div className="big">€{fmtEur(totals.outSum)}</div>
+            </div>
+            <div className="statCard">
+              <div className="muted">CASH PRITET</div>
+              <div className="big">€{fmtEur(totals.expected)}</div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <div>
+                <div className="h2">DITA ËSHTË OPEN</div>
+                <div className="muted">{day.day_key} • opened by: {day.opened_by || "?"}</div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn" disabled={busy} onClick={refresh}>
+                  RIFRESKO
+                </button>
+                <button className="btn danger" disabled={busy} onClick={onCloseDay}>
+                  MBYLL DITËN
                 </button>
               </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="grid4">
-            <div className="kpi">
-              <div className="k">FILLIMI</div>
-              <div className="v">€{fmtEur(totals.initial)}</div>
-            </div>
-            <div className="kpi">
-              <div className="k">HYRJE</div>
-              <div className="v">€{fmtEur(totals.inSum)}</div>
-            </div>
-            <div className="kpi">
-              <div className="k">DALJE</div>
-              <div className="v">€{fmtEur(totals.outSum)}</div>
-            </div>
-            <div className="kpi">
-              <div className="k">TOTALI</div>
-              <div className="v">€{fmtEur(totals.total)}</div>
             </div>
 
-            <div className="rowActions">
-              <button className="ghostBtn" onClick={refresh} disabled={busy}>
-                RIFRESKO
-              </button>
-              <button className="dangerBtn" onClick={onCloseDay} disabled={busy}>
-                MBYLL DITËN
-              </button>
-              <div className="dayKey">DITA: {dayLabel}</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ADD MOVE */}
-      <div className="card">
-        <div className="cardHead">
-          <div className="cardTitle">SHTO LËVIZJE</div>
-          <div className="seg">
-            <button
-              className={mode === "IN" ? "segBtn segOn" : "segBtn"}
-              onClick={() => setMode("IN")}
-              type="button"
-            >
-              PAGESË
-            </button>
-            <button
-              className={mode === "OUT" ? "segBtn segOn" : "segBtn"}
-              onClick={() => setMode("OUT")}
-              type="button"
-            >
-              SHPENZIM
-            </button>
-          </div>
-        </div>
-
-        <div className="grid2">
-          <div className="field">
-            <div className="label">SHUMA (€)</div>
-            <input
-              className="input"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-              placeholder="0"
-            />
-          </div>
-          <div className="field">
-            <div className="label">SHËNIM (opsional)</div>
-            <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="p.sh. detergjent, klienti #12" />
-          </div>
-
-          <button className="btn" onClick={onAddMove} disabled={busy || !day?.id}>
-            RUAJ
-          </button>
-          <div className="hint">
-            Pagesat nga PRANIMI/PASTRIMI/GATI regjistrohen si <b>source=ORDER</b>. Këtu ke edhe hyrje/dalje manuale.
-          </div>
-        </div>
-      </div>
-
-      {/* MOVES */}
-      <div className="card">
-        <div className="cardHead">
-          <div className="cardTitle">LËVIZJET</div>
-          <div className="pill">{moves?.length || 0} RRESHTA</div>
-        </div>
-
-        {loading ? (
-          <div className="muted">DUKE NGARKU…</div>
-        ) : moves?.length ? (
-          <div className="list">
-            {moves.map((m) => (
-              <div className="moveRow" key={m.id || `${m.created_at}_${m.amount}`}>
-                <div className="moveLeft">
-                  <div className="moveType">
-                    <span className={m.type === "IN" ? "tag tagIn" : "tag tagOut"}>{m.type === "IN" ? "HYRJE" : "DALJE"}</span>
-                    <span className="src">{(m.source || "—").toUpperCase()}</span>
-                  </div>
-                  <div className="note">{m.note || "—"}</div>
-                  <div className="meta">
-                    {(m.created_by || "—").toLowerCase()} • {String(m.created_at || "").replace("T", " ").slice(0, 16)}
-                    {m.external_id ? ` • #${m.external_id}` : ""}
-                  </div>
-                </div>
-                <div className="moveAmt">
-                  <div className={m.type === "IN" ? "amt amtIn" : "amt amtOut"}>€{fmtEur(m.amount)}</div>
-                </div>
+            {/* ADD MOVE */}
+            <div className="grid3" style={{ marginTop: 12 }}>
+              <div>
+                <div className="label">LLOJI</div>
+                <select className="input" value={mode} onChange={(e) => setMode(e.target.value)}>
+                  <option value="IN">HYRJE</option>
+                  <option value="OUT">DALJE</option>
+                </select>
               </div>
-            ))}
+              <div>
+                <div className="label">SHUMA (€)</div>
+                <input
+                  className="input"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <div className="label">SHËNIM</div>
+                <input
+                  className="input"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="opsionale"
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <button className="btn primary" disabled={busy} onClick={onAddMove}>
+                SHTO LËVIZJE
+              </button>
+            </div>
+
+            {/* MOVES */}
+            <div className="sep" style={{ marginTop: 14 }}>
+              <div className="muted">LËVIZJET ({moves.length})</div>
+              <div className="list">
+                {(moves || []).map((m) => (
+                  <div key={m.id || `${m.type}-${m.created_at}-${m.amount}`} className="rowline">
+                    <div className="left">
+                      <div className="strong">{m.type === "IN" ? "HYRJE" : "DALJE"}</div>
+                      <div className="muted">{m.note || m.source || ""}</div>
+                    </div>
+                    <div className="right strong">€{fmtEur(m.amount)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="muted">NUK KA LËVIZJE</div>
-        )}
-      </div>
-
-      <div className="bottomSpace" />
-
-      <style jsx>{`
-        .pageWrap{max-width:980px;margin:0 auto;padding:18px 14px 40px;}
-        .topRow{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:14px;}
-        .title{font-size:34px;letter-spacing:1px;font-weight:900;}
-        .sub{opacity:.75;margin-top:4px;font-size:13px;letter-spacing:.8px;text-transform:uppercase;}
-        .topActions{display:flex;gap:10px;align-items:center;}
-        .card{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);border-radius:16px;padding:14px 14px 12px;margin:12px 0;}
-        .cardHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
-        .cardTitle{font-weight:900;letter-spacing:.8px;}
-        .pill{font-size:12px;border:1px solid rgba(255,255,255,.14);padding:6px 10px;border-radius:999px;opacity:.9;}
-        .errBox{border:1px solid rgba(255,80,80,.35);background:rgba(255,80,80,.08);padding:10px 12px;border-radius:12px;margin:10px 0;}
-        .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
-        .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:stretch;}
-        .field .label{font-size:12px;opacity:.8;margin-bottom:6px;letter-spacing:.7px;}
-        .input{width:100%;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.35);color:#fff;padding:0 12px;font-size:16px;outline:none;}
-        .btn{height:44px;border-radius:12px;border:1px solid rgba(99,165,255,.55);background:rgba(99,165,255,.15);color:#fff;font-weight:900;letter-spacing:.8px;}
-        .ghostBtn{height:40px;padding:0 12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);display:inline-flex;align-items:center;justify-content:center;font-weight:800;letter-spacing:.6px;}
-        .dangerBtn{height:40px;padding:0 12px;border-radius:12px;border:1px solid rgba(255,80,80,.4);background:rgba(255,80,80,.12);font-weight:900;letter-spacing:.6px;}
-        .hint{font-size:12px;opacity:.72;align-self:center;}
-        .kpi{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.25);border-radius:14px;padding:10px 12px;}
-        .kpi .k{font-size:12px;opacity:.75;letter-spacing:.7px;}
-        .kpi .v{font-size:20px;font-weight:900;margin-top:6px;}
-        .rowActions{grid-column:1 / -1;display:flex;gap:10px;align-items:center;justify-content:flex-start;margin-top:6px;}
-        .dayKey{margin-left:auto;opacity:.75;font-size:12px;letter-spacing:.7px;}
-        .seg{display:flex;gap:8px;align-items:center;}
-        .segBtn{height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);font-weight:900;letter-spacing:.6px;}
-        .segOn{border-color:rgba(99,165,255,.6);background:rgba(99,165,255,.18);}
-        .list{display:flex;flex-direction:column;gap:8px;}
-        .moveRow{display:flex;justify-content:space-between;gap:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.22);border-radius:14px;padding:10px 12px;}
-        .moveLeft{min-width:0;flex:1;}
-        .moveType{display:flex;gap:8px;align-items:center;}
-        .tag{font-size:11px;font-weight:900;letter-spacing:.8px;border-radius:999px;padding:4px 10px;border:1px solid rgba(255,255,255,.14);}
-        .tagIn{border-color:rgba(80,220,140,.35);background:rgba(80,220,140,.12);}
-        .tagOut{border-color:rgba(255,100,100,.35);background:rgba(255,100,100,.10);}
-        .src{font-size:11px;opacity:.75;letter-spacing:.7px;}
-        .note{margin-top:6px;font-size:14px;opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .meta{margin-top:6px;font-size:11px;opacity:.65;letter-spacing:.6px;}
-        .moveAmt{display:flex;align-items:center;justify-content:flex-end;min-width:120px;}
-        .amt{font-size:18px;font-weight:900;}
-        .amtIn{color:#63ffa5;}
-        .amtOut{color:#ff7b7b;}
-        .muted{opacity:.7;padding:8px 0;}
-        .bottomSpace{height:10px;}
-        @media(max-width:720px){
-          .grid2{grid-template-columns:1fr;}
-          .grid4{grid-template-columns:1fr 1fr;}
-          .title{font-size:30px;}
-        }
-      `}</style>
-    </div>
-  );
-}
+        </>
+      )}
 
       {/* PIN MODAL */}
       {showPin ? (
         <div className="modalBack">
           <div className="modalCard">
             <div className="modalTitle">{pinTitle}</div>
-            <div className="field">
-              <div className="label">PIN</div>
-              <input
-                className="input"
-                inputMode="numeric"
-                value={pinValue}
-                onChange={(e) => setPinValue(e.target.value)}
-                placeholder="****"
-              />
-              {pinError ? <div className="error">{pinError}</div> : null}
-            </div>
-            <div className="rowBtns">
-              <button className="ghostBtn" type="button" onClick={() => setShowPin(false)} disabled={busy}>
+            <div className="label">PIN</div>
+            <input
+              className="input"
+              value={pinValue}
+              onChange={(e) => setPinValue(e.target.value)}
+              inputMode="numeric"
+              placeholder="****"
+            />
+            {pinError ? <div className="errorBox" style={{ marginTop: 8 }}>{pinError}</div> : null}
+            <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+              <button className="btn ghost" onClick={() => setShowPin(false)}>
                 ANULO
               </button>
-              <button className="primaryBtn" type="button" onClick={submitPin} disabled={busy}>
+              <button className="btn primary" onClick={submitPin}>
                 VAZHDO
               </button>
             </div>
@@ -504,46 +476,59 @@ async function onAddMove() {
       {showClose ? (
         <div className="modalBack">
           <div className="modalCard">
-            <div className="modalTitle">MBYLLJA E DITËS — {dayLabel}</div>
+            <div className="modalTitle">MBYLLJA E DITËS</div>
 
             <div className="grid2">
-              <div className="kpi">
-                <div className="k">FILLIMI</div>
-                <div className="v">€{fmtEur(totals.initial)}</div>
+              <div>
+                <div className="muted">FILLIMI</div>
+                <div className="strong">€{fmtEur(totals.initial)}</div>
               </div>
-              <div className="kpi">
-                <div className="k">HYRJE</div>
-                <div className="v">€{fmtEur(totals.inSum)}</div>
+              <div>
+                <div className="muted">CASH PRITET</div>
+                <div className="strong">€{fmtEur(totals.expected)}</div>
               </div>
-              <div className="kpi">
-                <div className="k">DALJE</div>
-                <div className="v">€{fmtEur(totals.outSum)}</div>
+              <div>
+                <div className="muted">HYRJE</div>
+                <div className="strong">€{fmtEur(totals.inSum)}</div>
               </div>
-              <div className="kpi">
-                <div className="k">CASH PRITET</div>
-                <div className="v">€{fmtEur(totals.total)}</div>
+              <div>
+                <div className="muted">DALJE</div>
+                <div className="strong">€{fmtEur(totals.outSum)}</div>
               </div>
             </div>
 
-            <div className="field">
+            <div style={{ marginTop: 10 }}>
               <div className="label">CASH REAL (NUMËRUAR)</div>
-              <input className="input" value={counted} onChange={(e) => setCounted(e.target.value)} placeholder="p.sh. 90" />
+              <input
+                className="input"
+                value={counted}
+                onChange={(e) => setCounted(e.target.value)}
+                inputMode="decimal"
+                placeholder="0"
+              />
             </div>
 
-            <div className="field">
-              <div className="label">SHËNIM (OPSIONAL)</div>
-              <input className="input" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} placeholder="p.sh. mungon 5€, u dhanë kusur..." />
+            <div style={{ marginTop: 10 }}>
+              <div className="label">SHËNIM (opsionale)</div>
+              <input
+                className="input"
+                value={closeNote}
+                onChange={(e) => setCloseNote(e.target.value)}
+                placeholder="p.sh. dorëzim te dispatch"
+              />
             </div>
 
-            <div className="rowBtns">
-              <button className="ghostBtn" type="button" onClick={() => setShowClose(false)} disabled={busy}>
+            <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button className="btn ghost" onClick={() => setShowClose(false)}>
                 ANULO
               </button>
-              <button className="dangerBtn" type="button" onClick={confirmCloseDay} disabled={busy}>
+              <button className="btn danger" disabled={busy} onClick={confirmCloseDay}>
                 KONFIRMO MBYLLJEN
               </button>
             </div>
           </div>
         </div>
       ) : null}
-
+    </div>
+  );
+}
