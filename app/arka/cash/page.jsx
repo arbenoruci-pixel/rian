@@ -33,6 +33,11 @@ export default function ArkaCashPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
+  // Close-day confirmation (summary screen)
+  const [showClose, setShowClose] = useState(false);
+  const [cashCounted, setCashCounted] = useState("");
+  const [closeNote, setCloseNote] = useState("");
+
   const dayLabel = useMemo(() => (day ? day.day_key || todayKey() : todayKey()), [day]);
 
   const totals = useMemo(() => {
@@ -112,12 +117,44 @@ export default function ArkaCashPage() {
       setDay(null);
       setMoves([]);
       setOpening("0");
+      setShowClose(false);
+      setCashCounted("");
+      setCloseNote("");
     } catch (e) {
       setErr(e?.message || "S’u mbyll dita.");
     } finally {
       setBusy(false);
     }
   }
+
+  async function onAskCloseDay() {
+    if (!day?.id) return;
+    setErr("");
+    // refresh moves before showing summary
+    try {
+      const list = await dbListMoves(day.id);
+      setMoves(Array.isArray(list) ? list : []);
+    } catch {
+      // ignore; still show modal with whatever is loaded
+    }
+    setShowClose(true);
+  }
+
+  const closeSummary = useMemo(() => {
+    const initial = Number(day?.initial_cash || 0);
+    let inSum = 0;
+    let outSum = 0;
+    for (const m of moves || []) {
+      const a = Number(m.amount || 0);
+      if (m.type === "IN") inSum += a;
+      if (m.type === "OUT") outSum += a;
+    }
+    const expected = initial + inSum - outSum;
+    const counted = Number(String(cashCounted || "").replace(",", "."));
+    const hasCounted = cashCounted !== "" && isFinite(counted);
+    const diff = hasCounted ? counted - expected : null;
+    return { initial, inSum, outSum, expected, counted, hasCounted, diff };
+  }, [day, moves, cashCounted]);
 
   async function onAddMove() {
     if (!day?.id) {
@@ -228,7 +265,7 @@ export default function ArkaCashPage() {
               <button className="ghostBtn" onClick={refresh} disabled={busy}>
                 RIFRESKO
               </button>
-              <button className="dangerBtn" onClick={onCloseDay} disabled={busy}>
+              <button className="dangerBtn" onClick={onAskCloseDay} disabled={busy}>
                 MBYLL DITËN
               </button>
               <div className="dayKey">DITA: {dayLabel}</div>
@@ -236,6 +273,72 @@ export default function ArkaCashPage() {
           </div>
         )}
       </div>
+
+      {/* CLOSE DAY MODAL */}
+      {showClose && day?.id ? (
+        <div className="modalWrap" role="dialog" aria-modal="true">
+          <div className="modalBack" onClick={() => !busy && setShowClose(false)} />
+          <div className="modal">
+            <div className="modalHead">
+              <div>
+                <div className="modalTitle">MBYLLJA E DITËS</div>
+                <div className="modalSub">{dayLabel} • hapur nga {(day?.opened_by || me?.name || "—").toLowerCase()}</div>
+              </div>
+              <button className="ghostBtn" onClick={() => setShowClose(false)} disabled={busy}>
+                ANULO
+              </button>
+            </div>
+
+            <div className="modalGrid">
+              <div className="kpi">
+                <div className="k">FILLIMI</div>
+                <div className="v">€{fmtEur(closeSummary.initial)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">PAGESA (HYRJE)</div>
+                <div className="v">€{fmtEur(closeSummary.inSum)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">SHPENZIME (DALJE)</div>
+                <div className="v">€{fmtEur(closeSummary.outSum)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">CASH PRITET</div>
+                <div className="v">€{fmtEur(closeSummary.expected)}</div>
+              </div>
+            </div>
+
+            <div className="grid2" style={{ marginTop: 10 }}>
+              <div className="field">
+                <div className="label">CASH REAL (NUMËRUAR) (€)</div>
+                <input
+                  className="input"
+                  value={cashCounted}
+                  onChange={(e) => setCashCounted(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="p.sh. 90"
+                />
+                <div className="hint">Shkruje sa pare i ke realisht në arkë para mbylljes.</div>
+              </div>
+
+              <div className="field">
+                <div className="label">SHËNIM (opsional)</div>
+                <input className="input" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} placeholder="p.sh. mungesë 5€, arsyetimi…" />
+                <div className="hint">
+                  DISKREPANCA: {closeSummary.hasCounted ? <b>€{fmtEur(closeSummary.diff)}</b> : <span className="muted">—</span>}
+                </div>
+              </div>
+            </div>
+
+            <div className="modalActions">
+              <div className="muted">{moves?.length || 0} lëvizje gjithsej • mbyllja bllokon pagesat deri sa të hapet dita prap.</div>
+              <button className="dangerBtn" onClick={onCloseDay} disabled={busy}>
+                KONFIRMO MBYLLJEN
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ADD MOVE */}
       <div className="card">
@@ -364,10 +467,22 @@ export default function ArkaCashPage() {
         .amtOut{color:#ff7b7b;}
         .muted{opacity:.7;padding:8px 0;}
         .bottomSpace{height:10px;}
+
+        /* Modal */
+        .modalWrap{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center;padding:16px;}
+        .modalBack{position:absolute;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);}
+        .modal{position:relative;width:100%;max-width:980px;border:1px solid rgba(255,255,255,.14);background:rgba(15,15,18,.96);border-radius:18px;padding:14px 14px 12px;box-shadow:0 20px 60px rgba(0,0,0,.55);}
+        .modalHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;}
+        .modalTitle{font-weight:900;letter-spacing:.8px;font-size:18px;}
+        .modalSub{opacity:.72;margin-top:4px;font-size:12px;letter-spacing:.7px;text-transform:uppercase;}
+        .modalGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+        .modalActions{display:flex;align-items:center;gap:10px;justify-content:space-between;margin-top:12px;}
         @media(max-width:720px){
           .grid2{grid-template-columns:1fr;}
           .grid4{grid-template-columns:1fr 1fr;}
           .title{font-size:30px;}
+          .modalGrid{grid-template-columns:1fr 1fr;}
+          .modalWrap{align-items:stretch;}
         }
       `}</style>
     </div>
