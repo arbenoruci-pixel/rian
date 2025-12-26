@@ -2,351 +2,374 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { supabase } from "../../../lib/supabaseClient";
+import { dbGetOpenDay, dbOpenDay, dbCloseDay, dbListMoves, dbAddMove } from "../../../lib/arkaDb";
 
-import {
-  dbCanWork,
-  dbGetOpenDay,
-  dbOpenDay,
-  dbCloseDay,
-  dbListMoves,
-  dbAddMove,
-  getLocalDay,
-  setLocalDay,
-  getLocalMoves,
-  setLocalMoves,
-  calcTotals,
-} from "@/lib/arkaDb";
+const fmtEur = (n) => {
+  const x = Number(n || 0);
+  return x.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+function todayKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${da}`;
+}
 
 export default function ArkaCashPage() {
-  const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [mode, setMode] = useState("checking"); // checking | db | local
-  const [day, setDay] = useState({ isOpen: false, initialCash: 0 });
+  const [me, setMe] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [day, setDay] = useState(null);
   const [moves, setMoves] = useState([]);
-  const [pending, setPending] = useState([]); // local cached payments when day is closed
-  const [form, setForm] = useState({ amount: "", note: "", type: "IN" });
 
-  function getPendingLocal() {
-    try {
-      const list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
-      if (!Array.isArray(list)) return [];
-      // Only keep not-imported + valid amounts
-      return list
-        .filter((r) => r && r.paid && Number(r.paid) > 0 && r.imported !== true)
-        .slice(0, 200);
-    } catch {
-      return [];
+  const [mode, setMode] = useState("IN"); // IN | OUT
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+
+  const [opening, setOpening] = useState("0");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const dayLabel = useMemo(() => (day ? day.day_key || todayKey() : todayKey()), [day]);
+
+  const totals = useMemo(() => {
+    const initial = Number(day?.initial_cash || 0);
+    let inSum = 0;
+    let outSum = 0;
+    for (const m of moves || []) {
+      const a = Number(m.amount || 0);
+      if (m.type === "IN") inSum += a;
+      if (m.type === "OUT") outSum += a;
     }
-  }
+    return {
+      initial,
+      inSum,
+      outSum,
+      total: initial + inSum - outSum,
+    };
+  }, [day, moves]);
 
-  function markPendingImported(ids = []) {
+  async function loadMe() {
     try {
-      const list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
-      if (!Array.isArray(list)) return;
-      const idSet = new Set(ids);
-      const next = list.map((r) => (r && idSet.has(r.id) ? { ...r, imported: true } : r));
-      localStorage.setItem('arka_list_v1', JSON.stringify(next));
+      const raw = localStorage.getItem("arka_user");
+      if (raw) setMe(JSON.parse(raw));
     } catch {}
   }
 
-  async function importPendingToDay(dayId) {
-    const list = getPendingLocal();
-    if (!list.length) return;
-    const importedIds = [];
-    for (const r of list) {
-      try {
-        await dbAddMove({
-          day_id: dayId,
-          type: 'IN',
-          amount: Number(r.paid || 0),
-          note: (`PAGESA ${Number(r.paid || 0).toFixed(2)}€ • #${r.code || ''} • ${(r.name || '')}`.trim()).toUpperCase(),
-          source: 'ORDER_PAY',
-          created_by: user?.name || 'SYSTEM',
-          external_id: r.id,
-        });
-        importedIds.push(r.id);
-      } catch {
-        // ignore per-row failure
+  async function refresh() {
+    setErr("");
+    setLoading(true);
+    try {
+      // 1) current open day
+      const d = await dbGetOpenDay();
+      setDay(d || null);
+
+      // 2) list moves (if day open)
+      if (d?.id) {
+        const list = await dbListMoves(d.id);
+        setMoves(Array.isArray(list) ? list : []);
+      } else {
+        setMoves([]);
       }
-    }
-    if (importedIds.length) {
-      markPendingImported(importedIds);
-      setPending(getPendingLocal());
+    } catch (e) {
+      setErr(e?.message || "Gabim gjatë ngarkimit.");
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    const u = JSON.parse(localStorage.getItem("CURRENT_USER_DATA") || "null");
-    if (!u) {
-      router.push("/login");
+    loadMe().then(refresh);
+  }, []);
+
+  async function onOpenDay() {
+    setBusy(true);
+    setErr("");
+    try {
+      const init = Number(String(opening || "0").replace(",", "."));
+      const opened_by = me?.name || "LOCAL";
+      const d = await dbOpenDay({ initial_cash: isFinite(init) ? init : 0, opened_by });
+      setDay(d);
+      const list = await dbListMoves(d.id);
+      setMoves(Array.isArray(list) ? list : []);
+    } catch (e) {
+      setErr(e?.message || "S’u hap dita.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onCloseDay() {
+    if (!day?.id) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const closed_by = me?.name || "LOCAL";
+      await dbCloseDay({ day_id: day.id, closed_by });
+      setDay(null);
+      setMoves([]);
+      setOpening("0");
+    } catch (e) {
+      setErr(e?.message || "S’u mbyll dita.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onAddMove() {
+    if (!day?.id) {
+      setErr("HAPE DITËN fillimisht.");
       return;
     }
-    // Do NOT auto-redirect to /transport. Just block in-page.
-    setUser(u);
-
-    (async () => {
-      const ok = await dbCanWork();
-      if (ok) {
-        setMode("db");
-        const open = await dbGetOpenDay();
-        if (open) {
-          const ms = await dbListMoves(open.id);
-          setDay({ isOpen: true, initialCash: Number(open.initial_cash || 0), dayId: open.id, openedAt: open.opened_at });
-          setMoves(ms);
-          setPending(getPendingLocal());
-        } else {
-          setDay({ isOpen: false, initialCash: 0 });
-          setMoves([]);
-          setPending(getPendingLocal());
-        }
-      } else {
-        setMode("local");
-        const lsDay = getLocalDay();
-        const lsMoves = getLocalMoves();
-        setDay(lsDay);
-        setMoves(lsMoves);
-        setPending(getPendingLocal());
-      }
-    })();
-  }, [router]);
-
-  const totals = useMemo(() => calcTotals(day.initialCash, moves), [day.initialCash, moves]);
-
-  const isAdmin = user?.role === "ADMIN" || user?.role === "OWNER";
-  const canCash = isAdmin || user?.role === "DISPATCH";
-
-  async function openDay(e) {
-    e.preventDefault();
-    if (!canCash) return;
-    const initialCash = Number(e.target.initial_cash.value || 0);
-    if (mode === "db") {
-      const opened = await dbOpenDay({ initial_cash: initialCash, opened_by: user.name });
-      setDay({ isOpen: true, initialCash, dayId: opened.id, openedAt: opened.opened_at });
-      // import any pending payments captured while day was closed
-      await importPendingToDay(opened.id);
-      const ms = await dbListMoves(opened.id);
-      setMoves(ms);
-    } else {
-      const nextDay = { isOpen: true, initialCash, openedAt: new Date().toISOString(), openedBy: user.name };
-      setLocalDay(nextDay);
-      setLocalMoves([]);
-      setDay(nextDay);
-      setMoves([]);
+    const n = Number(String(amount || "").replace(",", "."));
+    if (!isFinite(n) || n <= 0) {
+      setErr("Shuma duhet me qenë > 0.");
+      return;
     }
-  }
 
-  async function closeDay() {
-    if (!canCash) return;
-    if (!confirm("MBYLL DITËN?")) return;
-    if (mode === "db") {
-      await dbCloseDay({ day_id: day.dayId, closed_by: user.name });
-      setDay({ isOpen: false, initialCash: 0 });
-      setMoves([]);
-    } else {
-      setLocalDay({ isOpen: false, initialCash: 0 });
-      setLocalMoves([]);
-      setDay({ isOpen: false, initialCash: 0 });
-      setMoves([]);
+    setBusy(true);
+    setErr("");
+    try {
+      const created_by = me?.name || "LOCAL";
+      const payload = {
+        day_id: day.id,
+        type: mode,
+        amount: n,
+        note: (note || "").trim(),
+        source: "MANUAL",
+        created_by,
+        external_id: null,
+      };
+
+      // Write to DB via helper (also writes local cache)
+      const inserted = await dbAddMove(payload);
+
+      // Optimistic UI
+      setMoves((prev) => [inserted, ...(prev || [])]);
+      setAmount("");
+      setNote("");
+    } catch (e) {
+      setErr(e?.message || "S’u ruajt lëvizja.");
+    } finally {
+      setBusy(false);
     }
-  }
-
-  async function addMove() {
-    if (!day.isOpen) return alert("HAP DITËN SË PARI");
-    const amt = Number(form.amount);
-    if (!amt || !form.note.trim()) return alert("PLOTËSO SHUMËN DHE SHËNIMIN");
-    const payload = {
-      type: form.type,
-      amount: amt,
-      note: form.note.trim().toUpperCase(),
-      source: "CASH",
-    };
-
-    if (mode === "db") {
-      const m = await dbAddMove({ day_id: day.dayId, ...payload, created_by: user.name });
-      setMoves((prev) => [m, ...prev]);
-    } else {
-      const m = { id: Date.now(), created_at: new Date().toISOString(), created_by: user.name, ...payload };
-      const next = [m, ...moves];
-      setLocalMoves(next);
-      setMoves(next);
-    }
-    setForm({ amount: "", note: "", type: "IN" });
-  }
-
-  if (!user) return null;
-
-  // Transport should never land here; but if it does, keep it safe.
-  if (user.role === "TRANSPORT") {
-    return (
-      <div className="min-h-screen bg-black text-gray-200 p-6 uppercase">
-        <div className="max-w-xl mx-auto border border-gray-800 rounded p-6 bg-gray-900">
-          <p className="text-[11px] text-red-400 font-black tracking-widest">NO ACCESS</p>
-          <p className="text-[10px] text-gray-400 mt-2">TRANSPORT NUK KA QASJE NË ARKË.</p>
-          <div className="mt-4">
-            <Link className="inline-block px-4 py-2 rounded bg-gray-800 text-[10px] font-black" href="/">
-              KTHEHU HOME
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   return (
-    <div className="min-h-screen bg-black text-gray-200 p-4 font-sans uppercase">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between border-b border-gray-800 pb-4 mb-6">
-          <div>
-            <h1 className="text-xl font-black text-white tracking-tighter">ARKA • CASH</h1>
-            <p className="text-[10px] text-gray-500 tracking-widest">{user.name} • {user.role} • {mode === "db" ? "ONLINE" : "LOCAL"}</p>
+    <div className="pageWrap">
+      <div className="topRow">
+        <div>
+          <div className="title">ARKA • CASH</div>
+          <div className="sub">
+            {(me?.name || "LOCAL").toLowerCase()} • {(me?.role || "ADMIN")} • LOCAL
           </div>
-          <Link href="/arka" className="text-[10px] font-black px-3 py-2 rounded border border-gray-800 hover:bg-gray-900">KTHEHU</Link>
+        </div>
+        <div className="topActions">
+          <Link className="ghostBtn" href="/arka">
+            KTHEHU
+          </Link>
+        </div>
+      </div>
+
+      {!!err && <div className="errBox">{err}</div>}
+
+      {/* DAY CARD */}
+      <div className="card">
+        <div className="cardHead">
+          <div className="cardTitle">DITA</div>
+          <div className="pill">{day ? "E HAPUR" : "E MBYLLUR"}</div>
         </div>
 
-        {!day.isOpen ? (
-          <div className="bg-gray-900 border border-gray-800 p-8 rounded text-center">
-            <h2 className="text-sm font-black mb-4 text-gray-500 tracking-widest">ARKA E MBYLLUR</h2>
-            {canCash ? (
-              <form onSubmit={openDay} className="flex flex-col items-center gap-2">
-                <input
-                  name="initial_cash"
-                  type="number"
-                  step="any"
-                  aria-label="EURO FILLIMI"
-                  className="bg-black border border-gray-700 p-2 rounded w-48 text-center text-sm text-white"
-                  required
-                />
-                <button type="submit" className="bg-blue-600 px-8 py-2 rounded text-xs font-black">
-                  HAP DITËN
-                </button>
-              </form>
-            ) : (
-              <p className="text-[10px] text-red-500 font-black tracking-widest bg-red-900/10 p-2 border border-red-900/20 inline-block">
-                VETËM ADMIN/OWNER/DISPATCH MUND TË HAPË ARKËN
-              </p>
-            )}
-
-            {/* Pending payments captured from PRANIMI/PASTRIMI/GATI while day was closed */}
-            {pending.length > 0 && (
-              <div className="mt-6 text-left max-w-xl mx-auto border border-gray-800 rounded p-4 bg-black/40">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-black text-yellow-300 tracking-widest">PAGESA TË REGJISTRUARA (PENDING)</p>
-                  <p className="text-[10px] font-black text-yellow-200">{pending.length}</p>
-                </div>
-                <p className="text-[9px] text-gray-500 mt-1">KËTO JANË PAGESA CASH QË JANË REGJISTRUAR NGA FAQET (PRANIMI/PASTRIMI/GATI), POR ARKA KA QENË E MBYLLUR. SAPO TA HAPËSH DITËN, IMPORTOHEN AUTOMATIKISHT NË ARKË.</p>
-                <div className="mt-3 max-h-40 overflow-auto space-y-2">
-                  {pending.slice(0, 30).map((r) => (
-                    <div key={r.id} className="flex items-center justify-between border-b border-gray-800/60 pb-1">
-                      <div className="text-[9px]">
-                        <span className="text-gray-200 font-black">#{r.code || ''}</span>
-                        <span className="text-gray-500"> • </span>
-                        <span className="text-gray-400">{(r.name || '').toString().toUpperCase()}</span>
-                      </div>
-                      <div className="text-[9px] font-mono text-green-300">€{Number(r.paid || 0).toFixed(2)}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-4">
-              <section className="bg-gray-900 p-4 rounded border border-gray-800">
-                <h3 className="text-[10px] font-black mb-3 text-gray-400 tracking-widest">SHTO LËVIZJE</h3>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => setForm((f) => ({ ...f, type: "IN" }))}
-                      className={`py-2 rounded text-[10px] font-black border ${form.type === "IN" ? "bg-green-600/30 text-green-300 border-green-900/70" : "bg-black text-gray-400 border-gray-800"}`}
-                    >
-                      PAGESË
-                    </button>
-                    <button
-                      onClick={() => setForm((f) => ({ ...f, type: "OUT" }))}
-                      className={`py-2 rounded text-[10px] font-black border ${form.type === "OUT" ? "bg-red-600/30 text-red-300 border-red-900/70" : "bg-black text-gray-400 border-gray-800"}`}
-                    >
-                      SHPENZIM
-                    </button>
-                  </div>
-                  <input
-                    type="number"
-                    step="any"
-                    aria-label="SHUMA €"
-                    value={form.amount}
-                    onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                    className="w-full bg-black border border-gray-700 p-2 rounded text-sm text-white"
-                  />
-                  <input
-                    type="text"
-                    aria-label="SHËNIMI"
-                    value={form.note}
-                    onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-                    className="w-full bg-black border border-gray-700 p-2 rounded text-sm text-white"
-                  />
-                  <button onClick={addMove} className="w-full bg-blue-600/20 text-blue-300 border border-blue-900/60 py-2 rounded text-[10px] font-black hover:bg-blue-600 hover:text-white transition">
-                    RUAJ
-                  </button>
-                </div>
-              </section>
-
-              {canCash && (
-                <button onClick={closeDay} className="w-full border border-gray-800 text-gray-400 py-2 rounded text-[10px] font-black hover:bg-gray-900 transition">
-                  MBYLL DITËN
-                </button>
-              )}
+        {!day ? (
+          <div className="grid2">
+            <div className="field">
+              <div className="label">FILLIMI (€)</div>
+              <input
+                className="input"
+                value={opening}
+                onChange={(e) => setOpening(e.target.value)}
+                inputMode="decimal"
+                placeholder="0"
+              />
+            </div>
+            <div className="field">
+              <div className="label">DATA</div>
+              <input className="input" value={todayKey()} readOnly />
             </div>
 
-            <div className="md:col-span-2 space-y-4">
-              <div className="p-4 bg-gray-900 border border-gray-800 rounded grid grid-cols-4 gap-2 text-center">
-                <div>
-                  <p className="text-[8px] text-gray-500 font-black">FILLIMI</p>
-                  <p className="text-xs font-mono font-bold">€{totals.initial.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-[8px] text-gray-500 font-black">HYRJE</p>
-                  <p className="text-xs font-mono font-bold text-green-400">€{totals.in.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-[8px] text-gray-500 font-black">DALJE</p>
-                  <p className="text-xs font-mono font-bold text-red-400">€{totals.out.toFixed(2)}</p>
-                </div>
-                <div className="bg-blue-500/5 rounded">
-                  <p className="text-[8px] text-blue-400 font-black">TOTALI</p>
-                  <p className="text-xs font-mono font-bold text-blue-400">€{totals.total.toFixed(2)}</p>
-                </div>
-              </div>
+            <button className="btn" onClick={onOpenDay} disabled={busy}>
+              HAPE DITËN
+            </button>
+            <div className="hint">Hap ditën para se me i regjistru pagesat/shpenzimet.</div>
+          </div>
+        ) : (
+          <div className="grid4">
+            <div className="kpi">
+              <div className="k">FILLIMI</div>
+              <div className="v">€{fmtEur(totals.initial)}</div>
+            </div>
+            <div className="kpi">
+              <div className="k">HYRJE</div>
+              <div className="v">€{fmtEur(totals.inSum)}</div>
+            </div>
+            <div className="kpi">
+              <div className="k">DALJE</div>
+              <div className="v">€{fmtEur(totals.outSum)}</div>
+            </div>
+            <div className="kpi">
+              <div className="k">TOTALI</div>
+              <div className="v">€{fmtEur(totals.total)}</div>
+            </div>
 
-              <div className="bg-gray-900 border border-gray-800 rounded">
-                <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-                  <p className="text-[10px] font-black text-gray-400 tracking-widest">LËVIZJET</p>
-                  <p className="text-[9px] text-gray-600">{moves.length} RRESHTA</p>
-                </div>
-                <div className="divide-y divide-gray-800">
-                  {moves.length === 0 ? (
-                    <p className="p-10 text-center text-[10px] text-gray-600 tracking-widest italic">NUK KA LËVIZJE</p>
-                  ) : (
-                    moves.map((m) => (
-                      <div key={m.id} className="p-3 flex justify-between items-center hover:bg-black/20">
-                        <div>
-                          <p className="text-[10px] font-black text-gray-200">{String(m.note || "").toUpperCase()}</p>
-                          <p className="text-[8px] text-gray-500 tracking-tighter">
-                            {new Date(m.created_at || m.at || Date.now()).toLocaleTimeString()} • {m.created_by || m.user}
-                          </p>
-                        </div>
-                        <span className={`font-mono text-[11px] font-black ${m.type === "IN" ? "text-green-400" : "text-red-400"}`}>
-                          {m.type === "IN" ? "+" : "-"}€{Number(m.amount || 0).toFixed(2)}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+            <div className="rowActions">
+              <button className="ghostBtn" onClick={refresh} disabled={busy}>
+                RIFRESKO
+              </button>
+              <button className="dangerBtn" onClick={onCloseDay} disabled={busy}>
+                MBYLL DITËN
+              </button>
+              <div className="dayKey">DITA: {dayLabel}</div>
             </div>
           </div>
         )}
       </div>
+
+      {/* ADD MOVE */}
+      <div className="card">
+        <div className="cardHead">
+          <div className="cardTitle">SHTO LËVIZJE</div>
+          <div className="seg">
+            <button
+              className={mode === "IN" ? "segBtn segOn" : "segBtn"}
+              onClick={() => setMode("IN")}
+              type="button"
+            >
+              PAGESË
+            </button>
+            <button
+              className={mode === "OUT" ? "segBtn segOn" : "segBtn"}
+              onClick={() => setMode("OUT")}
+              type="button"
+            >
+              SHPENZIM
+            </button>
+          </div>
+        </div>
+
+        <div className="grid2">
+          <div className="field">
+            <div className="label">SHUMA (€)</div>
+            <input
+              className="input"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+              placeholder="0"
+            />
+          </div>
+          <div className="field">
+            <div className="label">SHËNIM (opsional)</div>
+            <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="p.sh. detergjent, klienti #12" />
+          </div>
+
+          <button className="btn" onClick={onAddMove} disabled={busy || !day?.id}>
+            RUAJ
+          </button>
+          <div className="hint">
+            Pagesat nga PRANIMI/PASTRIMI/GATI regjistrohen si <b>source=ORDER</b>. Këtu ke edhe hyrje/dalje manuale.
+          </div>
+        </div>
+      </div>
+
+      {/* MOVES */}
+      <div className="card">
+        <div className="cardHead">
+          <div className="cardTitle">LËVIZJET</div>
+          <div className="pill">{moves?.length || 0} RRESHTA</div>
+        </div>
+
+        {loading ? (
+          <div className="muted">DUKE NGARKU…</div>
+        ) : moves?.length ? (
+          <div className="list">
+            {moves.map((m) => (
+              <div className="moveRow" key={m.id || `${m.created_at}_${m.amount}`}>
+                <div className="moveLeft">
+                  <div className="moveType">
+                    <span className={m.type === "IN" ? "tag tagIn" : "tag tagOut"}>{m.type === "IN" ? "HYRJE" : "DALJE"}</span>
+                    <span className="src">{(m.source || "—").toUpperCase()}</span>
+                  </div>
+                  <div className="note">{m.note || "—"}</div>
+                  <div className="meta">
+                    {(m.created_by || "—").toLowerCase()} • {String(m.created_at || "").replace("T", " ").slice(0, 16)}
+                    {m.external_id ? ` • #${m.external_id}` : ""}
+                  </div>
+                </div>
+                <div className="moveAmt">
+                  <div className={m.type === "IN" ? "amt amtIn" : "amt amtOut"}>€{fmtEur(m.amount)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="muted">NUK KA LËVIZJE</div>
+        )}
+      </div>
+
+      <div className="bottomSpace" />
+
+      <style jsx>{`
+        .pageWrap{max-width:980px;margin:0 auto;padding:18px 14px 40px;}
+        .topRow{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:14px;}
+        .title{font-size:34px;letter-spacing:1px;font-weight:900;}
+        .sub{opacity:.75;margin-top:4px;font-size:13px;letter-spacing:.8px;text-transform:uppercase;}
+        .topActions{display:flex;gap:10px;align-items:center;}
+        .card{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);border-radius:16px;padding:14px 14px 12px;margin:12px 0;}
+        .cardHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+        .cardTitle{font-weight:900;letter-spacing:.8px;}
+        .pill{font-size:12px;border:1px solid rgba(255,255,255,.14);padding:6px 10px;border-radius:999px;opacity:.9;}
+        .errBox{border:1px solid rgba(255,80,80,.35);background:rgba(255,80,80,.08);padding:10px 12px;border-radius:12px;margin:10px 0;}
+        .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
+        .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:stretch;}
+        .field .label{font-size:12px;opacity:.8;margin-bottom:6px;letter-spacing:.7px;}
+        .input{width:100%;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.35);color:#fff;padding:0 12px;font-size:16px;outline:none;}
+        .btn{height:44px;border-radius:12px;border:1px solid rgba(99,165,255,.55);background:rgba(99,165,255,.15);color:#fff;font-weight:900;letter-spacing:.8px;}
+        .ghostBtn{height:40px;padding:0 12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);display:inline-flex;align-items:center;justify-content:center;font-weight:800;letter-spacing:.6px;}
+        .dangerBtn{height:40px;padding:0 12px;border-radius:12px;border:1px solid rgba(255,80,80,.4);background:rgba(255,80,80,.12);font-weight:900;letter-spacing:.6px;}
+        .hint{font-size:12px;opacity:.72;align-self:center;}
+        .kpi{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.25);border-radius:14px;padding:10px 12px;}
+        .kpi .k{font-size:12px;opacity:.75;letter-spacing:.7px;}
+        .kpi .v{font-size:20px;font-weight:900;margin-top:6px;}
+        .rowActions{grid-column:1 / -1;display:flex;gap:10px;align-items:center;justify-content:flex-start;margin-top:6px;}
+        .dayKey{margin-left:auto;opacity:.75;font-size:12px;letter-spacing:.7px;}
+        .seg{display:flex;gap:8px;align-items:center;}
+        .segBtn{height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);font-weight:900;letter-spacing:.6px;}
+        .segOn{border-color:rgba(99,165,255,.6);background:rgba(99,165,255,.18);}
+        .list{display:flex;flex-direction:column;gap:8px;}
+        .moveRow{display:flex;justify-content:space-between;gap:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.22);border-radius:14px;padding:10px 12px;}
+        .moveLeft{min-width:0;flex:1;}
+        .moveType{display:flex;gap:8px;align-items:center;}
+        .tag{font-size:11px;font-weight:900;letter-spacing:.8px;border-radius:999px;padding:4px 10px;border:1px solid rgba(255,255,255,.14);}
+        .tagIn{border-color:rgba(80,220,140,.35);background:rgba(80,220,140,.12);}
+        .tagOut{border-color:rgba(255,100,100,.35);background:rgba(255,100,100,.10);}
+        .src{font-size:11px;opacity:.75;letter-spacing:.7px;}
+        .note{margin-top:6px;font-size:14px;opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .meta{margin-top:6px;font-size:11px;opacity:.65;letter-spacing:.6px;}
+        .moveAmt{display:flex;align-items:center;justify-content:flex-end;min-width:120px;}
+        .amt{font-size:18px;font-weight:900;}
+        .amtIn{color:#63ffa5;}
+        .amtOut{color:#ff7b7b;}
+        .muted{opacity:.7;padding:8px 0;}
+        .bottomSpace{height:10px;}
+        @media(max-width:720px){
+          .grid2{grid-template-columns:1fr;}
+          .grid4{grid-template-columns:1fr 1fr;}
+          .title{font-size:30px;}
+        }
+      `}</style>
     </div>
   );
 }
