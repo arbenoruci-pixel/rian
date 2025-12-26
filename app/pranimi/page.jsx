@@ -748,13 +748,20 @@ export default function PranimiPage() {
   }
 
   async function applyPayAndClose() {
-    const add = Number((Number(payAdd) || 0).toFixed(2));
-    if (add <= 0) {
+    const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
+    if (cashGiven <= 0) {
       setShowPaySheet(false);
       return;
     }
 
-    const newPaid = Number((Number(clientPaid || 0) + add).toFixed(2));
+    const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
+    const applied = Number(Math.min(cashGiven, due).toFixed(2));
+    if (applied <= 0) {
+      setShowPaySheet(false);
+      return;
+    }
+
+    const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
     setClientPaid(newPaid);
 
     // ✅ ARKA delta only if CASH (local cache + Supabase arka_moves if day open)
@@ -765,14 +772,14 @@ export default function PranimiPage() {
         orderId: oid,
         code: normalizeCode(codeRaw),
         name: name.trim(),
-        amount: add,
-        note: `PAGESA ${add}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+        amount: applied,
+        note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
         source: 'ORDER_PAY',
         method: 'cash_pay',
         type: 'IN',
       });
 
-      const finalArka = Number((Number(arkaRecordedPaid || 0) + add).toFixed(2));
+      const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
       setArkaRecordedPaid(finalArka);
     }
 

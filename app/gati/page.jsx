@@ -308,14 +308,21 @@ export default function GatiPage() {
 
     const total = Number(payOrder.total || 0);
     const paidBefore = Number(payOrder.paid || 0);
-    const add = Number((Number(payAdd || 0)).toFixed(2));
+    const cashGiven = Number((Number(payAdd || 0)).toFixed(2));
     const paidUpfront = !!payOrder.paidUpfront;
 
+    const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
+    const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
+    if (!paidUpfront && applied <= 0) {
+      setShowPaySheet(false);
+      return;
+    }
+
     // if paid upfront, treat paid as total
-    const paidAfter = paidUpfront ? Math.max(paidBefore, total) : Number((paidBefore + add).toFixed(2));
+    const paidAfter = paidUpfront ? Math.max(paidBefore, total) : Number((paidBefore + applied).toFixed(2));
 
     const debt = Math.max(0, Number((total - paidAfter).toFixed(2)));
-    const change = Math.max(0, Number((paidAfter - total).toFixed(2)));
+    const change = paidUpfront ? 0 : Math.max(0, Number((cashGiven - applied).toFixed(2)));
 
     // ARKA delta only if CASH
     const prevArka = Number(o.pay?.arkaRecordedPaid || 0);
