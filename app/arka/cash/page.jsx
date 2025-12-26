@@ -24,7 +24,57 @@ export default function ArkaCashPage() {
   const [mode, setMode] = useState("checking"); // checking | db | local
   const [day, setDay] = useState({ isOpen: false, initialCash: 0 });
   const [moves, setMoves] = useState([]);
+  const [pending, setPending] = useState([]); // local cached payments when day is closed
   const [form, setForm] = useState({ amount: "", note: "", type: "IN" });
+
+  function getPendingLocal() {
+    try {
+      const list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
+      if (!Array.isArray(list)) return [];
+      // Only keep not-imported + valid amounts
+      return list
+        .filter((r) => r && r.paid && Number(r.paid) > 0 && r.imported !== true)
+        .slice(0, 200);
+    } catch {
+      return [];
+    }
+  }
+
+  function markPendingImported(ids = []) {
+    try {
+      const list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
+      if (!Array.isArray(list)) return;
+      const idSet = new Set(ids);
+      const next = list.map((r) => (r && idSet.has(r.id) ? { ...r, imported: true } : r));
+      localStorage.setItem('arka_list_v1', JSON.stringify(next));
+    } catch {}
+  }
+
+  async function importPendingToDay(dayId) {
+    const list = getPendingLocal();
+    if (!list.length) return;
+    const importedIds = [];
+    for (const r of list) {
+      try {
+        await dbAddMove({
+          day_id: dayId,
+          type: 'IN',
+          amount: Number(r.paid || 0),
+          note: (`PAGESA ${Number(r.paid || 0).toFixed(2)}€ • #${r.code || ''} • ${(r.name || '')}`.trim()).toUpperCase(),
+          source: 'ORDER_PAY',
+          created_by: user?.name || 'SYSTEM',
+          external_id: r.id,
+        });
+        importedIds.push(r.id);
+      } catch {
+        // ignore per-row failure
+      }
+    }
+    if (importedIds.length) {
+      markPendingImported(importedIds);
+      setPending(getPendingLocal());
+    }
+  }
 
   useEffect(() => {
     const u = JSON.parse(localStorage.getItem("CURRENT_USER_DATA") || "null");
@@ -44,9 +94,11 @@ export default function ArkaCashPage() {
           const ms = await dbListMoves(open.id);
           setDay({ isOpen: true, initialCash: Number(open.initial_cash || 0), dayId: open.id, openedAt: open.opened_at });
           setMoves(ms);
+          setPending(getPendingLocal());
         } else {
           setDay({ isOpen: false, initialCash: 0 });
           setMoves([]);
+          setPending(getPendingLocal());
         }
       } else {
         setMode("local");
@@ -54,6 +106,7 @@ export default function ArkaCashPage() {
         const lsMoves = getLocalMoves();
         setDay(lsDay);
         setMoves(lsMoves);
+        setPending(getPendingLocal());
       }
     })();
   }, [router]);
@@ -70,7 +123,10 @@ export default function ArkaCashPage() {
     if (mode === "db") {
       const opened = await dbOpenDay({ initial_cash: initialCash, opened_by: user.name });
       setDay({ isOpen: true, initialCash, dayId: opened.id, openedAt: opened.opened_at });
-      setMoves([]);
+      // import any pending payments captured while day was closed
+      await importPendingToDay(opened.id);
+      const ms = await dbListMoves(opened.id);
+      setMoves(ms);
     } else {
       const nextDay = { isOpen: true, initialCash, openedAt: new Date().toISOString(), openedBy: user.name };
       setLocalDay(nextDay);
@@ -169,6 +225,29 @@ export default function ArkaCashPage() {
               <p className="text-[10px] text-red-500 font-black tracking-widest bg-red-900/10 p-2 border border-red-900/20 inline-block">
                 VETËM ADMIN/OWNER/DISPATCH MUND TË HAPË ARKËN
               </p>
+            )}
+
+            {/* Pending payments captured from PRANIMI/PASTRIMI/GATI while day was closed */}
+            {pending.length > 0 && (
+              <div className="mt-6 text-left max-w-xl mx-auto border border-gray-800 rounded p-4 bg-black/40">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black text-yellow-300 tracking-widest">PAGESA TË REGJISTRUARA (PENDING)</p>
+                  <p className="text-[10px] font-black text-yellow-200">{pending.length}</p>
+                </div>
+                <p className="text-[9px] text-gray-500 mt-1">KËTO JANË PAGESA CASH QË JANË REGJISTRUAR NGA FAQET (PRANIMI/PASTRIMI/GATI), POR ARKA KA QENË E MBYLLUR. SAPO TA HAPËSH DITËN, IMPORTOHEN AUTOMATIKISHT NË ARKË.</p>
+                <div className="mt-3 max-h-40 overflow-auto space-y-2">
+                  {pending.slice(0, 30).map((r) => (
+                    <div key={r.id} className="flex items-center justify-between border-b border-gray-800/60 pb-1">
+                      <div className="text-[9px]">
+                        <span className="text-gray-200 font-black">#{r.code || ''}</span>
+                        <span className="text-gray-500"> • </span>
+                        <span className="text-gray-400">{(r.name || '').toString().toUpperCase()}</span>
+                      </div>
+                      <div className="text-[9px] font-mono text-green-300">€{Number(r.paid || 0).toFixed(2)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         ) : (
