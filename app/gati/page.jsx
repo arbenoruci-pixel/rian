@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { recordCashMove } from '@/lib/arkaCashSync';
 
 const BUCKET = 'tepiha-photos';
 
@@ -381,8 +382,18 @@ export default function GatiPage() {
         ts: Date.now(),
         note: paidUpfront ? 'paid_upfront_delta' : 'delivery_cash_delta',
       };
-      saveArkaLocal(arkaRecord);
-      await saveArkaOnline(arkaRecord);
+
+      await recordCashMove({
+        externalId: arkaRecord.id,
+        orderId: updated.id,
+        code: arkaRecord.code,
+        name: (arkaRecord.name || '').trim(),
+        amount: safeDelta,
+        note: (paidUpfront ? 'AVANS ' : 'PAGESA ') + safeDelta.toFixed(2) + '€ • #' + arkaRecord.code + ' • ' + (arkaRecord.name || '').trim(),
+        source: paidUpfront ? 'ORDER_FRONT' : 'ORDER_PAY',
+        method: paidUpfront ? 'cash_front' : 'cash_pay',
+        type: 'IN',
+      });
     }
 
     alert('✅ Porosia u dorëzua.');

@@ -54,7 +54,7 @@ export default function ArkaOwnersPage() {
       return;
     }
     if (u.role === "TRANSPORT") {
-      router.push("/arka");
+      router.push("/");
       return;
     }
     setUser(u);
@@ -176,19 +176,18 @@ export default function ArkaOwnersPage() {
   if (!user) return null;
 
   return (
-    <div className="uppercase">
+    <div className="min-h-screen bg-black text-gray-200 p-4 font-sans uppercase">
       <div className="max-w-5xl mx-auto">
-        <div className="arka-top">
+        <div className="flex items-center justify-between border-b border-gray-800 pb-4 mb-6">
           <div>
-            <div className="arka-title">ARKA • INVESTIME / OWNER SPLIT</div>
-            <div className="arka-sub">{user?.name} • {user?.role} • {currentMonth}</div>
+            <h1 className="text-xl font-bold text-white tracking-tighter">ARKA • OWNER SPLIT</h1>
+            <p className="text-[10px] text-gray-500 tracking-widest">{user?.name} • {user?.role}</p>
           </div>
-          <Link href="/arka" className="arka-back">KTHEHU</Link>
+          <Link href="/arka" className="text-[10px] font-black tracking-widest text-gray-400 hover:text-white">KTHEHU</Link>
         </div>
 
-
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="arka-card">
+          <div className="bg-gray-900 border border-gray-800 rounded p-4">
             <h3 className="text-[10px] font-black text-gray-400 mb-3 tracking-widest">OWNERS</h3>
             <div className="space-y-2">
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-label="EMRI" className="w-full bg-black border border-gray-700 p-2 rounded text-sm text-white" />

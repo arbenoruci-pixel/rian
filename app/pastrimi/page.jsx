@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { recordCashMove } from '@/lib/arkaCashSync';
 
 const BUCKET = 'tepiha-photos';
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
@@ -408,7 +409,7 @@ export default function PastrimiPage() {
     setShowPaySheet(true);
   }
 
-  function applyPayAndClose() {
+  async function applyPayAndClose() {
     const add = Number((Number(payAdd) || 0).toFixed(2));
     if (add <= 0) {
       setShowPaySheet(false);
@@ -418,19 +419,20 @@ export default function PastrimiPage() {
     const newPaid = Number((Number(clientPaid || 0) + add).toFixed(2));
     setClientPaid(newPaid);
 
+    // ✅ ARKA delta only if CASH (local cache + Supabase arka_moves if day open)
     if (payMethod === 'CASH') {
-      const rec = {
-        id: `pay_${oid}_${Date.now()}`,
-        ts: Date.now(),
+      const extId = `pay_${oid}_${Date.now()}`;
+      await recordCashMove({
+        externalId: extId,
         orderId: oid,
         code: normalizeCode(codeRaw),
         name: name.trim(),
-        paid: add,
-        method: 'cash_pay'
-      };
-      const list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
-      list.unshift(rec);
-      localStorage.setItem('arka_list_v1', JSON.stringify(list));
+        amount: add,
+        note: `PAGESA ${add}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+        source: 'ORDER_PAY',
+        method: 'cash_pay',
+        type: 'IN',
+      });
 
       const finalArka = Number((Number(arkaRecordedPaid || 0) + add).toFixed(2));
       setArkaRecordedPaid(finalArka);
@@ -465,18 +467,18 @@ export default function PastrimiPage() {
       if (paidUpfront === true && payMethod === 'CASH') {
         const delta = Number((currentPaidAmount - finalArka).toFixed(2));
         if (delta > 0) {
-          const rec = {
-            id: `pay_${oid}_${Date.now()}`,
-            ts: Date.now(),
+          const extId = `front_${oid}_${Date.now()}`;
+          await recordCashMove({
+            externalId: extId,
             orderId: oid,
             code: normalizeCode(codeRaw),
             name: name.trim(),
-            paid: delta,
-            method: 'cash_front'
-          };
-          const list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
-          list.unshift(rec);
-          localStorage.setItem('arka_list_v1', JSON.stringify(list));
+            amount: delta,
+            note: `AVANS ${delta}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+            source: 'ORDER_FRONT',
+            method: 'cash_front',
+            type: 'IN',
+          });
           finalArka = Number((finalArka + delta).toFixed(2));
         }
       }

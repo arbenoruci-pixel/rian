@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { recordCashMove } from '@/lib/arkaCashSync';
 
 const BUCKET = 'tepiha-photos';
 
@@ -746,7 +747,7 @@ export default function PranimiPage() {
     payHoldTriggeredRef.current = false;
   }
 
-  function applyPayAndClose() {
+  async function applyPayAndClose() {
     const add = Number((Number(payAdd) || 0).toFixed(2));
     if (add <= 0) {
       setShowPaySheet(false);
@@ -756,20 +757,20 @@ export default function PranimiPage() {
     const newPaid = Number((Number(clientPaid || 0) + add).toFixed(2));
     setClientPaid(newPaid);
 
-    // ✅ ARKA delta only if CASH
+    // ✅ ARKA delta only if CASH (local cache + Supabase arka_moves if day open)
     if (payMethod === 'CASH') {
-      const rec = {
-        id: `pay_${oid}_${Date.now()}`,
-        ts: Date.now(),
+      const extId = `pay_${oid}_${Date.now()}`;
+      await recordCashMove({
+        externalId: extId,
         orderId: oid,
         code: normalizeCode(codeRaw),
         name: name.trim(),
-        paid: add,
+        amount: add,
+        note: `PAGESA ${add}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+        source: 'ORDER_PAY',
         method: 'cash_pay',
-      };
-      const list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
-      list.unshift(rec);
-      localStorage.setItem('arka_list_v1', JSON.stringify(list));
+        type: 'IN',
+      });
 
       const finalArka = Number((Number(arkaRecordedPaid || 0) + add).toFixed(2));
       setArkaRecordedPaid(finalArka);
