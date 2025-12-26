@@ -186,7 +186,6 @@ export default function ArkaOwnersPage() {
           <Link href="/arka" className="arka-back">KTHEHU</Link>
         </div>
 
-<Link href="/arka" className="text-[10px] font-black tracking-widest text-gray-400 hover:text-white">KTHEHU</Link>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -148,7 +148,6 @@ export default function ArkaCashPage() {
           <Link href="/arka" className="arka-back">KTHEHU</Link>
         </div>
 
-<Link href="/arka" className="text-[10px] font-black px-3 py-2 rounded border border-gray-800 hover:bg-gray-900">KTHEHU</Link>
         </div>
 
         {!day.isOpen ? (
