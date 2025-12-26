@@ -155,11 +155,6 @@ export default function PastrimiPage() {
   // pagesë e sotme (delta)
   const [payAdd, setPayAdd] = useState(0);
 
-  // Source-of-truth total from PRANIMI (if present on the order).
-  // This prevents ARKA from logging the tendered amount ("KLIENTI DHA") instead of
-  // the real payment applied.
-  const [savedTotalEuro, setSavedTotalEuro] = useState(null);
-
   // capacity today (pastrim)
   const [todayPastrimM2, setTodayPastrimM2] = useState(0);
 
@@ -293,11 +288,6 @@ export default function PastrimiPage() {
       setStairsPer(Number(ord.shkallore?.per) || SHKALLORE_M2_PER_STEP_DEFAULT);
       setStairsPhotoUrl(ord.shkallore?.photoUrl || '');
 
-      // Keep original PRANIMI total (if present) for ARKA accuracy.
-      const saved = Number(ord.pay?.euro);
-      setSavedTotalEuro(Number.isFinite(saved) ? saved : null);
-
-
       setPricePerM2(Number(ord.pay?.rate ?? PRICE_DEFAULT));
 
       const paid = Number(ord.pay?.paid ?? 0);
@@ -421,17 +411,19 @@ export default function PastrimiPage() {
 
   async function applyPayAndClose() {
     const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
-    const dueTotal = Number.isFinite(Number(savedTotalEuro)) && Number(savedTotalEuro) > 0
-      ? Number(savedTotalEuro)
-      : totalEuro;
-    const remaining = Math.max(0, Number((dueTotal - Number(clientPaid || 0)).toFixed(2)));
-    const add = Math.min(remaining, cashGiven);
     if (cashGiven <= 0) {
       setShowPaySheet(false);
       return;
     }
 
-    const newPaid = Number((Number(clientPaid || 0) + add).toFixed(2));
+    const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
+    const applied = Number(Math.min(cashGiven, due).toFixed(2));
+    if (applied <= 0) {
+      setShowPaySheet(false);
+      return;
+    }
+
+    const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
     setClientPaid(newPaid);
 
     // ✅ ARKA delta only if CASH (local cache + Supabase arka_moves if day open)
@@ -442,14 +434,14 @@ export default function PastrimiPage() {
         orderId: oid,
         code: normalizeCode(codeRaw),
         name: name.trim(),
-        amount: add,
-        note: `PAGESA ${add}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+        amount: applied,
+        note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
         source: 'ORDER_PAY',
         method: 'cash_pay',
         type: 'IN',
       });
 
-      const finalArka = Number((Number(arkaRecordedPaid || 0) + add).toFixed(2));
+      const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
       setArkaRecordedPaid(finalArka);
     }
 
@@ -811,17 +803,14 @@ export default function PastrimiPage() {
                 </div>
 
                 <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>
-                  SOT PAGUAN: <strong>{(() => { const cashGiven = Number(payAdd || 0); const remaining = Math.max(0, Number((totalEuro - Number(clientPaid || 0)).toFixed(2))); const add = Math.min(remaining, cashGiven); return add.toFixed(2); })()} €</strong>
+                  SOT PAGUAN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong>
                 </div>
 
                 {(() => {
-                  const cashGiven = Number(payAdd || 0);
-                  const remaining = Math.max(0, Number((totalEuro - Number(clientPaid || 0)).toFixed(2)));
-                  const add = Math.min(remaining, cashGiven);
-                  const paidAfter = Number((Number(clientPaid || 0) + add).toFixed(2));
+                  const paidAfter = Number((Number(clientPaid || 0) + Number(payAdd || 0)).toFixed(2));
                   const d = Number((totalEuro - paidAfter).toFixed(2));
                   const debtNow = d > 0 ? d : 0;
-                  const changeNow = cashGiven > add ? Number((cashGiven - add).toFixed(2)) : 0;
+                  const changeNow = d < 0 ? Math.abs(d) : 0;
 
                   return (
                     <>
@@ -845,7 +834,7 @@ export default function PastrimiPage() {
 
               <div className="card">
                 <div className="field-group">
-                  <label className="label">KLIENTI DHA (€) — VETËM SOT</label>
+                  <label className="label">SHTO PAGESË (€) — VETËM SOT</label>
 
                   <input
                     type="text"
