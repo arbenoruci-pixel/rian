@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import { dbGetOpenDay, dbOpenDay, dbCloseDay, dbListMoves, dbAddMove, dbHandoffToDispatch } from "../../../lib/arkaDb";
-import { findUserByPin as findUserByPinDb } from "@/lib/usersDb";
+import { findUserByPin as findUserByPinDb } from "../../../lib/usersDb";
 
 const fmtEur = (n) => {
   const x = Number(n || 0);
