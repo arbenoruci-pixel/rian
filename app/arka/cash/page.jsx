@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
-import { dbGetOpenDay, dbOpenDay, dbCloseDay, dbListMoves, dbAddMove } from "../../../lib/arkaDb";
+import { dbGetOpenDay, dbOpenDay, dbCloseDay, dbListMoves, dbAddMove, dbHandoffToDispatch } from "../../../lib/arkaDb";
+import { findUserByPin as findUserByPinDb } from "@/lib/usersDb";
 
 const fmtEur = (n) => {
   const x = Number(n || 0);
@@ -22,6 +23,8 @@ export default function ArkaCashPage() {
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const dayKey = todayKey();
+
   const [day, setDay] = useState(null);
   const [moves, setMoves] = useState([]);
 
@@ -32,6 +35,17 @@ export default function ArkaCashPage() {
   const [opening, setOpening] = useState("0");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  const [showPin, setShowPin] = useState(false);
+  const [pinTitle, setPinTitle] = useState("");
+  const [pinAction, setPinAction] = useState(null); // async (user) => void
+  const [pinValue, setPinValue] = useState("");
+  const [pinError, setPinError] = useState("");
+
+  const [showClose, setShowClose] = useState(false);
+  const [counted, setCounted] = useState("");
+  const [closeNote, setCloseNote] = useState("");
+  const [lastClosed, setLastClosed] = useState(null); // keep last closed day for handoff
 
   const dayLabel = useMemo(() => (day ? day.day_key || todayKey() : todayKey()), [day]);
 
@@ -54,7 +68,7 @@ export default function ArkaCashPage() {
 
   async function loadMe() {
     try {
-      const raw = localStorage.getItem("arka_user");
+      const raw = localStorage.getItem("CURRENT_USER_DATA") || localStorage.getItem("arka_user");
       if (raw) setMe(JSON.parse(raw));
     } catch {}
   }
@@ -64,15 +78,17 @@ export default function ArkaCashPage() {
     setLoading(true);
     try {
       // 1) current open day
-      const d = await dbGetOpenDay();
+      const d = await dbGetOpenDay(dayKey);
       setDay(d || null);
 
       // 2) list moves (if day open)
       if (d?.id) {
         const list = await dbListMoves(d.id);
-        setMoves(Array.isArray(list) ? list : []);
+        setMoves([]);
+      s(Array.isArray(list) ? list : []);
       } else {
         setMoves([]);
+      s([]);
       }
     } catch (e) {
       setErr(e?.message || "Gabim gjatë ngarkimit.");
@@ -85,41 +101,114 @@ export default function ArkaCashPage() {
     loadMe().then(refresh);
   }, []);
 
-  async function onOpenDay() {
-    setBusy(true);
-    setErr("");
+  async function requirePin(title, action) {
+    setPinTitle(title);
+    setPinAction(() => action);
+    setPinValue("");
+    setPinError("");
+    setShowPin(true);
+  }
+
+  async function submitPin() {
+    const clean = String(pinValue || "").trim();
+    if (!clean) { setPinError("SHKRUAJ PIN"); return; }
+    setPinError("");
     try {
-      const init = Number(String(opening || "0").replace(",", "."));
-      const opened_by = me?.name || "LOCAL";
-      const d = await dbOpenDay({ initial_cash: isFinite(init) ? init : 0, opened_by });
-      setDay(d);
-      const list = await dbListMoves(d.id);
-      setMoves(Array.isArray(list) ? list : []);
+      const res = await findUserByPinDb(clean);
+      if (!res?.ok || !res?.item) {
+        setPinError("PIN I GABUAR");
+        return;
+      }
+      const u = { id: res.item.id, name: res.item.name, role: res.item.role };
+      setShowPin(false);
+      if (typeof pinAction === "function") await pinAction(u);
     } catch (e) {
-      setErr(e?.message || "S’u hap dita.");
-    } finally {
-      setBusy(false);
+      setPinError(e?.message || "GABIM PIN");
     }
+  }
+
+  async function onOpenDay() {
+    await requirePin("HAP DITËN (PIN)", async (u) => {
+      setBusy(true);
+      setErr("");
+      try {
+        const opened_by = u?.name || me?.name || "LOCAL";
+        const init = Number(String(opening || "0").replace(",", "."));
+        const d = await dbOpenDay({ initial_cash: isFinite(init) ? init : 0, opened_by, day_key: dayKey });
+        setDay(d);
+        const list = await dbListMoves(d.id);
+        setMoves(Array.isArray(list) ? list : []);
+      } catch (e) {
+        setErr(e?.message || "S’u hap dita.");
+      } finally {
+        setBusy(false);
+      }
+    });
   }
 
   async function onCloseDay() {
     if (!day?.id) return;
-    setBusy(true);
-    setErr("");
-    try {
-      const closed_by = me?.name || "LOCAL";
-      await dbCloseDay({ day_id: day.id, closed_by });
-      setDay(null);
-      setMoves([]);
-      setOpening("0");
-    } catch (e) {
-      setErr(e?.message || "S’u mbyll dita.");
-    } finally {
-      setBusy(false);
-    }
+    setCounted("");
+    setCloseNote("");
+    setShowClose(true);
   }
 
-  async function onAddMove() {
+  async function confirmCloseDay() {
+    if (!day?.id) return;
+    const expected = Number(totals.total || 0);
+    const countedNum = Number(String(counted || "").replace(",", "."));
+    if (!isFinite(countedNum)) {
+      setErr("Shkruaj CASH REAL (numëruar).");
+      return;
+    }
+
+    await requirePin("MBYLL DITËN (PIN)", async (u) => {
+      setBusy(true);
+      setErr("");
+      try {
+        const closed_by = u?.name || me?.name || "LOCAL";
+        const res = await dbCloseDay({
+          day_id: day.id,
+          closed_by,
+          expected_cash: expected,
+          cash_counted: countedNum,
+          discrepancy: countedNum - expected,
+          close_note: closeNote || null,
+        });
+        setLastClosed(res || { ...day, closed_by });
+        setShowClose(false);
+
+        // After close, hide day + moves (CASH view shows only OPEN day)
+        setDay(null);
+        setMoves([]);
+        setOpening("0");
+      } catch (e) {
+        setErr(e?.message || "S’u mbyll dita.");
+      } finally {
+        setBusy(false);
+      }
+    });
+  }
+
+  
+  async function onHandoffToDispatch() {
+    if (!lastClosed?.id) return;
+    await requirePin("DORËZO TE DISPATCH (PIN)", async (u) => {
+      setBusy(true);
+      setErr("");
+      try {
+        const handed_by = u?.name || me?.name || "LOCAL";
+        const updated = await dbHandoffToDispatch({ day_id: lastClosed.id, handed_by });
+        setLastClosed(updated);
+      } catch (e) {
+        setErr(e?.message || "S’u dorëzua.");
+      } finally {
+        setBusy(false);
+      }
+    });
+  }
+
+async function onAddMove() {
     if (!day?.id) {
       setErr("HAPE DITËN fillimisht.");
       return;
@@ -148,7 +237,8 @@ export default function ArkaCashPage() {
       const inserted = await dbAddMove(payload);
 
       // Optimistic UI
-      setMoves((prev) => [inserted, ...(prev || [])]);
+      setMoves([]);
+      s((prev) => [inserted, ...(prev || [])]);
       setAmount("");
       setNote("");
     } catch (e) {
@@ -168,9 +258,6 @@ export default function ArkaCashPage() {
           </div>
         </div>
         <div className="topActions">
-          <Link className="ghostBtn" href="/arka/buxheti">
-            COMPANY BUDGET
-          </Link>
           <Link className="ghostBtn" href="/arka">
             KTHEHU
           </Link>
@@ -207,6 +294,14 @@ export default function ArkaCashPage() {
               HAPE DITËN
             </button>
             <div className="hint">Hap ditën para se me i regjistru pagesat/shpenzimet.</div>
+            {lastClosed?.id && lastClosed?.handoff_status === "PENDING" && (String(lastClosed?.closed_by || "") === String(me?.name || "")) ? (
+              <div style={{ marginTop: 12 }}>
+                <div className="hint" style={{ marginBottom: 8 }}>DITA ËSHTË MBYLLUR. DORËZO CASH TE DISPATCH.</div>
+                <button className="primaryBtn" onClick={onHandoffToDispatch} disabled={busy}>
+                  DORËZO TE DISPATCH
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="grid4">
@@ -376,3 +471,79 @@ export default function ArkaCashPage() {
     </div>
   );
 }
+
+      {/* PIN MODAL */}
+      {showPin ? (
+        <div className="modalBack">
+          <div className="modalCard">
+            <div className="modalTitle">{pinTitle}</div>
+            <div className="field">
+              <div className="label">PIN</div>
+              <input
+                className="input"
+                inputMode="numeric"
+                value={pinValue}
+                onChange={(e) => setPinValue(e.target.value)}
+                placeholder="****"
+              />
+              {pinError ? <div className="error">{pinError}</div> : null}
+            </div>
+            <div className="rowBtns">
+              <button className="ghostBtn" type="button" onClick={() => setShowPin(false)} disabled={busy}>
+                ANULO
+              </button>
+              <button className="primaryBtn" type="button" onClick={submitPin} disabled={busy}>
+                VAZHDO
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* CLOSE MODAL */}
+      {showClose ? (
+        <div className="modalBack">
+          <div className="modalCard">
+            <div className="modalTitle">MBYLLJA E DITËS — {dayLabel}</div>
+
+            <div className="grid2">
+              <div className="kpi">
+                <div className="k">FILLIMI</div>
+                <div className="v">€{fmtEur(totals.initial)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">HYRJE</div>
+                <div className="v">€{fmtEur(totals.inSum)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">DALJE</div>
+                <div className="v">€{fmtEur(totals.outSum)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">CASH PRITET</div>
+                <div className="v">€{fmtEur(totals.total)}</div>
+              </div>
+            </div>
+
+            <div className="field">
+              <div className="label">CASH REAL (NUMËRUAR)</div>
+              <input className="input" value={counted} onChange={(e) => setCounted(e.target.value)} placeholder="p.sh. 90" />
+            </div>
+
+            <div className="field">
+              <div className="label">SHËNIM (OPSIONAL)</div>
+              <input className="input" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} placeholder="p.sh. mungon 5€, u dhanë kusur..." />
+            </div>
+
+            <div className="rowBtns">
+              <button className="ghostBtn" type="button" onClick={() => setShowClose(false)} disabled={busy}>
+                ANULO
+              </button>
+              <button className="dangerBtn" type="button" onClick={confirmCloseDay} disabled={busy}>
+                KONFIRMO MBYLLJEN
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
