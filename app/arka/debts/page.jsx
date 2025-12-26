@@ -58,7 +58,7 @@ export default function ArkaDebtsPage() {
       return;
     }
     if (u.role === "TRANSPORT") {
-      router.push("/");
+      router.push("/arka");
       return;
     }
     setUser(u);
@@ -156,18 +156,21 @@ export default function ArkaDebtsPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-black text-gray-200 p-4 font-sans uppercase">
+    <div className="uppercase">
       <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between border-b border-gray-800 pb-4 mb-6">
+        <div className="arka-top">
           <div>
-            <h1 className="text-xl font-bold text-white tracking-tighter">ARKA • BORXHET</h1>
-            <p className="text-[10px] text-gray-500 tracking-widest">{user?.name} • {user?.role}</p>
+            <div className="arka-title">ARKA • BORXHET</div>
+            <div className="arka-sub">{user?.name} • {user?.role}</div>
           </div>
-          <Link href="/arka" className="text-[10px] font-black tracking-widest text-gray-400 hover:text-white">KTHEHU</Link>
+          <Link href="/arka" className="arka-back">KTHEHU</Link>
+        </div>
+
+<Link href="/arka" className="text-[10px] font-black tracking-widest text-gray-400 hover:text-white">KTHEHU</Link>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-gray-900 border border-gray-800 rounded p-4">
+          <div className="arka-card">
             <h3 className="text-[10px] font-black text-gray-400 mb-3 tracking-widest">SHTO BORXH</h3>
             <div className="space-y-2">
               <select value={form.direction} onChange={(e) => setForm({ ...form, direction: e.target.value })} className="w-full bg-black border border-gray-700 p-2 rounded text-[10px] font-black text-white">
@@ -182,7 +185,7 @@ export default function ArkaDebtsPage() {
             </div>
           </div>
 
-          <div className="md:col-span-2 bg-gray-900 border border-gray-800 rounded">
+          <div className="arka-card md:col-span-2">
             <div className="p-4 border-b border-gray-800 grid grid-cols-2 gap-3 text-center">
               <div className="bg-black/30 rounded p-3">
                 <p className="text-[9px] text-gray-500 font-black">NE I KEM BORXH</p>

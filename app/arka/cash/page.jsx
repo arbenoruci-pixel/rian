@@ -128,8 +128,8 @@ export default function ArkaCashPage() {
           <p className="text-[11px] text-red-400 font-black tracking-widest">NO ACCESS</p>
           <p className="text-[10px] text-gray-400 mt-2">TRANSPORT NUK KA QASJE NË ARKË.</p>
           <div className="mt-4">
-            <Link className="inline-block px-4 py-2 rounded bg-gray-800 text-[10px] font-black" href="/">
-              KTHEHU HOME
+            <Link className="inline-block px-4 py-2 rounded bg-gray-800 text-[10px] font-black" href="/arka">
+              KTHEHU
             </Link>
           </div>
         </div>
@@ -138,18 +138,21 @@ export default function ArkaCashPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-gray-200 p-4 font-sans uppercase">
+    <div className="uppercase">
       <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between border-b border-gray-800 pb-4 mb-6">
+        <div className="arka-top">
           <div>
-            <h1 className="text-xl font-black text-white tracking-tighter">ARKA • CASH</h1>
-            <p className="text-[10px] text-gray-500 tracking-widest">{user.name} • {user.role} • {mode === "db" ? "ONLINE" : "LOCAL"}</p>
+            <div className="arka-title">ARKA • CASH</div>
+            <div className="arka-sub">{user.name} • {user.role} • {mode === "db" ? "ONLINE" : "LOCAL"}</div>
           </div>
-          <Link href="/arka" className="text-[10px] font-black px-3 py-2 rounded border border-gray-800 hover:bg-gray-900">KTHEHU</Link>
+          <Link href="/arka" className="arka-back">KTHEHU</Link>
+        </div>
+
+<Link href="/arka" className="text-[10px] font-black px-3 py-2 rounded border border-gray-800 hover:bg-gray-900">KTHEHU</Link>
         </div>
 
         {!day.isOpen ? (
-          <div className="bg-gray-900 border border-gray-800 p-8 rounded text-center">
+          <div className="arka-card">
             <h2 className="text-sm font-black mb-4 text-gray-500 tracking-widest">ARKA E MBYLLUR</h2>
             {canCash ? (
               <form onSubmit={openDay} className="flex flex-col items-center gap-2">
@@ -174,7 +177,7 @@ export default function ArkaCashPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-4">
-              <section className="bg-gray-900 p-4 rounded border border-gray-800">
+              <section className="arka-card">
                 <h3 className="text-[10px] font-black mb-3 text-gray-400 tracking-widest">SHTO LËVIZJE</h3>
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
