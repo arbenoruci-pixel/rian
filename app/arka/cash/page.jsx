@@ -117,22 +117,45 @@ export default function ArkaCashPage() {
   }
 
   async function submitPin() {
-    const clean = String(pinValue || "").trim();
-    if (!clean) {
+    const clean = String(pinValue || "")
+      .replace(/\D+/g, "")
+      .slice(0, 4);
+    if (!clean || clean.length !== 4) {
       setPinError("SHKRUAJ PIN");
       return;
     }
     setPinError("");
     try {
-      const res = await findUserByPinDb(clean);
-      if (!res?.ok || !res?.item) {
+      // Cloud-first lookup (same as /login). Expected payload: { ok: true, user: {...} }
+      let match = null;
+      try {
+        const res = await findUserByPinDb(clean);
+        if (res?.ok && res?.user) match = res.user;
+      } catch {
+        // ignore
+      }
+
+      // Local fallback (same key used by /login local mode)
+      if (!match) {
+        try {
+          const raw = localStorage.getItem("arka_workers_v1");
+          const arr = raw ? JSON.parse(raw) : [];
+          const users = Array.isArray(arr) ? arr : [];
+          match = users.find((x) => String(x?.pin) === clean && x?.active !== false);
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!match) {
         setPinError("PIN I GABUAR");
         return;
       }
+
       const u = {
-        id: res.item.id,
-        name: res.item.name,
-        role: res.item.role,
+        id: match.id || match.user_id || match.uid || "user",
+        name: match.name || "PUNTOR",
+        role: match.role || "PUNTOR",
       };
       setShowPin(false);
       if (typeof pinAction === "function") await pinAction(u);
