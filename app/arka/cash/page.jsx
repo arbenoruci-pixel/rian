@@ -2,8 +2,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { supabase } from "../../../lib/supabaseClient";
 import { dbGetOpenDay, dbOpenDay, dbCloseDay, dbListMoves, dbAddMove } from "../../../lib/arkaDb";
+import { findUserByPin } from "../../../lib/usersDb";
 
 const fmtEur = (n) => {
   const x = Number(n || 0);
@@ -32,6 +32,13 @@ export default function ArkaCashPage() {
   const [opening, setOpening] = useState("0");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  // Close-day flow (modal)
+  const [showClose, setShowClose] = useState(false);
+  const [closeCash, setCloseCash] = useState("");
+  const [closeNote, setCloseNote] = useState("");
+  const [closePin, setClosePin] = useState("");
+  const [pinErr, setPinErr] = useState("");
 
   const dayLabel = useMemo(() => (day ? day.day_key || todayKey() : todayKey()), [day]);
 
@@ -104,11 +111,65 @@ export default function ArkaCashPage() {
 
   async function onCloseDay() {
     if (!day?.id) return;
+    // Open close modal instead of closing immediately
+    setErr("");
+    setPinErr("");
+    setShowClose(true);
+    // Default counted cash to expected total (easy for user)
+    setCloseCash(String(totals.total || 0));
+  }
+
+  const closeExpected = useMemo(() => Number(totals.total || 0), [totals.total]);
+  const closeCounted = useMemo(() => {
+    const n = Number(String(closeCash || "").replace(",", "."));
+    return isFinite(n) ? n : 0;
+  }, [closeCash]);
+  const closeDiscrepancy = useMemo(() => closeCounted - closeExpected, [closeCounted, closeExpected]);
+
+  function discStyle() {
+    if (!showClose) return {};
+    // green when 0, red otherwise
+    return Math.abs(closeDiscrepancy) < 0.00001 ? { borderColor: "#2ecc71" } : { borderColor: "#ff4d4f" };
+  }
+
+  async function confirmCloseDay() {
+    if (!day?.id) return;
     setBusy(true);
     setErr("");
+    setPinErr("");
+
     try {
-      const closed_by = me?.name || "LOCAL";
-      await dbCloseDay({ day_id: day.id, closed_by });
+      const pin = String(closePin || "").trim();
+      if (!pin) {
+        setPinErr("Shkruaj PIN-in.");
+        return;
+      }
+
+      // Verify PIN in DB (same as login behavior)
+      const res = await findUserByPin(pin);
+      if (!res?.ok) {
+        throw res?.error || new Error("Gabim gjatë verifikimit të PIN.");
+      }
+      if (!res?.item) {
+        setPinErr("PIN I GABUAR");
+        return;
+      }
+
+      const closed_by = me?.name || res.item?.name || "LOCAL";
+      await dbCloseDay({
+        day_id: day.id,
+        closed_by,
+        expected_cash: closeExpected,
+        cash_counted: closeCounted,
+        discrepancy: closeDiscrepancy,
+        close_note: (closeNote || "").trim(),
+      });
+
+      // reset UI
+      setShowClose(false);
+      setCloseCash("");
+      setCloseNote("");
+      setClosePin("");
       setDay(null);
       setMoves([]);
       setOpening("0");
@@ -178,6 +239,99 @@ export default function ArkaCashPage() {
       </div>
 
       {!!err && <div className="errBox">{err}</div>}
+
+      {/* CLOSE DAY MODAL */}
+      {showClose && (
+        <div className="modalBack">
+          <div className="modalCard">
+            <div className="modalTitle">MBYLLJA E DITËS</div>
+
+            <div className="grid4" style={{ marginTop: 10 }}>
+              <div className="kpi">
+                <div className="k">FILLIMI</div>
+                <div className="v">€{fmtEur(totals.initial)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">PAGESA</div>
+                <div className="v">€{fmtEur(totals.inSum)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">SHPENZIME</div>
+                <div className="v">€{fmtEur(totals.outSum)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">CASH PRITET</div>
+                <div className="v">€{fmtEur(closeExpected)}</div>
+              </div>
+            </div>
+
+            <div className="field" style={{ marginTop: 12 }}>
+              <div className="label">CASH REAL (NUMËRUAR)</div>
+              <input
+                className="input"
+                value={closeCash}
+                onChange={(e) => setCloseCash(e.target.value)}
+                inputMode="decimal"
+                placeholder={fmtEur(closeExpected)}
+                style={discStyle()}
+              />
+              <div className="hint" style={{ marginTop: 6 }}>
+                DISKREPANCA: <b>{closeDiscrepancy >= 0 ? "+" : ""}€{fmtEur(closeDiscrepancy)}</b>
+              </div>
+            </div>
+
+            <div className="field" style={{ marginTop: 10 }}>
+              <div className="label">SHËNIM (OPSIONAL)</div>
+              <textarea
+                className="input"
+                value={closeNote}
+                onChange={(e) => setCloseNote(e.target.value)}
+                rows={2}
+                placeholder="p.sh. mungesë 5€ / shënim për dorëzim"
+                style={{ minHeight: 56 }}
+              />
+            </div>
+
+            <div className="field" style={{ marginTop: 10 }}>
+              <div className="label">PIN (KUSH PO E MBYLL)</div>
+              <input
+                className="input"
+                value={closePin}
+                onChange={(e) => {
+                  // keep only digits, max 4
+                  const v = String(e.target.value || "").replace(/\D/g, "").slice(0, 4);
+                  setClosePin(v);
+                }}
+                inputMode="numeric"
+                placeholder="0000"
+              />
+              {!!pinErr && <div className="errBox" style={{ marginTop: 8 }}>{pinErr}</div>}
+            </div>
+
+            <div className="rowActions" style={{ marginTop: 14 }}>
+              <button
+                className="ghostBtn"
+                onClick={() => {
+                  if (busy) return;
+                  setShowClose(false);
+                  setClosePin("");
+                  setPinErr("");
+                }}
+                disabled={busy}
+              >
+                ANULO
+              </button>
+              <button className="dangerBtn" onClick={confirmCloseDay} disabled={busy}>
+                KONFIRMO MBYLLJEN
+              </button>
+            </div>
+
+            <div className="hint" style={{ marginTop: 10 }}>
+              Pas mbylljes, pagesat bllokohen derisa dita të hapet përsëri.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DAY CARD */}
       <div className="card">
@@ -355,6 +509,32 @@ export default function ArkaCashPage() {
           margin:10px 0 0;
         }
 
+        .modalBack{
+          position:fixed;
+          inset:0;
+          background:rgba(0,0,0,.72);
+          display:flex;
+          align-items:flex-end;
+          justify-content:center;
+          padding:14px;
+          z-index:9999;
+        }
+        .modalCard{
+          width:100%;
+          max-width:640px;
+          border:1px solid rgba(255,255,255,.12);
+          background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(0,0,0,.52));
+          border-radius:18px;
+          padding:14px;
+          box-shadow:0 20px 70px rgba(0,0,0,.55);
+        }
+        .modalTitle{
+          font-weight:950;
+          letter-spacing:1px;
+          text-transform:uppercase;
+          font-size:18px;
+        }
+
         .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
         .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:stretch;}
 
@@ -396,6 +576,12 @@ export default function ArkaCashPage() {
           font-size:16px;
           outline:none;
         }
+        textarea.input{
+          height:auto;
+          padding:10px 12px;
+          line-height:1.25;
+        }
+        textarea.input{height:auto;padding:10px 12px;}
         .input:focus{border-color:rgba(99,165,255,.55);box-shadow:0 0 0 3px rgba(99,165,255,.12);}
 
         .btn{
