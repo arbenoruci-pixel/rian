@@ -115,10 +115,30 @@ export default function CompanyBudgetPage() {
   }
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: 18 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: 2 }}>BUXHETI I KOMPANISË</div>
-        <div style={{ marginLeft: "auto" }}>
+    <div style={{ maxWidth: 860, margin: "0 auto", padding: 16, overflowX: "hidden" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <div
+          style={{
+            fontSize: "clamp(20px, 6vw, 28px)",
+            fontWeight: 800,
+            letterSpacing: 2,
+            lineHeight: 1.1,
+            flex: "1 1 auto",
+            minWidth: 0,
+            wordBreak: "break-word",
+          }}
+        >
+          BUXHETI I KOMPANISË
+        </div>
+        <div style={{ marginLeft: "auto", flex: "0 0 auto" }}>
           <Link
             href="/arka"
             style={{
