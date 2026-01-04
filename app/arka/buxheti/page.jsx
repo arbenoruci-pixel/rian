@@ -1,357 +1,448 @@
-"use client";
+'use client';
 
-import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
+import React, { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
 
 const euro = (n) =>
-  `€${Number(n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}`;
-
-function parseEuroInput(v) {
-  const s = String(v ?? "")
-    .trim()
-    .replace(/\s/g, "")
-    .replace(",", ".");
-  const n = Number(s || 0);
-  return Number.isFinite(n) ? n : NaN;
-}
+  `€${Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}`;
 
 export default function CompanyBudgetPage() {
+  const router = useRouter();
+
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
+  const [err, setErr] = useState('');
 
-  const [days, setDays] = useState([]);
-  const [moves, setMoves] = useState([]);
+  const [rows, setRows] = showState([]);
+  const [type, setType] = useState('OUT'); // OUT / IN
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
 
-  const [type, setType] = useState("OUT"); // IN | OUT
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
+  // Totals (IN manual, OUT manual)
+  const totals = useMemo(() => {
+    let inManual = 0;
+    let outTotal = 0;
 
-  async function refresh() {
-    setErr("");
+    for (const r of rows) {
+      const a = Number(r.amount || 0);
+      if (r.type === 'IN') inManual += a;
+      else outTotal += a;
+    }
+    return { inManual, outTotal };
+  }, [rows]);
+
+  // IN (DISPATCH) = llogaritet nga arka_days të pranuara (RECEIVED)
+  const [inDispatch, setInDispatch] = useState(0);
+
+  const balance = useMemo(() => {
+    return Number(inDispatch || 0) + Number(totals.inManual || 0) - Number(totals.outTotal || 0);
+  }, [inDispatch, totals.inManual, totals.outTotal]);
+
+  async function loadAll() {
     setBusy(true);
+    setErr('');
     try {
-      // IN = cash received by DISPATCH (from arka_days)
-      const d = await supabase
-        .from("arka_days")
-        .select("id,day_key,received_amount,received_at,received_by")
-        .not("received_at", "is", null)
-        .order("received_at", { ascending: false })
-        .limit(365);
-
-      if (d.error) throw d.error;
-      setDays(d.data || []);
-
-      // OUT/IN manual moves (company budget)
-      const m = await supabase
-        .from("arka_company_moves")
-        .select("*")
-        .order("created_at", { ascending: false })
+      // 1) Manual moves nga arka_company_moves
+      const q1 = await supabase
+        .from('arka_company_moves')
+        .select('*')
+        .order('created_at', { ascending: false })
         .limit(300);
 
-      if (m.error) throw m.error;
-      setMoves(m.data || []);
+      if (q1.error) throw q1.error;
+      setRows(q1.data || []);
+
+      // 2) IN (DISPATCH) = shuma e cikleve RECEIVED (arka_days)
+      // (nëse ke kolonë total_in, përdore; përndryshe përdor expected_cash/cash_counted sipas logjikës tënde)
+      const q2 = await supabase
+        .from('arka_days')
+        .select('cash_counted, expected_cash, handoff_status, received_at')
+        .eq('handoff_status', 'RECEIVED')
+        .not('received_at', 'is', null)
+        .limit(1000);
+
+      if (q2.error) throw q2.error;
+
+      // këtu marrim cash_counted (sa u dorëzua realisht)
+      let sum = 0;
+      for (const d of q2.data || []) {
+        sum += Number(d.cash_counted || 0);
+      }
+      setInDispatch(sum);
     } catch (e) {
-      setErr(e?.message || String(e));
+      console.error(e);
+      setErr(e?.message || 'Load failed');
     } finally {
       setBusy(false);
     }
   }
 
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  const totals = useMemo(() => {
-    const receivedIn = (days || []).reduce(
-      (a, r) => a + Number(r.received_amount || 0),
-      0
-    );
-
-    const inMoves = (moves || [])
-      .filter((x) => String(x.type).toUpperCase() === "IN")
-      .reduce((a, x) => a + Number(x.amount || 0), 0);
-
-    const outMoves = (moves || [])
-      .filter((x) => String(x.type).toUpperCase() === "OUT")
-      .reduce((a, x) => a + Number(x.amount || 0), 0);
-
-    const balance = receivedIn + inMoves - outMoves;
-
-    return { receivedIn, inMoves, outMoves, balance };
-  }, [days, moves]);
-
   async function addMove() {
-    setErr("");
-    const n = parseEuroInput(amount);
-    if (!Number.isFinite(n) || n <= 0) {
-      setErr("SHUMA E PAVLEFSHME");
+    setErr('');
+
+    const a = Number(amount);
+    if (!a || Number.isNaN(a) || a <= 0) {
+      setErr('SHUMA DUHET ME QENË > 0');
       return;
     }
 
     setBusy(true);
     try {
       const ins = await supabase
-        .from("arka_company_moves")
+        .from('arka_company_moves')
         .insert({
           type,
-          amount: n,
-          note: String(note || "").trim(),
-          created_by: "UI",
+          amount: a,
+          note: note || null,
         })
-        .select("*")
+        .select('*')
         .single();
 
       if (ins.error) throw ins.error;
 
-      setAmount("");
-      setNote("");
-      await refresh();
+      setAmount('');
+      setNote('');
+      await loadAll();
     } catch (e) {
-      setErr(e?.message || String(e));
+      console.error(e);
+      setErr(e?.message || 'Save failed');
     } finally {
       setBusy(false);
     }
   }
 
+  useEffect(() => {
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: 16, overflowX: "hidden" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        <div
-          style={{
-            fontSize: "clamp(20px, 6vw, 28px)",
-            fontWeight: 800,
-            letterSpacing: 2,
-            lineHeight: 1.1,
-            flex: "1 1 auto",
-            minWidth: 0,
-            wordBreak: "break-word",
-          }}
-        >
-          BUXHETI I KOMPANISË
-        </div>
-        <div style={{ marginLeft: "auto", flex: "0 0 auto" }}>
-          <Link
-            href="/arka"
-            style={{
-              display: "inline-block",
-              padding: "10px 14px",
-              borderRadius: 14,
-              background: "#111",
-              border: "1px solid #333",
-              color: "#fff",
-              textDecoration: "none",
-              fontWeight: 700,
-              letterSpacing: 1,
-            }}
-          >
-            KTHEHU
-          </Link>
-        </div>
+    <div className="wrap">
+      <div className="top">
+        <h1>BUXHETI I KOMPANISË</h1>
+        <button className="btn" onClick={() => router.back()}>
+          KTHEHU
+        </button>
       </div>
 
-      {err ? (
-        <div
-          style={{
-            border: "1px solid #ff3333",
-            background: "rgba(255,0,0,0.08)",
-            padding: 12,
-            borderRadius: 12,
-            marginBottom: 14,
-            fontWeight: 700,
-          }}
-        >
-          {err}
-        </div>
-      ) : null}
+      {err ? <div className="err">{err}</div> : null}
 
-      <div
-        style={{
-          border: "1px solid #222",
-          background: "#0b0b0b",
-          borderRadius: 16,
-          padding: 14,
-          marginBottom: 14,
-        }}
-      >
-        <div style={{ fontSize: 12, opacity: 0.75, letterSpacing: 2, fontWeight: 800 }}>
-          GJENDJA
-        </div>
+      <div className="card">
+        <div className="cardTitle">GJENDJA</div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 10,
-            marginTop: 10,
-          }}
-        >
-          <div style={{ border: "1px solid #222", borderRadius: 14, padding: 12, background: "#090909" }}>
-            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>IN (DISPATCH)</div>
-            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{euro(totals.receivedIn)}</div>
+        <div className="grid4">
+          <div className="mini">
+            <div className="lbl">IN (DISPATCH)</div>
+            <div className="val">{euro(inDispatch)}</div>
           </div>
 
-          <div style={{ border: "1px solid #222", borderRadius: 14, padding: 12, background: "#090909" }}>
-            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>OUT (TOTAL)</div>
-            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{euro(totals.outMoves)}</div>
+          <div className="mini">
+            <div className="lbl">OUT (TOTAL)</div>
+            <div className="val">{euro(totals.outTotal)}</div>
           </div>
 
-          <div style={{ border: "1px solid #222", borderRadius: 14, padding: 12, background: "#090909" }}>
-            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>IN (MANUAL)</div>
-            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{euro(totals.inMoves)}</div>
+          <div className="mini">
+            <div className="lbl">IN (MANUAL)</div>
+            <div className="val">{euro(totals.inManual)}</div>
           </div>
 
-          <div style={{ border: "1px solid #2a2a2a", borderRadius: 14, padding: 12, background: "#0a0a0a" }}>
-            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>BALANCI</div>
-            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{euro(totals.balance)}</div>
+          <div className="mini">
+            <div className="lbl">BALANCI</div>
+            <div className="val">{euro(balance)}</div>
           </div>
         </div>
       </div>
 
-      <div
-        style={{
-          border: "1px solid #222",
-          background: "#0b0b0b",
-          borderRadius: 16,
-          padding: 14,
-          marginBottom: 14,
-        }}
-      >
-        <div style={{ fontSize: 12, opacity: 0.75, letterSpacing: 2, fontWeight: 800 }}>
-          SHTO LËVIZJE
-        </div>
+      <div className="card">
+        <div className="cardTitle">SHTO LËVIZJE</div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 10, marginTop: 10 }}>
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            style={{
-              height: 48,
-              borderRadius: 14,
-              border: "1px solid #333",
-              background: "#111",
-              color: "#fff",
-              fontWeight: 800,
-              letterSpacing: 2,
-              padding: "0 10px",
-            }}
-          >
+        {/* FIX: kjo është pjesa që s’lejon me dalë jashtë ekranit */}
+        <div className="row">
+          <select value={type} onChange={(e) => setType(e.target.value)} className="select">
             <option value="OUT">OUT</option>
             <option value="IN">IN</option>
           </select>
 
           <input
+            className="money"
+            type="number"
+            inputMode="decimal"
+            placeholder="€"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="€"
-            style={{
-              height: 48,
-              borderRadius: 14,
-              border: "1px solid #333",
-              background: "#fff",
-              color: "#000",
-              fontWeight: 800,
-              padding: "0 12px",
-              fontSize: 18,
-            }}
           />
         </div>
 
         <input
+          className="note"
+          type="text"
+          placeholder="SHËNIM (opsional)"
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="SHËNIM (opsional)"
-          style={{
-            height: 48,
-            borderRadius: 14,
-            border: "1px solid #333",
-            background: "#fff",
-            color: "#000",
-            fontWeight: 800,
-            padding: "0 12px",
-            fontSize: 15,
-            marginTop: 10,
-          }}
         />
 
-        <button
-          onClick={addMove}
-          disabled={busy}
-          style={{
-            marginTop: 10,
-            width: "100%",
-            height: 52,
-            borderRadius: 16,
-            background: busy ? "#333" : "#e9e9e9",
-            color: "#000",
-            fontWeight: 900,
-            letterSpacing: 3,
-            border: "1px solid #333",
-          }}
-        >
-          SHTO
+        <button className="btnWide" disabled={busy} onClick={addMove}>
+          {busy ? 'DUKE RUJT...' : 'SHTO'}
         </button>
       </div>
 
-      <div
-        style={{
-          border: "1px solid #222",
-          background: "#0b0b0b",
-          borderRadius: 16,
-          padding: 14,
-        }}
-      >
-        <div style={{ fontSize: 12, opacity: 0.75, letterSpacing: 2, fontWeight: 800 }}>
-          HISTORIA (300)
-        </div>
+      <div className="card">
+        <div className="cardTitle">HISTORIA (300)</div>
 
-        <div style={{ marginTop: 10 }}>
-          {(moves || []).length === 0 ? (
-            <div style={{ opacity: 0.75, fontWeight: 700 }}>S’KA LËVIZJE.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 8 }}>
-              {moves.map((m) => (
-                <div
-                  key={m.id}
-                  style={{
-                    border: "1px solid #222",
-                    borderRadius: 14,
-                    padding: 10,
-                    background: "#070707",
-                    display: "grid",
-                    gridTemplateColumns: "90px 1fr 140px",
-                    gap: 10,
-                    alignItems: "center",
-                  }}
-                >
-                  <div style={{ fontWeight: 900, letterSpacing: 2 }}>
-                    {String(m.type || "").toUpperCase()}
-                  </div>
-                  <div style={{ opacity: 0.85, fontWeight: 700 }}>
-                    {m.note || ""}
-                  </div>
-                  <div style={{ textAlign: "right", fontWeight: 900 }}>
-                    {euro(m.amount)}
-                  </div>
+        {rows?.length ? (
+          <div className="list">
+            {rows.map((r) => (
+              <div className="item" key={r.id}>
+                <div className="left">
+                  <span className={`pill ${r.type === 'IN' ? 'in' : 'out'}`}>{r.type}</span>
+                  <span className="noteTxt">{r.note || '-'}</span>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+                <div className="amt">{euro(r.amount)}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="muted">S’KA LËVIZJE.</div>
+        )}
 
-        <div style={{ marginTop: 16, opacity: 0.65, fontSize: 12, lineHeight: 1.4 }}>
-          IN (DISPATCH) llogaritet nga dorëzimet e pranuara (RECEIVED) në CASH. OUT/IN manual ruhen te
-          <span style={{ fontWeight: 800 }}> arka_company_moves</span>.
+        <div className="hint">
+          IN (DISPATCH) llogaritet nga dorëzimet e pranuara (RECEIVED) në CASH.
+          OUT/IN manual ruhen te <b>arka_company_moves</b>.
         </div>
       </div>
+
+      <style jsx>{`
+        .wrap {
+          padding: 18px;
+          max-width: 860px;
+          margin: 0 auto;
+        }
+
+        .top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        h1 {
+          margin: 0;
+          font-size: 34px;
+          letter-spacing: 1px;
+        }
+
+        .err {
+          border: 2px solid rgba(255, 0, 0, 0.45);
+          background: rgba(255, 0, 0, 0.08);
+          padding: 12px 14px;
+          border-radius: 14px;
+          margin: 10px 0 16px;
+          font-weight: 800;
+        }
+
+        .card {
+          border-radius: 22px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.03);
+          padding: 18px;
+          margin: 14px 0;
+        }
+
+        .cardTitle {
+          font-weight: 900;
+          letter-spacing: 3px;
+          opacity: 0.7;
+          margin-bottom: 14px;
+        }
+
+        .grid4 {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .mini {
+          border-radius: 18px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(0, 0, 0, 0.35);
+          padding: 14px;
+          min-width: 0;
+        }
+        .lbl {
+          font-weight: 900;
+          letter-spacing: 3px;
+          opacity: 0.75;
+          font-size: 12px;
+        }
+        .val {
+          margin-top: 6px;
+          font-size: 30px;
+          font-weight: 900;
+        }
+
+        /* ===== THE FIX ===== */
+        .row {
+          display: flex;
+          gap: 12px;
+          align-items: stretch;
+          width: 100%;
+          min-width: 0;
+          flex-wrap: nowrap;
+        }
+
+        .select {
+          flex: 0 0 140px;
+          min-width: 0;
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(0, 0, 0, 0.6);
+          color: white;
+          font-weight: 900;
+          letter-spacing: 2px;
+          padding: 12px 14px;
+          box-sizing: border-box;
+        }
+
+        .money {
+          flex: 1 1 auto;
+          width: 100%;
+          min-width: 0; /* super important for iOS overflow */
+          max-width: 100%;
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: white;
+          color: black;
+          font-weight: 900;
+          font-size: 18px;
+          padding: 12px 14px;
+          box-sizing: border-box;
+        }
+
+        .note {
+          margin-top: 12px;
+          width: 100%;
+          min-width: 0;
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: white;
+          color: black;
+          font-weight: 900;
+          font-size: 18px;
+          padding: 12px 14px;
+          box-sizing: border-box;
+        }
+
+        .btn {
+          border-radius: 16px;
+          padding: 12px 18px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.06);
+          color: white;
+          font-weight: 900;
+          letter-spacing: 2px;
+        }
+
+        .btnWide {
+          width: 100%;
+          margin-top: 12px;
+          border-radius: 16px;
+          padding: 14px 18px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.85);
+          color: black;
+          font-weight: 900;
+          letter-spacing: 3px;
+        }
+
+        .list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 12px 12px;
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(0, 0, 0, 0.35);
+          min-width: 0;
+        }
+
+        .left {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          min-width: 0;
+          flex: 1;
+        }
+
+        .pill {
+          border-radius: 999px;
+          padding: 6px 10px;
+          font-weight: 900;
+          letter-spacing: 2px;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          background: rgba(255, 255, 255, 0.06);
+          flex: 0 0 auto;
+        }
+
+        .pill.in {
+          border-color: rgba(0, 255, 0, 0.35);
+        }
+        .pill.out {
+          border-color: rgba(255, 0, 0, 0.35);
+        }
+
+        .noteTxt {
+          opacity: 0.9;
+          font-weight: 800;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          min-width: 0;
+        }
+
+        .amt {
+          font-weight: 900;
+          font-size: 18px;
+          flex: 0 0 auto;
+        }
+
+        .muted {
+          opacity: 0.7;
+          font-weight: 900;
+        }
+
+        .hint {
+          margin-top: 12px;
+          opacity: 0.7;
+          font-weight: 800;
+          line-height: 1.3;
+        }
+
+        /* MOBILE */
+        @media (max-width: 480px) {
+          h1 {
+            font-size: 28px;
+          }
+          .select {
+            flex: 0 0 110px;
+          }
+          .val {
+            font-size: 26px;
+          }
+        }
+      `}</style>
     </div>
   );
+}
+
+// tiny helper to avoid linter warning in some setups
+function showState() {
+  return useState([]);
 }
