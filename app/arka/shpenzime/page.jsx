@@ -120,8 +120,9 @@ export default function Page() {
 
   async function submitExpense() {
     const amt = safeParseMoney(amount);
-    if (!Number.isFinite(amt) || amt <= 0)
+    if (!Number.isFinite(amt) || amt <= 0) {
       return alert("SHKRUJ NJË SHUMË VALIDE (> 0).");
+    }
 
     if (cashRequired && !cycleOpen) {
       return alert(
@@ -130,8 +131,9 @@ export default function Page() {
     }
 
     if (personalRequired) {
-      if (!String(pin || "").trim())
+      if (!String(pin || "").trim()) {
         return alert("PIN ËSHTË I DETYRUESHËM PËR PERSONAL.");
+      }
       if (!pinUser?.pin) return alert("PIN NUK U GJET TE PUNTORËT.");
     }
 
@@ -310,7 +312,7 @@ export default function Page() {
         </div>
 
         <button className="primaryBtn" onClick={submitExpense} disabled={busy}>
-          {busy ? "DUKE RUJT..." : "RUJ SHPENZIMIN"}
+          {busy ? "DUKE RUYT..." : "RUJ SHPENZIMIN"}
         </button>
       </div>
 
@@ -323,8 +325,7 @@ export default function Page() {
           <div className="list">
             {rows.map((r) => {
               const pf = String(r.paid_from || "").toUpperCase();
-              const badge =
-                pf === "CASH_TODAY" ? "ARKA" : pf === "COMPANY_BUDGET" ? "BUXHET" : "PERSONAL";
+              const badge = pf === "CASH_TODAY" ? "ARKA" : pf === "COMPANY_BUDGET" ? "BUXHET" : "PERSONAL";
               return (
                 <div className="row" key={r.id}>
                   <div className="left">

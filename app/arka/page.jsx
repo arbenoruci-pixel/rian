@@ -53,12 +53,6 @@ export default function ArkaIndexPage() {
           SHPENZIME
         </Link>
         <Link
-          href="/arka/buxheti"
-          style={tile}
-        >
-          BUXHETI I KOMPANISË
-        </Link>
-        <Link
           href="/arka/histori"
           style={tile}
         >
