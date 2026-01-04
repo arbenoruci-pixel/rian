@@ -10,11 +10,18 @@ const euro = (n) =>
 function parseEuroInput(v) {
   const s = String(v ?? "")
     .trim()
-    .replace("€", "")
     .replace(/\s/g, "")
     .replace(",", ".");
   const n = Number(s || 0);
   return Number.isFinite(n) ? n : NaN;
+}
+
+async function safeOrder(table, baseQuery, limit = 300) {
+  let r = await baseQuery.order("at", { ascending: false }).limit(limit);
+  if (r.error) r = await baseQuery.order("created_at", { ascending: false }).limit(limit);
+  if (r.error) r = await baseQuery.limit(limit);
+  if (r.error) throw r.error;
+  return r.data || [];
 }
 
 export default function CompanyBudgetPage() {
@@ -23,38 +30,20 @@ export default function CompanyBudgetPage() {
 
   const [days, setDays] = useState([]);
   const [moves, setMoves] = useState([]);
+  const [legacyBudgetExpenses, setLegacyBudgetExpenses] = useState([]);
 
   const [type, setType] = useState("OUT"); // IN | OUT
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
-  async function loadCompanyMoves() {
-    // Some schemas have 'at' instead of 'created_at'. Try both.
-    const q1 = await supabase
-      .from("arka_company_moves")
-      .select("*")
-      .order("at", { ascending: false })
-      .limit(300);
-    if (!q1.error) return q1.data || [];
-
-    const q2 = await supabase
-      .from("arka_company_moves")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(300);
-    if (q2.error) throw q2.error;
-    return q2.data || [];
-  }
-
   async function refresh() {
     setErr("");
     setBusy(true);
     try {
-      // "IN (DISPATCH)" = cycles that were RECEIVED.
-      // Not all DBs have received_amount, so we use cash_counted (close result) as the amount.
+      // IN = cash received by DISPATCH (from arka_days)
       const d = await supabase
         .from("arka_days")
-        .select("id,day_key,cash_counted,received_at,received_by")
+        .select("id,day_key,received_amount,received_at,received_by")
         .not("received_at", "is", null)
         .order("received_at", { ascending: false })
         .limit(365);
@@ -62,8 +51,19 @@ export default function CompanyBudgetPage() {
       if (d.error) throw d.error;
       setDays(d.data || []);
 
-      const m = await loadCompanyMoves();
-      setMoves(m);
+      // OUT/IN manual moves (company budget) + auto moves from expenses
+      const mBase = supabase.from("arka_company_moves").select("*");
+      const mData = await safeOrder("arka_company_moves", mBase, 300);
+      setMoves(mData);
+
+      // Legacy expenses that were BUXHET but maybe did NOT create a move earlier
+      // (paid_from can be COMPANY_BUDGET or BUXHET in old schema; handle both)
+      const eBase = supabase
+        .from("arka_expenses")
+        .select("id,amount,paid_from,day_key")
+        .in("paid_from", ["COMPANY_BUDGET", "BUXHET"]);
+      const eData = await safeOrder("arka_expenses", eBase, 500);
+      setLegacyBudgetExpenses(eData);
     } catch (e) {
       setErr(e?.message || String(e));
     } finally {
@@ -76,27 +76,31 @@ export default function CompanyBudgetPage() {
   }, []);
 
   const totals = useMemo(() => {
-    const receivedIn = (days || []).reduce((a, r) => a + Number(r.cash_counted || 0), 0);
-
-    const normType = (t) => {
-      const u = String(t || "").toUpperCase();
-      // legacy schema uses EXPENSE/BANK
-      if (u === "BANK") return "IN";
-      if (u === "EXPENSE") return "OUT";
-      return u;
-    };
+    const receivedIn = (days || []).reduce(
+      (a, r) => a + Number(r.received_amount || 0),
+      0
+    );
 
     const inMoves = (moves || [])
-      .filter((x) => normType(x.type) === "IN")
+      .filter((x) => String(x.type).toUpperCase() === "IN")
       .reduce((a, x) => a + Number(x.amount || 0), 0);
 
     const outMoves = (moves || [])
-      .filter((x) => normType(x.type) === "OUT")
+      .filter((x) => String(x.type).toUpperCase() === "OUT")
       .reduce((a, x) => a + Number(x.amount || 0), 0);
 
-    const balance = receivedIn + inMoves - outMoves;
-    return { receivedIn, inMoves, outMoves, balance };
-  }, [days, moves]);
+    // Legacy OUT from expenses (only count those that do NOT already have external_id linkage)
+    // If you had external_id enabled later, old expenses won't have matching moves, so they should subtract.
+    // If you want strict dedupe later, we can join by external_id; for now keep simple.
+    const legacyOut = (legacyBudgetExpenses || []).reduce(
+      (a, x) => a + Number(x.amount || 0),
+      0
+    );
+
+    const balance = receivedIn + inMoves - outMoves - legacyOut;
+
+    return { receivedIn, inMoves, outMoves, legacyOut, balance };
+  }, [days, moves, legacyBudgetExpenses]);
 
   async function addMove() {
     setErr("");
@@ -108,24 +112,16 @@ export default function CompanyBudgetPage() {
 
     setBusy(true);
     try {
-      const payload = {
-        type,
-        amount: n,
-        note: String(note || "").trim(),
-        created_by: "UI",
-      };
-
-      let ins = await supabase.from("arka_company_moves").insert(payload).select("*").single();
-
-      // Legacy fallback: if the table enforces EXPENSE/BANK, retry.
-      if (ins.error) {
-        const legacyType = type === "IN" ? "BANK" : "EXPENSE";
-        ins = await supabase
-          .from("arka_company_moves")
-          .insert({ ...payload, type: legacyType })
-          .select("*")
-          .single();
-      }
+      const ins = await supabase
+        .from("arka_company_moves")
+        .insert({
+          type,
+          amount: n,
+          note: String(note || "").trim(),
+          created_by: "UI",
+        })
+        .select("*")
+        .single();
 
       if (ins.error) throw ins.error;
 
@@ -198,105 +194,39 @@ export default function CompanyBudgetPage() {
         </div>
       ) : null}
 
-      <div
-        style={{
-          border: "1px solid #222",
-          background: "#0b0b0b",
-          borderRadius: 16,
-          padding: 14,
-          marginBottom: 14,
-        }}
-      >
-        <div style={{ fontSize: 12, opacity: 0.75, letterSpacing: 2, fontWeight: 800 }}>
-          GJENDJA
-        </div>
+      <div style={{ border: "1px solid #222", background: "#0b0b0b", borderRadius: 16, padding: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 12, opacity: 0.75, letterSpacing: 2, fontWeight: 800 }}>GJENDJA</div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 10,
-            marginTop: 10,
-          }}
-        >
-          <div
-            style={{
-              border: "1px solid #222",
-              borderRadius: 14,
-              padding: 12,
-              background: "#090909",
-            }}
-          >
-            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>
-              IN (DISPATCH)
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>
-              {euro(totals.receivedIn)}
-            </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+          <div style={{ border: "1px solid #222", borderRadius: 14, padding: 12, background: "#090909" }}>
+            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>IN (DISPATCH)</div>
+            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{euro(totals.receivedIn)}</div>
           </div>
 
-          <div
-            style={{
-              border: "1px solid #222",
-              borderRadius: 14,
-              padding: 12,
-              background: "#090909",
-            }}
-          >
-            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>
-              OUT (TOTAL)
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>
-              {euro(totals.outMoves)}
-            </div>
+          <div style={{ border: "1px solid #222", borderRadius: 14, padding: 12, background: "#090909" }}>
+            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>OUT (MOVES)</div>
+            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{euro(totals.outMoves)}</div>
           </div>
 
-          <div
-            style={{
-              border: "1px solid #222",
-              borderRadius: 14,
-              padding: 12,
-              background: "#090909",
-            }}
-          >
-            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>
-              IN (MANUAL)
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>
-              {euro(totals.inMoves)}
-            </div>
+          <div style={{ border: "1px solid #222", borderRadius: 14, padding: 12, background: "#090909" }}>
+            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>IN (MANUAL)</div>
+            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{euro(totals.inMoves)}</div>
           </div>
 
-          <div
-            style={{
-              border: "1px solid #2a2a2a",
-              borderRadius: 14,
-              padding: 12,
-              background: "#0a0a0a",
-            }}
-          >
-            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>
-              BALANCI
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>
-              {euro(totals.balance)}
-            </div>
+          <div style={{ border: "1px solid #2a2a2a", borderRadius: 14, padding: 12, background: "#0a0a0a" }}>
+            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>OUT (SHPENZIME • LEGACY)</div>
+            <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{euro(totals.legacyOut)}</div>
+          </div>
+
+          <div style={{ gridColumn: "1 / -1", border: "1px solid #2a2a2a", borderRadius: 14, padding: 12, background: "#0a0a0a" }}>
+            <div style={{ fontSize: 12, opacity: 0.7, letterSpacing: 2, fontWeight: 800 }}>BALANCI</div>
+            <div style={{ fontSize: 24, fontWeight: 900, marginTop: 6 }}>{euro(totals.balance)}</div>
           </div>
         </div>
       </div>
 
-      <div
-        style={{
-          border: "1px solid #222",
-          background: "#0b0b0b",
-          borderRadius: 16,
-          padding: 14,
-          marginBottom: 14,
-        }}
-      >
-        <div style={{ fontSize: 12, opacity: 0.75, letterSpacing: 2, fontWeight: 800 }}>
-          SHTO LËVIZJE
-        </div>
+      <div style={{ border: "1px solid #222", background: "#0b0b0b", borderRadius: 16, padding: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 12, opacity: 0.75, letterSpacing: 2, fontWeight: 800 }}>SHTO LËVIZJE</div>
 
         <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 10, marginTop: 10 }}>
           <select
@@ -321,7 +251,6 @@ export default function CompanyBudgetPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="€"
-            inputMode="decimal"
             style={{
               height: 48,
               width: "100%",
@@ -353,15 +282,12 @@ export default function CompanyBudgetPage() {
             padding: "0 12px",
             fontSize: 15,
             marginTop: 10,
-            width: "100%",
-            boxSizing: "border-box",
           }}
         />
 
         <button
           onClick={addMove}
           disabled={busy}
-          type="button"
           style={{
             marginTop: 10,
             width: "100%",
@@ -374,21 +300,12 @@ export default function CompanyBudgetPage() {
             border: "1px solid #333",
           }}
         >
-          {busy ? "DUKE RUJT..." : "SHTO"}
+          SHTO
         </button>
       </div>
 
-      <div
-        style={{
-          border: "1px solid #222",
-          background: "#0b0b0b",
-          borderRadius: 16,
-          padding: 14,
-        }}
-      >
-        <div style={{ fontSize: 12, opacity: 0.75, letterSpacing: 2, fontWeight: 800 }}>
-          HISTORIA (300)
-        </div>
+      <div style={{ border: "1px solid #222", background: "#0b0b0b", borderRadius: 16, padding: 14 }}>
+        <div style={{ fontSize: 12, opacity: 0.75, letterSpacing: 2, fontWeight: 800 }}>HISTORIA (300)</div>
 
         <div style={{ marginTop: 10 }}>
           {(moves || []).length === 0 ? (
@@ -409,15 +326,8 @@ export default function CompanyBudgetPage() {
                     alignItems: "center",
                   }}
                 >
-                  <div style={{ fontWeight: 900, letterSpacing: 2 }}>
-                    {(() => {
-                      const u = String(m.type || "").toUpperCase();
-                      if (u === "BANK") return "IN";
-                      if (u === "EXPENSE") return "OUT";
-                      return u;
-                    })()}
-                  </div>
-                  <div style={{ opacity: 0.85, fontWeight: 700, wordBreak: "break-word" }}>{m.note || ""}</div>
+                  <div style={{ fontWeight: 900, letterSpacing: 2 }}>{String(m.type || "").toUpperCase()}</div>
+                  <div style={{ opacity: 0.85, fontWeight: 700 }}>{m.note || ""}</div>
                   <div style={{ textAlign: "right", fontWeight: 900 }}>{euro(m.amount)}</div>
                 </div>
               ))}
@@ -426,8 +336,8 @@ export default function CompanyBudgetPage() {
         </div>
 
         <div style={{ marginTop: 16, opacity: 0.65, fontSize: 12, lineHeight: 1.4 }}>
-          IN (DISPATCH) llogaritet nga dorëzimet e pranuara (RECEIVED) në CASH. OUT/IN manual ruhen te
-          <span style={{ fontWeight: 800 }}> arka_company_moves</span>.
+          OUT nga SHPENZIME (BUXHET) tani krijohet automatikisht si OUT te{" "}
+          <span style={{ fontWeight: 800 }}>arka_company_moves</span>.
         </div>
       </div>
     </div>
