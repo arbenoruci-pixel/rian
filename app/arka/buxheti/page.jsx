@@ -43,11 +43,24 @@ export default function CompanyBudgetPage() {
       setDays(d.data || []);
 
       // OUT/IN manual moves (company budget)
-      const m = await supabase
+      // Some schemas don't have created_at; fallback to "at"; if both fail, no order.
+      let m = await supabase
         .from("arka_company_moves")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(300);
+
+      if (m.error) {
+        m = await supabase
+          .from("arka_company_moves")
+          .select("*")
+          .order("at", { ascending: false })
+          .limit(300);
+      }
+
+      if (m.error) {
+        m = await supabase.from("arka_company_moves").select("*").limit(300);
+      }
 
       if (m.error) throw m.error;
       setMoves(m.data || []);
@@ -229,12 +242,13 @@ export default function CompanyBudgetPage() {
           SHTO LËVIZJE
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 10, marginTop: 10 }}>
+        <div className="moveRow" style={{ display: "grid", gridTemplateColumns: "minmax(0,140px) minmax(0,1fr)", gap: 10, marginTop: 10 }}>
           <select
             value={type}
             onChange={(e) => setType(e.target.value)}
             style={{
               height: 48,
+              width: "100%",
               borderRadius: 14,
               border: "1px solid #333",
               background: "#111",
@@ -242,6 +256,7 @@ export default function CompanyBudgetPage() {
               fontWeight: 800,
               letterSpacing: 2,
               padding: "0 10px",
+              boxSizing: "border-box",
             }}
           >
             <option value="OUT">OUT</option>
@@ -275,6 +290,8 @@ export default function CompanyBudgetPage() {
           placeholder="SHËNIM (opsional)"
           style={{
             height: 48,
+            width: "100%",
+            boxSizing: "border-box",
             borderRadius: 14,
             border: "1px solid #333",
             background: "#fff",
@@ -356,6 +373,14 @@ export default function CompanyBudgetPage() {
           <span style={{ fontWeight: 800 }}> arka_company_moves</span>.
         </div>
       </div>
+
+      <style jsx>{`
+        @media (max-width: 420px) {
+          .moveRow {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
