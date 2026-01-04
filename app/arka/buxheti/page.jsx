@@ -254,6 +254,10 @@ export default function CompanyBudgetPage() {
             placeholder="€"
             style={{
               height: 48,
+              width: "100%",
+              maxWidth: "100%",
+              minWidth: 0,
+              boxSizing: "border-box",
               borderRadius: 14,
               border: "1px solid #333",
               background: "#fff",
