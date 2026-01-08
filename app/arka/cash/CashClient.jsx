@@ -79,6 +79,12 @@ export default function CashClient() {
     return opening + sums.ins - sums.outs;
   }, [cycle, sums]);
 
+  function cleanMoveNote(note) {
+    const s = String(note || "").trim();
+    // Hide internal dedupe tag prefix (PAY#...) from the UI
+    return s.replace(/^PAY#[^\s]+\s*/i, "").trim();
+  }
+
   async function refresh(mode = "ALL") {
     setErr("");
     try {
@@ -125,11 +131,30 @@ export default function CashClient() {
         } catch {}
 
         const list = await dbListCycleMoves(c.id);
-        setMoves(list || []);
+        const listSafe = Array.isArray(list) ? list : [];
+        setMoves(listSafe);
 
-        // prefill close forms (nice UX)
-        setCashCounted(String(expectedCash));
-        setKeepCash(String(carry?.carry_cash || 0));
+        // ✅ UX: Auto-fill CASH COUNTED with EXPECTED (but only if user hasn't typed)
+        const insLocal = listSafe
+          .filter((m) => String(m.type).toUpperCase() === "IN")
+          .reduce((a, m) => a + Number(m.amount || 0), 0);
+        const outsLocal = listSafe
+          .filter((m) => String(m.type).toUpperCase() === "OUT")
+          .reduce((a, m) => a + Number(m.amount || 0), 0);
+        const expectedLocal = Number(c.opening_cash || 0) + insLocal - outsLocal;
+
+        setCashCounted((prev) => {
+          const p = String(prev ?? "").trim();
+          if (p === "" || p === "0" || p === "0.0" || p === "0,0") return String(expectedLocal);
+          return prev;
+        });
+
+        // keep-cash defaults from carryover context (only if empty)
+        setKeepCash((prev) => {
+          const p = String(prev ?? "").trim();
+          if (p === "" || p === "0" || p === "0.0" || p === "0,0") return String(carry?.carry_cash || 0);
+          return prev;
+        });
         setKeepSource(String(carry?.carry_source || "COMPANY").toUpperCase());
         setKeepPin(String(carry?.carry_person_pin || ""));
       } else {
@@ -153,6 +178,18 @@ export default function CashClient() {
 
   async function onOpenCycle() {
     setErr("");
+
+    // ✅ Guard: if an OPEN cycle already exists, don't try to open again.
+    if (cycle?.id) {
+      setErr("KE CIKËL OPEN — S’MUNDESH ME HAP TË RI. (MBYLLE → HANDED, pastaj DISPATCH → RECEIVED)");
+      return;
+    }
+
+    // ✅ UX: If an OPEN cycle already exists, don't try to open again.
+    if (cycle?.id) {
+      setErr("KE CIKËL OPEN — S’MUNDESH ME HAP TË RI. MBYLLE → HANDED, pastaj DISPATCH → RECEIVED.");
+      return;
+    }
 
     if (pendingHanded) {
       setErr("DISPATCH DUHET ME PRANU DORËZIMIN E FUNDIT (HANDED) PARA SE ME U HAP CIKËL I RI.");
@@ -385,6 +422,13 @@ export default function CashClient() {
             </>
           ) : (
             <>
+              <div style={{ border: "1px solid rgba(0,180,255,0.25)", borderRadius: 14, padding: 12, opacity: 0.95 }}>
+                <div style={{ fontWeight: 900, letterSpacing: 2 }}>CIKLI ËSHTË I HAPUR</div>
+                <div style={{ marginTop: 6, opacity: 0.85, fontWeight: 800 }}>
+                  Ke cikël OPEN — s’mundesh me hap të ri.
+                </div>
+              </div>
+
               <div style={{ opacity: 0.9, fontWeight: 900, letterSpacing: 2 }}>
                 STATUS: {cycle.handoff_status}
               </div>
@@ -473,7 +517,7 @@ export default function CashClient() {
                       >
                         <div style={{ fontWeight: 900, letterSpacing: 2 }}>
                           {String(m.type || "").toUpperCase()}
-                          {m.note ? <span style={{ opacity: 0.8, letterSpacing: 1 }}> · {m.note}</span> : null}
+                          {m.note ? <span style={{ opacity: 0.8, letterSpacing: 1 }}> · {cleanMoveNote(m.note)}</span> : null}
                         </div>
                         <div style={{ fontWeight: 900 }}>{euro(m.amount)}</div>
                       </div>
