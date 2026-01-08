@@ -390,20 +390,30 @@ export default function GatiPage() {
         note: paidUpfront ? 'paid_upfront_delta' : 'delivery_cash_delta',
       };
 
-      await recordCashMove({
+	      const cashRes = await recordCashMove({
         externalId: arkaRecord.id,
         orderId: updated.id,
         code: arkaRecord.code,
         name: (arkaRecord.name || '').trim(),
+	        stage: 'GATI',
         amount: safeDelta,
         note: (paidUpfront ? 'AVANS ' : 'PAGESA ') + safeDelta.toFixed(2) + '€ • #' + arkaRecord.code + ' • ' + (arkaRecord.name || '').trim(),
         source: paidUpfront ? 'ORDER_FRONT' : 'ORDER_PAY',
-        method: paidUpfront ? 'cash_front' : 'cash_pay',
+	        method: 'CASH',
         type: 'IN',
       });
+
+	      // If ARKA was closed (or HANDED), payment is saved as WAITING (PENDING)
+	      if (cashRes?.pending) {
+	        try {
+	          // non-blocking hint
+	          console.log('ARKA WAITING payment saved', cashRes);
+	        } catch {}
+	      }
     }
 
-    alert('✅ Porosia u dorëzua.');
+	    const msg = '✅ Porosia u dorëzua.' + (willRecordCash ? '\n\n(Nëse ARKA ishte e mbyllur: pagesa ruhet si WAITING dhe futet në ARKË kur hapet.)' : '');
+	    alert(msg);
     closePay();
     setOrders((prev) => prev.filter((x) => x.id !== updated.id));
   }
