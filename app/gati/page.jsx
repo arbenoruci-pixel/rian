@@ -412,8 +412,8 @@ export default function GatiPage() {
 	      }
     }
 
-	    const msg = '✅ Porosia u dorëzua.' + (willRecordCash ? '\n\n(Nëse ARKA ishte e mbyllur: pagesa ruhet si WAITING dhe futet në ARKË kur hapet.)' : '');
-	    alert(msg);
+	    const doneMsg = '✅ Porosia u dorëzua.' + (willRecordCash ? '\n\n(Nëse ARKA ishte e mbyllur: pagesa ruhet si WAITING dhe futet në ARKË kur hapet.)' : '');
+	    alert(doneMsg);
     closePay();
     setOrders((prev) => prev.filter((x) => x.id !== updated.id));
   }
