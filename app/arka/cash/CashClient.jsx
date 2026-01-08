@@ -15,6 +15,11 @@ import {
   dbGetCarryoverToday, // ✅ use carryover context
 } from "@/lib/arkaDb";
 import {
+  listPendingCashPayments,
+  applyPendingPaymentToCycle,
+  rejectPendingPayment,
+} from '@/lib/arkaCashSync';
+import {
   listPendingRequestsForApprover,
   approveRequest,
   rejectRequest,
@@ -82,14 +87,19 @@ export default function CashClient() {
   // Cash counter (optional)
   const [showCounter, setShowCounter] = useState(false);
   const DENOMS = useMemo(
-    () => [100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1],
+    () => [100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01],
     []
   );
   const [denomCounts, setDenomCounts] = useState(() => {
     const o = {};
-    [100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1].forEach((d) => (o[String(d)] = 0));
+    [100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01].forEach((d) => (o[String(d)] = 0));
     return o;
   });
+
+  // Pending cash payments (WAITING)
+  const [pendingPays, setPendingPays] = useState([]);
+  const [pendingBusy, setPendingBusy] = useState(false);
+  const [pendingRejectNote, setPendingRejectNote] = useState('');
 
   const denomTotal = useMemo(() => {
     return Object.entries(denomCounts || {}).reduce((sum, [k, v]) => {
@@ -165,6 +175,18 @@ export default function CashClient() {
         setKeepPin(String(carry?.carry_person_pin || ""));
       } else {
         setMoves([]);
+      }
+
+      // ✅ WAITING CASH PAYMENTS (mandatory popup when cycle is OPEN)
+      if (c?.id && canApprove) {
+        try {
+          const res = await listPendingCashPayments(200);
+          setPendingPays(Array.isArray(res?.items) ? res.items : []);
+        } catch {
+          setPendingPays([]);
+        }
+      } else {
+        setPendingPays([]);
       }
 
       // dispatch list
@@ -257,6 +279,78 @@ export default function CashClient() {
       setErr(e?.message || String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  // =============================
+  // WAITING CASH PAYMENTS (PENDING)
+  // =============================
+  const mustHandlePending = useMemo(() => {
+    return !!(cycle?.id && canApprove && Array.isArray(pendingPays) && pendingPays.length > 0);
+  }, [cycle?.id, canApprove, pendingPays]);
+
+  async function applyPendingOne(p) {
+    if (!cycle?.id) return;
+    setPendingBusy(true);
+    try {
+      await applyPendingPaymentToCycle({
+        pending: p,
+        cycle_id: cycle.id,
+        approved_by_pin: user?.pin || null,
+        approved_by_name: user?.name || null,
+        approved_by_role: user?.role || null,
+      });
+      const res = await listPendingCashPayments(200);
+      setPendingPays(res?.items || []);
+      await refresh('ALL');
+    } catch (e) {
+      setErr(e?.message || String(e));
+    } finally {
+      setPendingBusy(false);
+    }
+  }
+
+  async function applyPendingAll() {
+    if (!cycle?.id) return;
+    setPendingBusy(true);
+    try {
+      for (const p of (pendingPays || [])) {
+        await applyPendingPaymentToCycle({
+          pending: p,
+          cycle_id: cycle.id,
+          approved_by_pin: user?.pin || null,
+          approved_by_name: user?.name || null,
+          approved_by_role: user?.role || null,
+        });
+      }
+      const res = await listPendingCashPayments(200);
+      setPendingPays(res?.items || []);
+      await refresh('ALL');
+    } catch (e) {
+      setErr(e?.message || String(e));
+    } finally {
+      setPendingBusy(false);
+    }
+  }
+
+  async function rejectPendingOne(p) {
+    setPendingBusy(true);
+    try {
+      await rejectPendingPayment({
+        pending: p,
+        rejected_by_pin: user?.pin || null,
+        rejected_by_name: user?.name || null,
+        rejected_by_role: user?.role || null,
+        reject_note: pendingRejectNote || null,
+      });
+      setPendingRejectNote('');
+      const res = await listPendingCashPayments(200);
+      setPendingPays(res?.items || []);
+      await refresh('ALL');
+    } catch (e) {
+      setErr(e?.message || String(e));
+    } finally {
+      setPendingBusy(false);
     }
   }
 
@@ -746,6 +840,98 @@ export default function CashClient() {
           HISTORI: në `arkaDb.js` s’ka funksion për me i listu ditët/ciklet e kalume.
           <div style={{ marginTop: 10, opacity: 0.9 }}>
             Nëse ma dërgon file-n ku e ke pas HISTORI-n (ose shtojmë 1 function minimal), ta kthej 1:1.
+          </div>
+        </div>
+      ) : null}
+
+      {/* =============================
+          WAITING CASH PAYMENTS MODAL
+          (mandatory when cycle is OPEN)
+         ============================= */}
+      {mustHandlePending ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.75)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: 'min(920px, 100%)',
+              maxHeight: '85vh',
+              overflow: 'auto',
+              border: '1px solid rgba(255,255,255,0.18)',
+              borderRadius: 16,
+              padding: 14,
+              background: 'rgba(10,14,24,0.96)',
+            }}
+          >
+            <div style={{ fontWeight: 900, letterSpacing: 2 }}>
+              WAITING PAGESA CASH ({pendingPays.length})
+            </div>
+            <div style={{ marginTop: 6, opacity: 0.85, fontWeight: 800 }}>
+              KE PAGESA TË BËRA KUR ARKA ISHTE E MBYLLUR. DUHET ME I KONFIRMU TASH.
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+              <button
+                disabled={pendingBusy}
+                onClick={applyPendingAll}
+                style={{ flex: 1, padding: 12, borderRadius: 12, fontWeight: 900, letterSpacing: 2, opacity: pendingBusy ? 0.6 : 1 }}
+              >
+                FUTE TË GJITHA N'ARKË
+              </button>
+            </div>
+
+            <input
+              value={pendingRejectNote}
+              onChange={(e) => setPendingRejectNote(e.target.value)}
+              placeholder="SHËNIM PËR REFUZIM (opsional)"
+              style={{ width: '100%', padding: 12, borderRadius: 12, fontWeight: 800, marginTop: 10 }}
+            />
+
+            <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+              {pendingPays.map((p) => {
+                const code = p.order_code || p.code || '';
+                const nm = p.client_name || p.name || '';
+                const when = p.created_at ? new Date(p.created_at).toLocaleString() : '';
+                return (
+                  <div key={p.external_id || p.id || JSON.stringify(p)} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <div style={{ fontWeight: 900, letterSpacing: 1.5 }}>
+                        {String(p.type || 'IN').toUpperCase()} · #{code} · {nm}
+                        {p.note ? <span style={{ opacity: 0.75, marginLeft: 8 }}>· {p.note}</span> : null}
+                        {when ? <div style={{ opacity: 0.65, marginTop: 4 }}>{when}</div> : null}
+                      </div>
+                      <div style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>{euro(p.amount)}</div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                      <button
+                        disabled={pendingBusy}
+                        onClick={() => applyPendingOne(p)}
+                        style={{ flex: 1, padding: 12, borderRadius: 12, fontWeight: 900, letterSpacing: 2, opacity: pendingBusy ? 0.6 : 1 }}
+                      >
+                        FUTE N'ARKË
+                      </button>
+                      <button
+                        disabled={pendingBusy}
+                        onClick={() => rejectPendingOne(p)}
+                        style={{ flex: 1, padding: 12, borderRadius: 12, fontWeight: 900, letterSpacing: 2, opacity: pendingBusy ? 0.6 : 1 }}
+                      >
+                        REFUZO
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       ) : null}
