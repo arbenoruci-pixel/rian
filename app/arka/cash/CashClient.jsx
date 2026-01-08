@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { flushArkaQueue } from "@/lib/arkaCashSync";
+import Link from "next/link";
 import {
   dbGetActiveCycle,
   dbOpenCycle,
@@ -14,6 +14,12 @@ import {
   dbListPendingHanded,
   dbGetCarryoverToday, // ✅ use carryover context
 } from "@/lib/arkaDb";
+import {
+  listPendingRequestsForApprover,
+  approveRequest,
+  rejectRequest,
+  isAdminRole,
+} from "@/lib/arkaRequestsDb";
 
 const euro = (n) =>
   `€${Number(n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}`;
@@ -35,14 +41,24 @@ export default function CashClient() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
+  // session
+  const [user, setUser] = useState(null);
+  const canApprove = useMemo(() => isAdminRole(user?.role), [user]);
+  const isDispatch = useMemo(() => String(user?.role || '').toUpperCase() === 'DISPATCH', [user]);
+
   // core
   const [cycle, setCycle] = useState(null);
-  const [tab, setTab] = useState("OPEN"); // OPEN | HISTORI | DISPATCH
+  const [tab, setTab] = useState("OPEN"); // OPEN | HISTORI | DISPATCH | KERKESA
+
+  // approvals
+  const [reqs, setReqs] = useState([]);
+  const [rejectNote, setRejectNote] = useState("");
 
   // OPEN form
   const [openingCash, setOpeningCash] = useState("0");
   const [openingSource, setOpeningSource] = useState("COMPANY"); // COMPANY | PERSONAL | OTHER
   const [openingPin, setOpeningPin] = useState("");
+  const [takeFromBudget, setTakeFromBudget] = useState(true);
 
   // Carryover context (when no active cycle)
   const [carry, setCarry] = useState({ carry_cash: 0, carry_source: null, carry_person_pin: null });
@@ -63,8 +79,26 @@ export default function CashClient() {
   const [keepSource, setKeepSource] = useState("COMPANY"); // COMPANY | PERSONAL | OTHER
   const [keepPin, setKeepPin] = useState("");
 
-  // NOTE: if you have user PIN from auth, wire it here
-  const userPin = "";
+  // Cash counter (optional)
+  const [showCounter, setShowCounter] = useState(false);
+  const DENOMS = useMemo(
+    () => [100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1],
+    []
+  );
+  const [denomCounts, setDenomCounts] = useState(() => {
+    const o = {};
+    [100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1].forEach((d) => (o[String(d)] = 0));
+    return o;
+  });
+
+  const denomTotal = useMemo(() => {
+    return Object.entries(denomCounts || {}).reduce((sum, [k, v]) => {
+      const d = Number(k);
+      const c = Number(v || 0);
+      if (!Number.isFinite(d) || !Number.isFinite(c)) return sum;
+      return sum + d * c;
+    }, 0);
+  }, [denomCounts]);
 
   const sums = useMemo(() => {
     const ins = (moves || []).filter((m) => String(m.type).toUpperCase() === "IN")
@@ -79,11 +113,11 @@ export default function CashClient() {
     return opening + sums.ins - sums.outs;
   }, [cycle, sums]);
 
-  function cleanMoveNote(note) {
-    const s = String(note || "").trim();
-    // Hide internal dedupe tag prefix (PAY#...) from the UI
-    return s.replace(/^PAY#[^\s]+\s*/i, "").trim();
-  }
+  useEffect(() => {
+    if (!showCounter) return;
+    // Auto-fill cash counted from denomination counter.
+    setCashCounted(String((Math.round(denomTotal * 100) / 100).toFixed(2)));
+  }, [showCounter, denomTotal]);
 
   async function refresh(mode = "ALL") {
     setErr("");
@@ -121,40 +155,12 @@ export default function CashClient() {
 
       // moves for open cycle
       if (c?.id) {
-        // ✅ IMPORTANT: bring in any queued order payments (from PRANIMI/PASTRIMI/GATI)
-        // into the currently OPEN cycle.
-        try {
-          const flushed = await flushArkaQueue("LOCAL");
-          if (flushed?.ok && Number(flushed.flushed || 0) > 0) {
-            // re-read moves after flush
-          }
-        } catch {}
-
         const list = await dbListCycleMoves(c.id);
-        const listSafe = Array.isArray(list) ? list : [];
-        setMoves(listSafe);
+        setMoves(list || []);
 
-        // ✅ UX: Auto-fill CASH COUNTED with EXPECTED (but only if user hasn't typed)
-        const insLocal = listSafe
-          .filter((m) => String(m.type).toUpperCase() === "IN")
-          .reduce((a, m) => a + Number(m.amount || 0), 0);
-        const outsLocal = listSafe
-          .filter((m) => String(m.type).toUpperCase() === "OUT")
-          .reduce((a, m) => a + Number(m.amount || 0), 0);
-        const expectedLocal = Number(c.opening_cash || 0) + insLocal - outsLocal;
-
-        setCashCounted((prev) => {
-          const p = String(prev ?? "").trim();
-          if (p === "" || p === "0" || p === "0.0" || p === "0,0") return String(expectedLocal);
-          return prev;
-        });
-
-        // keep-cash defaults from carryover context (only if empty)
-        setKeepCash((prev) => {
-          const p = String(prev ?? "").trim();
-          if (p === "" || p === "0" || p === "0.0" || p === "0,0") return String(carry?.carry_cash || 0);
-          return prev;
-        });
+        // prefill close forms (nice UX)
+        setCashCounted(String(expectedCash));
+        setKeepCash(String(carry?.carry_cash || 0));
         setKeepSource(String(carry?.carry_source || "COMPANY").toUpperCase());
         setKeepPin(String(carry?.carry_person_pin || ""));
       } else {
@@ -166,10 +172,33 @@ export default function CashClient() {
         const list = await dbListPendingHanded();
         setHandedList(list || []);
       }
+
+      // approvals (admin/dispatch)
+      if (canApprove && user?.pin) {
+        try {
+          const list = await listPendingRequestsForApprover(user.pin, 100);
+          setReqs(list || []);
+        } catch {
+          // non-blocking
+          setReqs([]);
+        }
+      } else {
+        setReqs([]);
+      }
     } catch (e) {
       setErr(e?.message || String(e));
     }
   }
+
+  useEffect(() => {
+    // Read current session
+    try {
+      const u = JSON.parse(localStorage.getItem("CURRENT_USER_DATA") || "null");
+      setUser(u || null);
+    } catch {
+      setUser(null);
+    }
+  }, []);
 
   useEffect(() => {
     refresh();
@@ -178,18 +207,6 @@ export default function CashClient() {
 
   async function onOpenCycle() {
     setErr("");
-
-    // ✅ Guard: if an OPEN cycle already exists, don't try to open again.
-    if (cycle?.id) {
-      setErr("KE CIKËL OPEN — S’MUNDESH ME HAP TË RI. (MBYLLE → HANDED, pastaj DISPATCH → RECEIVED)");
-      return;
-    }
-
-    // ✅ UX: If an OPEN cycle already exists, don't try to open again.
-    if (cycle?.id) {
-      setErr("KE CIKËL OPEN — S’MUNDESH ME HAP TË RI. MBYLLE → HANDED, pastaj DISPATCH → RECEIVED.");
-      return;
-    }
 
     if (pendingHanded) {
       setErr("DISPATCH DUHET ME PRANU DORËZIMIN E FUNDIT (HANDED) PARA SE ME U HAP CIKËL I RI.");
@@ -207,21 +224,32 @@ export default function CashClient() {
 
       let opening_person_pin = "";
       if (src === "PERSONAL") {
-        opening_person_pin = String(openingPin || userPin || "").trim();
+        // If not typed, default to logged user's PIN.
+        opening_person_pin = String(openingPin || user?.pin || "").trim();
         if (!opening_person_pin) throw new Error("PIN MUNGON PËR PERSONAL.");
       }
 
-      await dbOpenCycle({
+      const opened = await dbOpenCycle({
         opening_cash,
         opening_source: src,
         opening_person_pin,
-        opened_by: "LOCAL",
+        opened_by: user?.name || "LOCAL",
       });
 
-      // After opening a cycle, immediately flush any queued payments.
-      try {
-        await flushArkaQueue("LOCAL");
-      } catch {}
+      // If opening cash comes from COMPANY, optionally record an OUT in company budget
+      // so budget balance doesn't show discrepancy.
+      if (src === 'COMPANY' && takeFromBudget && opening_cash > 0) {
+        try {
+          const { budgetAddOutMove } = await import('@/lib/companyBudgetDb');
+          await budgetAddOutMove({
+            type: 'OUT',
+            amount: opening_cash,
+            note: `TRANSFER TO ARKA (OPENING CASH) • ${dayKeyLocal(new Date())}`,
+            created_by: user?.name || 'LOCAL',
+            external_id: opened?.id ? `arka_open:${opened.id}` : null,
+          });
+        } catch {}
+      }
 
       await refresh();
       setTab("OPEN");
@@ -246,7 +274,7 @@ export default function CashClient() {
         amount: amt,
         note: String(moveNote || ""),
         source: "MANUAL",
-        created_by: "LOCAL",
+        created_by: user?.name || "LOCAL",
       });
 
       setMoveAmount("");
@@ -276,7 +304,8 @@ export default function CashClient() {
 
       let kpin = "";
       if (ks === "PERSONAL") {
-        kpin = String(keepPin || userPin || "").trim();
+        // If not typed, default to logged user's PIN.
+        kpin = String(keepPin || user?.pin || "").trim();
         if (!kpin) throw new Error("PIN MUNGON PËR KEEP CASH PERSONAL.");
       }
 
@@ -284,7 +313,7 @@ export default function CashClient() {
         cycle_id: cycle.id,
         expected_cash: expectedCash,
         cash_counted: counted,
-        closed_by: "LOCAL",
+        closed_by: user?.name || "LOCAL",
         keep_cash: keep,
         keep_source: ks,
         keep_person_pin: kpin,
@@ -302,9 +331,15 @@ export default function CashClient() {
   async function onReceiveCycle(cycle_id) {
     if (!cycle_id) return;
     setErr("");
+
+    if (!isDispatch) {
+      setErr("VETËM DISPATCH MUND TA PRANOJË (RECEIVE) DORËZIMIN.");
+      return;
+    }
+
     setBusy(true);
     try {
-      await dbReceiveCycle({ cycle_id, received_by: "DISPATCH" });
+      await dbReceiveCycle({ cycle_id, received_by: user?.name || "DISPATCH" });
       await refresh("DISPATCH");
     } catch (e) {
       setErr(e?.message || String(e));
@@ -335,6 +370,15 @@ export default function CashClient() {
         >
           DISPATCH
         </button>
+
+        {canApprove ? (
+          <button
+            onClick={() => setTab("KERKESA")}
+            style={{ flex: 1, padding: 12, borderRadius: 14, fontWeight: 900, letterSpacing: 2, opacity: tab === "KERKESA" ? 1 : 0.6 }}
+          >
+            KËRKESA{reqs?.length ? ` (${reqs.length})` : ""}
+          </button>
+        ) : null}
       </div>
 
       {/* Error */}
@@ -402,6 +446,18 @@ export default function CashClient() {
                 <option value="OTHER">BURIMI: OTHER</option>
               </select>
 
+              {String(openingSource).toUpperCase() === 'COMPANY' ? (
+                <label style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, opacity: 0.9, fontWeight: 900, letterSpacing: 1 }}>
+                  <input
+                    type="checkbox"
+                    checked={takeFromBudget}
+                    onChange={(e) => setTakeFromBudget(e.target.checked)}
+                    style={{ width: 18, height: 18 }}
+                  />
+                  MERRE PREJ BUXHETIT (TRANSFER) — ME HY NË BUXHET SI OUT
+                </label>
+              ) : null}
+
               {String(openingSource).toUpperCase() === "PERSONAL" ? (
                 <input
                   value={openingPin}
@@ -422,13 +478,6 @@ export default function CashClient() {
             </>
           ) : (
             <>
-              <div style={{ border: "1px solid rgba(0,180,255,0.25)", borderRadius: 14, padding: 12, opacity: 0.95 }}>
-                <div style={{ fontWeight: 900, letterSpacing: 2 }}>CIKLI ËSHTË I HAPUR</div>
-                <div style={{ marginTop: 6, opacity: 0.85, fontWeight: 800 }}>
-                  Ke cikël OPEN — s’mundesh me hap të ri.
-                </div>
-              </div>
-
               <div style={{ opacity: 0.9, fontWeight: 900, letterSpacing: 2 }}>
                 STATUS: {cycle.handoff_status}
               </div>
@@ -517,7 +566,7 @@ export default function CashClient() {
                       >
                         <div style={{ fontWeight: 900, letterSpacing: 2 }}>
                           {String(m.type || "").toUpperCase()}
-                          {m.note ? <span style={{ opacity: 0.8, letterSpacing: 1 }}> · {cleanMoveNote(m.note)}</span> : null}
+                          {m.note ? <span style={{ opacity: 0.8, letterSpacing: 1 }}> · {m.note}</span> : null}
                         </div>
                         <div style={{ fontWeight: 900 }}>{euro(m.amount)}</div>
                       </div>
@@ -529,6 +578,75 @@ export default function CashClient() {
               {/* Close */}
               <div style={{ border: "2px solid rgba(255,255,255,0.18)", borderRadius: 14, padding: 12 }}>
                 <div style={{ fontWeight: 900, letterSpacing: 2, opacity: 0.9 }}>MBYLLE CIKLIN</div>
+
+                <div style={{ marginTop: 8, opacity: 0.85, fontWeight: 900, letterSpacing: 1.5 }}>
+                  EXPECTED: {euro(expectedCash)}
+                </div>
+
+                <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setCashCounted(String(Number(expectedCash || 0).toFixed(2)))}
+                    style={{ flex: 1, padding: 10, borderRadius: 12, fontWeight: 900, letterSpacing: 1.5 }}
+                  >
+                    MBUSH ME EXPECTED
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCounter((v) => !v);
+                      if (!showCounter) {
+                        // reset counts when opening counter
+                        const o = {};
+                        DENOMS.forEach((d) => (o[String(d)] = 0));
+                        setDenomCounts(o);
+                      }
+                    }}
+                    style={{ flex: 1, padding: 10, borderRadius: 12, fontWeight: 900, letterSpacing: 1.5, opacity: 0.95 }}
+                  >
+                    {showCounter ? "FSHEH NUMËRUESIN" : "NUMËRO ME MONEDHA"}
+                  </button>
+                </div>
+
+                {showCounter ? (
+                  <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12, marginTop: 10 }}>
+                    <div style={{ fontWeight: 900, letterSpacing: 2, opacity: 0.85 }}>
+                      TOTALI NGA MONEDHAT: {euro(denomTotal)}
+                    </div>
+                    <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                      {DENOMS.map((d) => (
+                        <div key={String(d)} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <div style={{ width: 90, fontWeight: 900, letterSpacing: 1.5 }}>{euro(d)}</div>
+                          <button
+                            type="button"
+                            onClick={() => setDenomCounts((s) => ({ ...s, [String(d)]: Math.max(0, Number(s[String(d)] || 0) - 1) }))}
+                            style={{ width: 42, height: 36, borderRadius: 10, fontWeight: 900 }}
+                          >
+                            −
+                          </button>
+                          <input
+                            value={String(denomCounts[String(d)] || 0)}
+                            onChange={(e) =>
+                              setDenomCounts((s) => ({
+                                ...s,
+                                [String(d)]: Math.max(0, Number(String(e.target.value || "0").replace(/\D/g, "") || 0)),
+                              }))
+                            }
+                            inputMode="numeric"
+                            style={{ flex: 1, padding: 10, borderRadius: 10, fontWeight: 900, letterSpacing: 1 }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setDenomCounts((s) => ({ ...s, [String(d)]: Number(s[String(d)] || 0) + 1 }))}
+                            style={{ width: 42, height: 36, borderRadius: 10, fontWeight: 900 }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div style={{ marginTop: 10, opacity: 0.85, fontWeight: 900, letterSpacing: 2 }}>
                   EXPECTED: {euro(expectedCash)}

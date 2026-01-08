@@ -131,10 +131,13 @@ export default function LoginPage() {
       return;
     }
 
+    // Store PIN in session so ARKA can do approvals without asking again.
+    // (PIN is only entered on /login.)
     const u = {
       id: match.id || match.user_id || match.uid || 'user',
       name: match.name || 'PUNTOR',
       role: match.role || 'PUNTOR',
+      pin: clean,
     };
 
     // Master session (8h)

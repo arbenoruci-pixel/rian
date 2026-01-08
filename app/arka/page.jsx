@@ -29,7 +29,8 @@ export default function ArkaPage() {
       </div>
 
       <div className="arka-grid">
-        <Tile href="/arka/cash" icon="💶" name="BUXHETI" desc="CASH SOT, HAP/MBYLLE DITËN" />
+        <Tile href="/arka/cash" icon="💶" name="ARKA DITORE" desc="CASH SOT, CIKLET (OPEN/HANDED/RECEIVED)" />
+        <Tile href="/arka/buxheti" icon="🏦" name="BUXHETI I KOMPANIS" desc="IN/OUT + BALANC" />
         <Tile href="/arka/shpenzime" icon="🧾" name="SHPENZIME" desc="DALJE CASH (OUT), LISTË + SHTO" />
         <Tile href="/arka/puntoret" icon="👷" name="PUNTORËT" desc="LISTA, ROLE, PIN (ADMIN/DISPATCH/PUNTOR/TRANSPORT)" />
         <Tile href="/arka/debts" icon="📌" name="BORXHET" desc="KUSH NA KA BORXH / KUJT I KEMI BORXH" />

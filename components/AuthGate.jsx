@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import ApprovalsPopup from './ApprovalsPopup';
 
 // Login happens ONLY on /login.
 // After login we keep a session in localStorage with an expiry (default 8h).
@@ -85,6 +86,7 @@ export default function AuthGate({ children }) {
 
   return (
     <div>
+      <ApprovalsPopup />
       {/* Session chip (fixed on screen) */}
       <div
         style={{
