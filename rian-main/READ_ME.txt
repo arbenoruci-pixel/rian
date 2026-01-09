@@ -1,1 +1,0 @@
-Insert the modified pastrimi/page.jsx and globals.css here.
