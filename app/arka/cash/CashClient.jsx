@@ -55,6 +55,15 @@ export default function CashClient() {
   const [cycle, setCycle] = useState(null);
   const [tab, setTab] = useState("OPEN"); // OPEN | HISTORI | DISPATCH | KERKESA
 
+  // =========================
+  // HISTORI state
+  // =========================
+  const [histDays, setHistDays] = useState([]);
+  const [histLoading, setHistLoading] = useState(false);
+  const [histErr, setHistErr] = useState("");
+  const [histSelected, setHistSelected] = useState(null); // arka_days row
+  const [histCycles, setHistCycles] = useState([]);
+
   // approvals
   const [reqs, setReqs] = useState([]);
   const [rejectNote, setRejectNote] = useState("");
@@ -206,6 +215,37 @@ export default function CashClient() {
         }
       } else {
         setReqs([]);
+      }
+
+      // HISTORI (list days + cycles)
+      if (tab === "HISTORI" || mode === "HISTORI") {
+        setHistErr("");
+        setHistLoading(true);
+        try {
+          const days = await dbListHistoryDays(30);
+          const safeDays = Array.isArray(days) ? days : [];
+          setHistDays(safeDays);
+
+          // keep selected if still exists, otherwise pick first
+          let sel = histSelected;
+          if (!sel || !safeDays.find((d) => d.id === sel.id)) {
+            sel = safeDays[0] || null;
+            setHistSelected(sel);
+          }
+
+          if (sel?.id) {
+            const cyc = await dbListCyclesByDay(sel.id);
+            setHistCycles(Array.isArray(cyc) ? cyc : []);
+          } else {
+            setHistCycles([]);
+          }
+        } catch (e) {
+          setHistErr(e?.message || String(e));
+          setHistDays([]);
+          setHistCycles([]);
+        } finally {
+          setHistLoading(false);
+        }
       }
     } catch (e) {
       setErr(e?.message || String(e));
@@ -836,11 +876,102 @@ export default function CashClient() {
 
       {/* HISTORI */}
       {tab === "HISTORI" ? (
-        <div style={{ opacity: 0.75 }}>
-          HISTORI: në `arkaDb.js` s’ka funksion për me i listu ditët/ciklet e kalume.
-          <div style={{ marginTop: 10, opacity: 0.9 }}>
-            Nëse ma dërgon file-n ku e ke pas HISTORI-n (ose shtojmë 1 function minimal), ta kthej 1:1.
+        <div style={{ opacity: 0.95 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ fontWeight: 900, letterSpacing: 2 }}>HISTORI</div>
+            <button
+              onClick={() => refresh("HISTORI")}
+              style={{ padding: '8px 12px', borderRadius: 12, fontWeight: 900, letterSpacing: 2, opacity: histLoading ? 0.6 : 1 }}
+            >
+              REFRESH
+            </button>
           </div>
+
+          {histErr ? (
+            <div style={{ marginTop: 10, border: '1px solid rgba(255,80,80,0.6)', borderRadius: 12, padding: 10, color: '#ffb0b0' }}>
+              {histErr}
+            </div>
+          ) : null}
+
+          <div style={{ marginTop: 12, opacity: 0.8, fontWeight: 900, letterSpacing: 2 }}>DITËT (30)</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginTop: 10 }}>
+            {histDays?.length ? (
+              histDays.map((d) => {
+                const active = histSelected?.id === d.id;
+                const isClosed = !!d.closed_at;
+                return (
+                  <button
+                    key={d.id}
+                    onClick={async () => {
+                      setHistSelected(d);
+                      setHistErr("");
+                      setHistLoading(true);
+                      try {
+                        const cycles = await dbListCyclesByDay(d.id);
+                        setHistCycles(cycles || []);
+                      } catch (e) {
+                        setHistCycles([]);
+                        setHistErr(e?.message || String(e));
+                      } finally {
+                        setHistLoading(false);
+                      }
+                    }}
+                    style={{
+                      padding: 12,
+                      borderRadius: 14,
+                      border: active ? '1px solid rgba(120,180,255,0.9)' : '1px solid rgba(255,255,255,0.16)',
+                      background: active ? 'rgba(20,40,70,0.65)' : 'rgba(0,0,0,0.15)',
+                      textAlign: 'left',
+                      opacity: histLoading ? 0.7 : 1,
+                    }}
+                  >
+                    <div style={{ fontWeight: 900, letterSpacing: 1 }}>{d.day_key}</div>
+                    <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
+                      {isClosed ? 'MBYLLUR ✅' : 'HAPUR 🟡'}
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
+                      PRITET: {euro(d.expected_cash)}
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              <div style={{ opacity: 0.75 }}>S’KA TË DHËNA.</div>
+            )}
+          </div>
+
+          {histSelected ? (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ opacity: 0.8, fontWeight: 900, letterSpacing: 2 }}>
+                CIKLET — {histSelected.day_key}
+              </div>
+              <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+                {histCycles?.length ? (
+                  histCycles.map((c) => (
+                    <div
+                      key={c.id}
+                      style={{
+                        border: '1px solid rgba(255,255,255,0.16)',
+                        borderRadius: 14,
+                        padding: 12,
+                        background: 'rgba(0,0,0,0.15)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                        <div style={{ fontWeight: 900, letterSpacing: 1 }}>CIKLI #{c.cycle_no}</div>
+                        <div style={{ fontWeight: 900, opacity: 0.9 }}>{c.handoff_status || c.status}</div>
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+                        PRITET: {euro(c.expected_cash)} • NUMRUAR: {euro(c.cash_counted)} • DISK: {euro(c.discrepancy)}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ opacity: 0.75 }}>S’KA CIKLE PËR KËTË DITË.</div>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
