@@ -3,9 +3,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { ensureDefaultAdminIfEmpty, listUsers, setUserActive, setUserPin, upsertUser } from "@/lib/usersDb";
 
-const LS_KEY = "ARKA_USERS";
 const ROLES = ["OWNER", "ADMIN", "DISPATCH", "PUNTOR", "TRANSPORT"];
 
 function jparse(s, fallback) {
@@ -17,15 +16,24 @@ function jparse(s, fallback) {
   }
 }
 
+function onlyDigits(v) {
+  return String(v || "").replace(/\D/g, "");
+}
+
 export default function ArkaStaffPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
-  const [mode, setMode] = useState("checking"); // db|local
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState({ name: "", role: "PUNTOR", is_admin: false, is_active: true });
-  const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const canManage = useMemo(() => user?.role === "OWNER" || user?.role === "ADMIN", [user]);
+  // NOTE: DISPATCH is treated as ADMIN in your business rules.
+  const canManage = useMemo(
+    () => user?.role === "OWNER" || user?.role === "ADMIN" || user?.role === "DISPATCH",
+    [user]
+  );
+
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ name: "", role: "PUNTOR", pin: "", is_active: true });
 
   useEffect(() => {
     const u = jparse(localStorage.getItem("CURRENT_USER_DATA"), null);
@@ -34,88 +42,90 @@ export default function ArkaStaffPage() {
       return;
     }
     setUser(u);
+
     (async () => {
-      // Try DB (table might not exist yet)
-      const { error } = await supabase.from("arka_staff").select("id").limit(1);
-      if (!error) {
-        setMode("db");
-        await reloadDb();
-      } else {
-        setMode("local");
-        setItems(jparse(localStorage.getItem(LS_KEY), []));
-      }
+      setLoading(true);
+
+      // If DB table exists, make sure there is at least 1 admin to log in.
+      // (If the table doesn't exist, listUsers will return missingTable=true; this page will show a clear error.)
+      try {
+        await ensureDefaultAdminIfEmpty({ defaultName: "ADMIN", defaultPin: "0000" });
+      } catch {}
+
+      await reload();
+      setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  async function reloadDb() {
-    const { data, error } = await supabase
-      .from("arka_staff")
-      .select("id,name,role,is_admin,is_active,created_at")
-      .order("created_at", { ascending: false });
-    if (!error) setItems(data || []);
+  async function reload() {
+    const res = await listUsers();
+    if (!res.ok) {
+      const msg = res?.missingTable
+        ? "MUNGON TABELA 'tepiha_users' (OSE NUK KE PERMISSION).\n\nZgjidhja: Krijo tabelen tepiha_users (id,name,role,pin,is_active,created_at) ose jep anon access (select/insert/update)."
+        : String(res?.error?.message || res?.error || "ERROR");
+      alert(msg);
+      setItems([]);
+      return;
+    }
+    setItems(res.items || []);
   }
 
   function resetForm() {
-    setForm({ name: "", role: "PUNTOR", is_admin: false, is_active: true });
     setEditingId(null);
+    setForm({ name: "", role: "PUNTOR", pin: "", is_active: true });
   }
 
   async function save() {
     if (!canManage) return;
-    if (!form.name.trim()) return alert("SHKRUAJ EMRIN");
+    const name = String(form.name || "").trim();
+    const pin = onlyDigits(form.pin);
 
-    if (mode === "db") {
-      if (editingId) {
-        const { error } = await supabase
-          .from("arka_staff")
-          .update({ name: form.name.trim(), role: form.role, is_admin: !!form.is_admin, is_active: !!form.is_active })
-          .eq("id", editingId);
-        if (error) return alert(error.message);
-      } else {
-        const { error } = await supabase
-          .from("arka_staff")
-          .insert([{ name: form.name.trim(), role: form.role, is_admin: !!form.is_admin, is_active: !!form.is_active }]);
-        if (error) return alert(error.message);
-      }
-      await reloadDb();
-      resetForm();
-      return;
-    }
+    if (!name) return alert("SHKRUAJ EMRIN");
+    if (!editingId && pin.length < 4) return alert("PIN DUHET ME KAN TË PAKTËN 4 SHIFRA");
+    if (editingId && form.pin && pin.length < 4) return alert("PIN DUHET ME KAN TË PAKTËN 4 SHIFRA");
 
-    // local fallback
-    const next = [...items];
-    if (editingId) {
-      const idx = next.findIndex((x) => x.id === editingId);
-      if (idx >= 0) next[idx] = { ...next[idx], ...form };
-    } else {
-      next.unshift({ id: Date.now(), created_at: new Date().toISOString(), ...form });
-    }
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-    setItems(next);
+    const res = await upsertUser({
+      id: editingId || undefined,
+      name,
+      role: form.role,
+      pin: form.pin ? pin : "", // blank on edit = keep existing pin
+      is_active: form.is_active !== false,
+    });
+
+    if (!res.ok) return alert(String(res?.error?.message || res?.error || "ERROR"));
+    await reload();
     resetForm();
   }
 
-  async function editRow(row) {
+  function editRow(row) {
     if (!canManage) return;
     setEditingId(row.id);
-    setForm({ name: row.name || "", role: row.role || "PUNTOR", is_admin: !!row.is_admin, is_active: row.is_active !== false });
+    setForm({
+      name: row.name || "",
+      role: row.role || "PUNTOR",
+      pin: "", // DO NOT prefill
+      is_active: row.is_active !== false,
+    });
   }
 
-  async function removeRow(row) {
+  async function toggleActive(row) {
     if (!canManage) return;
-    if (!confirm("FSHI PUNTORIN?")) return;
+    const nextActive = row.is_active === false;
+    const res = await setUserActive(row.id, nextActive);
+    if (!res.ok) return alert(String(res?.error?.message || res?.error || "ERROR"));
+    await reload();
+  }
 
-    if (mode === "db") {
-      const { error } = await supabase.from("arka_staff").delete().eq("id", row.id);
-      if (error) return alert(error.message);
-      await reloadDb();
-      return;
-    }
-
-    const next = items.filter((x) => x.id !== row.id);
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-    setItems(next);
+  async function changePin(row) {
+    if (!canManage) return;
+    const p = onlyDigits(prompt(`PIN I RI për ${String(row.name || "").toUpperCase()} (4+ shifra):`, ""));
+    if (!p) return;
+    if (p.length < 4) return alert("PIN DUHET ME KAN TË PAKTËN 4 SHIFRA");
+    const res = await setUserPin(row.id, p);
+    if (!res.ok) return alert(String(res?.error?.message || res?.error || "ERROR"));
+    await reload();
+    alert("✅ PIN U NDRRUA");
   }
 
   if (!user) return null;
@@ -125,8 +135,8 @@ export default function ArkaStaffPage() {
       <div className="max-w-4xl mx-auto">
         <div className="arkaTop">
           <div>
-            <h1 className="arkaH1">ARKA • PUNTORËT</h1>
-            <p className="arkaMeta">{user.name} • {user.role} • {mode === "db" ? "ONLINE" : "LOCAL"}</p>
+            <h1 className="arkaH1">ARKA • PUNTORËT (PIN)</h1>
+            <p className="arkaMeta">{user.name} • {user.role} • ONLINE</p>
           </div>
           <Link href="/arka" className="arkaBack">KTHEHU</Link>
         </div>
@@ -137,42 +147,51 @@ export default function ArkaStaffPage() {
               <div className="arkaPanelBody">
                 <p className="arkaPanelTitle">SHTO / EDIT</p>
                 {!canManage ? (
-                  <p className="arkaWarn">
-                    VETËM OWNER/ADMIN MUND TË MENAXHOJË PUNTORËT
-                  </p>
+                  <p className="arkaWarn">VETËM ADMIN/DISPATCH MUND TË MENAXHOJË PUNTORËT</p>
                 ) : (
                   <>
-                  <input
-                    className="arkaInput"
-                    aria-label="EMRI"
-                    value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  />
-                  <select
-                    className="arkaInput"
-                    value={form.role}
-                    onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                  >
-                    {ROLES.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
-                  <label className="arkaCheck">
-                    <input type="checkbox" checked={!!form.is_admin} onChange={(e) => setForm((f) => ({ ...f, is_admin: e.target.checked }))} />
-                    ADMIN ACCESS
-                  </label>
-                  <label className="arkaCheck">
-                    <input type="checkbox" checked={!!form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} />
-                    AKTIV
-                  </label>
-                  <div className="flex gap-2 mt-3">
-                    <button onClick={save} className="arkaPrimary">
-                      {editingId ? "RUAJ" : "SHTO"}
-                    </button>
-                    <button onClick={resetForm} className="arkaGhost">
-                      CLEAR
-                    </button>
-                  </div>
+                    <input
+                      className="arkaInput"
+                      aria-label="EMRI"
+                      placeholder="EMRI"
+                      value={form.name}
+                      onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    />
+
+                    <select
+                      className="arkaInput"
+                      value={form.role}
+                      onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+                    >
+                      {ROLES.map((r) => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+
+                    <input
+                      className="arkaInput"
+                      aria-label="PIN"
+                      inputMode="numeric"
+                      placeholder={editingId ? "PIN I RI (LËRE BOSH PËR ME E MBAJT PIN-IN)" : "PIN (4+ SHIFRA)"}
+                      value={form.pin}
+                      onChange={(e) => setForm((f) => ({ ...f, pin: onlyDigits(e.target.value) }))}
+                    />
+
+                    <label className="arkaCheck">
+                      <input
+                        type="checkbox"
+                        checked={!!form.is_active}
+                        onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
+                      />
+                      AKTIV
+                    </label>
+
+                    <div className="flex gap-2 mt-3">
+                      <button onClick={save} className="arkaPrimary">
+                        {editingId ? "RUAJ" : "SHTO"}
+                      </button>
+                      <button onClick={resetForm} className="arkaGhost">CLEAR</button>
+                    </div>
                   </>
                 )}
               </div>
@@ -183,10 +202,12 @@ export default function ArkaStaffPage() {
             <div className="arkaPanel">
               <div className="arkaPanelHead">
                 <p className="arkaPanelTitle">LISTA</p>
-                <p className="arkaCount">{items.length} RRESHTA</p>
+                <p className="arkaCount">{items.length} PUNTORË</p>
               </div>
               <div className="arkaList">
-                {items.length === 0 ? (
+                {loading ? (
+                  <p className="arkaEmpty">DUKE NGARKU…</p>
+                ) : items.length === 0 ? (
                   <p className="arkaEmpty">NUK KA PUNTORË</p>
                 ) : (
                   items.map((r) => (
@@ -195,14 +216,22 @@ export default function ArkaStaffPage() {
                         <div className="arkaRowName">{String(r.name || "").toUpperCase()}</div>
                         <div className="arkaRowMeta">
                           <span className="arkaBadge">{r.role}</span>
-                          {r.is_admin ? <span className="arkaBadge arkaBadgeBlue">ADMIN</span> : null}
-                          {r.is_active === false ? <span className="arkaBadge arkaBadgeRed">PA AKTIV</span> : <span className="arkaBadge arkaBadgeGreen">AKTIV</span>}
+                          {r.is_active === false ? (
+                            <span className="arkaBadge arkaBadgeRed">PA AKTIV</span>
+                          ) : (
+                            <span className="arkaBadge arkaBadgeGreen">AKTIV</span>
+                          )}
+                          <span className="arkaBadge arkaBadgeBlue">PIN: ****</span>
                         </div>
                       </div>
+
                       {canManage && (
                         <div className="arkaRowActions">
                           <button onClick={() => editRow(r)} className="arkaMini">EDIT</button>
-                          <button onClick={() => removeRow(r)} className="arkaMini arkaMiniDanger">FSHI</button>
+                          <button onClick={() => changePin(r)} className="arkaMini">PIN</button>
+                          <button onClick={() => toggleActive(r)} className={`arkaMini ${r.is_active === false ? "" : "arkaMiniDanger"}`}>
+                            {r.is_active === false ? "AKTIVO" : "DEAKTIVO"}
+                          </button>
                         </div>
                       )}
                     </div>
@@ -238,23 +267,18 @@ export default function ArkaStaffPage() {
         .arkaList{padding:8px;display:flex;flex-direction:column;gap:8px;}
         .arkaEmpty{padding:28px 12px;text-align:center;font-size:10px;letter-spacing:.18em;opacity:.55;font-style:italic;}
 
-        .arkaRow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 10px;border-radius:12px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);}
+        .arkaRow{display:flex;justify-content:space-between;gap:10px;align-items:center;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:10px;}
         .arkaRowMain{min-width:0;}
-        .arkaRowName{font-size:12px;font-weight:950;letter-spacing:.08em;}
-        .arkaRowMeta{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;}
-        .arkaBadge{font-size:9px;font-weight:950;letter-spacing:.14em;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);opacity:.92;}
-        .arkaBadgeGreen{border-color:rgba(0,255,170,.25);background:rgba(0,255,170,.08);}
-        .arkaBadgeRed{border-color:rgba(255,80,80,.28);background:rgba(255,80,80,.08);}
-        .arkaBadgeBlue{border-color:rgba(0,150,255,.30);background:rgba(0,150,255,.10);}
+        .arkaRowName{font-size:12px;font-weight:950;letter-spacing:.12em;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52ch;}
+        .arkaRowMeta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+        .arkaBadge{font-size:9px;font-weight:950;letter-spacing:.14em;padding:6px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);opacity:.9;}
+        .arkaBadgeGreen{border-color:rgba(0,255,150,.25);background:rgba(0,255,150,.08);}
+        .arkaBadgeRed{border-color:rgba(255,0,80,.25);background:rgba(255,0,80,.08);}
+        .arkaBadgeBlue{border-color:rgba(0,150,255,.25);background:rgba(0,150,255,.08);}
 
-        .arkaRowActions{display:flex;gap:8px;flex-shrink:0;}
-        .arkaMini{padding:8px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);font-size:10px;font-weight:950;letter-spacing:.14em;}
-        .arkaMiniDanger{border-color:rgba(255,80,80,.35);background:rgba(255,80,80,.08);color:#ffd1d1;}
-
-        @media (min-width: 768px){
-          .arkaH1{font-size:20px;}
-          .arkaRow{padding:12px 12px;}
-        }
+        .arkaRowActions{display:flex;gap:6px;align-items:center;}
+        .arkaMini{font-size:9px;font-weight:950;letter-spacing:.16em;padding:8px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);}
+        .arkaMiniDanger{border-color:rgba(255,0,80,.22);background:rgba(255,0,80,.07);}
       `}</style>
     </div>
   );
