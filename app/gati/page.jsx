@@ -334,7 +334,8 @@ export default function GatiPage() {
     const paidUpfront = !!payOrder.paidUpfront;
 
     const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
-    const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
+    // "PAGUAR NË FILLIM" = mbyll borxhin, por NUK regjistron pagesë të re në ARKË sot.
+    const applied = paidUpfront ? 0 : Number(Math.min(cashGiven, due).toFixed(2));
     if (!paidUpfront && applied <= 0) {
       setShowPaySheet(false);
       return;
@@ -346,14 +347,10 @@ export default function GatiPage() {
     const debt = Math.max(0, Number((total - paidAfter).toFixed(2)));
     const change = paidUpfront ? 0 : Math.max(0, Number((cashGiven - applied).toFixed(2)));
 
-    // ARKA delta only if CASH
+    // ARKA: regjistro vetëm pagesën CASH të SOTIT (jo pagesat e vjetra / upfront).
     const prevArka = Number(o.pay?.arkaRecordedPaid || 0);
-    const willRecordCash = payMethod === 'CASH';
-
-    // In CASH, we want arkaRecordedPaid == paidAfter (minimum), never lower
-    const targetCashRecorded = willRecordCash ? paidAfter : prevArka;
-    const delta = willRecordCash ? Number((targetCashRecorded - prevArka).toFixed(2)) : 0;
-    const safeDelta = Math.max(0, delta);
+    const willRecordCash = payMethod === 'CASH' && applied > 0;
+    const safeDelta = willRecordCash ? applied : 0;
     const finalArka = willRecordCash ? Number((prevArka + safeDelta).toFixed(2)) : prevArka;
 
     const msg =

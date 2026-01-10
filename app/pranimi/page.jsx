@@ -166,92 +166,6 @@ async function releaseLocksForCode(code) {
   } catch {}
 }
 
-/* =========================
-   CLIENT INDEX + SEARCH
-   (returning clients)
-========================= */
-function normalizePhoneForSearch(p) {
-  return String(p || '').replace(/\s+/g, '').replace(/^\+/, '');
-}
-
-function makeClientKey(code, phone, name) {
-  const c = String(code || '').trim();
-  const ph = normalizePhoneForSearch(phone);
-  const nm = String(name || '').trim();
-  return c || ph || nm;
-}
-
-function readLocalClientsIndex() {
-  const map = new Map();
-  try {
-    const ids = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
-    (ids || []).forEach((id) => {
-      const raw = localStorage.getItem(`order_${id}`);
-      if (!raw) return;
-      const o = JSON.parse(raw);
-      const k = makeClientKey(o?.codeRaw, o?.phone, o?.name);
-      if (!k) return;
-      map.set(k, {
-        codeRaw: o?.codeRaw ?? '',
-        name: o?.name ?? '',
-        phone: o?.phone ?? '',
-        _ts: Number(o?.updatedAt || o?.createdAt || 0),
-      });
-    });
-  } catch {}
-  return Array.from(map.values());
-}
-
-async function readRemoteClientsIndex(supabaseClient) {
-  // cache to avoid heavy fetch every time
-  try {
-    const cached = JSON.parse(localStorage.getItem('clients_cache_v1') || 'null');
-    const ts = Number(cached?.ts || 0);
-    if (cached?.items && Date.now() - ts < 60 * 60 * 1000) return cached.items;
-  } catch {}
-
-  try {
-    const { data } = await supabaseClient.storage.from(BUCKET).list(ORDERS_PREFIX, { limit: 300 });
-    const keys = (data || [])
-      .filter((x) => x?.name && x.name.endsWith('.json'))
-      .map((x) => `${ORDERS_PREFIX}${x.name}`);
-
-    const items = [];
-    // read first 200 to keep it fast
-    for (const key of keys.slice(0, 200)) {
-      try {
-        const { data: signed } = await supabaseClient.storage.from(BUCKET).createSignedUrl(key, 60);
-        if (!signed?.signedUrl) continue;
-        const res = await fetch(signed.signedUrl, { cache: 'no-store' });
-        const o = await res.json();
-        const codeRaw = o?.codeRaw ?? '';
-        const name = o?.name ?? '';
-        const phone = o?.phone ?? '';
-        if (!codeRaw && !name && !phone) continue;
-        items.push({ codeRaw, name, phone, _ts: Number(o?.updatedAt || o?.createdAt || 0) });
-      } catch {}
-    }
-
-    // de-dupe by code/phone/name
-    const m = new Map();
-    for (const it of items) {
-      const k = makeClientKey(it.codeRaw, it.phone, it.name);
-      if (!k) continue;
-      const prev = m.get(k);
-      if (!prev || Number(it._ts || 0) > Number(prev._ts || 0)) m.set(k, it);
-    }
-    const out = Array.from(m.values());
-
-    try {
-      localStorage.setItem('clients_cache_v1', JSON.stringify({ ts: Date.now(), items: out }));
-    } catch {}
-
-    return out;
-  } catch {
-    return [];
-  }
-}
-
 // ---------- Modern chip colors ----------
 function chipStyleForVal(v, active) {
   const n = Number(v);
@@ -486,13 +400,167 @@ export default function PranimiPage() {
   const [phone, setPhone] = useState('');
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
 
-  // =========================
-  // KLIENT SEARCH (RIKTHIM)
-  // =========================
-  const [clientQuery, setClientQuery] = useState('');
-  const [clientHits, setClientHits] = useState([]);
-  const [clientIndexLoading, setClientIndexLoading] = useState(false);
-  const [clientIndex, setClientIndex] = useState([]); // [{code,name,phone,last_id}]
+  // Client re-activation search (cross-browser via Supabase Storage; cached locally)
+  const [clientSearchQ, setClientSearchQ] = useState('');
+  const [clientSearchRes, setClientSearchRes] = useState([]);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+
+  function _normTxt(v) {
+    return String(v ?? '')
+      .trim()
+      .toLowerCase();
+  }
+
+  function _normPhone(v) {
+    return String(v ?? '').replace(/\D/g, '');
+  }
+
+  function _isNumeric(v) {
+    return /^\d+$/.test(String(v ?? '').trim());
+  }
+
+  function _readClientIndexCache() {
+    try {
+      const raw = localStorage.getItem('tepiha_client_index_v1') || '';
+      const ts = Number(localStorage.getItem('tepiha_client_index_ts_v1') || 0);
+      const ageMs = Date.now() - ts;
+      if (!raw) return null;
+      // cache valid for 12 hours
+      if (ts && ageMs > 12 * 60 * 60 * 1000) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function _writeClientIndexCache(items) {
+    try {
+      localStorage.setItem('tepiha_client_index_v1', JSON.stringify(items || []));
+      localStorage.setItem('tepiha_client_index_ts_v1', String(Date.now()));
+    } catch {}
+  }
+
+  async function buildClientIndex({ force = false } = {}) {
+    if (typeof window === 'undefined') return [];
+
+    const cached = _readClientIndexCache();
+    if (!force && cached) return cached;
+
+    setClientSearchLoading(true);
+    try {
+      // We index clients from stored orders JSON (Supabase Storage)
+      const listRes = await supabase.storage.from(BUCKET).list('orders', {
+        limit: 1000,
+        offset: 0,
+        sortBy: { column: 'updated_at', order: 'desc' },
+      });
+
+      if (listRes?.error) throw listRes.error;
+      const files = (listRes?.data || []).filter((f) => String(f.name || '').endsWith('.json'));
+
+      const seen = new Map();
+      const out = [];
+
+      for (const f of files) {
+        if (out.length >= 250) break;
+        const path = `orders/${f.name}`;
+        const dl = await supabase.storage.from(BUCKET).download(path);
+        if (dl?.error || !dl?.data) continue;
+
+        let json = null;
+        try {
+          const txt = await dl.data.text();
+          json = JSON.parse(txt);
+        } catch {
+          json = null;
+        }
+        if (!json) continue;
+
+        const client = json.client || {};
+        const code = normalizeCode(client.code ?? json.code ?? json.code_n ?? '');
+        const nm = String(client.name || json.name || '').trim();
+        const ph = String(client.phone || json.phone || '').trim();
+        if (!code && !ph && !nm) continue;
+
+        const key = code ? `c:${code}` : ph ? `p:${_normPhone(ph)}` : `n:${_normTxt(nm)}`;
+        if (seen.has(key)) continue;
+        seen.set(key, true);
+
+        out.push({
+          code: code || '',
+          name: nm,
+          phone: ph,
+          _last: f.updated_at || f.created_at || '',
+        });
+      }
+
+      _writeClientIndexCache(out);
+      return out;
+    } finally {
+      setClientSearchLoading(false);
+    }
+  }
+
+  function applyPickedClient(c) {
+    if (!c) return;
+    if (c.code) setCodeRaw(String(c.code));
+    if (c.name != null) setName(String(c.name || ''));
+    if (c.phone != null) setPhone(String(c.phone || ''));
+  }
+
+  useEffect(() => {
+    let t = null;
+    t = setTimeout(async () => {
+      const q = String(clientSearchQ || '').trim();
+      if (!q) {
+        setClientSearchRes([]);
+        return;
+      }
+
+      const idx = await buildClientIndex({ force: false });
+      const nq = _normTxt(q);
+      const np = _normPhone(q);
+      const isNum = _isNumeric(q);
+
+      const filtered = (idx || []).filter((it) => {
+        const c = String(it.code || '').trim();
+        const n = _normTxt(it.name);
+        const p = _normPhone(it.phone);
+        if (isNum) {
+          // search by code/phone digits
+          return (c && c.startsWith(q)) || (np && p.includes(np));
+        }
+        return (n && n.includes(nq)) || (p && np && p.includes(np));
+      });
+
+      filtered.sort((a, b) => {
+        if (isNum) {
+          const aExact = String(a.code || '') === q;
+          const bExact = String(b.code || '') === q;
+          if (aExact !== bExact) return aExact ? -1 : 1;
+        }
+        // newest first
+        return String(b._last || '').localeCompare(String(a._last || ''));
+      });
+
+      setClientSearchRes(filtered.slice(0, 8));
+    }, 250);
+
+    return () => {
+      if (t) clearTimeout(t);
+    };
+  }, [clientSearchQ]);
+
+  function applyClientPick(it) {
+    if (!it) return;
+    const c = String(it.code || '').trim();
+    if (c) setCodeRaw(c);
+    setName(String(it.name || ''));
+    setPhone(String(it.phone || ''));
+    setClientSearchQ('');
+    setClientSearchRes([]);
+  }
 
   // rows
   // ✅ Start with EMPTY qty so "Copë" doesn't show ghost pieces before user inputs anything
@@ -596,64 +664,6 @@ export default function PranimiPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ---------- CLIENT SEARCH INDEX (returning clients) ----------
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        setClientIndexLoading(true);
-        const idx = await buildClientIndex(supabase);
-        if (!cancelled) {
-          setClientIndex(idx);
-        }
-      } catch {
-        if (!cancelled) setClientIndex([]);
-      } finally {
-        if (!cancelled) setClientIndexLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Live filtering (code/name/phone). If query is numeric, exact code match is forced to the top.
-  useEffect(() => {
-    const qRaw = String(clientQuery || '').trim();
-    if (!qRaw) {
-      setClientHits([]);
-      return;
-    }
-
-    const q = qRaw.toLowerCase();
-    const qDigits = qRaw.replace(/\D+/g, '');
-
-    const scored = (clientIndex || [])
-      .map((c) => {
-        const codeStr = String(c.code || '').trim();
-        const nameStr = String(c.name || '').toLowerCase();
-        const phoneStr = normalizePhoneForSearch(c.phone || '');
-
-        // scoring: exact code -> 0 (best), code starts -> 1, phone contains -> 2, name contains -> 3
-        let score = 99;
-        if (qDigits && codeStr === qDigits) score = 0;
-        else if (qDigits && codeStr.startsWith(qDigits)) score = 1;
-        else if (qDigits && phoneStr.includes(qDigits)) score = 2;
-        else if (!qDigits && nameStr.includes(q)) score = 3;
-        else if (!qDigits && phoneStr.includes(q.replace(/\D+/g, ''))) score = 4;
-        else if (!qDigits && codeStr.includes(q)) score = 5;
-
-        if (score >= 99) return null;
-        return { c, score };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.score - b.score || String(a.c.code).localeCompare(String(b.c.code)))
-      .slice(0, 15)
-      .map((x) => x.c);
-
-    setClientHits(scored);
-  }, [clientQuery, clientIndex]);
 
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2)), [totalM2, pricePerM2]);
@@ -1179,58 +1189,41 @@ export default function PranimiPage() {
       <section className="card">
         <h2 className="card-title">KLIENTI</h2>
 
-        {/* SEARCH returning clients (by CODE / NAME / PHONE) */}
-        <div className="field-group">
+        {/* 🔎 Search / Reactivate (KOD / EMËR / TELEFON) */}
+        <div className="field-group" style={{ marginTop: 6 }}>
           <label className="label">KËRKO KLIENTIN (KOD / EMËR / TELEFON)</label>
-          <input
-            className="input"
-            value={clientQuery}
-            onChange={(e) => setClientQuery(e.target.value)}
-            placeholder="shkruaj kodin ose emrin ose telefonin…"
-            autoComplete="off"
-          />
-
-          {clientIndexLoading ? (
-            <div style={{ marginTop: 6, opacity: 0.75, fontSize: 12 }}>DUKE NGARKUAR KLIENTËT…</div>
-          ) : null}
-
-          {clientQuery.trim().length > 0 && clientHits.length > 0 ? (
-            <div
-              style={{
-                marginTop: 8,
-                borderRadius: 14,
-                border: '1px solid rgba(255,255,255,0.10)',
-                background: 'rgba(0,0,0,0.25)',
-                overflow: 'hidden',
-              }}
+          <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+            <input
+              className="input"
+              placeholder="p.sh. 103 / arben / 045..."
+              value={clientSearchQ}
+              onChange={(e) => setClientSearchQ(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn secondary"
+              style={{ padding: '10px 12px', borderRadius: 14, minWidth: 120 }}
+              onClick={() => buildClientIndex(true)}
+              disabled={clientSearchLoading}
+              title="Rifresko nga DB"
             >
-              {clientHits.slice(0, 8).map((c) => (
+              {clientSearchLoading ? '...' : 'RIFRESKO'}
+            </button>
+          </div>
+
+          {clientSearchRes.length > 0 ? (
+            <div className="list" style={{ marginTop: 8 }}>
+              {clientSearchRes.slice(0, 6).map((it) => (
                 <button
-                  key={`${c.code}_${c.phone}_${c.name}`}
+                  key={String(it.code) + String(it.phone || '')}
                   type="button"
-                  onClick={() => {
-                    // Fill client fields, keep everything else intact.
-                    setName(c.name || '');
-                    setPhone(String(c.phone || '').replace(/^\+?383/, '').replace(/^0+/, ''));
-                    if (c.code != null && String(c.code).trim() !== '') setCodeRaw(String(c.code));
-                    setClientQuery('');
-                    setClientHits([]);
-                  }}
-                  className="btn secondary"
-                  style={{
-                    width: '100%',
-                    borderRadius: 0,
-                    border: 'none',
-                    textAlign: 'left',
-                    padding: '10px 12px',
-                    background: 'transparent',
-                  }}
+                  className="list-row"
+                  style={{ width: '100%', textAlign: 'left' }}
+                  onClick={() => applyClientPick(it)}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                    <div style={{ fontWeight: 800 }}>{c.code}</div>
-                    <div style={{ flex: 1, opacity: 0.95, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || '—'}</div>
-                    <div style={{ opacity: 0.75, fontSize: 12 }}>{c.phone || ''}</div>
-                  </div>
+                  <span className="badge" style={{ minWidth: 56, textAlign: 'center' }}>{it.code}</span>
+                  <span style={{ flex: 1, marginLeft: 10 }}>{it.name || '—'}</span>
+                  <span style={{ opacity: 0.8 }}>{it.phone || ''}</span>
                 </button>
               ))}
             </div>
