@@ -164,11 +164,33 @@ export default function GatiPage() {
 
       const promises = items.map(async (item) => {
         try {
-          const order = await downloadJsonNoCache(`orders/${item.name}`);
-          if (!order?.id) return null;
+          const remoteOrder = await downloadJsonNoCache(`orders/${item.name}`);
+          if (!remoteOrder?.id) return null;
 
-          // mirror local
-          if (typeof window !== 'undefined') localStorage.setItem(`order_${order.id}`, JSON.stringify(order));
+          // Prefer LOCAL copy when it exists. Reason:
+          // after "PAGUAR & DORËZUAR", the local status becomes "dorzim".
+          // If storage upload is blocked (RLS/permissions/network), remote JSON
+          // may still be "gati" and would keep showing the client here.
+          let order = remoteOrder;
+          if (typeof window !== 'undefined') {
+            try {
+              const localRaw = localStorage.getItem(`order_${remoteOrder.id}`);
+              if (localRaw) {
+                const localOrder = JSON.parse(localRaw);
+                if (localOrder && localOrder.id === remoteOrder.id) {
+                  order = localOrder;
+                }
+              }
+            } catch {}
+          }
+
+          // mirror local (but DON'T overwrite a newer local state with remote)
+          if (typeof window !== 'undefined') {
+            try {
+              const existing = localStorage.getItem(`order_${remoteOrder.id}`);
+              if (!existing) localStorage.setItem(`order_${remoteOrder.id}`, JSON.stringify(remoteOrder));
+            } catch {}
+          }
 
           if ((order.status || '') !== 'gati') return null;
 
