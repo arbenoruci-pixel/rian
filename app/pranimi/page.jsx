@@ -6,7 +6,6 @@ import { supabase } from '@/lib/supabaseClient';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
 const BUCKET = 'tepiha-photos';
-const CLIENT_INDEX_KEY = 'client_index_v1';
 
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
@@ -165,6 +164,92 @@ async function releaseLocksForCode(code) {
     }
     if (toRemove.length) await supabase.storage.from(BUCKET).remove(toRemove);
   } catch {}
+}
+
+/* =========================
+   CLIENT INDEX + SEARCH
+   (returning clients)
+========================= */
+function normalizePhoneForSearch(p) {
+  return String(p || '').replace(/\s+/g, '').replace(/^\+/, '');
+}
+
+function makeClientKey(code, phone, name) {
+  const c = String(code || '').trim();
+  const ph = normalizePhoneForSearch(phone);
+  const nm = String(name || '').trim();
+  return c || ph || nm;
+}
+
+function readLocalClientsIndex() {
+  const map = new Map();
+  try {
+    const ids = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
+    (ids || []).forEach((id) => {
+      const raw = localStorage.getItem(`order_${id}`);
+      if (!raw) return;
+      const o = JSON.parse(raw);
+      const k = makeClientKey(o?.codeRaw, o?.phone, o?.name);
+      if (!k) return;
+      map.set(k, {
+        codeRaw: o?.codeRaw ?? '',
+        name: o?.name ?? '',
+        phone: o?.phone ?? '',
+        _ts: Number(o?.updatedAt || o?.createdAt || 0),
+      });
+    });
+  } catch {}
+  return Array.from(map.values());
+}
+
+async function readRemoteClientsIndex(supabaseClient) {
+  // cache to avoid heavy fetch every time
+  try {
+    const cached = JSON.parse(localStorage.getItem('clients_cache_v1') || 'null');
+    const ts = Number(cached?.ts || 0);
+    if (cached?.items && Date.now() - ts < 60 * 60 * 1000) return cached.items;
+  } catch {}
+
+  try {
+    const { data } = await supabaseClient.storage.from(BUCKET).list(ORDERS_PREFIX, { limit: 300 });
+    const keys = (data || [])
+      .filter((x) => x?.name && x.name.endsWith('.json'))
+      .map((x) => `${ORDERS_PREFIX}${x.name}`);
+
+    const items = [];
+    // read first 200 to keep it fast
+    for (const key of keys.slice(0, 200)) {
+      try {
+        const { data: signed } = await supabaseClient.storage.from(BUCKET).createSignedUrl(key, 60);
+        if (!signed?.signedUrl) continue;
+        const res = await fetch(signed.signedUrl, { cache: 'no-store' });
+        const o = await res.json();
+        const codeRaw = o?.codeRaw ?? '';
+        const name = o?.name ?? '';
+        const phone = o?.phone ?? '';
+        if (!codeRaw && !name && !phone) continue;
+        items.push({ codeRaw, name, phone, _ts: Number(o?.updatedAt || o?.createdAt || 0) });
+      } catch {}
+    }
+
+    // de-dupe by code/phone/name
+    const m = new Map();
+    for (const it of items) {
+      const k = makeClientKey(it.codeRaw, it.phone, it.name);
+      if (!k) continue;
+      const prev = m.get(k);
+      if (!prev || Number(it._ts || 0) > Number(prev._ts || 0)) m.set(k, it);
+    }
+    const out = Array.from(m.values());
+
+    try {
+      localStorage.setItem('clients_cache_v1', JSON.stringify({ ts: Date.now(), items: out }));
+    } catch {}
+
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 // ---------- Modern chip colors ----------
@@ -399,47 +484,15 @@ export default function PranimiPage() {
   // client
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-
-  // Returning clients: local index (fast) + optional remote sync (best-effort)
-  const [clientQuery, setClientQuery] = useState('');
-  const [clientIndex, setClientIndex] = useState([]); // [{code, name, phone}]
-
-  const clientMatches = useMemo(() => {
-    const q = String(clientQuery || '').trim().toLowerCase();
-    if (!q) return [];
-    const isNum = /^\d+$/.test(q);
-
-    const scored = (clientIndex || [])
-      .filter((c) => c && (c.code != null))
-      .map((c) => {
-        const code = String(c.code || '').trim();
-        const name = String(c.name || '').toLowerCase();
-        const phoneFull = String(c.phone || '').toLowerCase();
-        const phoneDigits = phoneFull.replace(/\D/g, '');
-
-        let score = 0;
-        if (isNum) {
-          if (code === q) score = 100;
-          else if (code.startsWith(q)) score = 80;
-          else if (phoneDigits.includes(q)) score = 50;
-        } else {
-          if (name.includes(q)) score = 70;
-          else if (phoneFull.includes(q)) score = 60;
-          else if (code.includes(q)) score = 40;
-        }
-        return { ...c, _score: score };
-      })
-      .filter((c) => c._score > 0)
-      .sort((a, b) => {
-        if (b._score !== a._score) return b._score - a._score;
-        // stable tie-breakers
-        return String(a.code).localeCompare(String(b.code));
-      })
-      .slice(0, 8);
-
-    return scored;
-  }, [clientQuery, clientIndex]);
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
+
+  // =========================
+  // KLIENT SEARCH (RIKTHIM)
+  // =========================
+  const [clientQuery, setClientQuery] = useState('');
+  const [clientHits, setClientHits] = useState([]);
+  const [clientIndexLoading, setClientIndexLoading] = useState(false);
+  const [clientIndex, setClientIndex] = useState([]); // [{code,name,phone,last_id}]
 
   // rows
   // ✅ Start with EMPTY qty so "Copë" doesn't show ghost pieces before user inputs anything
@@ -526,37 +579,6 @@ export default function PranimiPage() {
         }
       } catch {}
 
-      // Returning clients index (best-effort)
-      try {
-        const raw = localStorage.getItem(CLIENT_INDEX_KEY);
-        if (raw) {
-          const arr = JSON.parse(raw);
-          if (Array.isArray(arr)) setClientIndex(arr);
-        }
-      } catch {}
-
-      // If local index empty, try to pull a shared index from Storage
-      try {
-        setTimeout(async () => {
-          try {
-            const current = (() => {
-              try { return JSON.parse(localStorage.getItem(CLIENT_INDEX_KEY) || '[]'); } catch { return []; }
-            })();
-            if (Array.isArray(current) && current.length) return;
-
-            const dl = await supabase.storage.from(BUCKET).download('clients/index.json');
-            if (dl?.data) {
-              const txt = await dl.data.text();
-              const parsed = JSON.parse(txt || '[]');
-              if (Array.isArray(parsed)) {
-                setClientIndex(parsed);
-                localStorage.setItem(CLIENT_INDEX_KEY, JSON.stringify(parsed));
-              }
-            }
-          } catch {}
-        }, 0);
-      } catch {}
-
       const id = `ord_${Date.now()}`;
       setOid(id);
 
@@ -574,6 +596,64 @@ export default function PranimiPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ---------- CLIENT SEARCH INDEX (returning clients) ----------
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setClientIndexLoading(true);
+        const idx = await buildClientIndex(supabase);
+        if (!cancelled) {
+          setClientIndex(idx);
+        }
+      } catch {
+        if (!cancelled) setClientIndex([]);
+      } finally {
+        if (!cancelled) setClientIndexLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Live filtering (code/name/phone). If query is numeric, exact code match is forced to the top.
+  useEffect(() => {
+    const qRaw = String(clientQuery || '').trim();
+    if (!qRaw) {
+      setClientHits([]);
+      return;
+    }
+
+    const q = qRaw.toLowerCase();
+    const qDigits = qRaw.replace(/\D+/g, '');
+
+    const scored = (clientIndex || [])
+      .map((c) => {
+        const codeStr = String(c.code || '').trim();
+        const nameStr = String(c.name || '').toLowerCase();
+        const phoneStr = normalizePhoneForSearch(c.phone || '');
+
+        // scoring: exact code -> 0 (best), code starts -> 1, phone contains -> 2, name contains -> 3
+        let score = 99;
+        if (qDigits && codeStr === qDigits) score = 0;
+        else if (qDigits && codeStr.startsWith(qDigits)) score = 1;
+        else if (qDigits && phoneStr.includes(qDigits)) score = 2;
+        else if (!qDigits && nameStr.includes(q)) score = 3;
+        else if (!qDigits && phoneStr.includes(q.replace(/\D+/g, ''))) score = 4;
+        else if (!qDigits && codeStr.includes(q)) score = 5;
+
+        if (score >= 99) return null;
+        return { c, score };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.score - b.score || String(a.c.code).localeCompare(String(b.c.code)))
+      .slice(0, 15)
+      .map((x) => x.c);
+
+    setClientHits(scored);
+  }, [clientQuery, clientIndex]);
 
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2)), [totalM2, pricePerM2]);
@@ -869,34 +949,6 @@ export default function PranimiPage() {
     return true;
   }
 
-  async function upsertClientToIndex(client) {
-    try {
-      const code = normalizeCode(client?.code);
-      const nm = String(client?.name || '').trim();
-      const ph = String(client?.phone || '').trim();
-      if (!code || !nm) return;
-
-      const next = (() => {
-        const prev = Array.isArray(clientIndex) ? clientIndex : [];
-        const without = prev.filter((x) => String(x?.code) !== String(code));
-        return [{ code: String(code), name: nm, phone: ph }, ...without].slice(0, 2000);
-      })();
-
-      setClientIndex(next);
-      localStorage.setItem(CLIENT_INDEX_KEY, JSON.stringify(next));
-
-      // Optional remote mirror (ignore failures)
-      try {
-        const blob = new Blob([JSON.stringify(next)], { type: 'application/json' });
-        await supabase.storage.from(BUCKET).upload('clients/index.json', blob, {
-          upsert: true,
-          cacheControl: '0',
-          contentType: 'application/json',
-        });
-      } catch {}
-    } catch {}
-  }
-
   async function handleContinue() {
     if (!validateBeforeContinue()) return;
 
@@ -935,9 +987,6 @@ export default function PranimiPage() {
       if (uploadError) throw uploadError;
 
       localStorage.setItem(`order_${oid}`, JSON.stringify(order));
-
-      // ✅ Save/update returning client in index (search)
-      await upsertClientToIndex(order.client);
 
       // ✅ remove draft (completed) both local + shared
       removeDraftLocal(oid);
@@ -1130,57 +1179,62 @@ export default function PranimiPage() {
       <section className="card">
         <h2 className="card-title">KLIENTI</h2>
 
-        {/* KËRKIM KLIENTI (rikthim / riaktivizim) */}
+        {/* SEARCH returning clients (by CODE / NAME / PHONE) */}
         <div className="field-group">
           <label className="label">KËRKO KLIENTIN (KOD / EMËR / TELEFON)</label>
           <input
             className="input"
             value={clientQuery}
             onChange={(e) => setClientQuery(e.target.value)}
-            placeholder="p.sh. 103 ose emri ose numri"
+            placeholder="shkruaj kodin ose emrin ose telefonin…"
+            autoComplete="off"
           />
-          {clientQuery.trim() && clientMatches.length > 0 && (
+
+          {clientIndexLoading ? (
+            <div style={{ marginTop: 6, opacity: 0.75, fontSize: 12 }}>DUKE NGARKUAR KLIENTËT…</div>
+          ) : null}
+
+          {clientQuery.trim().length > 0 && clientHits.length > 0 ? (
             <div
               style={{
                 marginTop: 8,
-                border: '1px solid rgba(255,255,255,0.12)',
                 borderRadius: 14,
+                border: '1px solid rgba(255,255,255,0.10)',
+                background: 'rgba(0,0,0,0.25)',
                 overflow: 'hidden',
               }}
             >
-              {clientMatches.slice(0, 8).map((c) => (
+              {clientHits.slice(0, 8).map((c) => (
                 <button
-                  key={`${c.code}-${c.phone}`}
+                  key={`${c.code}_${c.phone}_${c.name}`}
                   type="button"
+                  onClick={() => {
+                    // Fill client fields, keep everything else intact.
+                    setName(c.name || '');
+                    setPhone(String(c.phone || '').replace(/^\+?383/, '').replace(/^0+/, ''));
+                    if (c.code != null && String(c.code).trim() !== '') setCodeRaw(String(c.code));
+                    setClientQuery('');
+                    setClientHits([]);
+                  }}
                   className="btn secondary"
                   style={{
                     width: '100%',
-                    textAlign: 'left',
                     borderRadius: 0,
                     border: 'none',
-                    borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    textAlign: 'left',
                     padding: '10px 12px',
-                  }}
-                  onClick={() => {
-                    setName(String(c.name || ''));
-                    const digits = String(c.phone || '').replace(/\D/g, '');
-                    const pref = String(phonePrefix || '').replace(/\D/g, '');
-                    const rest = digits.startsWith(pref) ? digits.slice(pref.length) : digits;
-                    setPhone(rest);
-                    // use the same client code (do NOT increment)
-                    if (c.code) setCodeRaw(String(c.code));
-                    setClientQuery('');
+                    background: 'transparent',
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                    <div style={{ fontWeight: 800, letterSpacing: 0.6 }}>{String(c.code || '')}</div>
-                    <div style={{ flex: 1, opacity: 0.95, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(c.name || '')}</div>
-                    <div style={{ opacity: 0.7, fontSize: 12 }}>{String(c.phone || '')}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                    <div style={{ fontWeight: 800 }}>{c.code}</div>
+                    <div style={{ flex: 1, opacity: 0.95, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || '—'}</div>
+                    <div style={{ opacity: 0.75, fontSize: 12 }}>{c.phone || ''}</div>
                   </div>
                 </button>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="field-group">
