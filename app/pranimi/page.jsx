@@ -400,167 +400,11 @@ export default function PranimiPage() {
   const [phone, setPhone] = useState('');
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
 
-  // Client re-activation search (cross-browser via Supabase Storage; cached locally)
-  const [clientSearchQ, setClientSearchQ] = useState('');
-  const [clientSearchRes, setClientSearchRes] = useState([]);
-  const [clientSearchLoading, setClientSearchLoading] = useState(false);
-
-  function _normTxt(v) {
-    return String(v ?? '')
-      .trim()
-      .toLowerCase();
-  }
-
-  function _normPhone(v) {
-    return String(v ?? '').replace(/\D/g, '');
-  }
-
-  function _isNumeric(v) {
-    return /^\d+$/.test(String(v ?? '').trim());
-  }
-
-  function _readClientIndexCache() {
-    try {
-      const raw = localStorage.getItem('tepiha_client_index_v1') || '';
-      const ts = Number(localStorage.getItem('tepiha_client_index_ts_v1') || 0);
-      const ageMs = Date.now() - ts;
-      if (!raw) return null;
-      // cache valid for 12 hours
-      if (ts && ageMs > 12 * 60 * 60 * 1000) return null;
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function _writeClientIndexCache(items) {
-    try {
-      localStorage.setItem('tepiha_client_index_v1', JSON.stringify(items || []));
-      localStorage.setItem('tepiha_client_index_ts_v1', String(Date.now()));
-    } catch {}
-  }
-
-  async function buildClientIndex({ force = false } = {}) {
-    if (typeof window === 'undefined') return [];
-
-    const cached = _readClientIndexCache();
-    if (!force && cached) return cached;
-
-    setClientSearchLoading(true);
-    try {
-      // We index clients from stored orders JSON (Supabase Storage)
-      const listRes = await supabase.storage.from(BUCKET).list('orders', {
-        limit: 1000,
-        offset: 0,
-        sortBy: { column: 'updated_at', order: 'desc' },
-      });
-
-      if (listRes?.error) throw listRes.error;
-      const files = (listRes?.data || []).filter((f) => String(f.name || '').endsWith('.json'));
-
-      const seen = new Map();
-      const out = [];
-
-      for (const f of files) {
-        if (out.length >= 250) break;
-        const path = `orders/${f.name}`;
-        const dl = await supabase.storage.from(BUCKET).download(path);
-        if (dl?.error || !dl?.data) continue;
-
-        let json = null;
-        try {
-          const txt = await dl.data.text();
-          json = JSON.parse(txt);
-        } catch {
-          json = null;
-        }
-        if (!json) continue;
-
-        const client = json.client || {};
-        const code = normalizeCode(client.code ?? json.code ?? json.code_n ?? '');
-        const nm = String(client.name || json.name || '').trim();
-        const ph = String(client.phone || json.phone || '').trim();
-        if (!code && !ph && !nm) continue;
-
-        const key = code ? `c:${code}` : ph ? `p:${_normPhone(ph)}` : `n:${_normTxt(nm)}`;
-        if (seen.has(key)) continue;
-        seen.set(key, true);
-
-        out.push({
-          code: code || '',
-          name: nm,
-          phone: ph,
-          _last: f.updated_at || f.created_at || '',
-        });
-      }
-
-      _writeClientIndexCache(out);
-      return out;
-    } finally {
-      setClientSearchLoading(false);
-    }
-  }
-
-  function applyPickedClient(c) {
-    if (!c) return;
-    if (c.code) setCodeRaw(String(c.code));
-    if (c.name != null) setName(String(c.name || ''));
-    if (c.phone != null) setPhone(String(c.phone || ''));
-  }
-
-  useEffect(() => {
-    let t = null;
-    t = setTimeout(async () => {
-      const q = String(clientSearchQ || '').trim();
-      if (!q) {
-        setClientSearchRes([]);
-        return;
-      }
-
-      const idx = await buildClientIndex({ force: false });
-      const nq = _normTxt(q);
-      const np = _normPhone(q);
-      const isNum = _isNumeric(q);
-
-      const filtered = (idx || []).filter((it) => {
-        const c = String(it.code || '').trim();
-        const n = _normTxt(it.name);
-        const p = _normPhone(it.phone);
-        if (isNum) {
-          // search by code/phone digits
-          return (c && c.startsWith(q)) || (np && p.includes(np));
-        }
-        return (n && n.includes(nq)) || (p && np && p.includes(np));
-      });
-
-      filtered.sort((a, b) => {
-        if (isNum) {
-          const aExact = String(a.code || '') === q;
-          const bExact = String(b.code || '') === q;
-          if (aExact !== bExact) return aExact ? -1 : 1;
-        }
-        // newest first
-        return String(b._last || '').localeCompare(String(a._last || ''));
-      });
-
-      setClientSearchRes(filtered.slice(0, 8));
-    }, 250);
-
-    return () => {
-      if (t) clearTimeout(t);
-    };
-  }, [clientSearchQ]);
-
-  function applyClientPick(it) {
-    if (!it) return;
-    const c = String(it.code || '').trim();
-    if (c) setCodeRaw(c);
-    setName(String(it.name || ''));
-    setPhone(String(it.phone || ''));
-    setClientSearchQ('');
-    setClientSearchRes([]);
-  }
+  // client search (rikthime)
+  const [clientQuery, setClientQuery] = useState('');
+  const [clientsIndex, setClientsIndex] = useState([]);
+  const [clientHits, setClientHits] = useState([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
 
   // rows
   // ✅ Start with EMPTY qty so "Copë" doesn't show ghost pieces before user inputs anything
@@ -621,6 +465,117 @@ export default function PranimiPage() {
       setDrafts([]);
     }
   }
+
+  // ---------- CLIENT SEARCH (rikthime) ----------
+  async function loadClientsIndexOnce() {
+    if (clientsLoading) return;
+    if (clientsIndex && clientsIndex.length) return;
+
+    setClientsLoading(true);
+    try {
+      // cache 24h
+      const cacheKey = 'tepiha_clients_index_v1';
+      const cachedRaw = localStorage.getItem(cacheKey);
+      if (cachedRaw) {
+        try {
+          const cached = JSON.parse(cachedRaw);
+          if (cached && Array.isArray(cached.items) && Date.now() - Number(cached.ts || 0) < 24 * 3600 * 1000) {
+            setClientsIndex(cached.items);
+            setClientsLoading(false);
+            return;
+          }
+        } catch {}
+      }
+
+      const seenCodes = new Set();
+      const items = [];
+
+      // list orders JSON from Supabase Storage (BUCKET)
+      // NOTE: e lexojmë gradualisht dhe ndalojmë pasi të kemi mjaft klientë
+      const pageSize = 200;
+      for (let offset = 0; offset < 2000; offset += pageSize) {
+        const { data: files, error } = await supabase.storage.from(BUCKET).list('orders', {
+          limit: pageSize,
+          offset,
+          sortBy: { column: 'name', order: 'desc' },
+        });
+        if (error) break;
+        if (!files || !files.length) break;
+
+        for (const f of files) {
+          const fname = f?.name || '';
+          if (!fname.endsWith('.json')) continue;
+
+          try {
+            const { data: blob, error: dlErr } = await supabase.storage.from(BUCKET).download(`orders/${fname}`);
+            if (dlErr || !blob) continue;
+            const text = await blob.text();
+            const ord = JSON.parse(text);
+
+            const code = ord?.client?.code ?? ord?.code ?? ord?.code_n ?? ord?.nr ?? ord?.kodi;
+            const codeNum = Number(code);
+            if (!Number.isFinite(codeNum)) continue;
+            const codeStr = String(codeNum);
+            if (seenCodes.has(codeStr)) continue;
+
+            const nm = String(ord?.client?.name || ord?.name || '').trim();
+            const ph = String(ord?.client?.phone || ord?.phone || '').trim();
+            if (!nm && !ph) continue;
+
+            seenCodes.add(codeStr);
+            items.push({ code: codeStr, name: nm, phone: ph });
+
+            if (items.length >= 500) break;
+          } catch {}
+        }
+
+        if (items.length >= 500) break;
+      }
+
+      setClientsIndex(items);
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), items }));
+      } catch {}
+    } finally {
+      setClientsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const q = String(clientQuery || '').trim();
+    if (!q) {
+      setClientHits([]);
+      return;
+    }
+
+    // lazy load only when user types
+    loadClientsIndexOnce();
+
+    const qLow = q.toLowerCase();
+    const isNum = /^\d+$/.test(qLow);
+
+    const matches = (clientsIndex || [])
+      .filter((c) => {
+        if (!c) return false;
+        if (isNum) return String(c.code || '').includes(qLow);
+        return String(c.name || '').toLowerCase().includes(qLow) || String(c.phone || '').includes(qLow);
+      })
+      .sort((a, b) => {
+        if (isNum) {
+          const aCode = String(a.code || '');
+          const bCode = String(b.code || '');
+          const aRank = aCode === qLow ? 0 : aCode.startsWith(qLow) ? 1 : 2;
+          const bRank = bCode === qLow ? 0 : bCode.startsWith(qLow) ? 1 : 2;
+          if (aRank !== bRank) return aRank - bRank;
+          return Number(aCode) - Number(bCode);
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''), 'sq');
+      })
+      .slice(0, 12);
+
+    setClientHits(matches);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientQuery, clientsIndex]);
 
   useEffect(() => {
     (async () => {
@@ -1189,46 +1144,45 @@ export default function PranimiPage() {
       <section className="card">
         <h2 className="card-title">KLIENTI</h2>
 
-        {/* 🔎 Search / Reactivate (KOD / EMËR / TELEFON) */}
-        <div className="field-group" style={{ marginTop: 6 }}>
-          <label className="label">KËRKO KLIENTIN (KOD / EMËR / TELEFON)</label>
-          <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-            <input
-              className="input"
-              placeholder="p.sh. 103 / arben / 045..."
-              value={clientSearchQ}
-              onChange={(e) => setClientSearchQ(e.target.value)}
-            />
-            <button
-              type="button"
-              className="btn secondary"
-              style={{ padding: '10px 12px', borderRadius: 14, minWidth: 120 }}
-              onClick={() => buildClientIndex(true)}
-              disabled={clientSearchLoading}
-              title="Rifresko nga DB"
-            >
-              {clientSearchLoading ? '...' : 'RIFRESKO'}
-            </button>
-          </div>
-
-          {clientSearchRes.length > 0 ? (
-            <div className="list" style={{ marginTop: 8 }}>
-              {clientSearchRes.slice(0, 6).map((it) => (
-                <button
-                  key={String(it.code) + String(it.phone || '')}
-                  type="button"
-                  className="list-row"
-                  style={{ width: '100%', textAlign: 'left' }}
-                  onClick={() => applyClientPick(it)}
-                >
-                  <span className="badge" style={{ minWidth: 56, textAlign: 'center' }}>{it.code}</span>
-                  <span style={{ flex: 1, marginLeft: 10 }}>{it.name || '—'}</span>
-                  <span style={{ opacity: 0.8 }}>{it.phone || ''}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
+	        {/* Search për klienta që rikthehen (KOD / EMËR / TELEFON) */}
+	        <div className="field-group">
+	          <label className="label">KËRKO KLIENTIN (KOD / EMËR / TELEFON)</label>
+	          <input
+	            className="input"
+	            value={clientQuery}
+	            onChange={(e) => setClientQuery(e.target.value)}
+	            placeholder="p.sh. 98 / arben / 045..."
+	          />
+	          {clientsLoading ? (
+	            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 6 }}>DUKE NGARKUAR KLIENTËT...</div>
+	          ) : null}
+	          {clientHits && clientHits.length ? (
+	            <div className="list" style={{ marginTop: 8, maxHeight: 180, overflow: 'auto' }}>
+	              {clientHits.map((c) => (
+	                <button
+	                  key={`${c.code}_${c.phone}`}
+	                  type="button"
+	                  className="rowbtn"
+	                  onClick={() => {
+	                    // mbush fushat, mos prek logjikën tjetër
+	                    if (c.code != null) setCodeRaw(String(c.code));
+	                    if (c.name) setName(String(c.name));
+	                    if (c.phone) setPhone(String(c.phone));
+	                    if (c.phonePrefix) setPhonePrefix(String(c.phonePrefix));
+	                    setClientQuery('');
+	                    setClientHits([]);
+	                  }}
+	                  style={{ width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 12, marginBottom: 8 }}
+	                >
+	                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+	                    <div style={{ fontWeight: 800 }}>{String(c.code || '')} • {String(c.name || '').toLowerCase()}</div>
+	                    <div style={{ opacity: 0.85 }}>{String(c.phonePrefix || '')}{String(c.phone || '')}</div>
+	                  </div>
+	                </button>
+	              ))}
+	            </div>
+	          ) : null}
+	        </div>
 
         <div className="field-group">
           <label className="label">EMRI & MBIEMRI</label>
