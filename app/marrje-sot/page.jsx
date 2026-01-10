@@ -6,6 +6,20 @@ import { supabase } from '@/lib/supabaseClient';
 
 const BUCKET = 'tepiha-photos';
 
+function parseTimeFlexible(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const s = String(v).trim();
+  if (!s) return null;
+  // numeric string
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function normalizeCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
@@ -60,7 +74,11 @@ function buildIndexFromOrder(order) {
     pieces,
     m2,
     total,
-    deliveredAt: Number(order.deliveredAt || order.delivered_at || order.ts || Date.now()),
+    deliveredAt:
+      parseTimeFlexible(order.deliveredAt) ??
+      parseTimeFlexible(order.delivered_at) ??
+      parseTimeFlexible(order.ts) ??
+      Date.now(),
   };
 }
 

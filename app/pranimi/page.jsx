@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
 const BUCKET = 'tepiha-photos';
+const CLIENT_INDEX_KEY = 'client_index_v1';
 
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
@@ -398,6 +399,46 @@ export default function PranimiPage() {
   // client
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+
+  // Returning clients: local index (fast) + optional remote sync (best-effort)
+  const [clientQuery, setClientQuery] = useState('');
+  const [clientIndex, setClientIndex] = useState([]); // [{code, name, phone}]
+
+  const clientMatches = useMemo(() => {
+    const q = String(clientQuery || '').trim().toLowerCase();
+    if (!q) return [];
+    const isNum = /^\d+$/.test(q);
+
+    const scored = (clientIndex || [])
+      .filter((c) => c && (c.code != null))
+      .map((c) => {
+        const code = String(c.code || '').trim();
+        const name = String(c.name || '').toLowerCase();
+        const phoneFull = String(c.phone || '').toLowerCase();
+        const phoneDigits = phoneFull.replace(/\D/g, '');
+
+        let score = 0;
+        if (isNum) {
+          if (code === q) score = 100;
+          else if (code.startsWith(q)) score = 80;
+          else if (phoneDigits.includes(q)) score = 50;
+        } else {
+          if (name.includes(q)) score = 70;
+          else if (phoneFull.includes(q)) score = 60;
+          else if (code.includes(q)) score = 40;
+        }
+        return { ...c, _score: score };
+      })
+      .filter((c) => c._score > 0)
+      .sort((a, b) => {
+        if (b._score !== a._score) return b._score - a._score;
+        // stable tie-breakers
+        return String(a.code).localeCompare(String(b.code));
+      })
+      .slice(0, 8);
+
+    return scored;
+  }, [clientQuery, clientIndex]);
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
 
   // rows
@@ -483,6 +524,37 @@ export default function PranimiPage() {
           const p = Number(localStorage.getItem(PRICE_KEY) || '');
           if (Number.isFinite(p) && p > 0) setPricePerM2(p);
         }
+      } catch {}
+
+      // Returning clients index (best-effort)
+      try {
+        const raw = localStorage.getItem(CLIENT_INDEX_KEY);
+        if (raw) {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) setClientIndex(arr);
+        }
+      } catch {}
+
+      // If local index empty, try to pull a shared index from Storage
+      try {
+        setTimeout(async () => {
+          try {
+            const current = (() => {
+              try { return JSON.parse(localStorage.getItem(CLIENT_INDEX_KEY) || '[]'); } catch { return []; }
+            })();
+            if (Array.isArray(current) && current.length) return;
+
+            const dl = await supabase.storage.from(BUCKET).download('clients/index.json');
+            if (dl?.data) {
+              const txt = await dl.data.text();
+              const parsed = JSON.parse(txt || '[]');
+              if (Array.isArray(parsed)) {
+                setClientIndex(parsed);
+                localStorage.setItem(CLIENT_INDEX_KEY, JSON.stringify(parsed));
+              }
+            }
+          } catch {}
+        }, 0);
       } catch {}
 
       const id = `ord_${Date.now()}`;
@@ -797,6 +869,34 @@ export default function PranimiPage() {
     return true;
   }
 
+  async function upsertClientToIndex(client) {
+    try {
+      const code = normalizeCode(client?.code);
+      const nm = String(client?.name || '').trim();
+      const ph = String(client?.phone || '').trim();
+      if (!code || !nm) return;
+
+      const next = (() => {
+        const prev = Array.isArray(clientIndex) ? clientIndex : [];
+        const without = prev.filter((x) => String(x?.code) !== String(code));
+        return [{ code: String(code), name: nm, phone: ph }, ...without].slice(0, 2000);
+      })();
+
+      setClientIndex(next);
+      localStorage.setItem(CLIENT_INDEX_KEY, JSON.stringify(next));
+
+      // Optional remote mirror (ignore failures)
+      try {
+        const blob = new Blob([JSON.stringify(next)], { type: 'application/json' });
+        await supabase.storage.from(BUCKET).upload('clients/index.json', blob, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
+      } catch {}
+    } catch {}
+  }
+
   async function handleContinue() {
     if (!validateBeforeContinue()) return;
 
@@ -835,6 +935,9 @@ export default function PranimiPage() {
       if (uploadError) throw uploadError;
 
       localStorage.setItem(`order_${oid}`, JSON.stringify(order));
+
+      // ✅ Save/update returning client in index (search)
+      await upsertClientToIndex(order.client);
 
       // ✅ remove draft (completed) both local + shared
       removeDraftLocal(oid);
@@ -1026,6 +1129,59 @@ export default function PranimiPage() {
       {/* CLIENT */}
       <section className="card">
         <h2 className="card-title">KLIENTI</h2>
+
+        {/* KËRKIM KLIENTI (rikthim / riaktivizim) */}
+        <div className="field-group">
+          <label className="label">KËRKO KLIENTIN (KOD / EMËR / TELEFON)</label>
+          <input
+            className="input"
+            value={clientQuery}
+            onChange={(e) => setClientQuery(e.target.value)}
+            placeholder="p.sh. 103 ose emri ose numri"
+          />
+          {clientQuery.trim() && clientMatches.length > 0 && (
+            <div
+              style={{
+                marginTop: 8,
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 14,
+                overflow: 'hidden',
+              }}
+            >
+              {clientMatches.slice(0, 8).map((c) => (
+                <button
+                  key={`${c.code}-${c.phone}`}
+                  type="button"
+                  className="btn secondary"
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    borderRadius: 0,
+                    border: 'none',
+                    borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    padding: '10px 12px',
+                  }}
+                  onClick={() => {
+                    setName(String(c.name || ''));
+                    const digits = String(c.phone || '').replace(/\D/g, '');
+                    const pref = String(phonePrefix || '').replace(/\D/g, '');
+                    const rest = digits.startsWith(pref) ? digits.slice(pref.length) : digits;
+                    setPhone(rest);
+                    // use the same client code (do NOT increment)
+                    if (c.code) setCodeRaw(String(c.code));
+                    setClientQuery('');
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ fontWeight: 800, letterSpacing: 0.6 }}>{String(c.code || '')}</div>
+                    <div style={{ flex: 1, opacity: 0.95, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(c.name || '')}</div>
+                    <div style={{ opacity: 0.7, fontSize: 12 }}>{String(c.phone || '')}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="field-group">
           <label className="label">EMRI & MBIEMRI</label>

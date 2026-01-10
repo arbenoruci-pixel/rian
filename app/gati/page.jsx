@@ -192,6 +192,15 @@ export default function GatiPage() {
             } catch {}
           }
 
+          const deliveredFlag =
+            !!order.delivered ||
+            !!order.deliveredAt ||
+            !!order.delivered_at ||
+            !!order.dorzim_at ||
+            !!order.dorzimAt;
+
+          // If it's already delivered (even if status is still "gati" on remote), don't show it here.
+          if (deliveredFlag) return null;
           if ((order.status || '') !== 'gati') return null;
 
           const m2 = computeM2(order);
@@ -368,7 +377,11 @@ export default function GatiPage() {
     const updated = {
       ...o,
       status: 'dorzim',
+      delivered: true,
       deliveredAt: Date.now(),
+      delivered_at: new Date().toISOString(),
+      dorzim_at: new Date().toISOString(),
+      deliveredBy: user || 'DISPATCH',
       returnInfo: { ...(o.returnInfo || {}), active: false },
       pay: {
         ...(o.pay || {}),
