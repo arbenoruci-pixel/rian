@@ -6,6 +6,28 @@ import { supabase } from '@/lib/supabaseClient';
 
 const BUCKET = 'tepiha-photos';
 
+function dayKeyLocal(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function normalizeDayKeyFromISO(v) {
+  // Accepts ISO timestamps (e.g., 2026-01-10T12:34:56Z)
+  // Returns YYYY-MM-DD, or null.
+  if (!v) return null;
+  const s = String(v);
+  if (s.length >= 10 && s[4] === '-' && s[7] === '-') return s.slice(0, 10);
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    return dayKeyLocal(d);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
@@ -47,38 +69,10 @@ function computeTotalEuro(order) {
   return Number((m2 * rate).toFixed(2));
 }
 
-// deliveredAt/delivered_at mund me qenë number (ms), seconds, ose ISO string.
-function toMs(v) {
-  if (v == null) return NaN;
-  if (typeof v === 'number' && Number.isFinite(v)) {
-    // nëse vjen si seconds (10-digits), ktheje në ms
-    return v < 1e12 ? v * 1000 : v;
-  }
-  if (typeof v === 'string') {
-    const s = v.trim();
-    if (!s) return NaN;
-    // numeric string
-    if (/^\d+$/.test(s)) {
-      const n = Number(s);
-      if (Number.isFinite(n)) return n < 1e12 ? n * 1000 : n;
-    }
-    const t = Date.parse(s);
-    return Number.isFinite(t) ? t : NaN;
-  }
-  if (v instanceof Date) {
-    const t = v.getTime();
-    return Number.isFinite(t) ? t : NaN;
-  }
-  return NaN;
-}
-
 function buildIndexFromOrder(order) {
   const pieces = computePieces(order);
   const m2 = computeM2(order);
   const total = Number(order.pay?.euro ?? computeTotalEuro(order)) || 0;
-
-  const rawTs = order.deliveredAt ?? order.delivered_at ?? order.ts;
-  const deliveredMs = toMs(rawTs);
 
   return {
     id: order.id,
@@ -88,14 +82,21 @@ function buildIndexFromOrder(order) {
     pieces,
     m2,
     total,
-    deliveredAt: Number.isFinite(deliveredMs) ? deliveredMs : Date.now(),
+    deliveredAt: Number(order.deliveredAt || order.delivered_at || order.ts || Date.now()),
   };
 }
 
-function isSameDay(tsA, tsB) {
-  const a = new Date(tsA);
-  const b = new Date(tsB);
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+function normalizeDayKeyFromAny(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return dayKeyLocal(new Date(v));
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return normalizeDayKeyFromISO(s);
+}
+
+function matchesDayKey(deliveredAt, dayKey) {
+  const dk = normalizeDayKeyFromAny(deliveredAt);
+  return dk && dayKey && String(dk) === String(dayKey);
 }
 
 async function downloadJsonNoCache(path) {
@@ -106,12 +107,11 @@ async function downloadJsonNoCache(path) {
   return await res.json();
 }
 
-async function loadOrdersFromSupabaseForDay(dayMs) {
+async function loadOrdersFromSupabaseForDay(dayKey) {
   if (!supabase) return [];
   const { data, error } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
   if (error || !data) return [];
 
-  const target = Number.isFinite(Number(dayMs)) ? Number(dayMs) : Date.now();
   const out = [];
 
   const items = (data || []).filter((x) => (x.name || '').endsWith('.json'));
@@ -122,7 +122,7 @@ async function loadOrdersFromSupabaseForDay(dayMs) {
       if ((order.status || '') !== 'dorzim') continue;
 
       const idx = buildIndexFromOrder(order);
-      if (isSameDay(idx.deliveredAt, target)) out.push(idx);
+      if (matchesDayKey(idx.deliveredAt, dayKey)) out.push(idx);
     } catch {
       // ignore bad file
     }
@@ -132,7 +132,7 @@ async function loadOrdersFromSupabaseForDay(dayMs) {
   return out;
 }
 
-function loadOrdersLocalForDay(dayMs) {
+function loadOrdersLocalForDay(dayKey) {
   if (typeof window === 'undefined') return [];
   let list = [];
   try {
@@ -142,7 +142,6 @@ function loadOrdersLocalForDay(dayMs) {
     list = [];
   }
 
-  const target = Number.isFinite(Number(dayMs)) ? Number(dayMs) : Date.now();
   const out = [];
 
   for (const entry of list) {
@@ -153,7 +152,7 @@ function loadOrdersLocalForDay(dayMs) {
       if ((order.status || '') !== 'dorzim') continue;
 
       const idx = buildIndexFromOrder(order);
-      if (isSameDay(idx.deliveredAt, target)) out.push(idx);
+      if (matchesDayKey(idx.deliveredAt, dayKey)) out.push(idx);
     } catch {
       // ignore
     }
@@ -166,23 +165,17 @@ function loadOrdersLocalForDay(dayMs) {
 export default function Page() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [dateKey, setDateKey] = useState(() => dayKey(new Date()));
-
-  const selectedDayMs = useMemo(() => {
-    // dateKey është "YYYY-MM-DD"
-    const ms = new Date(`${String(dateKey)}T00:00:00`).getTime();
-    return Number.isFinite(ms) ? ms : Date.now();
-  }, [dateKey]);
+  const [dayKey, setDayKey] = useState(() => dayKeyLocal(new Date()));
 
   async function refresh() {
     setLoading(true);
     try {
       let online = [];
       try {
-        online = await loadOrdersFromSupabaseForDay(selectedDayMs);
+        online = await loadOrdersFromSupabaseForDay(dayKey);
       } catch {}
       if (online && online.length > 0) setOrders(online);
-      else setOrders(loadOrdersLocalForDay(selectedDayMs));
+      else setOrders(loadOrdersLocalForDay(dayKey));
     } finally {
       setLoading(false);
     }
@@ -191,7 +184,7 @@ export default function Page() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     refresh();
-  }, [selectedDayMs]);
+  }, [dayKey]);
 
   const listTotalM2 = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0), [orders]);
   const listTotalEuro = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0), [orders]);
@@ -201,17 +194,9 @@ export default function Page() {
       <header className="header-row">
         <div>
           <h1 className="title">MARRJE SOT</h1>
-          <div className="subtitle">Porositë e dorëzuara në datën e zgjedhur</div>
+          <div className="subtitle">Porositë e dorëzuara më: <strong>{dayKey}</strong></div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
-          <div style={{ marginBottom: 6 }}>
-            <input
-              type="date"
-              value={dateKey}
-              onChange={(e) => setDateKey(e.target.value || dayKey(new Date()))}
-              className="dateInput"
-            />
-          </div>
           <div>
             M² SOT: <strong>{listTotalM2.toFixed(2)} m²</strong>
           </div>
@@ -220,6 +205,26 @@ export default function Page() {
           </div>
         </div>
       </header>
+
+      <section className="card" style={{ padding: 10, marginBottom: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ fontSize: 12, opacity: 0.85, flex: 1 }}>ZGJIDH DATËN:</div>
+        <input
+          type="date"
+          value={dayKey}
+          onChange={(e) => setDayKey(String(e.target.value || dayKeyLocal(new Date()))) }
+          style={{
+            background: '#0e1628',
+            color: '#e8f0ff',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 10,
+            padding: '10px 12px',
+            width: 170,
+            fontSize: 14,
+            textTransform: 'uppercase'
+          }}
+        />
+        <button className="btn" onClick={refresh} style={{ padding: '10px 12px' }}>RIFRESKO</button>
+      </section>
 
       <section className="card" style={{ padding: 10 }}>
         {loading && <p style={{ textAlign: 'center' }}>Duke i lexuar porositë...</p>}
