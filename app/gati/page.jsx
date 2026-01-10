@@ -335,7 +335,11 @@ export default function GatiPage() {
 
     const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
     const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
-    if (!paidUpfront && applied <= 0) {
+
+    // IMPORTANT:
+    // Nëse porosia është e paguar më herët (p.sh. në PRANIMI), atëherë `due === 0`
+    // dhe s’ka pse me blloku dorëzimin. Blloko vetëm kur ka DUE > 0 dhe s’është dhënë pagesë.
+    if (due > 0 && !paidUpfront && applied <= 0) {
       setShowPaySheet(false);
       return;
     }
@@ -363,19 +367,11 @@ export default function GatiPage() {
       `Kthim: ${change.toFixed(2)} €\n\n` +
       `Konfirmo DORËZIMIN?`;
 
-	    if (!confirm(msg)) return;
+    if (!confirm(msg)) return;
 
-	    // IMPORTANT:
-	    // `payOrder.id` është ID e porosisë nga lista (row.id). Shumë porosi në JSON-in e ruajtur
-	    // nuk kanë `id` brenda (o.id mungon). Nëse e përdorim `updated.id` nga `o.id`, del `undefined`
-	    // dhe prish dy gjëra: upload bëhet në `orders/undefined.json` dhe filter nuk e heq porosinë nga lista.
-	    const oid = String(payOrder.id || o.id || "").trim();
-	    if (!oid) throw new Error("Mungon ID e porosisë.");
-
-	    const updated = {
-	      ...o,
-	      id: oid,
-	      status: 'dorzim',
+    const updated = {
+      ...o,
+      status: 'dorzim',
       deliveredAt: Date.now(),
       returnInfo: { ...(o.returnInfo || {}), active: false },
       pay: {
@@ -390,14 +386,14 @@ export default function GatiPage() {
       },
     };
 
-	    try {
-	      localStorage.setItem(`order_${oid}`, JSON.stringify(updated));
+    try {
+      localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
       const blob =
         typeof Blob !== 'undefined'
           ? new Blob([JSON.stringify(updated)], { type: 'application/json' })
           : null;
       if (blob) {
-	      await supabase.storage.from(BUCKET).upload(`orders/${oid}.json`, blob, {
+        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
           upsert: true,
           cacheControl: '0',
           contentType: 'application/json',
@@ -409,9 +405,9 @@ export default function GatiPage() {
 
     // ARKA record (only CASH + positive delta)
     if (willRecordCash && safeDelta > 0) {
-	      const arkaRecord = {
-	        id: `arka_${oid}_${Date.now()}`,
-	        orderId: oid,
+      const arkaRecord = {
+        id: `arka_${updated.id}_${Date.now()}`,
+        orderId: updated.id,
         code: normalizeCode(updated.client?.code),
         name: updated.client?.name || '',
         phone: updated.client?.phone || '',
@@ -422,7 +418,7 @@ export default function GatiPage() {
 
 	      const cashRes = await recordCashMove({
         externalId: arkaRecord.id,
-	        orderId: oid,
+        orderId: updated.id,
         code: arkaRecord.code,
         name: (arkaRecord.name || '').trim(),
 	        stage: 'GATI',
@@ -445,7 +441,7 @@ export default function GatiPage() {
 	    const doneMsg = '✅ Porosia u dorëzua.' + (willRecordCash ? '\n\n(Nëse ARKA ishte e mbyllur: pagesa ruhet si WAITING dhe futet në ARKË kur hapet.)' : '');
 	    alert(doneMsg);
     closePay();
-	    setOrders((prev) => prev.filter((x) => String(x.id) !== oid));
+    setOrders((prev) => prev.filter((x) => x.id !== updated.id));
   }
 
   // ---------------- HIDDEN RETURN (HOLD 3s ON PAY) ----------------
