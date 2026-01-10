@@ -335,11 +335,7 @@ export default function GatiPage() {
 
     const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
     const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
-
-    // IMPORTANT:
-    // Nëse porosia është e paguar më herët (p.sh. në PRANIMI), atëherë `due === 0`
-    // dhe s’ka pse me blloku dorëzimin. Blloko vetëm kur ka DUE > 0 dhe s’është dhënë pagesë.
-    if (due > 0 && !paidUpfront && applied <= 0) {
+    if (!paidUpfront && applied <= 0) {
       setShowPaySheet(false);
       return;
     }
@@ -373,6 +369,7 @@ export default function GatiPage() {
       ...o,
       status: 'dorzim',
       deliveredAt: Date.now(),
+        delivered_at: new Date().toISOString(),
       returnInfo: { ...(o.returnInfo || {}), active: false },
       pay: {
         ...(o.pay || {}),

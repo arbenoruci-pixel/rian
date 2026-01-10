@@ -6,28 +6,6 @@ import { supabase } from '@/lib/supabaseClient';
 
 const BUCKET = 'tepiha-photos';
 
-function dayKeyLocal(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function normalizeDayKeyFromISO(v) {
-  // Accepts ISO timestamps (e.g., 2026-01-10T12:34:56Z)
-  // Returns YYYY-MM-DD, or null.
-  if (!v) return null;
-  const s = String(v);
-  if (s.length >= 10 && s[4] === '-' && s[7] === '-') return s.slice(0, 10);
-  try {
-    const d = new Date(s);
-    if (Number.isNaN(d.getTime())) return null;
-    return dayKeyLocal(d);
-  } catch {
-    return null;
-  }
-}
-
 function normalizeCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
@@ -86,17 +64,10 @@ function buildIndexFromOrder(order) {
   };
 }
 
-function normalizeDayKeyFromAny(v) {
-  if (v == null) return null;
-  if (typeof v === 'number') return dayKeyLocal(new Date(v));
-  const s = String(v);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return normalizeDayKeyFromISO(s);
-}
-
-function matchesDayKey(deliveredAt, dayKey) {
-  const dk = normalizeDayKeyFromAny(deliveredAt);
-  return dk && dayKey && String(dk) === String(dayKey);
+function isSameDay(tsA, tsB) {
+  const a = new Date(tsA);
+  const b = new Date(tsB);
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
 async function downloadJsonNoCache(path) {
@@ -107,11 +78,12 @@ async function downloadJsonNoCache(path) {
   return await res.json();
 }
 
-async function loadOrdersFromSupabaseForDay(dayKey) {
+async function loadOrdersFromSupabaseForToday() {
   if (!supabase) return [];
   const { data, error } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
   if (error || !data) return [];
 
+  const today = Date.now();
   const out = [];
 
   const items = (data || []).filter((x) => (x.name || '').endsWith('.json'));
@@ -119,10 +91,23 @@ async function loadOrdersFromSupabaseForDay(dayKey) {
     try {
       const order = await downloadJsonNoCache(`orders/${item.name}`);
       if (!order?.id) continue;
-      if ((order.status || '') !== 'dorzim') continue;
+      const st = String(order.status || '').toLowerCase();
+      const deliveredFlag =
+        st === 'dorzim' ||
+        st === 'delivered' ||
+        st === 'done' ||
+        st === 'completed' ||
+        String(order.stage || '').toLowerCase() === 'marrje' ||
+        order.delivered === true ||
+        order.is_delivered === true ||
+        !!order.deliveredAt ||
+        !!order.delivered_at ||
+        !!order.pickedUpAt ||
+        !!order.picked_up_at;
+      if (!deliveredFlag) continue;
 
       const idx = buildIndexFromOrder(order);
-      if (matchesDayKey(idx.deliveredAt, dayKey)) out.push(idx);
+      if (isSameDay(idx.deliveredAt, today)) out.push(idx);
     } catch {
       // ignore bad file
     }
@@ -132,7 +117,7 @@ async function loadOrdersFromSupabaseForDay(dayKey) {
   return out;
 }
 
-function loadOrdersLocalForDay(dayKey) {
+function loadOrdersLocalForToday() {
   if (typeof window === 'undefined') return [];
   let list = [];
   try {
@@ -142,6 +127,7 @@ function loadOrdersLocalForDay(dayKey) {
     list = [];
   }
 
+  const today = Date.now();
   const out = [];
 
   for (const entry of list) {
@@ -149,10 +135,25 @@ function loadOrdersLocalForDay(dayKey) {
       const rawOrder = localStorage.getItem(`order_${entry.id}`);
       if (!rawOrder) continue;
       const order = JSON.parse(rawOrder);
-      if ((order.status || '') !== 'dorzim') continue;
+      {
+      const st = String(order.status || '').toLowerCase();
+      const deliveredFlag =
+        st === 'dorzim' ||
+        st === 'delivered' ||
+        st === 'done' ||
+        st === 'completed' ||
+        String(order.stage || '').toLowerCase() === 'marrje' ||
+        order.delivered === true ||
+        order.is_delivered === true ||
+        !!order.deliveredAt ||
+        !!order.delivered_at ||
+        !!order.pickedUpAt ||
+        !!order.picked_up_at;
+      if (!deliveredFlag) continue;
+    }
 
       const idx = buildIndexFromOrder(order);
-      if (matchesDayKey(idx.deliveredAt, dayKey)) out.push(idx);
+      if (isSameDay(idx.deliveredAt, today)) out.push(idx);
     } catch {
       // ignore
     }
@@ -165,17 +166,16 @@ function loadOrdersLocalForDay(dayKey) {
 export default function Page() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [dayKey, setDayKey] = useState(() => dayKeyLocal(new Date()));
 
   async function refresh() {
     setLoading(true);
     try {
       let online = [];
       try {
-        online = await loadOrdersFromSupabaseForDay(dayKey);
+        online = await loadOrdersFromSupabaseForToday();
       } catch {}
       if (online && online.length > 0) setOrders(online);
-      else setOrders(loadOrdersLocalForDay(dayKey));
+      else setOrders(loadOrdersLocalForToday());
     } finally {
       setLoading(false);
     }
@@ -184,7 +184,7 @@ export default function Page() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     refresh();
-  }, [dayKey]);
+  }, []);
 
   const listTotalM2 = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0), [orders]);
   const listTotalEuro = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0), [orders]);
@@ -194,7 +194,7 @@ export default function Page() {
       <header className="header-row">
         <div>
           <h1 className="title">MARRJE SOT</h1>
-          <div className="subtitle">Porositë e dorëzuara më: <strong>{dayKey}</strong></div>
+          <div className="subtitle">Porositë e dorëzuara sot</div>
         </div>
         <div style={{ textAlign: 'right', fontSize: 12 }}>
           <div>
@@ -205,26 +205,6 @@ export default function Page() {
           </div>
         </div>
       </header>
-
-      <section className="card" style={{ padding: 10, marginBottom: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div style={{ fontSize: 12, opacity: 0.85, flex: 1 }}>ZGJIDH DATËN:</div>
-        <input
-          type="date"
-          value={dayKey}
-          onChange={(e) => setDayKey(String(e.target.value || dayKeyLocal(new Date()))) }
-          style={{
-            background: '#0e1628',
-            color: '#e8f0ff',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 10,
-            padding: '10px 12px',
-            width: 170,
-            fontSize: 14,
-            textTransform: 'uppercase'
-          }}
-        />
-        <button className="btn" onClick={refresh} style={{ padding: '10px 12px' }}>RIFRESKO</button>
-      </section>
 
       <section className="card" style={{ padding: 10 }}>
         {loading && <p style={{ textAlign: 'center' }}>Duke i lexuar porositë...</p>}
