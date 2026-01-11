@@ -1,13 +1,18 @@
+// app/gati/page.jsx
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { recordCashMove } from '@/lib/arkaCashSync';
 
+const BUCKET = 'tepiha-photos';
+const PAY_CHIPS = [5, 10, 20, 30, 50];
+
+// ---------------- HELPERS ----------------
 function normalizeCode(raw) {
-  if (raw === null || raw === undefined) return '';
+  if (!raw) return '';
   const s = String(raw).trim();
-  // Preserve TRANSPORT codes (T123)
   if (/^t\d+/i.test(s)) {
     const n = s.replace(/\D+/g, '').replace(/^0+/, '');
     return `T${n || '0'}`;
@@ -16,389 +21,1009 @@ function normalizeCode(raw) {
   return n || '0';
 }
 
-function yyyyMmDdLocal(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+function sanitizePhone(phone) {
+  return String(phone || '').replace(/[^\d+]+/g, '');
 }
 
-function addDaysYmd(ymd, days) {
-  const [y, m, d] = ymd.split('-').map((x) => parseInt(x, 10));
-  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
-  dt.setUTCDate(dt.getUTCDate() + (days || 0));
-  const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getUTCDate()).padStart(2, '0');
-  return `${yy}-${mm}-${dd}`;
+function computeM2(order) {
+  if (!order) return 0;
+  let total = 0;
+  if (Array.isArray(order.tepiha)) {
+    for (const r of order.tepiha) total += (Number(r.m2) || 0) * (Number(r.qty) || 0);
+  }
+  if (Array.isArray(order.staza)) {
+    for (const r of order.staza) total += (Number(r.m2) || 0) * (Number(r.qty) || 0);
+  }
+  if (order.shkallore) total += (Number(order.shkallore.qty) || 0) * (Number(order.shkallore.per) || 0);
+  return Number(total.toFixed(2));
 }
 
-function dayRangeUTC(dateStr) {
-  // dateStr = 'YYYY-MM-DD' (treated as UTC calendar day)
-  const start = `${dateStr}T00:00:00.000Z`;
-  const end = `${addDaysYmd(dateStr, 1)}T00:00:00.000Z`; // next day 00:00Z
-  return { start, end };
+function computeTotalEuro(order) {
+  if (!order) return 0;
+  if (order.pay && typeof order.pay.euro === 'number') return Number(order.pay.euro) || 0;
+  const m2 = computeM2(order);
+  const rate = Number(order.pay?.rate || 0);
+  return Number((m2 * rate).toFixed(2));
 }
 
-function computePieces(payload) {
-  const tCope = Array.isArray(payload?.tepiha)
-    ? payload.tepiha.reduce((a, b) => a + (Number(b.qty) || 0), 0)
-    : 0;
-  const sCope = Array.isArray(payload?.staza)
-    ? payload.staza.reduce((a, b) => a + (Number(b.qty) || 0), 0)
-    : 0;
-
-  // shkallore: in v1 we count as 1 “item” row, but qty impacts m2
-  const shk = payload?.shkallore && Number(payload.shkallore.qty) > 0 ? 1 : 0;
-
+function computePieces(order) {
+  const tCope = order?.tepiha?.reduce((a, b) => a + (Number(b.qty) || 0), 0) || 0;
+  const sCope = order?.staza?.reduce((a, b) => a + (Number(b.qty) || 0), 0) || 0;
+  const shk = Number(order?.shkallore?.qty) > 0 ? 1 : 0;
   return tCope + sCope + shk;
 }
 
-function computeM2(payload) {
-  const t = Array.isArray(payload?.tepiha)
-    ? payload.tepiha.reduce((sum, r) => sum + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0)
-    : 0;
-  const s = Array.isArray(payload?.staza)
-    ? payload.staza.reduce((sum, r) => sum + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0)
-    : 0;
-
-  // shkallore: qty * per
-  const stairs = payload?.shkallore
-    ? (Number(payload.shkallore.qty) || 0) * (Number(payload.shkallore.per) || 0)
-    : 0;
-
-  return Number((t + s + stairs).toFixed(2));
+function daysSince(ts) {
+  const a = new Date(ts || Date.now());
+  const b = new Date();
+  const startA = new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime();
+  const startB = new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime();
+  return Math.floor((startB - startA) / (24 * 60 * 60 * 1000));
 }
 
-function buildIndexFromRow(row) {
-  const payload = row?.data && typeof row.data === 'object' ? row.data : {};
-
-  const pieces = computePieces(payload);
-  const m2 = computeM2(payload);
-
-  const total =
-    row?.total !== null && row?.total !== undefined
-      ? Number(row.total || 0)
-      : Number(payload?.pay?.euro || 0);
-
-  const name = payload?.client?.name || payload?.client_name || '';
-  const phone = row?.client_phone || payload?.client?.phone || payload?.phone || '';
-
-  const pickedUp = row?.picked_up_at ? new Date(row.picked_up_at).getTime() : 0;
-
-  return {
-    id: row.id,
-    code: row.code,
-    name,
-    phone,
-    pieces,
-    m2,
-    total,
-    pickedUpAt: pickedUp,
-  };
+function badgeColorByAge(ts) {
+  const d = daysSince(ts);
+  if (d <= 0) return '#16a34a';
+  if (d === 1) return '#f59e0b';
+  return '#dc2626';
 }
 
-function isSameUTCDate(ts, ymd) {
-  if (!ts) return false;
-  const d = new Date(ts);
-  const yy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  return `${yy}-${mm}-${dd}` === ymd;
+async function downloadJsonNoCache(path) {
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
+  if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
+  const res = await fetch(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Fetch failed');
+  return await res.json();
 }
 
-/* =========================
-   SUPABASE (REAL COLUMNS)
-   - table: "orders"
-   - delivered timestamp: picked_up_at
-========================= */
-async function loadOrdersFromSupabaseByDate(dateStr) {
-  if (!supabase) return [];
+async function uploadPhoto(file, oid, key) {
+  if (!file || !oid) return null;
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
+  if (error) throw error;
+  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+  return pub?.publicUrl || null;
+}
 
-  const { start, end } = dayRangeUTC(dateStr);
-
+// ✅ REAL DB DELIVERY (orders table)
+async function markDeliveredDb(orderId) {
+  const now = new Date().toISOString();
   const { data, error } = await supabase
     .from('orders')
-    .select('id, code, status, client_phone, total, paid, picked_up_at, data, created_at, updated_at')
-    .not('picked_up_at', 'is', null)
-    .gte('picked_up_at', start)
-    .lt('picked_up_at', end)
-    .order('picked_up_at', { ascending: false })
-    .limit(1000);
+    .update({
+      status: 'delivered',
+      picked_up_at: now,
+      updated_at: now,
+    })
+    .eq('id', orderId)
+    .select('id, status, picked_up_at')
+    .single();
 
-  if (error) return [];
-
-  const out = (data || []).map(buildIndexFromRow);
-  return out;
+  if (error) throw error;
+  return data;
 }
 
-/* =========================
-   LOCAL FALLBACK (legacy)
-   - keeps your existing flow, but uses picked_up_at / pickedUpAt for date
-========================= */
-function loadOrdersLocalByDate(dateStr) {
-  if (typeof window === 'undefined') return [];
+// ---------------- COMPONENT ----------------
+export default function GatiPage() {
+  const holdTimer = useRef(null);
+  const holdFired = useRef(false);
 
-  let list = [];
-  try {
-    const raw = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
-    list = Array.isArray(raw) ? raw : [];
-  } catch {
-    list = [];
-  }
-
-  const out = [];
-
-  for (const entry of list) {
-    try {
-      const rawOrder = localStorage.getItem(`order_${entry.id}`);
-      if (!rawOrder) continue;
-      const order = JSON.parse(rawOrder);
-
-      const st = String(order.status || '').toLowerCase();
-      const deliveredFlag =
-        st === 'dorzim' ||
-        st === 'delivered' ||
-        st === 'done' ||
-        st === 'completed' ||
-        String(order.stage || '').toLowerCase() === 'marrje' ||
-        order.delivered === true ||
-        order.is_delivered === true ||
-        !!order.pickedUpAt ||
-        !!order.picked_up_at ||
-        !!order.deliveredAt ||
-        !!order.delivered_at;
-
-      if (!deliveredFlag) continue;
-
-      const pickedTs =
-        (order.picked_up_at ? new Date(order.picked_up_at).getTime() : 0) ||
-        (order.pickedUpAt ? Number(order.pickedUpAt) : 0) ||
-        (order.delivered_at ? new Date(order.delivered_at).getTime() : 0) ||
-        (order.deliveredAt ? Number(order.deliveredAt) : 0) ||
-        0;
-
-      if (!isSameUTCDate(pickedTs, dateStr)) continue;
-
-      const payload = order?.data && typeof order.data === 'object' ? order.data : order;
-
-      const pieces = computePieces(payload);
-      const m2 = computeM2(payload);
-      const total = Number(order.total ?? payload?.pay?.euro ?? 0) || 0;
-
-      out.push({
-        id: order.id,
-        code: order.code ?? order.client?.code ?? '',
-        name: order.client?.name || payload?.client?.name || '',
-        phone: order.client_phone || order.client?.phone || payload?.client?.phone || '',
-        pieces,
-        m2,
-        total,
-        pickedUpAt: pickedTs,
-      });
-    } catch {
-      // ignore
-    }
-  }
-
-  out.sort((a, b) => (b.pickedUpAt || 0) - (a.pickedUpAt || 0));
-  return out;
-}
-
-export default function Page() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
-  // DATE PICK
-  const [dateStr, setDateStr] = useState(() => yyyyMmDdLocal(new Date()));
+  // payment sheet
+  const [showPaySheet, setShowPaySheet] = useState(false);
+  const [payOrder, setPayOrder] = useState(null);
+  const [payAdd, setPayAdd] = useState(0);
+  const [payMethod, setPayMethod] = useState('CASH');
 
-  async function refresh(forDate = dateStr) {
+  // return hidden sheet
+  const [showReturnSheet, setShowReturnSheet] = useState(false);
+  const [retOrder, setRetOrder] = useState(null);
+  const [retReason, setRetReason] = useState('');
+  const [retNote, setRetNote] = useState('');
+  const [retPhotoUrl, setRetPhotoUrl] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  useEffect(() => {
+    refreshOrders();
+    return () => {
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function refreshOrders() {
     setLoading(true);
     try {
-      let online = [];
-      try {
-        online = await loadOrdersFromSupabaseByDate(forDate);
-      } catch {}
+      const { data } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
+      if (!data) {
+        setOrders([]);
+        return;
+      }
 
-      if (online && online.length > 0) setOrders(online);
-      else setOrders(loadOrdersLocalByDate(forDate));
+      const items = (data || []).filter((x) => (x.name || '').endsWith('.json'));
+
+      const promises = items.map(async (item) => {
+        try {
+          const remoteOrder = await downloadJsonNoCache(`orders/${item.name}`);
+          if (!remoteOrder?.id) return null;
+
+          // prefer local copy when exists
+          let order = remoteOrder;
+          if (typeof window !== 'undefined') {
+            try {
+              const localRaw = localStorage.getItem(`order_${remoteOrder.id}`);
+              if (localRaw) {
+                const localOrder = JSON.parse(localRaw);
+                if (localOrder && localOrder.id === remoteOrder.id) order = localOrder;
+              }
+            } catch {}
+          }
+
+          // mirror local if missing
+          if (typeof window !== 'undefined') {
+            try {
+              const existing = localStorage.getItem(`order_${remoteOrder.id}`);
+              if (!existing) localStorage.setItem(`order_${remoteOrder.id}`, JSON.stringify(remoteOrder));
+            } catch {}
+          }
+
+          if ((order.status || '') !== 'gati') return null;
+
+          const m2 = computeM2(order);
+          const total = Number(order.pay?.euro || computeTotalEuro(order));
+          const paid = Number(order.pay?.paid || 0);
+          const cope = computePieces(order);
+
+          const readyTs =
+            Number(order.ready_at) ||
+            Number(order.readyAt) ||
+            Number(order.gati_at) ||
+            Number(order.gatiAt) ||
+            Number(order.ts) ||
+            Date.now();
+
+          return {
+            id: order.id,
+            ts: Number(order.ts || 0),
+            readyTs,
+            name: order.client?.name || '',
+            phone: order.client?.phone || '',
+            code: order.client?.code || '',
+            m2,
+            cope,
+            total,
+            paid,
+            paidUpfront: !!order.pay?.paidUpfront,
+            isReturn: !!order.returnInfo?.active,
+          };
+        } catch {
+          return null;
+        }
+      });
+
+      const res = await Promise.all(promises);
+      const list = res.filter(Boolean).sort((a, b) => (b.readyTs || 0) - (a.readyTs || 0));
+      setOrders(list);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    refresh(dateStr);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateStr]);
+  const totalM2 = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0), [orders]);
 
-  const listTotalM2 = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0), [orders]);
-  const listTotalEuro = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0), [orders]);
+  const filtered = useMemo(() => {
+    const q = (search || '').trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((o) => {
+      const name = (o.name || '').toLowerCase();
+      const phone = (o.phone || '').toLowerCase();
+      const code = normalizeCode(o.code).toLowerCase();
+      return name.includes(q) || phone.includes(q) || code.includes(q);
+    });
+  }, [orders, search]);
 
+  // ---------------- SMS ----------------
+  function sendPickupSms(row) {
+    const phone = sanitizePhone(row.phone || '');
+    if (!phone) {
+      alert('Nuk ka numër telefoni.');
+      return;
+    }
+
+    const code = normalizeCode(row.code);
+    const paidTxt = row.paidUpfront ? '\n✅ KJO POROSI ËSHTË PAGUAR NË FILLIM.' : '';
+
+    const msg =
+      `Përshëndetje ${row.name || 'klient'}, ` +
+      `porosia juaj${code ? ` (kodi ${code})` : ''} është GATI.\n` +
+      `Keni ${row.cope || 0} copë • ${(Number(row.m2) || 0).toFixed(2)} m².` +
+      `${paidTxt}\n\n` +
+      `Ju lutem ejani sot ose nesër me i marrë tepihat, sepse kemi mungesë të vendit në depo.\nFaleminderit!`;
+
+    window.location.href = `sms:${phone}?&body=${encodeURIComponent(msg)}`;
+  }
+
+  // ---------------- PAY FULLSCREEN ----------------
+  async function openPay(row) {
+    try {
+      let order = null;
+      try {
+        const raw = localStorage.getItem(`order_${row.id}`);
+        if (raw) order = JSON.parse(raw);
+      } catch {
+        order = null;
+      }
+      if (!order) {
+        order = await downloadJsonNoCache(`orders/${row.id}.json`);
+        localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
+      }
+      if (!order) {
+        alert('Nuk u gjet porosia.');
+        return;
+      }
+
+      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
+      const paid = Number(order.pay?.paid || 0) || 0;
+
+      setPayOrder({
+        id: row.id,
+        order,
+        code: normalizeCode(order.client?.code),
+        name: order.client?.name || '',
+        phone: order.client?.phone || '',
+        total,
+        paid,
+        arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0,
+        paidUpfront: !!order.pay?.paidUpfront,
+        m2: computeM2(order),
+      });
+
+      setPayAdd(0);
+      setPayMethod(order.pay?.method === 'CARD' ? 'CARD' : 'CASH');
+      setShowPaySheet(true);
+    } catch {
+      alert('❌ Gabim gjatë hapjes së pagesës.');
+    }
+  }
+
+  function closePay() {
+    setShowPaySheet(false);
+    setPayOrder(null);
+    setPayAdd(0);
+    setPayMethod('CASH');
+  }
+
+  function applyPayOnly() {
+    setShowPaySheet(false);
+  }
+
+  async function confirmDelivery() {
+    if (!payOrder) return;
+    const o = payOrder.order;
+
+    const total = Number(payOrder.total || 0);
+    const paidBefore = Number(payOrder.paid || 0);
+    const cashGiven = Number((Number(payAdd || 0)).toFixed(2));
+    const paidUpfront = !!payOrder.paidUpfront;
+
+    const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
+    const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
+    if (!paidUpfront && applied <= 0) {
+      setShowPaySheet(false);
+      return;
+    }
+
+    const paidAfter = paidUpfront ? Math.max(paidBefore, total) : Number((paidBefore + applied).toFixed(2));
+    const debt = Math.max(0, Number((total - paidAfter).toFixed(2)));
+    const change = paidUpfront ? 0 : Math.max(0, Number((cashGiven - applied).toFixed(2)));
+
+    const prevArka = Number(o.pay?.arkaRecordedPaid || 0);
+    const willRecordCash = payMethod === 'CASH';
+
+    const targetCashRecorded = willRecordCash ? paidAfter : prevArka;
+    const delta = willRecordCash ? Number((targetCashRecorded - prevArka).toFixed(2)) : 0;
+    const safeDelta = Math.max(0, delta);
+    const finalArka = willRecordCash ? Number((prevArka + safeDelta).toFixed(2)) : prevArka;
+
+    const msg =
+      `Totali: ${total.toFixed(2)} €\n` +
+      (paidUpfront ? `✅ E PAGUAR NË FILLIM\n` : `Paguar pas kësaj: ${paidAfter.toFixed(2)} €\n`) +
+      `Borxh: ${debt.toFixed(2)} €\n` +
+      `Kthim: ${change.toFixed(2)} €\n\n` +
+      `Konfirmo DORËZIMIN?`;
+
+    if (!confirm(msg)) return;
+
+    // ✅ 1) DB UPDATE (REAL SOURCE OF TRUTH FOR MARRJE SOT)
+    try {
+      await markDeliveredDb(payOrder.id);
+    } catch (e) {
+      console.log('DB DELIVER FAIL:', e);
+      alert('❌ DB DORËZIM FAIL: ' + (e?.message || ''));
+      return;
+    }
+
+    // ✅ 2) Local + Storage JSON (keep your current flow)
+    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+
+    const updated = {
+      ...o,
+      status: 'delivered',          // IMPORTANT: align
+      picked_up_at: nowIso,         // mirror DB column name
+      pickedUpAt: nowMs,            // local ms (optional)
+      returnInfo: { ...(o.returnInfo || {}), active: false },
+      pay: {
+        ...(o.pay || {}),
+        m2: payOrder.m2,
+        euro: total,
+        paid: paidAfter,
+        debt,
+        change,
+        method: payMethod,
+        arkaRecordedPaid: finalArka,
+      },
+    };
+
+    try {
+      localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
+      const blob =
+        typeof Blob !== 'undefined'
+          ? new Blob([JSON.stringify(updated)], { type: 'application/json' })
+          : null;
+      if (blob) {
+        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
+      }
+    } catch (e) {
+      console.error('save delivered json fail', e);
+    }
+
+    // ARKA record (only CASH + positive delta)
+    if (willRecordCash && safeDelta > 0) {
+      const arkaRecord = {
+        id: `arka_${updated.id}_${Date.now()}`,
+        orderId: updated.id,
+        code: normalizeCode(updated.client?.code),
+        name: updated.client?.name || '',
+        phone: updated.client?.phone || '',
+        paid: safeDelta,
+        ts: Date.now(),
+        note: paidUpfront ? 'paid_upfront_delta' : 'delivery_cash_delta',
+      };
+
+      const cashRes = await recordCashMove({
+        externalId: arkaRecord.id,
+        orderId: updated.id,
+        code: arkaRecord.code,
+        name: (arkaRecord.name || '').trim(),
+        stage: 'GATI',
+        amount: safeDelta,
+        note:
+          (paidUpfront ? 'AVANS ' : 'PAGESA ') +
+          safeDelta.toFixed(2) +
+          '€ • #' +
+          arkaRecord.code +
+          ' • ' +
+          (arkaRecord.name || '').trim(),
+        source: paidUpfront ? 'ORDER_FRONT' : 'ORDER_PAY',
+        method: 'CASH',
+        type: 'IN',
+      });
+
+      if (cashRes?.pending) {
+        try {
+          console.log('ARKA WAITING payment saved', cashRes);
+        } catch {}
+      }
+    }
+
+    const doneMsg =
+      '✅ Porosia u dorëzua.' +
+      (willRecordCash
+        ? '\n\n(Nëse ARKA ishte e mbyllur: pagesa ruhet si WAITING dhe futet në ARKË kur hapet.)'
+        : '');
+    alert(doneMsg);
+
+    closePay();
+    setOrders((prev) => prev.filter((x) => x.id !== updated.id));
+  }
+
+  // ---------------- HIDDEN RETURN (HOLD 3s ON PAY) ----------------
+  async function openReturn(row) {
+    try {
+      let order = null;
+      try {
+        const raw = localStorage.getItem(`order_${row.id}`);
+        if (raw) order = JSON.parse(raw);
+      } catch {
+        order = null;
+      }
+      if (!order) {
+        order = await downloadJsonNoCache(`orders/${row.id}.json`);
+        localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
+      }
+      if (!order) {
+        alert('Nuk u gjet porosia.');
+        return;
+      }
+
+      setRetOrder(order);
+      setRetReason('');
+      setRetNote('');
+      setRetPhotoUrl('');
+      setShowReturnSheet(true);
+    } catch {
+      alert('❌ Gabim gjatë hapjes së kthimit.');
+    }
+  }
+
+  function closeReturn() {
+    setShowReturnSheet(false);
+    setRetOrder(null);
+    setRetReason('');
+    setRetNote('');
+    setRetPhotoUrl('');
+  }
+
+  async function handleReturnPhoto(file) {
+    if (!file || !retOrder?.id) return;
+    setPhotoUploading(true);
+    try {
+      const url = await uploadPhoto(file, retOrder.id, 'return');
+      if (url) setRetPhotoUrl(url);
+    } catch {
+      alert('❌ Gabim foto!');
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  async function confirmReturn() {
+    if (!retOrder?.id) return;
+
+    const reason = (retReason || '').trim();
+    const note = (retNote || '').trim();
+
+    if (!reason && !note) {
+      alert('Shkruaj së paku një arsye ose shënim për kthimin.');
+      return;
+    }
+
+    if (!confirm('Kjo porosi do të kthehet në PASTRIM si KTHIM.\nJeni i sigurt?')) return;
+
+    const entry = {
+      id: `ret_${retOrder.id}_${Date.now()}`,
+      ts: Date.now(),
+      from: 'gati',
+      reason: reason || '',
+      note: note || '',
+      photoUrl: retPhotoUrl || '',
+    };
+
+    const updated = {
+      ...retOrder,
+      status: 'pastrim',
+      returnInfo: {
+        active: true,
+        at: Date.now(),
+        from: 'gati',
+        reason: entry.reason,
+        note: entry.note,
+        photoUrl: entry.photoUrl,
+        logId: entry.id,
+      },
+      returnLog: Array.isArray(retOrder.returnLog) ? [entry, ...retOrder.returnLog] : [entry],
+    };
+
+    try {
+      localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
+
+      const blob =
+        typeof Blob !== 'undefined'
+          ? new Blob([JSON.stringify(updated)], { type: 'application/json' })
+          : null;
+      if (blob) {
+        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
+      }
+
+      const blob2 =
+        typeof Blob !== 'undefined'
+          ? new Blob([JSON.stringify(entry)], { type: 'application/json' })
+          : null;
+      if (blob2) {
+        await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
+      }
+
+      try {
+        const list = JSON.parse(localStorage.getItem('return_list_v1') || '[]');
+        const next = Array.isArray(list) ? [entry, ...list].slice(0, 300) : [entry];
+        localStorage.setItem('return_list_v1', JSON.stringify(next));
+      } catch {
+        localStorage.setItem('return_list_v1', JSON.stringify([entry]));
+      }
+    } catch (e) {
+      console.error('return save fail', e);
+      alert('❌ Gabim gjatë ruajtjes së kthimit.');
+      return;
+    }
+
+    alert('✅ U kthye në PASTRIM (KTHIM).');
+    closeReturn();
+    setOrders((prev) => prev.filter((x) => x.id !== updated.id));
+  }
+
+  function onPayPressStart(row) {
+    holdFired.current = false;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => {
+      holdFired.current = true;
+      openReturn(row);
+    }, 3000);
+  }
+
+  function onPayPressEnd(row) {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    if (holdFired.current) return;
+    openPay(row);
+  }
+
+  // ---------------- RENDER ----------------
   return (
     <div className="wrap">
       <header className="header-row">
         <div>
-          <h1 className="title">MARRJE SOT</h1>
-          <div className="subtitle">
-            Marrje për datën: <strong>{dateStr}</strong>
-          </div>
+          <h1 className="title">GATI</h1>
+          <div className="subtitle">Porositë e gatshme për marrje</div>
         </div>
-
-        <div className="top-right">
-          <div className="picker">
-            <input
-              type="date"
-              value={dateStr}
-              onChange={(e) => setDateStr(e.target.value || yyyyMmDdLocal(new Date()))}
-              aria-label="Zgjidh datën"
-            />
-          </div>
-
-          <div className="totals">
-            <div>
-              M²: <strong>{listTotalM2.toFixed(2)} m²</strong>
-            </div>
-            <div>
-              €: <strong>{listTotalEuro.toFixed(2)} €</strong>
-            </div>
+        <div style={{ textAlign: 'right', fontSize: 12 }}>
+          <div>
+            TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong>
           </div>
         </div>
       </header>
 
-      <section className="card" style={{ padding: 10 }}>
-        {loading && <p style={{ textAlign: 'center' }}>Duke i lexuar porositë...</p>}
-        {!loading && orders.length === 0 && (
-          <p style={{ textAlign: 'center' }}>Nuk ka marrje të regjistruara për këtë datë.</p>
-        )}
+      <input
+        className="input"
+        placeholder="🔎 Kërko emrin / telefonin / kodin..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
 
-        {!loading &&
-          orders.map((o) => {
-            const code = normalizeCode(o.code);
+      <section className="card" style={{ padding: '10px' }}>
+        {loading ? (
+          <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p>
+        ) : filtered.length === 0 ? (
+          <p style={{ textAlign: 'center' }}>Nuk ka porosi GATI.</p>
+        ) : (
+          filtered.map((o) => {
+            const total = Number(o.total || 0);
+            const paid = Number(o.paid || 0);
+            const isPaid = total > 0 && paid >= total;
+            const debt = Math.max(0, Number((total - paid).toFixed(2)));
+
             return (
-              <div key={o.id} className="fast-row">
-                <div className="code-badge" title="KODI">
-                  {code || '—'}
+              <div
+                key={o.id}
+                className="list-item-compact"
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 4px',
+                  borderBottom: '1px solid rgba(255,255,255,0.08)',
+                  opacity: o.isReturn ? 0.92 : 1,
+                }}
+              >
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      background: badgeColorByAge(o.readyTs || o.ts),
+                      color: '#fff',
+                      width: 40,
+                      height: 40,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 8,
+                      fontWeight: 900,
+                      fontSize: 14,
+                      flexShrink: 0,
+                    }}
+                    title="RAGING COLORS"
+                  >
+                    {normalizeCode(o.code)}
+                  </div>
+
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 14,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {o.name || 'Pa emër'}
+                    </div>
+
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
+                      {o.cope} copë • {Number(o.m2 || 0).toFixed(2)} m²
+                    </div>
+
+                    {o.paidUpfront && (
+                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>
+                    )}
+
+                    {paid > 0 && !o.paidUpfront && (
+                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>Paguar: {paid.toFixed(2)}€</div>
+                    )}
+
+                    {debt > 0 && !o.paidUpfront && (
+                      <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 900 }}>Borxh: {debt.toFixed(2)}€</div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="mid">
-                  <div className="name" title={o.name || ''}>
-                    {o.name || 'PA EMËR'}
-                  </div>
-                  <div className="sub" title={o.phone || ''}>
-                    {(o.phone || '').trim()}
-                  </div>
-                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {isPaid && <span style={{ fontSize: 14 }}>✅</span>}
 
-                <div className="right">
-                  <div className="mline">
-                    {Number(o.pieces || 0)} copë • {Number(o.m2 || 0).toFixed(2)} m²
-                  </div>
-                  <div className="euro">{Number(o.total || 0).toFixed(2)} €</div>
+                  <button
+                    className="btn secondary"
+                    style={{ padding: '6px 10px', fontSize: 12 }}
+                    onClick={() => sendPickupSms(o)}
+                  >
+                    SMS
+                  </button>
+
+                  <button
+                    className="btn primary"
+                    style={{ padding: '6px 10px', fontSize: 12 }}
+                    onMouseDown={() => onPayPressStart(o)}
+                    onMouseUp={() => onPayPressEnd(o)}
+                    onMouseLeave={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
+                    onTouchStart={() => onPayPressStart(o)}
+                    onTouchEnd={() => onPayPressEnd(o)}
+                    onTouchMove={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
+                  >
+                    💶 PAGUAJ
+                  </button>
                 </div>
               </div>
             );
-          })}
+          })
+        )}
       </section>
 
-      <footer className="footer-bar">
-        <Link className="btn secondary" href="/">
+      <footer className="dock">
+        <Link href="/" className="btn secondary" style={{ width: '100%' }}>
           🏠 HOME
         </Link>
-        <button className="btn" onClick={() => refresh(dateStr)} style={{ marginLeft: 8 }}>
-          ↻ REFRESH
-        </button>
       </footer>
 
+      {/* ============ FULL SCREEN PAGESA ============ */}
+      {showPaySheet && payOrder && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">PAGESA</div>
+              <div className="payfs-sub">
+                KODI: {payOrder.code} • {payOrder.name}
+              </div>
+              {payOrder.paidUpfront && (
+                <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 900, marginTop: 4 }}>
+                  ✅ E PAGUAR NË FILLIM
+                </div>
+              )}
+            </div>
+            <button className="btn secondary" onClick={closePay}>
+              ✕
+            </button>
+          </div>
+
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="tot-line">
+                TOTAL: <strong>{Number(payOrder.total || 0).toFixed(2)} €</strong>
+              </div>
+              <div className="tot-line">
+                PAGUAR DERI TANI:{' '}
+                <strong style={{ color: '#16a34a' }}>{Number(payOrder.paid || 0).toFixed(2)} €</strong>
+              </div>
+              <div className="tot-line" style={{ fontSize: 12, color: '#666' }}>
+                REGJISTRU N&apos;ARKË DERI TANI:{' '}
+                <strong>{Number(payOrder.arkaRecordedPaid || 0).toFixed(2)} €</strong>
+              </div>
+
+              <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>
+                SOT PAGUAN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong>
+              </div>
+
+              {(() => {
+                const total = Number(payOrder.total || 0);
+                const paidBefore = Number(payOrder.paid || 0);
+                const paidUpfront = !!payOrder.paidUpfront;
+
+                const paidAfter = paidUpfront
+                  ? Math.max(paidBefore, total)
+                  : Number((paidBefore + Number(payAdd || 0)).toFixed(2));
+
+                const d = Number((total - paidAfter).toFixed(2));
+                const debtNow = d > 0 ? d : 0;
+                const changeNow = d < 0 ? Math.abs(d) : 0;
+
+                return (
+                  <>
+                    <div className="tot-line">
+                      PAGUAR PAS KËSAJ:{' '}
+                      <strong style={{ color: '#16a34a' }}>{paidAfter.toFixed(2)} €</strong>
+                    </div>
+                    {debtNow > 0 && (
+                      <div className="tot-line">
+                        BORXH: <strong style={{ color: '#dc2626' }}>{debtNow.toFixed(2)} €</strong>
+                      </div>
+                    )}
+                    {changeNow > 0 && (
+                      <div className="tot-line">
+                        KTHIM: <strong style={{ color: '#2563eb' }}>{changeNow.toFixed(2)} €</strong>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+
+            {!payOrder.paidUpfront && (
+              <div className="card">
+                <div className="field-group">
+                  <label className="label">SHTO PAGESË (€) — VETËM SOT</label>
+
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    pattern="[0-9]*"
+                    className="input"
+                    value={Number(payAdd || 0) === 0 ? '' : payAdd}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setPayAdd(v === '' ? 0 : Number(v));
+                    }}
+                  />
+
+                  <div className="chip-row" style={{ marginTop: 10 }}>
+                    {PAY_CHIPS.map((v) => (
+                      <button
+                        key={v}
+                        className="chip"
+                        type="button"
+                        onClick={() => setPayAdd(Number((Number(payAdd || 0) + v).toFixed(2)))}
+                      >
+                        +{v}€
+                      </button>
+                    ))}
+                    <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>
+                      FSHI
+                    </button>
+                  </div>
+                </div>
+
+                <div className="field-group">
+                  <label className="label">METODA</label>
+                  <div className="row" style={{ gap: 10 }}>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      style={{
+                        flex: 1,
+                        outline: payMethod === 'CASH' ? '2px solid rgba(255,255,255,0.35)' : 'none',
+                      }}
+                      onClick={() => setPayMethod('CASH')}
+                    >
+                      CASH
+                    </button>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      style={{
+                        flex: 1,
+                        outline: payMethod === 'CARD' ? '2px solid rgba(255,255,255,0.35)' : 'none',
+                      }}
+                      onClick={() => setPayMethod('CARD')}
+                    >
+                      CARD / TRANSFER
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
+                  * CASH regjistrohet në ARKË. CARD/TRANSFER nuk hyn në ARKË.
+                </div>
+              </div>
+            )}
+
+            {payOrder.paidUpfront && (
+              <div className="card">
+                <div style={{ fontSize: 12, color: '#666' }}>
+                  * Kjo porosi është e paguar në fillim. Shtyp “KONFIRMO DORËZIMIN”.
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="payfs-footer">
+            <button className="btn secondary" onClick={closePay}>
+              ANULO
+            </button>
+            <button className="btn secondary" onClick={applyPayOnly}>
+              RUJ (PA DORËZU)
+            </button>
+            <button className="btn primary" onClick={confirmDelivery}>
+              KONFIRMO DORËZIMIN
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============ HIDDEN RETURN FULLSCREEN ============ */}
+      {showReturnSheet && retOrder && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">KTHIM (HIDDEN)</div>
+              <div className="payfs-sub">
+                KODI: {normalizeCode(retOrder.client?.code)} • {retOrder.client?.name || ''}
+              </div>
+            </div>
+            <button className="btn secondary" onClick={closeReturn} disabled={photoUploading}>
+              ✕
+            </button>
+          </div>
+
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="field-group">
+                <label className="label">PSE PO KTHEHET?</label>
+                <select className="input" value={retReason} onChange={(e) => setRetReason(e.target.value)}>
+                  <option value="">— ZGJIDH —</option>
+                  <option value="SHTESË LARJE / NJOLLA">SHTESË LARJE / NJOLLA</option>
+                  <option value="ANKESË KLIENTI">ANKESË KLIENTI</option>
+                  <option value="GABIM NË POROSI">GABIM NË POROSI</option>
+                  <option value="TJETER">TJETER</option>
+                </select>
+              </div>
+
+              <div className="field-group">
+                <label className="label">SHËNIM / DOKUMENTIM</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={retNote}
+                  onChange={(e) => setRetNote(e.target.value)}
+                  placeholder="P.sh. klienti kërkoi larje shtesë, u lanë edhe njëherë, etj..."
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="label">FOTO (OPSIONALE)</label>
+                <label className="camera-btn" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                  📷 SHTO FOTO
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleReturnPhoto(e.target.files?.[0])}
+                  />
+                </label>
+
+                {retPhotoUrl && (
+                  <div style={{ marginTop: 10 }}>
+                    <img src={retPhotoUrl} className="photo-thumb" alt="" />
+                    <button
+                      className="btn secondary"
+                      style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 6 }}
+                      onClick={() => setRetPhotoUrl('')}
+                      disabled={photoUploading}
+                    >
+                      🗑️ FSHI FOTO
+                    </button>
+                  </div>
+                )}
+
+                {photoUploading && <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>Duke ngarkuar foton…</div>}
+              </div>
+            </div>
+
+            <div className="card">
+              <div style={{ fontSize: 12, color: '#666' }}>
+                * Kjo screen nuk shfaqet në UI normal. Hapet vetëm me HOLD 3 SEK te “PAGUAJ”.
+              </div>
+            </div>
+          </div>
+
+          <div className="payfs-footer" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <button className="btn secondary" onClick={closeReturn} disabled={photoUploading}>
+              ANULO
+            </button>
+            <button className="btn primary" onClick={confirmReturn} disabled={photoUploading}>
+              KONFIRMO KTHIMIN
+            </button>
+          </div>
+        </div>
+      )}
+
       <style jsx>{`
-        .top-right {
+        .dock {
+          position: sticky;
+          bottom: 0;
+          padding: 10px 0 6px 0;
+          background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0));
+          margin-top: 10px;
+        }
+
+        .payfs {
+          position: fixed;
+          inset: 0;
+          background: #0b0b0b;
+          z-index: 10000;
           display: flex;
           flex-direction: column;
-          align-items: flex-end;
-          gap: 6px;
-          font-size: 12px;
         }
-
-        .picker input[type='date'] {
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          color: #fff;
-          padding: 6px 8px;
-          border-radius: 10px;
-          font-weight: 800;
-          text-transform: uppercase;
-          font-size: 12px;
-          outline: none;
-        }
-
-        .totals {
-          text-align: right;
-          opacity: 0.95;
-        }
-
-        /* FAST LIST ROW */
-        .fast-row {
+        .payfs-top {
           display: flex;
+          justify-content: space-between;
           align-items: center;
-          gap: 10px;
-          padding: 10px 6px;
+          padding: 14px 14px;
+          background: #0b0b0b;
           border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
-        .fast-row:last-child {
-          border-bottom: none;
-        }
-
-        .code-badge {
-          width: 46px;
-          height: 46px;
-          border-radius: 10px;
-          background: rgba(22, 163, 74, 0.95);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 900;
-          font-size: 15px;
+        .payfs-title {
           color: #fff;
-          flex-shrink: 0;
-          box-shadow: 0 10px 18px rgba(0, 0, 0, 0.35);
-        }
-
-        .mid {
-          flex: 1;
-          min-width: 0;
-        }
-        .name {
           font-weight: 900;
-          font-size: 14px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          font-size: 18px;
         }
-        .sub {
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.65);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          margin-top: 2px;
-        }
-
-        .right {
-          text-align: right;
-          flex-shrink: 0;
-          min-width: 110px;
-        }
-        .mline {
-          font-size: 11px;
+        .payfs-sub {
           color: rgba(255, 255, 255, 0.7);
-          font-weight: 700;
-        }
-        .euro {
+          font-size: 12px;
           margin-top: 2px;
-          font-size: 13px;
-          font-weight: 900;
-          color: #fff;
+        }
+        .payfs-body {
+          flex: 1;
+          overflow: auto;
+          padding: 14px;
+        }
+        .payfs-footer {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 10px;
+          padding: 12px 14px;
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+          background: #0b0b0b;
+        }
+        .payfs-footer .btn {
+          width: 100%;
         }
       `}</style>
     </div>
