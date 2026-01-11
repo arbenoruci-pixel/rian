@@ -4,10 +4,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
-const BUCKET = 'tepiha-photos';
-
 function normalizeCode(raw) {
-  if (!raw) return '';
+  if (raw === null || raw === undefined) return '';
   const s = String(raw).trim();
   // Preserve TRANSPORT codes (T123)
   if (/^t\d+/i.test(s)) {
@@ -18,107 +16,129 @@ function normalizeCode(raw) {
   return n || '0';
 }
 
-function computePieces(order) {
-  const tCope = Array.isArray(order.tepiha)
-    ? order.tepiha.reduce((a, b) => a + (Number(b.qty) || 0), 0)
+function yyyyMmDdLocal(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function addDaysYmd(ymd, days) {
+  const [y, m, d] = ymd.split('-').map((x) => parseInt(x, 10));
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  dt.setUTCDate(dt.getUTCDate() + (days || 0));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function dayRangeUTC(dateStr) {
+  // dateStr = 'YYYY-MM-DD' (treated as UTC calendar day)
+  const start = `${dateStr}T00:00:00.000Z`;
+  const end = `${addDaysYmd(dateStr, 1)}T00:00:00.000Z`; // next day 00:00Z
+  return { start, end };
+}
+
+function computePieces(payload) {
+  const tCope = Array.isArray(payload?.tepiha)
+    ? payload.tepiha.reduce((a, b) => a + (Number(b.qty) || 0), 0)
     : 0;
-  const sCope = Array.isArray(order.staza)
-    ? order.staza.reduce((a, b) => a + (Number(b.qty) || 0), 0)
+  const sCope = Array.isArray(payload?.staza)
+    ? payload.staza.reduce((a, b) => a + (Number(b.qty) || 0), 0)
     : 0;
-  const shk = order.shkallore && Number(order.shkallore.qty) > 0 ? 1 : 0;
+
+  // shkallore: in v1 we count as 1 “item” row, but qty impacts m2
+  const shk = payload?.shkallore && Number(payload.shkallore.qty) > 0 ? 1 : 0;
+
   return tCope + sCope + shk;
 }
 
-function computeM2(order) {
-  const t = Array.isArray(order.tepiha)
-    ? order.tepiha.reduce((sum, r) => sum + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0)
+function computeM2(payload) {
+  const t = Array.isArray(payload?.tepiha)
+    ? payload.tepiha.reduce((sum, r) => sum + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0)
     : 0;
-  const s = Array.isArray(order.staza)
-    ? order.staza.reduce((sum, r) => sum + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0)
+  const s = Array.isArray(payload?.staza)
+    ? payload.staza.reduce((sum, r) => sum + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0)
     : 0;
-  const stairs = order.shkallore ? (Number(order.shkallore.qty) || 0) * (Number(order.shkallore.per) || 0) : 0;
+
+  // shkallore: qty * per
+  const stairs = payload?.shkallore
+    ? (Number(payload.shkallore.qty) || 0) * (Number(payload.shkallore.per) || 0)
+    : 0;
+
   return Number((t + s + stairs).toFixed(2));
 }
 
-function computeTotalEuro(order) {
-  if (order.pay && typeof order.pay.euro === 'number') return Number(order.pay.euro || 0);
-  const m2 = computeM2(order);
-  const rate = Number(order.pay?.rate || 0);
-  return Number((m2 * rate).toFixed(2));
-}
+function buildIndexFromRow(row) {
+  const payload = row?.data && typeof row.data === 'object' ? row.data : {};
 
-function buildIndexFromOrder(order) {
-  const pieces = computePieces(order);
-  const m2 = computeM2(order);
-  const total = Number(order.pay?.euro ?? computeTotalEuro(order)) || 0;
+  const pieces = computePieces(payload);
+  const m2 = computeM2(payload);
+
+  const total =
+    row?.total !== null && row?.total !== undefined
+      ? Number(row.total || 0)
+      : Number(payload?.pay?.euro || 0);
+
+  const name = payload?.client?.name || payload?.client_name || '';
+  const phone = row?.client_phone || payload?.client?.phone || payload?.phone || '';
+
+  const pickedUp = row?.picked_up_at ? new Date(row.picked_up_at).getTime() : 0;
 
   return {
-    id: order.id,
-    name: order.client?.name || '',
-    phone: order.client?.phone || '',
-    code: order.client?.code || '',
+    id: row.id,
+    code: row.code,
+    name,
+    phone,
     pieces,
     m2,
     total,
-    deliveredAt: Number(order.deliveredAt || order.delivered_at || order.ts || Date.now()),
+    pickedUpAt: pickedUp,
   };
 }
 
-function isSameDay(tsA, tsB) {
-  const a = new Date(tsA);
-  const b = new Date(tsB);
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+function isSameUTCDate(ts, ymd) {
+  if (!ts) return false;
+  const d = new Date(ts);
+  const yy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}` === ymd;
 }
 
-async function downloadJsonNoCache(path) {
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
-  if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
-  const res = await fetch(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Fetch failed');
-  return await res.json();
-}
-
-async function loadOrdersFromSupabaseForToday() {
+/* =========================
+   SUPABASE (REAL COLUMNS)
+   - table: "orders"
+   - delivered timestamp: picked_up_at
+========================= */
+async function loadOrdersFromSupabaseByDate(dateStr) {
   if (!supabase) return [];
-  const { data, error } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
-  if (error || !data) return [];
 
-  const today = Date.now();
-  const out = [];
+  const { start, end } = dayRangeUTC(dateStr);
 
-  const items = (data || []).filter((x) => (x.name || '').endsWith('.json'));
-  for (const item of items) {
-    try {
-      const order = await downloadJsonNoCache(`orders/${item.name}`);
-      if (!order?.id) continue;
-      const st = String(order.status || '').toLowerCase();
-      const deliveredFlag =
-        st === 'dorzim' ||
-        st === 'delivered' ||
-        st === 'done' ||
-        st === 'completed' ||
-        String(order.stage || '').toLowerCase() === 'marrje' ||
-        order.delivered === true ||
-        order.is_delivered === true ||
-        !!order.deliveredAt ||
-        !!order.delivered_at ||
-        !!order.pickedUpAt ||
-        !!order.picked_up_at;
-      if (!deliveredFlag) continue;
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id, code, status, client_phone, total, paid, picked_up_at, data, created_at, updated_at')
+    .not('picked_up_at', 'is', null)
+    .gte('picked_up_at', start)
+    .lt('picked_up_at', end)
+    .order('picked_up_at', { ascending: false })
+    .limit(1000);
 
-      const idx = buildIndexFromOrder(order);
-      if (isSameDay(idx.deliveredAt, today)) out.push(idx);
-    } catch {
-      // ignore bad file
-    }
-  }
+  if (error) return [];
 
-  out.sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0));
+  const out = (data || []).map(buildIndexFromRow);
   return out;
 }
 
-function loadOrdersLocalForToday() {
+/* =========================
+   LOCAL FALLBACK (legacy)
+   - keeps your existing flow, but uses picked_up_at / pickedUpAt for date
+========================= */
+function loadOrdersLocalByDate(dateStr) {
   if (typeof window === 'undefined') return [];
+
   let list = [];
   try {
     const raw = JSON.parse(localStorage.getItem('order_list_v1') || '[]');
@@ -127,7 +147,6 @@ function loadOrdersLocalForToday() {
     list = [];
   }
 
-  const today = Date.now();
   const out = [];
 
   for (const entry of list) {
@@ -135,7 +154,7 @@ function loadOrdersLocalForToday() {
       const rawOrder = localStorage.getItem(`order_${entry.id}`);
       if (!rawOrder) continue;
       const order = JSON.parse(rawOrder);
-      {
+
       const st = String(order.status || '').toLowerCase();
       const deliveredFlag =
         st === 'dorzim' ||
@@ -145,21 +164,44 @@ function loadOrdersLocalForToday() {
         String(order.stage || '').toLowerCase() === 'marrje' ||
         order.delivered === true ||
         order.is_delivered === true ||
-        !!order.deliveredAt ||
-        !!order.delivered_at ||
         !!order.pickedUpAt ||
-        !!order.picked_up_at;
-      if (!deliveredFlag) continue;
-    }
+        !!order.picked_up_at ||
+        !!order.deliveredAt ||
+        !!order.delivered_at;
 
-      const idx = buildIndexFromOrder(order);
-      if (isSameDay(idx.deliveredAt, today)) out.push(idx);
+      if (!deliveredFlag) continue;
+
+      const pickedTs =
+        (order.picked_up_at ? new Date(order.picked_up_at).getTime() : 0) ||
+        (order.pickedUpAt ? Number(order.pickedUpAt) : 0) ||
+        (order.delivered_at ? new Date(order.delivered_at).getTime() : 0) ||
+        (order.deliveredAt ? Number(order.deliveredAt) : 0) ||
+        0;
+
+      if (!isSameUTCDate(pickedTs, dateStr)) continue;
+
+      const payload = order?.data && typeof order.data === 'object' ? order.data : order;
+
+      const pieces = computePieces(payload);
+      const m2 = computeM2(payload);
+      const total = Number(order.total ?? payload?.pay?.euro ?? 0) || 0;
+
+      out.push({
+        id: order.id,
+        code: order.code ?? order.client?.code ?? '',
+        name: order.client?.name || payload?.client?.name || '',
+        phone: order.client_phone || order.client?.phone || payload?.client?.phone || '',
+        pieces,
+        m2,
+        total,
+        pickedUpAt: pickedTs,
+      });
     } catch {
       // ignore
     }
   }
 
-  out.sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0));
+  out.sort((a, b) => (b.pickedUpAt || 0) - (a.pickedUpAt || 0));
   return out;
 }
 
@@ -167,15 +209,19 @@ export default function Page() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  async function refresh() {
+  // DATE PICK
+  const [dateStr, setDateStr] = useState(() => yyyyMmDdLocal(new Date()));
+
+  async function refresh(forDate = dateStr) {
     setLoading(true);
     try {
       let online = [];
       try {
-        online = await loadOrdersFromSupabaseForToday();
+        online = await loadOrdersFromSupabaseByDate(forDate);
       } catch {}
+
       if (online && online.length > 0) setOrders(online);
-      else setOrders(loadOrdersLocalForToday());
+      else setOrders(loadOrdersLocalByDate(forDate));
     } finally {
       setLoading(false);
     }
@@ -183,8 +229,9 @@ export default function Page() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    refresh();
-  }, []);
+    refresh(dateStr);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateStr]);
 
   const listTotalM2 = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0), [orders]);
   const listTotalEuro = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0), [orders]);
@@ -194,33 +241,47 @@ export default function Page() {
       <header className="header-row">
         <div>
           <h1 className="title">MARRJE SOT</h1>
-          <div className="subtitle">Porositë e dorëzuara sot</div>
-        </div>
-        <div style={{ textAlign: 'right', fontSize: 12 }}>
-          <div>
-            M² SOT: <strong>{listTotalM2.toFixed(2)} m²</strong>
+          <div className="subtitle">
+            Marrje për datën: <strong>{dateStr}</strong>
           </div>
-          <div>
-            € SOT: <strong>{listTotalEuro.toFixed(2)} €</strong>
+        </div>
+
+        <div className="top-right">
+          <div className="picker">
+            <input
+              type="date"
+              value={dateStr}
+              onChange={(e) => setDateStr(e.target.value || yyyyMmDdLocal(new Date()))}
+              aria-label="Zgjidh datën"
+            />
+          </div>
+
+          <div className="totals">
+            <div>
+              M²: <strong>{listTotalM2.toFixed(2)} m²</strong>
+            </div>
+            <div>
+              €: <strong>{listTotalEuro.toFixed(2)} €</strong>
+            </div>
           </div>
         </div>
       </header>
 
       <section className="card" style={{ padding: 10 }}>
         {loading && <p style={{ textAlign: 'center' }}>Duke i lexuar porositë...</p>}
-        {!loading && orders.length === 0 && <p style={{ textAlign: 'center' }}>Sot ende nuk ka marrje të regjistruara.</p>}
+        {!loading && orders.length === 0 && (
+          <p style={{ textAlign: 'center' }}>Nuk ka marrje të regjistruara për këtë datë.</p>
+        )}
 
         {!loading &&
           orders.map((o) => {
             const code = normalizeCode(o.code);
             return (
               <div key={o.id} className="fast-row">
-                {/* BIG CODE BADGE */}
                 <div className="code-badge" title="KODI">
                   {code || '—'}
                 </div>
 
-                {/* CENTER: NAME + PHONE */}
                 <div className="mid">
                   <div className="name" title={o.name || ''}>
                     {o.name || 'PA EMËR'}
@@ -230,7 +291,6 @@ export default function Page() {
                   </div>
                 </div>
 
-                {/* RIGHT: METRICS */}
                 <div className="right">
                   <div className="mline">
                     {Number(o.pieces || 0)} copë • {Number(o.m2 || 0).toFixed(2)} m²
@@ -246,9 +306,37 @@ export default function Page() {
         <Link className="btn secondary" href="/">
           🏠 HOME
         </Link>
+        <button className="btn" onClick={() => refresh(dateStr)} style={{ marginLeft: 8 }}>
+          ↻ REFRESH
+        </button>
       </footer>
 
       <style jsx>{`
+        .top-right {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 6px;
+          font-size: 12px;
+        }
+
+        .picker input[type='date'] {
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          color: #fff;
+          padding: 6px 8px;
+          border-radius: 10px;
+          font-weight: 800;
+          text-transform: uppercase;
+          font-size: 12px;
+          outline: none;
+        }
+
+        .totals {
+          text-align: right;
+          opacity: 0.95;
+        }
+
         /* FAST LIST ROW */
         .fast-row {
           display: flex;
