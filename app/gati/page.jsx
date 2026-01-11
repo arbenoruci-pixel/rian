@@ -1,4 +1,3 @@
-// app/gati/page.jsx
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -7,12 +6,15 @@ import { supabase } from '@/lib/supabaseClient';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
 const BUCKET = 'tepiha-photos';
+
+// PAGESA CHIPS
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 
 // ---------------- HELPERS ----------------
 function normalizeCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
+  // Preserve TRANSPORT codes (T123)
   if (/^t\d+/i.test(s)) {
     const n = s.replace(/\D+/g, '').replace(/^0+/, '');
     return `T${n || '0'}`;
@@ -63,11 +65,14 @@ function daysSince(ts) {
 
 function badgeColorByAge(ts) {
   const d = daysSince(ts);
-  if (d <= 0) return '#16a34a';
-  if (d === 1) return '#f59e0b';
-  return '#dc2626';
+  if (d <= 0) return '#16a34a'; // green (today)
+  if (d === 1) return '#f59e0b'; // orange (day 1)
+  return '#dc2626'; // red (day 2+)
 }
 
+/**
+ * ✅ IMPORTANT: download JSON no-cache (prevents stale reads)
+ */
 async function downloadJsonNoCache(path) {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
   if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
@@ -86,22 +91,34 @@ async function uploadPhoto(file, oid, key) {
   return pub?.publicUrl || null;
 }
 
-// ✅ REAL DB DELIVERY (orders table)
-async function markDeliveredDb(orderId) {
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from('orders')
-    .update({
-      status: 'delivered',
-      picked_up_at: now,
-      updated_at: now,
-    })
-    .eq('id', orderId)
-    .select('id, status, picked_up_at')
-    .single();
+// ---------------- ARKA HELPERS ----------------
+function saveArkaLocal(record) {
+  if (typeof window === 'undefined') return;
+  let list = [];
+  try {
+    list = JSON.parse(localStorage.getItem('arka_list_v1') || '[]');
+  } catch {
+    list = [];
+  }
+  if (!Array.isArray(list)) list = [];
+  list.unshift(record);
+  list = list.slice(0, 500);
+  localStorage.setItem('arka_list_v1', JSON.stringify(list));
+}
 
-  if (error) throw error;
-  return data;
+async function saveArkaOnline(record) {
+  if (!supabase) return;
+  const path = `arka/${record.id}.json`;
+  const blob =
+    typeof Blob !== 'undefined'
+      ? new Blob([JSON.stringify(record)], { type: 'application/json' })
+      : null;
+  if (!blob) return;
+  await supabase.storage.from(BUCKET).upload(path, blob, {
+    upsert: true,
+    cacheControl: '0',
+    contentType: 'application/json',
+  });
 }
 
 // ---------------- COMPONENT ----------------
@@ -115,7 +132,7 @@ export default function GatiPage() {
 
   // payment sheet
   const [showPaySheet, setShowPaySheet] = useState(false);
-  const [payOrder, setPayOrder] = useState(null);
+  const [payOrder, setPayOrder] = useState(null); // { id, order, code, name, phone, total, paid, arkaRecordedPaid, paidUpfront, m2 }
   const [payAdd, setPayAdd] = useState(0);
   const [payMethod, setPayMethod] = useState('CASH');
 
@@ -132,7 +149,6 @@ export default function GatiPage() {
     return () => {
       if (holdTimer.current) clearTimeout(holdTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function refreshOrders() {
@@ -151,19 +167,24 @@ export default function GatiPage() {
           const remoteOrder = await downloadJsonNoCache(`orders/${item.name}`);
           if (!remoteOrder?.id) return null;
 
-          // prefer local copy when exists
+          // Prefer LOCAL copy when it exists. Reason:
+          // after "PAGUAR & DORËZUAR", the local status becomes "dorzim".
+          // If storage upload is blocked (RLS/permissions/network), remote JSON
+          // may still be "gati" and would keep showing the client here.
           let order = remoteOrder;
           if (typeof window !== 'undefined') {
             try {
               const localRaw = localStorage.getItem(`order_${remoteOrder.id}`);
               if (localRaw) {
                 const localOrder = JSON.parse(localRaw);
-                if (localOrder && localOrder.id === remoteOrder.id) order = localOrder;
+                if (localOrder && localOrder.id === remoteOrder.id) {
+                  order = localOrder;
+                }
               }
             } catch {}
           }
 
-          // mirror local if missing
+          // mirror local (but DON'T overwrite a newer local state with remote)
           if (typeof window !== 'undefined') {
             try {
               const existing = localStorage.getItem(`order_${remoteOrder.id}`);
@@ -178,6 +199,7 @@ export default function GatiPage() {
           const paid = Number(order.pay?.paid || 0);
           const cope = computePieces(order);
 
+          // aging uses ready_at if exists (set from PASTRIMI), else ts fallback
           const readyTs =
             Number(order.ready_at) ||
             Number(order.readyAt) ||
@@ -298,6 +320,7 @@ export default function GatiPage() {
   }
 
   function applyPayOnly() {
+    // Just close. Payment actually applied when confirming delivery (same “one place” logic).
     setShowPaySheet(false);
   }
 
@@ -317,13 +340,17 @@ export default function GatiPage() {
       return;
     }
 
+    // if paid upfront, treat paid as total
     const paidAfter = paidUpfront ? Math.max(paidBefore, total) : Number((paidBefore + applied).toFixed(2));
+
     const debt = Math.max(0, Number((total - paidAfter).toFixed(2)));
     const change = paidUpfront ? 0 : Math.max(0, Number((cashGiven - applied).toFixed(2)));
 
+    // ARKA delta only if CASH
     const prevArka = Number(o.pay?.arkaRecordedPaid || 0);
     const willRecordCash = payMethod === 'CASH';
 
+    // In CASH, we want arkaRecordedPaid == paidAfter (minimum), never lower
     const targetCashRecorded = willRecordCash ? paidAfter : prevArka;
     const delta = willRecordCash ? Number((targetCashRecorded - prevArka).toFixed(2)) : 0;
     const safeDelta = Math.max(0, delta);
@@ -338,24 +365,11 @@ export default function GatiPage() {
 
     if (!confirm(msg)) return;
 
-    // ✅ 1) DB UPDATE (REAL SOURCE OF TRUTH FOR MARRJE SOT)
-    try {
-      await markDeliveredDb(payOrder.id);
-    } catch (e) {
-      console.log('DB DELIVER FAIL:', e);
-      alert('❌ DB DORËZIM FAIL: ' + (e?.message || ''));
-      return;
-    }
-
-    // ✅ 2) Local + Storage JSON (keep your current flow)
-    const nowIso = new Date().toISOString();
-    const nowMs = Date.now();
-
     const updated = {
       ...o,
-      status: 'delivered',          // IMPORTANT: align
-      picked_up_at: nowIso,         // mirror DB column name
-      pickedUpAt: nowMs,            // local ms (optional)
+      status: 'dorzim',
+      deliveredAt: Date.now(),
+        delivered_at: new Date().toISOString(),
       returnInfo: { ...(o.returnInfo || {}), active: false },
       pay: {
         ...(o.pay || {}),
@@ -383,7 +397,7 @@ export default function GatiPage() {
         });
       }
     } catch (e) {
-      console.error('save delivered json fail', e);
+      console.error('save dorzim fail', e);
     }
 
     // ARKA record (only CASH + positive delta)
@@ -399,39 +413,30 @@ export default function GatiPage() {
         note: paidUpfront ? 'paid_upfront_delta' : 'delivery_cash_delta',
       };
 
-      const cashRes = await recordCashMove({
+	      const cashRes = await recordCashMove({
         externalId: arkaRecord.id,
         orderId: updated.id,
         code: arkaRecord.code,
         name: (arkaRecord.name || '').trim(),
-        stage: 'GATI',
+	        stage: 'GATI',
         amount: safeDelta,
-        note:
-          (paidUpfront ? 'AVANS ' : 'PAGESA ') +
-          safeDelta.toFixed(2) +
-          '€ • #' +
-          arkaRecord.code +
-          ' • ' +
-          (arkaRecord.name || '').trim(),
+        note: (paidUpfront ? 'AVANS ' : 'PAGESA ') + safeDelta.toFixed(2) + '€ • #' + arkaRecord.code + ' • ' + (arkaRecord.name || '').trim(),
         source: paidUpfront ? 'ORDER_FRONT' : 'ORDER_PAY',
-        method: 'CASH',
+	        method: 'CASH',
         type: 'IN',
       });
 
-      if (cashRes?.pending) {
-        try {
-          console.log('ARKA WAITING payment saved', cashRes);
-        } catch {}
-      }
+	      // If ARKA was closed (or HANDED), payment is saved as WAITING (PENDING)
+	      if (cashRes?.pending) {
+	        try {
+	          // non-blocking hint
+	          console.log('ARKA WAITING payment saved', cashRes);
+	        } catch {}
+	      }
     }
 
-    const doneMsg =
-      '✅ Porosia u dorëzua.' +
-      (willRecordCash
-        ? '\n\n(Nëse ARKA ishte e mbyllur: pagesa ruhet si WAITING dhe futet në ARKË kur hapet.)'
-        : '');
-    alert(doneMsg);
-
+	    const doneMsg = '✅ Porosia u dorëzua.' + (willRecordCash ? '\n\n(Nëse ARKA ishte e mbyllur: pagesa ruhet si WAITING dhe futet në ARKË kur hapet.)' : '');
+	    alert(doneMsg);
     closePay();
     setOrders((prev) => prev.filter((x) => x.id !== updated.id));
   }
@@ -511,6 +516,8 @@ export default function GatiPage() {
     const updated = {
       ...retOrder,
       status: 'pastrim',
+
+      // ✅ SNAPSHOT që PASTRIMI ta lexojë lehtë (pa kërku returnLog)
       returnInfo: {
         active: true,
         at: Date.now(),
@@ -520,6 +527,8 @@ export default function GatiPage() {
         photoUrl: entry.photoUrl,
         logId: entry.id,
       },
+
+      // ✅ HISTORI e plotë (opsionale)
       returnLog: Array.isArray(retOrder.returnLog) ? [entry, ...retOrder.returnLog] : [entry],
     };
 
@@ -538,6 +547,7 @@ export default function GatiPage() {
         });
       }
 
+      // optional audit file
       const blob2 =
         typeof Blob !== 'undefined'
           ? new Blob([JSON.stringify(entry)], { type: 'application/json' })
@@ -550,6 +560,7 @@ export default function GatiPage() {
         });
       }
 
+      // local return list
       try {
         const list = JSON.parse(localStorage.getItem('return_list_v1') || '[]');
         const next = Array.isArray(list) ? [entry, ...list].slice(0, 300) : [entry];
@@ -568,6 +579,7 @@ export default function GatiPage() {
     setOrders((prev) => prev.filter((x) => x.id !== updated.id));
   }
 
+  // Hold logic on PAY button
   function onPayPressStart(row) {
     holdFired.current = false;
     if (holdTimer.current) clearTimeout(holdTimer.current);
@@ -582,8 +594,8 @@ export default function GatiPage() {
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
     }
-    if (holdFired.current) return;
-    openPay(row);
+    if (holdFired.current) return; // long press already opened return
+    openPay(row); // short press opens payment
   }
 
   // ---------------- RENDER ----------------
@@ -671,15 +683,21 @@ export default function GatiPage() {
                     </div>
 
                     {o.paidUpfront && (
-                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>
+                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>
+                        ✅ E PAGUAR (NË FILLIM)
+                      </div>
                     )}
 
                     {paid > 0 && !o.paidUpfront && (
-                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>Paguar: {paid.toFixed(2)}€</div>
+                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>
+                        Paguar: {paid.toFixed(2)}€
+                      </div>
                     )}
 
                     {debt > 0 && !o.paidUpfront && (
-                      <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 900 }}>Borxh: {debt.toFixed(2)}€</div>
+                      <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 900 }}>
+                        Borxh: {debt.toFixed(2)}€
+                      </div>
                     )}
                   </div>
                 </div>
@@ -724,7 +742,7 @@ export default function GatiPage() {
         </Link>
       </footer>
 
-      {/* ============ FULL SCREEN PAGESA ============ */}
+      {/* ============ FULL SCREEN PAGESA (si PASTRIMI) ============ */}
       {showPaySheet && payOrder && (
         <div className="payfs">
           <div className="payfs-top">
@@ -767,10 +785,7 @@ export default function GatiPage() {
                 const paidBefore = Number(payOrder.paid || 0);
                 const paidUpfront = !!payOrder.paidUpfront;
 
-                const paidAfter = paidUpfront
-                  ? Math.max(paidBefore, total)
-                  : Number((paidBefore + Number(payAdd || 0)).toFixed(2));
-
+                const paidAfter = paidUpfront ? Math.max(paidBefore, total) : Number((paidBefore + Number(payAdd || 0)).toFixed(2));
                 const d = Number((total - paidAfter).toFixed(2));
                 const debtNow = d > 0 ? d : 0;
                 const changeNow = d < 0 ? Math.abs(d) : 0;
@@ -803,8 +818,8 @@ export default function GatiPage() {
 
                   <input
                     type="text"
-                    inputMode="decimal"
-                    pattern="[0-9]*"
+                  inputMode="decimal"
+                  pattern="[0-9]*"
                     className="input"
                     value={Number(payAdd || 0) === 0 ? '' : payAdd}
                     onChange={(e) => {
@@ -832,14 +847,13 @@ export default function GatiPage() {
 
                 <div className="field-group">
                   <label className="label">METODA</label>
+
+                  {/* iOS fix: avoid native <select> overlay stealing taps */}
                   <div className="row" style={{ gap: 10 }}>
                     <button
                       type="button"
                       className="btn secondary"
-                      style={{
-                        flex: 1,
-                        outline: payMethod === 'CASH' ? '2px solid rgba(255,255,255,0.35)' : 'none',
-                      }}
+                      style={{ flex: 1, outline: payMethod === 'CASH' ? '2px solid rgba(255,255,255,0.35)' : 'none' }}
                       onClick={() => setPayMethod('CASH')}
                     >
                       CASH
@@ -847,10 +861,7 @@ export default function GatiPage() {
                     <button
                       type="button"
                       className="btn secondary"
-                      style={{
-                        flex: 1,
-                        outline: payMethod === 'CARD' ? '2px solid rgba(255,255,255,0.35)' : 'none',
-                      }}
+                      style={{ flex: 1, outline: payMethod === 'CARD' ? '2px solid rgba(255,255,255,0.35)' : 'none' }}
                       onClick={() => setPayMethod('CARD')}
                     >
                       CARD / TRANSFER
@@ -887,7 +898,7 @@ export default function GatiPage() {
         </div>
       )}
 
-      {/* ============ HIDDEN RETURN FULLSCREEN ============ */}
+      {/* ============ HIDDEN RETURN FULLSCREEN (HOLD 3s) ============ */}
       {showReturnSheet && retOrder && (
         <div className="payfs">
           <div className="payfs-top">
@@ -974,6 +985,7 @@ export default function GatiPage() {
         </div>
       )}
 
+      {/* Styles: dock + payfs */}
       <style jsx>{`
         .dock {
           position: sticky;
