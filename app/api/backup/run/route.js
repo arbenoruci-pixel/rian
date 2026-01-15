@@ -15,54 +15,37 @@ function companyPin() {
   return String(process.env.BACKUP_PIN || process.env.BACKUP_COMPANY_PIN || "").trim();
 }
 
-async function detectBackupsTable(sb) {
-  for (const t of ["app_backups", "backups"]) {
-    const { error } = await sb.from(t).select("id").limit(1);
-    if (!error) return t;
-  }
-  throw new Error("NO_BACKUPS_TABLE_ACCESS");
-}
-
-async function detectClientsTable(sb) {
-  for (const t of ["clients", "app_clients"]) {
+async function detectTable(sb, candidates) {
+  for (const t of candidates) {
     const { error } = await sb.from(t).select("id").limit(1);
     if (!error) return t;
   }
   return null;
 }
 
-function pickPhone(obj) {
-  return String(
-    obj.telefoni ??
-      obj.phone ??
-      obj.tel ??
-      obj.client_phone ??
-      obj.clientPhone ??
-      ""
-  ).trim();
+function pick(obj, keys) {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return null;
 }
-function pickName(obj) {
-  return String(
-    obj.emri ?? obj.name ?? obj.client_name ?? obj.clientName ?? ""
-  ).trim();
+
+function asText(v, fallback = "-") {
+  const s = String(v ?? "").trim();
+  return s ? s : fallback;
 }
-function pickCode(obj) {
-  const v =
-    obj.kodi ??
-    obj.code ??
-    obj.client_code ??
-    obj.clientCode ??
-    obj.nr ??
-    obj.id ??
-    "";
-  const s = String(v).trim();
-  return s || "-";
+
+function asNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function normStatus(s) {
   return String(s || "").toLowerCase().trim();
 }
-function isActiveStatus(s) {
+
+function isActiveOrderStatus(s) {
   const st = normStatus(s);
   return !["dorzim", "dorezim", "delivered", "arkiv", "archived"].includes(st);
 }
@@ -70,95 +53,131 @@ function isActiveStatus(s) {
 export async function POST(req) {
   try {
     const sb = admin();
-    const backupsTable = await detectBackupsTable(sb);
 
-    const url = new URL(req.url);
-    const pinFromUi = String(url.searchParams.get("pin") || "").trim();
-    const pin = companyPin() || pinFromUi || "654321";
+    // PIN check (company pin wins)
+    let body = {};
+    try { body = await req.json(); } catch {}
+    const pinFromUi = asText(body?.pin || "", "");
+    const mustPin = companyPin();
+    const pin = mustPin || pinFromUi || "654321";
+    if (mustPin && pinFromUi && pinFromUi !== mustPin) {
+      return NextResponse.json({ ok: false, error: "PIN_REQUIRED" }, { status: 401 });
+    }
 
-    const device =
-      req.headers.get("x-device") ||
-      req.headers.get("user-agent")?.slice(0, 120) ||
-      "unknown";
+    const backupsTable = await detectTable(sb, ["app_backups", "backups"]);
+    if (!backupsTable) throw new Error("NO_BACKUPS_TABLE_ACCESS");
 
-    // orders
-    const { data: orders, error: e1 } = await sb
-      .from("orders")
+    const clientsTable = await detectTable(sb, ["clients", "app_clients"]);
+    // orders table is fixed in your app
+    const ordersTable = "orders";
+
+    // fetch orders (for counts, totals, last date)
+    const { data: orders, error: oErr } = await sb
+      .from(ordersTable)
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(20000);
+      .limit(50000);
 
-    if (e1) {
+    if (oErr) {
       return NextResponse.json(
-        { ok: false, error: "ORDERS_FETCH_FAILED", detail: e1.message },
+        { ok: false, error: "ORDERS_FETCH_FAILED", detail: oErr.message },
         { status: 500 }
       );
     }
 
-    // aktive by phone
-    const activeByPhone = new Map();
+    // build stats by phone (aktive count + total sum + last date + pieces)
+    const stats = new Map(); // phone -> { aktive, total, cope, last }
     for (const o of orders || []) {
-      const phone = pickPhone(o);
+      const phone = asText(
+        pick(o, ["telefoni", "phone", "tel", "client_phone", "clientPhone"]),
+        ""
+      );
       if (!phone) continue;
-      if (!isActiveStatus(o.status)) continue;
-      activeByPhone.set(phone, (activeByPhone.get(phone) || 0) + 1);
+
+      const cur = stats.get(phone) || { aktive: 0, total: 0, cope: 0, last: null };
+      if (isActiveOrderStatus(o.status)) cur.aktive += 1;
+
+      // totals / pieces (try many keys)
+      cur.total += asNum(pick(o, ["total", "shuma", "amount", "sum_total", "grand_total"]));
+      cur.cope += asNum(pick(o, ["cope", "pieces", "pieces_count", "qty", "sasi"]));
+
+      const dt = pick(o, ["updated_at", "created_at", "ready_at", "picked_up_at"]);
+      if (dt && !cur.last) cur.last = dt; // orders are desc sorted, first hit is latest
+      stats.set(phone, cur);
     }
 
-    // clients (source of truth) ose fallback
+    // fetch clients (ALL)
     let rawClients = [];
     let clientsSource = "fallback_from_orders";
-
-    const clientsTable = await detectClientsTable(sb);
     if (clientsTable) {
-      const { data: cdata, error: ce } = await sb
+      const { data: cdata, error: cErr } = await sb
         .from(clientsTable)
         .select("*")
         .order("created_at", { ascending: false })
-        .limit(20000);
-
-      if (!ce && Array.isArray(cdata)) {
+        .limit(50000);
+      if (!cErr && Array.isArray(cdata)) {
         rawClients = cdata;
         clientsSource = clientsTable;
       }
     }
 
+    // fallback (unique phones from orders) ONLY if no clients table
     if (!rawClients.length) {
       const seen = new Set();
       for (const o of orders || []) {
-        const phone = pickPhone(o);
+        const phone = asText(
+          pick(o, ["telefoni", "phone", "tel", "client_phone", "clientPhone"]),
+          ""
+        );
         if (!phone || seen.has(phone)) continue;
         seen.add(phone);
         rawClients.push(o);
       }
     }
 
-    // normalize për FLETORJA UI
+    // normalize clients for FLETORJA (KEYS MUST MATCH UI)
     const clients = rawClients.map((c) => {
-      const telefoni = pickPhone(c) || "-";
-      const emri = pickName(c) || "-";
-      const kodi = pickCode(c);
-      const aktive = activeByPhone.get(String(telefoni).trim()) || 0;
-      return { kodi, emri, telefoni, aktive };
+      const telefoni = asText(pick(c, ["telefoni", "phone", "tel", "client_phone", "clientPhone"]), "-");
+      const emri = asText(pick(c, ["emri", "name", "client_name", "clientName", "full_name"]), "-");
+      const kodi = asText(pick(c, ["kodi", "code", "nr", "client_code", "clientCode", "client_nr"]), "-");
+
+      const st = stats.get(telefoni) || { aktive: 0, total: 0, cope: 0, last: null };
+
+      return {
+        kodi,
+        emri,
+        telefoni,
+        aktive: st.aktive || 0,
+        cope: st.cope || 0,
+        total: Number((st.total || 0).toFixed(2)),
+        e_fundit: st.last || null,
+      };
     });
 
     const payload = {
       generated_at: new Date().toISOString(),
       clients_source: clientsSource,
-      clients,
-      orders: orders || [],
       clients_count: clients.length,
       orders_count: (orders || []).length,
+      clients,
+      // keep orders too (for emergency)
+      orders: orders || [],
     };
 
-    const { data: saved, error: e2 } = await sb
+    const device =
+      req.headers.get("x-device") ||
+      req.headers.get("user-agent")?.slice(0, 120) ||
+      "unknown";
+
+    const { data: saved, error: bErr } = await sb
       .from(backupsTable)
       .insert({ pin, device, payload })
       .select("id, created_at, pin, device")
       .single();
 
-    if (e2) {
+    if (bErr) {
       return NextResponse.json(
-        { ok: false, error: "BACKUP_INSERT_FAILED", detail: e2.message, table: backupsTable },
+        { ok: false, error: "BACKUP_INSERT_FAILED", detail: bErr.message, table: backupsTable },
         { status: 500 }
       );
     }
@@ -167,12 +186,9 @@ export async function POST(req) {
       ok: true,
       table: backupsTable,
       saved,
-      meta: { clientsSource, clients_count: clients.length },
+      meta: { pin, clients_count: clients.length, orders_count: (orders || []).length, clientsSource },
     });
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || String(e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
 }
