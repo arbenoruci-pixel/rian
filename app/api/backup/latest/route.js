@@ -1,48 +1,64 @@
-import { NextResponse } from 'next/server';
-import { getServiceSupabase } from '../_lib/sbAdmin';
-import { BACKUPS_TABLE, getReqPin, requirePinOrBypass } from '../_lib/utils';
+// app/api/backup/latest/route.js
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+
+function admin() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url) throw new Error("MISSING_SUPABASE_URL");
+  if (!key) throw new Error("MISSING_SUPABASE_SERVICE_ROLE_KEY");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+function companyPin() {
+  return String(process.env.BACKUP_PIN || process.env.BACKUP_COMPANY_PIN || "")
+    .trim();
+}
+
+async function detectTable(sb) {
+  for (const t of ["app_backups", "backups"]) {
+    const { error } = await sb.from(t).select("id").limit(1);
+    if (!error) return t;
+  }
+  throw new Error("NO_BACKUPS_TABLE_ACCESS");
+}
 
 export async function GET(req) {
   try {
-    const sb = getServiceSupabase();
+    const sb = admin();
+    const table = await detectTable(sb);
 
-    const u = new URL(req.url);
-    const raw = u.searchParams.get('raw') === '1';
+    const url = new URL(req.url);
+    const pin = companyPin() || String(url.searchParams.get("pin") || "").trim() || "654321";
 
-    const pin = getReqPin(req);
-    const pinDecision = requirePinOrBypass(pin);
-    if (!pinDecision.ok) {
-      return NextResponse.json({ ok: false, error: pinDecision.error }, { status: 401 });
-    }
+    const { data, error } = await sb
+      .from(table)
+      .select("id, created_at, pin, device, payload")
+      .eq("pin", pin)
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-    let q = sb.from(BACKUPS_TABLE).select('id,created_at,device,pin,payload,has_payload').order('created_at', { ascending: false }).limit(1);
-    if (pinDecision.pin) q = q.eq('pin', pinDecision.pin);
-    // If pinDecision.pin is null (bypass mode), we fetch latest overall.
-
-    const { data, error } = await q.maybeSingle();
     if (error) {
-      return NextResponse.json({ ok: false, error: 'SUPABASE_BACKUPS_QUERY_FAILED', detail: error.message }, { status: 500 });
-    }
-    if (!data) {
-      return NextResponse.json({ ok: false, error: 'NO_BACKUP_FOUND' }, { status: 404 });
-    }
-
-    if (raw) {
-      const body = JSON.stringify(data.payload || {}, null, 2);
-      return new NextResponse(body, {
-        status: 200,
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'content-disposition': `attachment; filename="tepiha-backup-${data.id}.json"`,
-          'cache-control': 'no-store',
-        },
-      });
+      return NextResponse.json(
+        { ok: false, error: "SUPABASE_BACKUPS_QUERY_FAILED", detail: error.message, table },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({ ok: true, item: data, table: BACKUPS_TABLE, used_pin: pinDecision.pin || null });
+    if (!data || data.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "NO_BACKUP_FOUND", table, pin },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ ok: true, table, item: data[0] });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || String(e) },
+      { status: 500 }
+    );
   }
 }
