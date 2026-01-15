@@ -1,49 +1,197 @@
-19:14:12.544 Running build in Washington, D.C., USA (East) – iad1
-19:14:12.544 Build machine configuration: 4 cores, 8 GB
-19:14:12.656 Cloning github.com/arbenoruci-pixel/rian (Branch: main, Commit: a80b58e)
-19:14:12.931 Cloning completed: 274.000ms
-19:14:13.411 Restored build cache from previous deployment (6xz6tuhqjkre5xpBRwnPs4EnRaX2)
-19:14:13.686 Running "vercel build"
-19:14:14.587 Vercel CLI 50.3.1
-19:14:14.879 Installing dependencies...
-19:14:15.964 
-19:14:15.964 up to date in 857ms
-19:14:15.964 
-19:14:15.964 136 packages are looking for funding
-19:14:15.965   run `npm fund` for details
-19:14:15.993 Detected Next.js version: 14.2.3
-19:14:15.998 Running "npm run build"
-19:14:16.116 
-19:14:16.116 > rian-main-full@1.0.0 build
-19:14:16.116 > next build
-19:14:16.116 
-19:14:16.816   ▲ Next.js 14.2.3
-19:14:16.816 
-19:14:16.877    Creating an optimized production build ...
-19:14:17.597  ⚠ Found lockfile missing swc dependencies, run next locally to automatically patch
-19:14:20.044 Failed to compile.
-19:14:20.045 
-19:14:20.045 ./app/api/backup/run/route.js
-19:14:20.045 Module parse failed: Top-level-await is only supported in EcmaScript Modules
-19:14:20.045 File was processed with these loaders:
-19:14:20.045  * ./node_modules/next/dist/build/webpack/loaders/next-flight-loader/index.js
-19:14:20.045  * ./node_modules/next/dist/build/webpack/loaders/next-swc-loader.js
-19:14:20.045 You may need an additional loader to handle the result of these loaders.
-19:14:20.045 Error: Top-level-await is only supported in EcmaScript Modules
-19:14:20.046     at /vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:28:756227
-19:14:20.046     at Hook.eval [as call] (eval at create (/vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:13:28636), <anonymous>:7:16)
-19:14:20.046     at Hook.CALL_DELEGATE [as _call] (/vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:13:25906)
-19:14:20.046     at JavascriptParser.walkAwaitExpression (/vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:28:977555)
-19:14:20.046     at JavascriptParser.walkExpression (/vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:28:976238)
-19:14:20.046     at JavascriptParser.walkVariableDeclaration (/vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:28:974296)
-19:14:20.046     at JavascriptParser.walkStatement (/vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:28:964555)
-19:14:20.046     at JavascriptParser.walkStatements (/vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:28:961772)
-19:14:20.047     at JavascriptParser.parse (/vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:28:992222)
-19:14:20.047     at /vercel/path0/node_modules/next/dist/compiled/webpack/bundle5.js:28:405457
-19:14:20.047 
-19:14:20.047 Import trace for requested module:
-19:14:20.047 ./app/api/backup/run/route.js
-19:14:20.047 
-19:14:20.057 
-19:14:20.057 > Build failed because of webpack errors
-19:14:20.082 Error: Command "npm run build" exited with 1
+// app/api/backup/run/route.js
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+export const runtime = "nodejs";
+
+/** Admin Supabase client (service role) */
+function admin() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url) throw new Error("MISSING_SUPABASE_URL");
+  if (!key) throw new Error("MISSING_SUPABASE_SERVICE_ROLE_KEY");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+/** Company pin override */
+function companyPin() {
+  return String(process.env.BACKUP_PIN || process.env.BACKUP_COMPANY_PIN || "").trim();
+}
+
+/** Detect which backups table exists */
+async function detectBackupsTable(sb) {
+  for (const t of ["app_backups", "backups"]) {
+    const { error } = await sb.from(t).select("id").limit(1);
+    if (!error) return t;
+  }
+  throw new Error("NO_BACKUPS_TABLE_ACCESS");
+}
+
+/** Detect clients table if exists */
+async function detectClientsTable(sb) {
+  for (const t of ["clients", "app_clients"]) {
+    const { error } = await sb.from(t).select("id").limit(1);
+    if (!error) return t;
+  }
+  return null;
+}
+
+/** Helpers to map client fields */
+function pickPhone(obj) {
+  return String(
+    obj.telefoni ??
+      obj.phone ??
+      obj.tel ??
+      obj.client_phone ??
+      obj.clientPhone ??
+      ""
+  ).trim();
+}
+
+function pickName(obj) {
+  return String(
+    obj.emri ?? obj.name ?? obj.client_name ?? obj.clientName ?? ""
+  ).trim();
+}
+
+function pickCode(obj) {
+  const v =
+    obj.kodi ??
+    obj.code ??
+    obj.client_code ??
+    obj.clientCode ??
+    obj.nr ??
+    obj.id ??
+    "";
+  const s = String(v).trim();
+  return s || "-";
+}
+
+function normStatus(s) {
+  return String(s || "").toLowerCase().trim();
+}
+
+function isActiveStatus(s) {
+  const st = normStatus(s);
+  // active = jo e dorëzuar / jo e arkivuar
+  return !["dorzim", "dorezim", "delivered", "arkiv", "archived"].includes(st);
+}
+
+export async function POST(req) {
+  try {
+    const sb = admin();
+    const backupsTable = await detectBackupsTable(sb);
+
+    const url = new URL(req.url);
+    const pinFromUi = String(url.searchParams.get("pin") || "").trim();
+    const pin = companyPin() || pinFromUi || "654321";
+
+    const device =
+      req.headers.get("x-device") ||
+      req.headers.get("user-agent")?.slice(0, 120) ||
+      "unknown";
+
+    // 1) Fetch orders (source for aktive counts)
+    const { data: orders, error: e1 } = await sb
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20000);
+
+    if (e1) {
+      return NextResponse.json(
+        { ok: false, error: "ORDERS_FETCH_FAILED", detail: e1.message },
+        { status: 500 }
+      );
+    }
+
+    // 2) Active counts by phone
+    const activeByPhone = new Map();
+    for (const o of orders || []) {
+      const phone = pickPhone(o);
+      if (!phone) continue;
+      if (!isActiveStatus(o.status)) continue;
+      activeByPhone.set(phone, (activeByPhone.get(phone) || 0) + 1);
+    }
+
+    // 3) Fetch clients from clients table if exists, else fallback from orders
+    let rawClients = [];
+    let clientsSource = "fallback_from_orders";
+
+    const clientsTable = await detectClientsTable(sb);
+    if (clientsTable) {
+      const { data: cdata, error: ce } = await sb
+        .from(clientsTable)
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20000);
+
+      if (!ce && Array.isArray(cdata)) {
+        rawClients = cdata;
+        clientsSource = clientsTable;
+      }
+    }
+
+    if (!rawClients.length) {
+      // fallback: unique clients from orders by phone
+      const seen = new Set();
+      for (const o of orders || []) {
+        const phone = pickPhone(o);
+        if (!phone || seen.has(phone)) continue;
+        seen.add(phone);
+        rawClients.push(o);
+      }
+    }
+
+    // 4) Normalize clients in the exact format FLETORJA expects
+    // { kodi, emri, telefoni, aktive }
+    const clients = rawClients.map((c) => {
+      const telefoni = pickPhone(c) || "-";
+      const emri = pickName(c) || "-";
+      const kodi = pickCode(c);
+      const aktive = activeByPhone.get(String(telefoni).trim()) || 0;
+      return { kodi, emri, telefoni, aktive };
+    });
+
+    // 5) Build payload (snapshot)
+    const payload = {
+      generated_at: new Date().toISOString(),
+      clients_source: clientsSource,
+      clients,
+      orders: orders || [],
+      clients_count: clients.length,
+      orders_count: (orders || []).length,
+    };
+
+    // 6) Insert backup row
+    const { data: saved, error: e2 } = await sb
+      .from(backupsTable)
+      .insert({ pin, device, payload })
+      .select("id, created_at, pin, device")
+      .single();
+
+    if (e2) {
+      return NextResponse.json(
+        { ok: false, error: "BACKUP_INSERT_FAILED", detail: e2.message, table: backupsTable },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      table: backupsTable,
+      saved,
+      meta: {
+        pin,
+        clientsSource,
+        clients_count: clients.length,
+        orders_count: (orders || []).length,
+      },
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || String(e) },
+      { status: 500 }
+    );
+  }
+}
