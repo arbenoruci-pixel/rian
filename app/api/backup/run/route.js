@@ -11,73 +11,123 @@ function admin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-// Ndihmës për të gjetur vlerat pavarësisht emrit të kolonës
-function pick(obj, keys) {
-  for (const k of keys) {
-    const v = obj?.[k];
-    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+async function detectBackupsTable(sb) {
+  for (const t of ["app_backups", "backups"]) {
+    const { error } = await sb.from(t).select("id").limit(1);
+    if (!error) return t;
+  }
+  throw new Error("NO_BACKUPS_TABLE_ACCESS");
+}
+
+async function detectClientsTable(sb) {
+  for (const t of ["clients", "app_clients"]) {
+    const { error } = await sb.from(t).select("id").limit(1);
+    if (!error) return t;
   }
   return null;
+}
+
+function requirePin(pin) {
+  const required = String(process.env.BACKUP_PIN || "").trim();
+  if (!required) return { ok: true }; // no pin enforcement if env not set
+  if (!pin) return { ok: false, error: "PIN_REQUIRED" };
+  if (String(pin).trim() !== required) return { ok: false, error: "INVALID_PIN" };
+  return { ok: true };
 }
 
 export async function POST(req) {
   try {
     const sb = admin();
-    const url = new URL(req.url);
-    const pin = String(url.searchParams.get("pin") || "").trim() || "654321";
-    const device = req.headers.get("x-device") || "server-backup";
+    const backupsTable = await detectBackupsTable(sb);
 
-    // 1. Merr porositë
+    const url = new URL(req.url);
+    const pin = String(url.searchParams.get("pin") || "").trim();
+
+    const pinCheck = requirePin(pin);
+    if (!pinCheck.ok) {
+      return NextResponse.json({ ok: false, error: pinCheck.error }, { status: 401 });
+    }
+
+    const device =
+      req.headers.get("x-device") ||
+      req.headers.get("user-agent")?.slice(0, 120) ||
+      "unknown";
+
+    // ✅ 1) fetch ALL orders (RAW)
     const { data: orders, error: oErr } = await sb
       .from("orders")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(20000);
 
-    if (oErr) throw new Error("ORDERS_FETCH_FAILED: " + oErr.message);
-
-    // 2. Provo të marrësh klientët (app_clients ose clients)
-    let clientsRaw = [];
-    let { data: cData } = await sb.from("app_clients").select("*").limit(10000);
-    if (!cData) {
-      let { data: cDataAlt } = await sb.from("clients").select("*").limit(10000);
-      clientsRaw = cDataAlt || [];
-    } else {
-      clientsRaw = cData;
+    if (oErr) {
+      return NextResponse.json(
+        { ok: false, error: "ORDERS_FETCH_FAILED", detail: oErr.message },
+        { status: 500 }
+      );
     }
 
-    // 3. Logjika e Listimit (Map-imi i Emrave dhe Kodeve)
-    // Kjo siguron që klientët të dalin me emra dhe koda
-    const stats = new Map();
-    const processedClients = clientsRaw.map(c => {
-      const tel = pick(c, ["telefoni", "phone", "tel", "client_phone"]);
-      return {
-        kodi: pick(c, ["kodi", "code", "nr", "client_code"]) || "-",
-        emri: pick(c, ["emri", "name", "full_name", "client_name"]) || "-",
-        telefoni: tel || "-",
-        aktive: 0, total: 0, cope: 0, e_fundit: c.created_at
-      };
-    });
+    // ✅ 2) fetch ALL clients from clients/app_clients if exists (RAW)
+    const clientsTable = await detectClientsTable(sb);
+    let clients = [];
+    let clients_source = "none";
 
-    // RAW snapshot payload
+    if (clientsTable) {
+      const { data: cdata, error: cErr } = await sb
+        .from(clientsTable)
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20000);
+
+      if (cErr) {
+        return NextResponse.json(
+          { ok: false, error: "CLIENTS_FETCH_FAILED", detail: cErr.message, table: clientsTable },
+          { status: 500 }
+        );
+      }
+
+      clients = cdata || [];
+      clients_source = clientsTable;
+    }
+
+    // ✅ RAW snapshot payload (no summaries that destroy data)
     const payload = {
       backup_at: new Date().toISOString(),
-      counts: { clients: processedClients.length, orders: orders.length },
-      clients: processedClients,
-      orders: orders // Ruajmë porositë RAW për siguri
+      pin,
+      clients_source,
+      counts: {
+        clients: clients.length,
+        orders: (orders || []).length,
+      },
+      clients,
+      orders: orders || [],
     };
 
-    // 4. Insert në app_backups
+    // ✅ insert backup
     const { data: saved, error: bErr } = await sb
-      .from("app_backups")
+      .from(backupsTable)
       .insert({ pin, device, payload })
-      .select("id, created_at")
+      .select("id, created_at, pin, device")
       .single();
 
-    if (bErr) throw new Error("INSERT_FAILED: " + bErr.message);
+    if (bErr) {
+      return NextResponse.json(
+        { ok: false, error: "BACKUP_INSERT_FAILED", detail: bErr.message, table: backupsTable },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json({ ok: true, saved, counts: payload.counts });
+    return NextResponse.json({
+      ok: true,
+      table: backupsTable,
+      saved,
+      counts: payload.counts,
+      clients_source,
+    });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "BACKUP_RUN_FAILED", detail: e?.message || String(e) },
+      { status: 500 }
+    );
   }
 }
