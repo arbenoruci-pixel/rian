@@ -1,10 +1,8 @@
-// app/api/backup/run/route.js
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-/** Admin Supabase client (service role) */
 function admin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -13,12 +11,10 @@ function admin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-/** Company pin override */
 function companyPin() {
   return String(process.env.BACKUP_PIN || process.env.BACKUP_COMPANY_PIN || "").trim();
 }
 
-/** Detect which backups table exists */
 async function detectBackupsTable(sb) {
   for (const t of ["app_backups", "backups"]) {
     const { error } = await sb.from(t).select("id").limit(1);
@@ -27,7 +23,6 @@ async function detectBackupsTable(sb) {
   throw new Error("NO_BACKUPS_TABLE_ACCESS");
 }
 
-/** Detect clients table if exists */
 async function detectClientsTable(sb) {
   for (const t of ["clients", "app_clients"]) {
     const { error } = await sb.from(t).select("id").limit(1);
@@ -36,7 +31,6 @@ async function detectClientsTable(sb) {
   return null;
 }
 
-/** Helpers to map client fields */
 function pickPhone(obj) {
   return String(
     obj.telefoni ??
@@ -47,13 +41,11 @@ function pickPhone(obj) {
       ""
   ).trim();
 }
-
 function pickName(obj) {
   return String(
     obj.emri ?? obj.name ?? obj.client_name ?? obj.clientName ?? ""
   ).trim();
 }
-
 function pickCode(obj) {
   const v =
     obj.kodi ??
@@ -70,10 +62,8 @@ function pickCode(obj) {
 function normStatus(s) {
   return String(s || "").toLowerCase().trim();
 }
-
 function isActiveStatus(s) {
   const st = normStatus(s);
-  // active = jo e dorëzuar / jo e arkivuar
   return !["dorzim", "dorezim", "delivered", "arkiv", "archived"].includes(st);
 }
 
@@ -91,7 +81,7 @@ export async function POST(req) {
       req.headers.get("user-agent")?.slice(0, 120) ||
       "unknown";
 
-    // 1) Fetch orders (source for aktive counts)
+    // orders
     const { data: orders, error: e1 } = await sb
       .from("orders")
       .select("*")
@@ -105,7 +95,7 @@ export async function POST(req) {
       );
     }
 
-    // 2) Active counts by phone
+    // aktive by phone
     const activeByPhone = new Map();
     for (const o of orders || []) {
       const phone = pickPhone(o);
@@ -114,7 +104,7 @@ export async function POST(req) {
       activeByPhone.set(phone, (activeByPhone.get(phone) || 0) + 1);
     }
 
-    // 3) Fetch clients from clients table if exists, else fallback from orders
+    // clients (source of truth) ose fallback
     let rawClients = [];
     let clientsSource = "fallback_from_orders";
 
@@ -133,7 +123,6 @@ export async function POST(req) {
     }
 
     if (!rawClients.length) {
-      // fallback: unique clients from orders by phone
       const seen = new Set();
       for (const o of orders || []) {
         const phone = pickPhone(o);
@@ -143,8 +132,7 @@ export async function POST(req) {
       }
     }
 
-    // 4) Normalize clients in the exact format FLETORJA expects
-    // { kodi, emri, telefoni, aktive }
+    // normalize për FLETORJA UI
     const clients = rawClients.map((c) => {
       const telefoni = pickPhone(c) || "-";
       const emri = pickName(c) || "-";
@@ -153,7 +141,6 @@ export async function POST(req) {
       return { kodi, emri, telefoni, aktive };
     });
 
-    // 5) Build payload (snapshot)
     const payload = {
       generated_at: new Date().toISOString(),
       clients_source: clientsSource,
@@ -163,7 +150,6 @@ export async function POST(req) {
       orders_count: (orders || []).length,
     };
 
-    // 6) Insert backup row
     const { data: saved, error: e2 } = await sb
       .from(backupsTable)
       .insert({ pin, device, payload })
@@ -181,12 +167,7 @@ export async function POST(req) {
       ok: true,
       table: backupsTable,
       saved,
-      meta: {
-        pin,
-        clientsSource,
-        clients_count: clients.length,
-        orders_count: (orders || []).length,
-      },
+      meta: { clientsSource, clients_count: clients.length },
     });
   } catch (e) {
     return NextResponse.json(
