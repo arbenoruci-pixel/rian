@@ -1,4 +1,3 @@
-// app/api/backup/list/route.js
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -12,12 +11,7 @@ function admin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-function companyPin() {
-  return String(process.env.BACKUP_PIN || process.env.BACKUP_COMPANY_PIN || "")
-    .trim();
-}
-
-async function detectTable(sb) {
+async function detectBackupsTable(sb) {
   for (const t of ["app_backups", "backups"]) {
     const { error } = await sb.from(t).select("id").limit(1);
     if (!error) return t;
@@ -25,34 +19,46 @@ async function detectTable(sb) {
   throw new Error("NO_BACKUPS_TABLE_ACCESS");
 }
 
+function requirePin(pin) {
+  const required = String(process.env.BACKUP_PIN || "").trim();
+  if (!required) return { ok: true };
+  if (!pin) return { ok: false, error: "PIN_REQUIRED" };
+  if (String(pin).trim() !== required) return { ok: false, error: "INVALID_PIN" };
+  return { ok: true };
+}
+
 export async function GET(req) {
   try {
     const sb = admin();
-    const table = await detectTable(sb);
+    const backupsTable = await detectBackupsTable(sb);
 
     const url = new URL(req.url);
-    const pin = companyPin() || String(url.searchParams.get("pin") || "").trim() || "654321";
-    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 50)));
+    const pin = String(url.searchParams.get("pin") || "").trim();
+    const limit = Math.min(Number(url.searchParams.get("limit") || 20), 100);
 
-    // ✅ pa has_payload
+    const pinCheck = requirePin(pin);
+    if (!pinCheck.ok) {
+      return NextResponse.json({ ok: false, error: pinCheck.error }, { status: 401 });
+    }
+
     const { data, error } = await sb
-      .from(table)
-      .select("id, created_at, pin, device") 
+      .from(backupsTable)
+      .select("id, created_at, pin, device")
       .eq("pin", pin)
       .order("created_at", { ascending: false })
       .limit(limit);
 
     if (error) {
       return NextResponse.json(
-        { ok: false, error: "SUPABASE_BACKUPS_QUERY_FAILED", detail: error.message, table },
+        { ok: false, error: "SUPABASE_BACKUPS_QUERY_FAILED", detail: error.message },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, table, pin, items: data || [] });
+    return NextResponse.json({ ok: true, items: data || [], table: backupsTable });
   } catch (e) {
     return NextResponse.json(
-      { ok: false, error: e?.message || String(e) },
+      { ok: false, error: "LIST_FAILED", detail: e?.message || String(e) },
       { status: 500 }
     );
   }
