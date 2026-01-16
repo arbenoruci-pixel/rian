@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { fetchOrdersFromDb, saveOrderToDb } from '@/lib/ordersDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
 const BUCKET = 'tepiha-photos';
@@ -524,60 +525,42 @@ useEffect(() => {
           const cached = JSON.parse(cachedRaw);
           if (cached && Array.isArray(cached.items) && Date.now() - Number(cached.ts || 0) < 24 * 3600 * 1000) {
             setClientsIndex(cached.items);
-            setClientsLoading(false);
             return;
           }
         } catch {}
       }
 
-      const seenCodes = new Set();
+      // ✅ Source of truth: Supabase DB table `orders` (always has `code` + client info in data)
+      const rows = await fetchOrdersFromDb(5000);
+      const seen = new Set();
       const items = [];
-
-      // list orders JSON from Supabase Storage (BUCKET)
-      // NOTE: e lexojmë gradualisht dhe ndalojmë pasi të kemi mjaft klientë
-      const pageSize = 200;
-      for (let offset = 0; offset < 2000; offset += pageSize) {
-        const { data: files, error } = await supabase.storage.from(BUCKET).list('orders', {
-          limit: pageSize,
-          offset,
-          sortBy: { column: 'name', order: 'desc' },
-        });
-        if (error) break;
-        if (!files || !files.length) break;
-
-        for (const f of files) {
-          const fname = f?.name || '';
-          if (!fname.endsWith('.json')) continue;
-
-          try {
-            const { data: blob, error: dlErr } = await supabase.storage.from(BUCKET).download(`orders/${fname}`);
-            if (dlErr || !blob) continue;
-            const text = await blob.text();
-            const ord = JSON.parse(text);
-
-            const code = ord?.client?.code ?? ord?.code ?? ord?.code_n ?? ord?.nr ?? ord?.kodi;
-            const codeNum = Number(code);
-            if (!Number.isFinite(codeNum)) continue;
-            const codeStr = String(codeNum);
-            if (seenCodes.has(codeStr)) continue;
-
-            const nm = String(ord?.client?.name || ord?.name || '').trim();
-            const ph = String(ord?.client?.phone || ord?.phone || '').trim();
-            if (!nm && !ph) continue;
-
-            seenCodes.add(codeStr);
-            items.push({ code: codeStr, name: nm, phone: ph });
-
-            if (items.length >= 500) break;
-          } catch {}
-        }
-
+      for (const r of (rows || [])) {
+        const code = Number(r?.code ?? r?.data?.code ?? r?.data?.client?.code);
+        if (!Number.isFinite(code)) continue;
+        const codeStr = String(code);
+        if (seen.has(codeStr)) continue;
+        const ord = r?.data || {};
+        const nm = String(ord?.client?.name || ord?.client_name || '').trim();
+        const ph = String(r?.client_phone || ord?.client?.phone || ord?.client_phone || '').trim();
+        if (!nm && !ph) continue;
+        seen.add(codeStr);
+        items.push({ code: codeStr, name: nm, phone: ph });
         if (items.length >= 500) break;
       }
 
       setClientsIndex(items);
       try {
         localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), items }));
+      } catch {}
+    } catch {
+      // fallback: keep old cached list if any
+      try {
+        const cacheKey = 'tepiha_clients_index_v1';
+        const cachedRaw = localStorage.getItem(cacheKey);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached && Array.isArray(cached.items)) setClientsIndex(cached.items);
+        }
       } catch {}
     } finally {
       setClientsLoading(false);
@@ -1086,6 +1069,23 @@ if (offlineMode || !conn.ok) {
         contentType: 'application/json',
       });
       if (uploadError) throw uploadError;
+
+      // ✅ Also persist to Supabase DB (clients + orders) so backups never miss data
+      try {
+        const db = await saveOrderToDb(order);
+        if (db && db.order_id) {
+          order.db_id = db.order_id;
+          order.client_id = db.client_id || null;
+          if (order.client && db.client_id) order.client.id = db.client_id;
+          // mirror db_id into stored JSON for later updates
+          const blob2 = new Blob([JSON.stringify(order)], { type: 'application/json' });
+          await supabase.storage.from(BUCKET).upload(`orders/${oid}.json`, blob2, {
+            upsert: true,
+            cacheControl: '0',
+            contentType: 'application/json',
+          });
+        }
+      } catch {}
 
       localStorage.setItem(`order_${oid}`, JSON.stringify(order));
 
