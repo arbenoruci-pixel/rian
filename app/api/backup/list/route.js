@@ -1,65 +1,58 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseAdmin } from "@/lib/supabaseAdminClient";
 
 export const runtime = "nodejs";
 
-function admin() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url) throw new Error("MISSING_SUPABASE_URL");
-  if (!key) throw new Error("MISSING_SUPABASE_SERVICE_ROLE_KEY");
-  return createClient(url, key, { auth: { persistSession: false } });
+function normPin(pin) {
+  const p = String(pin || "").trim();
+  return p;
+}
+
+async function tableExists(sb, table) {
+  if (!table) return false;
+  const { error } = await sb.from(table).select("id").limit(1);
+  return !error;
 }
 
 async function detectBackupsTable(sb) {
-  for (const t of ["app_backups", "backups"]) {
-    const { error } = await sb.from(t).select("id").limit(1);
-    if (!error) return t;
+  const wanted = String(process.env.BACKUPS_TABLE || "").trim();
+  const candidates = [wanted, "app_backups", "backups"].filter(Boolean);
+  for (const t of candidates) {
+    if (await tableExists(sb, t)) return t;
   }
-  throw new Error("NO_BACKUPS_TABLE_ACCESS");
-}
-
-function requirePin(pin) {
-  const required = String(process.env.BACKUP_PIN || "").trim();
-  if (!required) return { ok: true };
-  if (!pin) return { ok: false, error: "PIN_REQUIRED" };
-  if (String(pin).trim() !== required) return { ok: false, error: "INVALID_PIN" };
-  return { ok: true };
+  throw new Error("NO_BACKUPS_TABLE");
 }
 
 export async function GET(req) {
   try {
-    const sb = admin();
-    const backupsTable = await detectBackupsTable(sb);
+    const supabase = getSupabaseAdmin();
+    const { searchParams } = new URL(req.url);
 
-    const url = new URL(req.url);
-    const pin = String(url.searchParams.get("pin") || "").trim();
-    const limit = Math.min(Number(url.searchParams.get("limit") || 20), 100);
-
-    const pinCheck = requirePin(pin);
-    if (!pinCheck.ok) {
-      return NextResponse.json({ ok: false, error: pinCheck.error }, { status: 401 });
+    // Default to env BACKUP_PIN if available, otherwise require pin in query
+    const envPin = String(process.env.BACKUP_PIN || "").trim();
+    const pin = normPin(searchParams.get("pin")) || envPin || "";
+    if (!pin) {
+      return NextResponse.json({ ok: false, error: "PIN_REQUIRED" }, { status: 400 });
     }
 
-    const { data, error } = await sb
-      .from(backupsTable)
-      .select("id, created_at, pin, device")
+    const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit") || 30)));
+    const table = await detectBackupsTable(supabase);
+
+    // NOTE: app_backups schema: id, created_at, device, pin, payload (jsonb)
+    const { data, error } = await supabase
+      .from(table)
+      .select("id, created_at, device, pin")
       .eq("pin", pin)
       .order("created_at", { ascending: false })
       .limit(limit);
 
     if (error) {
-      return NextResponse.json(
-        { ok: false, error: "SUPABASE_BACKUPS_QUERY_FAILED", detail: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: "SUPABASE_BACKUPS_QUERY_FAILED", detail: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, items: data || [], table: backupsTable });
+    const items = (data || []).map((r) => ({ ...r, has_payload: true }));
+    return NextResponse.json({ ok: true, pin, table, items });
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: "LIST_FAILED", detail: e?.message || String(e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
