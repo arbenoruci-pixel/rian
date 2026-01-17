@@ -34,6 +34,7 @@ export default function FletorePage() {
         created_at: item?.created_at,
         pin: item?.pin,
         downloadUrl: `/api/backup/latest?${qs.toString()}&raw=1`,
+        url: `/api/backup/latest?${qs.toString()}&raw=1`,
       });
       setData(item?.payload || null);
     } catch (e) {

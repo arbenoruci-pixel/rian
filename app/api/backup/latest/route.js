@@ -1,69 +1,44 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from 'next/server';
+import { adminClient, requirePinFromReq, buildPayload } from '../_lib/dbdaily';
 
-export const runtime = "nodejs";
-
-function admin() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url) throw new Error("MISSING_SUPABASE_URL");
-  if (!key) throw new Error("MISSING_SUPABASE_SERVICE_ROLE_KEY");
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-async function detectBackupsTable(sb) {
-  for (const t of ["app_backups", "backups"]) {
-    const { error } = await sb.from(t).select("id").limit(1);
-    if (!error) return t;
-  }
-  throw new Error("NO_BACKUPS_TABLE_ACCESS");
-}
-
-function requirePin(pin) {
-  const required = String(process.env.BACKUP_PIN || "").trim();
-  if (!required) return { ok: true };
-  if (!pin) return { ok: false, error: "PIN_REQUIRED" };
-  if (String(pin).trim() !== required) return { ok: false, error: "INVALID_PIN" };
-  return { ok: true };
-}
+export const runtime = 'nodejs';
 
 export async function GET(req) {
   try {
-    const sb = admin();
-    const backupsTable = await detectBackupsTable(sb);
+    const pinCheck = requirePinFromReq(req);
+    if (!pinCheck.ok) return NextResponse.json({ ok: false, error: pinCheck.error }, { status: 401 });
 
+    const sb = adminClient();
     const url = new URL(req.url);
-    const pin = String(url.searchParams.get("pin") || "").trim();
-
-    const pinCheck = requirePin(pin);
-    if (!pinCheck.ok) {
-      return NextResponse.json({ ok: false, error: pinCheck.error }, { status: 401 });
-    }
+    const raw = String(url.searchParams.get('raw') || '').trim() === '1';
 
     const { data, error } = await sb
-      .from(backupsTable)
-      .select("id, created_at, pin, device, payload")
-      .eq("pin", pin)
-      .order("created_at", { ascending: false })
+      .from('backups_daily')
+      .select('id, backup_date, created_at, clients_all, orders_all, orders_open')
+      .order('backup_date', { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json(
-        { ok: false, error: "SUPABASE_BACKUPS_QUERY_FAILED", detail: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: 'SUPABASE_BACKUPS_QUERY_FAILED', detail: error.message }, { status: 500 });
+    }
+    if (!data) return NextResponse.json({ ok: false, error: 'NO_BACKUP_FOUND' }, { status: 404 });
+
+    const payload = buildPayload(data);
+
+    if (raw) {
+      return NextResponse.json(payload, { status: 200 });
     }
 
-    if (!data) {
-      return NextResponse.json({ ok: false, error: "NO_BACKUP_FOUND" }, { status: 404 });
-    }
+    const item = {
+      id: data.backup_date,
+      created_at: data.created_at,
+      pin: pinCheck.pin || '',
+      payload,
+    };
 
-    return NextResponse.json({ ok: true, backup: data, table: backupsTable });
+    return NextResponse.json({ ok: true, item, source: 'backups_daily' });
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: "LATEST_FAILED", detail: e?.message || String(e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: 'LATEST_FAILED', detail: e?.message || String(e) }, { status: 500 });
   }
 }
