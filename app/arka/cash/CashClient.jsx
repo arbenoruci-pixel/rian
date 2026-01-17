@@ -484,6 +484,68 @@ export default function CashClient() {
     }
   }
 
+  const arkaLocked = pendingHanded && !isDispatch;
+
+  if (arkaLocked) {
+    return (
+      <div style={{ padding: 16 }}>
+        <div style={{ border: "2px solid #7a1a1a", color: "#fff", padding: 14, borderRadius: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 900, letterSpacing: 2, marginBottom: 6 }}>ARKA E BLLOKUAR</div>
+          DISPATCH DUHET ME KONFIRMU PRANIMIN E PARAVE (RECEIVE) PARA SE ME VAZHDU.
+          <div style={{ marginTop: 10, opacity: 0.9 }}>
+            {handedList?.length ? `DORËZIME NË PRITJE: ${handedList.length}` : 'KA DORËZIM NË PRITJE (HANDED).'}
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <button
+              onClick={() => setTab("DISPATCH")}
+              style={{ width: "100%", padding: 12, borderRadius: 12, fontWeight: 900, letterSpacing: 2 }}
+            >
+              SHKO TE DISPATCH
+            </button>
+          </div>
+          <div style={{ marginTop: 10, opacity: 0.85 }}>VETËM DISPATCH MUND TA PRANOJË DORËZIMIN.</div>
+        </div>
+
+        {/* Tabs (only DISPATCH visible while locked) */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+          <button
+            onClick={() => setTab("DISPATCH")}
+            style={{ flex: 1, padding: 12, borderRadius: 14, fontWeight: 900, letterSpacing: 2, opacity: 1 }}
+          >
+            DISPATCH
+          </button>
+        </div>
+
+        {/* DISPATCH */}
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ fontWeight: 900, letterSpacing: 2, opacity: 0.9 }}>DORËZIMET (HANDED)</div>
+          {handedList?.length ? (
+            handedList.map((h) => (
+              <div key={h.id} style={{ border: "1px solid rgba(255,255,255,0.15)", borderRadius: 14, padding: 12 }}>
+                <div style={{ fontWeight: 900, letterSpacing: 2 }}>
+                  {h.day_key} · CYCLE {h.cycle_no}
+                </div>
+                <div style={{ marginTop: 6, opacity: 0.9 }}>
+                  EXPECTED: {euro(h.expected_cash)}
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    disabled
+                    style={{ width: "100%", padding: 12, borderRadius: 12, fontWeight: 900, letterSpacing: 2, opacity: 0.5 }}
+                  >
+                    PRANO (VETËM DISPATCH)
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div style={{ opacity: 0.85 }}>S’KA DORËZIME PËR PRANIM.</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: 16 }}>
       {/* Tabs */}
