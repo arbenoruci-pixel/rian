@@ -50,10 +50,22 @@ export function summarizeClientsForUI(clientsAll, ordersUI) {
   for (const c of clientsAll || []) {
     const code = String(c?.code ?? '').trim();
     if (!code) continue;
+
+    // clients table fields vary between versions.
+    // Prefer real column values, but gracefully handle older/newer schemas.
+    const name =
+      c?.name ||
+      c?.full_name ||
+      c?.client_name ||
+      c?.display_name ||
+      c?.emri ||
+      '';
+    const phone = c?.phone || c?.client_phone || c?.telefon || c?.tel || '';
+
     byCode.set(code, {
       code,
-      name: c?.name || '',
-      phone: c?.phone || '',
+      name,
+      phone,
       orders_count: 0,
       total_sum: 0,
       last_order_at: null,

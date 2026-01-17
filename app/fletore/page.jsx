@@ -17,6 +17,7 @@ export default function FletorePage() {
   const [meta, setMeta] = useState(null); // {url,path,bucket}
   const [data, setData] = useState(null); // backup json
   const [pin, setPin] = useState("");
+  const [q, setQ] = useState("");
   const [running, setRunning] = useState(false);
 
   async function loadLatest() {
@@ -71,6 +72,23 @@ export default function FletorePage() {
   const clients = useMemo(() => data?.clients || [], [data]);
   const orders = useMemo(() => data?.orders || [], [data]);
 
+  const qNorm = (q || "").trim().toLowerCase();
+  const clientsView = useMemo(() => {
+    if (!qNorm) return clients;
+    return clients.filter((c) => {
+      const hay = [c?.code, c?.name, c?.phone].filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(qNorm);
+    });
+  }, [clients, qNorm]);
+
+  const ordersView = useMemo(() => {
+    if (!qNorm) return orders;
+    return orders.filter((o) => {
+      const hay = [o?.code, o?.name, o?.phone, o?.status].filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(qNorm);
+    });
+  }, [orders, qNorm]);
+
   return (
     <main style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
       <h1 style={{ margin: 0, letterSpacing: 1 }}>FLETORJA</h1>
@@ -92,6 +110,13 @@ export default function FletorePage() {
           onChange={(e) => setPin(e.target.value)}
           placeholder="PIN BACKUP (opsionale)"
           style={{ padding: "10px 12px", borderRadius: 10, minWidth: 220 }}
+        />
+
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="KËRKO EMRIN / TELEFONIN / KODIN"
+          style={{ padding: "10px 12px", borderRadius: 10, minWidth: 260, flex: "1 1 260px" }}
         />
 
         <button
