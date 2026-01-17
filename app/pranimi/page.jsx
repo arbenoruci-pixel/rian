@@ -530,23 +530,27 @@ useEffect(() => {
         } catch {}
       }
 
-      // ✅ Source of truth: Supabase DB table `orders` (always has `code` + client info in data)
-      const rows = await fetchOrdersFromDb(5000);
-      const seen = new Set();
-      const items = [];
-      for (const r of (rows || [])) {
-        const code = Number(r?.code ?? r?.data?.code ?? r?.data?.client?.code);
-        if (!Number.isFinite(code)) continue;
-        const codeStr = String(code);
-        if (seen.has(codeStr)) continue;
-        const ord = r?.data || {};
-        const nm = String(ord?.client?.name || ord?.client_name || '').trim();
-        const ph = String(r?.client_phone || ord?.client?.phone || ord?.client_phone || '').trim();
-        if (!nm && !ph) continue;
-        seen.add(codeStr);
-        items.push({ code: codeStr, name: nm, phone: ph });
-        if (items.length >= 500) break;
-      }
+      // ✅ Source of truth: Supabase DB table `clients` (permanent clients)
+      const { data: clientRows, error: clientErr } = await supabase
+        .from('clients')
+        .select('code, first_name, last_name, phone')
+        .order('created_at', { ascending: false })
+        .limit(5000);
+
+      if (clientErr) throw clientErr;
+
+      const items = (clientRows || [])
+        .map((r) => {
+          const code = String(r?.code ?? '').trim();
+          const first = String(r?.first_name ?? '').trim();
+          const last = String(r?.last_name ?? '').trim();
+          const name = String(`${first} ${last}`).trim();
+          const phone = String(r?.phone ?? '').trim();
+          if (!code) return null;
+          return { code, name, phone };
+        })
+        .filter(Boolean)
+        .slice(0, 500);
 
       setClientsIndex(items);
       try {
