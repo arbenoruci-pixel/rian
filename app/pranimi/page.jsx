@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { fetchOrdersFromDb, saveOrderToDb } from '@/lib/ordersDb';
+import { fetchOrdersFromDb, fetchClientsFromDb, saveOrderToDb } from '@/lib/ordersDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
 const BUCKET = 'tepiha-photos';
@@ -530,27 +530,36 @@ useEffect(() => {
         } catch {}
       }
 
-      // ✅ Source of truth: Supabase DB table `clients` (permanent clients)
-      const { data: clientRows, error: clientErr } = await supabase
-        .from('clients')
-        .select('code, first_name, last_name, phone')
-        .order('created_at', { ascending: false })
-        .limit(5000);
+      // ✅ Source of truth: `clients` table (permanent client registry)
+      const clients = await fetchClientsFromDb(10000);
+      const orders = await fetchOrdersFromDb(10000);
 
-      if (clientErr) throw clientErr;
+      // Map active orders + last seen per client_code (based on orders table)
+      const byCode = new Map();
+      for (const r of (orders || [])) {
+        const code = Number(r?.code);
+        if (!Number.isFinite(code)) continue;
+        const codeStr = String(code);
+        const cur = byCode.get(codeStr) || { active: 0, last_seen: null };
+        const st = String(r?.status || r?.data?.status || '').toLowerCase();
+        if (st && st !== 'dorzim') cur.active += 1;
+        const ts = r?.updated_at || r?.created_at || null;
+        if (!cur.last_seen || (ts && String(ts) > String(cur.last_seen))) cur.last_seen = ts;
+        byCode.set(codeStr, cur);
+      }
 
-      const items = (clientRows || [])
-        .map((r) => {
-          const code = String(r?.code ?? '').trim();
-          const first = String(r?.first_name ?? '').trim();
-          const last = String(r?.last_name ?? '').trim();
-          const name = String(`${first} ${last}`).trim();
-          const phone = String(r?.phone ?? '').trim();
-          if (!code) return null;
-          return { code, name, phone };
-        })
-        .filter(Boolean)
-        .slice(0, 500);
+      const items = [];
+      for (const c of (clients || [])) {
+        const codeStr = String(c?.code || '').trim();
+        if (!codeStr) continue;
+        const first = String(c?.first_name || '').trim();
+        const last = String(c?.last_name || '').trim();
+        const name = (first + ' ' + last).trim();
+        const phone = String(c?.phone || '').trim();
+        const info = byCode.get(codeStr) || { active: 0, last_seen: null };
+        items.push({ code: codeStr, name, phone, active: info.active ? 1 : 0, last_seen: info.last_seen });
+        if (items.length >= 2000) break;
+      }
 
       setClientsIndex(items);
       try {
