@@ -42,16 +42,8 @@ function getPhoneFromRow(row) {
 }
 
 function getClientNameFromRow(row) {
-  // keep this tolerant: schema evolves, backup should still capture names
-  const name = pickFirst(row, [
-    "client_name",
-    "name",
-    "full_name",
-    "client_full_name",
-    "emri",
-  ]);
+  const name = pickFirst(row, ["client_name", "name"]);
   if (name) return String(name).trim();
-
   const first = pickFirst(row, ["first_name", "firstname"]);
   const last = pickFirst(row, ["last_name", "lastname"]);
   const s = `${first || ""} ${last || ""}`.trim();
@@ -219,8 +211,11 @@ async function runBackup({ pin, req }) {
     const ordersIndex = ordersArr.map((o) => ({
       id: o.id ?? null,
       code: getClientCodeFromRow(o),
+      client_code: getClientCodeFromRow(o),
       phone: getPhoneFromRow(o),
+      client_phone: getPhoneFromRow(o),
       name: getClientNameFromRow(o),
+      client_name: getClientNameFromRow(o),
       pieces: getOrderPieces(o),
       total: getOrderTotal(o),
       status: getOrderStatus(o) || null,

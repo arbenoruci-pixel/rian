@@ -35,7 +35,6 @@ export default function FletorePage() {
         created_at: item?.created_at,
         pin: item?.pin,
         downloadUrl: `/api/backup/latest?${qs.toString()}&raw=1`,
-        url: `/api/backup/latest?${qs.toString()}&raw=1`,
       });
       setData(item?.payload || null);
     } catch (e) {
@@ -69,25 +68,29 @@ export default function FletorePage() {
     loadLatest();
   }, []);
 
-  const clients = useMemo(() => data?.clients || [], [data]);
-  const orders = useMemo(() => data?.orders || [], [data]);
-
-  const qNorm = (q || "").trim().toLowerCase();
-  const clientsView = useMemo(() => {
-    if (!qNorm) return clients;
-    return clients.filter((c) => {
-      const hay = [c?.code, c?.name, c?.phone].filter(Boolean).join(" ").toLowerCase();
-      return hay.includes(qNorm);
+  const clients = useMemo(() => {
+    const arr = Array.isArray(data?.clients) ? data.clients : [];
+    const s = String(q || "").trim().toLowerCase();
+    if (!s) return arr;
+    return arr.filter((c) => {
+      const code = String(c?.code ?? "").toLowerCase();
+      const name = String(c?.name ?? "").toLowerCase();
+      const phone = String(c?.phone ?? "").toLowerCase();
+      return code.includes(s) || name.includes(s) || phone.includes(s);
     });
-  }, [clients, qNorm]);
+  }, [data, q]);
 
-  const ordersView = useMemo(() => {
-    if (!qNorm) return orders;
-    return orders.filter((o) => {
-      const hay = [o?.code, o?.name, o?.phone, o?.status].filter(Boolean).join(" ").toLowerCase();
-      return hay.includes(qNorm);
+  const orders = useMemo(() => {
+    const arr = Array.isArray(data?.orders) ? data.orders : [];
+    const s = String(q || "").trim().toLowerCase();
+    if (!s) return arr;
+    return arr.filter((o) => {
+      const code = String(o?.client_code ?? o?.code ?? "").toLowerCase();
+      const name = String(o?.client_name ?? o?.raw?.client_name ?? "").toLowerCase();
+      const phone = String(o?.client_phone ?? o?.raw?.client_phone ?? "").toLowerCase();
+      return code.includes(s) || name.includes(s) || phone.includes(s);
     });
-  }, [orders, qNorm]);
+  }, [data, q]);
 
   return (
     <main style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
@@ -112,13 +115,6 @@ export default function FletorePage() {
           style={{ padding: "10px 12px", borderRadius: 10, minWidth: 220 }}
         />
 
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="KËRKO EMRIN / TELEFONIN / KODIN"
-          style={{ padding: "10px 12px", borderRadius: 10, minWidth: 260, flex: "1 1 260px" }}
-        />
-
         <button
           onClick={runNow}
           disabled={running}
@@ -126,6 +122,13 @@ export default function FletorePage() {
         >
           {running ? "DUKE RUJT..." : "RUAJ TANI"}
         </button>
+
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="KËRKO KODIN / EMRIN / TELEFONIN"
+          style={{ padding: "10px 12px", borderRadius: 10, minWidth: 260, flex: 1 }}
+        />
 
         {meta?.url ? (
           <a
@@ -178,7 +181,7 @@ export default function FletorePage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ textAlign: "left", opacity: 0.85 }}>
-                  <th style={{ padding: 10 }}>NR</th>
+                  <th style={{ padding: 10 }}>KODI</th>
                   <th style={{ padding: 10 }}>EMRI</th>
                   <th style={{ padding: 10 }}>TELEFONI</th>
                   <th style={{ padding: 10 }}>POROSI</th>
@@ -189,7 +192,7 @@ export default function FletorePage() {
               <tbody>
                 {clients.map((c, idx) => (
                   <tr key={c.phone || idx} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <td style={{ padding: 10, fontWeight: 900 }}>{idx + 1}</td>
+                    <td style={{ padding: 10, fontWeight: 900 }}>{c.code ?? idx + 1}</td>
                     <td style={{ padding: 10 }}>{c.name || "-"}</td>
                     <td style={{ padding: 10 }}>{c.phone || "-"}</td>
                     <td style={{ padding: 10 }}>{c.orders_count || 0}</td>
@@ -225,7 +228,7 @@ export default function FletorePage() {
               <tbody>
                 {orders.slice(0, 400).map((o) => (
                   <tr key={o.id} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <td style={{ padding: 10, fontWeight: 900 }}>{o.code ?? "-"}</td>
+                    <td style={{ padding: 10, fontWeight: 900 }}>{o.client_code ?? o.code ?? "-"}</td>
                     <td style={{ padding: 10 }}>{(o.status || "").toUpperCase()}</td>
                     <td style={{ padding: 10 }}>{o.client_name || "-"}</td>
                     <td style={{ padding: 10 }}>{o.client_phone || "-"}</td>
