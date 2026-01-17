@@ -132,83 +132,104 @@ export default function GatiPage() {
   async function refreshOrders() {
     setLoading(true);
     try {
-      const { data } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
-      if (!data) {
-        setOrders([]);
-        return;
+      // ✅ Source of truth: DB (orders table)
+      const { data: rows, error } = await supabase
+        .from('orders')
+        .select('id, client_id, status, ready_at, picked_up_at, created_at, data')
+        .eq('status', 'gati')
+        .is('picked_up_at', null)
+        .order('ready_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (error) throw error;
+      const listRows = Array.isArray(rows) ? rows : [];
+
+      // Pull client permanent codes
+      const clientIds = Array.from(new Set(listRows.map((r) => r.client_id).filter(Boolean)));
+      const codeByClient = {};
+      if (clientIds.length) {
+        const { data: clients, error: cErr } = await supabase
+          .from('clients')
+          .select('id, code')
+          .in('id', clientIds);
+        if (!cErr && Array.isArray(clients)) {
+          for (const c of clients) codeByClient[c.id] = String(c.code ?? '');
+        }
       }
 
-      const items = (data || []).filter((x) => (x.name || '').endsWith('.json'));
+      const out = [];
+      for (const r of listRows) {
+        const data = r && typeof r.data === 'object' && r.data ? r.data : {};
 
-      const promises = items.map(async (item) => {
-        try {
-          const remoteOrder = await downloadJsonNoCache(`orders/${item.name}`);
-          if (!remoteOrder?.id) return null;
+        // rebuild legacy-like order object for existing UI/actions
+        const order = {
+          ...data,
+          id: String(r.id),
+          status: r.status,
+        };
 
-          // Prefer LOCAL copy when it exists.
-          let order = remoteOrder;
-          if (typeof window !== 'undefined') {
-            try {
-              const localRaw = localStorage.getItem(`order_${remoteOrder.id}`);
-              if (localRaw) {
-                const localOrder = JSON.parse(localRaw);
-                if (localOrder && localOrder.id === remoteOrder.id) {
-                  order = localOrder;
-                }
-              }
-            } catch {}
-          }
-
-          // mirror local (but DON'T overwrite a newer local state with remote)
-          if (typeof window !== 'undefined') {
-            try {
-              const existing = localStorage.getItem(`order_${remoteOrder.id}`);
-              if (!existing) localStorage.setItem(`order_${remoteOrder.id}`, JSON.stringify(remoteOrder));
-            } catch {}
-          }
-
-          if ((order.status || '') !== 'gati') return null;
-
-          const m2 = computeM2(order);
-          const total = Number(order.pay?.euro || computeTotalEuro(order));
-          const paid = Number(order.pay?.paid || 0);
-          const cope = computePieces(order);
-
-          // aging uses ready_at if exists (set from PASTRIMI), else ts fallback
-          const readyTs =
-            Number(order.ready_at) ||
-            Number(order.readyAt) ||
-            Number(order.gati_at) ||
-            Number(order.gatiAt) ||
-            Number(order.ts) ||
-            Date.now();
-
-          return {
-            id: String(order.id), // ✅ normalize to string to avoid id mismatch bugs
-            ts: Number(order.ts || 0),
-            readyTs,
-            name: order.client?.name || '',
-            phone: order.client?.phone || '',
-            code: order.client?.code || '',
-            m2,
-            cope,
-            total,
-            paid,
-            paidUpfront: !!order.pay?.paidUpfront,
-            isReturn: !!order.returnInfo?.active,
-          };
-        } catch {
-          return null;
+        // keep timestamps handy for aging
+        if (r.ready_at) {
+          const ms = Date.parse(r.ready_at);
+          if (!Number.isNaN(ms)) order.ready_at = ms;
         }
-      });
+        if (r.picked_up_at) {
+          const ms = Date.parse(r.picked_up_at);
+          if (!Number.isNaN(ms)) order.picked_up_at = ms;
+        }
 
-      const res = await Promise.all(promises);
-      const list = res.filter(Boolean).sort((a, b) => (b.readyTs || 0) - (a.readyTs || 0));
-      setOrders(list);
+        // ensure client exists + permanent code
+        if (!order.client) order.client = {};
+        const permCode = r.client_id ? codeByClient[r.client_id] : '';
+        if (permCode) order.client.code = permCode;
+
+        // hard overwrite local cache to avoid stale UI
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(`order_${r.id}`, JSON.stringify(order));
+          } catch {}
+        }
+
+        const m2 = computeM2(order);
+        const total = Number(order.pay?.euro || computeTotalEuro(order));
+        const paid = Number(order.pay?.paid || 0);
+        const cope = computePieces(order);
+
+        const readyTs =
+          Number(order.ready_at) ||
+          Number(order.readyAt) ||
+          Number(order.gati_at) ||
+          Number(order.gatiAt) ||
+          Number(order.ts) ||
+          Date.now();
+
+        out.push({
+          id: String(r.id),
+          ts: Number(order.ts || 0),
+          readyTs,
+          name: order.client?.name || '',
+          phone: order.client?.phone || '',
+          code: order.client?.code || '',
+          m2,
+          cope,
+          total,
+          paid,
+          paidUpfront: !!order.pay?.paidUpfront,
+          isReturn: !!order.returnInfo?.active,
+        });
+      }
+
+      out.sort((a, b) => (b.readyTs || 0) - (a.readyTs || 0));
+      setOrders(out);
+    } catch (e) {
+      console.error(e);
+      setOrders([]);
     } finally {
       setLoading(false);
     }
   }
+
 
   const totalM2 = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0), [orders]);
 
@@ -255,8 +276,27 @@ export default function GatiPage() {
         order = null;
       }
       if (!order) {
-        order = await downloadJsonNoCache(`orders/${row.id}.json`);
-        localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
+        // ✅ Source of truth: DB
+        const { data: dbRow, error } = await supabase
+          .from('orders')
+          .select('id, status, ready_at, picked_up_at, data')
+          .eq('id', row.id)
+          .single();
+        if (error) throw error;
+        const data = dbRow && typeof dbRow.data === 'object' && dbRow.data ? dbRow.data : {};
+        order = { ...data, id: String(dbRow.id), status: dbRow.status };
+
+        if (dbRow.ready_at) {
+          const ms = Date.parse(dbRow.ready_at);
+          if (!Number.isNaN(ms)) order.ready_at = ms;
+        }
+        if (dbRow.picked_up_at) {
+          const ms = Date.parse(dbRow.picked_up_at);
+          if (!Number.isNaN(ms)) order.picked_up_at = ms;
+        }
+        try {
+          localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
+        } catch {}
       }
       if (!order) {
         alert('Nuk u gjet porosia.');

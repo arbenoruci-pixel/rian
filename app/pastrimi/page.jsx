@@ -171,72 +171,112 @@ export default function PastrimiPage() {
   async function refreshOrders() {
     setLoading(true);
     try {
-      const { data } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
-      if (!data) return;
+      const { data: rows, error } = await supabase
+        .from('orders')
+        .select('id, client_id, status, ready_at, picked_up_at, created_at, data')
+        .eq('status', 'pastrim')
+        .order('created_at', { ascending: false })
+        .limit(800);
 
-      const items = (data || []).filter(x => (x.name || '').endsWith('.json'));
+      if (error) throw error;
+      const listRows = Array.isArray(rows) ? rows : [];
 
-      const promises = items.map(async (item) => {
-        try {
-          const order = await downloadJsonNoCache(`orders/${item.name}`);
-          localStorage.setItem(`order_${order.id}`, JSON.stringify(order));
-
-          if (order.status !== 'pastrim') return null;
-
-          const total = Number(order.pay?.euro || 0);
-          const paid = Number(order.pay?.paid || 0);
-
-          const tCope = order.tepiha?.reduce((a, b) => a + (Number(b.qty) || 0), 0) || 0;
-          const sCope = order.staza?.reduce((a, b) => a + (Number(b.qty) || 0), 0) || 0;
-          const totalCope = tCope + sCope + (Number(order.shkallore?.qty) > 0 ? 1 : 0);
-
-          const isReturn = !!order?.returnInfo?.active;
-
-          return {
-            id: order.id,
-            ts: order.ts || 0,
-            name: order.client?.name || '',
-            phone: order.client?.phone || '',
-            code: order.client?.code || '',
-            m2: computeM2(order),
-            cope: totalCope,
-            total,
-            paid,
-            isPaid: paid >= total && total > 0,
-            isReturn
-          };
-        } catch {
-          return null;
+      // pull client permanent codes
+      const clientIds = Array.from(new Set(listRows.map((r) => r.client_id).filter(Boolean)));
+      const codeByClient = {};
+      if (clientIds.length) {
+        const { data: clients, error: cErr } = await supabase.from('clients').select('id, code').in('id', clientIds);
+        if (!cErr && Array.isArray(clients)) {
+          for (const c of clients) codeByClient[c.id] = String(c.code ?? '');
         }
-      });
+      }
 
-      const res = await Promise.all(promises);
-      const list = res.filter(Boolean).sort((a, b) => (b.ts || 0) - (a.ts || 0));
-      setOrders(list);
+      const out = [];
+      for (const r of listRows) {
+        const data = r && typeof r.data === 'object' && r.data ? r.data : {};
+
+        const order = { ...data, id: String(r.id), status: r.status };
+
+        if (r.ready_at) {
+          const ms = Date.parse(r.ready_at);
+          if (!Number.isNaN(ms)) order.ready_at = ms;
+        }
+        if (r.picked_up_at) {
+          const ms = Date.parse(r.picked_up_at);
+          if (!Number.isNaN(ms)) order.picked_up_at = ms;
+        }
+
+        if (!order.client) order.client = {};
+        const permCode = r.client_id ? codeByClient[r.client_id] : '';
+        if (permCode) order.client.code = permCode;
+
+        // overwrite local cache to avoid stale UI/actions
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(`order_${r.id}`, JSON.stringify(order));
+          } catch {}
+        }
+
+        const m2 = computeM2(order);
+        const cope = computePieces(order);
+        const total = Number(order.pay?.euro || (m2 * Number(order.pay?.rate || PRICE_DEFAULT)).toFixed(2));
+        const paid = Number(order.pay?.paid || 0);
+        const debt = Number(order.pay?.debt ?? Math.max(0, total - paid));
+        const ts = Number(order.ts || 0) || Date.now();
+
+        out.push({
+          id: String(r.id),
+          ts,
+          name: order.client?.name || '',
+          phone: order.client?.phone || '',
+          code: order.client?.code || '',
+          m2,
+          cope,
+          total,
+          paid,
+          debt,
+          paidUpfront: !!order.pay?.paidUpfront,
+          isReturn: !!order.returnInfo?.active,
+        });
+      }
+
+      out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      setOrders(out);
 
       // STREAM TOTAL (krejt PASTRIMI)
-      const streamTotal = list.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
+      const streamTotal = out.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
       const streamVal = Number(streamTotal.toFixed(2));
       setStreamPastrimM2(streamVal);
-      localStorage.setItem('capacity_stream_pastrim_m2', String(streamVal));
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('capacity_stream_pastrim_m2', String(streamVal));
+        } catch {}
+      }
 
       // TODAY LOAD (për afat “nesër/mbasnesër”)
       const today = dayKey(Date.now());
-      const todayLoad = list
-        .filter(o => dayKey(o.ts) === today)
+      const todayLoad = out
+        .filter((o) => dayKey(o.ts) === today)
         .reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
 
       const val = Number(todayLoad.toFixed(2));
       setTodayPastrimM2(val);
 
-      // cache për PRANIMI
-      localStorage.setItem('capacity_today_key', today);
-      localStorage.setItem('capacity_today_pastrim_m2', String(val));
-      localStorage.setItem('capacity_eta_text', etaTextByCapacity(val));
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('capacity_today_key', today);
+          localStorage.setItem('capacity_today_pastrim_m2', String(val));
+          localStorage.setItem('capacity_eta_text', etaTextByCapacity(val));
+        } catch {}
+      }
+    } catch (e) {
+      console.error(e);
+      setOrders([]);
     } finally {
       setLoading(false);
     }
   }
+
 
   function startLongPress(id) {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -251,8 +291,34 @@ export default function PastrimiPage() {
 
   async function openEdit(id) {
     try {
-      const ord = await downloadJsonNoCache(`orders/${id}.json`);
-      localStorage.setItem(`order_${id}`, JSON.stringify(ord));
+      // ✅ Source of truth: DB (fallback to local cache)
+      let ord = null;
+      try {
+        const raw = localStorage.getItem(`order_${id}`);
+        if (raw) ord = JSON.parse(raw);
+      } catch {}
+
+      if (!ord) {
+        const { data: row, error } = await supabase
+          .from('orders')
+          .select('id, client_id, status, ready_at, picked_up_at, data')
+          .eq('id', id)
+          .single();
+        if (error) throw error;
+        const data = row && typeof row.data === 'object' && row.data ? row.data : {};
+        ord = { ...data, id: String(row.id), status: row.status };
+        if (row.ready_at) {
+          const ms = Date.parse(row.ready_at);
+          if (!Number.isNaN(ms)) ord.ready_at = ms;
+        }
+        if (row.picked_up_at) {
+          const ms = Date.parse(row.picked_up_at);
+          if (!Number.isNaN(ms)) ord.picked_up_at = ms;
+        }
+        try {
+          localStorage.setItem(`order_${id}`, JSON.stringify(ord));
+        } catch {}
+      }
 
       setOid(ord.id);
       setOrigTs(ord.ts || Date.now());
