@@ -129,67 +129,48 @@ export default function GatiPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function dbFetchOrderById(idNum) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id,status,ready_at,picked_up_at,created_at,data')
+      .eq('id', Number(idNum))
+      .single();
+    if (error || !data) throw error || new Error('ORDER_NOT_FOUND');
+
+    const order = { ...(data.data || {}) };
+    order.id = String(data.id);
+    order.status = data.status;
+
+    return { row: data, order };
+  }
+
   async function refreshOrders() {
     setLoading(true);
     try {
-      // ✅ Source of truth: DB (orders table)
-      const { data: rows, error } = await supabase
+      const { data, error } = await supabase
         .from('orders')
-        .select('id, client_id, status, ready_at, picked_up_at, created_at, data')
+        .select('id,status,ready_at,picked_up_at,created_at,data')
         .eq('status', 'gati')
-        .is('picked_up_at', null)
-        .order('ready_at', { ascending: false, nullsFirst: false })
+        .order('ready_at', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(500);
 
-      if (error) throw error;
-      const listRows = Array.isArray(rows) ? rows : [];
-
-      // Pull client permanent codes
-      const clientIds = Array.from(new Set(listRows.map((r) => r.client_id).filter(Boolean)));
-      const codeByClient = {};
-      if (clientIds.length) {
-        const { data: clients, error: cErr } = await supabase
-          .from('clients')
-          .select('id, code')
-          .in('id', clientIds);
-        if (!cErr && Array.isArray(clients)) {
-          for (const c of clients) codeByClient[c.id] = String(c.code ?? '');
-        }
+      if (error || !data) {
+        setOrders([]);
+        return;
       }
 
-      const out = [];
-      for (const r of listRows) {
-        const data = r && typeof r.data === 'object' && r.data ? r.data : {};
+      const list = (data || []).map((row) => {
+        const order = { ...(row.data || {}) };
+        order.id = String(row.id);
+        order.status = row.status;
 
-        // rebuild legacy-like order object for existing UI/actions
-        const order = {
-          ...data,
-          id: String(r.id),
-          status: r.status,
-        };
-
-        // keep timestamps handy for aging
-        if (r.ready_at) {
-          const ms = Date.parse(r.ready_at);
-          if (!Number.isNaN(ms)) order.ready_at = ms;
-        }
-        if (r.picked_up_at) {
-          const ms = Date.parse(r.picked_up_at);
-          if (!Number.isNaN(ms)) order.picked_up_at = ms;
-        }
-
-        // ensure client exists + permanent code
-        if (!order.client) order.client = {};
-        const permCode = r.client_id ? codeByClient[r.client_id] : '';
-        if (permCode) order.client.code = permCode;
-
-        // hard overwrite local cache to avoid stale UI
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem(`order_${r.id}`, JSON.stringify(order));
-          } catch {}
-        }
+        // mirror local cache
+        try {
+          const k = `order_${order.id}`;
+          const existing = localStorage.getItem(k);
+          if (!existing) localStorage.setItem(k, JSON.stringify(order));
+        } catch {}
 
         const m2 = computeM2(order);
         const total = Number(order.pay?.euro || computeTotalEuro(order));
@@ -197,39 +178,33 @@ export default function GatiPage() {
         const cope = computePieces(order);
 
         const readyTs =
+          (row.ready_at ? Date.parse(row.ready_at) : 0) ||
           Number(order.ready_at) ||
           Number(order.readyAt) ||
-          Number(order.gati_at) ||
-          Number(order.gatiAt) ||
           Number(order.ts) ||
-          Date.now();
+          (row.created_at ? Date.parse(row.created_at) : Date.now());
 
-        out.push({
-          id: String(r.id),
+        return {
+          id: String(order.id),
           ts: Number(order.ts || 0),
           readyTs,
           name: order.client?.name || '',
           phone: order.client?.phone || '',
-          code: order.client?.code || '',
+          code: order.client?.code || order.code || '',
           m2,
           cope,
           total,
           paid,
           paidUpfront: !!order.pay?.paidUpfront,
           isReturn: !!order.returnInfo?.active,
-        });
-      }
+        };
+      });
 
-      out.sort((a, b) => (b.readyTs || 0) - (a.readyTs || 0));
-      setOrders(out);
-    } catch (e) {
-      console.error(e);
-      setOrders([]);
+      setOrders(list);
     } finally {
       setLoading(false);
     }
   }
-
 
   const totalM2 = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0), [orders]);
 
@@ -276,27 +251,9 @@ export default function GatiPage() {
         order = null;
       }
       if (!order) {
-        // ✅ Source of truth: DB
-        const { data: dbRow, error } = await supabase
-          .from('orders')
-          .select('id, status, ready_at, picked_up_at, data')
-          .eq('id', row.id)
-          .single();
-        if (error) throw error;
-        const data = dbRow && typeof dbRow.data === 'object' && dbRow.data ? dbRow.data : {};
-        order = { ...data, id: String(dbRow.id), status: dbRow.status };
-
-        if (dbRow.ready_at) {
-          const ms = Date.parse(dbRow.ready_at);
-          if (!Number.isNaN(ms)) order.ready_at = ms;
-        }
-        if (dbRow.picked_up_at) {
-          const ms = Date.parse(dbRow.picked_up_at);
-          if (!Number.isNaN(ms)) order.picked_up_at = ms;
-        }
-        try {
-          localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
-        } catch {}
+        const res = await dbFetchOrderById(row.id);
+        order = res.order;
+        localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
       }
       if (!order) {
         alert('Nuk u gjet porosia.');
@@ -424,23 +381,19 @@ export default function GatiPage() {
       console.log('save storage/local fail', e);
     }
 
-    // ✅ CRITICAL: DB write ONLY picked_up_at (so MARRJE SOT reads it, without RLS headaches)
+    // ✅ DB: set status + timestamps via single endpoint, then persist payment snapshot in data
     try {
-      const codeRaw = updated?.client?.code ?? updated?.client_code ?? updated?.code ?? payOrder?.code ?? '';
-      const codeNum = codeToNumber(codeRaw);
-
-      if (Number.isFinite(codeNum) && codeNum > 0) {
-        const { error } = await supabase
-          .from('orders')
-          .update({ picked_up_at: nowIso })
-          .eq('code', codeNum);
-
-        if (error) console.log('DB update picked_up_at ERROR:', error);
-      } else {
-        console.log('DB update skipped (no numeric code)', codeRaw);
-      }
+      await fetch('/api/orders/set-status', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: Number(payOrder.id), status: 'dorzim' }),
+      });
+      await supabase
+        .from('orders')
+        .update({ data: { ...updated, status: 'dorzim' }, picked_up_at: nowIso })
+        .eq('id', Number(payOrder.id));
     } catch (e) {
-      console.log('DB update picked_up_at EX:', e);
+      console.log('DB delivery update EX:', e);
     }
 
     // ARKA record (only CASH + positive delta)

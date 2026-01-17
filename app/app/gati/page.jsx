@@ -1,3 +1,4 @@
+// app/gati/page.jsx
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -21,6 +22,12 @@ function normalizeCode(raw) {
   }
   const n = s.replace(/\D+/g, '').replace(/^0+/, '');
   return n || '0';
+}
+
+function codeToNumber(raw) {
+  const s = String(raw ?? '').trim();
+  const n = Number(s.replace(/\D+/g, '').replace(/^0+/, '') || 0);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 function sanitizePhone(phone) {
@@ -122,81 +129,77 @@ export default function GatiPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function dbFetchOrderById(idNum) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id,status,ready_at,picked_up_at,created_at,data')
+      .eq('id', Number(idNum))
+      .single();
+    if (error || !data) throw error || new Error('ORDER_NOT_FOUND');
+
+    const order = { ...(data.data || {}) };
+    order.id = String(data.id);
+    order.status = data.status;
+
+    return { row: data, order };
+  }
+
   async function refreshOrders() {
     setLoading(true);
     try {
-      const { data } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
-      if (!data) {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id,status,ready_at,picked_up_at,created_at,data')
+        .eq('status', 'gati')
+        .order('ready_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (error || !data) {
         setOrders([]);
         return;
       }
 
-      const items = (data || []).filter((x) => (x.name || '').endsWith('.json'));
+      const list = (data || []).map((row) => {
+        const order = { ...(row.data || {}) };
+        order.id = String(row.id);
+        order.status = row.status;
 
-      const promises = items.map(async (item) => {
+        // mirror local cache
         try {
-          const remoteOrder = await downloadJsonNoCache(`orders/${item.name}`);
-          if (!remoteOrder?.id) return null;
+          const k = `order_${order.id}`;
+          const existing = localStorage.getItem(k);
+          if (!existing) localStorage.setItem(k, JSON.stringify(order));
+        } catch {}
 
-          // Prefer LOCAL copy when it exists.
-          let order = remoteOrder;
-          if (typeof window !== 'undefined') {
-            try {
-              const localRaw = localStorage.getItem(`order_${remoteOrder.id}`);
-              if (localRaw) {
-                const localOrder = JSON.parse(localRaw);
-                if (localOrder && localOrder.id === remoteOrder.id) {
-                  order = localOrder;
-                }
-              }
-            } catch {}
-          }
+        const m2 = computeM2(order);
+        const total = Number(order.pay?.euro || computeTotalEuro(order));
+        const paid = Number(order.pay?.paid || 0);
+        const cope = computePieces(order);
 
-          // mirror local (but DON'T overwrite a newer local state with remote)
-          if (typeof window !== 'undefined') {
-            try {
-              const existing = localStorage.getItem(`order_${remoteOrder.id}`);
-              if (!existing) localStorage.setItem(`order_${remoteOrder.id}`, JSON.stringify(remoteOrder));
-            } catch {}
-          }
+        const readyTs =
+          (row.ready_at ? Date.parse(row.ready_at) : 0) ||
+          Number(order.ready_at) ||
+          Number(order.readyAt) ||
+          Number(order.ts) ||
+          (row.created_at ? Date.parse(row.created_at) : Date.now());
 
-          if ((order.status || '') !== 'gati') return null;
-
-          const m2 = computeM2(order);
-          const total = Number(order.pay?.euro || computeTotalEuro(order));
-          const paid = Number(order.pay?.paid || 0);
-          const cope = computePieces(order);
-
-          // aging uses ready_at if exists (set from PASTRIMI), else ts fallback
-          const readyTs =
-            Number(order.ready_at) ||
-            Number(order.readyAt) ||
-            Number(order.gati_at) ||
-            Number(order.gatiAt) ||
-            Number(order.ts) ||
-            Date.now();
-
-          return {
-            id: String(order.id), // ✅ normalize to string to avoid id mismatch bugs
-            ts: Number(order.ts || 0),
-            readyTs,
-            name: order.client?.name || '',
-            phone: order.client?.phone || '',
-            code: order.client?.code || '',
-            m2,
-            cope,
-            total,
-            paid,
-            paidUpfront: !!order.pay?.paidUpfront,
-            isReturn: !!order.returnInfo?.active,
-          };
-        } catch {
-          return null;
-        }
+        return {
+          id: String(order.id),
+          ts: Number(order.ts || 0),
+          readyTs,
+          name: order.client?.name || '',
+          phone: order.client?.phone || '',
+          code: order.client?.code || order.code || '',
+          m2,
+          cope,
+          total,
+          paid,
+          paidUpfront: !!order.pay?.paidUpfront,
+          isReturn: !!order.returnInfo?.active,
+        };
       });
 
-      const res = await Promise.all(promises);
-      const list = res.filter(Boolean).sort((a, b) => (b.readyTs || 0) - (a.readyTs || 0));
       setOrders(list);
     } finally {
       setLoading(false);
@@ -248,7 +251,8 @@ export default function GatiPage() {
         order = null;
       }
       if (!order) {
-        order = await downloadJsonNoCache(`orders/${row.id}.json`);
+        const res = await dbFetchOrderById(row.id);
+        order = res.order;
         localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
       }
       if (!order) {
@@ -280,104 +284,6 @@ export default function GatiPage() {
     }
   }
 
-  // ✅ ONE-TAP DORËZIM për porosi "E PAGUAR NË FILLIM" (pa screen pagesash)
-  async function deliverPaidUpfront(row) {
-    try {
-      // load order (local first)
-      let order = null;
-      if (typeof window !== 'undefined') {
-        try {
-          const raw = localStorage.getItem(`order_${row.id}`);
-          if (raw) order = JSON.parse(raw);
-        } catch {}
-      }
-      if (!order) {
-        order = await downloadJsonNoCache(`orders/${row.id}.json`);
-      }
-      if (!order) {
-        alert('Nuk u gjet porosia.');
-        return;
-      }
-
-      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
-      const paidAfter = Math.max(Number(order.pay?.paid || 0) || 0, total);
-      const nowIso = new Date().toISOString();
-      const nowMs = Date.now();
-
-      if (!confirm(`✅ E PAGUAR NË FILLIM\n\nKonfirmo DORËZIMIN?`)) return;
-
-      const updated = {
-        ...order,
-        status: 'dorzim',
-        deliveredAt: nowMs,
-        delivered_at: nowIso,
-        pickedUpAt: nowMs,
-        picked_up_at: nowIso,
-        returnInfo: { ...(order.returnInfo || {}), active: false },
-        pay: {
-          ...(order.pay || {}),
-          euro: total,
-          paid: paidAfter,
-          debt: 0,
-          change: 0,
-          method: order.pay?.method || 'CASH',
-        },
-      };
-
-      // remove from UI immediately
-      setOrders((prev) => prev.filter((x) => String(x.id) !== String(row.id)));
-
-      // local + storage json best effort
-      try {
-        localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
-        const blob =
-          typeof Blob !== 'undefined'
-            ? new Blob([JSON.stringify(updated)], { type: 'application/json' })
-            : null;
-        if (blob) {
-          await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
-            upsert: true,
-            cacheControl: '0',
-            contentType: 'application/json',
-          });
-        }
-      } catch (e) {
-        console.log('deliver upfront save storage/local fail', e);
-      }
-
-      // ✅ write to DB for MARRJE SOT
-      try {
-        const patch = {
-          status: 'delivered',
-          picked_up_at: nowIso,
-          total: Number(total || 0) || 0,
-          paid: Number(paidAfter || 0) || 0,
-          client_phone: String(updated.client?.phone || updated.client_phone || '').trim(),
-          data: updated,
-          updated_at: nowIso,
-        };
-
-        const dbId = Number(updated.id);
-        const q = supabase.from('orders').update(patch);
-        const { error } = Number.isFinite(dbId) ? await q.eq('id', dbId) : await q.eq('id', updated.id);
-        if (error) {
-          console.log('DB deliver upfront ERROR:', error);
-          alert('⚠️ DORËZIMI u bë lokal, por DB s’u përditësua. Shiko Console (DB deliver upfront ERROR).');
-        }
-      } catch (e) {
-        console.log('DB deliver upfront EX:', e);
-      }
-
-      alert('✅ Porosia u dorëzua.');
-      try {
-        await refreshOrders();
-      } catch {}
-    } catch (e) {
-      console.log('deliverPaidUpfront error', e);
-      alert('❌ Gabim në dorëzim.');
-    }
-  }
-
   function closePay() {
     setShowPaySheet(false);
     setPayOrder(null);
@@ -386,11 +292,10 @@ export default function GatiPage() {
   }
 
   function applyPayOnly() {
-    // Just close. Payment actually applied when confirming delivery (same “one place” logic).
     setShowPaySheet(false);
   }
 
-  // ✅ FIXED: removes from GATI + writes picked_up_at to DB for MARRJE SOT
+  // ✅ FIXED: removes from GATI + writes picked_up_at to DB for MARRJE SOT (ONLY picked_up_at!)
   async function confirmDelivery() {
     if (!payOrder) return;
     const o = payOrder.order;
@@ -402,7 +307,9 @@ export default function GatiPage() {
 
     const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
     const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
-    if (!paidUpfront && applied <= 0) {
+
+    const alreadyPaidFull = due <= 0;
+    if (!paidUpfront && !alreadyPaidFull && applied <= 0) {
       setShowPaySheet(false);
       return;
     }
@@ -431,10 +338,10 @@ export default function GatiPage() {
     const nowIso = new Date().toISOString();
     const nowMs = Date.now();
 
-    // local snapshot (legacy)
+    // local snapshot (legacy / storage)
     const updated = {
       ...o,
-      status: 'dorzim',
+      status: 'dorzim', // UI + storage flow
       deliveredAt: nowMs,
       delivered_at: nowIso,
       pickedUpAt: nowMs,
@@ -474,26 +381,19 @@ export default function GatiPage() {
       console.log('save storage/local fail', e);
     }
 
-    // ✅ CRITICAL: write to DB so MARRJE SOT can see it
+    // ✅ DB: set status + timestamps via single endpoint, then persist payment snapshot in data
     try {
-      const pickedIso = nowIso;
-      const patch = {
-        status: 'delivered',
-        picked_up_at: pickedIso, // ✅ MARRJE SOT reads this
-        total: Number(updated.pay?.euro || updated.total || 0) || 0,
-        paid: Number(updated.pay?.paid || updated.paid || 0) || 0,
-        client_phone: String(updated.client?.phone || updated.client_phone || '').trim(),
-        data: updated,
-        updated_at: pickedIso,
-      };
-
-      const dbId = Number(updated.id);
-      const q = supabase.from('orders').update(patch);
-      const { error } = Number.isFinite(dbId) ? await q.eq('id', dbId) : await q.eq('id', updated.id);
-
-      if (error) console.log('DB update delivered ERROR:', error);
+      await fetch('/api/orders/set-status', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: Number(payOrder.id), status: 'dorzim' }),
+      });
+      await supabase
+        .from('orders')
+        .update({ data: { ...updated, status: 'dorzim' }, picked_up_at: nowIso })
+        .eq('id', Number(payOrder.id));
     } catch (e) {
-      console.log('DB update delivered EX:', e);
+      console.log('DB delivery update EX:', e);
     }
 
     // ARKA record (only CASH + positive delta)
@@ -529,7 +429,6 @@ export default function GatiPage() {
           type: 'IN',
         });
 
-        // If ARKA was closed (or HANDED), payment is saved as WAITING (PENDING)
         if (cashRes?.pending) {
           console.log('ARKA WAITING payment saved', cashRes);
         }
@@ -547,7 +446,6 @@ export default function GatiPage() {
 
     closePay();
 
-    // final refresh (helps iOS cache weirdness)
     try {
       await refreshOrders();
     } catch {}
@@ -628,8 +526,6 @@ export default function GatiPage() {
     const updated = {
       ...retOrder,
       status: 'pastrim',
-
-      // ✅ SNAPSHOT që PASTRIMI ta lexojë lehtë (pa kërku returnLog)
       returnInfo: {
         active: true,
         at: Date.now(),
@@ -639,8 +535,6 @@ export default function GatiPage() {
         photoUrl: entry.photoUrl,
         logId: entry.id,
       },
-
-      // ✅ HISTORI e plotë (opsionale)
       returnLog: Array.isArray(retOrder.returnLog) ? [entry, ...retOrder.returnLog] : [entry],
     };
 
@@ -659,7 +553,6 @@ export default function GatiPage() {
         });
       }
 
-      // optional audit file
       const blob2 =
         typeof Blob !== 'undefined'
           ? new Blob([JSON.stringify(entry)], { type: 'application/json' })
@@ -672,7 +565,6 @@ export default function GatiPage() {
         });
       }
 
-      // local return list
       try {
         const list = JSON.parse(localStorage.getItem('return_list_v1') || '[]');
         const next = Array.isArray(list) ? [entry, ...list].slice(0, 300) : [entry];
@@ -706,8 +598,8 @@ export default function GatiPage() {
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
     }
-    if (holdFired.current) return; // long press already opened return
-    openPay(row); // short press opens payment
+    if (holdFired.current) return;
+    openPay(row);
   }
 
   // ---------------- RENDER ----------------
@@ -825,32 +717,26 @@ export default function GatiPage() {
                     SMS
                   </button>
 
-                  {o.paidUpfront ? (
-                    <button
-                      className="btn primary"
-                      style={{ padding: '6px 10px', fontSize: 12 }}
-                      onClick={() => deliverPaidUpfront(o)}
-                    >
-                      ✅ DORËZO
-                    </button>
-                  ) : (
-                    <button
-                      className="btn primary"
-                      style={{ padding: '6px 10px', fontSize: 12 }}
-                      onMouseDown={() => onPayPressStart(o)}
-                      onMouseUp={() => onPayPressEnd(o)}
-                      onMouseLeave={() => {
-                        if (holdTimer.current) clearTimeout(holdTimer.current);
-                      }}
-                      onTouchStart={() => onPayPressStart(o)}
-                      onTouchEnd={() => onPayPressEnd(o)}
-                      onTouchMove={() => {
-                        if (holdTimer.current) clearTimeout(holdTimer.current);
-                      }}
-                    >
-                      💶 PAGUAJ
-                    </button>
-                  )}
+                  <button
+                    className="btn primary"
+                    style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      onPayPressStart(o);
+                    }}
+                    onPointerUp={(e) => {
+                      e.preventDefault();
+                      onPayPressEnd(o);
+                    }}
+                    onPointerCancel={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
+                    onPointerLeave={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
+                  >
+                    💶 PAGUAJ
+                  </button>
                 </div>
               </div>
             );
@@ -864,7 +750,7 @@ export default function GatiPage() {
         </Link>
       </footer>
 
-      {/* ============ FULL SCREEN PAGESA (si PASTRIMI) ============ */}
+      {/* ============ FULL SCREEN PAGESA ============ */}
       {showPaySheet && payOrder && (
         <div className="payfs">
           <div className="payfs-top">
@@ -972,7 +858,6 @@ export default function GatiPage() {
                 <div className="field-group">
                   <label className="label">METODA</label>
 
-                  {/* iOS fix: avoid native <select> overlay stealing taps */}
                   <div className="row" style={{ gap: 10 }}>
                     <button
                       type="button"
