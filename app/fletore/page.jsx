@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 function fmtDate(d) {
   if (!d) return "";
@@ -11,30 +12,65 @@ function fmtDate(d) {
   }
 }
 
-function displayClientName(c) {
-  const full = String(c?.full_name || "").trim();
-  if (full) return full;
-  const fn = String(c?.first_name || "").trim();
-  const ln = String(c?.last_name || "").trim();
-  const combo = `${fn} ${ln}`.trim();
-  if (combo) return combo;
-  const legacy = String(c?.name || "").trim();
-  if (legacy) return legacy;
-  return "-";
-}
-
 export default function FletorePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [meta, setMeta] = useState(null); // {url,path,bucket}
   const [data, setData] = useState(null); // backup json
   const [pin, setPin] = useState("");
   const [q, setQ] = useState("");
   const [running, setRunning] = useState(false);
 
+  const nameOfClient = (c) => {
+    const full = String(c?.full_name || c?.name || "").trim();
+    if (full) return full;
+    const fn = String(c?.first_name || "").trim();
+    const ln = String(c?.last_name || "").trim();
+    const combo = `${fn} ${ln}`.trim();
+    return combo || "-";
+  };
+
+  const phoneOfClient = (c) => String(c?.phone || c?.client_phone || "").trim() || "-";
+
+  async function loadLiveData() {
+    const [cRes, oRes] = await Promise.all([
+      supabase
+        .from("clients")
+        .select("id, code, full_name, first_name, last_name, phone, created_at, updated_at")
+        .order("code", { ascending: true }),
+      supabase
+        .from("orders")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(500),
+    ]);
+
+    if (cRes.error) throw new Error(`LIVE_CLIENTS_FAILED: ${cRes.error.message}`);
+    if (oRes.error) throw new Error(`LIVE_ORDERS_FAILED: ${oRes.error.message}`);
+
+    const clients = (cRes.data || []).map((c) => ({
+      ...c,
+      // make sure UI always has these
+      code: c.code,
+      full_name: nameOfClient(c),
+      phone: phoneOfClient(c),
+    }));
+
+    const orders = (oRes.data || []).map((o) => {
+      const client_name =
+        String(o?.client_full_name || o?.client_name || o?.full_name || o?.name || "").trim() || "-";
+      const client_phone = String(o?.client_phone || o?.phone || "").trim() || "-";
+      return { ...o, client_name, client_phone };
+    });
+
+    setMeta({ mode: "LIVE" });
+    setData({ backup_date: null, clients, orders, live: true });
+  }
   async function loadLatest(pinOverride) {
     setLoading(true);
     setError("");
+    setNotice("");
     try {
       const qs = new URLSearchParams();
       const usePin = String(pinOverride ?? pin ?? "").trim();
@@ -43,8 +79,13 @@ export default function FletorePage() {
       const j = await r.json();
       if (!r.ok || !j?.ok) throw new Error(j?.error || "FAILED_LATEST");
       const item = j.item;
-      if (!item) throw new Error("NO_BACKUP_YET");
-      if (!item?.payload) throw new Error("BACKUP_EMPTY");
+      if (!item || !item?.payload) {
+        // No backup yet (or empty) -> show live DB data instead of red error.
+        setNotice("");
+        await loadLiveData();
+        setMeta(null);
+        return;
+      }
       setMeta({
         id: item?.id,
         created_at: item?.created_at,
@@ -53,9 +94,10 @@ export default function FletorePage() {
       });
       setData(item.payload);
     } catch (e) {
-      setError(String(e?.message || e));
+      // If backup fetch fails, we still try to show live data.
+      setNotice("");
+      await loadLiveData();
       setMeta(null);
-      setData(null);
     } finally {
       setLoading(false);
     }
@@ -101,8 +143,8 @@ export default function FletorePage() {
     if (!s) return arr;
     return arr.filter((c) => {
       const code = String(c?.code ?? "").toLowerCase();
-      const name = displayClientName(c).toLowerCase();
-      const phone = String(c?.phone ?? "").toLowerCase();
+      const name = nameOfClient(c).toLowerCase();
+      const phone = phoneOfClient(c).toLowerCase();
       return code.includes(s) || name.includes(s) || phone.includes(s);
     });
   }, [data, q]);
@@ -112,8 +154,8 @@ export default function FletorePage() {
     const s = String(q || "").trim().toLowerCase();
     if (!s) return arr;
     return arr.filter((o) => {
-      const code = String(o?.client_code ?? o?.code ?? "").toLowerCase();
-      const name = String(o?.client_name ?? o?.raw?.client_name ?? "").toLowerCase();
+      const code = String(o?.code ?? o?.client_code ?? "").toLowerCase();
+      const name = String(o?.client_full_name ?? o?.client_name ?? o?.raw?.client_name ?? "").toLowerCase();
       const phone = String(o?.client_phone ?? o?.raw?.client_phone ?? "").toLowerCase();
       return code.includes(s) || name.includes(s) || phone.includes(s);
     });
@@ -177,7 +219,7 @@ export default function FletorePage() {
         ) : null}
       </div>
 
-      {error ? (
+      {error && !data ? (
         <div style={{ padding: 12, borderRadius: 12, border: "1px solid #7a2b2b", background: "#2a1111" }}>
           <b>GABIM:</b> {error}
           <div style={{ marginTop: 8, opacity: 0.9 }}>
@@ -192,6 +234,18 @@ export default function FletorePage() {
               Hape env-in në Vercel dhe ri‑ruaje KEY-n si <b>një rresht</b> (pa hapësira, pa rreshta të rinj).
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {notice && data ? (
+        <div style={{ marginTop: 10, padding: 10, borderRadius: 12, border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)", opacity: 0.95 }}>
+          {notice === "NO_BACKUP_YET" ? (
+            <span>
+              S’KA BACKUP ENDE — PO SHFAQIM TË DHËNAT LIVE NGA DB. (SHTYPE <b>RUAJ TANI</b> PËR TA KRIJU BACKUP-IN E PARË)
+            </span>
+          ) : (
+            <span>{notice}</span>
+          )}
         </div>
       ) : null}
 
@@ -226,10 +280,10 @@ export default function FletorePage() {
               </thead>
               <tbody>
                 {clients.map((c, idx) => (
-                  <tr key={c.phone || idx} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                  <tr key={c.id || c.code || c.phone || idx} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                     <td style={{ padding: 10, fontWeight: 900 }}>{c.code ?? idx + 1}</td>
-                    <td style={{ padding: 10 }}>{displayClientName(c) || "-"}</td>
-                    <td style={{ padding: 10 }}>{c.phone || "-"}</td>
+                    <td style={{ padding: 10 }}>{nameOfClient(c)}</td>
+                    <td style={{ padding: 10 }}>{phoneOfClient(c)}</td>
                     <td style={{ padding: 10 }}>{c.orders_count || 0}</td>
                     <td style={{ padding: 10 }}>{Number(c.total_sum || 0).toFixed(2)}</td>
                     <td style={{ padding: 10 }}>{fmtDate(c.last_order_at)}</td>
@@ -262,10 +316,10 @@ export default function FletorePage() {
               </thead>
               <tbody>
                 {orders.slice(0, 400).map((o) => (
-                  <tr key={o.id} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                  <tr key={o.id || o.code || o.created_at} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                     <td style={{ padding: 10, fontWeight: 900 }}>{o.client_code ?? o.code ?? "-"}</td>
                     <td style={{ padding: 10 }}>{(o.status || "").toUpperCase()}</td>
-                    <td style={{ padding: 10 }}>{o.client_name || "-"}</td>
+                    <td style={{ padding: 10 }}>{o.client_full_name || o.client_name || "-"}</td>
                     <td style={{ padding: 10 }}>{o.client_phone || "-"}</td>
                     <td style={{ padding: 10 }}>{Number(o.total || 0).toFixed(2)}</td>
                     <td style={{ padding: 10 }}>{Number(o.paid || 0).toFixed(2)}</td>
