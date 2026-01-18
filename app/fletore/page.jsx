@@ -16,27 +16,30 @@ export default function FletorePage() {
   const [error, setError] = useState("");
   const [meta, setMeta] = useState(null); // {url,path,bucket}
   const [data, setData] = useState(null); // backup json
-  // Default backup PIN (requested): 654321
-  const [pin, setPin] = useState("654321");
+  const [pin, setPin] = useState("");
+  const [q, setQ] = useState("");
   const [running, setRunning] = useState(false);
 
-  async function loadLatest() {
+  async function loadLatest(pinOverride) {
     setLoading(true);
     setError("");
     try {
       const qs = new URLSearchParams();
-      if (pin) qs.set("pin", pin);
+      const usePin = String(pinOverride ?? pin ?? "").trim();
+      if (usePin) qs.set("pin", usePin);
       const r = await fetch(`/api/backup/latest?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok || !j?.ok) throw new Error(j?.error || "FAILED_LATEST");
       const item = j.item;
+      if (!item) throw new Error("NO_BACKUP_YET");
+      if (!item?.payload) throw new Error("BACKUP_EMPTY");
       setMeta({
         id: item?.id,
         created_at: item?.created_at,
         pin: item?.pin,
         downloadUrl: `/api/backup/latest?${qs.toString()}&raw=1`,
       });
-      setData(item?.payload || null);
+      setData(item.payload);
     } catch (e) {
       setError(String(e?.message || e));
       setMeta(null);
@@ -51,7 +54,8 @@ export default function FletorePage() {
     setError("");
     try {
       const qs = new URLSearchParams();
-      if (pin) qs.set("pin", pin);
+      const usePin = String(pin || "").trim();
+      if (usePin) qs.set("pin", usePin);
       const r = await fetch(`/api/backup/run?${qs.toString()}`, { method: "POST" });
       const j = await r.json();
       if (!r.ok || !j?.ok) throw new Error(j?.error || "FAILED_BACKUP");
@@ -68,8 +72,40 @@ export default function FletorePage() {
     loadLatest();
   }, []);
 
-  const clients = useMemo(() => data?.clients || [], [data]);
-  const orders = useMemo(() => data?.orders || [], [data]);
+  // Auto-refresh when PIN changes (so user doesn't have to guess when to press RIFRESKO)
+  useEffect(() => {
+    const p = String(pin || "").trim();
+    // if user entered a 6-digit pin (or cleared the pin), refresh
+    if (p && p.length < 6) return;
+    const t = setTimeout(() => {
+      loadLatest(p);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [pin]);
+
+  const clients = useMemo(() => {
+    const arr = Array.isArray(data?.clients) ? data.clients : [];
+    const s = String(q || "").trim().toLowerCase();
+    if (!s) return arr;
+    return arr.filter((c) => {
+      const code = String(c?.code ?? "").toLowerCase();
+      const name = String(c?.name ?? "").toLowerCase();
+      const phone = String(c?.phone ?? "").toLowerCase();
+      return code.includes(s) || name.includes(s) || phone.includes(s);
+    });
+  }, [data, q]);
+
+  const orders = useMemo(() => {
+    const arr = Array.isArray(data?.orders) ? data.orders : [];
+    const s = String(q || "").trim().toLowerCase();
+    if (!s) return arr;
+    return arr.filter((o) => {
+      const code = String(o?.client_code ?? o?.code ?? "").toLowerCase();
+      const name = String(o?.client_name ?? o?.raw?.client_name ?? "").toLowerCase();
+      const phone = String(o?.client_phone ?? o?.raw?.client_phone ?? "").toLowerCase();
+      return code.includes(s) || name.includes(s) || phone.includes(s);
+    });
+  }, [data, q]);
 
   return (
     <main style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
@@ -89,8 +125,16 @@ export default function FletorePage() {
 
         <input
           value={pin}
-          onChange={(e) => setPin(e.target.value)}
-          placeholder="PIN BACKUP (654321)"
+          onChange={(e) => {
+            const v = String(e.target.value || "")
+              .replace(/[^0-9]/g, "")
+              .slice(0, 12);
+            setPin(v);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") loadLatest();
+          }}
+          placeholder="PIN BACKUP (opsionale)"
           style={{ padding: "10px 12px", borderRadius: 10, minWidth: 220 }}
         />
 
@@ -102,7 +146,14 @@ export default function FletorePage() {
           {running ? "DUKE RUJT..." : "RUAJ TANI"}
         </button>
 
-        {meta?.url ? (
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="KËRKO KODIN / EMRIN / TELEFONIN"
+          style={{ padding: "10px 12px", borderRadius: 10, minWidth: 260, flex: 1 }}
+        />
+
+        {meta?.downloadUrl ? (
           <a
             href={meta.downloadUrl}
             target="_blank"
@@ -153,7 +204,7 @@ export default function FletorePage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ textAlign: "left", opacity: 0.85 }}>
-                  <th style={{ padding: 10 }}>NR</th>
+                  <th style={{ padding: 10 }}>KODI</th>
                   <th style={{ padding: 10 }}>EMRI</th>
                   <th style={{ padding: 10 }}>TELEFONI</th>
                   <th style={{ padding: 10 }}>POROSI</th>
@@ -164,7 +215,7 @@ export default function FletorePage() {
               <tbody>
                 {clients.map((c, idx) => (
                   <tr key={c.phone || idx} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <td style={{ padding: 10, fontWeight: 900 }}>{idx + 1}</td>
+                    <td style={{ padding: 10, fontWeight: 900 }}>{c.code ?? idx + 1}</td>
                     <td style={{ padding: 10 }}>{c.name || "-"}</td>
                     <td style={{ padding: 10 }}>{c.phone || "-"}</td>
                     <td style={{ padding: 10 }}>{c.orders_count || 0}</td>
@@ -200,7 +251,7 @@ export default function FletorePage() {
               <tbody>
                 {orders.slice(0, 400).map((o) => (
                   <tr key={o.id} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <td style={{ padding: 10, fontWeight: 900 }}>{o.code ?? "-"}</td>
+                    <td style={{ padding: 10, fontWeight: 900 }}>{o.client_code ?? o.code ?? "-"}</td>
                     <td style={{ padding: 10 }}>{(o.status || "").toUpperCase()}</td>
                     <td style={{ padding: 10 }}>{o.client_name || "-"}</td>
                     <td style={{ padding: 10 }}>{o.client_phone || "-"}</td>
