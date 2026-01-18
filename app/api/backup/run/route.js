@@ -23,6 +23,16 @@ function safePin(p) {
   return s;
 }
 
+function requirePin(pin) {
+  // Default PIN (requested): 654321
+  // Can be overridden via env BACKUP_PIN.
+  const required = String(process.env.BACKUP_PIN || "654321").trim();
+  if (!required) return { ok: true };
+  if (!pin) return { ok: false, error: "PIN_REQUIRED" };
+  if (String(pin).trim() !== required) return { ok: false, error: "INVALID_PIN" };
+  return { ok: true };
+}
+
 function pickFirst(obj, keys) {
   for (const k of keys) {
     if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k];
@@ -103,6 +113,11 @@ export async function POST(req) {
 
 async function runBackup({ pin, req }) {
   try {
+    const pinCheck = requirePin(pin);
+    if (!pinCheck.ok) {
+      return NextResponse.json({ ok: false, error: pinCheck.error }, { status: 401 });
+    }
+
     const supabase = getAdminClient();
     const table = await detectBackupsTable(supabase);
 
@@ -211,11 +226,8 @@ async function runBackup({ pin, req }) {
     const ordersIndex = ordersArr.map((o) => ({
       id: o.id ?? null,
       code: getClientCodeFromRow(o),
-      client_code: getClientCodeFromRow(o),
       phone: getPhoneFromRow(o),
-      client_phone: getPhoneFromRow(o),
       name: getClientNameFromRow(o),
-      client_name: getClientNameFromRow(o),
       pieces: getOrderPieces(o),
       total: getOrderTotal(o),
       status: getOrderStatus(o) || null,
