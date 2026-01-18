@@ -20,6 +20,8 @@ export default function FletorePage() {
   const [q, setQ] = useState("");
   const [running, setRunning] = useState(false);
 
+  const softNoBackup = !!(error && String(error).startsWith("NO_BACKUP_YET"));
+
   async function loadLatest(pinOverride) {
     setLoading(true);
     setError("");
@@ -30,16 +32,18 @@ export default function FletorePage() {
       const r = await fetch(`/api/backup/latest?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok || !j?.ok) throw new Error(j?.error || "FAILED_LATEST");
-      const item = j.item;
+      // API may return {backup: {...}} (preferred) or legacy {item: {...}}
+      const item = j.backup || j.item;
       if (!item) throw new Error("NO_BACKUP_YET");
-      if (!item?.payload) throw new Error("BACKUP_EMPTY");
+      const payload = item?.payload ?? item;
+      if (!payload) throw new Error("BACKUP_EMPTY");
       setMeta({
         id: item?.id,
         created_at: item?.created_at,
         pin: item?.pin,
         downloadUrl: `/api/backup/latest?${qs.toString()}&raw=1`,
       });
-      setData(item.payload);
+      setData(payload);
     } catch (e) {
       setError(String(e?.message || e));
       setMeta(null);
@@ -165,7 +169,13 @@ export default function FletorePage() {
         ) : null}
       </div>
 
-      {error ? (
+      {softNoBackup ? (
+        <div style={{ marginTop: 12, padding: 10, borderRadius: 12, border: "1px solid #2a2a2a", background: "#111" }}>
+          S'KA BACKUP ENDE. SHTYP <b>RUAJ TANI</b> PËR ME KRIJU BACKUP-IN E PARË.
+        </div>
+      ) : null}
+
+      {error && !softNoBackup ? (
         <div style={{ padding: 12, borderRadius: 12, border: "1px solid #7a2b2b", background: "#2a1111" }}>
           <b>GABIM:</b> {error}
           <div style={{ marginTop: 8, opacity: 0.9 }}>
