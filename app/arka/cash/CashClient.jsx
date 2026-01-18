@@ -20,6 +20,7 @@ import {
   listPendingCashPayments,
   applyPendingPaymentToCycle,
   rejectPendingPayment,
+  processPendingPayments,
 } from '@/lib/arkaCashSync';
 import {
   listPendingRequestsForApprover,
@@ -152,6 +153,16 @@ export default function CashClient() {
 
       const c = await dbGetActiveCycle();
       setCycle(c || null);
+
+      // Auto-apply any cash payments that were created while ARKA was CLOSED.
+      // This fixes the case "I paid while ARKA was closed, then opened ARKA and the payment is missing".
+      if (c?.id && c?.status === "OPEN" && canApprove) {
+        try {
+          await processPendingPayments({ cycle_id: c.id, day_key: c.day_key });
+        } catch {
+          // ignore (we'll still load whatever exists)
+        }
+      }
 
       // carryover context if NO active cycle
       if (!c) {
