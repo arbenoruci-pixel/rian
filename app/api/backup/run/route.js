@@ -21,6 +21,30 @@ function checkPinIfProvided(req) {
   return { ok: true, pin };
 }
 
+function normalizeClient(c) {
+  const first = String(c?.first_name || '').trim();
+  const last = String(c?.last_name || '').trim();
+  const full = String(c?.full_name || '').trim();
+  const name = (full || `${first} ${last}`.trim()).trim();
+  return {
+    ...c,
+    // for UI/search compatibility
+    name: name || null,
+  };
+}
+
+function normalizeOrder(o, clientByCode) {
+  const code = o?.client_code;
+  const c = clientByCode.get(String(code));
+  const client_name = c?.name || c?.full_name || null;
+  const client_phone = c?.phone || null;
+  return {
+    ...o,
+    client_name,
+    client_phone,
+  };
+}
+
 export async function POST(req) {
   try {
     const pinCheck = checkPinIfProvided(req);
@@ -44,11 +68,27 @@ export async function POST(req) {
       .order('created_at', { ascending: true });
     if (oErr) throw oErr;
 
-    const openOrdersCount = (orders || []).filter((o) => !['dorzim', 'archived'].includes(String(o.status || '').toLowerCase())).length;
+    // Normalize names so UI can always display/search properly
+    const clientsN = (clients || []).map(normalizeClient);
+    const byCode = new Map(clientsN.map((c) => [String(c.code ?? ''), c]));
+
+    const ordersN = (orders || []).map((o) => {
+      const cc = String(o?.client_code ?? o?.clientCode ?? '');
+      const c = byCode.get(cc);
+      const client_name = c ? (c.name || c.full_name || '') : String(o?.client_name || o?.clientName || '');
+      const client_phone = c ? String(c.phone || '') : String(o?.client_phone || o?.clientPhone || '');
+      return {
+        ...o,
+        client_name: client_name || null,
+        client_phone: client_phone || null,
+      };
+    });
+
+    const openOrdersCount = ordersN.filter((o) => !['dorzim', 'archived'].includes(String(o.status || '').toLowerCase())).length;
 
     const payload = {
-      clients: clients || [],
-      orders: orders || [],
+      clients: clientsN,
+      orders: ordersN,
       clients_count: (clients || []).length,
       orders_count: (orders || []).length,
       open_orders_count: openOrdersCount,

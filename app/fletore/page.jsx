@@ -11,6 +11,18 @@ function fmtDate(d) {
   }
 }
 
+function displayClientName(c) {
+  const full = String(c?.full_name || "").trim();
+  if (full) return full;
+  const fn = String(c?.first_name || "").trim();
+  const ln = String(c?.last_name || "").trim();
+  const combo = `${fn} ${ln}`.trim();
+  if (combo) return combo;
+  const legacy = String(c?.name || "").trim();
+  if (legacy) return legacy;
+  return "-";
+}
+
 export default function FletorePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -19,8 +31,6 @@ export default function FletorePage() {
   const [pin, setPin] = useState("");
   const [q, setQ] = useState("");
   const [running, setRunning] = useState(false);
-
-  const softNoBackup = !!(error && String(error).startsWith("NO_BACKUP_YET"));
 
   async function loadLatest(pinOverride) {
     setLoading(true);
@@ -32,18 +42,16 @@ export default function FletorePage() {
       const r = await fetch(`/api/backup/latest?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok || !j?.ok) throw new Error(j?.error || "FAILED_LATEST");
-      // API may return {backup: {...}} (preferred) or legacy {item: {...}}
-      const item = j.backup || j.item;
+      const item = j.item;
       if (!item) throw new Error("NO_BACKUP_YET");
-      const payload = item?.payload ?? item;
-      if (!payload) throw new Error("BACKUP_EMPTY");
+      if (!item?.payload) throw new Error("BACKUP_EMPTY");
       setMeta({
         id: item?.id,
         created_at: item?.created_at,
         pin: item?.pin,
         downloadUrl: `/api/backup/latest?${qs.toString()}&raw=1`,
       });
-      setData(payload);
+      setData(item.payload);
     } catch (e) {
       setError(String(e?.message || e));
       setMeta(null);
@@ -93,7 +101,7 @@ export default function FletorePage() {
     if (!s) return arr;
     return arr.filter((c) => {
       const code = String(c?.code ?? "").toLowerCase();
-      const name = String(c?.name ?? "").toLowerCase();
+      const name = displayClientName(c).toLowerCase();
       const phone = String(c?.phone ?? "").toLowerCase();
       return code.includes(s) || name.includes(s) || phone.includes(s);
     });
@@ -169,13 +177,7 @@ export default function FletorePage() {
         ) : null}
       </div>
 
-      {softNoBackup ? (
-        <div style={{ marginTop: 12, padding: 10, borderRadius: 12, border: "1px solid #2a2a2a", background: "#111" }}>
-          S'KA BACKUP ENDE. SHTYP <b>RUAJ TANI</b> PËR ME KRIJU BACKUP-IN E PARË.
-        </div>
-      ) : null}
-
-      {error && !softNoBackup ? (
+      {error ? (
         <div style={{ padding: 12, borderRadius: 12, border: "1px solid #7a2b2b", background: "#2a1111" }}>
           <b>GABIM:</b> {error}
           <div style={{ marginTop: 8, opacity: 0.9 }}>
@@ -226,7 +228,7 @@ export default function FletorePage() {
                 {clients.map((c, idx) => (
                   <tr key={c.phone || idx} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                     <td style={{ padding: 10, fontWeight: 900 }}>{c.code ?? idx + 1}</td>
-                    <td style={{ padding: 10 }}>{c.name || "-"}</td>
+                    <td style={{ padding: 10 }}>{displayClientName(c) || "-"}</td>
                     <td style={{ padding: 10 }}>{c.phone || "-"}</td>
                     <td style={{ padding: 10 }}>{c.orders_count || 0}</td>
                     <td style={{ padding: 10 }}>{Number(c.total_sum || 0).toFixed(2)}</td>
