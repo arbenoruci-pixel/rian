@@ -1,71 +1,49 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from 'next/server';
+import { getSupabaseAdmin } from '@/lib/supabaseAdminClient';
 
-export const runtime = "nodejs";
-
-function admin() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url) throw new Error("MISSING_SUPABASE_URL");
-  if (!key) throw new Error("MISSING_SUPABASE_SERVICE_ROLE_KEY");
-  return createClient(url, key, { auth: { persistSession: false } });
-}
+export const runtime = 'nodejs';
 
 async function detectBackupsTable(sb) {
-  for (const t of ["app_backups", "backups"]) {
-    const { error } = await sb.from(t).select("id").limit(1);
+  for (const t of ['app_backups', 'backups']) {
+    const { error } = await sb.from(t).select('id').limit(1);
     if (!error) return t;
   }
-  throw new Error("NO_BACKUPS_TABLE_ACCESS");
-}
-
-function requirePin(pin) {
-  // Default PIN (requested): 654321
-  // Can be overridden via env BACKUP_PIN.
-  const required = String(process.env.BACKUP_PIN || "654321").trim();
-  if (!required) return { ok: true };
-  if (!pin) return { ok: false, error: "PIN_REQUIRED" };
-  if (String(pin).trim() !== required) return { ok: false, error: "INVALID_PIN" };
-  return { ok: true };
+  throw new Error('NO_BACKUPS_TABLE_ACCESS');
 }
 
 export async function GET(req) {
   try {
-    const sb = admin();
-    const backupsTable = await detectBackupsTable(sb);
+    const sb = getSupabaseAdmin();
+    const table = await detectBackupsTable(sb);
 
-    const url = new URL(req.url);
-    const pin = String(url.searchParams.get("pin") || "").trim();
+    const { searchParams } = new URL(req.url);
+    const pin = (searchParams.get('pin') || '').trim();
 
-    const pinCheck = requirePin(pin);
-    if (!pinCheck.ok) {
-      return NextResponse.json({ ok: false, error: pinCheck.error }, { status: 401 });
-    }
+    // Pin is optional. If provided, return latest backup for that pin.
+    let q = sb.from(table).select('id, created_at, payload, pin').order('created_at', { ascending: false }).limit(1);
+    if (pin) q = q.eq('pin', pin);
 
-    const { data, error } = await sb
-      .from(backupsTable)
-      .select("id, created_at, pin, device, payload")
-      .eq("pin", pin)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data, error } = await q;
+    if (error) throw error;
 
-    if (error) {
-      return NextResponse.json(
-        { ok: false, error: "SUPABASE_BACKUPS_QUERY_FAILED", detail: error.message },
-        { status: 500 }
-      );
-    }
+    const row = Array.isArray(data) ? data[0] : null;
+    if (!row) return NextResponse.json({ ok: true, backup: null });
 
-    if (!data) {
-      return NextResponse.json({ ok: false, error: "NO_BACKUP_FOUND" }, { status: 404 });
-    }
-
-    return NextResponse.json({ ok: true, backup: data, table: backupsTable });
+    const payload = row?.payload;
+    return NextResponse.json({
+      ok: true,
+      backup: {
+        id: row?.id,
+        created_at: row?.created_at,
+        pin: row?.pin ?? null,
+        clients: payload?.clients || [],
+        orders: payload?.orders || [],
+        clients_count: payload?.clients_count ?? 0,
+        orders_count: payload?.orders_count ?? 0,
+        open_orders_count: payload?.open_orders_count ?? 0,
+      },
+    });
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: "LATEST_FAILED", detail: e?.message || String(e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: 'LATEST_FAILED', detail: String(e?.message || e) }, { status: 500 });
   }
 }

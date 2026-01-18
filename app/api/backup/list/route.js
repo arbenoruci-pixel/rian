@@ -1,27 +1,45 @@
 import { NextResponse } from 'next/server';
-import { adminClient, requirePinFromReq } from '../_lib/dbdaily';
+import { getSupabaseAdmin } from '@/lib/supabaseAdminClient';
 
 export const runtime = 'nodejs';
 
+async function detectBackupsTable(sb) {
+  for (const t of ['app_backups', 'backups']) {
+    const { error } = await sb.from(t).select('id').limit(1);
+    if (!error) return t;
+  }
+  throw new Error('NO_BACKUPS_TABLE_ACCESS');
+}
+
 export async function GET(req) {
   try {
-    const pinCheck = requirePinFromReq(req);
-    if (!pinCheck.ok) return NextResponse.json({ ok: false, error: pinCheck.error }, { status: 401 });
+    const sb = getSupabaseAdmin();
+    const table = await detectBackupsTable(sb);
 
-    const sb = adminClient();
-    const url = new URL(req.url);
-    const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || 30)));
+    const { searchParams } = new URL(req.url);
+    const pin = (searchParams.get('pin') || '').trim();
 
-    const { data, error } = await sb
-      .from('backups_daily')
-      .select('backup_date, created_at')
-      .order('backup_date', { ascending: false })
-      .limit(limit);
+    // Pin is optional. If provided, filter to that pin.
+    let q = sb.from(table).select('id, created_at, payload, pin').order('created_at', { ascending: false }).limit(20);
+    if (pin) q = q.eq('pin', pin);
 
-    if (error) return NextResponse.json({ ok: false, error: 'LIST_FAILED', detail: error.message }, { status: 500 });
+    const { data, error } = await q;
+    if (error) throw error;
 
-    return NextResponse.json({ ok: true, items: data || [] });
+    const items = (data || []).map((r) => {
+      const payload = r?.payload;
+      return {
+        id: r?.id,
+        created_at: r?.created_at,
+        pin: r?.pin ?? null,
+        clients_cnt: payload?.clients_count ?? null,
+        orders_cnt: payload?.orders_count ?? null,
+        open_orders_cnt: payload?.open_orders_count ?? null,
+      };
+    });
+
+    return NextResponse.json({ ok: true, items });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: 'LIST_FAILED', detail: e?.message || String(e) }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'LIST_FAILED', detail: String(e?.message || e) }, { status: 500 });
   }
 }
