@@ -40,13 +40,6 @@ function dayKeyLocal(d = new Date()) {
 
 function Modal({ open, title, onClose, children }) {
   if (!open) return null;
-  
-  useEffect(() => {
-    function onDirty(){ refresh(); }
-    window.addEventListener('arka_dirty', onDirty);
-    return () => window.removeEventListener('arka_dirty', onDirty);
-  }, []);
-
   return (
     <div
       style={{

@@ -951,7 +951,6 @@ useEffect(() => {
 
       const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
       setArkaRecordedPaid(finalArka);
-        try { window.dispatchEvent(new Event('arka_dirty')); } catch {}
     }
 
     setShowPaySheet(false);
@@ -1132,7 +1131,7 @@ if (offlineMode || !conn.ok) {
         return;
       }
 
-      router.replace('/pastrimi?ts='+Date.now());
+      router.push('/pastrimi');
     } catch (e) {
       alert('❌ Gabim ruajtja!');
     }
