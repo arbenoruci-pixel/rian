@@ -183,7 +183,7 @@ export default function CashClient() {
         setHandedList(Array.isArray(list) ? list : []);
       }
 
-      if (c?.id && hasPin) {
+      if (hasPin) {
         try {
           const res = await listPendingCashPayments(200);
           setPendingPays(Array.isArray(res?.items) ? res.items : []);
