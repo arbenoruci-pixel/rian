@@ -604,6 +604,13 @@ export default function GatiPage() {
           return_at: ts,
           ready_at: null,
           picked_up_at: null,
+        delivered_at: null,
+        deliveredAt: null,
+        deliveredTs: null,
+        readyTs: null,
+        pickedTs: null,
+        pickedUpAt: null,
+        pickedUpTs: null,
         };
 
         if (dbId) {

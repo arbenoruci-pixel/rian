@@ -641,7 +641,10 @@ useEffect(() => {
         }
       } catch {}
 
-      const id = `ord_${Date.now()}`;
+      const id =
+        (typeof crypto !== "undefined" && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `ord_${Date.now()}`;
       setOid(id);
 
       const c = await reserveSharedCode();
@@ -923,25 +926,13 @@ useEffect(() => {
     // ✅ ARKA delta only if CASH (local cache + Supabase arka_moves if day open)
     if (payMethod === 'CASH') {
       const actor = (() => {
-        // Prefer CURRENT_USER_DATA, fallback to tepiha_session_v1.user
         try {
           const raw = localStorage.getItem('CURRENT_USER_DATA');
-          if (raw) return JSON.parse(raw);
-        } catch {}
-        try {
-          const raw = localStorage.getItem('tepiha_session_v1');
-          const sess = raw ? JSON.parse(raw) : null;
-          return sess?.user || null;
+          return raw ? JSON.parse(raw) : null;
         } catch {
           return null;
         }
       })();
-
-      // Never create "PA_PIN" payments. If user/pin missing, stop.
-      if (!actor?.pin) {
-        alert('DUHET ME QENE I KYQUR (ME PIN) PER ME REGJISTRU PAGESA CASH. HAPE LOGIN edhe provo prap.');
-        return;
-      }
 
       const extId = `pay_${oid}_${Date.now()}`;
       await recordCashMove({
@@ -954,12 +945,13 @@ useEffect(() => {
         source: 'ORDER_PAY',
         method: 'cash_pay',
         type: 'IN',
-        createdByPin: String(actor.pin),
+        createdByPin: actor?.pin ? String(actor.pin) : null,
         createdBy: actor?.name ? String(actor.name) : null,
       });
 
       const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
       setArkaRecordedPaid(finalArka);
+        try { window.dispatchEvent(new Event('arka_dirty')); } catch {}
     }
 
     setShowPaySheet(false);
@@ -1140,7 +1132,7 @@ if (offlineMode || !conn.ok) {
         return;
       }
 
-      router.push('/pastrimi');
+      router.replace('/pastrimi?ts='+Date.now());
     } catch (e) {
       alert('❌ Gabim ruajtja!');
     }
