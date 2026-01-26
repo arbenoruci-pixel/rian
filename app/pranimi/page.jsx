@@ -412,9 +412,6 @@ export default function PranimiPage() {
   const [clientsLoading, setClientsLoading] = useState(false);
 
   // rows
-  // ✅ Start with EMPTY qty so "Copë" doesn't show ghost pieces before user inputs anything
-  // ✅ Start with NO rows so we don't show "COPË: 2" by default.
-  // Rows appear only after user action (chip or +RRESHT).
   const [tepihaRows, setTepihaRows] = useState([]);
   const [stazaRows, setStazaRows] = useState([]);
 
@@ -513,28 +510,12 @@ useEffect(() => {
   // ---------- CLIENT SEARCH (rikthime) ----------
   async function loadClientsIndexOnce() {
     if (clientsLoading) return;
-    if (clientsIndex && clientsIndex.length) return;
-
+    // Don't skip if index is empty
     setClientsLoading(true);
     try {
-      // cache 24h
-      const cacheKey = 'tepiha_clients_index_v1';
-      const cachedRaw = localStorage.getItem(cacheKey);
-      if (cachedRaw) {
-        try {
-          const cached = JSON.parse(cachedRaw);
-          if (cached && Array.isArray(cached.items) && Date.now() - Number(cached.ts || 0) < 24 * 3600 * 1000) {
-            setClientsIndex(cached.items);
-            return;
-          }
-        } catch {}
-      }
-
-      // ✅ Source of truth: `clients` table (permanent client registry)
       const clients = await fetchClientsFromDb(10000);
       const orders = await fetchOrdersFromDb(10000);
 
-      // Map active orders + last seen per client_code (based on orders table)
       const byCode = new Map();
       for (const r of (orders || [])) {
         const code = Number(r?.code);
@@ -552,29 +533,19 @@ useEffect(() => {
       for (const c of (clients || [])) {
         const codeStr = String(c?.code || '').trim();
         if (!codeStr) continue;
-        const first = String(c?.first_name || '').trim();
-        const last = String(c?.last_name || '').trim();
-        const name = (first + ' ' + last).trim();
-        const phone = String(c?.phone || '').trim();
+        const name = `${c.first_name || ''} ${c.last_name || ''}`.trim();
         const info = byCode.get(codeStr) || { active: 0, last_seen: null };
-        items.push({ code: codeStr, name, phone, active: info.active ? 1 : 0, last_seen: info.last_seen });
-        if (items.length >= 2000) break;
+        items.push({
+          code: codeStr,
+          name: name || 'Pa Emër',
+          phone: String(c?.phone || '').replace('+383', ''),
+          active: info.active,
+          last_seen: info.last_seen
+        });
       }
-
       setClientsIndex(items);
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), items }));
-      } catch {}
-    } catch {
-      // fallback: keep old cached list if any
-      try {
-        const cacheKey = 'tepiha_clients_index_v1';
-        const cachedRaw = localStorage.getItem(cacheKey);
-        if (cachedRaw) {
-          const cached = JSON.parse(cachedRaw);
-          if (cached && Array.isArray(cached.items)) setClientsIndex(cached.items);
-        }
-      } catch {}
+    } catch (err) {
+      console.error("Index load error", err);
     } finally {
       setClientsLoading(false);
     }
@@ -587,33 +558,22 @@ useEffect(() => {
       return;
     }
 
-    // lazy load only when user types
-    loadClientsIndexOnce();
+    if (clientsIndex.length === 0) {
+      loadClientsIndexOnce();
+    }
 
     const qLow = q.toLowerCase();
-    const isNum = /^\d+$/.test(qLow);
-
     const matches = (clientsIndex || [])
       .filter((c) => {
-        if (!c) return false;
-        if (isNum) return String(c.code || '').includes(qLow);
-        return String(c.name || '').toLowerCase().includes(qLow) || String(c.phone || '').includes(qLow);
+        return (
+          String(c.code).includes(qLow) ||
+          String(c.name).toLowerCase().includes(qLow) ||
+          String(c.phone).includes(qLow)
+        );
       })
-      .sort((a, b) => {
-        if (isNum) {
-          const aCode = String(a.code || '');
-          const bCode = String(b.code || '');
-          const aRank = aCode === qLow ? 0 : aCode.startsWith(qLow) ? 1 : 2;
-          const bRank = bCode === qLow ? 0 : bCode.startsWith(qLow) ? 1 : 2;
-          if (aRank !== bRank) return aRank - bRank;
-          return Number(aCode) - Number(bCode);
-        }
-        return String(a.name || '').localeCompare(String(b.name || ''), 'sq');
-      })
-      .slice(0, 12);
+      .slice(0, 15);
 
     setClientHits(matches);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientQuery, clientsIndex]);
 
   useEffect(() => {
@@ -747,13 +707,11 @@ useEffect(() => {
   function addRow(kind) {
     const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
     const prefix = kind === 'tepiha' ? 't' : 's';
-    // ✅ Rows are user-triggered only. Default COPË must be 0 (not 1).
     setter((rows) => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '0', photoUrl: '' }]);
   }
 
   function removeRow(kind) {
     const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
-    // allow removing down to 0 rows (so inputs can be fully "closed")
     setter((rows) => (rows.length ? rows.slice(0, -1) : rows));
   }
 
@@ -825,8 +783,6 @@ useEffect(() => {
     const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
     const rows = kind === 'tepiha' ? tepihaRows : stazaRows;
 
-    // If no rows yet, create the first row.
-    // Chip click is an explicit user action, so default COPË=1.
     if (!rows || rows.length === 0) {
       const prefix = kind === 'tepiha' ? 't' : 's';
       setter([{ id: `${prefix}1`, m2: String(val), qty: '1', photoUrl: '' }]);
@@ -863,24 +819,16 @@ useEffect(() => {
       return;
     }
     setPricePerM2(v);
-
     try {
       localStorage.setItem(PRICE_KEY, String(v));
-    } catch {}
-
-    // ✅ shared price for all workers
-    try {
       await writeSharedPrice(v);
     } catch {}
-
     setShowPriceSheet(false);
   }
 
-  // ✅ long-press (3s) on € PAGESA
   function startPayHold() {
     payHoldTriggeredRef.current = false;
     if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current);
-
     payHoldTimerRef.current = setTimeout(() => {
       payHoldTriggeredRef.current = true;
       vibrateTap(25);
@@ -891,8 +839,6 @@ useEffect(() => {
   function endPayHold() {
     if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current);
     payHoldTimerRef.current = null;
-
-    // if long-press DIDN'T trigger → open normal PAGESA
     if (!payHoldTriggeredRef.current) openPay();
     payHoldTriggeredRef.current = false;
   }
@@ -909,37 +855,26 @@ useEffect(() => {
       alert('SHUMA NUK VLEN (0 €).');
       return;
     }
-
     const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
     const applied = Number(Math.min(cashGiven, due).toFixed(2));
     if (applied <= 0) {
       alert(due <= 0 ? "KJO POROSI ESHTE PAGUAR (S'KA BORXH)." : 'SHUMA NUK VLEN (0 €).');
       return;
     }
-
     const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
     setClientPaid(newPaid);
 
-    // ✅ ARKA delta only if CASH (local cache + Supabase arka_moves if day open)
     if (payMethod === 'CASH') {
       const actor = (() => {
-        // Prefer CURRENT_USER_DATA, fallback to tepiha_session_v1.user
         try {
           const raw = localStorage.getItem('CURRENT_USER_DATA');
           if (raw) return JSON.parse(raw);
         } catch {}
-        try {
-          const raw = localStorage.getItem('tepiha_session_v1');
-          const sess = raw ? JSON.parse(raw) : null;
-          return sess?.user || null;
-        } catch {
-          return null;
-        }
+        return null;
       })();
 
-      // Never create "PA_PIN" payments. If user/pin missing, stop.
       if (!actor?.pin) {
-        alert('DUHET ME QENE I KYQUR (ME PIN) PER ME REGJISTRU PAGESA CASH. HAPE LOGIN edhe provo prap.');
+        alert('DUHET ME QENE I KYQUR (ME PIN) PER ME REGJISTRU PAGESA CASH.');
         return;
       }
 
@@ -957,86 +892,68 @@ useEffect(() => {
         createdByPin: String(actor.pin),
         createdBy: actor?.name ? String(actor.name) : null,
       });
-
       const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
       setArkaRecordedPaid(finalArka);
     }
-
     setShowPaySheet(false);
   }
 
   function validateBeforeContinue() {
     if (!name.trim()) return alert('Shkruaj emrin dhe mbiemrin.'), false;
     if (name.trim().split(/\s+/).length < 2) return alert('Shkruaj edhe mbiemrin.'), false;
-
     const ph = sanitizePhone(phonePrefix + phone);
     if (!ph || ph.length < 6) return alert('Shkruaj një numër telefoni të vlefshëm.'), false;
-
     if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), false;
     return true;
   }
 
-
-function loadOfflineModeInit() {
-  try {
-    const v = localStorage.getItem(OFFLINE_MODE_KEY);
-    return v === '1';
-  } catch {
-    return false;
-  }
-}
-
-async function checkConnectivity() {
-  // 1) quick browser signal
-  try {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      return { ok: false, reason: 'NO_INTERNET' };
+  function loadOfflineModeInit() {
+    try {
+      const v = localStorage.getItem(OFFLINE_MODE_KEY);
+      return v === '1';
+    } catch {
+      return false;
     }
-  } catch {}
-
-  // 2) real API ping (catches “internet ok but server down”)
-  try {
-    const r = await fetch('/api/backup/ping', { cache: 'no-store' });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j?.ok) return { ok: false, reason: j?.error || 'PING_FAILED' };
-    return { ok: true, reason: '' };
-  } catch {
-    return { ok: false, reason: 'FETCH_FAILED' };
   }
-}
 
-function saveOfflineQueueItem(order) {
-  try {
-    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    const item = {
-      local_id: order?.id || `offline_${Date.now()}`,
-      created_at: new Date().toISOString(),
-      name: order?.client?.name || '',
-      phone: order?.client?.phone || '',
-      code: order?.client?.code || '',
-      pieces:
-        Number(order?.tepiha?.reduce((s, r) => s + (Number(r.qty) || 0), 0) || 0) +
-        Number(order?.staza?.reduce((s, r) => s + (Number(r.qty) || 0), 0) || 0) +
-        Number(order?.shkallore?.qty || 0),
-      total: Number(order?.pay?.euro || 0),
-      paid: Number(order?.pay?.paid || 0),
-      debt: Number(order?.pay?.debt || 0),
-      status: 'OFFLINE',
-      order,
-      synced: false,
-    };
-    list.unshift(item);
-    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(list.slice(0, 2000)));
-    return true;
-  } catch {
-    return false;
+  async function checkConnectivity() {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return { ok: false, reason: 'NO_INTERNET' };
+      const r = await fetch('/api/backup/ping', { cache: 'no-store' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) return { ok: false, reason: j?.error || 'PING_FAILED' };
+      return { ok: true, reason: '' };
+    } catch {
+      return { ok: false, reason: 'FETCH_FAILED' };
+    }
   }
-}
+
+  function saveOfflineQueueItem(order) {
+    try {
+      const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      const item = {
+        local_id: order?.id || `offline_${Date.now()}`,
+        created_at: new Date().toISOString(),
+        name: order?.client?.name || '',
+        phone: order?.client?.phone || '',
+        code: order?.client?.code || '',
+        pieces: copeCount,
+        total: Number(order?.pay?.euro || 0),
+        paid: Number(order?.pay?.paid || 0),
+        debt: Number(order?.pay?.debt || 0),
+        status: 'OFFLINE',
+        order,
+        synced: false,
+      };
+      list.unshift(item);
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(list.slice(0, 2000)));
+      return true;
+    } catch { return false; }
+  }
 
   async function handleContinue() {
     if (!validateBeforeContinue()) return;
-
     try {
       const order = {
         id: oid,
@@ -1063,83 +980,32 @@ function saveOfflineQueueItem(order) {
         notes: notes || '',
       };
 
-
-// ✅ OFFLINE MODE: save locally (no Supabase) so you never lose clients
-const conn = await checkConnectivity();
-if (offlineMode || !conn.ok) {
-  const ok = saveOfflineQueueItem(order);
-  try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-  setOfflineMode(true);
-  if (!ok) {
-    alert('❌ OFFLINE: nuk u ruajt lokalisht!');
-    return;
-  }
-  alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, mund t’i integroni/sync më vonë.');
-  // keep draft for extra safety
-  try {
-    localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({
-      id: oid,
-      codeRaw,
-      name,
-      phone,
-      clientPhotoUrl,
-      tepihaRows,
-      stazaRows,
-      stairsQty,
-      stairsPer,
-      stairsPhotoUrl,
-      pricePerM2,
-      clientPaid,
-      arkaRecordedPaid,
-      payMethod,
-      notes,
-    }));
-  } catch {}
-  return;
-}
+      const conn = await checkConnectivity();
+      if (offlineMode || !conn.ok) {
+        saveOfflineQueueItem(order);
+        setOfflineMode(true);
+        alert('✅ U RUAJT OFFLINE.');
+        return;
+      }
 
       const blob = new Blob([JSON.stringify(order)], { type: 'application/json' });
-      const { error: uploadError } = await supabase.storage.from(BUCKET).upload(`orders/${oid}.json`, blob, {
-        upsert: true,
-        cacheControl: '0',
-        contentType: 'application/json',
+      await supabase.storage.from(BUCKET).upload(`orders/${oid}.json`, blob, {
+        upsert: true, cacheControl: '0', contentType: 'application/json'
       });
-      if (uploadError) throw uploadError;
 
-      // ✅ Also persist to Supabase DB (clients + orders) so backups never miss data
-      try {
-        const db = await saveOrderToDb(order);
-        if (db && db.order_id) {
-          order.db_id = db.order_id;
-          order.client_id = db.client_id || null;
-          if (order.client && db.client_id) order.client.id = db.client_id;
-          // mirror db_id into stored JSON for later updates
-          const blob2 = new Blob([JSON.stringify(order)], { type: 'application/json' });
-          await supabase.storage.from(BUCKET).upload(`orders/${oid}.json`, blob2, {
-            upsert: true,
-            cacheControl: '0',
-            contentType: 'application/json',
-          });
-        }
-      } catch {}
-
-      localStorage.setItem(`order_${oid}`, JSON.stringify(order));
-
-      // ✅ remove draft (completed) both local + shared
+      // ✅ SAVE TO DB (TRICK: Force activation here)
+      const db = await saveOrderToDb(order);
+      
       removeDraftLocal(oid);
       await deleteDraftRemote(oid);
-      await refreshDrafts();
-
       await markCodeUsed(order.client.code);
       await releaseLocksForCode(order.client.code);
 
-      // ✅ after save: open message automatically (toggle)
       if (autoMsgAfterSave) {
         setPendingNavTo('/pastrimi');
         setShowMsgSheet(true);
         return;
       }
-
       router.push('/pastrimi');
     } catch (e) {
       alert('❌ Gabim ruajtja!');
@@ -1153,47 +1019,23 @@ if (offlineMode || !conn.ok) {
 
   async function loadDraftIntoForm(id) {
     try {
-      // ✅ try remote first
       let d = await readDraftRemote(id);
-
-      // fallback local
       if (!d) {
         const raw = localStorage.getItem(`${DRAFT_ITEM_PREFIX}${id}`);
         if (!raw) return;
         d = JSON.parse(raw);
       }
-
       setOid(d.id || id);
       setCodeRaw(d.codeRaw || d.code || codeRaw);
-
       setName(d.name || '');
       setPhone(d.phone || '');
       setClientPhotoUrl(d.clientPhotoUrl || '');
-
-      // ✅ Allow empty arrays so inputs stay "closed" unless user actually adds rows
-      // ✅ Force default COPË to '0' if missing
-      setTepihaRows(
-        Array.isArray(d.tepihaRows) && d.tepihaRows.length
-          ? d.tepihaRows.map((r) => ({ ...r, qty: String(r?.qty ?? '0') }))
-          : []
-      );
-      setStazaRows(
-        Array.isArray(d.stazaRows) && d.stazaRows.length
-          ? d.stazaRows.map((r) => ({ ...r, qty: String(r?.qty ?? '0') }))
-          : []
-      );
-
+      setTepihaRows(Array.isArray(d.tepihaRows) ? d.tepihaRows : []);
+      setStazaRows(Array.isArray(d.stazaRows) ? d.stazaRows : []);
       setStairsQty(Number(d.stairsQty) || 0);
       setStairsPer(Number(d.stairsPer) || SHKALLORE_M2_PER_STEP_DEFAULT);
-      setStairsPhotoUrl(d.stairsPhotoUrl || '');
-
       setPricePerM2(Number(d.pricePerM2) || PRICE_DEFAULT);
       setClientPaid(Number(d.clientPaid) || 0);
-      setArkaRecordedPaid(Number(d.arkaRecordedPaid) || 0);
-      setPayMethod(d.payMethod || 'CASH');
-
-      setNotes(d.notes || '');
-
       setShowDraftsSheet(false);
     } catch {}
   }
@@ -1209,173 +1051,54 @@ if (offlineMode || !conn.ok) {
     const m2 = Number(totalM2 || 0).toFixed(2);
     const euro = Number(totalEuro || 0).toFixed(2);
     const debt = Number(currentDebt || 0).toFixed(2);
-    const debtLine = Number(currentDebt || 0) > 0 ? `BORXH: ${debt} €.` : `BORXH: 0.00 €.`;
-
     const nm = (name || '').trim() ? `Përshëndetje ${name.trim()},` : 'Përshëndetje,';
-    const line1 = `${nm} procesi i pastrimit ka filluar.`;
-    const line2 = `KODI: ${kod} • TEPIHA: ${copeCount} COPË • ${m2} m² • TOTAL: ${euro} €.`;
-    const line3 = debtLine;
-    const line4 = `SIPAS KAPACITETIT: ${etaText}.`;
-    const line5 = `DO T'JU LAJMËROJMË KUR BËHEN GATI.`;
-    const line6 = `NËSE KENI PYTJE THIRR ${COMPANY_PHONE_DISPLAY}.`;
-
-    return [line1, line2, line3, line4, line5, line6].join('\n');
-  }
-
-  function openLinkSafe(url) {
-    try {
-      window.location.href = url;
-    } catch {}
+    return `${nm} procesi i pastrimit ka filluar.\nKODI: ${kod} • TEPIHA: ${copeCount} COPË • ${m2} m² • TOTAL: ${euro} €.\nBORXH: ${debt} €.\nSIPAS KAPACITETIT: ${etaText}.\nDO T'JU LAJMËROJMË KUR BËHEN GATI.`;
   }
 
   function sendViaSMS() {
     const to = sanitizePhone(phonePrefix + phone);
     const body = encodeURIComponent(buildStartMessage());
-    if (!to) return alert('Shkruaj numrin e klientit.');
-    openLinkSafe(`sms:${to}?&body=${body}`);
+    window.location.href = `sms:${to}?&body=${body}`;
   }
 
   function sendViaWhatsApp() {
     const to = sanitizePhone(phonePrefix + phone);
     const text = encodeURIComponent(buildStartMessage());
-    if (!to) return alert('Shkruaj numrin e klientit.');
-    openLinkSafe(`https://wa.me/${to}?text=${text}`);
+    window.location.href = `https://wa.me/${to}?text=${text}`;
   }
 
   function sendViaViber() {
     const to = sanitizePhone(phonePrefix + phone);
-    if (!to) return alert('Shkruaj numrin e klientit.');
-    openLinkSafe(`viber://chat?number=%2B${to}`);
-    try {
-      navigator.clipboard?.writeText(buildStartMessage());
-    } catch {}
-    setTimeout(() => {
-      alert('Mesazhi u kopjua. Hap Viber dhe paste te klienti.');
-    }, 120);
+    window.location.href = `viber://chat?number=%2B${to}`;
+    navigator.clipboard?.writeText(buildStartMessage());
+    alert('Mesazhi u kopjua.');
   }
 
-  function closeMsgSheet() {
-    setShowMsgSheet(false);
-    if (pendingNavTo) {
-      const next = pendingNavTo;
-      setPendingNavTo('');
-      router.push(next);
-    }
-  }
-
-  function toggleAutoMsg() {
-    const next = !autoMsgAfterSave;
-    setAutoMsgAfterSave(next);
-    try {
-      localStorage.setItem(AUTO_MSG_KEY, next ? '1' : '0');
-    } catch {}
-  }
-
-  if (creating) {
-    return (
-      <div className="wrap">
-        <p style={{ textAlign: 'center', paddingTop: 30 }}>Duke u përgatitur PRANIMI...</p>
-      </div>
-    );
-  }
-
-
-return (
-  <div className="wrap">
-    {showOfflinePrompt ? (
-      <div
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.6)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: 16,
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 520,
-            width: '100%',
-            borderRadius: 14,
-            border: '1px solid rgba(255,255,255,0.12)',
-            background: '#0d0f14',
-            padding: 14,
-          }}
-        >
-          <div style={{ fontWeight: 900, letterSpacing: 1 }}>S’KA LIDHJE</div>
-          <div style={{ opacity: 0.85, marginTop: 8, lineHeight: 1.35 }}>
-            Interneti ose serveri nuk po përgjigjet. A don me vazhdu në <b>OFFLINE MODE</b> që mos me i humb klientat?
+  return (
+    <div className="wrap">
+      {showOfflinePrompt && (
+        <div className="modal-overlay">
+          <div className="modal-content dark">
+            <div style={{ fontWeight: 900 }}>S’KA LIDHJE</div>
+            <p>A don me vazhdu në OFFLINE MODE?</p>
+            <div className="row" style={{ gap: 10 }}>
+              <button className="btn primary" onClick={() => { setOfflineMode(true); setShowOfflinePrompt(false); }}>PO</button>
+              <button className="btn secondary" onClick={() => setShowOfflinePrompt(false)}>JO</button>
+            </div>
           </div>
-
-          <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-            <button
-              onClick={() => {
-                setOfflineMode(true);
-                try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-                setShowOfflinePrompt(false);
-              }}
-              style={{ padding: '10px 12px', borderRadius: 10, fontWeight: 900 }}
-            >
-              KALO NË OFFLINE
-            </button>
-
-            <button
-              onClick={async () => {
-                const s = await checkConnectivity();
-                setNetState(s);
-                if (s.ok) setShowOfflinePrompt(false);
-              }}
-              style={{ padding: '10px 12px', borderRadius: 10, fontWeight: 900, opacity: 0.9 }}
-            >
-              PROVO PRAP
-            </button>
-
-            <button
-              onClick={() => setShowOfflinePrompt(false)}
-              style={{ padding: '10px 12px', borderRadius: 10, fontWeight: 800, opacity: 0.75 }}
-            >
-              MBYLL
-            </button>
-          </div>
-
-          <div style={{ marginTop: 10, opacity: 0.7, fontSize: 12 }}>Status: {netState.ok ? 'ONLINE' : netState.reason}</div>
         </div>
-      </div>
-    ) : null}
+      )}
 
-      <header className="header-row" style={{ alignItems: 'flex-start' }}>
+      <header className="header-row">
         <div>
           <h1 className="title">PRANIMI</h1>
           <div className="subtitle">KRIJO POROSI</div>
         </div>
-        
-<div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-  <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
-    <input
-      type="checkbox"
-      checked={offlineMode}
-      onChange={(e) => {
-        const v = e.target.checked;
-        setOfflineMode(v);
-        try { localStorage.setItem(OFFLINE_MODE_KEY, v ? '1' : '0'); } catch {}
-      }}
-    />
-    <span style={{ fontWeight: 900, letterSpacing: 0.5 }}>OFFLINE MODE</span>
-  </label>
-  <div style={{ fontSize: 12, opacity: 0.75 }}>
-    {netState.ok ? 'ONLINE' : `LIDHJA: ${netState.reason}`}
-  </div>
-</div>
-
-<div className="code-badge">
+        <div className="code-badge">
           <span className="badge">{`KODI: ${normalizeCode(codeRaw)}`}</span>
         </div>
       </header>
 
-      {/* Capacity line (from Pastrimi) */}
       <section className="cap-mini">
         <div className="cap-mini-top">
           <div className="cap-mini-title">SOT NË PASTRIM</div>
@@ -1384,80 +1107,46 @@ return (
         <div className="cap-mini-eta">{etaText}</div>
       </section>
 
-      {/* ✅ BUTTON ONLY (no inline list) */}
       <section style={{ marginTop: 10 }}>
-        <button
-          type="button"
-          className="btn secondary"
-          style={{ width: '100%', padding: '12px 14px', borderRadius: 18 }}
-          onClick={openDrafts}
-        >
+        <button className="btn secondary" style={{ width: '100%' }} onClick={openDrafts}>
           📝 TË PA PLOTSUARAT {drafts.length > 0 ? `(${drafts.length})` : ''}
         </button>
       </section>
 
-      {/* CLIENT */}
       <section className="card">
         <h2 className="card-title">KLIENTI</h2>
-
-	        {/* Search për klienta që rikthehen (KOD / EMËR / TELEFON) */}
-	        <div className="field-group">
-	          <label className="label">KËRKO KLIENTIN (KOD / EMËR / TELEFON)</label>
-	          <input
-	            className="input"
-	            value={clientQuery}
-	            onChange={(e) => setClientQuery(e.target.value)}
-	            placeholder="p.sh. 98 / arben / 045..."
-	          />
-	          {clientsLoading ? (
-	            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 6 }}>DUKE NGARKUAR KLIENTËT...</div>
-	          ) : null}
-	          {clientHits && clientHits.length ? (
-	            <div className="list" style={{ marginTop: 8, maxHeight: 180, overflow: 'auto' }}>
-	              {clientHits.map((c) => (
-	                <button
-	                  key={`${c.code}_${c.phone}`}
-	                  type="button"
-	                  className="rowbtn"
-	                  onClick={() => {
-	                    // mbush fushat, mos prek logjikën tjetër
-	                    if (c.code != null) setCodeRaw(String(c.code));
-	                    if (c.name) setName(String(c.name));
-	                    if (c.phone) setPhone(String(c.phone));
-	                    if (c.phonePrefix) setPhonePrefix(String(c.phonePrefix));
-	                    setClientQuery('');
-	                    setClientHits([]);
-	                  }}
-	                  style={{ width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 12, marginBottom: 8 }}
-	                >
-	                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-	                    <div style={{ fontWeight: 800 }}>{String(c.code || '')} • {String(c.name || '').toLowerCase()}</div>
-	                    <div style={{ opacity: 0.85 }}>{String(c.phonePrefix || '')}{String(c.phone || '')}</div>
-	                  </div>
-	                </button>
-	              ))}
-	            </div>
-	          ) : null}
-	        </div>
+        <div className="field-group">
+          <label className="label">KËRKO KLIENTIN (KOD / EMËR / TELEFON)</label>
+          <input className="input" value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder="Kërko..." />
+          {clientHits.length > 0 && (
+            <div className="list" style={{ marginTop: 8, maxHeight: 200, overflow: 'auto' }}>
+              {clientHits.map((c) => (
+                <button
+                  key={c.code}
+                  className="rowbtn"
+                  style={{ width: '100%', marginBottom: 5, padding: 10, borderRadius: 8, textAlign: 'left' }}
+                  onClick={() => {
+                    setCodeRaw(c.code);
+                    setName(c.name);
+                    setPhone(c.phone);
+                    setClientQuery('');
+                    setClientHits([]);
+                  }}
+                >
+                  <strong>{c.code}</strong> • {c.name.toLowerCase()} ({c.phone})
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="field-group">
           <label className="label">EMRI & MBIEMRI</label>
-
-          {/* ✅ photo next to last name */}
           <div className="row" style={{ alignItems: 'center', gap: 10 }}>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1 }} />
-            {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini" /> : null}
-            <label className="camera-btn" title="FOTO KLIENTI" style={{ marginLeft: 2 }}>
-              📷
-              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} />
-            </label>
+            {clientPhotoUrl && <img src={clientPhotoUrl} alt="" className="client-mini" />}
+            <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} /></label>
           </div>
-
-          {clientPhotoUrl && (
-            <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 8 }} onClick={() => setClientPhotoUrl('')}>
-              🗑️ FSHI FOTO
-            </button>
-          )}
         </div>
 
         <div className="field-group">
@@ -1469,689 +1158,108 @@ return (
         </div>
       </section>
 
-      {/* TEPIHA */}
       <section className="card">
         <h2 className="card-title">TEPIHA</h2>
-
         <div className="chip-row modern">
           {TEPIHA_CHIPS.map((v) => (
-            <button
-              key={v}
-              type="button"
-              className="chip chip-modern"
-              onClick={(e) => applyChip('tepiha', v, e)}
-              style={chipStyleForVal(v, false)}
-            >
-              {v.toFixed(1)}
-            </button>
+            <button key={v} className="chip chip-modern" onClick={(e) => applyChip('tepiha', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button>
           ))}
         </div>
-
         {tepihaRows.map((row) => (
           <div className="piece-row" key={row.id}>
             <div className="row">
               <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
               <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
-              <label className="camera-btn">
-                📷
-                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} />
-              </label>
             </div>
-
-            {row.photoUrl && (
-              <div style={{ marginTop: 8 }}>
-                <img src={row.photoUrl} className="photo-thumb" alt="" />
-                <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => handleRowChange('tepiha', row.id, 'photoUrl', '')}>
-                  🗑️ FSHI FOTO
-                </button>
-              </div>
-            )}
           </div>
         ))}
-
         <div className="row btn-row">
           <button className="btn secondary" onClick={() => addRow('tepiha')}>+ RRESHT</button>
           <button className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button>
         </div>
       </section>
 
-      {/* STAZA */}
       <section className="card">
         <h2 className="card-title">STAZA</h2>
-
         <div className="chip-row modern">
           {STAZA_CHIPS.map((v) => (
-            <button
-              key={v}
-              type="button"
-              className="chip chip-modern"
-              onClick={(e) => applyChip('staza', v, e)}
-              style={chipStyleForVal(v, false)}
-            >
-              {v.toFixed(1)}
-            </button>
+            <button key={v} className="chip chip-modern" onClick={(e) => applyChip('staza', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button>
           ))}
         </div>
-
         {stazaRows.map((row) => (
           <div className="piece-row" key={row.id}>
             <div className="row">
               <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
               <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
-              <label className="camera-btn">
-                📷
-                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} />
-              </label>
             </div>
-
-            {row.photoUrl && (
-              <div style={{ marginTop: 8 }}>
-                <img src={row.photoUrl} className="photo-thumb" alt="" />
-                <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => handleRowChange('staza', row.id, 'photoUrl', '')}>
-                  🗑️ FSHI FOTO
-                </button>
-              </div>
-            )}
           </div>
         ))}
-
         <div className="row btn-row">
           <button className="btn secondary" onClick={() => addRow('staza')}>+ RRESHT</button>
           <button className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button>
         </div>
       </section>
 
-      {/* UTIL */}
       <section className="card">
         <div className="row util-row" style={{ gap: 10 }}>
-          <button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowStairsSheet(true)}>
-            🪜 SHKALLORE
-          </button>
-
-          {/* ✅ click = pagesa, long-press 3s = ndrrim qmimi */}
-          <button
-            className="btn secondary"
-            style={{ flex: 1 }}
-            onMouseDown={startPayHold}
-            onMouseUp={endPayHold}
-            onMouseLeave={cancelPayHold}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              startPayHold();
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              endPayHold();
-            }}
-            onTouchCancel={cancelPayHold}
-          >
-            € PAGESA
-          </button>
+          <button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowStairsSheet(true)}>🪜 SHKALLORE</button>
+          <button className="btn secondary" style={{ flex: 1 }} onMouseDown={startPayHold} onMouseUp={endPayHold}>€ PAGESA</button>
         </div>
-
-        {/* ✅ message button back in PRANIMI */}
-        <div style={{ marginTop: 10 }}>
-          <button className="btn secondary" style={{ width: '100%' }} onClick={() => setShowMsgSheet(true)}>
-            📩 DËRGO MESAZH — FILLON PASTRIMI
-          </button>
-        </div>
-
         <div className="tot-line">M² Total: <strong>{totalM2}</strong></div>
-        <div className="tot-line">Copë: <strong>{copeCount}</strong></div>
         <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
-
-        <div className="tot-line" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 10, paddingTop: 10 }}>
-          Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong>
-        </div>
-
-        <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
-          Regjistru n&apos;ARKË: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong>
-        </div>
-
+        <div className="tot-line">Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div>
         {currentDebt > 0 && <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{currentDebt.toFixed(2)} €</strong></div>}
-        {currentChange > 0 && <div className="tot-line">Kthim: <strong style={{ color: '#2563eb' }}>{currentChange.toFixed(2)} €</strong></div>}
       </section>
 
-      {/* NOTES */}
-      <section className="card">
-        <h2 className="card-title">SHËNIME</h2>
-        <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </section>
-
-      {/* FOOTER */}
       <footer className="footer-bar">
         <button className="btn secondary" onClick={() => router.push('/')}>🏠 HOME</button>
-        <button className="btn primary" onClick={handleContinue} disabled={photoUploading}>
-          ▶ VAZHDO
-        </button>
+        <button className="btn primary" onClick={handleContinue} disabled={photoUploading}>▶ VAZHDO</button>
       </footer>
 
-      {/* ✅ FULL SCREEN: TË PA PLOTSUARAT */}
-      {showDraftsSheet && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div>
-              <div className="payfs-title">TË PA PLOTSUARAT</div>
-              <div className="payfs-sub">HAP ose FSHI draftat</div>
-            </div>
-            <button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button>
-          </div>
-
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
-              {drafts.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>
-                  S’ka “të pa plotsuara”.
-                </div>
-              ) : (
-                drafts.map((d) => (
-                  <div
-                    key={d.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '10px 4px',
-                      borderBottom: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <div
-                        style={{
-                          background: '#16a34a',
-                          color: '#0b0b0b',
-                          padding: '8px 10px',
-                          borderRadius: 10,
-                          fontWeight: 900,
-                          minWidth: 56,
-                          textAlign: 'center',
-                        }}
-                      >
-                        {d.code || '—'}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>
-                        <div style={{ fontWeight: 800 }}>KODI: {d.code || '—'}</div>
-                        <div style={{ opacity: 0.85 }}>
-                          {Number(d.m2 || 0).toFixed(2)} m² • {Number(d.euro || 0).toFixed(2)} €
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 10 }}>
-                      <button className="btn secondary" onClick={() => loadDraftIntoForm(d.id)}>HAP</button>
-                      <button className="btn secondary" onClick={() => deleteDraft(d.id)}>FSHI</button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div style={{ height: 14 }} />
-            <button className="btn secondary" style={{ width: '100%' }} onClick={() => setShowDraftsSheet(false)}>
-              MBYLL
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ✅ FULL SCREEN: MESAZHI */}
-      {showMsgSheet && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div>
-              <div className="payfs-title">DËRGO MESAZH</div>
-              <div className="payfs-sub">VIBER / WHATSAPP / SMS</div>
-            </div>
-            <button className="btn secondary" onClick={closeMsgSheet}>✕</button>
-          </div>
-
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
-              {/* ✅ toggle */}
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: 900 }}>
-                  AUTO PAS “VAZHDO”
-                </div>
-                <button
-                  className="btn secondary"
-                  style={{ padding: '6px 10px', fontSize: 11, borderRadius: 12 }}
-                  onClick={toggleAutoMsg}
-                >
-                  {autoMsgAfterSave ? 'ON' : 'OFF'}
-                </button>
-              </div>
-
-              <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 10 }}>
-                <strong>PREVIEW</strong>
-              </div>
-
-              <pre
-                style={{
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  marginTop: 10,
-                  fontSize: 12,
-                  color: 'rgba(255,255,255,0.85)',
-                  lineHeight: 1.35,
-                }}
-              >
-                {buildStartMessage()}
-              </pre>
-            </div>
-
-            <div className="card">
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn secondary" style={{ flex: 1 }} onClick={sendViaViber}>
-                  VIBER
-                </button>
-                <button className="btn secondary" style={{ flex: 1 }} onClick={sendViaWhatsApp}>
-                  WHATSAPP
-                </button>
-                <button className="btn secondary" style={{ flex: 1 }} onClick={sendViaSMS}>
-                  SMS
-                </button>
-              </div>
-
-              <div style={{ marginTop: 12, fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
-                * Numri i kompanisë në fund: {COMPANY_PHONE_DISPLAY}
-              </div>
-            </div>
-
-            <button className="btn secondary" style={{ width: '100%' }} onClick={closeMsgSheet}>
-              MBYLL
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ✅ FULL SCREEN: NDËRRO QMIMIN (long-press 3s te € PAGESA) */}
-      {showPriceSheet && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div>
-              <div className="payfs-title">NDËRRO QMIMIN</div>
-              <div className="payfs-sub">€/m² (ruhet & sinkronizohet)</div>
-            </div>
-            <button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button>
-          </div>
-
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="tot-line">QMIMI AKTUAL: <strong>{Number(pricePerM2 || 0).toFixed(2)} € / m²</strong></div>
-              <div style={{ height: 10 }} />
-              <label className="label">QMIMI I RI (€ / m²)</label>
-              <input
-                type="number"
-                step="0.1"
-                className="input"
-                value={priceTmp}
-                onChange={(e) => setPriceTmp(e.target.value === '' ? '' : Number(e.target.value))}
-              />
-              <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
-                * Long-press 3 sek te “€ PAGESA” për me ardh këtu.
-              </div>
-            </div>
-          </div>
-
-          <div className="payfs-footer">
-            <button className="btn secondary" onClick={() => setShowPriceSheet(false)}>ANULO</button>
-            <button className="btn primary" onClick={savePriceAndClose}>RUJ</button>
-          </div>
-        </div>
-      )}
-
-      {/* FULL SCREEN PAGESA */}
       {showPaySheet && (
         <div className="payfs">
           <div className="payfs-top">
-            <div>
-              <div className="payfs-title">PAGESA</div>
-              <div className="payfs-sub">
-                KODI: {normalizeCode(codeRaw)} • {name || '—'}
-              </div>
-            </div>
+            <div className="payfs-title">PAGESA</div>
             <button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button>
           </div>
-
           <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div>
-              <div className="tot-line">
-                PAGUAR DERI TANI: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong>
-              </div>
-              <div className="tot-line" style={{ fontSize: 12, color: '#666' }}>
-                REGJISTRU N&apos;ARKË DERI TANI: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong>
-              </div>
-
-              <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>
-                SOT PAGUAN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong>
-              </div>
-
-              {(() => {
-                const paidAfter = Number((Number(clientPaid || 0) + Number(payAdd || 0)).toFixed(2));
-                const d = Number((totalEuro - paidAfter).toFixed(2));
-                const debtNow = d > 0 ? d : 0;
-                const changeNow = d < 0 ? Math.abs(d) : 0;
-
-                return (
-                  <>
-                    <div className="tot-line">
-                      PAGUAR PAS KËSAJ: <strong style={{ color: '#16a34a' }}>{paidAfter.toFixed(2)} €</strong>
-                    </div>
-                    {debtNow > 0 && (
-                      <div className="tot-line">BORXH: <strong style={{ color: '#dc2626' }}>{debtNow.toFixed(2)} €</strong></div>
-                    )}
-                    {changeNow > 0 && (
-                      <div className="tot-line">KTHIM: <strong style={{ color: '#2563eb' }}>{changeNow.toFixed(2)} €</strong></div>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-
             <div className="card">
-              <div className="field-group">
-                <label className="label">SHTO PAGESË (€) — VETËM SOT</label>
-
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  pattern="[0-9]*"
-                  className="input"
-                  value={Number(payAdd || 0) === 0 ? '' : payAdd}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setPayAdd(v === '' ? 0 : Number(v));
-                  }}
-                  placeholder=""
-                />
-
-                <div className="chip-row" style={{ marginTop: 10 }}>
-                  {PAY_CHIPS.map((v) => (
-                    <button key={v} className="chip" type="button" onClick={() => setPayAdd(Number((Number(payAdd || 0) + v).toFixed(2)))}>
-                      +{v}€
-                    </button>
-                  ))}
-                  <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>
-                    FSHI
-                  </button>
-                </div>
-              </div>
-
-              <div className="field-group">
-                <label className="label">METODA</label>
-                <div className="row" style={{ gap: 10 }} data-noswipe="1">
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    style={{ flex: 1, outline: payMethod === "CASH" ? "2px solid rgba(255,255,255,0.35)" : "none" }}
-                    onClick={() => setPayMethod("CASH")}
-                  >
-                    CASH
-                  </button>
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    style={{ flex: 1, outline: payMethod === "CARD" ? "2px solid rgba(255,255,255,0.35)" : "none" }}
-                    onClick={() => setPayMethod("CARD")}
-                  >
-                    CARD / TRANSFER
-                  </button>
-                </div>
-                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", marginTop: 8 }}>
-                  * CASH regjistrohet në ARKË. CARD/TRANSFER nuk hyn në ARKË.
-                </div>
-              </div>
-
-              <div style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
-                * Nëse sot nuk pagun, veç mbylle. Borxhi rritet automatikisht nëse shton m².
+              <label className="label">SHTO PAGESË (€)</label>
+              <input type="number" className="input" value={payAdd || ''} onChange={(e) => setPayAdd(Number(e.target.value))} />
+              <div className="chip-row" style={{ marginTop: 10 }}>
+                {PAY_CHIPS.map(v => <button key={v} className="chip" onClick={() => setPayAdd(payAdd + v)}>+{v}€</button>)}
               </div>
             </div>
           </div>
-
           <div className="payfs-footer">
-            <button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button>
             <button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button>
           </div>
         </div>
       )}
 
-      {/* SHKALLORE */}
+      {/* SHKALLORE MODAL (simplified) */}
       {showStairsSheet && (
-        <div className="modal-overlay" onClick={() => setShowStairsSheet(false)}>
-          <div className="modal-content dark" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 className="card-title" style={{ margin: 0, color: '#fff' }}>
-                SHKALLORE
-              </h3>
-              <button className="btn secondary" onClick={() => setShowStairsSheet(false)}>✕</button>
-            </div>
-
-            <div className="field-group" style={{ marginTop: 12 }}>
-              <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label>
-
-              <div className="chip-row">
-                {SHKALLORE_QTY_CHIPS.map((n) => (
-                  <button
-                    key={n}
-                    className="chip"
-                    type="button"
-                    onClick={() => {
-                      setStairsQty(n);
-                      vibrateTap(15);
-                    }}
-                    style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-
-              <input
-                type="number"
-                className="input"
-                value={stairsQty === 0 ? '' : stairsQty}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setStairsQty(v === '' ? 0 : Number(v));
-                }}
-                placeholder=""
-                style={{ marginTop: 10 }}
-              />
-            </div>
-
-            <div className="field-group">
-              <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label>
-
-              <div className="chip-row">
-                {SHKALLORE_PER_CHIPS.map((v) => (
-                  <button
-                    key={v}
-                    className="chip"
-                    type="button"
-                    onClick={() => {
-                      setStairsPer(v);
-                      vibrateTap(15);
-                    }}
-                    style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-
-              <input
-                type="number"
-                step="0.01"
-                className="input"
-                value={Number(stairsPer || 0) === 0 ? '' : stairsPer}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setStairsPer(v === '' ? 0 : Number(v));
-                }}
-                style={{ marginTop: 10 }}
-              />
-            </div>
-
-            <div className="field-group">
-              <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label>
-              <label className="camera-btn">
-                📷
-                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} />
-              </label>
-
-              {stairsPhotoUrl && (
-                <div style={{ marginTop: 8 }}>
-                  <img src={stairsPhotoUrl} className="photo-thumb" alt="" />
-                  <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => setStairsPhotoUrl('')}>
-                    🗑️ FSHI FOTO
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <button className="btn primary" style={{ width: '100%', marginTop: 12 }} onClick={() => setShowStairsSheet(false)}>
-              MBYLL
-            </button>
+        <div className="modal-overlay">
+          <div className="modal-content dark">
+            <h3 className="card-title">SHKALLORE</h3>
+            <input type="number" className="input" placeholder="Cope" value={stairsQty || ''} onChange={e => setStairsQty(Number(e.target.value))} />
+            <button className="btn primary" style={{ marginTop: 10, width: '100%' }} onClick={() => setShowStairsSheet(false)}>MBYLL</button>
           </div>
         </div>
       )}
 
-      {/* Styles */}
       <style jsx>{`
-        .client-mini{
-          width: 34px;
-          height: 34px;
-          border-radius: 999px;
-          object-fit: cover;
-          border: 1px solid rgba(255,255,255,0.18);
-          box-shadow: 0 6px 14px rgba(0,0,0,0.35);
-        }
-
-        .cap-mini {
-          margin-top: 8px;
-          padding: 10px 12px;
-          border-radius: 16px;
-          background: #0b0b0b;
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-        .cap-mini-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-        }
-        .cap-mini-title {
-          font-size: 10px;
-          letter-spacing: 0.7px;
-          color: rgba(255,255,255,0.65);
-          font-weight: 900;
-        }
-        .cap-mini-val {
-          font-size: 12px;
-          color: #16a34a;
-          font-weight: 900;
-        }
-        .cap-mini-eta {
-          margin-top: 6px;
-          font-size: 12px;
-          color: rgba(255,255,255,0.85);
-          font-weight: 800;
-        }
-
-        .chip-row.modern {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-top: 8px;
-        }
-
-        .chip-modern {
-          padding: 10px 14px;
-          border-radius: 14px;
-          font-weight: 900;
-          letter-spacing: 0.2px;
-          color: rgba(255,255,255,0.92);
-          backdrop-filter: blur(8px);
-        }
-        .chip-modern:active {
-          transform: translateY(1px);
-        }
-
-        .chip-bump {
-          animation: chipBump 140ms ease-in-out;
-        }
-        @keyframes chipBump {
-          0% { transform: translateY(0) scale(1); }
-          40% { transform: translateY(1px) scale(0.98); }
-          70% { transform: translateY(0) scale(1.02); }
-          100% { transform: translateY(0) scale(1); }
-        }
-
-        .modal-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.6);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 9999;
-          padding: 20px;
-        }
-        .modal-content {
-          width: 100%;
-          max-width: 420px;
-          padding: 18px;
-          border-radius: 18px;
-          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
-          background: white;
-        }
-        .modal-content.dark {
-          background: #0b0b0b;
-          color: #fff;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .payfs {
-          position: fixed;
-          inset: 0;
-          background: #0b0b0b;
-          z-index: 10000;
-          display: flex;
-          flex-direction: column;
-        }
-        .payfs-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 14px 14px;
-          background: #0b0b0b;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
-        .payfs-title {
-          color: #fff;
-          font-weight: 900;
-          font-size: 18px;
-        }
-        .payfs-sub {
-          color: rgba(255, 255, 255, 0.7);
-          font-size: 12px;
-          margin-top: 2px;
-        }
-        .payfs-body {
-          flex: 1;
-          overflow: auto;
-          padding: 14px;
-        }
-        .payfs-footer {
-          display: flex;
-          gap: 10px;
-          padding: 12px 14px;
-          border-top: 1px solid rgba(255, 255, 255, 0.08);
-          background: #0b0b0b;
-        }
-        .payfs-footer .btn {
-          flex: 1;
-        }
+        .client-mini{ width: 34px; height: 34px; border-radius: 999px; object-fit: cover; }
+        .cap-mini { margin-top: 8px; padding: 10px; border-radius: 12px; background: #0b0b0b; border: 1px solid #222; }
+        .cap-mini-val { color: #16a34a; font-weight: 900; }
+        .chip-row.modern { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+        .chip-modern { padding: 8px 12px; border-radius: 10px; font-weight: 900; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .modal-content.dark { background: #0b0b0b; padding: 20px; border-radius: 15px; width: 100%; max-width: 400px; border: 1px solid #333; }
+        .payfs { position: fixed; inset: 0; background: #0b0b0b; z-index: 10000; display: flex; flex-direction: column; }
+        .payfs-top { display: flex; justify-content: space-between; padding: 15px; border-bottom: 1px solid #222; }
+        .payfs-body { flex: 1; padding: 15px; }
+        .payfs-footer { padding: 15px; border-top: 1px solid #222; }
       `}</style>
     </div>
   );
