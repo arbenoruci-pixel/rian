@@ -79,7 +79,7 @@ function Modal({ open, title, onClose, children }) {
               letterSpacing: 2,
             }}
           >
-            MBYLLUR
+            MBYLL
           </button>
         </div>
         <div style={{ marginTop: 12 }}>{children}</div>
@@ -284,7 +284,6 @@ export default function CashClient() {
         amount: amt,
         note: String(moveNote || ""),
         created_by: user?.name || "LOCAL",
-        created_by_pin: user?.pin || null,
       });
       setMoveAmount("");
       setMoveNote("");
@@ -304,6 +303,7 @@ export default function CashClient() {
       const counted = parseEuroInput(cashCounted);
       if (Number.isNaN(counted) || counted < 0) throw new Error("CASH COUNTED S’ËSHTË VALIDE.");
 
+      // If discrepancy, require a reason (stops silent anomalies)
       const disc = Number(counted) - Number(expectedCash || 0);
       if (Math.abs(disc) >= 0.01 && !String(closeReason || "").trim()) {
         throw new Error("SHKRUJ ARSYEN PËR DISKREPANCË.");
@@ -349,6 +349,7 @@ export default function CashClient() {
 
   const arkaLocked = pendingHanded && !isDispatch;
 
+  // pending cash groups by PIN
   const pendingGroups = useMemo(() => {
     const groups = new Map();
     for (const p of pendingPays || []) {
@@ -362,24 +363,9 @@ export default function CashClient() {
   }, [pendingPays]);
 
   async function applyPending(p) {
-    if (!cycle?.id) {
-      setErr("ARKA NUK ËSHTË E HAPUR.");
-      return;
-    }
+    if (!cycle?.id) return;
     setPendingBusy(true);
     try {
-      // 1) Shto lëvizjen në arkë (IN) që të balancohet Expected Cash
-      await dbAddCycleMove({
-        cycle_id: cycle.id,
-        type: 'IN',
-        amount: Number(p.amount || 0),
-        note: `PENDING → CASH • ${p.client_name || p.order_code || ''}`,
-        created_by: user?.name || "LOCAL",
-        created_by_pin: user?.pin || null,
-        external_id: p.id || null
-      });
-
-      // 2) Markoje si të pranuar në server
       await applyPendingPaymentToCycle({
         pending: p,
         cycle_id: cycle.id,
@@ -387,7 +373,6 @@ export default function CashClient() {
         approved_by_name: user?.name || null,
         approved_by_role: user?.role || null,
       });
-
       const res = await listPendingCashPayments(200);
       setPendingPays(Array.isArray(res?.items) ? res.items : []);
       await refresh();
@@ -463,7 +448,7 @@ export default function CashClient() {
         </div>
       ) : null}
 
-      {/* OPEN TAB */}
+      {/* OPEN */}
       {tab === "OPEN" ? (
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ opacity: 0.85, letterSpacing: 2, fontWeight: 950 }}>SOT: {dayKeyLocal(new Date())}</div>
@@ -485,6 +470,7 @@ export default function CashClient() {
               <button
                 disabled={busy || pendingHanded}
                 onClick={() => {
+                  // prefill with carryover if available
                   if (Number(carry?.carry_cash || 0) > 0) {
                     setOpeningCash(String(Number(carry.carry_cash || 0)));
                     setOpeningSource(String(carry.carry_source || "COMPANY").toUpperCase());
@@ -550,7 +536,7 @@ export default function CashClient() {
                 <button
                   type="button"
                   onClick={() => setPendingModal(true)}
-                  style={{ width: "100%", padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2, background: "rgba(255,255,255,0.1)" }}
+                  style={{ width: "100%", padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2 }}
                 >
                   CASH KUR ARKA KA QENË E MBYLLUR ({pendingPays.length})
                 </button>
@@ -678,7 +664,7 @@ export default function CashClient() {
         </div>
       ) : null}
 
-      {/* DISPATCH TAB */}
+      {/* DISPATCH */}
       {tab === "DISPATCH" ? (
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ opacity: 0.85, fontWeight: 950, letterSpacing: 2 }}>DORËZIMET (HANDED)</div>
@@ -707,7 +693,7 @@ export default function CashClient() {
         </div>
       ) : null}
 
-      {/* HISTORI TAB */}
+      {/* HISTORI */}
       {tab === "HISTORI" ? (
         <div style={{ opacity: 0.95 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -784,7 +770,7 @@ export default function CashClient() {
         </div>
       ) : null}
 
-      {/* MODAL PËR PAGESAT PENDING */}
+      {/* Pending cash payments modal (NON-BLOCKING) */}
       <Modal
         open={pendingModal}
         title={`CASH KUR ARKA KA QENË E MBYLLUR (${pendingPays?.length || 0})`}
