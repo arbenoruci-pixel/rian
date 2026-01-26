@@ -837,3 +837,47 @@ export default function CashClient() {
     </div>
   );
 }
+
+
+
+async function onAcceptPending(p){
+  try{
+    if(!activeCycle?.id){
+      alert('ARKA NUK ESHTE E HAPUR');
+      return;
+    }
+
+    const actor = (()=>{
+      try{
+        const raw = localStorage.getItem('CURRENT_USER_DATA');
+        if(raw) return JSON.parse(raw);
+      }catch{}
+      return null;
+    })();
+
+    if(!actor?.pin){
+      alert('DUHET PIN PER PRANO');
+      return;
+    }
+
+    // 1) ALWAYS push money into arka
+    await dbAddCycleMove({
+      cycle_id: activeCycle.id,
+      type: 'IN',
+      amount: Number(p.amount||0),
+      note: `PENDING → CASH • ${p.name||''}`,
+      created_by_pin: String(actor.pin),
+      created_by: actor.name || null,
+      external_id: p.external_id || p.externalId || null
+    });
+
+    // 2) mark pending as accepted
+    await acceptPendingPayment(p);
+
+    await refresh();
+
+  }catch(e){
+    console.error(e);
+    alert('PRANIMI DESHTOI');
+  }
+}
