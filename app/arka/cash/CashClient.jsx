@@ -840,44 +840,41 @@ export default function CashClient() {
 
 
 
-async function onAcceptPending(p){
-  try{
-    if(!activeCycle?.id){
-      alert('ARKA NUK ESHTE E HAPUR');
+async function onAcceptPending(p) {
+  try {
+    if (!activeCycle?.id) {
+      alert("ARKA NUK ESHTE E HAPUR");
       return;
     }
 
-    const actor = (()=>{
-      try{
-        const raw = localStorage.getItem('CURRENT_USER_DATA');
-        if(raw) return JSON.parse(raw);
-      }catch{}
+    const actor = (() => {
+      try {
+        const raw = localStorage.getItem("CURRENT_USER_DATA");
+        if (raw) return JSON.parse(raw);
+      } catch {}
       return null;
     })();
 
-    if(!actor?.pin){
-      alert('DUHET PIN PER PRANO');
+    if (!actor?.pin) {
+      alert("DUHET ME QENE I KYQUR (ME PIN)");
       return;
     }
 
-    // 1) ALWAYS push money into arka
-    await dbAddCycleMove({
+    const res = await applyPendingPaymentToCycle({
+      pending: p,
       cycle_id: activeCycle.id,
-      type: 'IN',
-      amount: Number(p.amount||0),
-      note: `PENDING → CASH • ${p.name||''}`,
-      created_by_pin: String(actor.pin),
-      created_by: actor.name || null,
-      external_id: p.external_id || p.externalId || null
+      approved_by_name: actor?.name || "SYSTEM",
+      approved_by_pin: String(actor.pin),
     });
 
-    // 2) mark pending as accepted
-    await acceptPendingPayment(p);
+    if (!res?.ok) {
+      alert(`PRANO DESHTOI: ${res?.error || "ERROR"}`);
+      return;
+    }
 
     await refresh();
-
-  }catch(e){
+  } catch (e) {
     console.error(e);
-    alert('PRANIMI DESHTOI');
+    alert(`PRANO DESHTOI: ${e?.message || "ERROR"}`);
   }
 }
