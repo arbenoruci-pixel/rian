@@ -198,9 +198,8 @@ export default function PastrimiPage() {
     try {
       const { data, error } = await supabase
         .from('orders')
-        .select('id,status,created_at,updated_at,data')
+        .select('id,status,created_at,data')
         .eq('status', 'pastrim')
-        .order('updated_at', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(500);
       if (error) throw error;

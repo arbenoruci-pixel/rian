@@ -61,6 +61,80 @@ function sanitizePhone(phone) {
   return String(phone || '').replace(/\D+/g, '');
 }
 
+
+function normDigits(s) {
+  return String(s || '').replace(/\D+/g, '');
+}
+
+async function searchClientsLive(q) {
+  const qq = String(q || '').trim();
+  if (!qq) return [];
+
+  const qDigits = normDigits(qq);
+  const qText = qq.toLowerCase();
+
+  let query = supabase
+    .from('clients')
+    .select('id, code, first_name, last_name, phone, photo_url, updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(15);
+
+  if (qDigits) {
+    // search by code OR phone digits OR name
+    query = query.or(
+      `code.eq.${Number(qDigits)},phone.ilike.%${qDigits}%,first_name.ilike.%${qText}%,last_name.ilike.%${qText}%`
+    );
+  } else {
+    query = query.or(`first_name.ilike.%${qText}%,last_name.ilike.%${qText}%,phone.ilike.%${qText}%`);
+  }
+
+  const { data: clients, error } = await query;
+  if (error) throw error;
+
+  const list = Array.isArray(clients) ? clients : [];
+  if (!list.length) return [];
+
+  const codes = list.map((c) => Number(c?.code)).filter((n) => Number.isFinite(n));
+  const activeByCode = new Map();
+
+  if (codes.length) {
+    const { data: orders, error: e2 } = await supabase
+      .from('orders')
+      .select('code, status, updated_at, created_at')
+      .in('code', codes)
+      .neq('status', 'dorzim')
+      .limit(5000);
+
+    if (!e2 && Array.isArray(orders)) {
+      for (const o of orders) {
+        const c = Number(o?.code);
+        if (!Number.isFinite(c)) continue;
+        const cur = activeByCode.get(c) || { active: 0, last_seen: null };
+        cur.active += 1;
+        const ts = o?.updated_at || o?.created_at || null;
+        if (!cur.last_seen || (ts && String(ts) > String(cur.last_seen))) cur.last_seen = ts;
+        activeByCode.set(c, cur);
+      }
+    }
+  }
+
+  return list.map((c) => {
+    const codeStr = String(c?.code || '').trim();
+    const full = `${c?.first_name || ''} ${c?.last_name || ''}`.trim();
+    const phoneFull = String(c?.phone || '');
+    const phoneShort = phoneFull.replace('+383', '');
+    const info = activeByCode.get(Number(c?.code)) || { active: 0, last_seen: null };
+    return {
+      code: codeStr,
+      name: full || 'Pa Emër',
+      phone: phoneShort,
+      active: info.active,
+      last_seen: info.last_seen,
+    };
+  });
+}
+
+
 function computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer) {
   // ✅ if m2 empty -> contributes 0 (so no ghost numbers)
   const t = (tepihaRows || []).reduce((sum, r) => sum + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0);
@@ -587,36 +661,41 @@ useEffect(() => {
       return;
     }
 
-    // lazy load only when user types
-    loadClientsIndexOnce();
+    let alive = true;
 
-    const qLow = q.toLowerCase();
-    const isNum = /^\d+$/.test(qLow);
-
-    const matches = (clientsIndex || [])
-      .filter((c) => {
-        if (!c) return false;
-        if (isNum) return String(c.code || '').includes(qLow);
-        return String(c.name || '').toLowerCase().includes(qLow) || String(c.phone || '').includes(qLow);
-      })
-      .sort((a, b) => {
-        if (isNum) {
-          const aCode = String(a.code || '');
-          const bCode = String(b.code || '');
-          const aRank = aCode === qLow ? 0 : aCode.startsWith(qLow) ? 1 : 2;
-          const bRank = bCode === qLow ? 0 : bCode.startsWith(qLow) ? 1 : 2;
-          if (aRank !== bRank) return aRank - bRank;
-          return Number(aCode) - Number(bCode);
+    (async () => {
+      try {
+        const hits = await searchClientsLive(q);
+        if (!alive) return;
+        setClientHits(Array.isArray(hits) ? hits.slice(0, 15) : []);
+      } catch (e) {
+        // fallback: old local filter if live search fails
+        try {
+          const qLow = q.toLowerCase();
+          const matches = (clientsIndex || [])
+            .filter((c) => {
+              return (
+                String(c.code).includes(qLow) ||
+                String(c.name).toLowerCase().includes(qLow) ||
+                String(c.phone).includes(qLow)
+              );
+            })
+            .slice(0, 15);
+          if (!alive) return;
+          setClientHits(matches);
+        } catch {
+          if (!alive) return;
+          setClientHits([]);
         }
-        return String(a.name || '').localeCompare(String(b.name || ''), 'sq');
-      })
-      .slice(0, 12);
+      }
+    })();
 
-    setClientHits(matches);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientQuery, clientsIndex]);
+    return () => {
+      alive = false;
+    };
+  }, [clientQuery]);
 
-  useEffect(() => {
+useEffect(() => {
     (async () => {
       try {
         await refreshDrafts();
