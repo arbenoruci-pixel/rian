@@ -1109,6 +1109,7 @@ if (offlineMode || !conn.ok) {
       // ✅ Also persist to Supabase DB (clients + orders) so backups never miss data
       try {
         const db = await saveOrderToDb(order);
+    window.location.href = '/pastrimi';
         if (db && db.order_id) {
           order.db_id = db.order_id;
           order.client_id = db.client_id || null;
