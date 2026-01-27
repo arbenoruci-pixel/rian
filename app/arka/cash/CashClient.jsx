@@ -17,10 +17,10 @@ import {
 } from "@/lib/arkaDb";
 
 import {
-  listPendingCashPayments,
-  applyPendingPaymentToCycle,
+  loadPendingPayments as listPendingCashPayments,
+  acceptPendingPayment,
   rejectPendingPayment,
-} from "@/lib/arkaCashSync";
+} from "@/lib/arka/arkaPayments";
 
 const euro = (n) =>
   `€${Number(n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}`;
@@ -368,7 +368,8 @@ export default function CashClient() {
     setPendingBusy(true);
     try {
       setDebugInfo(null);
-      await applyPendingPaymentToCycle({
+      await acceptPendingPayment({ pending: p, cycle_id: cycle.id, actor: user });
+      //
         pending: p,
         cycle_id: cycle.id,
         approved_by_pin: user?.pin || null,
