@@ -368,13 +368,14 @@ export default function CashClient() {
     setPendingBusy(true);
     try {
       setDebugInfo(null);
-      await applyPendingPaymentToCycle({
+      const _res = await applyPendingPaymentToCycle({
         pending: p,
         cycle_id: cycle.id,
         approved_by_pin: user?.pin || null,
         approved_by_name: user?.name || null,
         approved_by_role: user?.role || null,
       });
+      if(!_res || _res.ok!==true){ throw new Error(_res?.error||'APPLY_FAILED'); }
       const res = await listPendingCashPayments(200);
       setPendingPays(Array.isArray(res?.items) ? res.items : []);
       await refresh();
