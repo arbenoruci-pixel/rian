@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { fetchOrdersFromDb, fetchClientsFromDb, saveOrderToDb } from '@/lib/ordersDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
+import { getActor } from '@/lib/actorSession';
 
 const BUCKET = 'tepiha-photos';
 
@@ -1024,8 +1025,9 @@ useEffect(() => {
         source: 'ORDER_PAY',
         method: 'cash_pay',
         type: 'IN',
-        createdByPin: actor?.pin ? String(actor.pin) : null,
-        createdBy: actor?.name ? String(actor.name) : null,
+        // Fallback te session-i (actorSession) nëse prop `actor` nuk vjen
+        createdByPin: (actor?.pin ? String(actor.pin) : (getActor()?.pin ? String(getActor().pin) : null)),
+        createdBy: (actor?.name ? String(actor.name) : (getActor()?.name ? String(getActor().name) : null)),
       });
 
       const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
