@@ -380,7 +380,7 @@ export default function CashClient() {
       await refresh();
     } catch (e) {
       const msg = e?.message || String(e);
-      setErr(msg);
+      setErr(msg.includes('RLS_BLOCKED_UPDATE') ? 'NUK U PRANUA (RLS/POLICY). DUHET SQL POLICY PER arka_pending_payments UPDATE.' : msg);
       setDebugInfo({
         action: 'PRANO',
         pending_id: p?.id || null,
@@ -826,7 +826,7 @@ export default function CashClient() {
               {pendingGroups.map((g) => (
                 <div key={g.pin} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>PUNËTORI: {g.name || (g.pin ? `#${g.pin}` : 'PA_PIN')} · {g.items.length} PAGESA</div>
+                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>PIN: {g.pin} · {g.items.length} PAGESA</div>
                     <div style={{ fontWeight: 950, whiteSpace: "nowrap" }}>{euro(g.total)}</div>
                   </div>
                   <details style={{ marginTop: 10 }}>
