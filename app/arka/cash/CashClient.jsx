@@ -1,4 +1,3 @@
-// app/arka/cash/CashClient.jsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -284,6 +283,7 @@ export default function CashClient() {
         amount: amt,
         note: String(moveNote || ""),
         created_by: user?.name || "LOCAL",
+        created_by_pin: user?.pin || null,
       });
       setMoveAmount("");
       setMoveNote("");
@@ -303,7 +303,6 @@ export default function CashClient() {
       const counted = parseEuroInput(cashCounted);
       if (Number.isNaN(counted) || counted < 0) throw new Error("CASH COUNTED S’ËSHTË VALIDE.");
 
-      // If discrepancy, require a reason (stops silent anomalies)
       const disc = Number(counted) - Number(expectedCash || 0);
       if (Math.abs(disc) >= 0.01 && !String(closeReason || "").trim()) {
         throw new Error("SHKRUJ ARSYEN PËR DISKREPANCË.");
@@ -349,7 +348,6 @@ export default function CashClient() {
 
   const arkaLocked = pendingHanded && !isDispatch;
 
-  // pending cash groups by PIN
   const pendingGroups = useMemo(() => {
     const groups = new Map();
     for (const p of pendingPays || []) {
@@ -366,6 +364,7 @@ export default function CashClient() {
     if (!cycle?.id) return;
     setPendingBusy(true);
     try {
+      // FIX: Dërgojmë created_by_pin origjinal të pagesës që të ruhet në arkë
       await applyPendingPaymentToCycle({
         pending: p,
         cycle_id: cycle.id,
@@ -409,19 +408,19 @@ export default function CashClient() {
       <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
         <button
           onClick={() => setTab("OPEN")}
-          style={{ flex: 1, padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2, opacity: tab === "OPEN" ? 1 : 0.6 }}
+          style={{ flex: 1, padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2, background: tab === "OPEN" ? "rgba(255,255,255,0.15)" : "transparent", opacity: tab === "OPEN" ? 1 : 0.6 }}
         >
           OPEN
         </button>
         <button
           onClick={() => setTab("DISPATCH")}
-          style={{ flex: 1, padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2, opacity: tab === "DISPATCH" ? 1 : 0.6 }}
+          style={{ flex: 1, padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2, background: tab === "DISPATCH" ? "rgba(255,255,255,0.15)" : "transparent", opacity: tab === "DISPATCH" ? 1 : 0.6 }}
         >
           DISPATCH
         </button>
         <button
           onClick={() => setTab("HISTORI")}
-          style={{ flex: 1, padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2, opacity: tab === "HISTORI" ? 1 : 0.6 }}
+          style={{ flex: 1, padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2, background: tab === "HISTORI" ? "rgba(255,255,255,0.15)" : "transparent", opacity: tab === "HISTORI" ? 1 : 0.6 }}
         >
           HISTORI
         </button>
@@ -470,7 +469,6 @@ export default function CashClient() {
               <button
                 disabled={busy || pendingHanded}
                 onClick={() => {
-                  // prefill with carryover if available
                   if (Number(carry?.carry_cash || 0) > 0) {
                     setOpeningCash(String(Number(carry.carry_cash || 0)));
                     setOpeningSource(String(carry.carry_source || "COMPANY").toUpperCase());
@@ -536,7 +534,7 @@ export default function CashClient() {
                 <button
                   type="button"
                   onClick={() => setPendingModal(true)}
-                  style={{ width: "100%", padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2 }}
+                  style={{ width: "100%", padding: 12, borderRadius: 14, fontWeight: 950, letterSpacing: 2, background: "rgba(255,165,0,0.2)" }}
                 >
                   CASH KUR ARKA KA QENË E MBYLLUR ({pendingPays.length})
                 </button>
@@ -609,6 +607,7 @@ export default function CashClient() {
                         <div style={{ fontWeight: 950, letterSpacing: 2 }}>
                           {String(m.type || "").toUpperCase()}
                           {m.note ? <span style={{ opacity: 0.8, letterSpacing: 1 }}> · {m.note}</span> : null}
+                          {m.created_by_pin ? <span style={{ opacity: 0.5, fontSize: 10 }}> (PIN: {m.created_by_pin})</span> : null}
                         </div>
                         <div style={{ fontWeight: 950 }}>{euro(m.amount)}</div>
                       </div>
@@ -770,7 +769,7 @@ export default function CashClient() {
         </div>
       ) : null}
 
-      {/* Pending cash payments modal (NON-BLOCKING) */}
+      {/* Pending cash payments modal */}
       <Modal
         open={pendingModal}
         title={`CASH KUR ARKA KA QENË E MBYLLUR (${pendingPays?.length || 0})`}
@@ -812,14 +811,14 @@ export default function CashClient() {
                             <button
                               disabled={pendingBusy}
                               onClick={() => applyPending(p)}
-                              style={{ flex: 1, padding: 10, borderRadius: 12, fontWeight: 950, letterSpacing: 2, opacity: pendingBusy ? 0.6 : 1 }}
+                              style={{ flex: 1, padding: 10, borderRadius: 12, fontWeight: 950, letterSpacing: 2, background: "rgba(0,255,0,0.1)", opacity: pendingBusy ? 0.6 : 1 }}
                             >
                               PRANO
                             </button>
                             <button
                               disabled={pendingBusy}
                               onClick={() => rejectPending(p)}
-                              style={{ flex: 1, padding: 10, borderRadius: 12, fontWeight: 950, letterSpacing: 2, opacity: pendingBusy ? 0.6 : 1 }}
+                              style={{ flex: 1, padding: 10, borderRadius: 12, fontWeight: 950, letterSpacing: 2, background: "rgba(255,0,0,0.1)", opacity: pendingBusy ? 0.6 : 1 }}
                             >
                               BORXH
                             </button>
