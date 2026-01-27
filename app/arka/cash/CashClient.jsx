@@ -17,10 +17,10 @@ import {
 } from "@/lib/arkaDb";
 
 import {
-  loadPendingPayments as listPendingCashPayments,
-  acceptPendingPayment,
+  listPendingCashPayments,
+  applyPendingPaymentToCycle,
   rejectPendingPayment,
-} from "@/lib/arka/arkaPayments";
+} from "@/lib/arkaCashSync";
 
 const euro = (n) =>
   `€${Number(n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}`;
@@ -368,8 +368,7 @@ export default function CashClient() {
     setPendingBusy(true);
     try {
       setDebugInfo(null);
-      await acceptPendingPayment({ pending: p, cycle_id: cycle.id, actor: user });
-      //
+      await applyPendingPaymentToCycle({
         pending: p,
         cycle_id: cycle.id,
         approved_by_pin: user?.pin || null,
@@ -827,7 +826,7 @@ export default function CashClient() {
               {pendingGroups.map((g) => (
                 <div key={g.pin} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>PIN: {g.pin} · {g.items.length} PAGESA</div>
+                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>PUNËTORI: {g.name || (g.pin ? `#${g.pin}` : 'PA_PIN')} · {g.items.length} PAGESA</div>
                     <div style={{ fontWeight: 950, whiteSpace: "nowrap" }}>{euro(g.total)}</div>
                   </div>
                   <details style={{ marginTop: 10 }}>
