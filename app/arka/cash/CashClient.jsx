@@ -16,20 +16,11 @@ import {
   dbListCyclesByDay,
 } from "@/lib/arkaDb";
 
-
-function getActor() {
-  try {
-    const raw = localStorage.getItem('CURRENT_USER_DATA');
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-import { listPendingCashPayments,
+import {
+  listPendingCashPayments,
   applyPendingPaymentToCycle,
-  rejectPendingPayment, } from '@/lib/arkaCashSync';
+  rejectPendingPayment,
+} from "@/lib/arkaCashSync";
 
 const euro = (n) =>
   `€${Number(n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}`;
@@ -100,6 +91,7 @@ function Modal({ open, title, onClose, children }) {
 export default function CashClient() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [debugInfo, setDebugInfo] = useState(null);
 
   const [user, setUser] = useState(null);
   const isDispatch = useMemo(
@@ -375,6 +367,7 @@ export default function CashClient() {
     if (!cycle?.id) return;
     setPendingBusy(true);
     try {
+      setDebugInfo(null);
       await applyPendingPaymentToCycle({
         pending: p,
         cycle_id: cycle.id,
@@ -386,7 +379,18 @@ export default function CashClient() {
       setPendingPays(Array.isArray(res?.items) ? res.items : []);
       await refresh();
     } catch (e) {
-      setErr(e?.message || String(e));
+      const msg = e?.message || String(e);
+      setErr(msg);
+      setDebugInfo({
+        action: 'PRANO',
+        pending_id: p?.id || null,
+        external_id: p?.external_id || null,
+        order_id: p?.order_id || null,
+        cycle_id: cycle?.id || null,
+        user: { pin: user?.pin || null, name: user?.name || null, role: user?.role || null },
+        error: msg,
+        raw: e && typeof e === 'object' ? e : null,
+      });
     } finally {
       setPendingBusy(false);
     }
@@ -395,6 +399,7 @@ export default function CashClient() {
   async function rejectPending(p) {
     setPendingBusy(true);
     try {
+      setDebugInfo(null);
       await rejectPendingPayment({
         pending: p,
         rejected_by_pin: user?.pin || null,
@@ -406,7 +411,18 @@ export default function CashClient() {
       setPendingPays(Array.isArray(res?.items) ? res.items : []);
       await refresh();
     } catch (e) {
-      setErr(e?.message || String(e));
+      const msg = e?.message || String(e);
+      setErr(msg);
+      setDebugInfo({
+        action: 'BORXH',
+        pending_id: p?.id || null,
+        external_id: p?.external_id || null,
+        order_id: p?.order_id || null,
+        cycle_id: cycle?.id || null,
+        user: { pin: user?.pin || null, name: user?.name || null, role: user?.role || null },
+        error: msg,
+        raw: e && typeof e === 'object' ? e : null,
+      });
     } finally {
       setPendingBusy(false);
     }
@@ -439,6 +455,14 @@ export default function CashClient() {
       {err ? (
         <div style={{ border: "2px solid #7a1a1a", color: "#fff", padding: 12, borderRadius: 12, marginBottom: 12 }}>
           {err}
+          {debugInfo ? (
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 900, letterSpacing: 2 }}>DETAILS</summary>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 8, fontSize: 12, opacity: 0.95 }}>
+                {JSON.stringify(debugInfo, null, 2)}
+              </pre>
+            </details>
+          ) : null}
         </div>
       ) : null}
 
