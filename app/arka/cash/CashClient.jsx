@@ -88,7 +88,14 @@ function Modal({ open, title, onClose, children }) {
   );
 }
 
-export default function CashClient() {
+export default 
+function normalizePendingList(res) {
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res?.items)) return res.items;
+  return [];
+}
+
+function CashClient() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [debugInfo, setDebugInfo] = useState(null);
@@ -187,7 +194,7 @@ export default function CashClient() {
       if (hasPin) {
         try {
           const res = await listPendingCashPayments(200);
-          setPendingPays(Array.isArray(res?.items) ? res.items : []);
+          setPendingPays(normalizePendingList(res));
         } catch {
           setPendingPays([]);
         }
@@ -368,15 +375,16 @@ export default function CashClient() {
     setPendingBusy(true);
     try {
       setDebugInfo(null);
-      await applyPendingPaymentToCycle({
+      const r = await applyPendingPaymentToCycle({
         pending: p,
         cycle_id: cycle.id,
         approved_by_pin: user?.pin || null,
         approved_by_name: user?.name || null,
         approved_by_role: user?.role || null,
       });
+          if (!r?.ok) throw r?.error || new Error('NUK U PRANUA');
       const res = await listPendingCashPayments(200);
-      setPendingPays(Array.isArray(res?.items) ? res.items : []);
+      setPendingPays(normalizePendingList(res));
       await refresh();
     } catch (e) {
       const msg = e?.message || String(e);
@@ -400,15 +408,16 @@ export default function CashClient() {
     setPendingBusy(true);
     try {
       setDebugInfo(null);
-      await rejectPendingPayment({
+      const rr = await rejectPendingPayment({
         pending: p,
         rejected_by_pin: user?.pin || null,
         rejected_by_name: user?.name || null,
         rejected_by_role: user?.role || null,
         reject_note: pendingRejectNote || null,
       });
+          if (!rr?.ok) throw rr?.error || new Error('NUK U REFUZUA');
       const res = await listPendingCashPayments(200);
-      setPendingPays(Array.isArray(res?.items) ? res.items : []);
+      setPendingPays(normalizePendingList(res));
       await refresh();
     } catch (e) {
       const msg = e?.message || String(e);
@@ -826,7 +835,7 @@ export default function CashClient() {
               {pendingGroups.map((g) => (
                 <div key={g.pin} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>PUNËTORI: {g.name || (g.pin ? `#${g.pin}` : 'PA_PIN')} · {g.items.length} PAGESA</div>
+                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>PIN: {g.pin} · {g.items.length} PAGESA</div>
                     <div style={{ fontWeight: 950, whiteSpace: "nowrap" }}>{euro(g.total)}</div>
                   </div>
                   <details style={{ marginTop: 10 }}>
