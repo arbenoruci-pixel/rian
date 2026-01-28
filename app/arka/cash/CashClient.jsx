@@ -344,7 +344,7 @@ export default function CashClient() {
       await dbReceiveCycle({ cycle_id, received_by: user?.name || "DISPATCH", received_by_pin: user?.pin || null });
 
       // Mirror RECEIVED cash into the company budget ledger.
-      const c = (cycles || []).find((x) => x.id === cycle_id);
+      const c = (histCycles || []).find((x) => x.id === cycle_id);
       const amt = Number(c?.end_cash ?? c?.expected_cash ?? c?.cash_counted ?? 0);
       if (amt > 0) {
         await budgetAddMove({
