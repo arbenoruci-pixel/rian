@@ -230,6 +230,13 @@ export default function CashClient() {
     }
   }, []);
 
+  // FIX: Sapo user/pin te ngarkohet nga localStorage, rifresko listen e PENDING
+  useEffect(() => {
+    if (!user) return;
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasPin]);
+
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
