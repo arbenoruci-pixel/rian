@@ -350,17 +350,20 @@ export default function CashClient() {
 
   const arkaLocked = pendingHanded && !isDispatch;
 
-  // pending cash groups by NAME (do NOT expose PINs in UI)
+  // pending cash groups by PIN
   const pendingGroups = useMemo(() => {
     const groups = new Map();
     for (const p of pendingPays || []) {
-      const label = String(p.created_by_name || '').trim() || 'PUNËTOR';
-      if (!groups.has(label)) groups.set(label, []);
-      groups.get(label).push(p);
+      const pin = String(p.created_by_pin || "PA_PIN").trim() || "PA_PIN";
+      if (!groups.has(pin)) groups.set(pin, []);
+      groups.get(pin).push(p);
     }
     return Array.from(groups.entries())
-      .map(([label, items]) => ({ label, items, total: items.reduce((s, x) => s + Number(x.amount || 0), 0) }))
-      .sort((a, b) => a.label.localeCompare(b.label));
+      .map(([pin, items]) => {
+        const name = items.find(x => String(x?.created_by_name || '').trim())?.created_by_name || 'PUNËTOR';
+        return { pin, name, items, total: items.reduce((s, x) => s + Number(x.amount || 0), 0) };
+      })
+      .sort((a, b) => a.pin.localeCompare(b.pin));
   }, [pendingPays]);
 
   async function applyPending(p) {
@@ -493,9 +496,7 @@ export default function CashClient() {
                   <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>CARRYOVER</div>
                   <div style={{ marginTop: 6, fontWeight: 950 }}>
                     {euro(carry.carry_cash)} · {String(carry.carry_source || "COMPANY").toUpperCase()}
-                    {String(carry.carry_source || "").toUpperCase() === "PERSONAL" && carry.carry_person_pin ? (
-                      <> · PIN: {carry.carry_person_pin}</>
-                    ) : null}
+                    {null}
                   </div>
                 </div>
               ) : null}
@@ -559,9 +560,7 @@ export default function CashClient() {
                 <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>STATUS: {cycle.handoff_status}</div>
                 <div style={{ marginTop: 6, fontWeight: 950, letterSpacing: 1.5 }}>
                   FILLIMI: {euro(cycle.opening_cash)} · {String(cycle.opening_source || "").toUpperCase()}
-                  {String(cycle.opening_source || "").toUpperCase() === "PERSONAL" && cycle.opening_person_pin ? (
-                    <> · PIN: {cycle.opening_person_pin}</>
-                  ) : null}
+                  {null}
                 </div>
               </div>
 
@@ -824,9 +823,9 @@ export default function CashClient() {
             />
             <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
               {pendingGroups.map((g) => (
-                <div key={g.label} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
+                <div key={g.pin} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>{g.label} · {g.items.length} PAGESA</div>
+                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>{g.name} · {g.items.length} PAGESA</div>
                     <div style={{ fontWeight: 950, whiteSpace: "nowrap" }}>{euro(g.total)}</div>
                   </div>
                   <details style={{ marginTop: 10 }}>
