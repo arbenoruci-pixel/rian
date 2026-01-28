@@ -22,6 +22,8 @@ import {
   rejectPendingPayment,
 } from "@/lib/arkaCashSync";
 
+import { budgetAddMove } from "@/lib/companyBudgetDb";
+
 const euro = (n) =>
   `€${Number(n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}`;
 
@@ -340,6 +342,25 @@ export default function CashClient() {
     setBusy(true);
     try {
       await dbReceiveCycle({ cycle_id, received_by: user?.name || "DISPATCH", received_by_pin: user?.pin || null });
+
+      // Mirror RECEIVED cash into the company budget ledger.
+      const c = (cycles || []).find((x) => x.id === cycle_id);
+      const amt = Number(c?.end_cash ?? c?.expected_cash ?? c?.cash_counted ?? 0);
+      if (amt > 0) {
+        await budgetAddMove({
+          direction: 'IN',
+          amount: amt,
+          reason: 'ARKA_RECEIVED',
+          note: `CYCLE #${c?.cycle_no ?? ''} (RECEIVED)`,
+          source: 'CASH',
+          created_by: user?.name || 'DISPATCH',
+          created_by_pin: user?.pin || null,
+          ref_day_id: cycle_id,
+          ref_type: 'ARKA_CYCLE',
+          external_id: `arka_receive_${cycle_id}`,
+        });
+      }
+
       await refresh("DISPATCH");
     } catch (e) {
       setErr(e?.message || String(e));
@@ -359,15 +380,15 @@ export default function CashClient() {
       groups.get(pin).push(p);
     }
     return Array.from(groups.entries())
-      .map(([pin, items]) => {
-        const name = items.find(x => String(x?.created_by_name || '').trim())?.created_by_name || 'PUNËTOR';
-        return { pin, name, items, total: items.reduce((s, x) => s + Number(x.amount || 0), 0) };
-      })
+      .map(([pin, items]) => ({ pin, items, total: items.reduce((s, x) => s + Number(x.amount || 0), 0) }))
       .sort((a, b) => a.pin.localeCompare(b.pin));
   }, [pendingPays]);
 
   async function applyPending(p) {
-    if (!cycle?.id) return;
+    if (!cycle?.id) {
+      setErr('HAPE ARKËN (duhet me pas CYCLE OPEN) pastaj PRANO PENDING.');
+      return;
+    }
     setPendingBusy(true);
     try {
       setDebugInfo(null);
@@ -496,7 +517,9 @@ export default function CashClient() {
                   <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>CARRYOVER</div>
                   <div style={{ marginTop: 6, fontWeight: 950 }}>
                     {euro(carry.carry_cash)} · {String(carry.carry_source || "COMPANY").toUpperCase()}
-                    {null}
+                    {String(carry.carry_source || "").toUpperCase() === "PERSONAL" && carry.carry_person_pin ? (
+                      <> · PIN: {carry.carry_person_pin}</>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -560,7 +583,9 @@ export default function CashClient() {
                 <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>STATUS: {cycle.handoff_status}</div>
                 <div style={{ marginTop: 6, fontWeight: 950, letterSpacing: 1.5 }}>
                   FILLIMI: {euro(cycle.opening_cash)} · {String(cycle.opening_source || "").toUpperCase()}
-                  {null}
+                  {String(cycle.opening_source || "").toUpperCase() === "PERSONAL" && cycle.opening_person_pin ? (
+                    <> · PIN: {cycle.opening_person_pin}</>
+                  ) : null}
                 </div>
               </div>
 
@@ -825,7 +850,7 @@ export default function CashClient() {
               {pendingGroups.map((g) => (
                 <div key={g.pin} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>{g.name} · {g.items.length} PAGESA</div>
+                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>PIN: {g.pin} · {g.items.length} PAGESA</div>
                     <div style={{ fontWeight: 950, whiteSpace: "nowrap" }}>{euro(g.total)}</div>
                   </div>
                   <details style={{ marginTop: 10 }}>

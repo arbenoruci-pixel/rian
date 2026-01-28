@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { budgetAddOutMove, budgetDeleteOutMove, budgetListOutMoves } from '@/lib/companyBudgetDb';
+import { budgetAddMove, budgetDeleteMove, budgetListMoves } from '@/lib/companyBudgetDb';
 import { isAdmin } from '@/lib/roles';
 
 const euro = (n) =>
@@ -28,17 +28,17 @@ export default function CompanyBudgetPage() {
 
   const totals = useMemo(() => {
     const ins = (rows || [])
-      .filter((r) => String(r.type || '').toUpperCase() === 'IN')
+      .filter((r) => String(r.direction || '').toUpperCase() === 'IN')
       .reduce((a, r) => a + Number(r.amount || 0), 0);
     const outs = (rows || [])
-      .filter((r) => String(r.type || '').toUpperCase() === 'OUT')
+      .filter((r) => String(r.direction || '').toUpperCase() === 'OUT')
       .reduce((a, r) => a + Number(r.amount || 0), 0);
     return { ins, outs, balance: ins - outs };
   }, [rows]);
 
   async function reload() {
     try {
-      const items = await budgetListOutMoves(300);
+      const items = await budgetListMoves(300);
       setRows(items || []);
     } catch (e) {
       setErr(e?.message || String(e));
@@ -71,11 +71,13 @@ export default function CompanyBudgetPage() {
       const type = String(form.type || 'OUT').toUpperCase();
       if (type !== 'IN' && type !== 'OUT') throw new Error('TIPI DUHET IN/OUT');
 
-      await budgetAddOutMove({
-        type,
+      await budgetAddMove({
+        direction: type,
         amount: amt,
+        reason: 'MANUAL',
         note: String(form.note || ''),
         created_by: user?.name || 'LOCAL',
+        created_by_pin: user?.pin || null,
       });
 
       setForm({ type: 'OUT', amount: '', note: '' });
@@ -92,7 +94,8 @@ export default function CompanyBudgetPage() {
     setBusy(true);
     setErr('');
     try {
-      await budgetDeleteOutMove(id);
+      await budgetDeleteMove(id);
+      // keep backwards compatibility: old function name removed
       await reload();
     } catch (e) {
       setErr(e?.message || String(e));
