@@ -230,13 +230,6 @@ export default function CashClient() {
     }
   }, []);
 
-  // FIX: Sapo user/pin te ngarkohet nga localStorage, rifresko listen e PENDING
-  useEffect(() => {
-    if (!user) return;
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasPin]);
-
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -396,6 +389,12 @@ export default function CashClient() {
       setErr('HAPE ARKËN (duhet me pas CYCLE OPEN) pastaj PRANO PENDING.');
       return;
     }
+    if (!user?.pin || !user?.name) {
+      const msg = 'NUK KE USER SESSION (PIN/EMËR). HYN PRAP ME PIN.';
+      setErr(msg);
+      try { alert(msg); } catch {}
+      return;
+    }
     setPendingBusy(true);
     try {
       setDebugInfo(null);
@@ -414,6 +413,10 @@ export default function CashClient() {
       setErr(msg.includes('RLS_BLOCKED_UPDATE') ? 'NUK U PRANUA (RLS/POLICY). DUHET SQL POLICY PER arka_pending_payments UPDATE.' : msg);
       setDebugInfo({
         action: 'PRANO',
+        pending_id: p?.id,
+        pending_external_id: p?.external_id,
+        cycle_id: cycle?.id,
+        actor: { name: user?.name, role: user?.role, pin: user?.pin },
         pending_id: p?.id || null,
         external_id: p?.external_id || null,
         order_id: p?.order_id || null,
@@ -422,6 +425,8 @@ export default function CashClient() {
         error: msg,
         raw: e && typeof e === 'object' ? e : null,
       });
+      try { alert('PRANO FAIL: ' + (e?.message || String(e))); } catch {}
+      console.error('PRANO_FAIL', e);
     } finally {
       setPendingBusy(false);
     }
