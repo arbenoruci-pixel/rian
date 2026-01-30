@@ -18,6 +18,10 @@ export default function PaySheetPortal({
   total = 0,
   paid = 0,
   arkaRecordedPaid = 0,
+  // Optional overrides for the remaining exact amount and initial "cash given".
+  // If omitted, due is computed as (total - paid).
+  dueExact,
+  initialCashGiven,
   onClose,
   onConfirm, // async ({ given, apply, change, due }) => {}
   onPayOnly = null,
@@ -31,11 +35,21 @@ export default function PaySheetPortal({
 
   useEffect(() => setMounted(true), []);
 
+  // Reset input each time the sheet opens
+  useEffect(() => {
+    if (!open) return;
+    const init = initialCashGiven != null ? toNum(initialCashGiven) : due;
+    setGivenStr(String(Number(init.toFixed(2))));
+    setErr('');
+  }, [open, due, initialCashGiven]);
+
   const due = useMemo(() => {
     const t = toNum(total);
     const p = toNum(paid);
-    return Math.max(0, Number((t - p).toFixed(2)));
-  }, [total, paid]);
+    const computed = Math.max(0, Number((t - p).toFixed(2)));
+    const d = dueExact != null ? toNum(dueExact) : computed;
+    return Math.max(0, Number(d.toFixed(2)));
+  }, [total, paid, dueExact]);
 
   const given = useMemo(() => toNum(givenStr), [givenStr]);
 
@@ -71,8 +85,14 @@ export default function PaySheetPortal({
     setErr('');
     try {
       setBusy(true);
-      // IMPORTANT: we pass full context so pages can submit correctly
-      await onConfirm?.({ given, apply, change, due });
+      // Support both callback styles:
+      // 1) onConfirm(amountExact, cashGiven)
+      // 2) onConfirm({ amountExact, cashGiven, change, due, apply, given })
+      if (typeof onConfirm === 'function' && onConfirm.length >= 2) {
+        await onConfirm(apply, given);
+      } else {
+        await onConfirm?.({ amountExact: apply, cashGiven: given, change, due, apply, given });
+      }
     } catch (e) {
       setErr(String(e?.message || e || 'ERROR'));
     } finally {
@@ -123,6 +143,10 @@ export default function PaySheetPortal({
           <div className="row">
             <span>BORXH (EXACT):</span>
             <strong>{due.toFixed(2)} €</strong>
+          </div>
+          <div className="row dim">
+            <span>KLIENTI DHA:</span>
+            <strong className="dim">{given.toFixed(2)} €</strong>
           </div>
           <div className="row dim">
             <span>NË SISTEM REGJISTROHET:</span>
