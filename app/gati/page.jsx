@@ -3,7 +3,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import PaySheetPortal from '@/components/payments/PaySheetPortal';
 import { supabase } from '@/lib/supabaseClient';
 import { recordOrderCashPayment } from '@/components/payments/payService';
 import { saveOrderToDb, updateOrderInDb } from '@/lib/ordersDb';
@@ -302,11 +301,15 @@ export default function GatiPage() {
     setPayMethod('CASH');
   }
 
-  async function applyPayOnly({ dueOverride, givenOverride } = {}) {
+  async function applyPayOnly() {
     if (!payOrder) return;
     const actor = readActor();
-    const amountExact = Math.max(0, round2(Number(dueOverride ?? payDue) || 0));
-    const cashGiven = Math.max(0, round2(Number(givenOverride ?? payAdd) || 0));
+    // EXACT amount that must be registered in the system (the remaining debt)
+    const amountExact = Math.max(
+      0,
+      round2(Number(payOrder.total || 0) - Number(payOrder.paid || 0))
+    );
+    const cashGiven = Math.max(0, round2(Number(payAdd) || 0));
 
     if (amountExact <= 0) {
       setShowPaySheet(false);
@@ -832,25 +835,225 @@ export default function GatiPage() {
       </footer>
 
       {/* ============ FULL SCREEN PAGESA ============ */}
-      {/* FULL SCREEN PAGESA (UNIFIED) */}
-      <PaySheetPortal
-        open={showPaySheet && !!payOrder}
-        title="PAGESA"
-        subtitle={payOrder ? `KODI: ${payOrder.code} • ${payOrder.name}` : ''}
-        total={Number(payOrder?.total || 0)}
-        paid={Number(payOrder?.paid || 0)}
-        arkaRecordedPaid={Number(payOrder?.arkaRecordedPaid || 0)}
-        onClose={closePay}
-        onConfirm={async ({ given, due }) => {
-          // Client gave = given; System registers ONLY exact due
-          const g = Number(given || 0);
-          const d = Number(due || 0);
-          if (g < d) { alert('KLIENTI DHA MË PAK SE SHUMA. JU LUTEM FUTNI SHUMËN E PLOTË.'); return; }
-          setPayAdd(g);
-          setPayDue(d);
-          await applyPayOnly({ dueOverride: d, givenOverride: g });
-        }}
-      />
+      {showPaySheet && payOrder && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">PAGESA</div>
+              <div className="payfs-sub">
+                KODI: {payOrder.code} • {payOrder.name}
+              </div>
+              {payOrder.paidUpfront && (
+                <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 900, marginTop: 4 }}>
+                  ✅ E PAGUAR NË FILLIM
+                </div>
+              )}
+            </div>
+            <button className="btn secondary" onClick={closePay}>
+              ✕
+            </button>
+          </div>
+
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="tot-line">
+                TOTAL: <strong>{Number(payOrder.total || 0).toFixed(2)} €</strong>
+              </div>
+              <div className="tot-line">
+                PAGUAR DERI TANI:{' '}
+                <strong style={{ color: '#16a34a' }}>{Number(payOrder.paid || 0).toFixed(2)} €</strong>
+              </div>
+              <div className="tot-line" style={{ fontSize: 12, color: '#666' }}>
+                REGJISTRU N&apos;ARKË DERI TANI:{' '}
+                <strong>{Number(payOrder.arkaRecordedPaid || 0).toFixed(2)} €</strong>
+              </div>
+
+              <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>
+                SOT PAGUAN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong>
+              </div>
+
+              {(() => {
+                  const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
+                  const dueSafe = dueNow > 0 ? dueNow : 0;
+                  const given = Number((Number(payAdd || 0)).toFixed(2));
+                  const applied = Number((Math.min(given, dueSafe)).toFixed(2));
+                  const paidAfter = Number((Number(clientPaid || 0) + applied).toFixed(2));
+                  const debtNow = Number((totalEuro - paidAfter).toFixed(2));
+                  const debtSafe = debtNow > 0 ? debtNow : 0;
+                  const changeNow = given > dueSafe ? Number((given - dueSafe).toFixed(2)) : 0;
+
+                  return (
+                    <>
+                      <div className="tot-line">
+                        NË SISTEM REGJISTROHET: <strong>{applied.toFixed(2)} €</strong>
+                      </div>
+                      <div className="tot-line">
+                        PAGUAR PAS KËSAJ: <strong style={{ color: '#16a34a' }}>{paidAfter.toFixed(2)} €</strong>
+                      </div>
+                      {debtSafe > 0 && (
+                        <div className="tot-line">
+                          BORXH: <strong style={{ color: '#dc2626' }}>{debtSafe.toFixed(2)} €</strong>
+                        </div>
+                      )}
+                      {changeNow > 0 && (
+                        <div className="tot-line">
+                          KTHIM: <strong style={{ color: '#2563eb' }}>{changeNow.toFixed(2)} €</strong>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+            </div>
+
+            {!payOrder.paidUpfront && (
+              <div className="card">
+                <div className="field-group">
+                  <label className="label">KLIENTI DHA (€)</label>
+
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    pattern="[0-9]*"
+                    className="input"
+                    value={Number(payAdd || 0) === 0 ? '' : payAdd}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setPayAdd(v === '' ? 0 : Number(v));
+                    }}
+                  />
+
+                  <div className="chip-row" style={{ marginTop: 10 }}>
+                    {PAY_CHIPS.map((v) => (
+                      <button
+                        key={v}
+                        className="chip"
+                        type="button"
+                        onClick={() => setPayAdd(v)}
+                      >
+                        {v}€
+                      </button>
+                    ))}
+                    <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>
+                      FSHI
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>* CASH VETËM — pagesa regjistrohet në ARKË (ose WAITING kur ARKA është e mbyllur).</div>
+              </div>
+            )}
+
+            {payOrder.paidUpfront && (
+              <div className="card">
+                <div style={{ fontSize: 12, color: '#666' }}>
+                  * Kjo porosi është e paguar në fillim. Shtyp “KONFIRMO DORËZIMIN”.
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="payfs-footer">
+            <button className="btn secondary" onClick={closePay}>
+              ANULO
+            </button>
+            <button className="btn secondary" onClick={applyPayOnly}>
+              RUJ (PA DORËZU)
+            </button>
+            <button className="btn primary" onClick={confirmDelivery}>
+              KONFIRMO DORËZIMIN
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============ HIDDEN RETURN FULLSCREEN (HOLD 3s) ============ */}
+      {showReturnSheet && retOrder && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">KTHIM (HIDDEN)</div>
+              <div className="payfs-sub">
+                KODI: {normalizeCode(retOrder.client?.code)} • {retOrder.client?.name || ''}
+              </div>
+            </div>
+            <button className="btn secondary" onClick={closeReturn} disabled={photoUploading}>
+              ✕
+            </button>
+          </div>
+
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="field-group">
+                <label className="label">PSE PO KTHEHET?</label>
+                <select className="input" value={retReason} onChange={(e) => setRetReason(e.target.value)}>
+                  <option value="">— ZGJIDH —</option>
+                  <option value="SHTESË LARJE / NJOLLA">SHTESË LARJE / NJOLLA</option>
+                  <option value="ANKESË KLIENTI">ANKESË KLIENTI</option>
+                  <option value="GABIM NË POROSI">GABIM NË POROSI</option>
+                  <option value="TJETER">TJETER</option>
+                </select>
+              </div>
+
+              <div className="field-group">
+                <label className="label">SHËNIM / DOKUMENTIM</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={retNote}
+                  onChange={(e) => setRetNote(e.target.value)}
+                  placeholder="P.sh. klienti kërkoi larje shtesë, u lanë edhe njëherë, etj..."
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="label">FOTO (OPSIONALE)</label>
+                <label className="camera-btn" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                  📷 SHTO FOTO
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleReturnPhoto(e.target.files?.[0])}
+                  />
+                </label>
+
+                {retPhotoUrl && (
+                  <div style={{ marginTop: 10 }}>
+                    <img src={retPhotoUrl} className="photo-thumb" alt="" />
+                    <button
+                      className="btn secondary"
+                      style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 6 }}
+                      onClick={() => setRetPhotoUrl('')}
+                      disabled={photoUploading}
+                    >
+                      🗑️ FSHI FOTO
+                    </button>
+                  </div>
+                )}
+
+                {photoUploading && <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>Duke ngarkuar foton…</div>}
+              </div>
+            </div>
+
+            <div className="card">
+              <div style={{ fontSize: 12, color: '#666' }}>
+                * Kjo screen nuk shfaqet në UI normal. Hapet vetëm me HOLD 3 SEK te “PAGUAJ”.
+              </div>
+            </div>
+          </div>
+
+          <div className="payfs-footer" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <button className="btn secondary" onClick={closeReturn} disabled={photoUploading}>
+              ANULO
+            </button>
+            <button className="btn primary" onClick={confirmReturn} disabled={photoUploading}>
+              KONFIRMO KTHIMIN
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Styles: dock + payfs */}
       <style jsx>{`
         .dock {
           position: sticky;
