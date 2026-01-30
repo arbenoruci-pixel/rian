@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { fetchOrdersFromDb, fetchClientsFromDb, saveOrderToDb } from '@/lib/ordersDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import { getActor } from '@/lib/actorSession';
+import PaySheetPortal from '@/components/payments/PaySheetPortal';
 
 const BUCKET = 'tepiha-photos';
 
