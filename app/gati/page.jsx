@@ -312,7 +312,7 @@ export default function GatiPage() {
       return;
     }
     if (cashGiven < amountExact) {
-      alert('KLIENTI DHA MË PAK SE SHUMA.\nJU LUTEM FUTNI SHUMËN E PLOTË.');
+      alert('KLIENTI DHA MË PAK SE SHUMA. JU LUTEM FUTNI SHUMËN E PLOTË.');
       return;
     }
 
