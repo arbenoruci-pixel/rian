@@ -304,11 +304,7 @@ export default function GatiPage() {
   async function applyPayOnly() {
     if (!payOrder) return;
     const actor = readActor();
-    // EXACT amount that must be registered in the system (the remaining debt)
-    const amountExact = Math.max(
-      0,
-      round2(Number(payOrder.total || 0) - Number(payOrder.paid || 0))
-    );
+    const amountExact = Math.max(0, round2(Number(payDue) || 0));
     const cashGiven = Math.max(0, round2(Number(payAdd) || 0));
 
     if (amountExact <= 0) {
@@ -873,6 +869,7 @@ export default function GatiPage() {
               </div>
 
               {(() => {
+                  const totalEuro = Number(payOrder.total || 0);
                   const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
                   const dueSafe = dueNow > 0 ? dueNow : 0;
                   const given = Number((Number(payAdd || 0)).toFixed(2));
