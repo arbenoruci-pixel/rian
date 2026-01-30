@@ -34,9 +34,12 @@ export default function OwedCashPopup() {
     if (!p) return;
     try {
       const res = await listOwedCashPaymentsByPin(p, 200);
-      const next = res?.items || [];
+      // Defensive: ignore malformed/empty/zero rows so we don't show a confusing popup
+      const raw = res?.items || [];
+      const next = raw.filter((x) => Number(x?.amount || 0) > 0);
       setItems(next);
       if (next.length > 0) setOpen(true);
+      else setOpen(false);
     } catch {
       // ignore (non-blocking)
     }
@@ -57,7 +60,7 @@ export default function OwedCashPopup() {
   }, [pin]);
 
   if (!pin) return null;
-  if (!open || !items?.length) return null;
+  if (!open || !items?.length || total <= 0) return null;
 
   return (
     <div
