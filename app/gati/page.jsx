@@ -869,6 +869,7 @@ export default function GatiPage() {
               </div>
 
               {(() => {
+                  const totalEuro = Number(payOrder.total || 0);
                   const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
                   const dueSafe = dueNow > 0 ? dueNow : 0;
                   const given = Number((Number(payAdd || 0)).toFixed(2));
