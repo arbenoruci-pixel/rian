@@ -869,16 +869,15 @@ async function sendReadyCheckTask() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   {isPaid && <span style={{ fontSize: 14 }}>✅</span>}
 
                   {canSendTask && (
                     <button
                       className="btn secondary"
-                      style={{ padding: '6px 10px', fontSize: 12 }}
-                      onClick={() => openTaskSheet(o)}
+                      style={{ padding: '6px 8px', fontSize: 12, minWidth: 34 }} title="TASK" aria-label="TASK" onClick={() => openTaskSheet(o)}
                     >
-                      TASK
+                      T
                     </button>
                   )}
 
