@@ -22,16 +22,6 @@ const BUCKET = 'tepiha-photos';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 
 // ---------------- HELPERS ----------------
-function round2(n) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return 0;
-  return Math.round(x * 100) / 100;
-}
-
-function fmtEuro(n) {
-  return round2(n).toFixed(2) + ' €';
-}
-
 function normalizeCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
@@ -296,10 +286,7 @@ export default function GatiPage() {
         m2: computeM2(order),
       });
       const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
-      setPayDue(dueNow);
       setPayAdd(dueNow);
-      setPayErr('');
-      setPayBusy(false);
       setPayMethod('CASH');
       setShowPaySheet(true);
     } catch {
@@ -311,9 +298,6 @@ export default function GatiPage() {
     setShowPaySheet(false);
     setPayOrder(null);
     setPayAdd(0);
-    setPayDue(0);
-    setPayErr('');
-    setPayBusy(false);
     setPayMethod('CASH');
   }
 
@@ -885,11 +869,10 @@ export default function GatiPage() {
               </div>
 
               {(() => {
-                  const totalEuro = round2(Number(payOrder?.total ?? 0));
-                  const clientPaid = round2(Number(payOrder?.paid ?? 0));
-                  const dueNow = round2(totalEuro - clientPaid);
+                  const totalEuro = Number(payOrder.total || 0);
+                  const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
                   const dueSafe = dueNow > 0 ? dueNow : 0;
-                  const given = round2(Number(payAdd || 0));
+                  const given = Number((Number(payAdd || 0)).toFixed(2));
                   const applied = Number((Math.min(given, dueSafe)).toFixed(2));
                   const paidAfter = Number((Number(clientPaid || 0) + applied).toFixed(2));
                   const debtNow = Number((totalEuro - paidAfter).toFixed(2));
