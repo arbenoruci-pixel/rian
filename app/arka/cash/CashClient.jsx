@@ -414,13 +414,13 @@ export default function CashClient() {
   const pendingGroups = useMemo(() => {
     const groups = new Map();
     for (const p of pendingPays || []) {
-      const pin = String(p.created_by_pin || "PA_PIN").trim() || "PA_PIN";
-      if (!groups.has(pin)) groups.set(pin, []);
-      groups.get(pin).push(p);
+      const name = String(p.created_by_name || 'PUNTOR').trim() || 'PUNTOR';
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(p);
     }
     return Array.from(groups.entries())
-      .map(([pin, items]) => ({ pin, items, total: items.reduce((s, x) => s + Number(x.amount || 0), 0) }))
-      .sort((a, b) => a.pin.localeCompare(b.pin));
+      .map(([name, items]) => ({ name, items, total: items.reduce((s, x) => s + Number(x.amount || 0), 0) }))
+      .sort((a,b) => b.total - a.total);
   }, [pendingPays]);
 
   async function applyPending(p) {
@@ -890,9 +890,9 @@ export default function CashClient() {
             />
             <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
               {pendingGroups.map((g) => (
-                <div key={g.pin} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
+                <div key={g.name} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>PIN: {g.pin} · {g.items.length} PAGESA</div>
+                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>{g.name} · {g.items.length} PAGESA</div>
                     <div style={{ fontWeight: 950, whiteSpace: "nowrap" }}>{euro(g.total)}</div>
                   </div>
                   <details style={{ marginTop: 10 }}>

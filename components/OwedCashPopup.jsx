@@ -109,7 +109,7 @@ export default function OwedCashPopup() {
           textTransform: 'uppercase',
         }}
       >
-        <div style={{ fontWeight: 950, letterSpacing: 3 }}>BORXH N'ARKË (PIN {pin})</div>
+        <div style={{ fontWeight: 950, letterSpacing: 3 }}>BORXH N'ARKË ({user?.name || ''})</div>
         <div style={{ marginTop: 8, opacity: 0.85, fontWeight: 900, letterSpacing: 1.5 }}>
           TI JE PËRGJEGJËS ME I DORZU KËTO PARA N&apos;ARKË.
         </div>
