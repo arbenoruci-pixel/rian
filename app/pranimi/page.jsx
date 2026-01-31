@@ -1083,7 +1083,7 @@ function saveOfflineQueueItem(order) {
   }
 }
 
-  async function handleContinue() {
+  async async function handleContinue() {
     if (!validateBeforeContinue()) return;
 
     try {
@@ -1163,7 +1163,7 @@ if (offlineMode || !conn.ok) {
           if (payMethod === 'CASH' && Number(order.pay?.arkaRecordedPaid || 0) > 0) {
             try {
               const actor = getActor();
-              await recordCashMove({
+              recordCashMove({
                 externalId: `pay_${order.id}_${Date.now()}`,
                 orderId: db.order_id,
                 code: normalizeCode(codeRaw),
