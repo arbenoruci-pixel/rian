@@ -1,4 +1,4 @@
-import { recordCashMove } from '@/lib/arkaCashSync';
+import { recordCashMove, createPendingCashPayment } from '@/lib/arkaCashSync';
 
 /**
  * Centralized CASH payment recorder (ARKA open => cycle move, ARKA closed => pending).
@@ -31,7 +31,8 @@ export async function recordOrderCashPayment({
     externalId ||
     `pay_${String(orderId || 'no_order')}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
-  return await recordCashMove({
+  try {
+    return await recordCashMove({
     externalId: extId,
     orderId: orderId || null,
     code: code || null,
@@ -43,5 +44,21 @@ export async function recordOrderCashPayment({
     type,
     createdByPin: actor?.pin ? String(actor.pin) : null,
     createdBy: actor?.name ? String(actor.name) : null,
-  });
+    });
+  } catch (e) {
+    // ✅ ARKA CLOSED / RLS / network: fallback to pending so GATI/PASTRIMI payments still work
+    return await createPendingCashPayment({
+      external_id: extId,
+      orderId: orderId || null,
+      code: code || null,
+      name: clientName || null,
+      amount: amt,
+      note: note || `PAGESA ${amt}€ • #${code || ''} • ${clientName || ''}`.trim(),
+      source,
+      type,
+      created_by_pin: actor?.pin ? String(actor.pin) : null,
+      created_by_name: actor?.name ? String(actor.name) : null,
+    });
+  }
 }
+
