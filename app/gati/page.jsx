@@ -128,6 +128,7 @@ export default function GatiPage() {
   const [payOrder, setPayOrder] = useState(null); // { id, order, code, name, phone, total, paid, arkaRecordedPaid, paidUpfront, m2 }
   const [payAdd, setPayAdd] = useState(0);
   const [payDue, setPayDue] = useState(0);
+  const [payErr, setPayErr] = useState('');
 
   const [payMethod, setPayMethod] = useState('CASH');
 
