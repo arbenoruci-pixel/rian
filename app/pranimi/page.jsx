@@ -63,6 +63,29 @@ function sanitizePhone(phone) {
 }
 
 
+function normName(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+
+function hasDuplicateClient(nameVal, phoneVal){
+  try{
+    const cacheKey = 'tepiha_clients_index_v1';
+    const raw = localStorage.getItem(cacheKey);
+    if(!raw) return false;
+    const cached = JSON.parse(raw);
+    const items = Array.isArray(cached?.items) ? cached.items : [];
+    const ph = sanitizePhone(phonePrefix + (phoneVal || ''));
+    const nm = normName(nameVal);
+    if(!ph && !nm) return false;
+    return items.some((c)=>{
+      const cph = sanitizePhone(String(c?.phone||c?.client_phone||''));
+      const cnm = normName(c?.name || c?.client_name || '');
+      if(ph && cph && ph === cph) return true;
+      if(nm && cnm && nm.split(' ').length>=2 && nm === cnm) return true;
+      return false;
+    });
+  } catch { return false; }
+}
+
+
 function normDigits(s) {
   return String(s || '').replace(/\D+/g, '');
 }
@@ -930,6 +953,13 @@ useEffect(() => {
 
   // ---------- PAY + PRICE ----------
   function openPay() {
+    // ✅ STOP: don't allow test payments without client info / duplicates
+    if (!name.trim()) { alert('Shkruaj EMER & MBIEMER para pagesës.'); return; }
+    if (name.trim().split(/\s+/).length < 2) { alert('Shkruaj edhe MBIEMRIN para pagesës.'); return; }
+    const ph = sanitizePhone(phonePrefix + phone);
+    if (!ph || ph.length < 6) { alert('Shkruaj një numër telefoni të vlefshëm para pagesës.'); return; }
+    if (hasDuplicateClient(name, phone)) { alert('KY KLIENT EKZISTON (EMER/TELEFON). PËRDOR KËRKIMIN E KLIENTËVE.'); return; }
+    if (totalM2 <= 0) { alert('Shto të paktën 1 m² para pagesës.'); return; }
     const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
     setPayAdd(dueNow > 0 ? dueNow : 0);
     setPayMethod("CASH");
@@ -989,6 +1019,9 @@ useEffect(() => {
   }
 
   async function applyPayAndClose() {
+    // ✅ STOP: require client info before recording cash
+    if (!validateBeforeContinue()) return;
+
     const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
     if (cashGiven <= 0) {
       alert('SHUMA NUK VLEN (0 €).');
@@ -1005,8 +1038,33 @@ useEffect(() => {
     const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
     setClientPaid(newPaid);
 
-    // ✅ ARKA deferred until order saved (avoid orphan cash)
+    // ✅ ARKA delta only if CASH (local cache + Supabase arka_moves if day open)
     if (payMethod === 'CASH') {
+      const actor = (() => {
+        try {
+          const raw = localStorage.getItem('CURRENT_USER_DATA');
+          return raw ? JSON.parse(raw) : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      const extId = `pay_${oid}_${Date.now()}`;
+      await recordCashMove({
+        externalId: extId,
+        orderId: oid,
+        code: normalizeCode(codeRaw),
+        name: name.trim(),
+        amount: applied,
+        note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+        source: 'ORDER_PAY',
+        method: 'cash_pay',
+        type: 'IN',
+        // Fallback te session-i (actorSession) nëse prop `actor` nuk vjen
+        createdByPin: (actor?.pin ? String(actor.pin) : (getActor()?.pin ? String(getActor().pin) : null)),
+        createdBy: (actor?.name ? String(actor.name) : (getActor()?.name ? String(getActor().name) : null)),
+      });
+
       const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
       setArkaRecordedPaid(finalArka);
     }
@@ -1020,6 +1078,8 @@ useEffect(() => {
 
     const ph = sanitizePhone(phonePrefix + phone);
     if (!ph || ph.length < 6) return alert('Shkruaj një numër telefoni të vlefshëm.'), false;
+    // ✅ STOP duplicates (same phone/name) — use client search instead
+    if (hasDuplicateClient(name, phone)) return alert('KY KLIENT EKZISTON (EMER/TELEFON). JU LUTEM GJEJENI NGA KERKIMI DHE MOS KRIJONI DUPLIKAT.'), false;
 
     if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), false;
     return true;
@@ -1083,7 +1143,7 @@ function saveOfflineQueueItem(order) {
   }
 }
 
-  async async function handleContinue() {
+  async function handleContinue() {
     if (!validateBeforeContinue()) return;
 
     try {
@@ -1159,28 +1219,6 @@ if (offlineMode || !conn.ok) {
       try {
         const db = await saveOrderToDb(order);
         if (db && db.order_id) {
-          // ✅ Now that order exists in DB, record upfront CASH (exact arkaRecordedPaid)
-          if (payMethod === 'CASH' && Number(order.pay?.arkaRecordedPaid || 0) > 0) {
-            try {
-              const actor = getActor();
-              recordCashMove({
-                externalId: `pay_${order.id}_${Date.now()}`,
-                orderId: db.order_id,
-                code: normalizeCode(codeRaw),
-                name: name.trim(),
-                amount: Number(order.pay.arkaRecordedPaid),
-                note: `PAGESA ${Number(order.pay.arkaRecordedPaid)}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
-                source: 'ORDER_PAY',
-                method: 'cash_pay',
-                type: 'IN',
-                createdByPin: actor?.pin ? String(actor.pin) : null,
-                createdBy: actor?.name ? String(actor.name) : null,
-              });
-            } catch (e) {
-              console.error('ARKA upfront failed', e);
-            }
-          }
-
           order.db_id = db.order_id;
           order.client_id = db.client_id || null;
           if (order.client && db.client_id) order.client.id = db.client_id;
