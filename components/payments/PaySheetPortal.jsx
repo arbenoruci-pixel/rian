@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 // Chips are common cash amounts the client may hand over (NOT increments).
 const CASH_CHIPS = [5, 10, 20, 30, 50];
@@ -202,5 +201,8 @@ export default function PaySheetPortal({
     </div>
   );
 
-  return createPortal(body, document.body);
+  // NOTE: We intentionally avoid React portals here.
+  // A fixed-position overlay already behaves like a full-screen modal and
+  // this prevents occasional iOS/Safari runtime issues with portals.
+  return body;
 }
