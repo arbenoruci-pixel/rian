@@ -40,6 +40,12 @@ function codeToNumber(raw) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+function round2(val) {
+  const x = Number(val);
+  if (!Number.isFinite(x)) return 0;
+  return Math.round((x + Number.EPSILON) * 100) / 100;
+}
+
 function sanitizePhone(phone) {
   return String(phone || '').replace(/[^\d+]+/g, '');
 }
@@ -122,6 +128,9 @@ export default function GatiPage() {
   const [payOrder, setPayOrder] = useState(null); // { id, order, code, name, phone, total, paid, arkaRecordedPaid, paidUpfront, m2 }
   const [payAdd, setPayAdd] = useState(0);
   const [payMethod, setPayMethod] = useState('CASH');
+  const [payDue, setPayDue] = useState(0);
+  const [payBusy, setPayBusy] = useState(false);
+  const [payErr, setPayErr] = useState('');
 
   // return hidden sheet
   const [showReturnSheet, setShowReturnSheet] = useState(false);
@@ -285,7 +294,8 @@ export default function GatiPage() {
         paidUpfront: !!order.pay?.paidUpfront,
         m2: computeM2(order),
       });
-      const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
+      const dueNow = round2(Math.max(0, total - paid));
+      setPayDue(dueNow);
       setPayAdd(dueNow);
       setPayMethod('CASH');
       setShowPaySheet(true);
@@ -869,15 +879,14 @@ export default function GatiPage() {
               </div>
 
               {(() => {
-                  const totalEuro = Number(payOrder.total || 0);
-                  const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
-                  const dueSafe = dueNow > 0 ? dueNow : 0;
-                  const given = Number((Number(payAdd || 0)).toFixed(2));
-                  const applied = Number((Math.min(given, dueSafe)).toFixed(2));
-                  const paidAfter = Number((Number(clientPaid || 0) + applied).toFixed(2));
-                  const debtNow = Number((totalEuro - paidAfter).toFixed(2));
-                  const debtSafe = debtNow > 0 ? debtNow : 0;
-                  const changeNow = given > dueSafe ? Number((given - dueSafe).toFixed(2)) : 0;
+                  const totalEuro = round2(payOrder?.total || 0);
+                  const paidSoFar = round2(payOrder?.paid || 0);
+                  const dueSafe = round2(Math.max(0, totalEuro - paidSoFar));
+                  const given = round2(payAdd || 0);
+                  const applied = round2(Math.min(given, dueSafe));
+                  const paidAfter = round2(paidSoFar + applied);
+                  const debtSafe = round2(Math.max(0, totalEuro - paidAfter));
+                  const changeNow = given > dueSafe ? round2(given - dueSafe) : 0;
 
                   return (
                     <>
