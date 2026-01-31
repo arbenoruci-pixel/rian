@@ -4,9 +4,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
-import TaskInbox from '@/components/TaskInbox';
-import { listUsers } from '@/lib/usersDb';
-import { createTask } from '@/lib/tasksDb';
 import { recordOrderCashPayment } from '@/components/payments/payService';
 import { saveOrderToDb, updateOrderInDb } from '@/lib/ordersDb';
 
@@ -128,14 +125,6 @@ export default function GatiPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  // task sheet (DISPATCH/ADMIN)
-  const [showTaskSheet, setShowTaskSheet] = useState(false);
-  const [taskOrder, setTaskOrder] = useState(null);
-  const [taskUsers, setTaskUsers] = useState([]);
-  const [taskToId, setTaskToId] = useState('');
-  const [taskBusy, setTaskBusy] = useState(false);
-  const [taskErr, setTaskErr] = useState('');
-
   // payment sheet
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [payOrder, setPayOrder] = useState(null); // { id, order, code, name, phone, total, paid, arkaRecordedPaid, paidUpfront, m2 }
@@ -256,63 +245,7 @@ const [payBusy, setPayBusy] = useState(false);
     });
   }, [orders, search]);
 
-  
-const actor = useMemo(() => readActor(), []);
-const canSendTask = useMemo(() => {
-  const r = String(actor?.role || '').toUpperCase();
-  return r === 'OWNER' || r === 'ADMIN' || r === 'DISPATCH';
-}, [actor]);
-
-async function openTaskSheet(orderRow) {
-  if (!canSendTask) return;
-  setTaskOrder(orderRow);
-  setTaskErr('');
-  setTaskToId('');
-  setShowTaskSheet(true);
-  try {
-    const r = await listUsers();
-    if (r.ok) {
-      const workers = (r.items || []).filter(
-        (u) => u.is_active && String(u.role || '').toUpperCase() === 'PUNTOR'
-      );
-      setTaskUsers(workers);
-    }
-  } catch {}
-}
-
-async function sendReadyCheckTask() {
-  if (!taskOrder) return;
-  if (!taskToId) {
-    setTaskErr('ZGJEDH PUNTORIN.');
-    return;
-  }
-  setTaskBusy(true);
-  setTaskErr('');
-  try {
-    const code = Number(String(taskOrder.code || '').replace(/\D/g, '')) || null;
-    const title = 'KQYR A ËSHTË GATI';
-    const body = `Shiko porosinë ${code ? '#' + code : ''} — a është GATI tani?`;
-    const res = await createTask({
-      to_user_id: taskToId,
-      from_user_id: actor?.id || null,
-      type: 'CHECK_READY',
-      title,
-      body,
-      related_order_id: taskOrder.id,
-      order_code: code,
-      priority: 'MED',
-    });
-    if (!res.ok) throw res.error;
-    setShowTaskSheet(false);
-    setTaskOrder(null);
-  } catch {
-    setTaskErr('S’U DËRGUA TASK.');
-  } finally {
-    setTaskBusy(false);
-  }
-}
-
-// ---------------- SMS ----------------
+  // ---------------- SMS ----------------
   function sendPickupSms(row) {
     const phone = sanitizePhone(row.phone || '');
     if (!phone) {
@@ -857,7 +790,7 @@ async function sendReadyCheckTask() {
 
                     {paid > 0 && !o.paidUpfront && (
                       <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>
-                        Paguar: {paid.toFixed(2)}€
+                        <span style={{ fontSize: 10, marginRight: 4 }}>✅</span>{paid.toFixed(2)}€
                       </div>
                     )}
 
@@ -869,17 +802,7 @@ async function sendReadyCheckTask() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {isPaid && <span style={{ fontSize: 14 }}>✅</span>}
-
-                  {canSendTask && (
-                    <button
-                      className="btn secondary"
-                      style={{ padding: '6px 8px', fontSize: 12, minWidth: 34 }} title="TASK" aria-label="TASK" onClick={() => openTaskSheet(o)}
-                    >
-                      T
-                    </button>
-                  )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
 
                   <button
                     className="btn secondary"
