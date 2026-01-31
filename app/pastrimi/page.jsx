@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import PaySheetPortal from '@/components/payments/PaySheetPortal';
 import { supabase } from '@/lib/supabaseClient';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
@@ -437,20 +436,15 @@ export default function PastrimiPage() {
     setShowPaySheet(true);
   }
 
-  async function applyPayAndClose({ dueOverride, givenOverride } = {}) {
-    const cashGiven = Number((Number(givenOverride ?? payAdd) || 0).toFixed(2));
+  async function applyPayAndClose() {
+    const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
     if (cashGiven <= 0) {
       alert('SHUMA NUK VLEN (0 €).');
       return;
     }
 
-    const due = Math.max(0, Number((Number(dueOverride ?? (Number(totalEuro || 0) - Number(clientPaid || 0))) ).toFixed(2)));
-    const applied = Number(due.toFixed(2));
-    if (cashGiven < due) {
-      alert('KLIENTI DHA MË PAK SE SHUMA. JU LUTEM FUTNI SHUMËN E PLOTË.');
-      return;
-    }
-
+    const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
+    const applied = Number(Math.min(cashGiven, due).toFixed(2));
     if (applied <= 0) {
       alert(due <= 0 ? 'KJO POROSI ESHTE PAGUAR (SKA BORXH).' : 'SHUMA NUK VLEN (0 €).');
       return;
@@ -821,23 +815,239 @@ export default function PastrimiPage() {
         </footer>
 
         {/* FULL SCREEN PAGESA */}
-        {/* FULL SCREEN PAGESA (UNIFIED) */}
-        <PaySheetPortal
-          open={showPaySheet}
-          title="PAGESA"
-          subtitle={editingOrder ? `KODI: ${editingOrder.code} • ${editingOrder.name}` : ''}
-          total={Number(totalEuro || 0)}
-          paid={Number(clientPaid || 0)}
-          arkaRecordedPaid={Number(arkaRecordedPaid || 0)}
-          onClose={() => setShowPaySheet(false)}
-          onConfirm={async ({ given, due }) => {
-            const g = Number(given || 0);
-            const d = Number(due || 0);
-            if (g < d) { alert('KLIENTI DHA MË PAK SE SHUMA. JU LUTEM FUTNI SHUMËN E PLOTË.'); return; }
-            setPayAdd(g);
-            await applyPayAndClose({ dueOverride: d, givenOverride: g });
-          }}
-        />
+        {showPaySheet && (
+          <div className="payfs">
+            <div className="payfs-top">
+              <div>
+                <div className="payfs-title">PAGESA</div>
+                <div className="payfs-sub">
+                  KODI: {normalizeCode(codeRaw)} • {name}
+                </div>
+              </div>
+              <button className="btn secondary" onClick={() => setShowPaySheet(false)}>
+                ✕
+              </button>
+            </div>
+
+            <div className="payfs-body">
+              <div className="card" style={{ marginTop: 0 }}>
+                <div className="tot-line">
+                  TOTAL: <strong>{totalEuro.toFixed(2)} €</strong>
+                </div>
+                <div className="tot-line">
+                  PAGUAR DERI TANI: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong>
+                </div>
+                <div className="tot-line" style={{ fontSize: 12, color: '#666' }}>
+                  REGJISTRU N&apos;ARKË DERI TANI: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong>
+                </div>
+
+                <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>
+                  SOT PAGUAN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong>
+                </div>
+
+                {(() => {
+                  const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
+                  const dueSafe = dueNow > 0 ? dueNow : 0;
+                  const given = Number((Number(payAdd || 0)).toFixed(2));
+                  const applied = Number((Math.min(given, dueSafe)).toFixed(2));
+                  const paidAfter = Number((Number(clientPaid || 0) + applied).toFixed(2));
+                  const debtNow = Number((totalEuro - paidAfter).toFixed(2));
+                  const debtSafe = debtNow > 0 ? debtNow : 0;
+                  const changeNow = given > dueSafe ? Number((given - dueSafe).toFixed(2)) : 0;
+
+                  return (
+                    <>
+                      <div className="tot-line">
+                        NË SISTEM REGJISTROHET: <strong>{applied.toFixed(2)} €</strong>
+                      </div>
+                      <div className="tot-line">
+                        PAGUAR PAS KËSAJ: <strong style={{ color: '#16a34a' }}>{paidAfter.toFixed(2)} €</strong>
+                      </div>
+                      {debtSafe > 0 && (
+                        <div className="tot-line">
+                          BORXH: <strong style={{ color: '#dc2626' }}>{debtSafe.toFixed(2)} €</strong>
+                        </div>
+                      )}
+                      {changeNow > 0 && (
+                        <div className="tot-line">
+                          KTHIM: <strong style={{ color: '#2563eb' }}>{changeNow.toFixed(2)} €</strong>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              <div className="card">
+                <div className="field-group">
+                  <label className="label">KLIENTI DHA (€)</label>
+
+                  <input
+                    type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*"
+                    className="input"
+                    value={Number(payAdd || 0) === 0 ? '' : payAdd}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setPayAdd(v === '' ? 0 : Number(v));
+                    }}
+                    placeholder=""
+                  />
+
+                  <div className="chip-row" style={{ marginTop: 10 }}>
+                    {/* EXACT = SHUMA E MBETUR */}
+                    <button
+                      className="chip"
+                      type="button"
+                      onClick={() => {
+                        const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
+                        setPayAdd(dueNow > 0 ? dueNow : 0);
+                      }}
+                    >
+                      EXACT
+                    </button>
+                    {PAY_CHIPS.map(v => (
+                      <button
+                        key={v}
+                        className="chip"
+                        type="button"
+                        onClick={() => setPayAdd(v)}
+                      >
+                        {v}€
+                      </button>
+                    ))}
+                    <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>
+                      FSHI
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>* CASH VETËM — pagesa regjistrohet në ARKË (ose WAITING kur ARKA është e mbyllur).</div>
+              </div>
+            </div>
+
+            <div className="payfs-footer">
+              <button className="btn secondary" onClick={() => setShowPaySheet(false)}>
+                ANULO
+              </button>
+              <button className="btn primary" onClick={applyPayAndClose}>
+                RUJ PAGESËN
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* SHKALLORE (DARK + CHIPS) */}
+        {showStairsSheet && (
+          <div className="modal-overlay" onClick={() => setShowStairsSheet(false)}>
+            <div className="modal-content dark" onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 className="card-title" style={{ margin: 0, color: '#fff' }}>
+                  SHKALLORE
+                </h3>
+                <button className="btn secondary" onClick={() => setShowStairsSheet(false)}>
+                  ✕
+                </button>
+              </div>
+
+              <div className="field-group" style={{ marginTop: 12 }}>
+                <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                  COPE
+                </label>
+
+                <div className="chip-row">
+                  {SHKALLORE_QTY_CHIPS.map(n => (
+                    <button
+                      key={n}
+                      className="chip"
+                      type="button"
+                      onClick={() => setStairsQty(n)}
+                      style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*"
+                  className="input"
+                  value={stairsQty === 0 ? '' : stairsQty}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setStairsQty(v === '' ? 0 : Number(v));
+                  }}
+                  placeholder=""
+                  style={{ marginTop: 10 }}
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                  m² PËR COPË
+                </label>
+
+                <div className="chip-row">
+                  {SHKALLORE_PER_CHIPS.map(v => (
+                    <button
+                      key={v}
+                      className="chip"
+                      type="button"
+                      onClick={() => setStairsPer(v)}
+                      style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input"
+                  value={Number(stairsPer || 0) === 0 ? '' : stairsPer}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setStairsPer(v === '' ? 0 : Number(v));
+                  }}
+                  style={{ marginTop: 10 }}
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                  FOTO
+                </label>
+                <label className="camera-btn">
+                  📷
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleStairsPhotoChange(e.target.files?.[0])} />
+                </label>
+
+                {stairsPhotoUrl && (
+                  <div style={{ marginTop: 8 }}>
+                    <img src={stairsPhotoUrl} className="photo-thumb" alt="" />
+                    <button
+                      className="btn secondary"
+                      style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }}
+                      onClick={() => setStairsPhotoUrl('')}
+                    >
+                      🗑️ FSHI FOTO
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button className="btn primary" style={{ width: '100%', marginTop: 12 }} onClick={() => setShowStairsSheet(false)}>
+                MBYLL
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Styles për modals + client-mini */}
         <style jsx>{`
           .client-mini{
             width: 34px;
