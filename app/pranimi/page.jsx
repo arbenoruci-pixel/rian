@@ -466,6 +466,7 @@ export default function PranimiPage() {
   const phonePrefix = '+383';
 
   const [creating, setCreating] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
 
   const [oid, setOid] = useState('');
@@ -517,7 +518,6 @@ export default function PranimiPage() {
 
   // ✅ price editor (long-press on € PAGESA)
   const [showPriceSheet, setShowPriceSheet] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [priceTmp, setPriceTmp] = useState(PRICE_DEFAULT);
 
   // payAdd (same as Pastrimi)
@@ -576,7 +576,7 @@ useEffect(() => {
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
 
-  // ✅ prevent accidental openPay while scrolling
+  // ✅ prevent accidental € PAGESA while scrolling
   const payTouchRef = useRef({ x: 0, y: 0, moved: false });
   function payPointerDown(e) {
     const t = e?.touches?.[0] || e;
@@ -672,7 +672,6 @@ useEffect(() => {
         }
       } catch {}
     } finally {
-      setSaving(false);
       setClientsLoading(false);
     }
   }
@@ -1132,12 +1131,8 @@ function saveOfflineQueueItem(order) {
 
   async async function handleContinue() {
     if (saving) return;
-    setSaving(true);
-
     if (!validateBeforeContinue()) return;
-    // ✅ jump immediately to PASTRIMI (background save continues)
-    try { router.push('/pastrimi'); } catch {}
-
+    setSaving(true);
 
     try {
       const order = {
@@ -1164,63 +1159,6 @@ function saveOfflineQueueItem(order) {
         },
         notes: notes || '',
       };
-
-      // ✅ Always mirror locally first (instant UX)
-      try {
-        localStorage.setItem(`order_${oid}`, JSON.stringify(order));
-      } catch {}
-
-      // Go to PASTRIMI immediately (do not wait for network)
-      try {
-        router.push(`/pastrimi?id=${encodeURIComponent(oid)}`);
-      } catch {
-        try { router.push('/pastrimi'); } catch {}
-      }
-
-      // Background sync (do not block UI)
-      (async () => {
-        try {
-          const conn = await checkConnectivity();
-          if (offlineMode || !conn.ok) {
-            // keep offline queue/draft safety
-            const ok = saveOfflineQueueItem(order);
-            try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-            if (!ok) return;
-            return;
-          }
-
-          // ✅ ONLINE: create order in DB
-          const db = await saveOrderToDb(order);
-          if (db && db.order_id) {
-            // ✅ record upfront CASH only after order exists
-            if (payMethod === 'CASH' && Number(order.pay?.arkaRecordedPaid || 0) > 0) {
-              try {
-                const actor = getActor();
-                recordCashMove({
-                  externalId: `pay_${order.id}_${Date.now()}`,
-                  orderId: db.order_id,
-                  code: normalizeCode(codeRaw),
-                  name: name.trim(),
-                  amount: Number(order.pay.arkaRecordedPaid),
-                  note: `PAGESA ${Number(order.pay.arkaRecordedPaid)}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
-                  source: 'ORDER_PAY',
-                  method: 'cash_pay',
-                  type: 'IN',
-                  createdByPin: actor?.pin ? String(actor.pin) : null,
-                  createdBy: actor?.name ? String(actor.name) : null,
-                });
-              } catch {}
-            }
-          }
-
-          // ✅ cleanup drafts after successful online save
-          try { removeDraftLocal(oid); } catch {}
-          try { await deleteDraftRemote(oid); } catch {}
-          try { await refreshDrafts(); } catch {}
-        } catch (e) {
-          console.error('FAST NAV sync failed', e);
-        }
-      })();
 
 
 // ✅ OFFLINE MODE: save locally (no Supabase) so you never lose clients
@@ -1303,7 +1241,7 @@ if (offlineMode || !conn.ok) {
     } catch (e) {
       alert('❌ Gabim ruajtja!');
     }
-    setTimeout(() => { try { setSaving(false); } catch {} }, 800);
+    try { setSaving(false); } catch {}
 
   }
 
@@ -1782,7 +1720,7 @@ return (
       {/* FOOTER */}
       <footer className="footer-bar">
         <button className="btn secondary" onClick={() => router.push('/')}>🏠 HOME</button>
-        <button className="btn primary" onClick={handleContinue} disabled={photoUploading || saving} disabled={photoUploading}>          {saving ? '⏳ DUKE RUAJT…' : '▶ VAZHDO'}
+        <button className="btn primary" onClick={handleContinue} disabled={photoUploading || saving} disabled={photoUploading}>          {saving ? "⏳ DUKE RUAJT…" : "▶ VAZHDO"}
         </button>
       </footer>
 
