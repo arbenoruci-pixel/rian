@@ -21,6 +21,14 @@ const BUCKET = 'tepiha-photos';
 // PAGESA CHIPS
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 
+
+// round to 2 decimals (local helper)
+function round2(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
 // ---------------- HELPERS ----------------
 function normalizeCode(raw) {
   if (!raw) return '';
@@ -64,12 +72,6 @@ function computeTotalEuro(order) {
   const rate = Number(order.pay?.rate || 0);
   return Number((m2 * rate).toFixed(2));
 }
-
-const round2 = (n) => {
-  const num = Number(n || 0);
-  return Math.round((num + Number.EPSILON) * 100) / 100;
-};
-
 
 function computePieces(order) {
   const tCope = order?.tepiha?.reduce((a, b) => a + (Number(b.qty) || 0), 0) || 0;
@@ -128,8 +130,14 @@ export default function GatiPage() {
   const [payOrder, setPayOrder] = useState(null); // { id, order, code, name, phone, total, paid, arkaRecordedPaid, paidUpfront, m2 }
   const [payAdd, setPayAdd] = useState(0);
   const [payMethod, setPayMethod] = useState('CASH');
-  const [payBusy, setPayBusy] = useState(false);
+const [payBusy, setPayBusy] = useState(false);
   const [payErr, setPayErr] = useState('');
+
+  // derived totals for payment (GATI)
+  const totalEuro = round2(payOrder?.total ?? payOrder?.order?.total ?? 0);
+  const paidToDate = round2(payOrder?.paid ?? payOrder?.arkaRecordedPaid ?? 0);
+  const payDue = round2(Math.max(0, totalEuro - paidToDate));
+
 
   // return hidden sheet
   const [showReturnSheet, setShowReturnSheet] = useState(false);
@@ -877,12 +885,12 @@ export default function GatiPage() {
               </div>
 
               {(() => {
-                  const totalEuro = Number(payOrder.total || 0);
-                  const dueNow = Number((totalEuro - paidToDate).toFixed(2));
+                  
+                  const dueNow = Number((totalEuro - Number(paidToDate || 0)).toFixed(2));
                   const dueSafe = dueNow > 0 ? dueNow : 0;
                   const given = Number((Number(payAdd || 0)).toFixed(2));
                   const applied = Number((Math.min(given, dueSafe)).toFixed(2));
-                  const paidAfter = Number((paidToDate + applied).toFixed(2));
+                  const paidAfter = Number((Number(paidToDate || 0) + applied).toFixed(2));
                   const debtNow = Number((totalEuro - paidAfter).toFixed(2));
                   const debtSafe = debtNow > 0 ? debtNow : 0;
                   const changeNow = given > dueSafe ? Number((given - dueSafe).toFixed(2)) : 0;
