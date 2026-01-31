@@ -24,15 +24,17 @@ export default function PaySheetPortal({
 }) {
   const [mounted, setMounted] = useState(false);
   const [givenStr, setGivenStr] = useState('');
-  const [payBusy, setPayBusy] = useState(false); // Emri i saktë për sistemin tënd
-  const [payErr, setPayErr] = useState('');   // Emri i saktë që pamë në foto
+  
+  // KËTU ËSHTË FIX-I: Definojmë variablat që mungonin e po shkaktojnë crash
+  const [payBusy, setPayBusy] = useState(false);
+  const [payErr, setPayErr] = useState('');
 
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
-  // KALKULIMI (Logjika që dëshiron)
+  // LLOGARITJA E BORXHIT
   const due = useMemo(() => {
     const t = toNum(total);
     const p = toNum(paid);
@@ -40,8 +42,8 @@ export default function PaySheetPortal({
   }, [total, paid]);
 
   const given = useMemo(() => toNum(givenStr), [givenStr]);
-  
-  // Këto janë variablat që "GATI" page i pret për të futur paret në arkë:
+
+  // KËTO JANË VARIABLAT QË I DUHEN ARKËS TËNDE PËR ME HY PARET
   const totalEuro = due; 
   const clientPaid = given;
 
@@ -65,14 +67,12 @@ export default function PaySheetPortal({
     setGivenStr(String(v));
   };
 
-  // Funksioni që dërgon paret në Arkë
   const doConfirm = async () => {
     if (payBusy) return;
     setPayErr('');
     try {
       setPayBusy(true);
-      // I kalojmë të dyja: edhe emrat e rinj (due/apply), edhe të vjetërit (totalEuro/clientPaid)
-      // Kjo garanton që cilindo version që përdor faqja GATI, paret do të hyjnë.
+      // Dërgojmë të gjitha variablat që arka të jetë e kënaqur
       await onConfirm?.({ 
         given, 
         apply: due, 
@@ -82,7 +82,7 @@ export default function PaySheetPortal({
         clientPaid 
       });
     } catch (e) {
-      setPayErr(String(e?.message || e || 'GABIM NË ARKË'));
+      setPayErr(String(e?.message || e || 'ERROR'));
     } finally {
       setPayBusy(false);
     }
@@ -114,12 +114,12 @@ export default function PaySheetPortal({
           </div>
           <div className="line" />
           <div className="row">
-            <span style={{color: '#fff'}}>BORXH I MBETUR:</span>
-            <strong style={{color: '#facc15', fontSize: '20px'}}>{due.toFixed(2)} €</strong>
+            <span>BORXH I MBETUR:</span>
+            <strong style={{ color: '#facc15', fontSize: '20px' }}>{due.toFixed(2)} €</strong>
           </div>
           {change > 0 && (
             <div className="row">
-              <span>KTHIMI (KUSURI):</span>
+              <span>KTHIM (KUSURI):</span>
               <strong style={{ color: '#60a5fa' }}>{change.toFixed(2)} €</strong>
             </div>
           )}
@@ -133,14 +133,17 @@ export default function PaySheetPortal({
             value={givenStr}
             onChange={(e) => { setPayErr(''); setGivenStr(e.target.value); }}
           />
+
           <div className="chips">
-            <button type="button" className="chip active-chip" onClick={() => pickChip(due)}>EXACT</button>
+            <button type="button" className="chip primary-btn" onClick={() => pickChip(due)}>EXACT</button>
             {CASH_CHIPS.map((n) => (
               <button type="button" key={n} className="chip" onClick={() => pickChip(n)}>{n}€</button>
             ))}
-            <button type="button" className="chip danger-chip" onClick={() => pickChip(0)}>FSHI</button>
+            <button type="button" className="chip danger-btn" onClick={() => pickChip(0)}>FSHI</button>
           </div>
-          {!!payErr && <div className="err-banner">{payErr}</div>}
+
+          {/* MESAZHI I GABIMIT QË PO SHKAKTONTE CRASH TANI ËSHTË I FIX-UAR */}
+          {!!payErr && <div className="error-box">{payErr}</div>}
         </div>
 
         <div className="payfs-footer">
@@ -163,12 +166,12 @@ export default function PaySheetPortal({
         .dim { color: rgba(255,255,255,.45) !important; font-weight: 700; }
         .line { height: 1px; background: rgba(255,255,255,.08); margin: 8px 0; }
         .label { color: rgba(255,255,255,.65); font-weight: 900; font-size: 12px; margin-bottom: 8px; }
-        .inp { width: 100%; padding: 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.12); background: #0b1220; color: #fff; font-size: 22px; font-weight: 900; }
+        .inp { width: 100%; padding: 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.12); background: #0b1220; color: #fff; font-size: 20px; font-weight: 900; }
         .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-        .chip { padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(96,165,250,.4); background: transparent; color: #60a5fa; font-weight: 900; }
-        .active-chip { border-color: #2563eb; background: rgba(37,99,235,0.1); }
-        .danger-chip { border-color: #ef4444; color: #ef4444; }
-        .err-banner { margin-top: 10px; color: #fff; background: #991b1b; padding: 10px; border-radius: 10px; font-weight: 800; font-size: 13px; text-align: center; }
+        .chip { padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.12); background: transparent; color: #fff; font-weight: 900; }
+        .primary-btn { border-color: #2563eb; color: #60a5fa; }
+        .danger-btn { border-color: #ef4444; color: #ef4444; }
+        .error-box { margin-top: 10px; background: #450a0a; color: #f87171; padding: 12px; border-radius: 12px; font-weight: 800; font-size: 13px; text-align: center; }
         .payfs-footer { display: flex; gap: 10px; padding: 14px; border-top: 1px solid rgba(255,255,255,.08); }
         .btn { flex: 1; padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.12); font-weight: 900; }
         .btn.secondary { background: transparent; color: #fff; }
