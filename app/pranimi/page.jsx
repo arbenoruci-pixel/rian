@@ -1005,33 +1005,8 @@ useEffect(() => {
     const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
     setClientPaid(newPaid);
 
-    // ✅ ARKA delta only if CASH (local cache + Supabase arka_moves if day open)
+    // ✅ ARKA deferred until order saved (avoid orphan cash)
     if (payMethod === 'CASH') {
-      const actor = (() => {
-        try {
-          const raw = localStorage.getItem('CURRENT_USER_DATA');
-          return raw ? JSON.parse(raw) : null;
-        } catch {
-          return null;
-        }
-      })();
-
-      const extId = `pay_${oid}_${Date.now()}`;
-      await recordCashMove({
-        externalId: extId,
-        orderId: oid,
-        code: normalizeCode(codeRaw),
-        name: name.trim(),
-        amount: applied,
-        note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
-        source: 'ORDER_PAY',
-        method: 'cash_pay',
-        type: 'IN',
-        // Fallback te session-i (actorSession) nëse prop `actor` nuk vjen
-        createdByPin: (actor?.pin ? String(actor.pin) : (getActor()?.pin ? String(getActor().pin) : null)),
-        createdBy: (actor?.name ? String(actor.name) : (getActor()?.name ? String(getActor().name) : null)),
-      });
-
       const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
       setArkaRecordedPaid(finalArka);
     }
@@ -1184,6 +1159,28 @@ if (offlineMode || !conn.ok) {
       try {
         const db = await saveOrderToDb(order);
         if (db && db.order_id) {
+          // ✅ Now that order exists in DB, record upfront CASH (exact arkaRecordedPaid)
+          if (payMethod === 'CASH' && Number(order.pay?.arkaRecordedPaid || 0) > 0) {
+            try {
+              const actor = getActor();
+              await recordCashMove({
+                externalId: `pay_${order.id}_${Date.now()}`,
+                orderId: db.order_id,
+                code: normalizeCode(codeRaw),
+                name: name.trim(),
+                amount: Number(order.pay.arkaRecordedPaid),
+                note: `PAGESA ${Number(order.pay.arkaRecordedPaid)}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+                source: 'ORDER_PAY',
+                method: 'cash_pay',
+                type: 'IN',
+                createdByPin: actor?.pin ? String(actor.pin) : null,
+                createdBy: actor?.name ? String(actor.name) : null,
+              });
+            } catch (e) {
+              console.error('ARKA upfront failed', e);
+            }
+          }
+
           order.db_id = db.order_id;
           order.client_id = db.client_id || null;
           if (order.client && db.client_id) order.client.id = db.client_id;
