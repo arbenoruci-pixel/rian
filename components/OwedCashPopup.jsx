@@ -13,6 +13,17 @@ function readUser() {
   } catch {
     return null;
   }
+
+function ackKey(pin) {
+  return `OWED_POPUP_ACK_${String(pin || '').trim()}`;
+}
+
+function makeHash(items) {
+  const ids = (items || []).map((p) => p.id || p.external_id || '').join(',');
+  const total = (items || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+  return `${ids}|${Number(total || 0).toFixed(2)}`;
+}
+
 }
 
 // Worker responsibility popup:
@@ -35,8 +46,16 @@ export default function OwedCashPopup() {
     try {
       const res = await listOwedCashPaymentsByPin(p, 200);
       const next = res?.items || [];
-      setItems(next);
-      if (next.length > 0) setOpen(true);
+      // ignore zero/invalid amounts so popup doesn't loop on €0.00
+      const cleaned = next.filter((x) => Number(x?.amount || 0) > 0);
+      setItems(cleaned);
+      if (cleaned.length > 0) {
+        const h = makeHash(cleaned);
+        const last = localStorage.getItem(ackKey(p)) || '';
+        if (h !== last) setOpen(true);
+      } else {
+        setOpen(false);
+      }
     } catch {
       // ignore (non-blocking)
     }
@@ -61,7 +80,13 @@ export default function OwedCashPopup() {
 
   return (
     <div
-      onClick={() => setOpen(false)}
+      onClick={() => {
+        try {
+          const h = makeHash(items);
+          if (h) localStorage.setItem(ackKey(pin), h);
+        } catch {}
+        setOpen(false);
+      }}
       style={{
         position: 'fixed',
         inset: 0,
