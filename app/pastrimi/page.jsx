@@ -7,6 +7,7 @@ import TaskInbox from '@/components/TaskInbox';
 import { listUsers } from '@/lib/usersDb';
 import { createTask } from '@/lib/tasksDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
+import { createTask } from '@/lib/tasksDb';
 
 function readActor() {
   try {
@@ -124,6 +125,17 @@ export default function PastrimiPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  // tasks (DISPATCH/ADMIN)
+  const [taskOpenById, setTaskOpenById] = useState({});
+  const [showTaskSheet, setShowTaskSheet] = useState(false);
+  const [taskOrder, setTaskOrder] = useState(null);
+  const [taskUsers, setTaskUsers] = useState([]);
+  const [taskToId, setTaskToId] = useState('');
+  const [taskBusy, setTaskBusy] = useState(false);
+  const [taskErr, setTaskErr] = useState('');
+  const [taskItems, setTaskItems] = useState([]);
+  const holdTaskTimer = useRef(null);
+
 
   // task sheet (DISPATCH/ADMIN)
   const [showTaskSheet, setShowTaskSheet] = useState(false);
@@ -247,6 +259,7 @@ export default function PastrimiPage() {
         };
       });
       setOrders(list);
+      refreshTaskOpen(list);
 
       // STREAM TOTAL (krejt PASTRIMI)
       const streamTotal = list.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
@@ -369,7 +382,90 @@ export default function PastrimiPage() {
     } catch (e) {
       alert('❌ Gabim gjatë hapjes!');
     }
+  
+  async function refreshTaskOpen(list) {
+    try {
+      const ids = (list || []).map((x) => Number(x.id)).filter((n) => Number.isFinite(n));
+      if (ids.length === 0) {
+        setTaskOpenById({});
+        return;
+      }
+      const { data, error } = await supabase
+        .from('tepiha_tasks')
+        .select('id,related_order_id,status')
+        .in('related_order_id', ids)
+        .in('status', ['SENT', 'ACCEPTED', 'NEED_INFO'])
+        .limit(1000);
+      if (error) return;
+      const map = {};
+      for (const t of data || []) {
+        const oid = String(t.related_order_id || '');
+        if (oid) map[oid] = true;
+      }
+      setTaskOpenById(map);
+    } catch {}
   }
+
+  async function openOrderTasks(row) {
+    try {
+      setTaskErr('');
+      setTaskItems([]);
+      setTaskOrder(row);
+      setShowTaskSheet(true);
+
+      if (taskUsers.length === 0) {
+        const u = await listUsers();
+        if (u?.ok) setTaskUsers(u.items || []);
+      }
+
+      const oid = Number(row.id);
+      const { data, error } = await supabase
+        .from('tepiha_tasks')
+        .select('id,status,type,title,body,to_user_id,from_user_id,created_at,updated_at,reject_reason,outcome,not_ready_reason')
+        .eq('related_order_id', oid)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (!error) setTaskItems(data || []);
+    } catch {
+      setTaskErr("S'MUN U HAP TASK.");
+    }
+  }
+
+  async function sendCheckReadyTask() {
+    if (!taskOrder) return;
+    if (!taskToId) {
+      setTaskErr('Zgjidh puntorin.');
+      return;
+    }
+    setTaskBusy(true);
+    setTaskErr('');
+    try {
+      const code = Number(String(taskOrder.code || '').replace(/\D/g, '')) || null;
+      const title = 'KQYR A ËSHTË GATI';
+      const body = `Shiko porosinë ${code ? '#' + code : ''} — a është GATI tani?`;
+      const res = await createTask({
+        to_user_id: taskToId,
+        from_user_id: readActor()?.id || null,
+        type: 'CHECK_READY',
+        title,
+        body,
+        related_order_id: taskOrder.id,
+        order_code: code,
+        priority: 'MED',
+      });
+      if (!res.ok) throw res.error;
+
+      refreshOrders();
+      setTaskToId('');
+      setTaskErr('U DËRGUA ✅');
+      setTimeout(() => setTaskErr(''), 900);
+    } catch {
+      setTaskErr("S'U DËRGUA TASK.");
+    } finally {
+      setTaskBusy(false);
+    }
+  }
+}
 
   const totalM2 = useMemo(() => {
     const t = tepihaRows.reduce((sum, r) => sum + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0);
@@ -615,7 +711,7 @@ export default function PastrimiPage() {
       localStorage.setItem(`order_${o.id}`, JSON.stringify(updated));
       await refreshOrders();
 
-      const msg = `Pershendetje ${o.name}, porosia (kodi ${normalizeCode(o.code)}) eshte GATI. Keni ${o.cope} cope • ${o.m2} m². Ju lutem ejani sot ose neser se nuk kemi shume vend. Sot/neser i keni te sigurt, me vone nuk garantojme. Faleminderit!`;
+      const msg = `Pershendetje ${o.name}, porosia (kodi ${normalizeCode(o.code)}{taskOpenById[o.id] ? (<span style={{position:'absolute',right:4,top:2,fontSize:12,fontWeight:900,lineHeight:1,opacity:0.95}} aria-label='TASK'>?</span>) : null}) eshte GATI. Keni ${o.cope} cope • ${o.m2} m². Ju lutem ejani sot ose neser se nuk kemi shume vend. Sot/neser i keni te sigurt, me vone nuk garantojme. Faleminderit!`;
       window.location.href = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
     } catch (e) {
       alert('❌ Gabim SMS!');
@@ -1201,6 +1297,8 @@ export default function PastrimiPage() {
                       alignItems: 'center',
                       justifyContent: 'center',
                       borderRadius: 8,
+                      position: 'relative',
+                      cursor: taskOpenById[o.id] ? 'pointer' : 'default',
                       fontWeight: 800,
                       fontSize: 14,
                       flexShrink: 0
@@ -1239,6 +1337,127 @@ export default function PastrimiPage() {
             ))
         )}
       </section>
+
+
+      {/* ============ TASK SHEET (DISPATCH/ADMIN) ============ */}
+      {showTaskSheet && taskOrder && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 14,
+          }}
+          onClick={() => {
+            setShowTaskSheet(false);
+            setTaskOrder(null);
+            setTaskItems([]);
+            setTaskErr('');
+          }}
+        >
+          <div
+            style={{
+              width: 'min(520px, 100%)',
+              background: 'rgba(8,10,18,0.96)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: 14,
+              padding: 14,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontWeight: 900, letterSpacing: 1 }}>
+                TASK • #{normalizeCode(taskOrder.code)}
+              </div>
+              <button
+                className="btn secondary"
+                style={{ padding: '6px 10px', fontSize: 12 }}
+                onClick={() => {
+                  setShowTaskSheet(false);
+                  setTaskOrder(null);
+                  setTaskItems([]);
+                  setTaskErr('');
+                }}
+              >
+                MBYLL
+              </button>
+            </div>
+
+            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85 }}>
+              {taskOrder.name || 'Pa emër'} • {taskOrder.cope} copë • {Number(taskOrder.m2 || 0).toFixed(2)} m²
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              {taskItems.length === 0 ? (
+                <div style={{ fontSize: 12, opacity: 0.7 }}>S’ka task për këtë porosi.</div>
+              ) : (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {taskItems.map((t) => (
+                    <div
+                      key={t.id}
+                      style={{
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: 12,
+                        padding: 10,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12 }}>
+                        <div style={{ fontWeight: 900 }}>{(t.title || 'TASK').toUpperCase()}</div>
+                        <div style={{ opacity: 0.8 }}>{String(t.status || '').toUpperCase()}</div>
+                      </div>
+                      {t.body ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>{t.body}</div> : null}
+                      {t.not_ready_reason ? (
+                        <div style={{ marginTop: 6, fontSize: 12, color: '#f59e0b', fontWeight: 800 }}>
+                          {t.not_ready_reason}
+                        </div>
+                      ) : null}
+                      {t.reject_reason ? (
+                        <div style={{ marginTop: 6, fontSize: 12, color: '#ef4444', fontWeight: 800 }}>
+                          {t.reject_reason}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 14, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.9 }}>DËRGO “KQYR A ËSHTË GATI”</div>
+
+              <select
+                className="input"
+                value={taskToId}
+                onChange={(e) => setTaskToId(e.target.value)}
+                style={{ marginTop: 8 }}
+              >
+                <option value="">ZGJIDH PUNTORIN…</option>
+                {taskUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name || u.username || u.email || u.id}
+                  </option>
+                ))}
+              </select>
+
+              {taskErr ? (
+                <div style={{ marginTop: 8, fontSize: 12, color: taskErr.includes('✅') ? '#22c55e' : '#ef4444', fontWeight: 900 }}>
+                  {taskErr}
+                </div>
+              ) : null}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                <button className="btn primary" style={{ flex: 1, padding: '10px 12px', fontSize: 13 }} disabled={taskBusy} onClick={sendCheckReadyTask}>
+                  {taskBusy ? 'DUKE DËRGUAR…' : 'DËRGO'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="dock">
         <Link href="/" className="btn secondary" style={{ width: '100%' }}>
