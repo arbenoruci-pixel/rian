@@ -2,30 +2,13 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import PaySheetPortal from '@/components/payments/PaySheetPortal';
 import { supabase } from '@/lib/supabaseClient';
-import { recordOrderCashPayment } from '@/components/payments/payService';
-import { saveOrderToDb, updateOrderInDb } from '@/lib/ordersDb';
-
-function readActor() {
-  try {
-    const raw = localStorage.getItem('CURRENT_USER_DATA');
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
+import { recordCashMove } from '@/lib/arkaCashSync';
 
 const BUCKET = 'tepiha-photos';
 
 // PAGESA CHIPS
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-function round2(n) {
-  const x = Number(n);
-  if (!isFinite(x)) return 0;
-  return Math.round(x * 100) / 100;
-}
-
 
 // ---------------- HELPERS ----------------
 function normalizeCode(raw) {
@@ -38,12 +21,6 @@ function normalizeCode(raw) {
   }
   const n = s.replace(/\D+/g, '').replace(/^0+/, '');
   return n || '0';
-}
-
-function codeToNumber(raw) {
-  const s = String(raw ?? '').trim();
-  const n = Number(s.replace(/\D+/g, '').replace(/^0+/, '') || 0);
-  return Number.isFinite(n) ? n : NaN;
 }
 
 function sanitizePhone(phone) {
@@ -127,8 +104,6 @@ export default function GatiPage() {
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [payOrder, setPayOrder] = useState(null); // { id, order, code, name, phone, total, paid, arkaRecordedPaid, paidUpfront, m2 }
   const [payAdd, setPayAdd] = useState(0);
-  const [payDue, setPayDue] = useState(0);
-
   const [payMethod, setPayMethod] = useState('CASH');
 
   // return hidden sheet
@@ -147,77 +122,81 @@ export default function GatiPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function dbFetchOrderById(idNum) {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('id,status,ready_at,picked_up_at,created_at,data')
-      .eq('id', Number(idNum))
-      .single();
-    if (error || !data) throw error || new Error('ORDER_NOT_FOUND');
-
-    const order = { ...(data.data || {}) };
-    order.id = String(data.id);
-    order.status = data.status;
-
-    return { row: data, order };
-  }
-
   async function refreshOrders() {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('id,status,ready_at,picked_up_at,created_at,data')
-        .eq('status', 'gati')
-        .order('ready_at', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(500);
-
-      if (error || !data) {
+      const { data } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
+      if (!data) {
         setOrders([]);
         return;
       }
 
-      const list = (data || []).map((row) => {
-        const order = { ...(row.data || {}) };
-        order.id = String(row.id);
-        order.status = row.status;
+      const items = (data || []).filter((x) => (x.name || '').endsWith('.json'));
 
-        // mirror local cache
+      const promises = items.map(async (item) => {
         try {
-          const k = `order_${order.id}`;
-          const existing = localStorage.getItem(k);
-          if (!existing) localStorage.setItem(k, JSON.stringify(order));
-        } catch {}
+          const remoteOrder = await downloadJsonNoCache(`orders/${item.name}`);
+          if (!remoteOrder?.id) return null;
 
-        const m2 = computeM2(order);
-        const total = Number(order.pay?.euro || computeTotalEuro(order));
-        const paid = Number(order.pay?.paid || 0);
-        const cope = computePieces(order);
+          // Prefer LOCAL copy when it exists.
+          let order = remoteOrder;
+          if (typeof window !== 'undefined') {
+            try {
+              const localRaw = localStorage.getItem(`order_${remoteOrder.id}`);
+              if (localRaw) {
+                const localOrder = JSON.parse(localRaw);
+                if (localOrder && localOrder.id === remoteOrder.id) {
+                  order = localOrder;
+                }
+              }
+            } catch {}
+          }
 
-        const readyTs =
-          (row.ready_at ? Date.parse(row.ready_at) : 0) ||
-          Number(order.ready_at) ||
-          Number(order.readyAt) ||
-          Number(order.ts) ||
-          (row.created_at ? Date.parse(row.created_at) : Date.now());
+          // mirror local (but DON'T overwrite a newer local state with remote)
+          if (typeof window !== 'undefined') {
+            try {
+              const existing = localStorage.getItem(`order_${remoteOrder.id}`);
+              if (!existing) localStorage.setItem(`order_${remoteOrder.id}`, JSON.stringify(remoteOrder));
+            } catch {}
+          }
 
-        return {
-          id: String(order.id),
-          ts: Number(order.ts || 0),
-          readyTs,
-          name: order.client?.name || '',
-          phone: order.client?.phone || '',
-          code: order.client?.code || order.code || '',
-          m2,
-          cope,
-          total,
-          paid,
-          paidUpfront: !!order.pay?.paidUpfront,
-          isReturn: !!order.returnInfo?.active,
-        };
+          if ((order.status || '') !== 'gati') return null;
+
+          const m2 = computeM2(order);
+          const total = Number(order.pay?.euro || computeTotalEuro(order));
+          const paid = Number(order.pay?.paid || 0);
+          const cope = computePieces(order);
+
+          // aging uses ready_at if exists (set from PASTRIMI), else ts fallback
+          const readyTs =
+            Number(order.ready_at) ||
+            Number(order.readyAt) ||
+            Number(order.gati_at) ||
+            Number(order.gatiAt) ||
+            Number(order.ts) ||
+            Date.now();
+
+          return {
+            id: String(order.id), // ✅ normalize to string to avoid id mismatch bugs
+            ts: Number(order.ts || 0),
+            readyTs,
+            name: order.client?.name || '',
+            phone: order.client?.phone || '',
+            code: order.client?.code || '',
+            m2,
+            cope,
+            total,
+            paid,
+            paidUpfront: !!order.pay?.paidUpfront,
+            isReturn: !!order.returnInfo?.active,
+          };
+        } catch {
+          return null;
+        }
       });
 
+      const res = await Promise.all(promises);
+      const list = res.filter(Boolean).sort((a, b) => (b.readyTs || 0) - (a.readyTs || 0));
       setOrders(list);
     } finally {
       setLoading(false);
@@ -269,8 +248,7 @@ export default function GatiPage() {
         order = null;
       }
       if (!order) {
-        const res = await dbFetchOrderById(row.id);
-        order = res.order;
+        order = await downloadJsonNoCache(`orders/${row.id}.json`);
         localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
       }
       if (!order) {
@@ -293,12 +271,110 @@ export default function GatiPage() {
         paidUpfront: !!order.pay?.paidUpfront,
         m2: computeM2(order),
       });
-      const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
-      setPayAdd(dueNow);
-      setPayMethod('CASH');
+
+      setPayAdd(0);
+      setPayMethod(order.pay?.method === 'CARD' ? 'CARD' : 'CASH');
       setShowPaySheet(true);
     } catch {
       alert('❌ Gabim gjatë hapjes së pagesës.');
+    }
+  }
+
+  // ✅ ONE-TAP DORËZIM për porosi "E PAGUAR NË FILLIM" (pa screen pagesash)
+  async function deliverPaidUpfront(row) {
+    try {
+      // load order (local first)
+      let order = null;
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem(`order_${row.id}`);
+          if (raw) order = JSON.parse(raw);
+        } catch {}
+      }
+      if (!order) {
+        order = await downloadJsonNoCache(`orders/${row.id}.json`);
+      }
+      if (!order) {
+        alert('Nuk u gjet porosia.');
+        return;
+      }
+
+      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
+      const paidAfter = Math.max(Number(order.pay?.paid || 0) || 0, total);
+      const nowIso = new Date().toISOString();
+      const nowMs = Date.now();
+
+      if (!confirm(`✅ E PAGUAR NË FILLIM\n\nKonfirmo DORËZIMIN?`)) return;
+
+      const updated = {
+        ...order,
+        status: 'dorzim',
+        deliveredAt: nowMs,
+        delivered_at: nowIso,
+        pickedUpAt: nowMs,
+        picked_up_at: nowIso,
+        returnInfo: { ...(order.returnInfo || {}), active: false },
+        pay: {
+          ...(order.pay || {}),
+          euro: total,
+          paid: paidAfter,
+          debt: 0,
+          change: 0,
+          method: order.pay?.method || 'CASH',
+        },
+      };
+
+      // remove from UI immediately
+      setOrders((prev) => prev.filter((x) => String(x.id) !== String(row.id)));
+
+      // local + storage json best effort
+      try {
+        localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
+        const blob =
+          typeof Blob !== 'undefined'
+            ? new Blob([JSON.stringify(updated)], { type: 'application/json' })
+            : null;
+        if (blob) {
+          await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
+            upsert: true,
+            cacheControl: '0',
+            contentType: 'application/json',
+          });
+        }
+      } catch (e) {
+        console.log('deliver upfront save storage/local fail', e);
+      }
+
+      // ✅ write to DB for MARRJE SOT
+      try {
+        const patch = {
+          status: 'delivered',
+          picked_up_at: nowIso,
+          total: Number(total || 0) || 0,
+          paid: Number(paidAfter || 0) || 0,
+          client_phone: String(updated.client?.phone || updated.client_phone || '').trim(),
+          data: updated,
+          updated_at: nowIso,
+        };
+
+        const dbId = Number(updated.id);
+        const q = supabase.from('orders').update(patch);
+        const { error } = Number.isFinite(dbId) ? await q.eq('id', dbId) : await q.eq('id', updated.id);
+        if (error) {
+          console.log('DB deliver upfront ERROR:', error);
+          alert('⚠️ DORËZIMI u bë lokal, por DB s’u përditësua. Shiko Console (DB deliver upfront ERROR).');
+        }
+      } catch (e) {
+        console.log('DB deliver upfront EX:', e);
+      }
+
+      alert('✅ Porosia u dorëzua.');
+      try {
+        await refreshOrders();
+      } catch {}
+    } catch (e) {
+      console.log('deliverPaidUpfront error', e);
+      alert('❌ Gabim në dorëzim.');
     }
   }
 
@@ -306,64 +382,15 @@ export default function GatiPage() {
     setShowPaySheet(false);
     setPayOrder(null);
     setPayAdd(0);
-    setPayDue(0);
     setPayMethod('CASH');
   }
 
-  async function applyPayOnly({ dueOverride, givenOverride } = {}) {
-    if (!payOrder) return;
-    const actor = readActor();
-    const amountExact = Math.max(0, round2(Number(dueOverride ?? payDue) || 0));
-    const cashGiven = Math.max(0, round2(Number(givenOverride ?? payAdd) || 0));
-
-    if (amountExact <= 0) {
-      setShowPaySheet(false);
-      return;
-    }
-    if (cashGiven < amountExact) {
-      alert('KLIENTI DHA MË PAK SE SHUMA. JU LUTEM FUTNI SHUMËN E PLOTË.');
-      return;
-    }
-
-    setPayErr('');
-    setPayBusy(true);
-    try {
-      // Record ONLY the exact remaining amount in system/ARKË
-      await recordOrderCashPayment({
-        supabase,
-        orderId: payOrder.id,
-        amount: amountExact,
-        method: 'CASH',
-        pin: actor?.pin || '2380',
-        meta: { source: 'GATI', mode: 'PAY_ONLY' },
-      });
-
-      // Update order totals
-      const newPaidTotal = round2((Number(payOrder.paid || 0)) + amountExact);
-      await updateOrderInDb({
-        supabase,
-        id: payOrder.id,
-        patch: {
-          paid_total: newPaidTotal,
-          debt: 0,
-          paid_upfront: false,
-          updated_by_pin: actor?.pin || '2380',
-        },
-      });
-
-      // Refresh UI
-      await loadOrders();
-      setShowPaySheet(false);
-    } catch (e) {
-      console.error(e);
-      setPayErr(e?.message || 'GABIM');
-      alert(e?.message || 'GABIM');
-    } finally {
-      setPayBusy(false);
-    }
+  function applyPayOnly() {
+    // Just close. Payment actually applied when confirming delivery (same “one place” logic).
+    setShowPaySheet(false);
   }
 
-  // ✅ FIXED: removes from GATI + writes picked_up_at to DB for MARRJE SOT (ONLY picked_up_at!)
+  // ✅ FIXED: removes from GATI + writes picked_up_at to DB for MARRJE SOT
   async function confirmDelivery() {
     if (!payOrder) return;
     const o = payOrder.order;
@@ -375,10 +402,8 @@ export default function GatiPage() {
 
     const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
     const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
-
-    const alreadyPaidFull = due <= 0;
-    if (!paidUpfront && !alreadyPaidFull && applied <= 0) {
-      alert('SHUMA NUK VLEN (0 €).');
+    if (!paidUpfront && applied <= 0) {
+      setShowPaySheet(false);
       return;
     }
 
@@ -406,10 +431,10 @@ export default function GatiPage() {
     const nowIso = new Date().toISOString();
     const nowMs = Date.now();
 
-    // local snapshot (legacy / storage)
+    // local snapshot (legacy)
     const updated = {
       ...o,
-      status: 'dorzim', // UI + storage flow
+      status: 'dorzim',
       deliveredAt: nowMs,
       delivered_at: nowIso,
       pickedUpAt: nowMs,
@@ -449,40 +474,67 @@ export default function GatiPage() {
       console.log('save storage/local fail', e);
     }
 
-    // ✅ DB: set status + timestamps via single endpoint, then persist payment snapshot in data
+    // ✅ CRITICAL: write to DB so MARRJE SOT can see it
     try {
-      await fetch('/api/orders/set-status', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: Number(payOrder.id), status: 'dorzim' }),
-      });
-      await supabase
-        .from('orders')
-        .update({ data: { ...updated, status: 'dorzim' }, picked_up_at: nowIso })
-        .eq('id', Number(payOrder.id));
+      const pickedIso = nowIso;
+      const patch = {
+        status: 'delivered',
+        picked_up_at: pickedIso, // ✅ MARRJE SOT reads this
+        total: Number(updated.pay?.euro || updated.total || 0) || 0,
+        paid: Number(updated.pay?.paid || updated.paid || 0) || 0,
+        client_phone: String(updated.client?.phone || updated.client_phone || '').trim(),
+        data: updated,
+        updated_at: pickedIso,
+      };
+
+      const dbId = Number(updated.id);
+      const q = supabase.from('orders').update(patch);
+      const { error } = Number.isFinite(dbId) ? await q.eq('id', dbId) : await q.eq('id', updated.id);
+
+      if (error) console.log('DB update delivered ERROR:', error);
     } catch (e) {
-      console.log('DB delivery update EX:', e);
+      console.log('DB update delivered EX:', e);
     }
 
-    // Record CASH payment (EXACT delta only). When ARKA is closed, it is stored as WAITING.
+    // ARKA record (only CASH + positive delta)
     if (willRecordCash && safeDelta > 0) {
+      const arkaRecord = {
+        id: `arka_${updated.id}_${Date.now()}`,
+        orderId: updated.id,
+        code: normalizeCode(updated.client?.code),
+        name: updated.client?.name || '',
+        phone: updated.client?.phone || '',
+        paid: safeDelta,
+        ts: Date.now(),
+        note: paidUpfront ? 'paid_upfront_delta' : 'delivery_cash_delta',
+      };
+
       try {
-        const actor = readActor();
-        await recordOrderCashPayment({
-          supabase,
-          orderId: Number(updated.id),
+        const cashRes = await recordCashMove({
+          externalId: arkaRecord.id,
+          orderId: updated.id,
+          code: arkaRecord.code,
+          name: (arkaRecord.name || '').trim(),
+          stage: 'GATI',
           amount: safeDelta,
+          note:
+            (paidUpfront ? 'AVANS ' : 'PAGESA ') +
+            safeDelta.toFixed(2) +
+            '€ • #' +
+            arkaRecord.code +
+            ' • ' +
+            (arkaRecord.name || '').trim(),
+          source: paidUpfront ? 'ORDER_FRONT' : 'ORDER_PAY',
           method: 'CASH',
-          pin: actor?.pin ? String(actor.pin) : null,
-          meta: {
-            page: 'GATI',
-            mode: paidUpfront ? 'paid_upfront_delta' : 'delivery_cash_delta',
-            code: normalizeCode(updated.client?.code),
-            name: (updated.client?.name || '').trim(),
-          },
+          type: 'IN',
         });
+
+        // If ARKA was closed (or HANDED), payment is saved as WAITING (PENDING)
+        if (cashRes?.pending) {
+          console.log('ARKA WAITING payment saved', cashRes);
+        }
       } catch (e) {
-        console.log('PAYMENT record error', e);
+        console.log('ARKA record error', e);
       }
     }
 
@@ -495,6 +547,7 @@ export default function GatiPage() {
 
     closePay();
 
+    // final refresh (helps iOS cache weirdness)
     try {
       await refreshOrders();
     } catch {}
@@ -575,6 +628,8 @@ export default function GatiPage() {
     const updated = {
       ...retOrder,
       status: 'pastrim',
+
+      // ✅ SNAPSHOT që PASTRIMI ta lexojë lehtë (pa kërku returnLog)
       returnInfo: {
         active: true,
         at: Date.now(),
@@ -584,6 +639,8 @@ export default function GatiPage() {
         photoUrl: entry.photoUrl,
         logId: entry.id,
       },
+
+      // ✅ HISTORI e plotë (opsionale)
       returnLog: Array.isArray(retOrder.returnLog) ? [entry, ...retOrder.returnLog] : [entry],
     };
 
@@ -602,6 +659,7 @@ export default function GatiPage() {
         });
       }
 
+      // optional audit file
       const blob2 =
         typeof Blob !== 'undefined'
           ? new Blob([JSON.stringify(entry)], { type: 'application/json' })
@@ -614,52 +672,13 @@ export default function GatiPage() {
         });
       }
 
+      // local return list
       try {
         const list = JSON.parse(localStorage.getItem('return_list_v1') || '[]');
         const next = Array.isArray(list) ? [entry, ...list].slice(0, 300) : [entry];
         localStorage.setItem('return_list_v1', JSON.stringify(next));
       } catch {
         localStorage.setItem('return_list_v1', JSON.stringify([entry]));
-      }
-
-      // 7) Sync to DB so it shows up in PASTRIMI (DB-driven list)
-      try {
-        const dbId = updated.db_id || updated.data?.db_id || null;
-        const nextData = {
-          ...(updated.data || {}),
-          status: 'pastrim',
-          is_return: true,
-          return_reason: returnReason || '',
-          return_at: ts,
-          ready_at: null,
-          picked_up_at: null,
-        delivered_at: null,
-        deliveredAt: null,
-        deliveredTs: null,
-        readyTs: null,
-        pickedTs: null,
-        pickedUpAt: null,
-        pickedUpTs: null,
-        };
-
-        if (dbId) {
-          await updateOrderInDb(dbId, {
-            status: 'pastrim',
-            ready_at: null,
-            picked_up_at: null,
-            data: nextData,
-          });
-        } else {
-          // Fallback for legacy orders that never had db_id
-          const res = await saveOrderToDb({ ...updated, data: nextData });
-          if (res?.db_id) {
-            updated.db_id = res.db_id;
-            if (updated.data) updated.data.db_id = res.db_id;
-          }
-        }
-      } catch (e) {
-        console.warn('DB sync (return) failed:', e);
-        // Don't block the flow; local storage + bucket already updated.
       }
     } catch (e) {
       console.error('return save fail', e);
@@ -687,8 +706,8 @@ export default function GatiPage() {
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
     }
-    if (holdFired.current) return;
-    openPay(row);
+    if (holdFired.current) return; // long press already opened return
+    openPay(row); // short press opens payment
   }
 
   // ---------------- RENDER ----------------
@@ -806,26 +825,32 @@ export default function GatiPage() {
                     SMS
                   </button>
 
-                  <button
-                    className="btn primary"
-                    style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      onPayPressStart(o);
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      onPayPressEnd(o);
-                    }}
-                    onPointerCancel={() => {
-                      if (holdTimer.current) clearTimeout(holdTimer.current);
-                    }}
-                    onPointerLeave={() => {
-                      if (holdTimer.current) clearTimeout(holdTimer.current);
-                    }}
-                  >
-                    💶 PAGUAJ
-                  </button>
+                  {o.paidUpfront ? (
+                    <button
+                      className="btn primary"
+                      style={{ padding: '6px 10px', fontSize: 12 }}
+                      onClick={() => deliverPaidUpfront(o)}
+                    >
+                      ✅ DORËZO
+                    </button>
+                  ) : (
+                    <button
+                      className="btn primary"
+                      style={{ padding: '6px 10px', fontSize: 12 }}
+                      onMouseDown={() => onPayPressStart(o)}
+                      onMouseUp={() => onPayPressEnd(o)}
+                      onMouseLeave={() => {
+                        if (holdTimer.current) clearTimeout(holdTimer.current);
+                      }}
+                      onTouchStart={() => onPayPressStart(o)}
+                      onTouchEnd={() => onPayPressEnd(o)}
+                      onTouchMove={() => {
+                        if (holdTimer.current) clearTimeout(holdTimer.current);
+                      }}
+                    >
+                      💶 PAGUAJ
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -839,26 +864,252 @@ export default function GatiPage() {
         </Link>
       </footer>
 
-      {/* ============ FULL SCREEN PAGESA ============ */}
-      {/* FULL SCREEN PAGESA (UNIFIED) */}
-      <PaySheetPortal
-        open={showPaySheet && !!payOrder}
-        title="PAGESA"
-        subtitle={payOrder ? `KODI: ${payOrder.code} • ${payOrder.name}` : ''}
-        total={Number(payOrder?.total || 0)}
-        paid={Number(payOrder?.paid || 0)}
-        arkaRecordedPaid={Number(payOrder?.arkaRecordedPaid || 0)}
-        onClose={closePay}
-        onConfirm={async ({ given, due }) => {
-          // Client gave = given; System registers ONLY exact due
-          const g = Number(given || 0);
-          const d = Number(due || 0);
-          if (g < d) { alert('KLIENTI DHA MË PAK SE SHUMA. JU LUTEM FUTNI SHUMËN E PLOTË.'); return; }
-          setPayAdd(g);
-          setPayDue(d);
-          await applyPayOnly({ dueOverride: d, givenOverride: g });
-        }}
-      />
+      {/* ============ FULL SCREEN PAGESA (si PASTRIMI) ============ */}
+      {showPaySheet && payOrder && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">PAGESA</div>
+              <div className="payfs-sub">
+                KODI: {payOrder.code} • {payOrder.name}
+              </div>
+              {payOrder.paidUpfront && (
+                <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 900, marginTop: 4 }}>
+                  ✅ E PAGUAR NË FILLIM
+                </div>
+              )}
+            </div>
+            <button className="btn secondary" onClick={closePay}>
+              ✕
+            </button>
+          </div>
+
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="tot-line">
+                TOTAL: <strong>{Number(payOrder.total || 0).toFixed(2)} €</strong>
+              </div>
+              <div className="tot-line">
+                PAGUAR DERI TANI:{' '}
+                <strong style={{ color: '#16a34a' }}>{Number(payOrder.paid || 0).toFixed(2)} €</strong>
+              </div>
+              <div className="tot-line" style={{ fontSize: 12, color: '#666' }}>
+                REGJISTRU N&apos;ARKË DERI TANI:{' '}
+                <strong>{Number(payOrder.arkaRecordedPaid || 0).toFixed(2)} €</strong>
+              </div>
+
+              <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>
+                SOT PAGUAN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong>
+              </div>
+
+              {(() => {
+                const total = Number(payOrder.total || 0);
+                const paidBefore = Number(payOrder.paid || 0);
+                const paidUpfront = !!payOrder.paidUpfront;
+
+                const paidAfter = paidUpfront
+                  ? Math.max(paidBefore, total)
+                  : Number((paidBefore + Number(payAdd || 0)).toFixed(2));
+                const d = Number((total - paidAfter).toFixed(2));
+                const debtNow = d > 0 ? d : 0;
+                const changeNow = d < 0 ? Math.abs(d) : 0;
+
+                return (
+                  <>
+                    <div className="tot-line">
+                      PAGUAR PAS KËSAJ:{' '}
+                      <strong style={{ color: '#16a34a' }}>{paidAfter.toFixed(2)} €</strong>
+                    </div>
+                    {debtNow > 0 && (
+                      <div className="tot-line">
+                        BORXH: <strong style={{ color: '#dc2626' }}>{debtNow.toFixed(2)} €</strong>
+                      </div>
+                    )}
+                    {changeNow > 0 && (
+                      <div className="tot-line">
+                        KTHIM: <strong style={{ color: '#2563eb' }}>{changeNow.toFixed(2)} €</strong>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+
+            {!payOrder.paidUpfront && (
+              <div className="card">
+                <div className="field-group">
+                  <label className="label">SHTO PAGESË (€) — VETËM SOT</label>
+
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    pattern="[0-9]*"
+                    className="input"
+                    value={Number(payAdd || 0) === 0 ? '' : payAdd}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setPayAdd(v === '' ? 0 : Number(v));
+                    }}
+                  />
+
+                  <div className="chip-row" style={{ marginTop: 10 }}>
+                    {PAY_CHIPS.map((v) => (
+                      <button
+                        key={v}
+                        className="chip"
+                        type="button"
+                        onClick={() => setPayAdd(v)}
+                      >
+                        {v}€
+                      </button>
+                    ))}
+                    <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>
+                      FSHI
+                    </button>
+                  </div>
+                </div>
+
+                <div className="field-group">
+                  <label className="label">METODA</label>
+
+                  {/* iOS fix: avoid native <select> overlay stealing taps */}
+                  <div className="row" style={{ gap: 10 }}>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      style={{ flex: 1, outline: payMethod === 'CASH' ? '2px solid rgba(255,255,255,0.35)' : 'none' }}
+                      onClick={() => setPayMethod('CASH')}
+                    >
+                      CASH
+                    </button>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      style={{ flex: 1, outline: payMethod === 'CARD' ? '2px solid rgba(255,255,255,0.35)' : 'none' }}
+                      onClick={() => setPayMethod('CARD')}
+                    >
+                      CARD / TRANSFER
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
+                  * CASH regjistrohet në ARKË. CARD/TRANSFER nuk hyn në ARKË.
+                </div>
+              </div>
+            )}
+
+            {payOrder.paidUpfront && (
+              <div className="card">
+                <div style={{ fontSize: 12, color: '#666' }}>
+                  * Kjo porosi është e paguar në fillim. Shtyp “KONFIRMO DORËZIMIN”.
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="payfs-footer">
+            <button className="btn secondary" onClick={closePay}>
+              ANULO
+            </button>
+            <button className="btn secondary" onClick={applyPayOnly}>
+              RUJ (PA DORËZU)
+            </button>
+            <button className="btn primary" onClick={confirmDelivery}>
+              KONFIRMO DORËZIMIN
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============ HIDDEN RETURN FULLSCREEN (HOLD 3s) ============ */}
+      {showReturnSheet && retOrder && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">KTHIM (HIDDEN)</div>
+              <div className="payfs-sub">
+                KODI: {normalizeCode(retOrder.client?.code)} • {retOrder.client?.name || ''}
+              </div>
+            </div>
+            <button className="btn secondary" onClick={closeReturn} disabled={photoUploading}>
+              ✕
+            </button>
+          </div>
+
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="field-group">
+                <label className="label">PSE PO KTHEHET?</label>
+                <select className="input" value={retReason} onChange={(e) => setRetReason(e.target.value)}>
+                  <option value="">— ZGJIDH —</option>
+                  <option value="SHTESË LARJE / NJOLLA">SHTESË LARJE / NJOLLA</option>
+                  <option value="ANKESË KLIENTI">ANKESË KLIENTI</option>
+                  <option value="GABIM NË POROSI">GABIM NË POROSI</option>
+                  <option value="TJETER">TJETER</option>
+                </select>
+              </div>
+
+              <div className="field-group">
+                <label className="label">SHËNIM / DOKUMENTIM</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={retNote}
+                  onChange={(e) => setRetNote(e.target.value)}
+                  placeholder="P.sh. klienti kërkoi larje shtesë, u lanë edhe njëherë, etj..."
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="label">FOTO (OPSIONALE)</label>
+                <label className="camera-btn" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                  📷 SHTO FOTO
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleReturnPhoto(e.target.files?.[0])}
+                  />
+                </label>
+
+                {retPhotoUrl && (
+                  <div style={{ marginTop: 10 }}>
+                    <img src={retPhotoUrl} className="photo-thumb" alt="" />
+                    <button
+                      className="btn secondary"
+                      style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 6 }}
+                      onClick={() => setRetPhotoUrl('')}
+                      disabled={photoUploading}
+                    >
+                      🗑️ FSHI FOTO
+                    </button>
+                  </div>
+                )}
+
+                {photoUploading && <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>Duke ngarkuar foton…</div>}
+              </div>
+            </div>
+
+            <div className="card">
+              <div style={{ fontSize: 12, color: '#666' }}>
+                * Kjo screen nuk shfaqet në UI normal. Hapet vetëm me HOLD 3 SEK te “PAGUAJ”.
+              </div>
+            </div>
+          </div>
+
+          <div className="payfs-footer" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <button className="btn secondary" onClick={closeReturn} disabled={photoUploading}>
+              ANULO
+            </button>
+            <button className="btn primary" onClick={confirmReturn} disabled={photoUploading}>
+              KONFIRMO KTHIMIN
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Styles: dock + payfs */}
       <style jsx>{`
         .dock {
           position: sticky;
