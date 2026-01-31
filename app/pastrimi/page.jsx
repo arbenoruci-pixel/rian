@@ -181,7 +181,7 @@ export default function PastrimiPage() {
     const { data, error } = await supabase
       .from('orders')
       .select('id,status,ready_at,picked_up_at,created_at,data')
-      .eq('id', Number(idNum))
+      .eq('id', idNum)
       .single();
     if (error || !data) throw error || new Error('ORDER_NOT_FOUND');
 
@@ -570,7 +570,7 @@ export default function PastrimiPage() {
           data: { ...order, status: 'pastrim' },
           updated_at: nowIso,
         })
-        .eq('id', Number(oid));
+        .eq('id', oid);
       if (dbErr) throw dbErr;
 
       localStorage.setItem(`order_${oid}`, JSON.stringify(order));

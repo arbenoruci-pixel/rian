@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { recordOrderCashPayment } from '@/components/payments/payService';
 import { saveOrderToDb, updateOrderInDb } from '@/lib/ordersDb';
-import { recordCashMove } from '@/components/payments/payments';
 
 function readActor() {
   try {
@@ -321,21 +320,161 @@ export default function GatiPage() {
     setPayBusy(true);
     try {
       // Record ONLY the exact remaining amount in system/ARKË
-        await recordCashMove({
-    amount: safeDelta,
-    type: 'IN',
-    order_id: Number(updated.id),
-    order_code: normalizeCode(updated.client?.code),
-    client_name: (updated.client?.name || '').trim(),
-    note: 'GATI PAYMENT',
-    source: 'GATI',
-    user: actor?.pin ? String(actor.pin) : 'SYSTEM',
-    created_by_pin: actor?.pin ? String(actor.pin) : null,
-    created_by_name: actor?.name || null,
-  });
-} catch (e) {
-  console.log('PAYMENT record error', e);
-}
+      await recordOrderCashPayment({
+        supabase,
+        orderId: payOrder.id,
+        amount: amountExact,
+        method: 'CASH',
+        pin: actor?.pin || '2380',
+        meta: { source: 'GATI', mode: 'PAY_ONLY' },
+      });
+
+      // Update order totals
+      const newPaidTotal = round2((Number(payOrder.paid || 0)) + amountExact);
+      await updateOrderInDb({
+        supabase,
+        id: payOrder.id,
+        patch: {
+          paid_total: newPaidTotal,
+          debt: 0,
+          paid_upfront: false,
+          updated_by_pin: actor?.pin || '2380',
+        },
+      });
+
+      // Refresh UI
+      await loadOrders();
+      setShowPaySheet(false);
+    } catch (e) {
+      console.error(e);
+      setPayErr(e?.message || 'GABIM');
+      alert(e?.message || 'GABIM');
+    } finally {
+      setPayBusy(false);
+    }
+  }
+
+  // ✅ FIXED: removes from GATI + writes picked_up_at to DB for MARRJE SOT (ONLY picked_up_at!)
+  async function confirmDelivery() {
+    if (!payOrder) return;
+    const o = payOrder.order;
+
+    const total = Number(payOrder.total || 0);
+    const paidBefore = Number(payOrder.paid || 0);
+    const cashGiven = Number((Number(payAdd || 0)).toFixed(2));
+    const paidUpfront = !!payOrder.paidUpfront;
+
+    const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
+    const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
+
+    const alreadyPaidFull = due <= 0;
+    if (!paidUpfront && !alreadyPaidFull && applied <= 0) {
+      alert('SHUMA NUK VLEN (0 €).');
+      return;
+    }
+
+    const paidAfter = paidUpfront ? Math.max(paidBefore, total) : Number((paidBefore + applied).toFixed(2));
+    const debt = Math.max(0, Number((total - paidAfter).toFixed(2)));
+    const change = paidUpfront ? 0 : Math.max(0, Number((cashGiven - applied).toFixed(2)));
+
+    const prevArka = Number(o.pay?.arkaRecordedPaid || 0);
+    const willRecordCash = payMethod === 'CASH';
+
+    const targetCashRecorded = willRecordCash ? paidAfter : prevArka;
+    const delta = willRecordCash ? Number((targetCashRecorded - prevArka).toFixed(2)) : 0;
+    const safeDelta = Math.max(0, delta);
+    const finalArka = willRecordCash ? Number((prevArka + safeDelta).toFixed(2)) : prevArka;
+
+    const msg =
+      `Totali: ${total.toFixed(2)} €\n` +
+      (paidUpfront ? `✅ E PAGUAR NË FILLIM\n` : `Paguar pas kësaj: ${paidAfter.toFixed(2)} €\n`) +
+      `Borxh: ${debt.toFixed(2)} €\n` +
+      `Kthim: ${change.toFixed(2)} €\n\n` +
+      `Konfirmo DORËZIMIN?`;
+
+    if (!confirm(msg)) return;
+
+    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+
+    // local snapshot (legacy / storage)
+    const updated = {
+      ...o,
+      status: 'dorzim', // UI + storage flow
+      deliveredAt: nowMs,
+      delivered_at: nowIso,
+      pickedUpAt: nowMs,
+      picked_up_at: nowIso,
+      returnInfo: { ...(o.returnInfo || {}), active: false },
+      pay: {
+        ...(o.pay || {}),
+        m2: payOrder.m2,
+        euro: total,
+        paid: paidAfter,
+        debt,
+        change,
+        method: payMethod,
+        arkaRecordedPaid: finalArka,
+      },
+    };
+
+    // ✅ IMMEDIATE UI REMOVE (string/number safe)
+    const uid = String(updated.id);
+    setOrders((prev) => prev.filter((x) => String(x.id) !== uid));
+
+    // save to localStorage + storage json (best-effort)
+    try {
+      localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
+      const blob =
+        typeof Blob !== 'undefined'
+          ? new Blob([JSON.stringify(updated)], { type: 'application/json' })
+          : null;
+      if (blob) {
+        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
+      }
+    } catch (e) {
+      console.log('save storage/local fail', e);
+    }
+
+    // ✅ DB: set status + timestamps via single endpoint, then persist payment snapshot in data
+    try {
+      await fetch('/api/orders/set-status', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: payOrder.id, status: 'dorzim' }),
+      });
+      await supabase
+        .from('orders')
+        .update({ data: { ...updated, status: 'dorzim' }, picked_up_at: nowIso })
+        .eq('id', payOrder.id);
+    } catch (e) {
+      console.log('DB delivery update EX:', e);
+    }
+
+    // Record CASH payment (EXACT delta only). When ARKA is closed, it is stored as WAITING.
+    if (willRecordCash && safeDelta > 0) {
+      try {
+        const actor = readActor();
+        await recordOrderCashPayment({
+          supabase,
+          orderId: updated.id,
+          amount: safeDelta,
+          method: 'CASH',
+          pin: actor?.pin ? String(actor.pin) : null,
+          meta: {
+            page: 'GATI',
+            mode: paidUpfront ? 'paid_upfront_delta' : 'delivery_cash_delta',
+            code: normalizeCode(updated.client?.code),
+            name: (updated.client?.name || '').trim(),
+          },
+        });
+      } catch (e) {
+        console.log('PAYMENT record error', e);
+      }
     }
 
     alert(
@@ -731,11 +870,11 @@ export default function GatiPage() {
 
               {(() => {
                   const totalEuro = Number(payOrder.total || 0);
-                  const dueNow = Number((totalEuro - Number(payOrder.paid || 0)).toFixed(2));
+                  const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
                   const dueSafe = dueNow > 0 ? dueNow : 0;
                   const given = Number((Number(payAdd || 0)).toFixed(2));
                   const applied = Number((Math.min(given, dueSafe)).toFixed(2));
-                  const paidAfter = Number((Number(payOrder.paid || 0) + applied).toFixed(2));
+                  const paidAfter = Number((Number(clientPaid || 0) + applied).toFixed(2));
                   const debtNow = Number((totalEuro - paidAfter).toFixed(2));
                   const debtSafe = debtNow > 0 ? debtNow : 0;
                   const changeNow = given > dueSafe ? Number((given - dueSafe).toFixed(2)) : 0;
