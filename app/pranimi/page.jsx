@@ -166,11 +166,11 @@ function extractDigitsFromFilename(name) {
 
 async function reserveSharedCode() {
   try {
-    const { data, error } = await supabase.storage.from(BUCKET).list('codes', { limit: 1000 });
+    const { data, error } = await supabase.storage.from(BUCKET).list('codes', { limit: 2000 });
     if (error) throw error;
 
     const used = new Set();
-    const active = new Set();
+    const active = new Map(); // n -> updated_at timestamp
     const now = Date.now();
     const LEASE_MIN = 30;
 
@@ -182,38 +182,41 @@ async function reserveSharedCode() {
       if (name.endsWith('.used')) used.add(n);
 
       if (name.endsWith('.lock')) {
-        const parts = name.split('.');
-        const ts = parts?.[1] ? parseInt(parts[1], 10) : 0;
+        // Prefer storage metadata timestamp (more reliable than encoding ts in filename)
+        const ts = item.updated_at ? Date.parse(item.updated_at) : (item.created_at ? Date.parse(item.created_at) : 0);
         const ageMin = ts ? (now - ts) / 60000 : 0;
 
-        if (ageMin > LEASE_MIN) {
+        if (ageMin && ageMin > LEASE_MIN) {
+          // stale lock -> remove
           supabase.storage.from(BUCKET).remove([`codes/${name}`]).catch(() => {});
         } else {
-          active.add(n);
+          active.set(n, ts || now);
         }
       }
     }
 
+    // Try to lock the first free candidate. IMPORTANT: lock path must be constant per code,
+    // otherwise two devices can lock the same code with different timestamps.
     let candidate = 1;
-    while (used.has(candidate) || active.has(candidate)) candidate++;
 
-    const lockName = `codes/${candidate}.${Date.now()}.lock`;
-    const file =
-      typeof File !== 'undefined'
-        ? new File([String(Date.now())], 'lock.txt', { type: 'text/plain' })
-        : null;
+    for (let attempt = 0; attempt < 2000; attempt++) {
+      while (used.has(candidate) || active.has(candidate)) candidate++;
 
-    if (file) {
-      const { error: upErr } = await supabase.storage.from(BUCKET).upload(lockName, file, { upsert: false });
-      if (upErr) {
-        const key = 'client_code_counter';
-        const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
-        localStorage.setItem(key, String(n));
-        return String(n);
-      }
+      const lockName = `codes/${candidate}.lock`;
+      const blob = new Blob([JSON.stringify({ at: new Date().toISOString(), n: candidate })], { type: 'application/json' });
+
+      const { error: upErr } = await supabase.storage.from(BUCKET).upload(lockName, blob, { upsert: false, cacheControl: '0' });
+      if (!upErr) return String(candidate);
+
+      // If lock already exists, move to next candidate and retry
+      candidate++;
     }
 
-    return String(candidate);
+    // fallback
+    const key = 'client_code_counter';
+    const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
+    localStorage.setItem(key, String(n));
+    return String(n);
   } catch {
     const key = 'client_code_counter';
     const n = (parseInt(localStorage.getItem(key) || '0', 10) || 0) + 1;
@@ -234,15 +237,8 @@ async function markCodeUsed(code) {
 async function releaseLocksForCode(code) {
   try {
     const n = normalizeCode(code);
-    const { data } = await supabase.storage.from(BUCKET).list('codes', { limit: 1000 });
-    const toRemove = [];
-    for (const item of data || []) {
-      const name = item.name;
-      if (!name.endsWith('.lock')) continue;
-      const digits = extractDigitsFromFilename(name);
-      if (digits && String(digits) === String(n)) toRemove.push(`codes/${name}`);
-    }
-    if (toRemove.length) await supabase.storage.from(BUCKET).remove(toRemove);
+    const lockPath = `codes/${n}.lock`;
+    await supabase.storage.from(BUCKET).remove([lockPath]);
   } catch {}
 }
 
@@ -466,7 +462,6 @@ export default function PranimiPage() {
   const phonePrefix = '+383';
 
   const [creating, setCreating] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
 
   const [oid, setOid] = useState('');
@@ -575,26 +570,6 @@ useEffect(() => {
   // ✅ long press refs
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
-
-  // ✅ prevent accidental € PAGESA while scrolling
-  const payTouchRef = useRef({ x: 0, y: 0, moved: false });
-  function payPointerDown(e) {
-    const t = e?.touches?.[0] || e;
-    if (!t) return;
-    payTouchRef.current = { x: t.clientX, y: t.clientY, moved: false };
-  }
-  function payPointerMove(e) {
-    const t = e?.touches?.[0] || e;
-    if (!t) return;
-    const dx = Math.abs((t.clientX || 0) - (payTouchRef.current.x || 0));
-    const dy = Math.abs((t.clientY || 0) - (payTouchRef.current.y || 0));
-    if (dx > 10 || dy > 10) payTouchRef.current.moved = true;
-  }
-  function payPointerUp() {
-    if (payTouchRef.current.moved) return;
-    openPay();
-  }
-
 
   async function refreshDrafts() {
     try {
@@ -1129,10 +1104,8 @@ function saveOfflineQueueItem(order) {
   }
 }
 
-  async async function handleContinue() {
-    if (saving) return;
+  async function handleContinue() {
     if (!validateBeforeContinue()) return;
-    setSaving(true);
 
     try {
       const order = {
@@ -1241,8 +1214,6 @@ if (offlineMode || !conn.ok) {
     } catch (e) {
       alert('❌ Gabim ruajtja!');
     }
-    try { setSaving(false); } catch {}
-
   }
 
   function openDrafts() {
@@ -1720,7 +1691,8 @@ return (
       {/* FOOTER */}
       <footer className="footer-bar">
         <button className="btn secondary" onClick={() => router.push('/')}>🏠 HOME</button>
-        <button className="btn primary" onClick={handleContinue} disabled={photoUploading || saving} disabled={photoUploading}>          {saving ? "⏳ DUKE RUAJT…" : "▶ VAZHDO"}
+        <button className="btn primary" onClick={handleContinue} disabled={photoUploading}>
+          ▶ VAZHDO
         </button>
       </footer>
 
