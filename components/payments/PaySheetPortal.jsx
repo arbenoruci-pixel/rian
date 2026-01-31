@@ -1,9 +1,12 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 
+// Chips për shumat e shpejta cash
 const CASH_CHIPS = [5, 10, 20, 30, 50];
 
+// Helper për pastrimin e numrave (zëvendëson round2)
 function toNum(x) {
   const n = Number(String(x ?? '').replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
@@ -17,44 +20,49 @@ export default function PaySheetPortal({
   paid = 0,
   arkaRecordedPaid = 0,
   onClose,
-  onConfirm, 
+  onConfirm, // async ({ given, apply, change, due }) => {}
   onPayOnly = null,
   payOnlyLabel = 'RUJ (PA DORËZU)',
   confirmLabel = 'KONFIRMO',
 }) {
   const [mounted, setMounted] = useState(false);
   const [givenStr, setGivenStr] = useState('');
-  
-  // KËTU ËSHTË FIX-I: Definojmë variablat që mungonin e po shkaktojnë crash
-  const [payBusy, setPayBusy] = useState(false);
-  const [payErr, setPayErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
 
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
-  // LLOGARITJA E BORXHIT
+  // KALKULIMI I BORXHIT (due)
   const due = useMemo(() => {
     const t = toNum(total);
     const p = toNum(paid);
     return Math.max(0, Number((t - p).toFixed(2)));
   }, [total, paid]);
 
+  // SHUMA QË JEP KLIENTI (given)
   const given = useMemo(() => toNum(givenStr), [givenStr]);
 
-  // KËTO JANË VARIABLAT QË I DUHEN ARKËS TËNDE PËR ME HY PARET
-  const totalEuro = due; 
-  const clientPaid = given;
+  // SHUMA QË REGJISTROHET NË SISTEM (apply)
+  // Nuk e kalon kurrë borxhin (due)
+  const apply = useMemo(() => {
+    return due;
+  }, [due]);
 
+  // KTHIMI (change)
   const change = useMemo(() => {
     return Math.max(0, Number((given - due).toFixed(2)));
   }, [given, due]);
 
+  // Resetohet gjendja kur hapet modal-i
   useEffect(() => {
     if (!open) return;
-    setPayErr('');
+    setErr('');
     setGivenStr(String(due || 0));
+    
+    // Bllokon scrolling e faqes mbrapa
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
@@ -63,45 +71,40 @@ export default function PaySheetPortal({
   if (!open || !mounted) return null;
 
   const pickChip = (v) => {
-    setPayErr('');
+    setErr('');
     setGivenStr(String(v));
   };
 
-  const doConfirm = async () => {
-    if (payBusy) return;
-    setPayErr('');
+  const handleAction = async (callback) => {
+    if (busy || !callback) return;
+    setErr('');
     try {
-      setPayBusy(true);
-      // Dërgojmë të gjitha variablat që arka të jetë e kënaqur
-      await onConfirm?.({ 
-        given, 
-        apply: due, 
-        change, 
-        due, 
-        totalEuro, 
-        clientPaid 
-      });
+      setBusy(true);
+      // Kalojmë të gjitha variablat që kërkon faqja GATI
+      await callback({ given, apply, change, due });
     } catch (e) {
-      setPayErr(String(e?.message || e || 'ERROR'));
+      setErr(String(e?.message || e || 'GABIM GJATË PROCESIMIT'));
     } finally {
-      setPayBusy(false);
+      setBusy(false);
     }
   };
 
-  return (
+  const body = (
     <div className="payfs">
+      {/* HEADER */}
       <div className="payfs-top">
         <div>
           <div className="payfs-title">{title}</div>
           {!!subtitle && <div className="payfs-sub">{subtitle}</div>}
         </div>
-        <button type="button" className="payfs-x" onClick={onClose}>×</button>
+        <button type="button" className="payfs-x" onClick={onClose} aria-label="Close">×</button>
       </div>
 
       <div className="payfs-body">
+        {/* KARTA E TOTALIT */}
         <div className="payfs-card">
           <div className="row">
-            <span>TOTAL:</span>
+            <span>TOTALI PËR RENDITJE:</span>
             <strong>{toNum(total).toFixed(2)} €</strong>
           </div>
           <div className="row">
@@ -109,75 +112,99 @@ export default function PaySheetPortal({
             <strong style={{ color: '#22c55e' }}>{toNum(paid).toFixed(2)} €</strong>
           </div>
           <div className="row dim">
-            <span>ARKË (HISTORIK):</span>
+            <span>NË ARKË (HISTORIKU):</span>
             <strong className="dim">{toNum(arkaRecordedPaid).toFixed(2)} €</strong>
           </div>
           <div className="line" />
-          <div className="row">
-            <span>BORXH I MBETUR:</span>
-            <strong style={{ color: '#facc15', fontSize: '20px' }}>{due.toFixed(2)} €</strong>
+
+          <div className="row big-due">
+            <span>BORXHI I MBETUR:</span>
+            <strong className="due-amount">{due.toFixed(2)} €</strong>
           </div>
           {change > 0 && (
-            <div className="row">
-              <span>KTHIM (KUSURI):</span>
+            <div className="row highlight-change">
+              <span>KTHIMI PËR KLIENTIN:</span>
               <strong style={{ color: '#60a5fa' }}>{change.toFixed(2)} €</strong>
             </div>
           )}
         </div>
 
+        {/* INPUTI DHE CHIPS */}
         <div className="payfs-card">
-          <div className="label">KLIENTI DHA (€)</div>
+          <div className="label">KLIENTI DHA NË DORË (€)</div>
           <input
             className="inp"
+            type="text"
             inputMode="decimal"
             value={givenStr}
-            onChange={(e) => { setPayErr(''); setGivenStr(e.target.value); }}
+            onChange={(e) => { setErr(''); setGivenStr(e.target.value); }}
+            autoFocus
           />
 
           <div className="chips">
-            <button type="button" className="chip primary-btn" onClick={() => pickChip(due)}>EXACT</button>
+            <button type="button" className="chip bold-chip" onClick={() => pickChip(due)}>EXACT</button>
             {CASH_CHIPS.map((n) => (
-              <button type="button" key={n} className="chip" onClick={() => pickChip(n)}>{n}€</button>
+              <button type="button" key={n} className="chip" onClick={() => pickChip(n)}>
+                {n}€
+              </button>
             ))}
-            <button type="button" className="chip danger-btn" onClick={() => pickChip(0)}>FSHI</button>
+            <button type="button" className="chip danger" onClick={() => pickChip(0)}>FSHI</button>
           </div>
 
-          {/* MESAZHI I GABIMIT QË PO SHKAKTONTE CRASH TANI ËSHTË I FIX-UAR */}
-          {!!payErr && <div className="error-box">{payErr}</div>}
-        </div>
+          <div className="note">
+             Sistemi regjistron vetëm <b>{due.toFixed(2)} €</b>. Diferenca llogaritet si kthim fizik.
+          </div>
 
-        <div className="payfs-footer">
-          <button type="button" className="btn secondary" onClick={onClose} disabled={payBusy}>ANULO</button>
-          <button type="button" className="btn primary" onClick={doConfirm} disabled={payBusy}>
-            {payBusy ? 'DUKE RUJT...' : confirmLabel}
-          </button>
+          {!!err && <div className="err-box">{err}</div>}
         </div>
       </div>
 
+      {/* FOOTER ME VEPRIMET */}
+      <div className="payfs-footer">
+        <button type="button" className="btn secondary" onClick={onClose} disabled={busy}>ANULO</button>
+        
+        {onPayOnly && (
+          <button type="button" className="btn secondary" onClick={() => handleAction(onPayOnly)} disabled={busy}>
+            {busy ? '...' : payOnlyLabel}
+          </button>
+        )}
+        
+        <button type="button" className="btn primary" onClick={() => handleAction(onConfirm)} disabled={busy}>
+          {busy ? 'DUKE RUJT...' : confirmLabel}
+        </button>
+      </div>
+
       <style jsx>{`
-        .payfs { position: fixed; inset: 0; z-index: 999999; background: #0b0b0b; display: flex; flex-direction: column; }
-        .payfs-top { display: flex; justify-content: space-between; align-items: center; padding: 14px; border-bottom: 1px solid rgba(255,255,255,.08); }
-        .payfs-title { color: #fff; font-weight: 900; letter-spacing: .08em; }
-        .payfs-sub { color: rgba(255,255,255,.7); font-size: 12px; margin-top: 4px; }
-        .payfs-x { background: transparent; border: none; color: #fff; font-size: 28px; padding: 0 6px; }
-        .payfs-body { padding: 14px; overflow: auto; flex: 1; }
-        .payfs-card { background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); border-radius: 18px; padding: 14px; margin-bottom: 12px; }
-        .row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; color: #fff; font-weight: 800; }
-        .dim { color: rgba(255,255,255,.45) !important; font-weight: 700; }
-        .line { height: 1px; background: rgba(255,255,255,.08); margin: 8px 0; }
-        .label { color: rgba(255,255,255,.65); font-weight: 900; font-size: 12px; margin-bottom: 8px; }
-        .inp { width: 100%; padding: 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.12); background: #0b1220; color: #fff; font-size: 20px; font-weight: 900; }
-        .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-        .chip { padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.12); background: transparent; color: #fff; font-weight: 900; }
-        .primary-btn { border-color: #2563eb; color: #60a5fa; }
-        .danger-btn { border-color: #ef4444; color: #ef4444; }
-        .error-box { margin-top: 10px; background: #450a0a; color: #f87171; padding: 12px; border-radius: 12px; font-weight: 800; font-size: 13px; text-align: center; }
-        .payfs-footer { display: flex; gap: 10px; padding: 14px; border-top: 1px solid rgba(255,255,255,.08); }
-        .btn { flex: 1; padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.12); font-weight: 900; }
-        .btn.secondary { background: transparent; color: #fff; }
-        .btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-        .btn:disabled { opacity: .6; }
+        .payfs { position: fixed; inset: 0; z-index: 9999999; background: #000; display: flex; flex-direction: column; font-family: sans-serif; }
+        .payfs-top { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid #222; }
+        .payfs-title { color: #fff; font-size: 20px; font-weight: 900; letter-spacing: 1px; }
+        .payfs-sub { color: #888; font-size: 13px; margin-top: 4px; }
+        .payfs-x { background: transparent; border: none; color: #fff; font-size: 32px; cursor: pointer; }
+        .payfs-body { padding: 16px; overflow-y: auto; flex: 1; }
+        .payfs-card { background: #111; border: 1px solid #222; border-radius: 24px; padding: 20px; margin-bottom: 16px; }
+        .row { display: flex; justify-content: space-between; padding: 8px 0; color: #eee; font-size: 14px; font-weight: 600; }
+        .big-due { font-size: 18px; color: #fff; margin-top: 10px; }
+        .due-amount { color: #facc15; font-size: 22px; font-weight: 900; }
+        .dim { color: #555 !important; }
+        .line { height: 1px; background: #222; margin: 12px 0; }
+        .label { color: #888; font-weight: 800; font-size: 12px; margin-bottom: 12px; letter-spacing: 0.5px; }
+        .inp { width: 100%; padding: 18px; border-radius: 16px; border: 2px solid #333; background: #000; color: #fff; font-size: 24px; font-weight: 900; outline: none; }
+        .inp:focus { border-color: #2563eb; }
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+        .chip { flex: 1; min-width: 60px; padding: 12px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-weight: 700; cursor: pointer; }
+        .bold-chip { border-color: #2563eb; color: #60a5fa; }
+        .chip.danger { border-color: #450a0a; color: #ef4444; }
+        .note { margin-top: 15px; color: #666; font-size: 12px; line-height: 1.4; }
+        .err-box { margin-top: 15px; background: #450a0a; color: #ff8888; padding: 12px; border-radius: 12px; font-weight: 700; font-size: 13px; }
+        .payfs-footer { display: flex; gap: 12px; padding: 20px; background: #000; border-top: 1px solid #222; }
+        .btn { flex: 1; padding: 18px; border-radius: 18px; font-weight: 900; cursor: pointer; transition: all 0.2s; border: none; }
+        .btn.secondary { background: #1a1a1a; color: #fff; }
+        .btn.primary { background: #2563eb; color: #fff; }
+        .btn:active { transform: scale(0.96); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
       `}</style>
     </div>
   );
+
+  return createPortal(body, document.body);
 }
