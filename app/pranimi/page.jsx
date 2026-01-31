@@ -63,29 +63,6 @@ function sanitizePhone(phone) {
 }
 
 
-function normName(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
-
-function hasDuplicateClient(nameVal, phoneVal){
-  try{
-    const cacheKey = 'tepiha_clients_index_v1';
-    const raw = localStorage.getItem(cacheKey);
-    if(!raw) return false;
-    const cached = JSON.parse(raw);
-    const items = Array.isArray(cached?.items) ? cached.items : [];
-    const ph = sanitizePhone(phonePrefix + (phoneVal || ''));
-    const nm = normName(nameVal);
-    if(!ph && !nm) return false;
-    return items.some((c)=>{
-      const cph = sanitizePhone(String(c?.phone||c?.client_phone||''));
-      const cnm = normName(c?.name || c?.client_name || '');
-      if(ph && cph && ph === cph) return true;
-      if(nm && cnm && nm.split(' ').length>=2 && nm === cnm) return true;
-      return false;
-    });
-  } catch { return false; }
-}
-
-
 function normDigits(s) {
   return String(s || '').replace(/\D+/g, '');
 }
@@ -540,6 +517,7 @@ export default function PranimiPage() {
 
   // ✅ price editor (long-press on € PAGESA)
   const [showPriceSheet, setShowPriceSheet] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [priceTmp, setPriceTmp] = useState(PRICE_DEFAULT);
 
   // payAdd (same as Pastrimi)
@@ -597,6 +575,26 @@ useEffect(() => {
   // ✅ long press refs
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
+
+  // ✅ prevent accidental openPay while scrolling
+  const payTouchRef = useRef({ x: 0, y: 0, moved: false });
+  function payPointerDown(e) {
+    const t = e?.touches?.[0] || e;
+    if (!t) return;
+    payTouchRef.current = { x: t.clientX, y: t.clientY, moved: false };
+  }
+  function payPointerMove(e) {
+    const t = e?.touches?.[0] || e;
+    if (!t) return;
+    const dx = Math.abs((t.clientX || 0) - (payTouchRef.current.x || 0));
+    const dy = Math.abs((t.clientY || 0) - (payTouchRef.current.y || 0));
+    if (dx > 10 || dy > 10) payTouchRef.current.moved = true;
+  }
+  function payPointerUp() {
+    if (payTouchRef.current.moved) return;
+    openPay();
+  }
+
 
   async function refreshDrafts() {
     try {
@@ -674,6 +672,7 @@ useEffect(() => {
         }
       } catch {}
     } finally {
+      setSaving(false);
       setClientsLoading(false);
     }
   }
@@ -953,13 +952,6 @@ useEffect(() => {
 
   // ---------- PAY + PRICE ----------
   function openPay() {
-    // ✅ STOP: don't allow test payments without client info / duplicates
-    if (!name.trim()) { alert('Shkruaj EMER & MBIEMER para pagesës.'); return; }
-    if (name.trim().split(/\s+/).length < 2) { alert('Shkruaj edhe MBIEMRIN para pagesës.'); return; }
-    const ph = sanitizePhone(phonePrefix + phone);
-    if (!ph || ph.length < 6) { alert('Shkruaj një numër telefoni të vlefshëm para pagesës.'); return; }
-    if (hasDuplicateClient(name, phone)) { alert('KY KLIENT EKZISTON (EMER/TELEFON). PËRDOR KËRKIMIN E KLIENTËVE.'); return; }
-    if (totalM2 <= 0) { alert('Shto të paktën 1 m² para pagesës.'); return; }
     const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
     setPayAdd(dueNow > 0 ? dueNow : 0);
     setPayMethod("CASH");
@@ -1019,9 +1011,6 @@ useEffect(() => {
   }
 
   async function applyPayAndClose() {
-    // ✅ STOP: require client info before recording cash
-    if (!validateBeforeContinue()) return;
-
     const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
     if (cashGiven <= 0) {
       alert('SHUMA NUK VLEN (0 €).');
@@ -1078,8 +1067,6 @@ useEffect(() => {
 
     const ph = sanitizePhone(phonePrefix + phone);
     if (!ph || ph.length < 6) return alert('Shkruaj një numër telefoni të vlefshëm.'), false;
-    // ✅ STOP duplicates (same phone/name) — use client search instead
-    if (hasDuplicateClient(name, phone)) return alert('KY KLIENT EKZISTON (EMER/TELEFON). JU LUTEM GJEJENI NGA KERKIMI DHE MOS KRIJONI DUPLIKAT.'), false;
 
     if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), false;
     return true;
@@ -1143,8 +1130,14 @@ function saveOfflineQueueItem(order) {
   }
 }
 
-  async function handleContinue() {
+  async async function handleContinue() {
+    if (saving) return;
+    setSaving(true);
+
     if (!validateBeforeContinue()) return;
+    // ✅ jump immediately to PASTRIMI (background save continues)
+    try { router.push('/pastrimi'); } catch {}
+
 
     try {
       const order = {
@@ -1171,6 +1164,63 @@ function saveOfflineQueueItem(order) {
         },
         notes: notes || '',
       };
+
+      // ✅ Always mirror locally first (instant UX)
+      try {
+        localStorage.setItem(`order_${oid}`, JSON.stringify(order));
+      } catch {}
+
+      // Go to PASTRIMI immediately (do not wait for network)
+      try {
+        router.push(`/pastrimi?id=${encodeURIComponent(oid)}`);
+      } catch {
+        try { router.push('/pastrimi'); } catch {}
+      }
+
+      // Background sync (do not block UI)
+      (async () => {
+        try {
+          const conn = await checkConnectivity();
+          if (offlineMode || !conn.ok) {
+            // keep offline queue/draft safety
+            const ok = saveOfflineQueueItem(order);
+            try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+            if (!ok) return;
+            return;
+          }
+
+          // ✅ ONLINE: create order in DB
+          const db = await saveOrderToDb(order);
+          if (db && db.order_id) {
+            // ✅ record upfront CASH only after order exists
+            if (payMethod === 'CASH' && Number(order.pay?.arkaRecordedPaid || 0) > 0) {
+              try {
+                const actor = getActor();
+                recordCashMove({
+                  externalId: `pay_${order.id}_${Date.now()}`,
+                  orderId: db.order_id,
+                  code: normalizeCode(codeRaw),
+                  name: name.trim(),
+                  amount: Number(order.pay.arkaRecordedPaid),
+                  note: `PAGESA ${Number(order.pay.arkaRecordedPaid)}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+                  source: 'ORDER_PAY',
+                  method: 'cash_pay',
+                  type: 'IN',
+                  createdByPin: actor?.pin ? String(actor.pin) : null,
+                  createdBy: actor?.name ? String(actor.name) : null,
+                });
+              } catch {}
+            }
+          }
+
+          // ✅ cleanup drafts after successful online save
+          try { removeDraftLocal(oid); } catch {}
+          try { await deleteDraftRemote(oid); } catch {}
+          try { await refreshDrafts(); } catch {}
+        } catch (e) {
+          console.error('FAST NAV sync failed', e);
+        }
+      })();
 
 
 // ✅ OFFLINE MODE: save locally (no Supabase) so you never lose clients
@@ -1253,6 +1303,8 @@ if (offlineMode || !conn.ok) {
     } catch (e) {
       alert('❌ Gabim ruajtja!');
     }
+    setTimeout(() => { try { setSaving(false); } catch {} }, 800);
+
   }
 
   function openDrafts() {
@@ -1730,8 +1782,7 @@ return (
       {/* FOOTER */}
       <footer className="footer-bar">
         <button className="btn secondary" onClick={() => router.push('/')}>🏠 HOME</button>
-        <button className="btn primary" onClick={handleContinue} disabled={photoUploading}>
-          ▶ VAZHDO
+        <button className="btn primary" onClick={handleContinue} disabled={photoUploading || saving} disabled={photoUploading}>          {saving ? '⏳ DUKE RUAJT…' : '▶ VAZHDO'}
         </button>
       </footer>
 
