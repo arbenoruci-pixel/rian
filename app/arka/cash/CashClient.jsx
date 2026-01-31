@@ -20,6 +20,9 @@ import {
   listPendingCashPayments,
   applyPendingPaymentToCycle,
   rejectPendingPayment,
+  listWorkerOwedPayments,
+  markOwedAsPending,
+  markOwedAsAdvance,
 } from "@/lib/arkaCashSync";
 
 import { supabase } from "@/lib/supabaseClient";
@@ -139,6 +142,12 @@ export default function CashClient() {
   const [pendingBusy, setPendingBusy] = useState(false);
   const [pendingRejectNote, setPendingRejectNote] = useState("");
 
+  // Worker OWED (when ARKA closed and DISPATCH marked BORXH)
+  const [owedPays, setOwedPays] = useState([]);
+  const [owedModal, setOwedModal] = useState(false);
+  const [owedBusy, setOwedBusy] = useState(false);
+  const [owedNote, setOwedNote] = useState("");
+
   // HISTORI
   const [histDays, setHistDays] = useState([]);
   const [histSelected, setHistSelected] = useState(null);
@@ -197,6 +206,21 @@ export default function CashClient() {
         }
       } else {
         setPendingPays([]);
+      }
+
+
+      // ✅ If a worker has OWED items (DISPATCH marked BORXH), show worker confirmation popup
+      if (user?.name) {
+        try {
+          const ow = await listWorkerOwedPayments(user.name, 200);
+          const rows = Array.isArray(ow?.rows) ? ow.rows : [];
+          setOwedPays(rows);
+          if (rows.length) setOwedModal(true);
+        } catch {
+          setOwedPays([]);
+        }
+      } else {
+        setOwedPays([]);
       }
 
       if (mode === "HISTORI" || tab === "HISTORI") {
@@ -414,13 +438,13 @@ export default function CashClient() {
   const pendingGroups = useMemo(() => {
     const groups = new Map();
     for (const p of pendingPays || []) {
-      const name = String(p.created_by_name || 'PUNTOR').trim() || 'PUNTOR';
-      if (!groups.has(name)) groups.set(name, []);
-      groups.get(name).push(p);
+      const pin = String(p.created_by_pin || "PA_PIN").trim() || "PA_PIN";
+      if (!groups.has(pin)) groups.set(pin, []);
+      groups.get(pin).push(p);
     }
     return Array.from(groups.entries())
-      .map(([name, items]) => ({ name, items, total: items.reduce((s, x) => s + Number(x.amount || 0), 0) }))
-      .sort((a,b) => b.total - a.total);
+      .map(([pin, items]) => ({ pin, items, total: items.reduce((s, x) => s + Number(x.amount || 0), 0) }))
+      .sort((a, b) => a.pin.localeCompare(b.pin));
   }, [pendingPays]);
 
   async function applyPending(p) {
@@ -890,9 +914,9 @@ export default function CashClient() {
             />
             <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
               {pendingGroups.map((g) => (
-                <div key={g.name} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
+                <div key={g.pin} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>{g.name} · {g.items.length} PAGESA</div>
+                    <div style={{ fontWeight: 950, letterSpacing: 2 }}>PIN: {g.pin} · {g.items.length} PAGESA</div>
                     <div style={{ fontWeight: 950, whiteSpace: "nowrap" }}>{euro(g.total)}</div>
                   </div>
                   <details style={{ marginTop: 10 }}>
@@ -933,6 +957,127 @@ export default function CashClient() {
           </>
         )}
       </Modal>
+
+      {/* Worker OWED confirmation modal (PIN hidden) */}
+      <Modal
+        open={owedModal}
+        title={`BORXH I PUNTORIT (${owedPays?.length || 0})`}
+        onClose={() => setOwedModal(false)}
+      >
+        {!owedPays?.length ? (
+          <div style={{ opacity: 0.8, fontWeight: 900 }}>S’KA BORXH.</div>
+        ) : (
+          <>
+            <div style={{ opacity: 0.85, fontWeight: 950, letterSpacing: 1.5 }}>
+              KËTO PAGESA JANË SHËNU BORXH PËR TY. ZGJIDH: DORËZOVA PARET OSE PRANO AVANS.
+            </div>
+
+            <input
+              value={owedNote}
+              onChange={(e) => setOwedNote(e.target.value)}
+              placeholder="SHËNIM (opsional)"
+              style={{
+                width: "100%",
+                marginTop: 10,
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.06)",
+                color: "#fff",
+                fontWeight: 900,
+                textTransform: "uppercase",
+              }}
+            />
+
+            <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+              {owedPays.map((p) => (
+                <div
+                  key={p.id || p.external_id || p.externalId}
+                  style={{
+                    padding: 12,
+                    borderRadius: 16,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.35)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 950 }}>
+                    <div>
+                      #{String(p.order_code || p.code || p.orderCode || "").replace("#", "")} •{" "}
+                      {String(p.client_name || p.name || p.clientName || "KLIENT").toUpperCase()}
+                    </div>
+                    <div>{euro(p.amount || 0)}</div>
+                  </div>
+                  <div style={{ opacity: 0.75, marginTop: 6, fontWeight: 900 }}>
+                    {p.created_at ? new Date(p.created_at).toLocaleString() : ""}
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+                    <button
+                      disabled={owedBusy}
+                      onClick={async () => {
+                        setOwedBusy(true);
+                        try {
+                          await markOwedAsPending({ pending: p, actor: user });
+                          // refresh lists
+                          const res = await listPendingCashPayments(200);
+                          setPendingPays(Array.isArray(res?.items) ? res.items : []);
+                          const ow = await listWorkerOwedPayments(user?.name, 200);
+                          const rows = Array.isArray(ow?.rows) ? ow.rows : [];
+                          setOwedPays(rows);
+                          if (!rows.length) setOwedModal(false);
+                        } finally {
+                          setOwedBusy(false);
+                        }
+                      }}
+                      style={{
+                        padding: 14,
+                        borderRadius: 14,
+                        border: "0",
+                        fontWeight: 950,
+                        letterSpacing: 2,
+                        textTransform: "uppercase",
+                        background: "rgba(255,255,255,0.92)",
+                        color: "#0a0a0a",
+                      }}
+                    >
+                      DORËZOVA PARET
+                    </button>
+
+                    <button
+                      disabled={owedBusy}
+                      onClick={async () => {
+                        setOwedBusy(true);
+                        try {
+                          await markOwedAsAdvance({ pending: p, actor: user, note: owedNote });
+                          const ow = await listWorkerOwedPayments(user?.name, 200);
+                          const rows = Array.isArray(ow?.rows) ? ow.rows : [];
+                          setOwedPays(rows);
+                          if (!rows.length) setOwedModal(false);
+                        } finally {
+                          setOwedBusy(false);
+                        }
+                      }}
+                      style={{
+                        padding: 14,
+                        borderRadius: 14,
+                        border: "0",
+                        fontWeight: 950,
+                        letterSpacing: 2,
+                        textTransform: "uppercase",
+                        background: "rgba(255,255,255,0.16)",
+                        color: "#fff",
+                      }}
+                    >
+                      PRANO AVANS
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Modal>
+
     </div>
   );
 }
