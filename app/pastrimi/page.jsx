@@ -3,6 +3,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import TaskInbox from '@/components/TaskInbox';
+import { listUsers } from '@/lib/usersDb';
+import { createTask } from '@/lib/tasksDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
 function readActor() {
@@ -121,6 +124,14 @@ export default function PastrimiPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+
+  // task sheet (DISPATCH/ADMIN)
+  const [showTaskSheet, setShowTaskSheet] = useState(false);
+  const [taskOrder, setTaskOrder] = useState(null);
+  const [taskUsers, setTaskUsers] = useState([]);
+  const [taskToId, setTaskToId] = useState('');
+  const [taskBusy, setTaskBusy] = useState(false);
+  const [taskErr, setTaskErr] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
