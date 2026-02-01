@@ -302,7 +302,8 @@ export default function CashClient() {
             note: `OPEN CASH → ARKË${opened?.id ? ` (CYCLE ${opened.id})` : ''}`,
             source: 'CASH',
             created_by: user?.name || 'LOCAL',
-            created_by_pin: user?.pin || null,
+            created_by_name: currentUser?.name || 'UNKNOWN',
+      created_by_pin: user?.pin || null,
             ref_day_id: opened?.id || null,
             ref_type: 'ARKA_CYCLE',
             external_id: opened?.id ? `arka_open_${opened.id}` : null,
@@ -413,7 +414,8 @@ export default function CashClient() {
             note: `CYCLE #${c?.cycle_no ?? ''} (RECEIVED)`,
             source: 'CASH',
             created_by: user?.name || 'DISPATCH',
-            created_by_pin: user?.pin || null,
+            created_by_name: currentUser?.name || 'UNKNOWN',
+      created_by_pin: user?.pin || null,
             ref_day_id: cycle_id,
             ref_type: 'ARKA_CYCLE',
             external_id: `arka_receive_${cycle_id}`,
@@ -438,7 +440,8 @@ export default function CashClient() {
   const pendingGroups = useMemo(() => {
     const groups = new Map();
     for (const p of pendingPays || []) {
-      const pin = String(p.created_by_pin || "PA_PIN").trim() || "PA_PIN";
+      const pin = String(p.created_by_name: currentUser?.name || 'UNKNOWN',
+      created_by_pin || "PA_PIN").trim() || "PA_PIN";
       if (!groups.has(pin)) groups.set(pin, []);
       groups.get(pin).push(p);
     }
