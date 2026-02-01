@@ -498,6 +498,7 @@ export default function PranimiPage() {
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
   const [arkaRecordedPaid, setArkaRecordedPaid] = useState(0);
+  const [pendingCashMoves, setPendingCashMoves] = useState([]);
   const [payMethod, setPayMethod] = useState('CASH');
 
   // sheets
@@ -696,6 +697,28 @@ useEffect(() => {
     (async () => {
       try {
         await refreshDrafts();
+
+      // ✅ flush deferred CASH moves only after ORDER is successfully saved
+      if (Array.isArray(pendingCashMoves) && pendingCashMoves.length && payMethod === 'CASH') {
+        try {
+          for (const pm of pendingCashMoves) {
+            await recordCashMove({
+              externalId: pm.externalId,
+              orderId: oid,
+              code: normalizeCode(codeRaw),
+              name: name.trim(),
+              amount: Number(pm.amount || 0),
+              note: `PAGESA ${Number(pm.amount || 0)}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+              source: 'ORDER_PAY',
+              method: 'cash_pay',
+              type: 'IN',
+              createdByPin: pm.createdByPin || null,
+              createdBy: pm.createdBy || null,
+            });
+          }
+          setPendingCashMoves([]);
+        } catch {}
+      }
       } catch {}
 
       // load settings
@@ -1013,22 +1036,19 @@ useEffect(() => {
       })();
 
       const extId = `pay_${oid}_${Date.now()}`;
-      await recordCashMove({
-        externalId: extId,
-        orderId: oid,
-        code: normalizeCode(codeRaw),
-        name: name.trim(),
-        amount: applied,
-        note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
-        source: 'ORDER_PAY',
-        method: 'cash_pay',
-        type: 'IN',
-        // Fallback te session-i (actorSession) nëse prop `actor` nuk vjen
-        createdByPin: (actor?.pin ? String(actor.pin) : (getActor()?.pin ? String(getActor().pin) : null)),
-        createdBy: (actor?.name ? String(actor.name) : (getActor()?.name ? String(getActor().name) : null)),
-      });
+// ✅ defer ARKA write until ORDER is successfully saved (prevents ghost payments)
+setPendingCashMoves((prev) => [
+  ...(Array.isArray(prev) ? prev : []),
+  {
+    externalId: extId,
+    amount: applied,
+    at: Date.now(),
+    createdByPin: (actor?.pin ? String(actor.pin) : (getActor()?.pin ? String(getActor().pin) : null)),
+    createdBy: (actor?.name ? String(actor.name) : (getActor()?.name ? String(getActor().name) : null)),
+  },
+]);
 
-      const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
+const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
       setArkaRecordedPaid(finalArka);
     }
 
@@ -1161,6 +1181,7 @@ if (offlineMode || !conn.ok) {
       pricePerM2,
       clientPaid,
       arkaRecordedPaid,
+      pendingCashMoves,
       payMethod,
       notes,
     }));
@@ -1177,21 +1198,20 @@ if (offlineMode || !conn.ok) {
       if (uploadError) throw uploadError;
 
       // ✅ Also persist to Supabase DB (clients + orders) so backups never miss data
-      try {
-        const db = await saveOrderToDb(order);
-        if (db && db.order_id) {
-          order.db_id = db.order_id;
-          order.client_id = db.client_id || null;
-          if (order.client && db.client_id) order.client.id = db.client_id;
-          // mirror db_id into stored JSON for later updates
-          const blob2 = new Blob([JSON.stringify(order)], { type: 'application/json' });
-          await supabase.storage.from(BUCKET).upload(`orders/${oid}.json`, blob2, {
-            upsert: true,
-            cacheControl: '0',
-            contentType: 'application/json',
-          });
-        }
-      } catch {}
+      const db = await saveOrderToDb(order);
+      if (!db || !db.order_id) throw new Error('DB_SAVE_FAILED');
+      order.db_id = db.order_id;
+      order.client_id = db.client_id || null;
+      if (order.client && db.client_id) order.client.id = db.client_id;
+
+      // mirror db_id into stored JSON for later updates
+      const blob2 = new Blob([JSON.stringify(order)], { type: 'application/json' });
+      await supabase.storage.from(BUCKET).upload(`orders/${oid}.json`, blob2, {
+        upsert: true,
+        cacheControl: '0',
+        contentType: 'application/json',
+      });
+
 
       localStorage.setItem(`order_${oid}`, JSON.stringify(order));
 
@@ -1199,6 +1219,28 @@ if (offlineMode || !conn.ok) {
       removeDraftLocal(oid);
       await deleteDraftRemote(oid);
       await refreshDrafts();
+
+      // ✅ flush deferred CASH moves only after ORDER is successfully saved
+      if (Array.isArray(pendingCashMoves) && pendingCashMoves.length && payMethod === 'CASH') {
+        try {
+          for (const pm of pendingCashMoves) {
+            await recordCashMove({
+              externalId: pm.externalId,
+              orderId: oid,
+              code: normalizeCode(codeRaw),
+              name: name.trim(),
+              amount: Number(pm.amount || 0),
+              note: `PAGESA ${Number(pm.amount || 0)}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+              source: 'ORDER_PAY',
+              method: 'cash_pay',
+              type: 'IN',
+              createdByPin: pm.createdByPin || null,
+              createdBy: pm.createdBy || null,
+            });
+          }
+          setPendingCashMoves([]);
+        } catch {}
+      }
 
       await markCodeUsed(order.client.code);
       await releaseLocksForCode(order.client.code);
@@ -1260,6 +1302,7 @@ if (offlineMode || !conn.ok) {
       setPricePerM2(Number(d.pricePerM2) || PRICE_DEFAULT);
       setClientPaid(Number(d.clientPaid) || 0);
       setArkaRecordedPaid(Number(d.arkaRecordedPaid) || 0);
+      setPendingCashMoves(Array.isArray(d.pendingCashMoves) ? d.pendingCashMoves : []);
       setPayMethod(d.payMethod || 'CASH');
 
       setNotes(d.notes || '');
