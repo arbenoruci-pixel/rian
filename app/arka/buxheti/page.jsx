@@ -77,7 +77,8 @@ export default function CompanyBudgetPage() {
         reason: 'MANUAL',
         note: String(form.note || ''),
         created_by: user?.name || 'LOCAL',
-        created_by_pin: user?.pin || null,
+        created_by_name: currentUser?.name || 'UNKNOWN',
+      created_by_pin: user?.pin || null,
       });
 
       setForm({ type: 'OUT', amount: '', note: '' });
