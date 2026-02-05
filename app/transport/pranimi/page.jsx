@@ -4,16 +4,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-// ✅ SHTO SUPABASE PËR FOTOT
+// ✅ SUPABASE (Sigurohu që ke këtë import saktë)
 import { supabase } from '@/lib/supabaseClient';
 
+// ✅ LIBRARITË E TRANSPORTIT
 import { getTransportSession } from '@/lib/transportAuth';
 import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
 import { insertTransportOrder } from '@/lib/transport/transportDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
-// --- LOGJIKA NGA FAJLLI I MIRË ---
-const BUCKET = 'tepiha-photos'; // ✅ BUCKET I FOTOVE
+// --- KONFIGURIMET (CHIPS & CMIMET) ---
+const BUCKET = 'tepiha-photos'; 
 
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
@@ -26,11 +27,14 @@ const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 
-// --- HELPERS ---
+// --- FUNKSIONE NDIHMËSE ---
+
+// Pastron numrin e telefonit
 function sanitizePhone(phone) {
   return String(phone || '').replace(/\D+/g, '');
 }
 
+// Rregullon kodin T (p.sh. t5 -> T5)
 function normalizeTCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
@@ -42,6 +46,7 @@ function normalizeTCode(raw) {
   return n ? `T${n}` : '';
 }
 
+// Llogarit totalin m2
 function computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer) {
   const t = (tepihaRows || []).reduce((a, r) => a + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0);
   const s = (stazaRows || []).reduce((a, r) => a + (Number(r.m2) || 0) * (Number(r.qty) || 0), 0);
@@ -49,25 +54,31 @@ function computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer) {
   return Number((t + s + sh).toFixed(2));
 }
 
+// Siguron që numri është valid
 function parseNum(v, fallback = 0) {
   const s = String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.');
   const n = Number(s);
   return Number.isFinite(n) ? n : fallback;
 }
 
-// ✅ UPLOAD PHOTO HELPER
+// Upload Foto
 async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
 
   const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
-  if (error) throw error;
+  
+  if (error) {
+    console.error("Upload Error:", error);
+    throw error;
+  }
 
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
 }
 
+// Stili i butonave (Chips)
 function chipStyleForVal(v, active) {
   const n = Number(v);
   let a = 'rgba(59,130,246,0.18)'; 
@@ -106,6 +117,7 @@ function chipStyleForVal(v, active) {
   };
 }
 
+// --- KOMPONENTI KRYESOR ---
 export default function TransportPranim() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -113,39 +125,37 @@ export default function TransportPranim() {
 
   const [me, setMe] = useState(null);
   const [creating, setCreating] = useState(true);
-
-  // ✅ PHOTO UPLOADING STATE
   const [photoUploading, setPhotoUploading] = useState(false);
 
   const [oid, setOid] = useState('');
   const [codeRaw, setCodeRaw] = useState('');
 
-  // client
+  // Klienti
   const [name, setName] = useState('');
   const [phonePrefix, setPhonePrefix] = useState(PHONE_PREFIX_DEFAULT);
   const [phone, setPhone] = useState('');
-  const [clientPhotoUrl, setClientPhotoUrl] = useState(''); // ✅ FOTO KLIENTI
+  const [clientPhotoUrl, setClientPhotoUrl] = useState('');
 
-  // transport address / gps
+  // Transporti
   const [address, setAddress] = useState('');
   const [gpsLat, setGpsLat] = useState('');
   const [gpsLng, setGpsLng] = useState('');
   const [clientDesc, setClientDesc] = useState('');
 
-  // rows
+  // Tepiha & Staza
   const [tepihaRows, setTepihaRows] = useState([]);
   const [stazaRows, setStazaRows] = useState([]);
 
-  // shkallore
+  // Shkallore
   const [stairsQty, setStairsQty] = useState(0);
   const [stairsPer, setStairsPer] = useState(SHKALLORE_M2_PER_STEP_DEFAULT);
-  const [stairsPhotoUrl, setStairsPhotoUrl] = useState(''); // ✅ FOTO SHKALLORE
+  const [stairsPhotoUrl, setStairsPhotoUrl] = useState('');
   
-  // pay (CASH)
+  // Pagesa
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
 
-  // sheets / modals
+  // Modalet
   const [showStairsSheet, setShowStairsSheet] = useState(false);
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showPriceSheet, setShowPriceSheet] = useState(false);
@@ -159,6 +169,7 @@ export default function TransportPranim() {
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
 
+  // 1. Kontrollo sesionin e Transportit
   useEffect(() => {
     const s = getTransportSession();
     if (!s?.transport_id) {
@@ -168,6 +179,7 @@ export default function TransportPranim() {
     setMe(s);
   }, [router]);
 
+  // 2. Inicilizo Porosinë e Re
   useEffect(() => {
     if (!me?.transport_id) return;
     (async () => {
@@ -179,16 +191,21 @@ export default function TransportPranim() {
         }
         const id = `tord_${Date.now()}`;
         setOid(id);
+        
+        // Rezervo Kodin T
         const tcode = await reserveTransportCode();
         setCodeRaw(tcode);
+        
         setCreating(false);
       } catch (e) {
-        console.error(e);
+        console.error("Gabim gjatë inicializimit:", e);
+        alert("Gabim gjatë hapjes së porosisë: " + e.message);
         setCreating(false);
       }
     })();
   }, [me, editId]);
 
+  // Llogaritjet (Memo)
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * parseNum(pricePerM2, 0)).toFixed(2)), [totalM2, pricePerM2]);
   const paidEuro = useMemo(() => parseNum(clientPaid, 0), [clientPaid]);
@@ -197,7 +214,6 @@ export default function TransportPranim() {
     return d > 0 ? d : 0;
   }, [totalEuro, paidEuro]);
   const currentChange = totalEuro - paidEuro < 0 ? Math.abs(totalEuro - paidEuro) : 0;
-
   const copeCount = useMemo(() => {
     const t = tepihaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
     const s = stazaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
@@ -205,6 +221,7 @@ export default function TransportPranim() {
     return t + s + sh;
   }, [tepihaRows, stazaRows, stairsQty]);
 
+  // Helpers UI
   function vibrateTap(ms = 15) {
     try {
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(ms);
@@ -222,11 +239,10 @@ export default function TransportPranim() {
     } catch {}
   }
 
-  // --- ROWS LOGIC ---
+  // --- LOGJIKA E RRESHTAVE ---
   function addRow(kind) {
     const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
     const prefix = kind === 'tepiha' ? 't' : 's';
-    // ✅ Include photoUrl: ''
     setter((rows) => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '0', photoUrl: '' }]);
   }
 
@@ -240,15 +256,15 @@ export default function TransportPranim() {
     setter((rows) => rows.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   }
 
-  // ✅ PHOTO HANDLERS
+  // --- LOGJIKA E FOTOVE (Me Error Handling) ---
   async function handleRowPhotoChange(kind, id, file) {
     if (!file || !oid) return;
     setPhotoUploading(true);
     try {
       const url = await uploadPhoto(file, oid, `${kind}_${id}`);
       if (url) handleRowChange(kind, id, 'photoUrl', url);
-    } catch {
-      alert('❌ Gabim foto!');
+    } catch (e) {
+      alert('❌ Gabim gjatë ngarkimit të fotos: ' + e.message);
     } finally {
       setPhotoUploading(false);
     }
@@ -260,8 +276,8 @@ export default function TransportPranim() {
     try {
       const url = await uploadPhoto(file, oid, 'shkallore');
       if (url) setStairsPhotoUrl(url);
-    } catch {
-      alert('❌ Gabim foto!');
+    } catch (e) {
+      alert('❌ Gabim gjatë ngarkimit të fotos: ' + e.message);
     } finally {
       setPhotoUploading(false);
     }
@@ -273,8 +289,8 @@ export default function TransportPranim() {
     try {
       const url = await uploadPhoto(file, oid, 'client');
       if (url) setClientPhotoUrl(url);
-    } catch {
-      alert('❌ Gabim foto!');
+    } catch (e) {
+      alert('❌ Gabim gjatë ngarkimit të fotos: ' + e.message);
     } finally {
       setPhotoUploading(false);
     }
@@ -324,7 +340,7 @@ export default function TransportPranim() {
     );
   }
 
-  // --- PAY ---
+  // --- PAGESA ---
   function openPay() {
     const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
     setPayAdd(dueNow > 0 ? dueNow : 0);
@@ -368,7 +384,7 @@ export default function TransportPranim() {
     payHoldTriggeredRef.current = false;
   }
 
-  // --- SAVE ---
+  // --- VALIDIMI ---
   function validate() {
     if (saveIncomplete) return true;
     if (!name.trim()) return alert('Shkruaj emrin dhe mbiemrin.'), false;
@@ -387,15 +403,22 @@ export default function TransportPranim() {
     return true;
   }
 
+  // --- RUAJTJA (KJO PJESË DËSHTONTE, TANI ME DETAJE) ---
   async function saveOrder() {
-    if (!me?.transport_id) return;
+    // 1. Kontrolli bazik
+    if (!me?.transport_id) {
+        alert("❌ Gabim Sesioni: Nuk je i identifikuar si Transportues. Dil dhe hyr prapë.");
+        return;
+    }
     if (!validate()) return;
 
     setSaving(true);
+
     try {
       const code = normalizeTCode(codeRaw);
-
-      const order = {
+      
+      // Përgatit objektin
+      const orderData = {
         id: oid,
         code, 
         code_n: Number(code.replace(/\D+/g, '')) || 0,
@@ -413,7 +436,7 @@ export default function TransportPranim() {
             name: name.trim(),
             phone: phonePrefix + (phone || ''),
             code,
-            photoUrl: clientPhotoUrl || '', // ✅ RUAJ FOTO KLIENTI
+            photoUrl: clientPhotoUrl || '',
           },
           transport: {
             address: address || '',
@@ -421,10 +444,8 @@ export default function TransportPranim() {
             lng: gpsLng || '',
             desc: clientDesc || '',
           },
-          // ✅ RUAJ FOTOT E RRESHTAVE
           tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
           staza: stazaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
-          // ✅ RUAJ FOTO SHKALLORE
           shkallore: { qty: parseNum(stairsQty, 0), per: parseNum(stairsPer, SHKALLORE_M2_PER_STEP_DEFAULT), photoUrl: stairsPhotoUrl || '' },
           pay: {
             price: parseNum(pricePerM2, 0),
@@ -438,18 +459,28 @@ export default function TransportPranim() {
         },
       };
 
-      const res = await insertTransportOrder(order);
-      if (!res?.ok) throw new Error(res?.error || 'Insert failed');
+      console.log("Duke dërguar porosinë:", orderData); // Debug log
 
+      // 2. Ruaj në DB
+      const res = await insertTransportOrder(orderData);
+      
+      // ✅ KONTROLL I DETAJUAR I GABIMIT NGA DB
+      if (!res?.ok) {
+        console.error("DB Insert Failed:", res);
+        throw new Error(res?.error || "Dështoi insertTransportOrder pa mesazh specifik.");
+      }
+
+      // 3. Shëno kodin si të përdorur
       await markTransportCodeUsed(code);
 
+      // 4. Regjistro Pagesën Cash (nëse ka)
       if (paidEuro > 0) {
-        await recordCashMove({
+        const cashRes = await recordCashMove({
           amount: paidEuro,
           method: 'CASH',
           type: 'TRANSPORT',
           status: 'COLLECTED',
-          order_id: order.id,
+          order_id: orderData.id,
           order_code: code,
           client_name: name.trim(),
           stage: 'PRANIMI',
@@ -458,16 +489,26 @@ export default function TransportPranim() {
           created_by_name: me.transport_name || me.transport_id,
           approved_by_pin: null,
         });
+        
+        // Log nëse cash dështon, por mos blloko porosinë
+        if (cashRes?.error) {
+            console.warn("Cash record failed but order saved:", cashRes.error);
+        }
       }
 
+      // 5. Sukses - Navigo
       if (saveIncomplete) {
         router.push('/transport/te-pa-plotsuara');
       } else {
-        router.push(`/pastrimi?id=${order.id}`);
+        router.push(`/pastrimi?id=${orderData.id}`);
       }
+
     } catch (e) {
-      console.error(e);
-      alert('❌ Gabim ruajtja!');
+      console.error("SAVE CRASH:", e);
+      
+      // ✅ SHFAQ GABIMIN E SAKTË TE PËRDORUESI
+      const errMsg = e?.message || e?.error_description || JSON.stringify(e);
+      alert(`❌ DËSHTOI RUAJTJA!\n\nArsyeja: ${errMsg}\n\nBëj screenshot këtë error dhe dërgoja programerit.`);
     } finally {
       setSaving(false);
     }
@@ -520,7 +561,6 @@ export default function TransportPranim() {
             </label>
         </div>
 
-        {/* ✅ PHOTO KLIENTI */}
         <div className="field-group">
           <label className="label">EMRI & MBIEMRI</label>
           <div className="row" style={{ alignItems: 'center', gap: 10 }}>
@@ -590,13 +630,11 @@ export default function TransportPranim() {
             <div className="row">
               <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
               <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
-              {/* ✅ PHOTO BUTTON TEPIHA */}
               <label className="camera-btn">
                 📷
                 <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} />
               </label>
             </div>
-             {/* ✅ PHOTO PREVIEW TEPIHA */}
             {row.photoUrl && (
               <div style={{ marginTop: 8 }}>
                 <img src={row.photoUrl} className="photo-thumb" alt="" />
@@ -637,13 +675,11 @@ export default function TransportPranim() {
             <div className="row">
               <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
               <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
-              {/* ✅ PHOTO BUTTON STAZA */}
               <label className="camera-btn">
                 📷
                 <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} />
               </label>
             </div>
-            {/* ✅ PHOTO PREVIEW STAZA */}
             {row.photoUrl && (
               <div style={{ marginTop: 8 }}>
                 <img src={row.photoUrl} className="photo-thumb" alt="" />
@@ -708,13 +744,12 @@ export default function TransportPranim() {
       <footer className="footer-bar">
         <button className="btn secondary" onClick={() => router.push('/')}>🏠 HOME</button>
         <button className="btn primary" onClick={saveOrder} disabled={saving || photoUploading}>
-          {saving ? '⏳ DUKE RUJT...' : (photoUploading ? '⏳ DUKE NGARKUAR FOTO...' : '▶ RUAJ')}
+          {saving ? '⏳ DUKE RUJT...' : (photoUploading ? '⏳ FOTO...' : '▶ RUAJ')}
         </button>
       </footer>
 
       {/* --- MODALS --- */}
 
-      {/* FULL SCREEN: PAGESA */}
       {showPaySheet && (
         <div className="payfs">
           <div className="payfs-top">
@@ -776,7 +811,6 @@ export default function TransportPranim() {
         </div>
       )}
 
-      {/* FULL SCREEN: NDRRIM QMIMI */}
       {showPriceSheet && (
         <div className="payfs">
           <div className="payfs-top">
@@ -810,7 +844,6 @@ export default function TransportPranim() {
         </div>
       )}
 
-      {/* MODAL: SHKALLORE */}
       {showStairsSheet && (
         <div className="modal-overlay" onClick={() => setShowStairsSheet(false)}>
           <div className="modal-content dark" onClick={(e) => e.stopPropagation()}>
@@ -863,7 +896,6 @@ export default function TransportPranim() {
               <input type="number" step="0.01" className="input" value={stairsPer} onChange={(e) => setStairsPer(e.target.value)} style={{marginTop: 8}} />
             </div>
 
-            {/* ✅ PHOTO SHKALLORE */}
              <div className="field-group">
               <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label>
               <label className="camera-btn">
