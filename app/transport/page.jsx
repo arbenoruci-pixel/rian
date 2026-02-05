@@ -3,68 +3,35 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
-// Minimal, crash-proof TRANSPORT page.
-// Uses the same localStorage session/user storage as the PIN system.
-
-const LS_SESSION = 'tepiha_session_v1';
-const LS_USERS = 'tepiha_users_v1';
-const SS_MODE = 'tepiha_mode_v1'; // optional: 'BASE'
-
-function readJson(key, fallback) {
+function readActor() {
+  // Primary session used across the app
   try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
+    const raw = localStorage.getItem('CURRENT_USER_DATA');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+
+  // Fallback (older session keys)
+  try {
+    const s = JSON.parse(localStorage.getItem('tepiha_session_v1') || 'null');
+    const users = JSON.parse(localStorage.getItem('tepiha_users_v1') || '[]');
+    if (s?.uid) return users.find(x => x.id === s.uid) || null;
+  } catch {}
+
+  return null;
 }
 
 export default function TransportPage() {
   const [me, setMe] = useState(null);
-  const [mode, setMode] = useState('TRANSPORT');
 
   useEffect(() => {
-    // session
-    const s = readJson(LS_SESSION, null);
-    const users = readJson(LS_USERS, []);
-    const u = s?.uid ? users.find(x => x.id === s.uid) : null;
-    setMe(u || null);
-
-    // mode override
-    try {
-      const m = sessionStorage.getItem(SS_MODE);
-      setMode(m || 'TRANSPORT');
-    } catch {
-      setMode('TRANSPORT');
-    }
+    setMe(readActor());
   }, []);
 
+  const role = String(me?.role || '').toUpperCase();
+
   const canSee = useMemo(() => {
-    const r = (me?.role || '').toUpperCase();
-    // allow ADMIN too
-    return r === 'TRANSPORT' || r === 'ADMIN';
-  }, [me]);
-
-  function switchToBase() {
-    try {
-      sessionStorage.setItem(SS_MODE, 'BASE');
-      setMode('BASE');
-      // go to home so they can do base actions (pranimi/pagesa)
-      window.location.href = '/';
-    } catch {
-      window.location.href = '/';
-    }
-  }
-
-  function switchToTransport() {
-    try {
-      sessionStorage.removeItem(SS_MODE);
-      setMode('TRANSPORT');
-      window.location.href = '/transport';
-    } catch {
-      window.location.href = '/transport';
-    }
-  }
+    return role === 'TRANSPORT' || role === 'ADMIN' || role === 'OWNER' || role === 'DISPATCH';
+  }, [role]);
 
   return (
     <main className="wrap">
@@ -85,7 +52,7 @@ export default function TransportPage() {
       ) : !canSee ? (
         <div className="card">
           <div className="t">S’KE LEJE</div>
-          <div className="p">Kjo faqe është vetëm për TRANSPORT / ADMIN.</div>
+          <div className="p">Kjo faqe është vetëm për TRANSPORT / DISPATCH / ADMIN / OWNER.</div>
           <Link className="btn" href="/">KTHEHU HOME</Link>
         </div>
       ) : (
@@ -94,20 +61,47 @@ export default function TransportPage() {
             <div className="row">
               <div>
                 <div className="t">I KYÇUR:</div>
-                <div className="p"><b>{me.name || 'USER'}</b> • {String(me.role || '').toUpperCase()} • MODE: <b>{mode}</b></div>
+                <div className="p"><b>{me.name || 'USER'}</b> • {role}</div>
               </div>
-              {mode === 'BASE' ? (
-                <button className="btn" onClick={switchToTransport}>KTHEHU TRANSPORT</button>
-              ) : (
-                <button className="btn" onClick={switchToBase}>KALO NË BAZË</button>
-              )}
             </div>
           </div>
 
-          <div className="card">
-            <div className="t">POROSITË PËR TRANSPORT</div>
-            <div className="p">(HAPI 3) Këtu do ta lidhim listën e porosive për transport + pranim në bazë. Për momentin është placeholder i sigurt (pa crash).</div>
-          </div>
+          <section className="card">
+            <div className="t">ZGJEDH MODULIN (TRANSPORT)</div>
+            <div className="home-nav">
+              <Link className="home-btn" href="/transport/pranimi">
+                <span>🧾</span>
+                <div>
+                  <div>PRANIMI (T)</div>
+                  <small>Krijo porosi transporti (T-kode)</small>
+                </div>
+              </Link>
+
+              <Link className="home-btn" href="/transport/gati">
+                <span>✅</span>
+                <div>
+                  <div>GATI (T)</div>
+                  <small>Shfaq vetëm porositë e tua</small>
+                </div>
+              </Link>
+
+              <Link className="home-btn" href="/arka">
+                <span>💰</span>
+                <div>
+                  <div>ARKA (TRANSPORT)</div>
+                  <small>Pagesat T janë COLLECTED deri sa dorëzohen</small>
+                </div>
+              </Link>
+
+              <Link className="home-btn" href="/pastrimi">
+                <span>🧼</span>
+                <div>
+                  <div>PASTRIMI</div>
+                  <small>Përbashkët për të gjithë</small>
+                </div>
+              </Link>
+            </div>
+          </section>
         </>
       )}
     </main>
