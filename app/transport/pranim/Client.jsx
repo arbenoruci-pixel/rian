@@ -74,6 +74,13 @@ export default function TransportPranim() {
   const [phonePrefix, setPhonePrefix] = useState(PHONE_PREFIX_DEFAULT);
   const [phone, setPhone] = useState('');
 
+  // transport address / gps
+  const [address, setAddress] = useState('');
+  const [gpsLat, setGpsLat] = useState('');
+  const [gpsLng, setGpsLng] = useState('');
+  const [clientDesc, setClientDesc] = useState('');
+
+
   // rows
   // ✅ empty qty by default (prevents ghost "2 copë" before user inputs anything)
   // ✅ Start with no rows ("closed" inputs). Rows appear only after chip or +SHTO RRESHT.
@@ -193,6 +200,25 @@ export default function TransportPranim() {
     }
   }
 
+
+  function getGps() {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      alert('GPS nuk është i disponueshëm në këtë pajisje.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = String(pos?.coords?.latitude ?? '');
+        const lng = String(pos?.coords?.longitude ?? '');
+        setGpsLat(lat);
+        setGpsLng(lng);
+      },
+      () => alert('S’u mor GPS. Lejo Location në browser.'),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }
+
+
   async function saveOrder(nextStatus) {
     if (!me?.transport_id) return;
     if (!validate()) return;
@@ -229,6 +255,13 @@ export default function TransportPranim() {
           method: 'CASH',
         },
 
+        transport: {
+          address: address || '',
+          lat: gpsLat || '',
+          lng: gpsLng || '',
+          desc: clientDesc || '',
+        },
+
         notes: notes || '',
       };
 
@@ -243,7 +276,7 @@ export default function TransportPranim() {
       if (nextStatus === 'transport_incomplete') {
         router.push('/transport/te-pa-plotsuara');
       } else {
-        router.push('/transport/ne-ardhje');
+        router.push(`/pastrimi?id=${oid}`);
       }
     } catch (e) {
       console.error(e);
@@ -258,7 +291,7 @@ export default function TransportPranim() {
       <div className="wrap">
         <header className="header-row">
           <div>
-            <h1 className="title">PRANIM TRANSPORT</h1>
+            <h1 className="title">TRANSPORT • PRANIMI</h1>
             <div className="subtitle">DUKE HAPUR...</div>
           </div>
           <Link className="pill" href="/transport/menu">MENU</Link>
@@ -274,8 +307,8 @@ export default function TransportPranim() {
     <div className="wrap">
       <header className="header-row" style={{ alignItems: 'flex-start' }}>
         <div>
-          <h1 className="title">PRANIM TRANSPORT</h1>
-          <div className="subtitle">TRANSPORTER: {me?.transport_id || ''}</div>
+          <h1 className="title">TRANSPORT • PRANIMI</h1>
+          <div className="subtitle">TRANSPORT: {me?.transport_id || ''}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Link className="pill" href="/transport/menu">MENU</Link>
@@ -313,6 +346,29 @@ export default function TransportPranim() {
             <div className="label">TELEFONI</div>
             <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="48xxxxxx" />
           </div>
+        </div>
+
+
+        <div className="sep" />
+
+        <h2 className="card-title">ADRESA</h2>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <div className="field" style={{ flex: 1 }}>
+            <div className="label">RRUGA / QYTETI</div>
+            <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="p.sh. Rr. Justina Shkupi, Prishtinë" />
+          </div>
+          <button type="button" className="btn" onClick={getGps} style={{ whiteSpace: 'nowrap' }}>
+            MERRE GPS
+          </button>
+        </div>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="pill">LAT: {gpsLat ? Number(gpsLat).toFixed(6) : '-'}</span>
+          <span className="pill">LNG: {gpsLng ? Number(gpsLng).toFixed(6) : '-'}</span>
+        </div>
+
+        <div className="field">
+          <div className="label">PËRSHKRIM (OPSIONALE)</div>
+          <textarea className="textarea" value={clientDesc} onChange={(e) => setClientDesc(e.target.value)} placeholder="p.sh. hyrja e dytë, kati 3, telefononi para se të vini..." />
         </div>
 
         <div className="sep" />
@@ -451,7 +507,7 @@ export default function TransportPranim() {
         <div style={{ height: 10 }} />
 
         <button className="btn btn-primary" disabled={saving} onClick={() => saveOrder(saveIncomplete ? 'transport_incomplete' : 'transport_ready_for_base')}>
-          {saving ? 'DUKE RUAJTUR...' : 'VAZHDO'}
+          {saving ? 'DUKE RUAJTUR...' : 'RUAJ (SHKON NË PASTRIMI)'}
         </button>
       </section>
     </div>
