@@ -69,7 +69,7 @@ export default function TransportPage() {
           <section className="card">
             <div className="t">ZGJEDH MODULIN (TRANSPORT)</div>
             <div className="home-nav">
-              <Link className="home-btn" href="/transport/pranimi">
+              <Link className="home-btn" href="/transport/pranim">
                 <span>🧾</span>
                 <div>
                   <div>PRANIMI (T)</div>
@@ -85,13 +85,6 @@ export default function TransportPage() {
                 </div>
               </Link>
 
-              <Link className="home-btn" href="/arka">
-                <span>💰</span>
-                <div>
-                  <div>ARKA (TRANSPORT)</div>
-                  <small>Pagesat T janë COLLECTED deri sa dorëzohen</small>
-                </div>
-              </Link>
 
               <Link className="home-btn" href="/pastrimi">
                 <span>🧼</span>
