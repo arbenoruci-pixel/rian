@@ -56,7 +56,7 @@ async function uploadPhoto(file, oid, key) {
   return pub?.publicUrl || null;
 }
 
-// --- CHIP STYLE (ORIGJINALI I MIRË) ---
+// --- CHIP STYLE (ORIGJINALI) ---
 function chipStyleForVal(v, active) {
   const n = Number(v);
   let a = 'rgba(59,130,246,0.18)'; 
@@ -161,18 +161,18 @@ export default function TransportPranim() {
     })();
   }, [me, editId]);
 
-  // Autosave Draft
+  // Autosave Draft Logic
   useEffect(() => {
     if (creating || !oid) return;
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(() => {
         const hasData = name || phone || address || tepihaRows.length > 0;
         if (hasData) saveDraftLocal();
-    }, 1000);
+    }, 1200);
     return () => clearTimeout(draftTimerRef.current);
   });
 
-  // Draft Logic
+  // Draft Functions
   function refreshDrafts() {
     try {
         const raw = localStorage.getItem(DRAFT_KEY);
@@ -263,17 +263,19 @@ export default function TransportPranim() {
     return true;
   }
 
-  // --- SAVE LOGIC ---
+  // --- SAVE LOGIC (FIXED: T27 vs 27) ---
   async function saveOrder() {
     if (!me?.transport_id) { alert("❌ Gabim Sesioni: Identifikohu prapë."); return; }
     if (!validate()) return;
     setSaving(true);
     try {
-      const codeStr = normalizeTCode(codeRaw); 
-      const codeNum = Number(codeStr.replace(/\D+/g, '')) || 0; 
+      const codeStr = normalizeTCode(codeRaw); // Psh: "T27"
+      const codeNum = Number(codeStr.replace(/\D+/g, '')) || 0; // Psh: 27
       
       const orderData = {
-        id: oid, code: codeNum, code_n: codeNum,
+        id: oid,
+        code: codeNum, // DB: 27 (bigint)
+        code_n: codeNum,
         scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
         status: saveIncomplete ? 'transport_incomplete' : 'pastrim',
         created_at: new Date().toISOString(),
@@ -300,6 +302,7 @@ export default function TransportPranim() {
       if (saveIncomplete) router.push('/transport/te-pa-plotsuara'); else router.push(`/pastrimi?id=${orderData.id}`);
     } catch (e) {
       console.error("Offline save...", e);
+      // Fallback: Offline Queue
       const savedOffline = saveOfflineTransportOrder({ ...orderData, saved_at: Date.now(), is_offline: true });
       if (savedOffline) { alert("⚠️ S'ka rrjet! U ruajt LOKALISHT."); deleteDraft(oid); router.push('/transport/te-pa-plotsuara'); } 
       else { alert(`❌ DËSHTOI RUAJTJA!\n${e.message}`); }
@@ -318,7 +321,7 @@ export default function TransportPranim() {
         <div className="code-badge"><span className="badge">{`KODI: ${normalizeTCode(codeRaw)}`}</span></div>
       </header>
 
-      {/* BUTTON TE PA PLOTSUARAT */}
+      {/* DRAFTS BUTTON */}
       <section style={{marginTop: 8, marginBottom: 12}}>
         <button type="button" className="btn secondary" style={{width: '100%', padding: '12px 14px', borderRadius: 18}} onClick={() => { refreshDrafts(); setShowDraftsSheet(true); }}>
             📝 TË PA PLOTSUARAT {drafts.length > 0 ? `(${drafts.length})` : ''}
@@ -392,7 +395,7 @@ export default function TransportPranim() {
       {showPriceSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">NDËRRO QMIMIN</div><div className="payfs-sub">€/m²</div></div><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><label className="label">QMIMI I RI (€ / m²)</label><input type="number" step="0.1" className="input" value={priceTmp} onChange={(e) => setPriceTmp(e.target.value === '' ? '' : Number(e.target.value))} /></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>ANULO</button><button className="btn primary" onClick={() => { setPricePerM2(priceTmp); setShowPriceSheet(false); }}>RUJ</button></div></div>)}
       {showStairsSheet && (<div className="modal-overlay" onClick={() => setShowStairsSheet(false)}><div className="modal-content dark" onClick={(e) => e.stopPropagation()}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 className="card-title" style={{ margin: 0, color: '#fff' }}>SHKALLORE</h3><button className="btn secondary" onClick={() => setShowStairsSheet(false)}>✕</button></div><div className="field-group" style={{ marginTop: 12 }}><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label><div className="chip-row">{SHKALLORE_QTY_CHIPS.map((n) => ( <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button> ))}</div><input type="number" className="input" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => setStairsQty(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label><div className="chip-row">{SHKALLORE_PER_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button> ))}</div><input type="number" step="0.01" className="input" value={stairsPer} onChange={(e) => setStairsPer(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label><label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>{stairsPhotoUrl && ( <div style={{ marginTop: 8 }}><img src={stairsPhotoUrl} className="photo-thumb" alt="" /><button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI FOTO</button></div> )}</div><button className="btn primary" style={{ width: '100%', marginTop: 12 }} onClick={() => setShowStairsSheet(false)}>MBYLL</button></div></div>)}
       
-      {/* ✅ DRAFTS FULLSCREEN */}
+      {/* DRAFTS FULLSCREEN */}
       {showDraftsSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">TË PA PLOTSUARAT</div><div className="payfs-sub">HAP ose FSHI</div></div><button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{marginTop: 0}}>{drafts.length === 0 ? <div style={{textAlign: 'center', padding: '20px', color: 'rgba(255,255,255,0.7)'}}>S'ka drafte.</div> : drafts.map(d => (<div key={d.id} style={{borderBottom:'1px solid rgba(255,255,255,0.1)', padding:'10px 0', display:'flex', justifyContent:'space-between', alignItems:'center'}}><div><div style={{fontWeight:900, fontSize:15}}>{normalizeTCode(d.codeRaw)}</div><div style={{fontSize:12, opacity:0.8}}>{d.name || 'Pa Emër'} • {d.phone || '-'}</div><div style={{fontSize:10, opacity:0.5}}>{new Date(d.ts).toLocaleString()}</div></div><div style={{display:'flex', gap:8}}><button className="btn secondary" style={{padding:'6px 10px', fontSize:11}} onClick={() => loadDraft(d)}>HAP</button><button className="btn secondary" style={{padding:'6px 10px', fontSize:11, color:'#ef4444'}} onClick={() => deleteDraft(d.id)}>FSHI</button></div></div>))}</div></div></div>)}
 
       <style jsx>{`
