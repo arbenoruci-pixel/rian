@@ -1,64 +1,31 @@
-'use client';
 
-import Link from 'next/link';
-
-export default function HomePage() {
+export default function Home() {
   return (
-    <div className="wrap">
-      <header className="header-row">
-        <div>
-          <h1 className="title">TEPIHA • HOME</h1>
-          <div className="subtitle">RRJEDHA KRYESORE</div>
-        </div>
-      </header>
+    <main style={{ padding: 24, display:'grid', gap:12 }}>
+      <h1>TEPIHA • HOME</h1>
 
-      <section className="card">
-        <h2 className="card-title">ZGJEDH MODULIN</h2>
-        <div className="home-nav">
-          <Link className="home-btn" href="/pranimi">
-            <span>🧾</span>
-            <div>
-              <div>PRANIMI</div>
-              <small>Regjistro klientin &amp; tepihat</small>
-            </div>
-          </Link>
-          <Link className="home-btn" href="/pastrimi">
-            <span>🧼</span>
-            <div>
-              <div>PASTRIMI</div>
-              <small>Lista në pastrim + detaje</small>
-            </div>
-          </Link>
-          <Link className="home-btn" href="/gati">
-            <span>✅</span>
-            <div>
-              <div>GATI</div>
-              <small>Gati për marrje (placeholder)</small>
-            </div>
-          </Link>
-          <Link className="home-btn" href="/marrje-sot">
-            <span>📦</span>
-            <div>
-              <div>MARRJE SOT</div>
-              <small>Planifiko dorëzimet e sotme (placeholder)</small>
-            </div>
-          </Link>
-          <Link className="home-btn" href="/arka">
-            <span>💰</span>
-            <div>
-              <div>ARKA</div>
-              <small>Shiko pagesat (placeholder)</small>
-            </div>
-          </Link>
-          <Link className="home-btn" href="/fletore">
-            <span>📒</span>
-            <div>
-              <div>FLETORJA</div>
-              <small>Backup ditor (lista e klienteve)</small>
-            </div>
-          </Link>
-        </div>
-      </section>
-    </div>
+      <a href="/pranimi" style={btn}>PRANIMI</a>
+      <a href="/pastrimi" style={btn}>PASTRIMI</a>
+      <a href="/gati" style={btn}>GATI</a>
+      <a href="/marrje-sot" style={btn}>MARRJE SOT</a>
+      <a href="/transport" style={btnAlt}>TRANSPORT</a>
+      <a href="/arka" style={btn}>ARKA</a>
+    </main>
   );
 }
+
+const btn = {
+  display:'block',
+  padding:14,
+  borderRadius:8,
+  background:'#2563eb',
+  color:'#fff',
+  textAlign:'center',
+  textDecoration:'none',
+  fontWeight:600
+};
+
+const btnAlt = {
+  ...btn,
+  background:'#16a34a'
+};
