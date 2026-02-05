@@ -1,0 +1,30 @@
+{
+  "name": "rian-main-full",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "14.2.3",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "@supabase/supabase-js": "^2.48.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.3"
+  },
+  "description": "Kjo README është “source of truth” për rregullat e aplikacionit. Qëllimi: kur bëjmë ndryshime, i targetojmë saktë pjesët në source pa i prishur pjesët tjera.",
+  "main": "arkaCashSync.js",
+  "directories": {
+    "doc": "docs",
+    "lib": "lib"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
