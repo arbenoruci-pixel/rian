@@ -3,25 +3,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+
 import { getTransportSession } from '@/lib/transportAuth';
 import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
-import { insertTransportOrder, updateTransportOrder } from '@/lib/transport/transportDb';
-import { recordCashMove } from '@/lib/arkaCashSync';
+import { upsertTransportClient, createTransportOrder } from '@/lib/transport/transportDb';
+import { addTransportCollect } from '@/lib/transportArkaStore';
+import { createPendingCashPayment } from '@/lib/arkaCashSync';
 
-// TRANSPORT • PRANIMI
-// UI = same style/classes as base PRANIMI.
-// Logic = transport-scoped:
-// - Code = T-codes (separate counter)
-// - Clients are NOT saved into base `clients` table (avoids phone unique conflicts)
-// - Cash collected is saved as arka_pending_payments.status='COLLECTED' type='TRANSPORT' (not applied to daily cycle)
+// Transport PRANIMI: same UI style as base PRANIMI, but:
+// - T-codes (separate counter)
+// - transport clients stored separately (transport_clients)
+// - cash goes to transport "wallet" (COLLECTED) until handoff
 
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
-
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
 const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
-const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 
+const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 
@@ -29,7 +29,7 @@ function sanitizePhone(phone) {
   return String(phone || '').replace(/\D+/g, '');
 }
 
-function normalizeTCode(raw) {
+function normalizeCodeKeepT(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
   if (/^t\d+/i.test(s)) {
@@ -37,7 +37,7 @@ function normalizeTCode(raw) {
     return `T${n}`;
   }
   const n = s.replace(/\D+/g, '').replace(/^0+/, '');
-  return n ? `T${n}` : '';
+  return n || '0';
 }
 
 function computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer) {
@@ -47,13 +47,12 @@ function computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer) {
   return Number((t + s + sh).toFixed(2));
 }
 
-function parseNum(v, fallback = 0) {
-  const s = String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.');
-  const n = Number(s);
+function safeNum(v, fallback = 0) {
+  const n = Number(String(v ?? '').replace(',', '.'));
   return Number.isFinite(n) ? n : fallback;
 }
 
-export default function TransportPranim() {
+export default function TransportPranimPage() {
   const router = useRouter();
   const sp = useSearchParams();
   const editId = sp.get('id') || '';
@@ -81,7 +80,7 @@ export default function TransportPranim() {
   const [stairsQty, setStairsQty] = useState(0);
   const [stairsPer, setStairsPer] = useState(SHKALLORE_M2_PER_STEP_DEFAULT);
 
-  // pay (CASH)
+  // pay
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
 
@@ -98,41 +97,68 @@ export default function TransportPranim() {
     setMe(s);
   }, [router]);
 
+  // Load existing / create new
   useEffect(() => {
     if (!me?.transport_id) return;
 
     (async () => {
+      setCreating(true);
       try {
         if (editId) {
-          // For simplicity: editing transport order is handled in /transport/gati detail (later).
-          // Keep page usable by loading from DB here if needed in future.
-          setOid(editId);
+          const { data, error } = await supabase
+            .from('orders')
+            .select('id, code, status, data, client_id')
+            .eq('id', editId)
+            .maybeSingle();
+          if (error) throw error;
+          if (!data?.id) throw new Error('Order not found');
+
+          setOid(data.id);
+          setCodeRaw(data.code || '');
+
+          const d = data.data || {};
+          setName(String(d?.client?.name || ''));
+          const full = String(d?.client?.phone || '');
+          setPhone(full.startsWith(phonePrefix) ? full.slice(phonePrefix.length) : sanitizePhone(full));
+          setAddress(String(d?.transport?.address || ''));
+          setGpsLat(String(d?.transport?.lat || ''));
+          setGpsLng(String(d?.transport?.lng || ''));
+          setClientDesc(String(d?.transport?.desc || ''));
+
+          setTepihaRows(Array.isArray(d?.tepiha) ? d.tepiha.map((r) => ({ m2: r.m2 ?? '', qty: String(r.qty ?? '0') })) : []);
+          setStazaRows(Array.isArray(d?.staza) ? d.staza.map((r) => ({ m2: r.m2 ?? '', qty: String(r.qty ?? '0') })) : []);
+          setStairsQty(safeNum(d?.shkallore?.qty, 0));
+          setStairsPer(safeNum(d?.shkallore?.per, SHKALLORE_M2_PER_STEP_DEFAULT));
+
+          setPricePerM2(safeNum(d?.pay?.price, PRICE_DEFAULT));
+          setClientPaid(safeNum(d?.pay?.paid, 0));
+          setNotes(String(d?.notes || ''));
+          setSaveIncomplete(data.status === 'transport_incomplete');
+
           setCreating(false);
           return;
         }
 
-        // new order
-        const id = `tord_${Date.now()}`;
-        setOid(id);
-
-        const tcode = await reserveTransportCode();
-        setCodeRaw(tcode);
-
-        setCreating(false);
+        const code = await reserveTransportCode();
+        setCodeRaw(code);
+        setOid('');
       } catch (e) {
         console.error(e);
+      } finally {
         setCreating(false);
       }
     })();
-  }, [me, editId]);
+  }, [me, editId, phonePrefix]);
 
-  const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
-  const totalEuro = useMemo(() => Number((totalM2 * parseNum(pricePerM2, 0)).toFixed(2)), [totalM2, pricePerM2]);
-  const paidEuro = useMemo(() => parseNum(clientPaid, 0), [clientPaid]);
+  const totalM2 = useMemo(
+    () => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer),
+    [tepihaRows, stazaRows, stairsQty, stairsPer]
+  );
+  const totalEuro = useMemo(() => Number((totalM2 * (safeNum(pricePerM2, 0) || 0)).toFixed(2)), [totalM2, pricePerM2]);
   const debt = useMemo(() => {
-    const d = Number((totalEuro - paidEuro).toFixed(2));
+    const d = Number((totalEuro - safeNum(clientPaid, 0)).toFixed(2));
     return d > 0 ? d : 0;
-  }, [totalEuro, paidEuro]);
+  }, [totalEuro, clientPaid]);
 
   function setRow(setter, idx, patch) {
     setter((prev) => {
@@ -159,94 +185,114 @@ export default function TransportPranim() {
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const lat = String(pos?.coords?.latitude ?? '');
-        const lng = String(pos?.coords?.longitude ?? '');
-        setGpsLat(lat);
-        setGpsLng(lng);
+        setGpsLat(String(pos?.coords?.latitude ?? ''));
+        setGpsLng(String(pos?.coords?.longitude ?? ''));
       },
       () => alert('S’u mor GPS. Lejo Location në browser.'),
       { enableHighAccuracy: true, timeout: 8000 }
     );
   }
 
-  async function saveOrder() {
+  async function saveOrder(nextStatus) {
     if (!me?.transport_id) return;
     if (!validate()) return;
-
     setSaving(true);
     try {
-      const code = normalizeTCode(codeRaw);
+      const code = normalizeCodeKeepT(codeRaw);
 
-      const order = {
-        id: oid,
-        code,                 // keep Txx here (transport pages)
-        code_n: Number(code.replace(/\D+/g, '')) || 0,
+      // 1) upsert transport client (separate table)
+      const client = await upsertTransportClient({
+        transport_id: me.transport_id,
+        name: name.trim(),
+        phone: phonePrefix + (phone || ''),
+        note: clientDesc || '',
+        address: address || '',
+        lat: gpsLat || '',
+        lng: gpsLng || '',
+      });
+
+      // 2) create order in shared orders table (pastrimi shared)
+      const dataPayload = {
         scope: 'transport',
-        transport_id: String(me.transport_id),
-        transport_name: me.transport_name || me.transport_id,
-        status: saveIncomplete ? 'transport_incomplete' : 'pastrim', // shared pastrimi stage
-        created_at: new Date().toISOString(),
-        data: {
-          scope: 'transport',
-          transport_id: String(me.transport_id),
-          transport_name: me.transport_name || me.transport_id,
-          status: saveIncomplete ? 'transport_incomplete' : 'pastrim',
-          client: {
-            name: name.trim(),
-            phone: phonePrefix + (phone || ''),
-            code,
-          },
-          transport: {
-            address: address || '',
-            lat: gpsLat || '',
-            lng: gpsLng || '',
-            desc: clientDesc || '',
-          },
-          tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0) })),
-          staza: stazaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0) })),
-          shkallore: { qty: parseNum(stairsQty, 0), per: parseNum(stairsPer, SHKALLORE_M2_PER_STEP_DEFAULT) },
-          pay: {
-            price: parseNum(pricePerM2, 0),
-            m2: Number(totalM2) || 0,
-            euro: Number(totalEuro) || 0,
-            paid: Number(paidEuro) || 0,
-            debt: Number(debt) || 0,
-            method: 'CASH',
-          },
-          notes: notes || '',
+        transport_id: me.transport_id,
+        client: {
+          id: client?.id || null,
+          name: name.trim(),
+          phone: phonePrefix + (phone || ''),
+          code,
         },
+        tepiha: tepihaRows.map((r) => ({ m2: safeNum(r.m2, 0), qty: safeNum(r.qty, 0) })),
+        staza: stazaRows.map((r) => ({ m2: safeNum(r.m2, 0), qty: safeNum(r.qty, 0) })),
+        shkallore: { qty: safeNum(stairsQty, 0), per: safeNum(stairsPer, SHKALLORE_M2_PER_STEP_DEFAULT) },
+        pay: {
+          price: safeNum(pricePerM2, 0),
+          m2: safeNum(totalM2, 0),
+          euro: safeNum(totalEuro, 0),
+          paid: safeNum(clientPaid, 0),
+          debt: safeNum(debt, 0),
+          method: 'CASH',
+        },
+        transport: {
+          address: address || '',
+          lat: gpsLat || '',
+          lng: gpsLng || '',
+          desc: clientDesc || '',
+        },
+        notes: notes || '',
       };
 
-      // DB insert (NO clients table usage)
-      const res = await insertTransportOrder(order);
-      if (!res?.ok) throw new Error(res?.error || 'Insert failed');
+      const order = await createTransportOrder({
+        transport_id: me.transport_id,
+        code,
+        client_id: client?.id || null,
+        status: nextStatus === 'transport_incomplete' ? 'transport_incomplete' : 'pastrim',
+        data: dataPayload,
+      });
 
-      // Mark T code used (always on save)
-      await markTransportCodeUsed(code);
+      const orderId = order?.id;
+      if (!orderId) throw new Error('No order id');
 
-      // CASH collected by transport operator -> goes to TRANSPORT wallet (COLLECTED), not daily cycle
-      if (paidEuro > 0) {
-        await recordCashMove({
-          amount: paidEuro,
-          method: 'CASH',
-          type: 'TRANSPORT',
-          status: 'COLLECTED',
-          order_id: order.id,
+      // 3) mark T-code used only when it becomes "ready for base" (i.e., sent to pastrim)
+      if (nextStatus !== 'transport_incomplete') {
+        await markTransportCodeUsed(code);
+      }
+
+      // 4) If collected cash, store into TRANSPORT wallet (not daily ARKA)
+      const paid = safeNum(clientPaid, 0);
+      if (paid > 0) {
+        try {
+          addTransportCollect(me.transport_id, {
+            ts: Date.now(),
+            order_id: orderId,
+            order_code: code,
+            client_name: name.trim(),
+            amount: paid,
+            note: 'PAGESA NË FILLIM',
+          });
+        } catch {
+          // ignore local wallet errors
+        }
+
+        // also create a pending record in Supabase for later handoff
+        await createPendingCashPayment({
+          order_id: orderId,
           order_code: code,
           client_name: name.trim(),
-          stage: 'PRANIMI',
-          note: `TRANSPORT PRANIMI ${code}`,
-          created_by_pin: String(me.transport_id),
-          created_by_name: me.transport_name || me.transport_id,
-          approved_by_pin: null,
+          stage: 'pranimi',
+          amount: paid,
+          method: 'CASH',
+          created_by_pin: String(me?.pin || ''),
+          created_by_name: String(me?.name || ''),
+          type: 'TRANSPORT',
+          status: 'COLLECTED',
+          note: 'PAGESA NË FILLIM',
         });
       }
 
-      // route
-      if (saveIncomplete) {
+      if (nextStatus === 'transport_incomplete') {
         router.push('/transport/te-pa-plotsuara');
       } else {
-        router.push(`/pastrimi?id=${order.id}`);
+        router.push(`/pastrimi?id=${orderId}`);
       }
     } catch (e) {
       console.error(e);
@@ -278,7 +324,7 @@ export default function TransportPranim() {
       <header className="header-row" style={{ alignItems: 'flex-start' }}>
         <div>
           <h1 className="title">TRANSPORT • PRANIMI</h1>
-          <div className="subtitle">{me?.transport_name || ''}</div>
+          <div className="subtitle">{String(me?.name || '').toUpperCase()}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Link className="pill" href="/transport/menu">MENU</Link>
@@ -288,7 +334,7 @@ export default function TransportPranim() {
 
       <section className="card">
         <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <span className="badge">{`KODI: ${normalizeTCode(codeRaw)}`}</span>
+          <span className="badge">{`KODI: ${normalizeCodeKeepT(codeRaw)}`}</span>
           <label className="pill" style={{ cursor: 'pointer' }}>
             <input
               type="checkbox"
@@ -324,7 +370,12 @@ export default function TransportPranim() {
         <div className="row" style={{ gap: 8, alignItems: 'center' }}>
           <div className="field" style={{ flex: 1 }}>
             <div className="label">RRUGA / QYTETI</div>
-            <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="p.sh. Rr. Justina Shkupi, Prishtinë" />
+            <input
+              className="input"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="p.sh. Rr. Justina Shkupi, Prishtinë"
+            />
           </div>
           <button type="button" className="btn" onClick={getGps} style={{ whiteSpace: 'nowrap' }}>
             MERRE GPS
@@ -337,7 +388,12 @@ export default function TransportPranim() {
 
         <div className="field">
           <div className="label">PËRSHKRIM (OPSIONALE)</div>
-          <textarea className="textarea" value={clientDesc} onChange={(e) => setClientDesc(e.target.value)} placeholder="p.sh. hyrja e dytë, kati 3, telefononi 10 min para..." />
+          <textarea
+            className="textarea"
+            value={clientDesc}
+            onChange={(e) => setClientDesc(e.target.value)}
+            placeholder="p.sh. hyrja e dytë, kati 3, telefononi 10 min para..."
+          />
         </div>
 
         <div className="sep" />
@@ -465,7 +521,7 @@ export default function TransportPranim() {
 
         <div style={{ height: 10 }} />
 
-        <button className="btn btn-primary" disabled={saving} onClick={saveOrder}>
+        <button className="btn btn-primary" disabled={saving} onClick={() => saveOrder(saveIncomplete ? 'transport_incomplete' : 'transport_ready_for_base')}>
           {saving ? 'DUKE RUAJTUR...' : 'RUAJ (SHKON NË PASTRIMI)'}
         </button>
       </section>
