@@ -55,24 +55,22 @@ async function uploadPhoto(file, oid, key) {
   return pub?.publicUrl || null;
 }
 
-// --- NEW DESIGN CHIPS ---
+// --- CHIPS STYLE ---
 function chipStyleForVal(v, active) {
   const n = Number(v);
-  // Colors adjusted for better contrast on dark theme
-  let bg = 'rgba(39, 39, 42, 1)'; // zinc-800 default
+  let bg = 'rgba(39, 39, 42, 1)'; 
   let border = 'rgba(63, 63, 70, 0.5)';
   let text = '#e4e4e7';
 
   if (active) {
-    bg = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'; // Blue gradient active
+    bg = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'; 
     border = 'transparent';
     text = '#ffffff';
   } else {
-    // Subtle color hints for size groups
-    if (n >= 5.8) { border = 'rgba(249,115,22,0.4)'; text = '#fdba74'; } // Orange hint
-    else if (Math.abs(n - 3.2) < 0.051) { border = 'rgba(239,68,68,0.4)'; text = '#fca5a5'; } // Red hint
-    else if (n >= 3.5) { border = 'rgba(236,72,153,0.4)'; text = '#f9a8d4'; } // Pink hint
-    else if (n >= 2.2) { border = 'rgba(245,158,11,0.4)'; text = '#fcd34d'; } // Amber hint
+    if (n >= 5.8) { border = 'rgba(249,115,22,0.4)'; text = '#fdba74'; } 
+    else if (Math.abs(n - 3.2) < 0.051) { border = 'rgba(239,68,68,0.4)'; text = '#fca5a5'; } 
+    else if (n >= 3.5) { border = 'rgba(236,72,153,0.4)'; text = '#f9a8d4'; } 
+    else if (n >= 2.2) { border = 'rgba(245,158,11,0.4)'; text = '#fcd34d'; } 
   }
 
   return {
@@ -252,7 +250,7 @@ export default function TransportPranim() {
   function endPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; if (!payHoldTriggeredRef.current) openPay(); payHoldTriggeredRef.current = false; }
   function cancelPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; payHoldTriggeredRef.current = false; }
 
-  // Validation & Save
+  // Validation
   function validate() {
     if (saveIncomplete) return true;
     if (!name.trim()) return alert('Shkruaj emrin!'), false;
@@ -268,21 +266,33 @@ export default function TransportPranim() {
     return true;
   }
 
+  // --- FIX KRYESOR KËTU ---
   async function saveOrder() {
     if (!me?.transport_id) return alert("❌ Session Error");
     if (!validate()) return;
     setSaving(true);
+    
     try {
-      const code = normalizeTCode(codeRaw);
+      const codeStr = normalizeTCode(codeRaw); // "T27"
+      const codeNum = Number(codeStr.replace(/\D+/g, '')) || 0; // 27
+      
       const orderData = {
-        id: oid, code, code_n: Number(code.replace(/\D+/g, '')) || 0,
+        id: oid, 
+        
+        // FIX: Dërgojmë Numrin (27) në DB sepse kolona është bigint
+        code: codeNum, 
+        code_n: codeNum,
+        
         scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
         status: saveIncomplete ? 'transport_incomplete' : 'pastrim',
         created_at: new Date().toISOString(),
         data: {
           scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
           status: saveIncomplete ? 'transport_incomplete' : 'pastrim',
-          client: { name: name.trim(), phone: phonePrefix + (phone || ''), code, photoUrl: clientPhotoUrl || '' },
+          
+          // FIX: Tekstin "T27" e ruajmë këtu që mos të humbet
+          client: { name: name.trim(), phone: phonePrefix + (phone || ''), code: codeStr, photoUrl: clientPhotoUrl || '' },
+          
           transport: { address: address || '', lat: gpsLat || '', lng: gpsLng || '', desc: clientDesc || '' },
           tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
           staza: stazaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
@@ -291,12 +301,16 @@ export default function TransportPranim() {
           notes: notes || '',
         },
       };
+      
       const res = await insertTransportOrder(orderData);
+      
       if (!res?.ok) throw new Error(res?.error || "DB Insert Failed");
-      await markTransportCodeUsed(code);
+      await markTransportCodeUsed(codeStr);
+      
       if (paidEuro > 0) {
-        await recordCashMove({ amount: paidEuro, method: 'CASH', type: 'TRANSPORT', status: 'COLLECTED', order_id: orderData.id, order_code: code, client_name: name.trim(), stage: 'PRANIMI', note: `TRANSPORT ${code}`, created_by_pin: String(me.transport_id), created_by_name: me.transport_name, approved_by_pin: null });
+        await recordCashMove({ amount: paidEuro, method: 'CASH', type: 'TRANSPORT', status: 'COLLECTED', order_id: orderData.id, order_code: codeStr, client_name: name.trim(), stage: 'PRANIMI', note: `TRANSPORT ${codeStr}`, created_by_pin: String(me.transport_id), created_by_name: me.transport_name, approved_by_pin: null });
       }
+      
       if (saveIncomplete) router.push('/transport/te-pa-plotsuara'); else router.push(`/pastrimi?id=${orderData.id}`);
     } catch (e) {
       console.error("SAVE CRASH:", e);
