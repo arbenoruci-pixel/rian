@@ -4,16 +4,19 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { getTransportSession } from '@/lib/transportAuth';
 import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
+import { recordCashMove } from '@/lib/arkaCashSync';
 
-// TRANSPORT PRANIMI: cloned UX from base PRANIMI, but transport-scoped (T-codes + transport session).
+// TRANSPORT PRANIMI = same look/feel as base PRANIMI, but:
+// - Separate code system: T1, T2, ... stored in DB as code = 1000000 + n
+// - Separate clients namespace (avoid clients_phone_uniq collisions): clients.phone = 'T' + realPhone
+// - Payments go to arka_pending_payments with status=COLLECTED (not applied to daily cycle)
+// - After save, goes to shared /pastrimi (Pastrimi sees all)
 
-const BUCKET = 'tepiha-photos';
+const CODE_OFFSET = 1000000; // numeric codes >= this are TRANSPORT (T + (code - offset))
 
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
-
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
 const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
 const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
@@ -21,19 +24,31 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 
-function sanitizePhone(phone) {
-  return String(phone || '').replace(/\D+/g, '');
+function readActor() {
+  try {
+    const raw = localStorage.getItem('CURRENT_USER_DATA');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
-function normalizeCodeKeepT(raw) {
-  if (!raw) return '';
-  const s = String(raw).trim();
-  if (/^t\d+/i.test(s)) {
-    const n = s.replace(/\D+/g, '').replace(/^0+/, '') || '0';
-    return `T${n}`;
-  }
-  const n = s.replace(/\D+/g, '').replace(/^0+/, '');
-  return n || '0';
+function onlyDigits(v) {
+  return String(v || '').replace(/\D+/g, '');
+}
+
+function tCodeToN(tCode) {
+  const n = Number(String(tCode || '').replace(/\D+/g, '').replace(/^0+/, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+function tCodeToDbCode(tCode) {
+  return CODE_OFFSET + tCodeToN(tCode);
+}
+function toTCodeDisplayFromDb(code) {
+  const n = Number(code);
+  if (!Number.isFinite(n)) return '';
+  if (n >= CODE_OFFSET) return `T${n - CODE_OFFSET}`;
+  return String(n);
 }
 
 function computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer) {
@@ -43,121 +58,95 @@ function computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer) {
   return Number((t + s + sh).toFixed(2));
 }
 
-async function uploadJson(path, obj) {
-  const blob = new Blob([JSON.stringify(obj)], { type: 'application/json' });
-  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true, contentType: 'application/json' });
-  if (error) throw error;
-}
-
-async function downloadJsonNoCache(path) {
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
-  if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
-  const res = await fetch(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Fetch failed');
-  return await res.json();
-}
-
-export default function TransportPranim() {
+export default function TransportPranimiPage() {
   const router = useRouter();
   const sp = useSearchParams();
   const editId = sp.get('id') || '';
 
-  const [me, setMe] = useState(null);
-  const [creating, setCreating] = useState(true);
+  const [actor, setActor] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // identity
-  const [oid, setOid] = useState('');
-  const [codeRaw, setCodeRaw] = useState('');
+  const [orderId, setOrderId] = useState('');
+  const [tCode, setTCode] = useState('');
 
-  // client
   const [name, setName] = useState('');
   const [phonePrefix, setPhonePrefix] = useState(PHONE_PREFIX_DEFAULT);
   const [phone, setPhone] = useState('');
 
-  // transport address / gps
   const [address, setAddress] = useState('');
   const [gpsLat, setGpsLat] = useState('');
   const [gpsLng, setGpsLng] = useState('');
   const [clientDesc, setClientDesc] = useState('');
 
-  // rows (empty by default)
   const [tepihaRows, setTepihaRows] = useState([]);
   const [stazaRows, setStazaRows] = useState([]);
-
   const [stairsQty, setStairsQty] = useState(0);
   const [stairsPer, setStairsPer] = useState(SHKALLORE_M2_PER_STEP_DEFAULT);
 
-  // pay (CASH only)
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
 
   const [notes, setNotes] = useState('');
+  const [saveIncomplete, setSaveIncomplete] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // incomplete mode (transport_incomplete)
-  const [saveIncomplete, setSaveIncomplete] = useState(false);
+  useEffect(() => {
+    const a = readActor();
+    setActor(a);
+  }, []);
 
   useEffect(() => {
-    const s = getTransportSession();
-    if (!s?.transport_id) {
-      router.push('/transport');
+    if (!actor) return;
+    // Require login (and ideally TRANSPORT role)
+    if (!actor?.pin) {
+      router.push('/login');
       return;
     }
-    setMe(s);
-  }, [router]);
-
-  useEffect(() => {
-    if (!me?.transport_id) return;
 
     (async () => {
       try {
-        // load existing
+        setLoading(true);
         if (editId) {
-          const ord = await downloadJsonNoCache(`orders/${editId}.json`);
-          setOid(ord.id || editId);
-          setCodeRaw(ord?.client?.code || ord?.code || '');
-          setName(ord?.client?.name || '');
-          const p = String(ord?.client?.phone || '');
-          setPhone(p.startsWith(phonePrefix) ? p.slice(phonePrefix.length) : sanitizePhone(p));
+          const { data, error } = await supabase.from('orders').select('*').eq('id', editId).maybeSingle();
+          if (error || !data) throw error || new Error('Order not found');
 
-          setTepihaRows(
-            Array.isArray(ord.tepiha) && ord.tepiha.length
-              ? ord.tepiha.map((r) => ({ m2: r.m2 ?? '', qty: String(r.qty ?? '0'), photoUrl: r.photoUrl || '' }))
-              : []
-          );
-          setStazaRows(
-            Array.isArray(ord.staza) && ord.staza.length
-              ? ord.staza.map((r) => ({ m2: r.m2 ?? '', qty: String(r.qty ?? '0'), photoUrl: r.photoUrl || '' }))
-              : []
-          );
-          setStairsQty(Number(ord?.shkallore?.qty || 0));
-          setStairsPer(Number(ord?.shkallore?.per || SHKALLORE_M2_PER_STEP_DEFAULT));
-          setPricePerM2(Number(ord?.pay?.price || PRICE_DEFAULT));
-          setClientPaid(Number(ord?.pay?.paid || 0));
-          setNotes(String(ord?.notes || ''));
-          setSaveIncomplete(ord.status === 'transport_incomplete');
-          setAddress(String(ord?.transport?.address || ''));
-          setGpsLat(String(ord?.transport?.lat || ''));
-          setGpsLng(String(ord?.transport?.lng || ''));
-          setClientDesc(String(ord?.transport?.desc || ''));
-          setCreating(false);
+          const d = data.data || {};
+          setOrderId(data.id);
+          setTCode(toTCodeDisplayFromDb(data.code));
+          setName(d?.client?.name || '');
+          const realPhone = String(d?.client?.phone_real || d?.client?.phone || '');
+          setPhone(realPhone.startsWith(phonePrefix) ? realPhone.slice(phonePrefix.length) : onlyDigits(realPhone));
+
+          setTepihaRows(Array.isArray(d.tepiha) ? d.tepiha.map((r) => ({ m2: r.m2 ?? '', qty: String(r.qty ?? '0') })) : []);
+          setStazaRows(Array.isArray(d.staza) ? d.staza.map((r) => ({ m2: r.m2 ?? '', qty: String(r.qty ?? '0') })) : []);
+          setStairsQty(Number(d?.shkallore?.qty || 0));
+          setStairsPer(Number(d?.shkallore?.per || SHKALLORE_M2_PER_STEP_DEFAULT));
+
+          setPricePerM2(Number(d?.pay?.price || PRICE_DEFAULT));
+          setClientPaid(Number(d?.pay?.paid || 0));
+
+          setAddress(String(d?.transport?.address || ''));
+          setGpsLat(String(d?.transport?.lat || ''));
+          setGpsLng(String(d?.transport?.lng || ''));
+          setClientDesc(String(d?.transport?.desc || ''));
+
+          setNotes(String(d?.notes || ''));
+          setSaveIncomplete(String(data.status || '').toLowerCase() === 'transport_incomplete');
           return;
         }
 
-        // new order
-        const id = `ord_${Date.now()}`;
-        setOid(id);
-
-        const t = await reserveTransportCode();
-        setCodeRaw(t);
-
-        setCreating(false);
+        // New
+        setOrderId('');
+        const tc = await reserveTransportCode();
+        setTCode(tc);
       } catch (e) {
         console.error(e);
-        setCreating(false);
+        alert('❌ Gabim: s’u hap TRANSPORT PRANIMI.');
+      } finally {
+        setLoading(false);
       }
     })();
-  }, [me, editId, phonePrefix]);
+  }, [actor, editId, phonePrefix, router]);
 
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2)), [totalM2, pricePerM2]);
@@ -178,8 +167,8 @@ export default function TransportPranim() {
     if (saveIncomplete) return true;
     if (!name.trim()) return alert('Shkruaj emrin dhe mbiemrin.'), false;
     if (name.trim().split(/\s+/).length < 2) return alert('Shkruaj edhe mbiemrin.'), false;
-    const ph = sanitizePhone(phonePrefix + phone);
-    if (!ph || ph.length < 6) return alert('Shkruaj një numër telefoni të vlefshëm.'), false;
+    const ph = `${phonePrefix}${phone || ''}`;
+    if (onlyDigits(ph).length < 6) return alert('Shkruaj një numër telefoni të vlefshëm.'), false;
     if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), false;
     return true;
   }
@@ -191,76 +180,133 @@ export default function TransportPranim() {
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const lat = String(pos?.coords?.latitude ?? '');
-        const lng = String(pos?.coords?.longitude ?? '');
-        setGpsLat(lat);
-        setGpsLng(lng);
+        setGpsLat(String(pos?.coords?.latitude ?? ''));
+        setGpsLng(String(pos?.coords?.longitude ?? ''));
       },
-      () => alert('S’u mor GPS. Lejo Location në browser.'),
+      () => alert("S’u mor GPS. Lejo Location në browser."),
       { enableHighAccuracy: true, timeout: 8000 }
     );
   }
 
-  async function saveOrder(nextStatus) {
-    if (!me?.transport_id) return;
+  async function saveOrder() {
+    if (!actor?.pin) return;
     if (!validate()) return;
-
     setSaving(true);
     try {
-      const code = normalizeCodeKeepT(codeRaw);
-      const order = {
-        id: oid,
-        ts: Date.now(),
-        scope: 'transport',
-        transport_id: me.transport_id,
-        status: nextStatus,
-        client: {
-          name: name.trim(),
-          phone: phonePrefix + (phone || ''),
-          code,
-          photoUrl: '',
+      const realPhone = `${phonePrefix}${phone || ''}`;
+      const client_phone_db = `T${onlyDigits(realPhone)}`; // avoids clients_phone_uniq collision
+      const code_db = tCodeToDbCode(tCode);
+      const code_display = toTCodeDisplayFromDb(code_db);
+
+      const nowIso = new Date().toISOString();
+      const status = saveIncomplete ? 'transport_incomplete' : 'pastrim';
+
+      // 1) Upsert client (transport namespace)
+      // NOTE: clients.code is numeric => use code_db
+      await supabase
+        .from('clients')
+        .upsert(
+          {
+            code: code_db,
+            full_name: name.trim(),
+            phone: client_phone_db,
+            updated_at: nowIso,
+          },
+          { onConflict: 'phone' }
+        );
+
+      // 2) Insert/update order
+      const payload = {
+        code: code_db,
+        status,
+        data: {
+          scope: 'transport',
+          transport_pin: String(actor.pin || ''),
+          transport_name: String(actor.name || actor.full_name || ''),
+          client: {
+            name: name.trim(),
+            phone_real: realPhone,
+            phone_db: client_phone_db,
+            code_display,
+          },
+          tepiha: tepihaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0 })),
+          staza: stazaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0 })),
+          shkallore: { qty: Number(stairsQty) || 0, per: Number(stairsPer) || SHKALLORE_M2_PER_STEP_DEFAULT },
+          pay: {
+            price: Number(pricePerM2) || 0,
+            m2: Number(totalM2) || 0,
+            euro: Number(totalEuro) || 0,
+            paid: Number(clientPaid) || 0,
+            debt: Number(debt) || 0,
+            method: 'CASH',
+          },
+          transport: { address: address || '', lat: gpsLat || '', lng: gpsLng || '', desc: clientDesc || '' },
+          notes: notes || '',
+          created_at_client: nowIso,
         },
-        tepiha: tepihaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0, photoUrl: r.photoUrl || '' })),
-        staza: stazaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0, photoUrl: r.photoUrl || '' })),
-        shkallore: { qty: Number(stairsQty) || 0, per: Number(stairsPer) || SHKALLORE_M2_PER_STEP_DEFAULT },
-        pay: {
-          price: Number(pricePerM2) || 0,
-          m2: Number(totalM2) || 0,
-          euro: Number(totalEuro) || 0,
-          paid: Number(clientPaid) || 0,
-          debt: Number(debt) || 0,
-          method: 'CASH',
-        },
-        transport: {
-          address: address || '',
-          lat: gpsLat || '',
-          lng: gpsLng || '',
-          desc: clientDesc || '',
-        },
-        notes: notes || '',
       };
 
-      await uploadJson(`orders/${oid}.json`, order);
-
-      if (nextStatus === 'transport_ready_for_base') {
-        await markTransportCodeUsed(code);
+      let savedOrderId = orderId;
+      if (savedOrderId) {
+        const { error } = await supabase.from('orders').update(payload).eq('id', savedOrderId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from('orders').insert(payload).select('id').single();
+        if (error) throw error;
+        savedOrderId = data?.id;
+        setOrderId(savedOrderId);
       }
 
-      if (nextStatus === 'transport_incomplete') {
+      // 3) Mark T-code used ONLY when it becomes a real order (not incomplete)
+      if (!saveIncomplete) {
+        await markTransportCodeUsed(code_display);
+      }
+
+      // 4) If paid upfront, create TRANSPORT collected cash (NOT daily ARKA)
+      if (!saveIncomplete && Number(clientPaid || 0) > 0) {
+        await recordCashMove({
+          amount: Number(clientPaid || 0),
+          type: 'TRANSPORT',
+          status: 'COLLECTED',
+          order_id: savedOrderId,
+          order_code: code_display,
+          client_name: name.trim(),
+          created_by_pin: String(actor.pin || ''),
+          created_by_name: String(actor.name || actor.full_name || ''),
+          note: 'TRANSPORT • PAGESA NË FILLIM',
+          source: 'TRANSPORT_PRANIMI',
+        });
+      }
+
+      // 5) Navigate
+      if (saveIncomplete) {
         router.push('/transport/te-pa-plotsuara');
       } else {
-        // PASRTIMI is shared stage
-        router.push(`/pastrimi?id=${oid}`);
+        router.push(`/pastrimi?id=${savedOrderId}`);
       }
     } catch (e) {
       console.error(e);
-      alert('❌ Gabim ruajtja!');
+      alert(`❌ RUJTJA DËSHTOI: ${e?.message || 'Gabim'}`);
     } finally {
       setSaving(false);
     }
   }
 
-  if (creating) {
+  if (!actor?.pin) {
+    return (
+      <div className="wrap">
+        <header className="header-row">
+          <div>
+            <h1 className="title">TRANSPORT • PRANIMI</h1>
+            <div className="subtitle">NUK JE I KYÇUR</div>
+          </div>
+          <Link className="pill" href="/login">LOGIN</Link>
+        </header>
+      </div>
+    );
+  }
+
+  if (loading) {
     return (
       <div className="wrap">
         <header className="header-row">
@@ -268,7 +314,10 @@ export default function TransportPranim() {
             <h1 className="title">TRANSPORT • PRANIMI</h1>
             <div className="subtitle">DUKE HAPUR...</div>
           </div>
-          <Link className="pill" href="/transport/menu">MENU</Link>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Link className="pill" href="/transport/menu">MENU</Link>
+            <Link className="pill" href="/">HOME</Link>
+          </div>
         </header>
         <section className="card">
           <div className="muted">Loading...</div>
@@ -282,7 +331,7 @@ export default function TransportPranim() {
       <header className="header-row" style={{ alignItems: 'flex-start' }}>
         <div>
           <h1 className="title">TRANSPORT • PRANIMI</h1>
-          <div className="subtitle">TRANSPORT: {me?.transport_id || ''}</div>
+          <div className="subtitle">{String(actor?.name || actor?.full_name || '').toLowerCase()}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Link className="pill" href="/transport/menu">MENU</Link>
@@ -292,7 +341,7 @@ export default function TransportPranim() {
 
       <section className="card">
         <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <span className="badge">{`KODI: ${normalizeCodeKeepT(codeRaw)}`}</span>
+          <span className="badge">KODI: {String(tCode || '').toUpperCase()}</span>
           <label className="pill" style={{ cursor: 'pointer' }}>
             <input
               type="checkbox"
@@ -328,7 +377,12 @@ export default function TransportPranim() {
         <div className="row" style={{ gap: 8, alignItems: 'center' }}>
           <div className="field" style={{ flex: 1 }}>
             <div className="label">RRUGA / QYTETI</div>
-            <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="p.sh. Rr. Justina Shkupi, Prishtinë" />
+            <input
+              className="input"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="p.sh. Rr. Justina Shkupi, Prishtinë (ose: Lagjja, hyrja, kati...)"
+            />
           </div>
           <button type="button" className="btn" onClick={getGps} style={{ whiteSpace: 'nowrap' }}>
             MERRE GPS
@@ -338,10 +392,14 @@ export default function TransportPranim() {
           <span className="pill">LAT: {gpsLat ? Number(gpsLat).toFixed(6) : '-'}</span>
           <span className="pill">LNG: {gpsLng ? Number(gpsLng).toFixed(6) : '-'}</span>
         </div>
-
         <div className="field">
           <div className="label">PËRSHKRIM (OPSIONALE)</div>
-          <textarea className="textarea" value={clientDesc} onChange={(e) => setClientDesc(e.target.value)} placeholder="p.sh. hyrja e dytë, kati 3, telefononi para se të vini..." />
+          <textarea
+            className="textarea"
+            value={clientDesc}
+            onChange={(e) => setClientDesc(e.target.value)}
+            placeholder="p.sh. hyrja e dytë, kati 3, telefononi 10 min para..."
+          />
         </div>
 
         <div className="sep" />
@@ -374,8 +432,7 @@ export default function TransportPranim() {
             </div>
           </div>
         ))}
-
-        <button type="button" className="btn" onClick={() => setTepihaRows((p) => [...p, { m2: '', qty: '0', photoUrl: '' }])}>
+        <button type="button" className="btn" onClick={() => setTepihaRows((p) => [...p, { m2: '', qty: '0' }])}>
           + SHTO RRESHT
         </button>
 
@@ -409,8 +466,7 @@ export default function TransportPranim() {
             </div>
           </div>
         ))}
-
-        <button type="button" className="btn" onClick={() => setStazaRows((p) => [...p, { m2: '', qty: '0', photoUrl: '' }])}>
+        <button type="button" className="btn" onClick={() => setStazaRows((p) => [...p, { m2: '', qty: '0' }])}>
           + SHTO RRESHT
         </button>
 
@@ -444,7 +500,7 @@ export default function TransportPranim() {
 
         <div className="sep" />
 
-        <h2 className="card-title">PAGESA (CASH)</h2>
+        <h2 className="card-title">PAGESA (TRANSPORT)</h2>
         <div className="row" style={{ gap: 8 }}>
           <div className="field" style={{ flex: 1 }}>
             <div className="label">€/M²</div>
@@ -471,7 +527,7 @@ export default function TransportPranim() {
 
         <div style={{ height: 10 }} />
 
-        <button className="btn btn-primary" disabled={saving} onClick={() => saveOrder(saveIncomplete ? 'transport_incomplete' : 'transport_ready_for_base')}>
+        <button className="btn btn-primary" disabled={saving} onClick={saveOrder}>
           {saving ? 'DUKE RUAJTUR...' : 'RUAJ (SHKON NË PASTRIMI)'}
         </button>
       </section>
