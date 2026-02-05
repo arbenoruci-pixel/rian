@@ -59,7 +59,7 @@ export default function TransportPage() {
           <section className="card">
             <div className="t">ZGJEDH MODULIN (TRANSPORT)</div>
             <div className="home-nav">
-              <Link className="home-btn" href="/transport/pranim">
+              <Link className="home-btn" href="/transport/pranimi">
                 <span>🧾</span>
                 <div>
                   <div>PRANIMI (T)</div>
