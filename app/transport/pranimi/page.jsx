@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
 import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
 
-// NOTE: UI follows PRANIMI look & classes. Logic is transport-scoped and uses T-codes.
+// TRANSPORT PRANIMI: cloned UX from base PRANIMI, but transport-scoped (T-codes + transport session).
 
 const BUCKET = 'tepiha-photos';
 
@@ -80,11 +80,7 @@ export default function TransportPranim() {
   const [gpsLng, setGpsLng] = useState('');
   const [clientDesc, setClientDesc] = useState('');
 
-
-  // rows
-  // ✅ empty qty by default (prevents ghost "2 copë" before user inputs anything)
-  // ✅ Start with no rows ("closed" inputs). Rows appear only after chip or +SHTO RRESHT.
-  // Default COPË must be 0 so it never auto-counts.
+  // rows (empty by default)
   const [tepihaRows, setTepihaRows] = useState([]);
   const [stazaRows, setStazaRows] = useState([]);
 
@@ -123,7 +119,7 @@ export default function TransportPranim() {
           setName(ord?.client?.name || '');
           const p = String(ord?.client?.phone || '');
           setPhone(p.startsWith(phonePrefix) ? p.slice(phonePrefix.length) : sanitizePhone(p));
-          // ✅ Keep COPË as '0' (never auto-1) and allow empty arrays so inputs can stay "closed"
+
           setTepihaRows(
             Array.isArray(ord.tepiha) && ord.tepiha.length
               ? ord.tepiha.map((r) => ({ m2: r.m2 ?? '', qty: String(r.qty ?? '0'), photoUrl: r.photoUrl || '' }))
@@ -140,6 +136,10 @@ export default function TransportPranim() {
           setClientPaid(Number(ord?.pay?.paid || 0));
           setNotes(String(ord?.notes || ''));
           setSaveIncomplete(ord.status === 'transport_incomplete');
+          setAddress(String(ord?.transport?.address || ''));
+          setGpsLat(String(ord?.transport?.lat || ''));
+          setGpsLng(String(ord?.transport?.lng || ''));
+          setClientDesc(String(ord?.transport?.desc || ''));
           setCreating(false);
           return;
         }
@@ -175,7 +175,7 @@ export default function TransportPranim() {
   }
 
   function validate() {
-    if (saveIncomplete) return true; // allowed
+    if (saveIncomplete) return true;
     if (!name.trim()) return alert('Shkruaj emrin dhe mbiemrin.'), false;
     if (name.trim().split(/\s+/).length < 2) return alert('Shkruaj edhe mbiemrin.'), false;
     const ph = sanitizePhone(phonePrefix + phone);
@@ -183,23 +183,6 @@ export default function TransportPranim() {
     if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), false;
     return true;
   }
-
-  async function notifyDispatchNewTransportOrder(order) {
-    try {
-      const payload = {
-        type: 'transport_new_order',
-        ts: Date.now(),
-        transport_id: order.transport_id,
-        code: order?.client?.code || '',
-        m2: Number(order?.pay?.m2 || 0),
-        status: order.status,
-      };
-      await uploadJson(`dispatch_notify/${payload.ts}_${payload.transport_id}_${payload.code}.json`, payload);
-    } catch {
-      // non-blocking
-    }
-  }
-
 
   function getGps() {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -218,7 +201,6 @@ export default function TransportPranim() {
     );
   }
 
-
   async function saveOrder(nextStatus) {
     if (!me?.transport_id) return;
     if (!validate()) return;
@@ -231,21 +213,16 @@ export default function TransportPranim() {
         ts: Date.now(),
         scope: 'transport',
         transport_id: me.transport_id,
-
-        // transport status lives in status field (distinct values)
         status: nextStatus,
-
         client: {
           name: name.trim(),
           phone: phonePrefix + (phone || ''),
           code,
           photoUrl: '',
         },
-
         tepiha: tepihaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0, photoUrl: r.photoUrl || '' })),
         staza: stazaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0, photoUrl: r.photoUrl || '' })),
         shkallore: { qty: Number(stairsQty) || 0, per: Number(stairsPer) || SHKALLORE_M2_PER_STEP_DEFAULT },
-
         pay: {
           price: Number(pricePerM2) || 0,
           m2: Number(totalM2) || 0,
@@ -254,28 +231,25 @@ export default function TransportPranim() {
           debt: Number(debt) || 0,
           method: 'CASH',
         },
-
         transport: {
           address: address || '',
           lat: gpsLat || '',
           lng: gpsLng || '',
           desc: clientDesc || '',
         },
-
         notes: notes || '',
       };
 
       await uploadJson(`orders/${oid}.json`, order);
 
-      // mark T-code used only when it becomes "ready_for_base"
       if (nextStatus === 'transport_ready_for_base') {
         await markTransportCodeUsed(code);
-        await notifyDispatchNewTransportOrder(order);
       }
 
       if (nextStatus === 'transport_incomplete') {
         router.push('/transport/te-pa-plotsuara');
       } else {
+        // PASRTIMI is shared stage
         router.push(`/pastrimi?id=${oid}`);
       }
     } catch (e) {
@@ -294,7 +268,7 @@ export default function TransportPranim() {
             <h1 className="title">TRANSPORT • PRANIMI</h1>
             <div className="subtitle">DUKE HAPUR...</div>
           </div>
-          <Link className="pill" href="/transport">MENU</Link>
+          <Link className="pill" href="/transport/menu">MENU</Link>
         </header>
         <section className="card">
           <div className="muted">Loading...</div>
@@ -311,7 +285,7 @@ export default function TransportPranim() {
           <div className="subtitle">TRANSPORT: {me?.transport_id || ''}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link className="pill" href="/transport">MENU</Link>
+          <Link className="pill" href="/transport/menu">MENU</Link>
           <Link className="pill" href="/">HOME</Link>
         </div>
       </header>
@@ -347,7 +321,6 @@ export default function TransportPranim() {
             <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="48xxxxxx" />
           </div>
         </div>
-
 
         <div className="sep" />
 
@@ -402,11 +375,7 @@ export default function TransportPranim() {
           </div>
         ))}
 
-        <button
-          type="button"
-          className="btn"
-          onClick={() => setTepihaRows((p) => [...p, { m2: '', qty: '0', photoUrl: '' }])}
-        >
+        <button type="button" className="btn" onClick={() => setTepihaRows((p) => [...p, { m2: '', qty: '0', photoUrl: '' }])}>
           + SHTO RRESHT
         </button>
 
@@ -441,11 +410,7 @@ export default function TransportPranim() {
           </div>
         ))}
 
-        <button
-          type="button"
-          className="btn"
-          onClick={() => setStazaRows((p) => [...p, { m2: '', qty: '0', photoUrl: '' }])}
-        >
+        <button type="button" className="btn" onClick={() => setStazaRows((p) => [...p, { m2: '', qty: '0', photoUrl: '' }])}>
           + SHTO RRESHT
         </button>
 

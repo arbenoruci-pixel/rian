@@ -1,1 +1,2 @@
-export { default } from '../_redirect';
+import { redirect } from "next/navigation";
+export default function P(){ redirect("/transport/menu"); }

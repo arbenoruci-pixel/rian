@@ -1,91 +1,73 @@
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { getTransportSession, setTransportSession, clearTransportSession } from "@/lib/transportAuth";
 
-function readActor() {
-  try {
-    const raw = localStorage.getItem('CURRENT_USER_DATA');
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
-}
+function onlyDigits(v){ return String(v||"").replace(/\D/g,""); }
 
-export default function TransportPage() {
-  const [me, setMe] = useState(null);
+export default function TransportHome() {
+  const router = useRouter();
+  const [sess, setSess] = useState(null);
+  const [pin, setPin] = useState("");
+  const [name, setName] = useState("");
 
   useEffect(() => {
-    setMe(readActor());
+    setSess(getTransportSession());
   }, []);
 
-  const role = String(me?.role || '').toUpperCase();
-  const canSee = useMemo(() => {
-    return role === 'TRANSPORT' || role === 'ADMIN' || role === 'OWNER' || role === 'DISPATCH';
-  }, [role]);
+  function onLogin(){
+    const p = onlyDigits(pin);
+    if(!p || p.length < 3) return alert("Shkruaj PIN.");
+    const tid = `T_${p}`; // stable per-pin id
+    setTransportSession({ transport_id: tid, pin: p, name: (name||"").trim() || "TRANSPORT" });
+    setSess(getTransportSession());
+    router.push("/transport/menu");
+  }
+
+  function onLogout(){
+    clearTransportSession();
+    setSess(null);
+    setPin("");
+    setName("");
+  }
 
   return (
-    <main className="wrap">
-      <header className="top">
+    <div className="wrap">
+      <header className="header-row">
         <div>
-          <div className="h1">TRANSPORT</div>
-          <div className="sub">VETËM PASTRIMI ËSHTË I PËRBASHKËT</div>
+          <h1 className="title">TRANSPORT</h1>
+          <div className="subtitle">HYRJE ME PIN</div>
         </div>
-        <Link className="btn ghost" href="/">HOME</Link>
+        <Link className="pill" href="/">HOME</Link>
       </header>
 
-      {!me ? (
-        <div className="card">
-          <div className="t">NUK JE I KYÇUR</div>
-          <div className="p">Shko te LOGIN dhe hyn me PIN.</div>
-          <Link className="btn" href="/login">LOGIN</Link>
-        </div>
-      ) : !canSee ? (
-        <div className="card">
-          <div className="t">S’KE LEJE</div>
-          <div className="p">Kjo faqe është vetëm për TRANSPORT / DISPATCH / ADMIN / OWNER.</div>
-          <Link className="btn" href="/">KTHEHU HOME</Link>
-        </div>
-      ) : (
-        <>
-          <div className="card">
-            <div className="row">
-              <div>
-                <div className="t">I KYÇUR:</div>
-                <div className="p"><b>{me.name || 'USER'}</b> • {role}</div>
-              </div>
-            </div>
+      {!sess ? (
+        <section className="card">
+          <div className="field">
+            <div className="label">EMRI (OPSIONALE)</div>
+            <input className="input" value={name} onChange={(e)=>setName(e.target.value)} placeholder="p.sh. SABRI" />
           </div>
-
-          <section className="card">
-            <div className="t">ZGJEDH MODULIN (TRANSPORT)</div>
-            <div className="home-nav">
-              <Link className="home-btn" href="/transport/pranimi">
-                <span>🧾</span>
-                <div>
-                  <div>PRANIMI (T)</div>
-                  <small>Krijo porosi transporti (T-kode)</small>
-                </div>
-              </Link>
-
-              <Link className="home-btn" href="/transport/gati">
-                <span>✅</span>
-                <div>
-                  <div>GATI (T)</div>
-                  <small>Shfaq vetëm porositë e tua</small>
-                </div>
-              </Link>
-
-              <Link className="home-btn" href="/pastrimi">
-                <span>🧼</span>
-                <div>
-                  <div>PASTRIMI</div>
-                  <small>Përbashkët për të gjithë</small>
-                </div>
-              </Link>
-            </div>
-          </section>
-        </>
+          <div className="field">
+            <div className="label">PIN</div>
+            <input className="input" value={pin} onChange={(e)=>setPin(e.target.value)} placeholder="PIN..." inputMode="numeric" />
+          </div>
+          <button className="btn btn-primary" onClick={onLogin}>LOGIN</button>
+        </section>
+      ) : (
+        <section className="card">
+          <div className="muted" style={{ marginBottom: 10 }}>I KYÇUR: {(sess?.name||"").toLowerCase()} • TRANSPORT</div>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+            <Link className="pill" href="/transport/menu">MENU</Link>
+            <Link className="pill" href="/transport/pranimi">PRANIMI</Link>
+            <Link className="pill" href="/transport/gati">GATI</Link>
+            <Link className="pill" href="/transport/arka">ARKA</Link>
+          </div>
+          <div style={{ height: 12 }} />
+          <button className="btn" onClick={onLogout}>LOG OUT</button>
+        </section>
       )}
-    </main>
+    </div>
   );
 }
