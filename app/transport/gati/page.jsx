@@ -132,7 +132,8 @@ export default function TransportGatiPage() {
           <section className="card">
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
               <div className="t">POROSI GATI (T)</div>
-              <Link className="btn" href="/transport/pranim">+ PRANIMI</Link>
+              {/* FIX: Linku u ndryshua nga /transport/pranim ne /transport/pranimi */}
+              <Link className="btn" href="/transport/pranimi">+ PRANIMI</Link>
             </div>
 
             {busy ? <div className="muted" style={{ paddingTop: 10 }}>Loading…</div> : null}
