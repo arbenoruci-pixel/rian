@@ -3,12 +3,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+
+// ✅ SHTO SUPABASE PËR FOTOT
+import { supabase } from '@/lib/supabaseClient';
+
 import { getTransportSession } from '@/lib/transportAuth';
 import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
-import { insertTransportOrder, updateTransportOrder } from '@/lib/transport/transportDb';
+import { insertTransportOrder } from '@/lib/transport/transportDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
-// --- LOGJIKA NGA FAJLLI I MIRË (CHIPS & STYLES) ---
+// --- LOGJIKA NGA FAJLLI I MIRË ---
+const BUCKET = 'tepiha-photos'; // ✅ BUCKET I FOTOVE
+
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
 
@@ -49,31 +55,43 @@ function parseNum(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-// Chip styling logic (identike me Pranimin e mirë)
+// ✅ UPLOAD PHOTO HELPER
+async function uploadPhoto(file, oid, key) {
+  if (!file || !oid) return null;
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
+
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
+  if (error) throw error;
+
+  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+  return pub?.publicUrl || null;
+}
+
 function chipStyleForVal(v, active) {
   const n = Number(v);
-  let a = 'rgba(59,130,246,0.18)'; // blue
+  let a = 'rgba(59,130,246,0.18)'; 
   let b = 'rgba(59,130,246,0.06)';
   let br = 'rgba(59,130,246,0.35)';
 
   if (n >= 5.8) {
-    a = 'rgba(249,115,22,0.20)'; // orange
+    a = 'rgba(249,115,22,0.20)'; 
     b = 'rgba(249,115,22,0.08)';
     br = 'rgba(249,115,22,0.38)';
   } else if (Math.abs(n - 3.2) < 0.051) {
-    a = 'rgba(239,68,68,0.20)'; // red (3.2)
+    a = 'rgba(239,68,68,0.20)'; 
     b = 'rgba(239,68,68,0.08)';
     br = 'rgba(239,68,68,0.38)';
   } else if (n >= 3.5) {
-    a = 'rgba(236,72,153,0.18)'; // pink
+    a = 'rgba(236,72,153,0.18)'; 
     b = 'rgba(236,72,153,0.06)';
     br = 'rgba(236,72,153,0.35)';
   } else if (n >= 2.2) {
-    a = 'rgba(245,158,11,0.18)'; // amber
+    a = 'rgba(245,158,11,0.18)'; 
     b = 'rgba(245,158,11,0.06)';
     br = 'rgba(245,158,11,0.35)';
   } else {
-    a = 'rgba(168,85,247,0.18)'; // purple
+    a = 'rgba(168,85,247,0.18)'; 
     b = 'rgba(168,85,247,0.06)';
     br = 'rgba(168,85,247,0.35)';
   }
@@ -96,6 +114,9 @@ export default function TransportPranim() {
   const [me, setMe] = useState(null);
   const [creating, setCreating] = useState(true);
 
+  // ✅ PHOTO UPLOADING STATE
+  const [photoUploading, setPhotoUploading] = useState(false);
+
   const [oid, setOid] = useState('');
   const [codeRaw, setCodeRaw] = useState('');
 
@@ -103,6 +124,7 @@ export default function TransportPranim() {
   const [name, setName] = useState('');
   const [phonePrefix, setPhonePrefix] = useState(PHONE_PREFIX_DEFAULT);
   const [phone, setPhone] = useState('');
+  const [clientPhotoUrl, setClientPhotoUrl] = useState(''); // ✅ FOTO KLIENTI
 
   // transport address / gps
   const [address, setAddress] = useState('');
@@ -110,14 +132,14 @@ export default function TransportPranim() {
   const [gpsLng, setGpsLng] = useState('');
   const [clientDesc, setClientDesc] = useState('');
 
-  // rows (TEPIHA / STAZA)
-  // Logic from good file: empty by default, explicit add
+  // rows
   const [tepihaRows, setTepihaRows] = useState([]);
   const [stazaRows, setStazaRows] = useState([]);
 
   // shkallore
   const [stairsQty, setStairsQty] = useState(0);
   const [stairsPer, setStairsPer] = useState(SHKALLORE_M2_PER_STEP_DEFAULT);
+  const [stairsPhotoUrl, setStairsPhotoUrl] = useState(''); // ✅ FOTO SHKALLORE
   
   // pay (CASH)
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
@@ -128,19 +150,15 @@ export default function TransportPranim() {
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showPriceSheet, setShowPriceSheet] = useState(false);
   const [priceTmp, setPriceTmp] = useState(PRICE_DEFAULT);
-
-  // pay logic helper
   const [payAdd, setPayAdd] = useState(0);
 
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveIncomplete, setSaveIncomplete] = useState(false);
 
-  // Refs for long press (Price change)
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
 
-  // AUTH CHECK
   useEffect(() => {
     const s = getTransportSession();
     if (!s?.transport_id) {
@@ -150,26 +168,19 @@ export default function TransportPranim() {
     setMe(s);
   }, [router]);
 
-  // INIT ORDER
   useEffect(() => {
     if (!me?.transport_id) return;
-
     (async () => {
       try {
         if (editId) {
-          // Editing is rare here, mostly for new orders
           setOid(editId);
           setCreating(false);
           return;
         }
-
-        // New Transport Order
         const id = `tord_${Date.now()}`;
         setOid(id);
-
         const tcode = await reserveTransportCode();
         setCodeRaw(tcode);
-
         setCreating(false);
       } catch (e) {
         console.error(e);
@@ -178,7 +189,6 @@ export default function TransportPranim() {
     })();
   }, [me, editId]);
 
-  // --- CALCULATIONS ---
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * parseNum(pricePerM2, 0)).toFixed(2)), [totalM2, pricePerM2]);
   const paidEuro = useMemo(() => parseNum(clientPaid, 0), [clientPaid]);
@@ -195,7 +205,6 @@ export default function TransportPranim() {
     return t + s + sh;
   }, [tepihaRows, stazaRows, stairsQty]);
 
-  // --- UI HELPERS ---
   function vibrateTap(ms = 15) {
     try {
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(ms);
@@ -217,7 +226,8 @@ export default function TransportPranim() {
   function addRow(kind) {
     const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
     const prefix = kind === 'tepiha' ? 't' : 's';
-    setter((rows) => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '0' }]);
+    // ✅ Include photoUrl: ''
+    setter((rows) => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '0', photoUrl: '' }]);
   }
 
   function removeRow(kind) {
@@ -230,6 +240,46 @@ export default function TransportPranim() {
     setter((rows) => rows.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   }
 
+  // ✅ PHOTO HANDLERS
+  async function handleRowPhotoChange(kind, id, file) {
+    if (!file || !oid) return;
+    setPhotoUploading(true);
+    try {
+      const url = await uploadPhoto(file, oid, `${kind}_${id}`);
+      if (url) handleRowChange(kind, id, 'photoUrl', url);
+    } catch {
+      alert('❌ Gabim foto!');
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  async function handleStairsPhotoChange(file) {
+    if (!file || !oid) return;
+    setPhotoUploading(true);
+    try {
+      const url = await uploadPhoto(file, oid, 'shkallore');
+      if (url) setStairsPhotoUrl(url);
+    } catch {
+      alert('❌ Gabim foto!');
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  async function handleClientPhotoChange(file) {
+    if (!file || !oid) return;
+    setPhotoUploading(true);
+    try {
+      const url = await uploadPhoto(file, oid, 'client');
+      if (url) setClientPhotoUrl(url);
+    } catch {
+      alert('❌ Gabim foto!');
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
   function applyChip(kind, val, ev) {
     vibrateTap(15);
     if (ev?.currentTarget) bumpEl(ev.currentTarget);
@@ -239,7 +289,7 @@ export default function TransportPranim() {
 
     if (!rows || rows.length === 0) {
       const prefix = kind === 'tepiha' ? 't' : 's';
-      setter([{ id: `${prefix}1`, m2: String(val), qty: '1' }]);
+      setter([{ id: `${prefix}1`, m2: String(val), qty: '1', photoUrl: '' }]);
       return;
     }
 
@@ -251,7 +301,7 @@ export default function TransportPranim() {
       setter(nr);
     } else {
       const prefix = kind === 'tepiha' ? 't' : 's';
-      setter([...rows, { id: `${prefix}${rows.length + 1}`, m2: String(val), qty: '1' }]);
+      setter([...rows, { id: `${prefix}${rows.length + 1}`, m2: String(val), qty: '1', photoUrl: '' }]);
     }
   }
 
@@ -274,7 +324,7 @@ export default function TransportPranim() {
     );
   }
 
-  // --- PAY / PRICE LOGIC ---
+  // --- PAY ---
   function openPay() {
     const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
     setPayAdd(dueNow > 0 ? dueNow : 0);
@@ -284,25 +334,16 @@ export default function TransportPranim() {
   function applyPayAndClose() {
     const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
     if (cashGiven <= 0) {
-        // Allow explicit 0 just to close, but warn
         setShowPaySheet(false);
         return;
     }
-
     const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
-    // Allow overpayment (tips/change) but track logic
     const applied = Number(Math.min(cashGiven, due).toFixed(2));
-    
-    // Total cash physically taken = cashGiven.
-    // However, logic usually tracks 'paid' vs 'total'.
-    // If they give 50 for 30, paid becomes 30 (full). 20 is change.
-    
     const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
     setClientPaid(newPaid);
     setShowPaySheet(false);
   }
 
-  // Long press logic
   function startPayHold() {
     payHoldTriggeredRef.current = false;
     if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current);
@@ -311,7 +352,7 @@ export default function TransportPranim() {
       vibrateTap(25);
       setPriceTmp(Number(pricePerM2) || PRICE_DEFAULT);
       setShowPriceSheet(true);
-    }, 1000); // 1s hold
+    }, 1000); 
   }
 
   function endPayHold() {
@@ -327,7 +368,7 @@ export default function TransportPranim() {
     payHoldTriggeredRef.current = false;
   }
 
-  // --- SAVE LOGIC (Original Transport Connections) ---
+  // --- SAVE ---
   function validate() {
     if (saveIncomplete) return true;
     if (!name.trim()) return alert('Shkruaj emrin dhe mbiemrin.'), false;
@@ -335,7 +376,6 @@ export default function TransportPranim() {
     const ph = sanitizePhone(phonePrefix + phone);
     if (!ph || ph.length < 6) return alert('Shkruaj një numër telefoni të vlefshëm.'), false;
     
-    // Check rows like good file
     const allRows = [...(tepihaRows || []), ...(stazaRows || [])];
     for (const r of allRows) {
         const m2 = parseFloat(String(r.m2 || '0').replace(',', '.')) || 0;
@@ -373,6 +413,7 @@ export default function TransportPranim() {
             name: name.trim(),
             phone: phonePrefix + (phone || ''),
             code,
+            photoUrl: clientPhotoUrl || '', // ✅ RUAJ FOTO KLIENTI
           },
           transport: {
             address: address || '',
@@ -380,9 +421,11 @@ export default function TransportPranim() {
             lng: gpsLng || '',
             desc: clientDesc || '',
           },
-          tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0) })),
-          staza: stazaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0) })),
-          shkallore: { qty: parseNum(stairsQty, 0), per: parseNum(stairsPer, SHKALLORE_M2_PER_STEP_DEFAULT) },
+          // ✅ RUAJ FOTOT E RRESHTAVE
+          tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
+          staza: stazaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
+          // ✅ RUAJ FOTO SHKALLORE
+          shkallore: { qty: parseNum(stairsQty, 0), per: parseNum(stairsPer, SHKALLORE_M2_PER_STEP_DEFAULT), photoUrl: stairsPhotoUrl || '' },
           pay: {
             price: parseNum(pricePerM2, 0),
             m2: Number(totalM2) || 0,
@@ -395,14 +438,11 @@ export default function TransportPranim() {
         },
       };
 
-      // DB insert (Transport DB)
       const res = await insertTransportOrder(order);
       if (!res?.ok) throw new Error(res?.error || 'Insert failed');
 
-      // Mark T code used
       await markTransportCodeUsed(code);
 
-      // CASH Record (Collected by Transport)
       if (paidEuro > 0) {
         await recordCashMove({
           amount: paidEuro,
@@ -420,7 +460,6 @@ export default function TransportPranim() {
         });
       }
 
-      // Redirect
       if (saveIncomplete) {
         router.push('/transport/te-pa-plotsuara');
       } else {
@@ -452,7 +491,6 @@ export default function TransportPranim() {
 
   return (
     <div className="wrap">
-      {/* HEADER - Identik si fajlli i mirë */}
       <header className="header-row" style={{ alignItems: 'flex-start' }}>
         <div>
           <h1 className="title">TRANSPORT • PRANIMI</h1>
@@ -468,11 +506,9 @@ export default function TransportPranim() {
         </div>
       </header>
 
-      {/* CLIENT & ADDRESS CARD (Transport Specific + Good Design) */}
       <section className="card">
         <h2 className="card-title">KLIENTI & ADRESA</h2>
         
-        {/* Toggle Incomplete */}
         <div className="row" style={{justifyContent: 'flex-end', marginBottom: 12}}>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 12, fontWeight: 800 }}>
                 <input
@@ -484,9 +520,22 @@ export default function TransportPranim() {
             </label>
         </div>
 
+        {/* ✅ PHOTO KLIENTI */}
         <div className="field-group">
           <label className="label">EMRI & MBIEMRI</label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Emri Mbiemri" />
+          <div className="row" style={{ alignItems: 'center', gap: 10 }}>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Emri Mbiemri" style={{ flex: 1 }} />
+            {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini" /> : null}
+            <label className="camera-btn" title="FOTO KLIENTI" style={{ marginLeft: 2 }}>
+              📷
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} />
+            </label>
+          </div>
+           {clientPhotoUrl && (
+            <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 8 }} onClick={() => setClientPhotoUrl('')}>
+              🗑️ FSHI FOTO
+            </button>
+          )}
         </div>
 
         <div className="field-group">
@@ -518,7 +567,7 @@ export default function TransportPranim() {
         </div>
       </section>
 
-      {/* TEPIHA (Good Design Logic) */}
+      {/* TEPIHA */}
       <section className="card">
         <h2 className="card-title">TEPIHA</h2>
 
@@ -541,7 +590,21 @@ export default function TransportPranim() {
             <div className="row">
               <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
               <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
+              {/* ✅ PHOTO BUTTON TEPIHA */}
+              <label className="camera-btn">
+                📷
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} />
+              </label>
             </div>
+             {/* ✅ PHOTO PREVIEW TEPIHA */}
+            {row.photoUrl && (
+              <div style={{ marginTop: 8 }}>
+                <img src={row.photoUrl} className="photo-thumb" alt="" />
+                <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => handleRowChange('tepiha', row.id, 'photoUrl', '')}>
+                  🗑️ FSHI FOTO
+                </button>
+              </div>
+            )}
           </div>
         ))}
 
@@ -551,7 +614,7 @@ export default function TransportPranim() {
         </div>
       </section>
 
-      {/* STAZA (Good Design Logic) */}
+      {/* STAZA */}
       <section className="card">
         <h2 className="card-title">STAZA</h2>
 
@@ -574,7 +637,21 @@ export default function TransportPranim() {
             <div className="row">
               <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
               <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
+              {/* ✅ PHOTO BUTTON STAZA */}
+              <label className="camera-btn">
+                📷
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} />
+              </label>
             </div>
+            {/* ✅ PHOTO PREVIEW STAZA */}
+            {row.photoUrl && (
+              <div style={{ marginTop: 8 }}>
+                <img src={row.photoUrl} className="photo-thumb" alt="" />
+                <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => handleRowChange('staza', row.id, 'photoUrl', '')}>
+                  🗑️ FSHI FOTO
+                </button>
+              </div>
+            )}
           </div>
         ))}
 
@@ -584,14 +661,13 @@ export default function TransportPranim() {
         </div>
       </section>
 
-      {/* UTIL (Buttons from Good File) */}
+      {/* UTIL */}
       <section className="card">
         <div className="row util-row" style={{ gap: 10 }}>
           <button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowStairsSheet(true)}>
             🪜 SHKALLORE
           </button>
 
-          {/* Long press for price change logic */}
           <button
             className="btn secondary"
             style={{ flex: 1 }}
@@ -631,12 +707,12 @@ export default function TransportPranim() {
       {/* FOOTER */}
       <footer className="footer-bar">
         <button className="btn secondary" onClick={() => router.push('/')}>🏠 HOME</button>
-        <button className="btn primary" onClick={saveOrder} disabled={saving}>
-          {saving ? '⏳ DUKE RUJT...' : '▶ RUAJ'}
+        <button className="btn primary" onClick={saveOrder} disabled={saving || photoUploading}>
+          {saving ? '⏳ DUKE RUJT...' : (photoUploading ? '⏳ DUKE NGARKUAR FOTO...' : '▶ RUAJ')}
         </button>
       </footer>
 
-      {/* --- MODALS (Copied from Good File) --- */}
+      {/* --- MODALS --- */}
 
       {/* FULL SCREEN: PAGESA */}
       {showPaySheet && (
@@ -700,7 +776,7 @@ export default function TransportPranim() {
         </div>
       )}
 
-      {/* FULL SCREEN: NDRRIM QMIMI (Long Press) */}
+      {/* FULL SCREEN: NDRRIM QMIMI */}
       {showPriceSheet && (
         <div className="payfs">
           <div className="payfs-top">
@@ -787,6 +863,24 @@ export default function TransportPranim() {
               <input type="number" step="0.01" className="input" value={stairsPer} onChange={(e) => setStairsPer(e.target.value)} style={{marginTop: 8}} />
             </div>
 
+            {/* ✅ PHOTO SHKALLORE */}
+             <div className="field-group">
+              <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label>
+              <label className="camera-btn">
+                📷
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} />
+              </label>
+
+              {stairsPhotoUrl && (
+                <div style={{ marginTop: 8 }}>
+                  <img src={stairsPhotoUrl} className="photo-thumb" alt="" />
+                  <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => setStairsPhotoUrl('')}>
+                    🗑️ FSHI FOTO
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button className="btn primary" style={{ width: '100%', marginTop: 12 }} onClick={() => setShowStairsSheet(false)}>
               MBYLL
             </button>
@@ -794,8 +888,36 @@ export default function TransportPranim() {
         </div>
       )}
 
-      {/* STYLES (Nga fajlli i mirë) */}
       <style jsx>{`
+        .client-mini{
+          width: 34px;
+          height: 34px;
+          border-radius: 999px;
+          object-fit: cover;
+          border: 1px solid rgba(255,255,255,0.18);
+          box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+        }
+        
+        .photo-thumb {
+          width: 60px;
+          height: 60px;
+          object-fit: cover;
+          border-radius: 8px;
+          border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .camera-btn {
+            background: rgba(255,255,255,0.1);
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+
         .chip-row.modern {
           display: flex;
           flex-wrap: wrap;
