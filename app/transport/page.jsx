@@ -4,19 +4,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
 function readActor() {
-  // Primary session used across the app
   try {
     const raw = localStorage.getItem('CURRENT_USER_DATA');
     if (raw) return JSON.parse(raw);
   } catch {}
-
-  // Fallback (older session keys)
-  try {
-    const s = JSON.parse(localStorage.getItem('tepiha_session_v1') || 'null');
-    const users = JSON.parse(localStorage.getItem('tepiha_users_v1') || '[]');
-    if (s?.uid) return users.find(x => x.id === s.uid) || null;
-  } catch {}
-
   return null;
 }
 
@@ -28,7 +19,6 @@ export default function TransportPage() {
   }, []);
 
   const role = String(me?.role || '').toUpperCase();
-
   const canSee = useMemo(() => {
     return role === 'TRANSPORT' || role === 'ADMIN' || role === 'OWNER' || role === 'DISPATCH';
   }, [role]);
@@ -38,7 +28,7 @@ export default function TransportPage() {
       <header className="top">
         <div>
           <div className="h1">TRANSPORT</div>
-          <div className="sub">HYRJE ME PIN</div>
+          <div className="sub">VETËM PASTRIMI ËSHTË I PËRBASHKËT</div>
         </div>
         <Link className="btn ghost" href="/">HOME</Link>
       </header>
@@ -84,7 +74,6 @@ export default function TransportPage() {
                   <small>Shfaq vetëm porositë e tua</small>
                 </div>
               </Link>
-
 
               <Link className="home-btn" href="/pastrimi">
                 <span>🧼</span>

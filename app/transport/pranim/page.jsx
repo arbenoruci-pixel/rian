@@ -1,1 +1,1 @@
-export { default } from '../_redirect';
+export { default } from './Client';
