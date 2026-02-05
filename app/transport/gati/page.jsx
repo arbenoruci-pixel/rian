@@ -88,5 +88,56 @@ export default function TransportGati() {
         </div>
       </section>
     </div>
+      {!me ? (
+        <section className="card">
+          <div className="muted">NUK JE I KYÇUR • SHKO TE LOGIN</div>
+          <Link className="btn" href="/login">LOGIN</Link>
+        </section>
+      ) : !canSee ? (
+        <section className="card">
+          <div className="muted">S’KE LEJE</div>
+          <Link className="btn" href="/">KTHEHU HOME</Link>
+        </section>
+      ) : (
+        <>
+          {err ? <section className="card"><div className="muted">{err}</div></section> : null}
+
+          <section className="card">
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="t">POROSI GATI (T)</div>
+              {/* FIX: Linku u ndryshua nga /transport/pranim ne /transport/pranimi */}
+              <Link className="btn" href="/transport/pranimi">+ PRANIMI</Link>
+            </div>
+
+            {busy ? <div className="muted" style={{ paddingTop: 10 }}>Loading…</div> : null}
+
+            {!busy && items.length === 0 ? (
+              <div className="muted" style={{ paddingTop: 10 }}>S’KA POROSI GATI PËR TY.</div>
+            ) : null}
+
+            <div className="list">
+              {items.map((it) => {
+                const o = it.order || {};
+                const clientName = o?.client?.name || it.code;
+                const pieces = computePieces(o);
+                const total = Number(o?.pay?.euro || 0);
+                return (
+                  <div key={it.id} className="row" style={{ justifyContent: 'space-between', gap: 10, padding: '10px 0' }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <span className="pill" style={{ background: '#16a34a' }}>{it.code}</span>
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{clientName}</div>
+                        <div className="muted">{pieces} COPË • €{total.toFixed(2)}</div>
+                      </div>
+                    </div>
+                    <Link className="btn ghost" href={`/gati?id=${it.id}`}>HAP</Link>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </>
+      )}
+    </main>
   );
 }
