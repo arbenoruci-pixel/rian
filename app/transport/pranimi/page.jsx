@@ -1,7 +1,5 @@
 'use client';
 
-'use client';
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -296,7 +294,7 @@ export default function TransportPranim() {
             <h1 className="title">TRANSPORT • PRANIMI</h1>
             <div className="subtitle">DUKE HAPUR...</div>
           </div>
-          <Link className="pill" href="/transport/menu">MENU</Link>
+          <Link className="pill" href="/transport">MENU</Link>
         </header>
         <section className="card">
           <div className="muted">Loading...</div>
@@ -313,7 +311,7 @@ export default function TransportPranim() {
           <div className="subtitle">TRANSPORT: {me?.transport_id || ''}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link className="pill" href="/transport/menu">MENU</Link>
+          <Link className="pill" href="/transport">MENU</Link>
           <Link className="pill" href="/">HOME</Link>
         </div>
       </header>
