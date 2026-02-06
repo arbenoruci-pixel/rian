@@ -62,16 +62,20 @@ function chipStyleForVal(v, active) {
   let a = 'rgba(59,130,246,0.18)'; 
   let b = 'rgba(59,130,246,0.06)';
   let br = 'rgba(59,130,246,0.35)';
+
   if (n >= 5.8) { a = 'rgba(249,115,22,0.20)'; b = 'rgba(249,115,22,0.08)'; br = 'rgba(249,115,22,0.38)'; } 
   else if (Math.abs(n - 3.2) < 0.051) { a = 'rgba(239,68,68,0.20)'; b = 'rgba(239,68,68,0.08)'; br = 'rgba(239,68,68,0.38)'; } 
   else if (n >= 3.5) { a = 'rgba(236,72,153,0.18)'; b = 'rgba(236,72,153,0.06)'; br = 'rgba(236,72,153,0.35)'; } 
   else if (n >= 2.2) { a = 'rgba(245,158,11,0.18)'; b = 'rgba(245,158,11,0.06)'; br = 'rgba(245,158,11,0.35)'; } 
   else { a = 'rgba(168,85,247,0.18)'; b = 'rgba(168,85,247,0.06)'; br = 'rgba(168,85,247,0.35)'; }
+
   return {
     background: `linear-gradient(180deg, ${a}, ${b})`,
     border: `1px solid ${br}`,
     outline: active ? '2px solid rgba(255,255,255,0.22)' : 'none',
-    boxShadow: active ? '0 10px 18px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.18)' : '0 8px 14px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.14)',
+    boxShadow: active
+      ? '0 10px 18px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.18)'
+      : '0 8px 14px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.14)',
   };
 }
 
@@ -106,10 +110,8 @@ export default function TransportPranim() {
   const [saving, setSaving] = useState(false);
   const [saveIncomplete, setSaveIncomplete] = useState(false);
 
-  // DEBUG STATE
+  // DEBUG & Modals
   const [logs, setLogs] = useState([]);
-
-  // Modals & Drafts
   const [showStairsSheet, setShowStairsSheet] = useState(false);
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showPriceSheet, setShowPriceSheet] = useState(false);
@@ -124,8 +126,7 @@ export default function TransportPranim() {
 
   // LOG HELPER
   function addLog(msg) {
-      const time = new Date().toLocaleTimeString();
-      setLogs(prev => [`[${time}] ${msg}`, ...prev]);
+      setLogs(prev => [`> ${msg}`, ...prev]);
       console.log(`[DEBUG] ${msg}`);
   }
 
@@ -134,7 +135,6 @@ export default function TransportPranim() {
     const s = getTransportSession();
     if (!s?.transport_id) { router.push('/transport'); return; }
     setMe(s);
-    addLog(`Session OK. Transport ID: ${s.transport_id}`);
   }, [router]);
 
   useEffect(() => {
@@ -142,34 +142,47 @@ export default function TransportPranim() {
     (async () => {
       try {
         refreshDrafts();
-        if (editId) { setOid(editId); setCreating(false); addLog("Edit Mode: " + editId); return; }
-        const id = `tord_${Date.now()}`;
+        
+        // 1. Nëse vjen nga URL (edit)
+        if (editId) { 
+            setOid(editId); 
+            setCreating(false); 
+            return; 
+        }
+
+        // ✅ FIX KRYESOR: Përdor UUID të vërtetë, jo tord_...
+        // Kjo e zgjidh problemin e screenshot-it
+        const id = crypto.randomUUID(); 
         setOid(id);
-        addLog("Getting T Code...");
+        
         const tcode = await reserveTransportCode();
         setCodeRaw(tcode);
-        addLog(`Code reserved: ${tcode}`);
         setCreating(false);
       } catch (e) { 
-          addLog("Init Error: " + e.message);
           console.error(e); 
           setCreating(false); 
       }
     })();
   }, [me, editId]);
 
-  // Autosave
+  // ✅ LOGJIKA E DRAFTEVE (Të pa plotsuara)
   useEffect(() => {
     if (creating || !oid) return;
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+
+    // Ruaj draft automatikisht pas 1 sekonde nëse ka ndonjë të dhënë
     draftTimerRef.current = setTimeout(() => {
-        const hasData = name || phone || address || tepihaRows.length > 0;
-        if (hasData) saveDraftLocal();
-    }, 1200);
+        const hasData = (name && name.length > 1) || (phone && phone.length > 3) || tepihaRows.length > 0;
+        
+        // Vetëm nëse ka shkru diçka, ruaje në draft
+        if (hasData) {
+            saveDraftLocal();
+        }
+    }, 1000);
+
     return () => clearTimeout(draftTimerRef.current);
   });
 
-  // Drafts
   function refreshDrafts() {
     try {
         const raw = localStorage.getItem(DRAFT_KEY);
@@ -178,25 +191,32 @@ export default function TransportPranim() {
         setDrafts(list);
     } catch {}
   }
+
   function saveDraftLocal() {
     try {
         const draft = { id: oid, ts: Date.now(), codeRaw, name, phone, phonePrefix, clientPhotoUrl, address, gpsLat, gpsLng, clientDesc, tepihaRows, stazaRows, stairsQty, stairsPer, stairsPhotoUrl, pricePerM2, clientPaid, notes };
         let list = [];
         try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
+        
+        // E zëvendësojmë ekzistuesin me këtë të riun (Update)
         list = list.filter(d => d.id !== oid);
         list.unshift(draft);
+        
         if (list.length > 50) list = list.slice(0, 50);
         localStorage.setItem(DRAFT_KEY, JSON.stringify(list));
         setDrafts(list);
-        // addLog("Draft auto-saved."); // Too noisy
     } catch {}
   }
+
   function loadDraft(d) {
-      if(!confirm("A je i sigurt?")) return;
-      setOid(d.id); setCodeRaw(d.codeRaw); setName(d.name || ''); setPhone(d.phone || ''); setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT); setClientPhotoUrl(d.clientPhotoUrl || ''); setAddress(d.address || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || ''); setClientDesc(d.clientDesc || ''); setTepihaRows(d.tepihaRows || []); setStazaRows(d.stazaRows || []); setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT); setStairsPhotoUrl(d.stairsPhotoUrl || ''); setPricePerM2(d.pricePerM2 || PRICE_DEFAULT); setClientPaid(d.clientPaid || 0); setNotes(d.notes || '');
+      // Kur hap draftin, e marrim fiks ID dhe KODIN që ka pasur
+      if(!confirm("A je i sigurt? Fushat aktuale do zëvendësohen.")) return;
+      setOid(d.id); 
+      setCodeRaw(d.codeRaw); 
+      setName(d.name || ''); setPhone(d.phone || ''); setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT); setClientPhotoUrl(d.clientPhotoUrl || ''); setAddress(d.address || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || ''); setClientDesc(d.clientDesc || ''); setTepihaRows(d.tepihaRows || []); setStazaRows(d.stazaRows || []); setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT); setStairsPhotoUrl(d.stairsPhotoUrl || ''); setPricePerM2(d.pricePerM2 || PRICE_DEFAULT); setClientPaid(d.clientPaid || 0); setNotes(d.notes || '');
       setShowDraftsSheet(false);
-      addLog("Draft loaded: " + d.codeRaw);
   }
+
   function deleteDraft(id) {
       if(!confirm("Fshi?")) return;
       let list = [];
@@ -206,7 +226,7 @@ export default function TransportPranim() {
       setDrafts(list);
   }
 
-  // Calc
+  // Calculations & UI Helpers
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * parseNum(pricePerM2, 0)).toFixed(2)), [totalM2, pricePerM2]);
   const paidEuro = useMemo(() => parseNum(clientPaid, 0), [clientPaid]);
@@ -219,19 +239,18 @@ export default function TransportPranim() {
     return t + s + sh;
   }, [tepihaRows, stazaRows, stairsQty]);
 
-  // Helpers
   function vibrateTap(ms = 15) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch {} }
   function bumpEl(el) { try { if (!el) return; el.classList.remove('chip-bump'); void el.offsetWidth; el.classList.add('chip-bump'); setTimeout(() => el.classList.remove('chip-bump'), 140); } catch {} }
 
-  // Rows
+  // Rows Actions
   function addRow(kind) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; const prefix = kind === 'tepiha' ? 't' : 's'; setter((rows) => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '0', photoUrl: '' }]); }
   function removeRow(kind) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; setter((rows) => (rows.length ? rows.slice(0, -1) : rows)); }
   function handleRowChange(kind, id, field, value) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; setter((rows) => rows.map((r) => (r.id === id ? { ...r, [field]: value } : r))); }
 
-  // Photos
-  async function handleRowPhotoChange(kind, id, file) { if (!file || !oid) return; setPhotoUploading(true); addLog(`Uploading ${kind} photo...`); try { const url = await uploadPhoto(file, oid, `${kind}_${id}`); if (url) { handleRowChange(kind, id, 'photoUrl', url); addLog("Photo uploaded."); } } catch (e) { alert('❌ Gabim Foto'); addLog("Photo Error: " + e.message); } finally { setPhotoUploading(false); } }
-  async function handleStairsPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); addLog("Uploading stairs photo..."); try { const url = await uploadPhoto(file, oid, 'shkallore'); if (url) { setStairsPhotoUrl(url); addLog("Photo uploaded."); } } catch (e) { alert('❌ Gabim Foto'); addLog("Photo Error: " + e.message); } finally { setPhotoUploading(false); } }
-  async function handleClientPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); addLog("Uploading client photo..."); try { const url = await uploadPhoto(file, oid, 'client'); if (url) { setClientPhotoUrl(url); addLog("Photo uploaded."); } } catch (e) { alert('❌ Gabim Foto'); addLog("Photo Error: " + e.message); } finally { setPhotoUploading(false); } }
+  // Photos Actions
+  async function handleRowPhotoChange(kind, id, file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, `${kind}_${id}`); if (url) handleRowChange(kind, id, 'photoUrl', url); } catch (e) { alert('❌ Gabim Foto'); } finally { setPhotoUploading(false); } }
+  async function handleStairsPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, 'shkallore'); if (url) setStairsPhotoUrl(url); } catch (e) { alert('❌ Gabim Foto'); } finally { setPhotoUploading(false); } }
+  async function handleClientPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, 'client'); if (url) setClientPhotoUrl(url); } catch (e) { alert('❌ Gabim Foto'); } finally { setPhotoUploading(false); } }
   
   function applyChip(kind, val, ev) {
     vibrateTap(15); if (ev?.currentTarget) bumpEl(ev.currentTarget);
@@ -241,8 +260,9 @@ export default function TransportPranim() {
     if (emptyIdx !== -1) { const nr = [...rows]; const curQty = String(nr[emptyIdx]?.qty ?? '').trim(); nr[emptyIdx] = { ...nr[emptyIdx], m2: String(val), qty: curQty && curQty !== '0' ? curQty : '1' }; setter(nr); } else { const prefix = kind === 'tepiha' ? 't' : 's'; setter([...rows, { id: `${prefix}${rows.length + 1}`, m2: String(val), qty: '1', photoUrl: '' }]); }
   }
 
-  function getGps() { if (typeof navigator === 'undefined' || !navigator.geolocation) { alert('GPS s’mund të merret.'); return; } addLog("Getting GPS..."); navigator.geolocation.getCurrentPosition((pos) => { setGpsLat(String(pos.coords.latitude)); setGpsLng(String(pos.coords.longitude)); addLog("GPS Locked."); }, () => { alert('S’u mor GPS.'); addLog("GPS Failed."); }, { enableHighAccuracy: true, timeout: 8000 }); }
+  function getGps() { if (typeof navigator === 'undefined' || !navigator.geolocation) { alert('GPS s’mund të merret.'); return; } navigator.geolocation.getCurrentPosition((pos) => { setGpsLat(String(pos.coords.latitude)); setGpsLng(String(pos.coords.longitude)); alert('✅ GPS OK'); }, () => { alert('S’u mor GPS.'); }, { enableHighAccuracy: true, timeout: 8000 }); }
 
+  // Pay
   function openPay() { const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2)); setPayAdd(dueNow > 0 ? dueNow : 0); setShowPaySheet(true); }
   function applyPayAndClose() { const cashGiven = Number((Number(payAdd) || 0).toFixed(2)); if (cashGiven <= 0) { setShowPaySheet(false); return; } const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2))); const applied = Number(Math.min(cashGiven, due).toFixed(2)); setClientPaid(Number((Number(clientPaid || 0) + applied).toFixed(2))); setShowPaySheet(false); }
   function startPayHold() { payHoldTriggeredRef.current = false; if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = setTimeout(() => { payHoldTriggeredRef.current = true; vibrateTap(25); setPriceTmp(Number(pricePerM2) || PRICE_DEFAULT); setShowPriceSheet(true); }, 1000); }
@@ -251,50 +271,35 @@ export default function TransportPranim() {
 
   function validate() {
     if (saveIncomplete) return true;
-    if (!name.trim()) return alert('Shkruaj emrin!'), addLog("Validation Fail: Name"), false;
+    if (!name.trim()) return alert('Shkruaj emrin!'), false;
     const ph = sanitizePhone(phonePrefix + phone);
-    if (!ph || ph.length < 6) return alert('Telefoni jo valid!'), addLog("Validation Fail: Phone"), false;
+    if (!ph || ph.length < 6) return alert('Telefoni jo valid!'), false;
     const allRows = [...(tepihaRows || []), ...(stazaRows || [])];
-    for (const r of allRows) { const m2 = parseFloat(String(r.m2 || '0').replace(',', '.')) || 0; const q = parseInt(String(r.qty || '0'), 10) || 0; if (m2 > 0 && q <= 0) return alert('COPË duhet > 0'), addLog("Validation Fail: Qty"), false; }
-    if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), addLog("Validation Fail: Zero m2"), false;
+    for (const r of allRows) { const m2 = parseFloat(String(r.m2 || '0').replace(',', '.')) || 0; const q = parseInt(String(r.qty || '0'), 10) || 0; if (m2 > 0 && q <= 0) return alert('COPË duhet > 0'), false; }
+    if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), false;
     return true;
   }
 
-  // --- SAVE LOGIC SMART DEBUG ---
+  // --- SAVE LOGIC ---
   async function saveOrder() {
     addLog("--- START SAVE ---");
-    
-    if (!me?.transport_id) { 
-        addLog("Session Missing!");
-        alert("❌ Gabim Sesioni."); 
-        return; 
-    }
-    
-    if (!validate()) {
-        addLog("Validation Failed.");
-        return;
-    }
+    if (!me?.transport_id) { alert("❌ Gabim Sesioni."); return; }
+    if (!validate()) return;
 
     setSaving(true);
-    addLog("Saving...");
-
     try {
       const codeStr = normalizeTCode(codeRaw); 
       const codeNum = Number(codeStr.replace(/\D+/g, '')) || 0; 
       
       const orderData = {
-        id: oid,
+        id: oid, // ✅ Tani kjo është UUID e vlefshme
         code: codeNum, 
         code_n: codeNum,
-        scope: 'transport', 
-        transport_id: String(me.transport_id), 
-        transport_name: me.transport_name || me.transport_id,
+        scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
         status: saveIncomplete ? 'transport_incomplete' : 'pastrim',
         created_at: new Date().toISOString(),
         data: {
-          scope: 'transport', 
-          transport_id: String(me.transport_id), 
-          transport_name: me.transport_name || me.transport_id,
+          scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
           status: saveIncomplete ? 'transport_incomplete' : 'pastrim',
           client: { name: name.trim(), phone: phonePrefix + (phone || ''), code: codeStr, photoUrl: clientPhotoUrl || '' },
           transport: { address: address || '', lat: gpsLat || '', lng: gpsLng || '', desc: clientDesc || '' },
@@ -306,46 +311,35 @@ export default function TransportPranim() {
         },
       };
 
-      addLog(`Sending to DB: ${codeStr} (ID: ${oid.slice(0,6)})`);
-
-      // 1. Provo ONLINE
+      addLog("Sending to DB...");
       const res = await insertTransportOrder(orderData);
       
       if (!res?.ok) {
-        addLog(`DB ERROR: ${res?.error}`);
         throw new Error(res?.error || "Insert failed.");
       }
 
-      addLog("DB Insert OK. Marking code...");
       await markTransportCodeUsed(codeStr);
-      
       if (paidEuro > 0) { 
-          addLog("Recording Cash...");
           await recordCashMove({ amount: paidEuro, method: 'CASH', type: 'TRANSPORT', status: 'COLLECTED', order_id: orderData.id, order_code: codeStr, client_name: name.trim(), stage: 'PRANIMI', note: `TRANSPORT ${codeStr}`, created_by_pin: String(me.transport_id), created_by_name: me.transport_name || me.transport_id, approved_by_pin: null }); 
       }
       
-      addLog("Deleting draft...");
+      // ✅ Fshi draftin sepse u ruajt me sukses
       deleteDraft(oid);
 
-      addLog("Done! Redirecting...");
-      
       if (saveIncomplete) router.push('/transport/te-pa-plotsuara'); 
       else router.push(`/pastrimi?id=${orderData.id}`);
 
     } catch (e) {
-      addLog(`CATCH ERROR: ${e.message}`);
-      console.error("Save failed:", e);
+      addLog(`ERROR: ${e.message}`);
       
       // Fallback Offline
-      addLog("Attempting Offline Save...");
       const savedOffline = saveOfflineTransportOrder({ ...orderData, saved_at: Date.now(), is_offline: true });
-      
       if (savedOffline) {
         alert("⚠️ S'ka rrjet (Ose DB Error)! U ruajt LOKALISHT.");
         deleteDraft(oid);
         router.push('/transport/te-pa-plotsuara');
       } else {
-        alert(`❌ DËSHTOI RUAJTJA COMPLETE!\n\nLogs:\n${logs.join('\n')}`);
+        alert(`❌ DËSHTOI RUAJTJA!\n\n${e.message}`);
       }
     } finally { 
       setSaving(false); 
@@ -434,9 +428,9 @@ export default function TransportPranim() {
         <button className="btn primary" onClick={saveOrder} disabled={saving || photoUploading}>{saving ? '⏳ DUKE RUJT...' : (photoUploading ? '⏳ FOTO...' : '▶ RUAJ')}</button>
       </footer>
 
-      {/* DEBUG LOG BOX (SHFAQET VETËM POSHTË) */}
+      {/* DEBUG BOX */}
       <div style={{background: '#000', color: '#0f0', padding: 10, fontSize: 10, fontFamily: 'monospace', maxHeight: 150, overflow: 'auto', borderTop: '1px solid #333'}}>
-          <div style={{fontWeight: 'bold', borderBottom: '1px solid #333', marginBottom: 5}}>LOGU I PROCESIT (DEBUG):</div>
+          <div style={{fontWeight: 'bold', borderBottom: '1px solid #333', marginBottom: 5}}>LOGU I PROCESIT:</div>
           {logs.length === 0 ? <div style={{opacity:0.5}}>...Duke pritur veprim...</div> : logs.map((l, i) => <div key={i}>{l}</div>)}
       </div>
 
