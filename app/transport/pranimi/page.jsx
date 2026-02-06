@@ -219,7 +219,7 @@ export default function TransportPranim() {
   }
 
   function deleteDraft(id) {
-      if(!confirm("A me fshi DRAFT-in?")) return;
+      if(!confirm("Fshi?")) return;
       let list = [];
       try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
       list = list.filter(d => d.id !== id);
@@ -333,8 +333,10 @@ export default function TransportPranim() {
       // ✅ Fshi draftin sepse u ruajt me sukses
       deleteDraft(oid);
 
-      if (saveIncomplete) router.push('/transport/te-pa-plotsuara'); 
-      else router.push(`/pastrimi?id=${orderData.id}`);
+      // TRANSPORT flow: keep orders out of BASE until transport does OFFLOAD.
+      // After a full save, send driver to OFFLOAD list to "SHKARKO NË BAZË".
+      if (saveIncomplete) router.push('/transport/te-pa-plotsuara');
+      else router.push('/transport/offload');
 
     } catch (e) {
       addLog(`ERROR: ${e.message}`);
