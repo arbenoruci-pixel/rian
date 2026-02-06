@@ -6,10 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
 import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
-import { insertTransportOrder, saveOfflineTransportOrder } from '@/lib/transport/transportDb'; 
+import { insertTransportOrder } from '@/lib/transport/transportDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
-import { addTransportCollected } from '@/lib/transportArkaStore';
-
 // --- CONFIG ---
 const BUCKET = 'tepiha-photos'; 
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
@@ -107,10 +105,10 @@ export default function TransportPranim() {
   const [stairsPhotoUrl, setStairsPhotoUrl] = useState('');
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
+  const [payMethod, setPayMethod] = useState('CASH');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  // saveIncomplete removed: drafts are handled via local drafts list (menu)
-  const saveIncomplete = false;
+  const [saveIncomplete, setSaveIncomplete] = useState(false);
 
   // DEBUG & Modals
   const [logs, setLogs] = useState([]);
@@ -119,7 +117,7 @@ export default function TransportPranim() {
   const [showPriceSheet, setShowPriceSheet] = useState(false);
   const [showDraftsSheet, setShowDraftsSheet] = useState(false);
   const [priceTmp, setPriceTmp] = useState(PRICE_DEFAULT);
-  const [payAddRaw, setPayAddRaw] = useState('');
+  const [payAdd, setPayAdd] = useState(0);
   const [drafts, setDrafts] = useState([]);
 
   const payHoldTimerRef = useRef(null);
@@ -265,13 +263,36 @@ export default function TransportPranim() {
   function getGps() { if (typeof navigator === 'undefined' || !navigator.geolocation) { alert('GPS s’mund të merret.'); return; } navigator.geolocation.getCurrentPosition((pos) => { setGpsLat(String(pos.coords.latitude)); setGpsLng(String(pos.coords.longitude)); alert('✅ GPS OK'); }, () => { alert('S’u mor GPS.'); }, { enableHighAccuracy: true, timeout: 8000 }); }
 
   // Pay
-  function openPay() { const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2)); setPayAddRaw(dueNow > 0 ? String(dueNow.toFixed(2)) : ''); setShowPaySheet(true); }
-  function applyPayAndClose() { const cashGiven = parseNum(payAddRaw, 0); if (!(cashGiven > 0)) { setShowPaySheet(false); return; } const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2))); const applied = Number(Math.min(cashGiven, due).toFixed(2)); setClientPaid(Number((Number(clientPaid || 0) + applied).toFixed(2))); setShowPaySheet(false); setPayAddRaw(''); }
+  function openPay() {
+    const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
+    setPayAdd(dueNow > 0 ? dueNow : 0);
+    setPayMethod('CASH');
+    setShowPaySheet(true);
+  }
+  function applyPayAndClose() {
+    const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
+    if (cashGiven <= 0) {
+      alert('SHUMA NUK VLEN (0 €).');
+      return;
+    }
+
+    const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
+    const applied = Number(Math.min(cashGiven, due).toFixed(2));
+    if (applied <= 0) {
+      alert(due <= 0 ? "KJO POROSI ESHTE PAGUAR (S'KA BORXH)." : 'SHUMA NUK VLEN (0 €).');
+      return;
+    }
+
+    const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
+    setClientPaid(newPaid);
+    setShowPaySheet(false);
+  }
   function startPayHold() { payHoldTriggeredRef.current = false; if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = setTimeout(() => { payHoldTriggeredRef.current = true; vibrateTap(25); setPriceTmp(Number(pricePerM2) || PRICE_DEFAULT); setShowPriceSheet(true); }, 1000); }
   function endPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; if (!payHoldTriggeredRef.current) openPay(); payHoldTriggeredRef.current = false; }
   function cancelPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; payHoldTriggeredRef.current = false; }
 
   function validate() {
+    if (saveIncomplete) return true;
     if (!name.trim()) return alert('Shkruaj emrin!'), false;
     const ph = sanitizePhone(phonePrefix + phone);
     if (!ph || ph.length < 6) return alert('Telefoni jo valid!'), false;
@@ -283,17 +304,17 @@ export default function TransportPranim() {
 
   // --- SAVE LOGIC ---
   async function saveOrder() {
+    let orderData = null;
     addLog("--- START SAVE ---");
     if (!me?.transport_id) { alert("❌ Gabim Sesioni."); return; }
     if (!validate()) return;
 
     setSaving(true);
-    let orderData = null;
     try {
       const codeStr = normalizeTCode(codeRaw); 
       const codeNum = Number(codeStr.replace(/\D+/g, '')) || 0; 
       
-      const needsReview = !name.trim() || sanitizePhone(phonePrefix + phone).length < 6 || Number(totalM2 || 0) <= 0;
+      const needsReview = !!saveIncomplete || !name.trim() || sanitizePhone(phonePrefix + phone).length < 6 || Number(totalM2 || 0) <= 0;
       
       orderData = {
         id: oid, // ✅ Tani kjo është UUID e vlefshme
@@ -336,20 +357,15 @@ export default function TransportPranim() {
 
       // TRANSPORT flow: keep orders out of BASE until transport does OFFLOAD.
       // After a full save, send driver to OFFLOAD list to "SHKARKO NË BAZË".
-            router.push('/transport/offload');
+      if (saveIncomplete) router.push('/transport/te-pa-plotsuara');
+      else router.push('/transport/offload');
 
     } catch (e) {
       addLog(`ERROR: ${e.message}`);
-      
-      // Fallback Offline
-      const savedOffline = orderData ? saveOfflineTransportOrder({ ...orderData, saved_at: Date.now(), is_offline: true }) : false;
-      if (savedOffline) {
-        alert("⚠️ S'ka rrjet (Ose DB Error)! U ruajt LOKALISHT.");
-        deleteDraft(oid);
-        router.push('/transport/offload');
-      } else {
-        alert(`❌ DËSHTOI RUAJTJA!\n\n${e.message}`);
-      }
+      // Offline fallback: draft is already saved locally (auto-save).
+      alert(`❌ DËSHTOI RUAJTJA!
+
+${e.message}`);
     } finally { 
       setSaving(false); 
     }
@@ -366,21 +382,8 @@ export default function TransportPranim() {
         </div>
         <div className="code-badge"><span className="badge">{`KODI: ${normalizeTCode(codeRaw)}`}</span></div>
       </header>
-
-      {/* DRAFTS BUTTON */}
-      <section style={{marginTop: 8, marginBottom: 12}}>
-        <button type="button" className="btn secondary" style={{width: '100%', padding: '12px 14px', borderRadius: 18}} onClick={() => { refreshDrafts(); setShowDraftsSheet(true); }}>
-            📝 TË PA PLOTSUARAT {drafts.length > 0 ? `(${drafts.length})` : ''}
-        </button>
-      </section>
-
       <section className="card">
         <h2 className="card-title">KLIENTI & ADRESA</h2>
-        <div className="row" style={{justifyContent: 'flex-end', marginBottom: 12}}>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 12, fontWeight: 800 }}>
-                <input type="checkbox" checked={saveIncomplete} onChange={(e) => setSaveIncomplete(e.target.checked)} /> E PA PLOTSUAR
-            </label>
-        </div>
         <div className="field-group">
           <label className="label">EMRI & MBIEMRI</label>
           <div className="row" style={{ alignItems: 'center', gap: 10 }}>
@@ -443,7 +446,7 @@ export default function TransportPranim() {
           {logs.length === 0 ? <div style={{opacity:0.5}}>...Duke pritur veprim...</div> : logs.map((l, i) => <div key={i}>{l}</div>)}
       </div>
 
-      {showPaySheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">PAGESA (TRANSPORT)</div><div className="payfs-sub">KODI: {normalizeTCode(codeRaw)} • {name || '—'}</div></div><button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div><div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div><div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>SOT MERREN: <strong>{Number(parseNum(payAddRaw,0)).toFixed(2)} €</strong></div></div><div className="card"><div className="field-group"><label className="label">KLIENTI DHA (€)</label><input type="text" inputMode="decimal" pattern="[0-9]*" className="input" value={payAddRaw} onChange={(e) => setPayAddRaw(e.target.value)} /><div className="chip-row" style={{ marginTop: 10 }}>{PAY_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => setPayAddRaw(String(v))}>{v}€</button> ))} <button className="chip" type="button" onClick={() => setPayAddRaw('')} style={{ opacity: 0.9 }}>FSHI</button></div></div></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button><button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button></div></div>)}
+      {showPaySheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">PAGESA (TRANSPORT)</div><div className="payfs-sub">KODI: {normalizeTCode(codeRaw)} • {name || '—'}</div></div><button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div><div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div><div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>SOT MERREN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong></div></div><div className="card"><div className="field-group"><label className="label">KLIENTI DHA (€)</label><input type="text" inputMode="decimal" pattern="[0-9]*" className="input" value={Number(payAdd || 0) === 0 ? '' : payAdd} onChange={(e) => { const v = e.target.value; setPayAdd(v === '' ? 0 : Number(v)); }} /><div className="chip-row" style={{ marginTop: 10 }}>{PAY_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => setPayAdd(v)}>{v}€</button> ))} <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>FSHI</button></div></div></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button><button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button></div></div>)}
       {showPriceSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">NDËRRO QMIMIN</div><div className="payfs-sub">€/m²</div></div><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><label className="label">QMIMI I RI (€ / m²)</label><input type="number" step="0.1" className="input" value={priceTmp} onChange={(e) => setPriceTmp(e.target.value === '' ? '' : Number(e.target.value))} /></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>ANULO</button><button className="btn primary" onClick={() => { setPricePerM2(priceTmp); setShowPriceSheet(false); }}>RUJ</button></div></div>)}
       {showStairsSheet && (<div className="modal-overlay" onClick={() => setShowStairsSheet(false)}><div className="modal-content dark" onClick={(e) => e.stopPropagation()}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 className="card-title" style={{ margin: 0, color: '#fff' }}>SHKALLORE</h3><button className="btn secondary" onClick={() => setShowStairsSheet(false)}>✕</button></div><div className="field-group" style={{ marginTop: 12 }}><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label><div className="chip-row">{SHKALLORE_QTY_CHIPS.map((n) => ( <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button> ))}</div><input type="number" className="input" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => setStairsQty(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label><div className="chip-row">{SHKALLORE_PER_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button> ))}</div><input type="number" step="0.01" className="input" value={stairsPer} onChange={(e) => setStairsPer(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label><label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>{stairsPhotoUrl && ( <div style={{ marginTop: 8 }}><img src={stairsPhotoUrl} className="photo-thumb" alt="" /><button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI FOTO</button></div> )}</div><button className="btn primary" style={{ width: '100%', marginTop: 12 }} onClick={() => setShowStairsSheet(false)}>MBYLL</button></div></div>)}
       
