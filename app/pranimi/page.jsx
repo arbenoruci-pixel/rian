@@ -165,7 +165,7 @@ function chipStyleForVal(v, active) {
   return { background: `linear-gradient(180deg, ${a}, ${b})`, border: `1px solid ${br}`, outline: active ? '2px solid rgba(255,255,255,0.22)' : 'none', boxShadow: active ? '0 10px 18px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.18)' : '0 8px 14px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.14)' };
 }
 
-// ... (Draft Helpers) ...
+// ... (Draft helpers) ...
 function safeJsonParse(s, f) { try { return JSON.parse(s); } catch { return f; } }
 function rebuildDraftIdsByScan() { try { const ids = []; for(let i=0; i<localStorage.length; i++) { const k=localStorage.key(i); if(k.startsWith(DRAFT_ITEM_PREFIX)) ids.push(k.replace(DRAFT_ITEM_PREFIX,'')); } return ids; } catch{ return []; } }
 function loadDraftIds() { const raw=localStorage.getItem(DRAFT_LIST_KEY); const arr=safeJsonParse(raw||'[]',[]); return (!arr.length) ? rebuildDraftIdsByScan() : arr; }
@@ -174,9 +174,10 @@ function upsertDraftLocal(d) { if(!d?.id) return; localStorage.setItem(`${DRAFT_
 function removeDraftLocal(id) { localStorage.removeItem(`${DRAFT_ITEM_PREFIX}${id}`); saveDraftIds(loadDraftIds().filter(x=>x!==id)); }
 function readAllDraftsLocal() { return loadDraftIds().map(id=>safeJsonParse(localStorage.getItem(`${DRAFT_ITEM_PREFIX}${id}`), null)).filter(Boolean).sort((a,b)=>(b.ts||0)-(a.ts||0)); }
 
-// ... (Remote Helpers) ...
+// ... (Remote helpers) ...
 async function upsertDraftRemote(d) { try { if(!d?.id) return; const b=new Blob([JSON.stringify(d)],{type:'application/json'}); await supabase.storage.from(BUCKET).upload(`${DRAFTS_FOLDER}/${d.id}.json`,b,{upsert:true}); } catch{} }
 async function deleteDraftRemote(id) { try { await supabase.storage.from(BUCKET).remove([`${DRAFTS_FOLDER}/${id}.json`]); } catch{} }
+async function listDraftsRemote(limit = 200) { try { const { data, error } = await supabase.storage.from(BUCKET).list(DRAFTS_FOLDER, { limit }); if (error) throw error; return (data || []).filter((x) => x?.name?.endsWith('.json')); } catch { return []; } }
 async function readDraftRemote(id) { try { const {data}=await supabase.storage.from(BUCKET).download(`${DRAFTS_FOLDER}/${id}.json`); if(data) return JSON.parse(await data.text()); } catch{ return null; } }
 async function fetchRemoteDraftsSummary() { try { const {data}=await supabase.storage.from(BUCKET).list(DRAFTS_FOLDER,{limit:200}); if(!data) return []; const out=[]; for(const f of data) { if(!f.name.endsWith('.json')) continue; const id=f.name.replace('.json',''); const d=await readDraftRemote(id); if(d) out.push(d); } return out.sort((a,b)=>b.ts-a.ts); } catch { return []; } }
 
@@ -188,7 +189,7 @@ export default function PranimiPage() {
   const router = useRouter();
   const phonePrefix = '+383';
 
-  // --- SMART DEBUG SETUP (NEW) ---
+  // --- SMART DEBUG STATE ---
   const [showDebug, setShowDebug] = useState(false);
   const [logs, setLogs] = useState([]);
   const debugPressTimer = useRef(null);
@@ -212,7 +213,6 @@ export default function PranimiPage() {
         debugPressTimer.current = null;
     }
   }
-  // ------------------------------
 
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -230,7 +230,7 @@ export default function PranimiPage() {
   const [phone, setPhone] = useState('');
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
 
-  // client search (rikthime)
+  // client search
   const [clientQuery, setClientQuery] = useState('');
   const [clientsIndex, setClientsIndex] = useState([]);
   const [clientHits, setClientHits] = useState([]);
@@ -254,32 +254,24 @@ export default function PranimiPage() {
   // sheets
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
-
-  // messaging
   const [showMsgSheet, setShowMsgSheet] = useState(false);
-
-  // auto msg
-  const [autoMsgAfterSave, setAutoMsgAfterSave] = useState(true);
-  const [pendingNavTo, setPendingNavTo] = useState('');
-
-  // price editor
   const [showPriceSheet, setShowPriceSheet] = useState(false);
   const [priceTmp, setPriceTmp] = useState(PRICE_DEFAULT);
 
-  // payAdd
+  // settings
+  const [autoMsgAfterSave, setAutoMsgAfterSave] = useState(true);
+  const [pendingNavTo, setPendingNavTo] = useState('');
   const [payAdd, setPayAdd] = useState(0);
-
-  // notes
   const [notes, setNotes] = useState('');
+
+  // ✅ ERRORI U RREGULLUA KËTU: Shtova variablat që mungonin
+  const [todayPastrimM2, setTodayPastrimM2] = useState(0);
+  const [etaText, setEtaText] = useState('GATI DITËN E 2-TË (NESËR)');
 
   // offline mode
   const [offlineMode, setOfflineMode] = useState(false);
   const [netState, setNetState] = useState({ ok: true, reason: '' });
   const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
-
-  // capacity stats
-  const [todayPastrimM2, setTodayPastrimM2] = useState(0);
-  const [etaText, setEtaText] = useState('GATI DITËN E 2-TË (NESËR)');
 
   const RESET_ON_SHOW_KEY = 'tepiha_pranimi_reset_on_show_v1';
 
@@ -302,14 +294,20 @@ export default function PranimiPage() {
     }
   }
 
+  // --- INIT ---
   useEffect(() => {
     (async () => {
         addLog("Initializing...");
-        const init = localStorage.getItem(OFFLINE_MODE_KEY) === '1';
-        setOfflineMode(init);
-        try { await refreshDrafts(); } catch {}
-        try { const shared = await readSharedPrice(); if (shared) { setPricePerM2(shared); } } catch {}
+        const initOff = localStorage.getItem(OFFLINE_MODE_KEY) === '1';
+        setOfflineMode(initOff);
         
+        try { await refreshDrafts(); } catch {}
+
+        try {
+            const shared = await readSharedPrice();
+            if (shared) setPricePerM2(shared);
+        } catch {}
+
         try {
             const cached = Number(localStorage.getItem('capacity_today_pastrim_m2') || '0');
             const text = localStorage.getItem('capacity_eta_text');
@@ -340,7 +338,9 @@ export default function PranimiPage() {
   const currentDebt = diff > 0 ? diff : 0;
   const currentChange = diff < 0 ? Math.abs(diff) : 0;
   const copeCount = useMemo(() => {
-    return tepihaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0) + stazaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0) + (Number(stairsQty) > 0 ? 1 : 0);
+    return tepihaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0) +
+           stazaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0) +
+           (Number(stairsQty) > 0 ? 1 : 0);
   }, [tepihaRows, stazaRows, stairsQty]);
 
   // Autosave
@@ -352,6 +352,8 @@ export default function PranimiPage() {
         const hasData = name || phone || tepihaRows.length > 0;
         if (hasData) {
             upsertDraftLocal({ id: oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, pricePerM2, clientPaid });
+            // Sync remote too
+            upsertDraftRemote({ id: oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, pricePerM2, clientPaid }).catch(()=>{});
         }
     }, 1000);
     return () => clearTimeout(draftTimer.current);
@@ -363,7 +365,7 @@ export default function PranimiPage() {
   async function handleRowPhotoChange(kind, id, file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, `${kind}_${id}`); if (url) handleRowChange(kind, id, 'photoUrl', url); } catch { alert('❌ Gabim foto!'); } finally { setPhotoUploading(false); } }
   async function handleClientPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, 'client'); if (url) setClientPhotoUrl(url); } catch { alert('❌ Gabim foto!'); } finally { setPhotoUploading(false); } }
   async function handleStairsPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, 'shkallore'); if (url) setStairsPhotoUrl(url); } catch { alert('❌ Gabim foto!'); } finally { setPhotoUploading(false); } }
-  function vibrateTap(ms = 15) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch {} }
+  function vibrateTap(ms = 15) { try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(ms); } catch {} }
   function bumpEl(el) { try { if (!el) return; el.classList.remove('chip-bump'); void el.offsetWidth; el.classList.add('chip-bump'); setTimeout(() => el.classList.remove('chip-bump'), 140); } catch {} }
   function applyChip(kind, val, ev) {
     vibrateTap(15); if (ev?.currentTarget) bumpEl(ev.currentTarget);
@@ -388,8 +390,9 @@ export default function PranimiPage() {
     const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2))); const applied = Number(Math.min(cashGiven, due).toFixed(2)); if (applied <= 0) { alert(due <= 0 ? "KJO POROSI ESHTE PAGUAR." : 'SHUMA NUK VLEN.'); return; }
     const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2)); setClientPaid(newPaid);
     if (payMethod === 'CASH') {
+      const actor = (() => { try { const raw = localStorage.getItem('CURRENT_USER_DATA'); return raw ? JSON.parse(raw) : null; } catch { return null; } })();
       const extId = `pay_${oid}_${Date.now()}`;
-      await recordCashMove({ externalId: extId, orderId: oid, code: normalizeCode(codeRaw), name: name.trim(), amount: applied, note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`, source: 'ORDER_PAY', method: 'cash_pay', type: 'IN' });
+      await recordCashMove({ externalId: extId, orderId: oid, code: normalizeCode(codeRaw), name: name.trim(), amount: applied, note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`, source: 'ORDER_PAY', method: 'cash_pay', type: 'IN', createdByPin: (actor?.pin ? String(actor.pin) : (getActor()?.pin ? String(getActor().pin) : null)), createdBy: (actor?.name ? String(actor.name) : (getActor()?.name ? String(getActor().name) : null)) });
       const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2)); setArkaRecordedPaid(finalArka);
     }
     setShowPaySheet(false);
