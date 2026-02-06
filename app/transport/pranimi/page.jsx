@@ -321,9 +321,7 @@ export default function TransportPranim() {
 
       await markTransportCodeUsed(codeStr);
       if (paidEuro > 0) { 
-          await recordCashMove({ amount: paidEuro, method: 'CASH', type: 'TRANSPORT', status: 'COLLECTED', order_id: orderData.id, order_code: codeStr, client_name: name.trim(), stage: 'PRANIMI', note: `TRANSPORT ${codeStr}`, created_by_pin: String(me.transport_id), created_by_name: me.transport_name || me.transport_id, approved_by_pin: null });
-          try { addTransportCollected(String(me.transport_id), { amount: paidEuro, order_code: codeStr, client_name: name.trim(), source: 'PRANIMI' }); } catch {}
- 
+          await recordCashMove({ amount: paidEuro, method: 'CASH', type: 'TRANSPORT', status: 'COLLECTED', order_id: orderData.id, order_code: codeStr, client_name: name.trim(), stage: 'PRANIMI', note: `TRANSPORT ${codeStr}`, created_by_pin: String(me.transport_id), created_by_name: me.transport_name || me.transport_id, approved_by_pin: null }); 
       }
       
       // ✅ Fshi draftin sepse u ruajt me sukses
