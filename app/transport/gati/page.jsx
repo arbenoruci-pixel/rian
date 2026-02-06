@@ -503,8 +503,8 @@ export default function TransportGatiPage() {
             .t { font-weight: 900; letter-spacing:.6px; }
             .toolbar { display:flex; flex-wrap:wrap; gap: 8px; align-items:center; justify-content:space-between; margin-bottom: 10px; }
             .list { margin-top: 8px; display:flex; flex-direction:column; gap: 8px; }
-            .rowline { display:flex; justify-content:space-between; align-items:center; gap: 10px; padding: 10px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.10); background: rgba(0,0,0,.12); }
-            .rowline.selected { border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.08); }
+            .rowline { display:flex; justify-content:space-between; align-items:center; gap: 10px; padding: 10px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.03); }
+            .rowline.selected { border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.10); }
             .left { display:flex; align-items:center; gap: 10px; min-width: 0; flex: 1; }
             .code { background: rgba(34,197,94,.18); border: 1px solid rgba(34,197,94,.35); padding: 6px 10px; border-radius: 999px; font-weight: 900; }
             .meta { min-width: 0; }
@@ -514,7 +514,7 @@ export default function TransportGatiPage() {
             .routeTools { display:flex; align-items:center; gap: 6px; margin-left: 8px; }
             .routeBadge { font-size: 11px; font-weight: 900; padding: 4px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.16); opacity:.9; }
             .mini { width: 28px; height: 28px; border-radius: 10px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: inherit; font-weight: 900; }
-            .expanded { width: 100%; margin-top: 10px; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
+            .expanded { width: 100%; margin-top: 10px; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); }
             .expRow { display:flex; flex-direction:column; gap: 4px; }
             .expTitle { font-weight: 900; font-size: 11px; letter-spacing:.6px; opacity:.9; }
             .expGrid { display:grid; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
@@ -522,10 +522,23 @@ export default function TransportGatiPage() {
             .routeBox { margin-top: 12px; padding: 12px; border-radius: 12px; border: 1px dashed rgba(255,255,255,.18); background: rgba(255,255,255,.03); }
             .modalBack { position: fixed; inset: 0; background: rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; z-index: 9999; padding: 18px; }
             .modal { width: min(560px, 100%); background: #0b0f14; border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 14px; }
-            .box { padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); font-size: 13px; line-height: 1.35; }
+            .box { padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); font-size: 13px; line-height: 1.35; }
+            
             @media (max-width: 520px) {
-              .actions { flex-wrap: wrap; justify-content:flex-end; }
-              .btn { padding: 8px 10px; }
+              .wrap { padding: 14px; }
+              .header-row { margin-bottom: 10px; }
+              .toolbar { gap: 10px; }
+              .rowline { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
+              .left { width: 100%; }
+              .actions { width: 100%; display: flex; flex-wrap: nowrap; gap: 8px; justify-content: space-between; }
+              .actions .btn { flex: 1; min-height: 44px; padding: 10px 10px; font-size: 12px; border-radius: 14px; }
+              .actions .btn.ghost { background: rgba(255,255,255,.04); }
+              .code { padding: 6px 10px; }
+              .name { font-size: 14px; }
+              .sub { font-size: 12px; }
+              .routeTools { width: 100%; justify-content: flex-end; margin-left: 0; }
+            }
+.btn { padding: 8px 10px; }
               .code { padding: 6px 9px; }
             }
           `}</style>
