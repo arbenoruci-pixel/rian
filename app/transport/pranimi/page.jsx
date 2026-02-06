@@ -292,16 +292,22 @@ export default function TransportPranim() {
       const codeStr = normalizeTCode(codeRaw); 
       const codeNum = Number(codeStr.replace(/\D+/g, '')) || 0; 
       
+      const needsReview = !!saveIncomplete || !name.trim() || sanitizePhone(phonePrefix + phone).length < 6 || Number(totalM2 || 0) <= 0;
+      
       const orderData = {
         id: oid, // ✅ Tani kjo është UUID e vlefshme
         code: codeNum, 
         code_n: codeNum,
         scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
-        status: saveIncomplete ? 'transport_incomplete' : 'pastrim',
+        status: 'teren',
         created_at: new Date().toISOString(),
         data: {
           scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
-          status: saveIncomplete ? 'transport_incomplete' : 'pastrim',
+          status: 'teren',
+          at_base: false,
+          needs_review: needsReview,
+          offloaded_at: null,
+          offloaded_by: null,
           client: { name: name.trim(), phone: phonePrefix + (phone || ''), code: codeStr, photoUrl: clientPhotoUrl || '' },
           transport: { address: address || '', lat: gpsLat || '', lng: gpsLng || '', desc: clientDesc || '' },
           tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),

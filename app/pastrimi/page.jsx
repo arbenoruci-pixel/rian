@@ -147,6 +147,7 @@ export default function PastrimiPage() {
         .from('orders')
         .select('id,status,created_at,data,code')
         .eq('status', 'pastrim')
+        .eq('data->>at_base', 'true')
         .order('created_at', { ascending: false })
         .limit(300);
       
@@ -157,6 +158,7 @@ export default function PastrimiPage() {
         .from('transport_orders')
         .select('id,status,created_at,data,code_str')
         .eq('status', 'pastrim')
+        .eq('data->>at_base', 'true')
         .order('created_at', { ascending: false })
         .limit(300);
 
