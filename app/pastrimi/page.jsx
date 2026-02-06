@@ -298,7 +298,9 @@ export default function PastrimiPage() {
       setStairsPer(Number(ord.shkallore?.per)||SHKALLORE_M2_PER_STEP_DEFAULT);
       setStairsPhotoUrl(ord.shkallore?.photoUrl||'');
 
-      setPricePerM2(Number(ord.pay?.rate ?? PRICE_DEFAULT));
+      // Transport PRANIMI historically saved €/m² under `pay.price`.
+      // Base system uses `pay.rate`. Support both so EDIT + PAGESA works for both sources.
+      setPricePerM2(Number(ord.pay?.rate ?? ord.pay?.price ?? PRICE_DEFAULT));
       const paid = Number(ord.pay?.paid ?? 0);
       const method = ord.pay?.method || 'CASH';
       setClientPaid(paid);
