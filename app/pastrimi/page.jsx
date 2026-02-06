@@ -192,20 +192,36 @@ export default function PastrimiPage() {
   }, []);
 
   async function dbFetchOrderById(idNum) {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('id,status,ready_at,picked_up_at,created_at,data')
-      .eq('id', idNum)
-      .single();
-    if (error || !data) throw error || new Error('ORDER_NOT_FOUND');
+  // try base orders first
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id,status,ready_at,picked_up_at,created_at,data')
+    .eq('id', idNum)
+    .single();
 
+  if (!error && data) {
     const order = { ...(data.data || {}) };
     order.id = data.id;
     order.status = data.status;
-    // keep status mirrored for safety
     if (order?.status && order?.status !== data.status) order.status = data.status;
     return { row: data, order };
   }
+
+  // fallback: transport_orders (pre-offload)
+  const { data: tdata, error: terr } = await supabase
+    .from('transport_orders')
+    .select('id,status,created_at,data')
+    .eq('id', idNum)
+    .single();
+
+  if (terr || !tdata) throw terr || new Error('ORDER_NOT_FOUND');
+
+  const torder = { ...(tdata.data || {}) };
+  torder.id = tdata.id;
+  torder.status = tdata.status || 'pickup';
+  return { row: tdata, order: torder };
+}
+
 
   async function refreshOrders() {
     setLoading(true);
