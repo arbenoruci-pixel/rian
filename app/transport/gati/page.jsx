@@ -53,8 +53,8 @@ export default function TransportGatiPage() {
     try {
       // pull gati orders and filter locally (safe & simple)
       const { data, error } = await supabase
-        .from('orders')
-        .select('id, code, status, created_at, data')
+        .from('transport_orders')
+        .select('id, code_str, status, created_at, data')
         .eq('status', 'gati')
         .order('created_at', { ascending: false })
         .limit(300);
@@ -63,17 +63,18 @@ export default function TransportGatiPage() {
 
       const list = (data || []).map((r) => ({
         id: r.id,
-        code: normalizeCode(r.code || r.data?.code || ''),
+        code: normalizeCode(r.code_str || r.code || r.data?.code || ''),
         status: r.status,
         created_at: r.created_at,
         order: r.data || {},
-        transport_id: String(r.data?.transport_id || r.data?.picked_by_user_id || ''),
+        transport_pin: String(r.data?.transport_pin || r.data?.transport_id || ''),
+        transport_id: String(r.data?.transport_id || ''),
       }))
       .filter((x) => /^T\d+$/i.test(x.code))
       .filter((x) => {
         // TRANSPORT role sees only their own orders.
         if (String(me?.role || '').toUpperCase() === 'TRANSPORT') {
-          return myPin && String(x.transport_id) === String(myPin);
+          return (String(me?.transport_id||'') && x.transport_id === String(me.transport_id)) || (myPin && x.transport_pin === myPin);
         }
         return true;
       });
