@@ -28,7 +28,7 @@ export default function TransportMenu() {
           <div className="subtitle">{(s?.name||"").toLowerCase()} • TRANSPORT</div>
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          <Link className="pill" href="/">HOME</Link>
+          <Link className="pill" href="/?base=1" title="HAP BAZEN (OPSION)">SWITCH TO BASE</Link>
           <button className="pill" onClick={logout}>LOG OUT</button>
         </div>
       </header>

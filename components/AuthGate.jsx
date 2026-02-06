@@ -61,6 +61,38 @@ export default function AuthGate({ children }) {
 
     setUser(session.user);
 
+    // --- ROLE BASED LANDING / ACCESS ---
+    // TRANSPORT users should see transport-only tools by default.
+    // Escape hatch: open a base URL once with ?base=1 to allow base screens on this device.
+    try {
+      const role = String(session?.user?.role || '').toUpperCase();
+      if (role === 'TRANSPORT') {
+        const isTransportPath = pathname === '/transport' || String(pathname || '').startsWith('/transport/');
+        const isLogin = pathname === '/login';
+
+        if (!isLogin && !isTransportPath) {
+          let allowBase = false;
+          try {
+            allowBase = localStorage.getItem('ALLOW_BASE') === '1';
+          } catch {}
+
+          // one-time unlock via query
+          try {
+            const qs = new URLSearchParams(window.location.search || '');
+            if (qs.get('base') === '1') {
+              allowBase = true;
+              try { localStorage.setItem('ALLOW_BASE', '1'); } catch {}
+            }
+          } catch {}
+
+          if (!allowBase) {
+            router.replace('/transport/menu');
+            return;
+          }
+        }
+      }
+    } catch {}
+
     // Auto-logout exactly at expiry.
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     const ms = Math.max(0, session.expiresAt - now);
