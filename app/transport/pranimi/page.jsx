@@ -20,9 +20,7 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-function draftKeyFor(transportId) {
-  return `transport_drafts_v1__${String(transportId || 'unknown')}`;
-}
+const DRAFT_KEY = 'transport_drafts_v1';
 
 // --- HELPERS ---
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
@@ -188,56 +186,28 @@ export default function TransportPranim() {
 
   function refreshDrafts() {
     try {
-        const key = draftKeyFor(me?.transport_id);
-        const raw = localStorage.getItem(key);
+        const raw = localStorage.getItem(DRAFT_KEY);
         const list = raw ? JSON.parse(raw) : [];
         list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
         setDrafts(list);
     } catch {}
-}
+  }
 
   function saveDraftLocal() {
     try {
-        const key = draftKeyFor(me?.transport_id);
-
-        const draft = {
-          id: oid,
-          ts: Date.now(),
-
-          // ✅ izolim per shofer (mos me u perzi)
-          scope: "transport",
-          transport_id: me?.transport_id,
-          transport_name: me?.transport_name,
-
-          codeRaw,
-          name,
-          phone,
-          phonePrefix,
-          clientPhotoUrl,
-          address,
-          gpsLat,
-          gpsLng,
-          clientDesc,
-          tepihaRows,
-          stazaRows,
-          stairsQty,
-          stairsPer,
-          stairsPhotoUrl,
-          pricePerM2,
-          clientPaid,
-          notes
-        };
-
+        const draft = { id: oid, ts: Date.now(), codeRaw, name, phone, phonePrefix, clientPhotoUrl, address, gpsLat, gpsLng, clientDesc, tepihaRows, stazaRows, stairsQty, stairsPer, stairsPhotoUrl, pricePerM2, clientPaid, notes };
         let list = [];
-        try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
+        try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
+        
+        // E zëvendësojmë ekzistuesin me këtë të riun (Update)
         list = list.filter(d => d.id !== oid);
         list.unshift(draft);
-
+        
         if (list.length > 50) list = list.slice(0, 50);
-        localStorage.setItem(key, JSON.stringify(list));
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(list));
         setDrafts(list);
     } catch {}
-}
+  }
 
   function loadDraft(d) {
       // Kur hap draftin, e marrim fiks ID dhe KODIN që ka pasur
@@ -250,13 +220,12 @@ export default function TransportPranim() {
 
   function deleteDraft(id) {
       if(!confirm("Fshi?")) return;
-      const key = draftKeyFor(me?.transport_id);
       let list = [];
-      try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
+      try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
       list = list.filter(d => d.id !== id);
-      localStorage.setItem(key, JSON.stringify(list));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(list));
       setDrafts(list);
-}
+  }
 
   // Calculations & UI Helpers
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
@@ -315,6 +284,7 @@ export default function TransportPranim() {
   // --- SAVE LOGIC ---
   async function saveOrder() {
     addLog("--- START SAVE ---");
+    if (saving) { addLog("(SKIP) ALREADY SAVING"); return; }
     if (!me?.transport_id) { alert("❌ Gabim Sesioni."); return; }
     if (!validate()) return;
 
