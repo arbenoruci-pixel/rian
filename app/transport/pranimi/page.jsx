@@ -200,38 +200,36 @@ export default function TransportPranim() {
     try {
         const key = draftKeyFor(me?.transport_id);
 
-        // ✅ per-transport draft (no mixing between drivers)
         const draft = {
-            id: oid,
-            ts: Date.now(),
-            scope: "transport",
-            status: "transport_incomplete",
-            transport_id: me?.transport_id,
-            transport_name: me?.transport_name,
+          id: oid,
+          ts: Date.now(),
 
-            codeRaw,
-            name,
-            phone,
-            phonePrefix,
-            clientPhotoUrl,
-            address,
-            gpsLat,
-            gpsLng,
-            clientDesc,
-            tepihaRows,
-            stazaRows,
-            stairsQty,
-            stairsPer,
-            stairsPhotoUrl,
-            pricePerM2,
-            clientPaid,
-            notes,
+          // ✅ izolim per shofer (mos me u perzi)
+          scope: "transport",
+          transport_id: me?.transport_id,
+          transport_name: me?.transport_name,
+
+          codeRaw,
+          name,
+          phone,
+          phonePrefix,
+          clientPhotoUrl,
+          address,
+          gpsLat,
+          gpsLng,
+          clientDesc,
+          tepihaRows,
+          stazaRows,
+          stairsQty,
+          stairsPer,
+          stairsPhotoUrl,
+          pricePerM2,
+          clientPaid,
+          notes
         };
 
         let list = [];
         try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
-
-        // Update existing by id
         list = list.filter(d => d.id !== oid);
         list.unshift(draft);
 
