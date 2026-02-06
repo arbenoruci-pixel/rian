@@ -250,7 +250,7 @@ export default function PastrimiPage() {
   }
 
   // --- OPEN EDIT ---
-  async function openEdit(item) {
+  async async function openEdit(item) {
     try {
       let ord = item.fullOrder;
       
