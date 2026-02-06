@@ -107,6 +107,7 @@ export default function TransportPranim() {
   const [stairsPhotoUrl, setStairsPhotoUrl] = useState('');
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
+  const [paidUpfront, setPaidUpfront] = useState(false);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveIncomplete, setSaveIncomplete] = useState(false);
@@ -166,6 +167,16 @@ export default function TransportPranim() {
     })();
   }, [me, editId]);
 
+  // If paid upfront, always keep paid = total (same as BASE behavior)
+  useEffect(() => {
+    if (!paidUpfront) return;
+    setClientPaid((prev) => {
+      const t = Number(totalEuro || 0);
+      if (Number(prev || 0) === t) return prev;
+      return t;
+    });
+  }, [paidUpfront, totalEuro]);
+
   // ✅ LOGJIKA E DRAFTEVE (Të pa plotsuara)
   useEffect(() => {
     if (creating || !oid) return;
@@ -195,7 +206,7 @@ export default function TransportPranim() {
 
   function saveDraftLocal() {
     try {
-        const draft = { id: oid, ts: Date.now(), codeRaw, name, phone, phonePrefix, clientPhotoUrl, address, gpsLat, gpsLng, clientDesc, tepihaRows, stazaRows, stairsQty, stairsPer, stairsPhotoUrl, pricePerM2, clientPaid, notes };
+        const draft = { id: oid, ts: Date.now(), codeRaw, name, phone, phonePrefix, clientPhotoUrl, address, gpsLat, gpsLng, clientDesc, tepihaRows, stazaRows, stairsQty, stairsPer, stairsPhotoUrl, pricePerM2, clientPaid, paidUpfront, notes };
         let list = [];
         try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
         
@@ -214,7 +225,7 @@ export default function TransportPranim() {
       if(!confirm("A je i sigurt? Fushat aktuale do zëvendësohen.")) return;
       setOid(d.id); 
       setCodeRaw(d.codeRaw); 
-      setName(d.name || ''); setPhone(d.phone || ''); setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT); setClientPhotoUrl(d.clientPhotoUrl || ''); setAddress(d.address || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || ''); setClientDesc(d.clientDesc || ''); setTepihaRows(d.tepihaRows || []); setStazaRows(d.stazaRows || []); setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT); setStairsPhotoUrl(d.stairsPhotoUrl || ''); setPricePerM2(d.pricePerM2 || PRICE_DEFAULT); setClientPaid(d.clientPaid || 0); setNotes(d.notes || '');
+      setName(d.name || ''); setPhone(d.phone || ''); setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT); setClientPhotoUrl(d.clientPhotoUrl || ''); setAddress(d.address || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || ''); setClientDesc(d.clientDesc || ''); setTepihaRows(d.tepihaRows || []); setStazaRows(d.stazaRows || []); setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT); setStairsPhotoUrl(d.stairsPhotoUrl || ''); setPricePerM2(d.pricePerM2 || PRICE_DEFAULT); setClientPaid(d.clientPaid || 0); setPaidUpfront(!!d.paidUpfront); setNotes(d.notes || '');
       setShowDraftsSheet(false);
   }
 
@@ -264,8 +275,21 @@ export default function TransportPranim() {
   function getGps() { if (typeof navigator === 'undefined' || !navigator.geolocation) { alert('GPS s’mund të merret.'); return; } navigator.geolocation.getCurrentPosition((pos) => { setGpsLat(String(pos.coords.latitude)); setGpsLng(String(pos.coords.longitude)); alert('✅ GPS OK'); }, () => { alert('S’u mor GPS.'); }, { enableHighAccuracy: true, timeout: 8000 }); }
 
   // Pay
-  function openPay() { const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2)); setPayAdd(dueNow > 0 ? dueNow : 0); setShowPaySheet(true); }
-  function applyPayAndClose() { const cashGiven = Number((Number(payAdd) || 0).toFixed(2)); if (cashGiven <= 0) { setShowPaySheet(false); return; } const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2))); const applied = Number(Math.min(cashGiven, due).toFixed(2)); setClientPaid(Number((Number(clientPaid || 0) + applied).toFixed(2))); setShowPaySheet(false); }
+  function openPay() {
+    if (paidUpfront) { setShowPaySheet(true); setPayAdd(0); return; }
+    const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
+    setPayAdd(dueNow > 0 ? dueNow : 0);
+    setShowPaySheet(true);
+  }
+  function applyPayAndClose() {
+    if (paidUpfront) { setClientPaid(Number(totalEuro || 0)); setShowPaySheet(false); return; }
+    const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
+    if (cashGiven <= 0) { setShowPaySheet(false); return; }
+    const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
+    const applied = Number(Math.min(cashGiven, due).toFixed(2));
+    setClientPaid(Number((Number(clientPaid || 0) + applied).toFixed(2)));
+    setShowPaySheet(false);
+  }
   function startPayHold() { payHoldTriggeredRef.current = false; if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = setTimeout(() => { payHoldTriggeredRef.current = true; vibrateTap(25); setPriceTmp(Number(pricePerM2) || PRICE_DEFAULT); setShowPriceSheet(true); }, 1000); }
   function endPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; if (!payHoldTriggeredRef.current) openPay(); payHoldTriggeredRef.current = false; }
   function cancelPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; payHoldTriggeredRef.current = false; }
@@ -313,7 +337,7 @@ export default function TransportPranim() {
           tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
           staza: stazaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
           shkallore: { qty: parseNum(stairsQty, 0), per: parseNum(stairsPer, SHKALLORE_M2_PER_STEP_DEFAULT), photoUrl: stairsPhotoUrl || '' },
-          pay: { price: parseNum(pricePerM2, 0), m2: Number(totalM2) || 0, euro: Number(totalEuro) || 0, paid: Number(paidEuro) || 0, debt: Number(debt) || 0, method: 'CASH' },
+          pay: { price: parseNum(pricePerM2, 0), m2: Number(totalM2) || 0, euro: Number(totalEuro) || 0, paid: Number(paidEuro) || 0, debt: Number(debt) || 0, upfront: !!paidUpfront, method: 'CASH' },
           notes: notes || '',
         },
       };
@@ -340,16 +364,7 @@ export default function TransportPranim() {
 
     } catch (e) {
       addLog(`ERROR: ${e.message}`);
-      
-      // Fallback Offline
-      const savedOffline = saveOfflineTransportOrder({ ...orderData, saved_at: Date.now(), is_offline: true });
-      if (savedOffline) {
-        alert("⚠️ S'ka rrjet (Ose DB Error)! U ruajt LOKALISHT.");
-        deleteDraft(oid);
-        router.push('/transport/te-pa-plotsuara');
-      } else {
-        alert(`❌ DËSHTOI RUAJTJA!\n\n${e.message}`);
-      }
+      alert(`❌ DËSHTOI RUAJTJA!\n\n${e.message}`);
     } finally { 
       setSaving(false); 
     }
@@ -417,6 +432,23 @@ export default function TransportPranim() {
           <button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowStairsSheet(true)}>🪜 SHKALLORE</button>
           <button className="btn secondary" style={{ flex: 1 }} onMouseDown={startPayHold} onMouseUp={endPayHold} onMouseLeave={cancelPayHold} onTouchStart={(e) => { startPayHold(); }} onTouchEnd={(e) => { e.preventDefault(); endPayHold(); }}>€ PAGESA</button>
         </div>
+
+        <div className="row" style={{ marginTop: 10, gap: 10, alignItems: 'center' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+            <input
+              type="checkbox"
+              checked={paidUpfront}
+              onChange={(e) => {
+                const on = !!e.target.checked;
+                setPaidUpfront(on);
+                if (on) setClientPaid(Number(totalEuro || 0));
+                else setClientPaid(0);
+              }}
+            />
+            <span style={{ fontWeight: 900, letterSpacing: 0.3 }}>PAGUAR NË FILLIM (CASH)</span>
+          </label>
+        </div>
+
         <div className="tot-line">M² Total: <strong>{totalM2}</strong></div>
         <div className="tot-line">Copë: <strong>{copeCount}</strong></div>
         <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
@@ -438,12 +470,7 @@ export default function TransportPranim() {
           {logs.length === 0 ? <div style={{opacity:0.5}}>...Duke pritur veprim...</div> : logs.map((l, i) => <div key={i}>{l}</div>)}
       </div>
 
-      {showPaySheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">PAGESA (TRANSPORT)</div><div className="payfs-sub">KODI: {normalizeTCode(codeRaw)} • {name || '—'}</div></div><button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div><div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div><div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>SOT MERREN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong></div></div><div className="card"><div className="field-group"><label className="label">KLIENTI DHA (€)</label><input type="text" inputMode="decimal" pattern="[0-9]*" className="input" value={Number(payAdd || 0) === 0 ? '' : payAdd} onChange={(e) => { const v = e.target.value; setPayAdd(v === '' ? 0 : Number(v)); }} /><div className="chip-row" style={{ marginTop: 10 }}>{PAY_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => setPayAdd(v)}>{v}€</button> ))} <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>FSHI</button></div></div></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button><button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button></div></div>)}
-      {showPriceSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">NDËRRO QMIMIN</div><div className="payfs-sub">€/m²</div></div><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><label className="label">QMIMI I RI (€ / m²)</label><input type="number" step="0.1" className="input" value={priceTmp} onChange={(e) => setPriceTmp(e.target.value === '' ? '' : Number(e.target.value))} /></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>ANULO</button><button className="btn primary" onClick={() => { setPricePerM2(priceTmp); setShowPriceSheet(false); }}>RUJ</button></div></div>)}
-      {showStairsSheet && (<div className="modal-overlay" onClick={() => setShowStairsSheet(false)}><div className="modal-content dark" onClick={(e) => e.stopPropagation()}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 className="card-title" style={{ margin: 0, color: '#fff' }}>SHKALLORE</h3><button className="btn secondary" onClick={() => setShowStairsSheet(false)}>✕</button></div><div className="field-group" style={{ marginTop: 12 }}><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label><div className="chip-row">{SHKALLORE_QTY_CHIPS.map((n) => ( <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button> ))}</div><input type="number" className="input" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => setStairsQty(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label><div className="chip-row">{SHKALLORE_PER_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button> ))}</div><input type="number" step="0.01" className="input" value={stairsPer} onChange={(e) => setStairsPer(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label><label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>{stairsPhotoUrl && ( <div style={{ marginTop: 8 }}><img src={stairsPhotoUrl} className="photo-thumb" alt="" /><button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI FOTO</button></div> )}</div><button className="btn primary" style={{ width: '100%', marginTop: 12 }} onClick={() => setShowStairsSheet(false)}>MBYLL</button></div></div>)}
-      
-      {/* DRAFTS FULLSCREEN */}
-      {showDraftsSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">TË PA PLOTSUARAT</div><div className="payfs-sub">HAP ose FSHI</div></div><button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{marginTop: 0}}>{drafts.length === 0 ? <div style={{textAlign: 'center', padding: '20px', color: 'rgba(255,255,255,0.7)'}}>S'ka drafte.</div> : drafts.map(d => (<div key={d.id} style={{borderBottom:'1px solid rgba(255,255,255,0.1)', padding:'10px 0', display:'flex', justifyContent:'space-between', alignItems:'center'}}><div><div style={{fontWeight:900, fontSize:15}}>{normalizeTCode(d.codeRaw)}</div><div style={{fontSize:12, opacity:0.8}}>{d.name || 'Pa Emër'} • {d.phone || '-'}</div><div style={{fontSize:10, opacity:0.5}}>{new Date(d.ts).toLocaleString()}</div></div><div style={{display:'flex', gap:8}}><button className="btn secondary" style={{padding:'6px 10px', fontSize:11}} onClick={() => loadDraft(d)}>HAP</button><button className="btn secondary" style={{padding:'6px 10px', fontSize:11, color:'#ef4444'}} onClick={() => deleteDraft(d.id)}>FSHI</button></div></div>))}</div></div></div>)}
+      {showPaySheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">PAGESA (TRANSPORT)</div><div className="payfs-sub">KODI: {normalizeTCode(codeRaw)} • {name || '—'}</div></div><button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div><div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div><div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>SOT MERREN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong></div></div><div className="card">{paidUpfront ? <div style={{padding:'10px 0', fontWeight:900, opacity:0.8}}>✅ PAGUAR NË FILLIM — S’ka borxh.</div> : (<div className="field-group"><label className="label">KLIENTI DHA (€)</label><input type="text" inputMode="decimal" pattern="[0-9]*" className="input" value={Number(payAdd || 0) === 0 ? '' : payAdd} onChange={(e) => { const v = e.target.value; setPayAdd(v === '' ? 0 : Number(v)); }} /><div className="chip-row" style={{ marginTop: 10 }}>{PAY_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => setPayAdd(v)}>{v}€</button> ))} <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>FSHI</button></div></div>)}</div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button><button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button></div></div>)}
 
       <style jsx>{`
         .client-mini{ width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 6px 14px rgba(0,0,0,0.35); }
@@ -454,9 +481,6 @@ export default function TransportPranim() {
         .chip-modern:active { transform: translateY(1px); }
         .chip-bump { animation: chipBump 140ms ease-in-out; }
         @keyframes chipBump { 0% { transform: translateY(0) scale(1); } 40% { transform: translateY(1px) scale(0.98); } 70% { transform: translateY(0) scale(1.02); } 100% { transform: translateY(0) scale(1); } }
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px; }
-        .modal-content { width: 100%; max-width: 420px; padding: 18px; border-radius: 18px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35); background: white; }
-        .modal-content.dark { background: #0b0b0b; color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); }
         .payfs { position: fixed; inset: 0; background: #0b0b0b; z-index: 10000; display: flex; flex-direction: column; }
         .payfs-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 14px; background: #0b0b0b; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
         .payfs-title { color: #fff; font-weight: 900; font-size: 18px; }
