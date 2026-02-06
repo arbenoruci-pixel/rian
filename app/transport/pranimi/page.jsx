@@ -284,7 +284,6 @@ export default function TransportPranim() {
   // --- SAVE LOGIC ---
   async function saveOrder() {
     addLog("--- START SAVE ---");
-    if (saving) { addLog("(SKIP) ALREADY SAVING"); return; }
     if (!me?.transport_id) { alert("❌ Gabim Sesioni."); return; }
     if (!validate()) return;
 
@@ -377,11 +376,6 @@ export default function TransportPranim() {
 
       <section className="card">
         <h2 className="card-title">KLIENTI & ADRESA</h2>
-        <div className="row" style={{justifyContent: 'flex-end', marginBottom: 12}}>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 12, fontWeight: 800 }}>
-                <input type="checkbox" checked={saveIncomplete} onChange={(e) => setSaveIncomplete(e.target.checked)} /> E PA PLOTSUAR
-            </label>
-        </div>
         <div className="field-group">
           <label className="label">EMRI & MBIEMRI</label>
           <div className="row" style={{ alignItems: 'center', gap: 10 }}>
