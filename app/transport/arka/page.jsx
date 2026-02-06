@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getTransportSession } from "@/lib/transportAuth";
-import { readTransportArka, openTransportDay, addTransportCollected, closeTransportDay, addTransportExpense } from "@/lib/transportArkaStore";
+import { readTransportArka, addTransportExpense, addTransportTransferToBase, computeTransportBalance } from "@/lib/transportArkaStore";
 
 function parseAmount(v){
   const s = String(v ?? "").replace(/[^0-9.,-]/g, "").replace(",", ".");
@@ -12,13 +12,24 @@ function parseAmount(v){
   return Number.isFinite(n) ? n : NaN;
 }
 
+const EXP_TYPES = [
+  { v: "FUEL", label: "NAFTË" },
+  { v: "PARKING", label: "PARKING" },
+  { v: "TOLL", label: "TOLL / RRUGË" },
+  { v: "OTHER", label: "TË TJERA" },
+];
+
 export default function TransportArkaPage(){
   const router = useRouter();
   const [me, setMe] = useState(null);
-  const [state, setState] = useState({ day: null, open_cash: 0, items: [], expenses: [] });
-  const [openCash, setOpenCash] = useState("");
-  const [expName, setExpName] = useState("");
+  const [state, setState] = useState({ items: [], expenses: [], transfers: [] });
+
+  const [expType, setExpType] = useState("FUEL");
+  const [expNote, setExpNote] = useState("");
   const [expAmt, setExpAmt] = useState("");
+
+  const [trAmt, setTrAmt] = useState("");
+  const [trNote, setTrNote] = useState("");
 
   useEffect(()=>{
     const s = getTransportSession();
@@ -32,25 +43,34 @@ export default function TransportArkaPage(){
     setState(readTransportArka(me.transport_id));
   }
 
-  const collected = useMemo(()=> (state.items||[]).reduce((a,x)=>a + (Number(x.amount)||0),0), [state]);
-  const expenses = useMemo(()=> (state.expenses||[]).reduce((a,x)=>a + (Number(x.amount)||0),0), [state]);
-  const net = useMemo(()=> Number((collected - expenses).toFixed(2)), [collected, expenses]);
+  const sums = useMemo(()=> computeTransportBalance(state), [state]);
+  const balance = sums.balance;
 
-  function doOpen(){
-    const n = parseAmount(openCash);
-    openTransportDay(me.transport_id, Number.isFinite(n)?n:0);
-    setOpenCash("");
-    refresh();
-  }
   function doExpense(){
     const n = parseAmount(expAmt);
     if(!Number.isFinite(n) || n<=0) return alert("Shuma?");
-    addTransportExpense(me.transport_id, { name: expName||"SHPENZIM", amount: n, ts: Date.now() });
-    setExpName(""); setExpAmt("");
+    addTransportExpense(me.transport_id, { type: expType, amount: n, note: (expNote||"").trim() });
+    setExpAmt(""); setExpNote(""); setExpType("FUEL");
     refresh();
   }
-  function doClose(){
-    closeTransportDay(me.transport_id);
+
+  async function doTransferAll(){
+    if(balance <= 0) return alert("S’ka cash në dorë.");
+    const ok = confirm(`TRANSFER te DISPATCH: €${balance.toFixed(2)} ?`);
+    if(!ok) return;
+    await addTransportTransferToBase({ transportId: me.transport_id, transporterName: me.transport_name, amount: balance, note: (trNote||"").trim() });
+    setTrNote("");
+    refresh();
+  }
+
+  async function doTransferCustom(){
+    const n = parseAmount(trAmt);
+    if(!Number.isFinite(n) || n<=0) return alert("Shuma?");
+    if(n > balance) return alert("S’mundesh me transferu ma shumë se CASH NË DORË.");
+    const ok = confirm(`TRANSFER te DISPATCH: €${n.toFixed(2)} ?`);
+    if(!ok) return;
+    await addTransportTransferToBase({ transportId: me.transport_id, transporterName: me.transport_name, amount: n, note: (trNote||"").trim() });
+    setTrAmt(""); setTrNote("");
     refresh();
   }
 
@@ -59,7 +79,7 @@ export default function TransportArkaPage(){
       <header className="header-row">
         <div>
           <h1 className="title">TRANSPORT • ARKA</h1>
-          <div className="subtitle">{me?.transport_id || ""}</div>
+          <div className="subtitle">{me?.transport_name || ""} • PIN {me?.transport_id || ""}</div>
         </div>
         <div style={{ display:"flex", gap:8 }}>
           <Link className="pill" href="/transport/menu">MENU</Link>
@@ -67,37 +87,62 @@ export default function TransportArkaPage(){
         </div>
       </header>
 
-      <section className="card">
-        {!state.day ? (
-          <>
-            <div className="card-title">HAPE DITËN</div>
-            <div className="row" style={{ gap:8 }}>
-              <input className="input" value={openCash} onChange={(e)=>setOpenCash(e.target.value)} placeholder="CASH HAPJE (0)" />
-              <button className="btn btn-primary" onClick={doOpen}>HAPE</button>
+      {!me ? (
+        <section className="card">
+          <div className="muted">NUK JE I KYÇUR</div>
+          <Link className="btn" href="/login">LOGIN</Link>
+        </section>
+      ) : (
+        <>
+          <section className="card">
+            <div className="row" style={{ justifyContent:"space-between", alignItems:"center" }}>
+              <span className="pill">COLLECTED: {sums.collected.toFixed(2)} €</span>
+              <span className="pill">SHPENZIME: {sums.expenses.toFixed(2)} €</span>
+              <span className="pill">TRANSFER: {sums.transfers.toFixed(2)} €</span>
+              <span className="badge">CASH NË DORË: {balance.toFixed(2)} €</span>
             </div>
-          </>
-        ) : (
-          <>
-            <div className="row" style={{ justifyContent:"space-between" }}>
-              <span className="pill">COLLECTED: {Number(collected||0).toFixed(2)} €</span>
-              <span className="pill">SHPENZIME: {Number(expenses||0).toFixed(2)} €</span>
-              <span className="badge">NETO: {Number(net||0).toFixed(2)} €</span>
-            </div>
+          </section>
 
-            <div className="sep" />
-
+          <section className="card">
             <div className="card-title">SHTO SHPENZIM</div>
-            <div className="row" style={{ gap:8 }}>
-              <input className="input" value={expName} onChange={(e)=>setExpName(e.target.value)} placeholder="PËRSHKRIM" />
-              <input className="input" value={expAmt} onChange={(e)=>setExpAmt(e.target.value)} placeholder="SHUMA" inputMode="decimal" />
+            <div className="row" style={{ gap:8, flexWrap:"wrap" }}>
+              <select className="input" value={expType} onChange={(e)=>setExpType(e.target.value)} style={{ maxWidth: 210 }}>
+                {EXP_TYPES.map(x => <option key={x.v} value={x.v}>{x.label}</option>)}
+              </select>
+              <input className="input" value={expAmt} onChange={(e)=>setExpAmt(e.target.value)} placeholder="SHUMA (€)" inputMode="decimal" style={{ maxWidth: 160 }} />
+              <input className="input" value={expNote} onChange={(e)=>setExpNote(e.target.value)} placeholder="PËRSHKRIM (tekst)" />
               <button className="btn" onClick={doExpense}>SHTO</button>
             </div>
+            <div className="muted" style={{ marginTop: 8 }}>SHPENZIME = NAFTË / PARKING / TOLL / TJERA + përshkrim tekst.</div>
+          </section>
 
-            <div style={{ height: 10 }} />
-            <button className="btn btn-primary" onClick={doClose}>MBYLLE DITËN</button>
-          </>
-        )}
-      </section>
+          <section className="card">
+            <div className="card-title">TRANSFER TE DISPATCH</div>
+            <div className="row" style={{ gap:8, flexWrap:"wrap" }}>
+              <input className="input" value={trAmt} onChange={(e)=>setTrAmt(e.target.value)} placeholder={`SHUMA (max ${balance.toFixed(2)}€)`} inputMode="decimal" style={{ maxWidth: 220 }} />
+              <input className="input" value={trNote} onChange={(e)=>setTrNote(e.target.value)} placeholder="PËRSHKRIM (opsional)" />
+              <button className="btn" onClick={doTransferCustom}>TRANSFER</button>
+              <button className="btn btn-primary" onClick={doTransferAll}>TRANSFER KREJT</button>
+            </div>
+            <div className="muted" style={{ marginTop: 8 }}>Kjo e zbret cash-in nga transportusi dhe e fut në ARKËN E BAZËS si “handover”.</div>
+          </section>
+
+          <section className="card">
+            <div className="card-title">HISTORI (E FUNDIT)</div>
+            <div className="muted">TRANSFER (10 të fundit)</div>
+            <div style={{ marginTop: 8, display:"grid", gap:6 }}>
+              {(state.transfers||[]).slice(0,10).map((t)=>(
+                <div key={t.id} className="row" style={{ justifyContent:"space-between" }}>
+                  <span className="pill">{new Date(t.ts).toLocaleString()}</span>
+                  <span className="pill">€{Number(t.amount||0).toFixed(2)}</span>
+                  <span className="muted" style={{ flex:1, marginLeft: 8, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.note || ""}</span>
+                </div>
+              ))}
+              {(!state.transfers || state.transfers.length===0) ? <div className="muted">S’ka transfere ende.</div> : null}
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }

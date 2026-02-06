@@ -67,14 +67,13 @@ export default function TransportGatiPage() {
         status: r.status,
         created_at: r.created_at,
         order: r.data || {},
-        transport_pin: String(r.data?.transport_pin || ''),
-        transport_id: String(r.data?.transport_id || ''),
+        transport_id: String(r.data?.transport_id || r.data?.picked_by_user_id || ''),
       }))
       .filter((x) => /^T\d+$/i.test(x.code))
       .filter((x) => {
         // TRANSPORT role sees only their own orders.
         if (String(me?.role || '').toUpperCase() === 'TRANSPORT') {
-          return myPin && x.transport_pin === myPin;
+          return myPin && String(x.transport_id) === String(myPin);
         }
         return true;
       });
