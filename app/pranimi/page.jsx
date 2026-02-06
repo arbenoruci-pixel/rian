@@ -30,26 +30,31 @@ const PRICE_DEFAULT = 3.0;
 // PAGESA CHIPS
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 
+// Capacity cache keys written by Pastrimi
 const DAILY_CAPACITY_M2 = 400;
 
-// Draft keys
+// Draft keys (local only)
 const DRAFT_LIST_KEY = 'draft_orders_v1';
 const DRAFT_ITEM_PREFIX = 'draft_order_';
 
-// company contact footer
+// company contact footer for messages
 const COMPANY_PHONE_DISPLAY = '+383 44 735 312';
+const COMPANY_PHONE_RAW = '+383447353312';
 
 // settings keys
 const AUTO_MSG_KEY = 'pranimi_auto_msg_after_save';
 const PRICE_KEY = 'pranimi_price_per_m2';
 
-// OFFLINE safety
+// OFFLINE safety (Pranimi)
 const OFFLINE_MODE_KEY = 'tepiha_offline_mode_v1';
 const OFFLINE_QUEUE_KEY = 'tepiha_offline_queue_v1';
 
-// remote folders
+// ✅ remote folders (shared between workers)
 const DRAFTS_FOLDER = 'drafts';
 const SETTINGS_FOLDER = 'settings';
+
+// When a draft has client info, we don't want the reserved code to expire.
+const LOCK_MINUTES_AFTER_INFO = 60 * 24 * 365 * 10;
 
 // ---------------- HELPERS ----------------
 function sanitizePhone(phone) {
@@ -157,88 +162,33 @@ function chipStyleForVal(v, active) {
   else if (n >= 3.5) { a = 'rgba(236,72,153,0.18)'; b = 'rgba(236,72,153,0.06)'; br = 'rgba(236,72,153,0.35)'; } 
   else if (n >= 2.2) { a = 'rgba(245,158,11,0.18)'; b = 'rgba(245,158,11,0.06)'; br = 'rgba(245,158,11,0.35)'; } 
   else { a = 'rgba(168,85,247,0.18)'; b = 'rgba(168,85,247,0.06)'; br = 'rgba(168,85,247,0.35)'; }
-  return { background: `linear-gradient(180deg, ${a}, ${b})`, border: `1px solid ${br}`, outline: active ? '2px solid rgba(255,255,255,0.22)' : 'none' };
+  return { background: `linear-gradient(180deg, ${a}, ${b})`, border: `1px solid ${br}`, outline: active ? '2px solid rgba(255,255,255,0.22)' : 'none', boxShadow: active ? '0 10px 18px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.18)' : '0 8px 14px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.14)' };
 }
 
-// ... (Draft helpers omitted for brevity, logic remains same) ...
+// ... (Draft Helpers) ...
 function safeJsonParse(s, f) { try { return JSON.parse(s); } catch { return f; } }
-function loadDraftIds() { return safeJsonParse(localStorage.getItem(DRAFT_LIST_KEY) || '[]', []); }
+function rebuildDraftIdsByScan() { try { const ids = []; for(let i=0; i<localStorage.length; i++) { const k=localStorage.key(i); if(k.startsWith(DRAFT_ITEM_PREFIX)) ids.push(k.replace(DRAFT_ITEM_PREFIX,'')); } return ids; } catch{ return []; } }
+function loadDraftIds() { const raw=localStorage.getItem(DRAFT_LIST_KEY); const arr=safeJsonParse(raw||'[]',[]); return (!arr.length) ? rebuildDraftIdsByScan() : arr; }
 function saveDraftIds(ids) { localStorage.setItem(DRAFT_LIST_KEY, JSON.stringify(ids)); }
-function upsertDraftLocal(d) { 
-    if(!d?.id) return; localStorage.setItem(`${DRAFT_ITEM_PREFIX}${d.id}`, JSON.stringify(d)); 
-    const ids = loadDraftIds(); if(!ids.includes(d.id)) { ids.unshift(d.id); saveDraftIds(ids); }
-}
+function upsertDraftLocal(d) { if(!d?.id) return; localStorage.setItem(`${DRAFT_ITEM_PREFIX}${d.id}`, JSON.stringify(d)); const ids=loadDraftIds(); if(!ids.includes(d.id)) { ids.unshift(d.id); saveDraftIds(ids); } }
 function removeDraftLocal(id) { localStorage.removeItem(`${DRAFT_ITEM_PREFIX}${id}`); saveDraftIds(loadDraftIds().filter(x=>x!==id)); }
-function readAllDraftsLocal() { return loadDraftIds().map(id => safeJsonParse(localStorage.getItem(`${DRAFT_ITEM_PREFIX}${id}`), null)).filter(Boolean).sort((a,b)=>b.ts-a.ts); }
+function readAllDraftsLocal() { return loadDraftIds().map(id=>safeJsonParse(localStorage.getItem(`${DRAFT_ITEM_PREFIX}${id}`), null)).filter(Boolean).sort((a,b)=>(b.ts||0)-(a.ts||0)); }
 
-// ---------- DRAFT REMOTE HELPERS (SHARED) ----------
-async function upsertDraftRemote(draft) {
-  try {
-    if (!draft?.id) return;
-    const blob = new Blob([JSON.stringify(draft)], { type: 'application/json' });
-    await supabase.storage.from(BUCKET).upload(`${DRAFTS_FOLDER}/${draft.id}.json`, blob, { upsert: true, cacheControl: '0', contentType: 'application/json' });
-  } catch {}
-}
+// ... (Remote Helpers) ...
+async function upsertDraftRemote(d) { try { if(!d?.id) return; const b=new Blob([JSON.stringify(d)],{type:'application/json'}); await supabase.storage.from(BUCKET).upload(`${DRAFTS_FOLDER}/${d.id}.json`,b,{upsert:true}); } catch{} }
+async function deleteDraftRemote(id) { try { await supabase.storage.from(BUCKET).remove([`${DRAFTS_FOLDER}/${id}.json`]); } catch{} }
+async function readDraftRemote(id) { try { const {data}=await supabase.storage.from(BUCKET).download(`${DRAFTS_FOLDER}/${id}.json`); if(data) return JSON.parse(await data.text()); } catch{ return null; } }
+async function fetchRemoteDraftsSummary() { try { const {data}=await supabase.storage.from(BUCKET).list(DRAFTS_FOLDER,{limit:200}); if(!data) return []; const out=[]; for(const f of data) { if(!f.name.endsWith('.json')) continue; const id=f.name.replace('.json',''); const d=await readDraftRemote(id); if(d) out.push(d); } return out.sort((a,b)=>b.ts-a.ts); } catch { return []; } }
 
-async function deleteDraftRemote(id) {
-  try {
-    if (!id) return;
-    await supabase.storage.from(BUCKET).remove([`${DRAFTS_FOLDER}/${id}.json`]);
-  } catch {}
-}
-
-async function listDraftsRemote(limit = 200) {
-  try {
-    const { data, error } = await supabase.storage.from(BUCKET).list(DRAFTS_FOLDER, { limit });
-    if (error) throw error;
-    return (data || []).filter((x) => x?.name?.endsWith('.json'));
-  } catch { return []; }
-}
-
-async function readDraftRemote(id) {
-  try {
-    const { data, error } = await supabase.storage.from(BUCKET).download(`${DRAFTS_FOLDER}/${id}.json`);
-    if (error) throw error;
-    const text = await data.text();
-    return JSON.parse(text);
-  } catch { return null; }
-}
-
-async function fetchRemoteDraftsSummary() {
-  const files = await listDraftsRemote(200);
-  const out = [];
-  const tasks = files.map(async (f) => {
-    const id = f.name.replace('.json', '');
-    const d = await readDraftRemote(id);
-    if (!d?.id) return;
-    const m2 = computeM2FromRows(d.tepihaRows || [], d.stazaRows || [], d.stairsQty || 0, d.stairsPer || 0);
-    const euro = Number((m2 * (Number(d.pricePerM2) || PRICE_DEFAULT)).toFixed(2));
-    out.push({ id: d.id, ts: d.ts || 0, code: normalizeCode(d.codeRaw || d.code || ''), m2, euro });
-  });
-  await Promise.allSettled(tasks);
-  out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  return out;
-}
-
-// ---------- SETTINGS REMOTE (SHARED PRICE) ----------
-async function readSharedPrice() {
-  try {
-    const { data } = await supabase.storage.from(BUCKET).download(`${SETTINGS_FOLDER}/price.json`);
-    if (data) { const j = JSON.parse(await data.text()); if (Number(j?.pricePerM2)>0) return Number(j.pricePerM2); }
-  } catch {}
-  return null;
-}
-async function writeSharedPrice(v) {
-  const blob = new Blob([JSON.stringify({ pricePerM2: v, at: new Date().toISOString() })], { type: 'application/json' });
-  await supabase.storage.from(BUCKET).upload(`${SETTINGS_FOLDER}/price.json`, blob, { upsert: true, cacheControl: '0', contentType: 'application/json' });
-}
+async function readSharedPrice() { try { const {data}=await supabase.storage.from(BUCKET).download(`${SETTINGS_FOLDER}/price.json`); if(data) { const j=JSON.parse(await data.text()); if(Number(j?.pricePerM2)>0) return Number(j.pricePerM2); } } catch{} return null; }
+async function writeSharedPrice(v) { const b=new Blob([JSON.stringify({pricePerM2:v, at:new Date().toISOString()})],{type:'application/json'}); await supabase.storage.from(BUCKET).upload(`${SETTINGS_FOLDER}/price.json`,b,{upsert:true}); }
 
 // ---------------- COMPONENT ----------------
 export default function PranimiPage() {
   const router = useRouter();
   const phonePrefix = '+383';
 
-  // --- SMART DEBUG STATE ---
+  // --- SMART DEBUG SETUP (NEW) ---
   const [showDebug, setShowDebug] = useState(false);
   const [logs, setLogs] = useState([]);
   const debugPressTimer = useRef(null);
@@ -252,7 +202,7 @@ export default function PranimiPage() {
   function startDebugPress() {
     debugPressTimer.current = setTimeout(() => {
       setShowDebug(prev => !prev);
-      vibrateTap(50);
+      if(navigator.vibrate) navigator.vibrate(50);
     }, 3000); 
   }
 
@@ -262,6 +212,7 @@ export default function PranimiPage() {
         debugPressTimer.current = null;
     }
   }
+  // ------------------------------
 
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -279,11 +230,11 @@ export default function PranimiPage() {
   const [phone, setPhone] = useState('');
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
 
-  // client search
+  // client search (rikthime)
   const [clientQuery, setClientQuery] = useState('');
+  const [clientsIndex, setClientsIndex] = useState([]);
   const [clientHits, setClientHits] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(false);
-  const [clientsIndex, setClientsIndex] = useState([]);
 
   // rows
   const [tepihaRows, setTepihaRows] = useState([]);
@@ -303,24 +254,32 @@ export default function PranimiPage() {
   // sheets
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
+
+  // messaging
   const [showMsgSheet, setShowMsgSheet] = useState(false);
+
+  // auto msg
+  const [autoMsgAfterSave, setAutoMsgAfterSave] = useState(true);
+  const [pendingNavTo, setPendingNavTo] = useState('');
+
+  // price editor
   const [showPriceSheet, setShowPriceSheet] = useState(false);
   const [priceTmp, setPriceTmp] = useState(PRICE_DEFAULT);
 
-  // settings
-  const [autoMsgAfterSave, setAutoMsgAfterSave] = useState(true);
-  const [pendingNavTo, setPendingNavTo] = useState('');
+  // payAdd
   const [payAdd, setPayAdd] = useState(0);
+
+  // notes
   const [notes, setNotes] = useState('');
 
-  // ✅ Këtu ishte gabimi: Këto variabla u zhdukën. Tani u kthyen.
-  const [todayPastrimM2, setTodayPastrimM2] = useState(0);
-  const [etaText, setEtaText] = useState('GATI DITËN E 2-TË (NESËR)');
-
-  // offline
+  // offline mode
   const [offlineMode, setOfflineMode] = useState(false);
   const [netState, setNetState] = useState({ ok: true, reason: '' });
   const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
+
+  // capacity stats
+  const [todayPastrimM2, setTodayPastrimM2] = useState(0);
+  const [etaText, setEtaText] = useState('GATI DITËN E 2-TË (NESËR)');
 
   const RESET_ON_SHOW_KEY = 'tepiha_pranimi_reset_on_show_v1';
 
@@ -328,10 +287,10 @@ export default function PranimiPage() {
     try {
       const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `ord_${Date.now()}`;
       setOid(id);
-      addLog("Duke marrë kodin e ri...");
+      addLog("Getting new code...");
       const c = await reserveSharedCode(id);
       setCodeRaw(c);
-      addLog(`Kodi u rezervua: ${c}`);
+      addLog(`Code reserved: ${c}`);
 
       setName(''); setPhone(''); setClientPhotoUrl(''); setClientQuery(''); setClientHits([]);
       setTepihaRows([]); setStazaRows([]);
@@ -339,25 +298,18 @@ export default function PranimiPage() {
       setClientPaid(0); setArkaRecordedPaid(0); setPayMethod('CASH'); setNotes('');
       setSavingContinue(false); setPhotoUploading(false);
     } catch (e) {
-        addLog("Reset Error: " + e.message);
+        addLog(`Reset Error: ${e.message}`);
     }
   }
 
-  // --- INIT ---
   useEffect(() => {
     (async () => {
-        addLog("Duke inicializuar Pranimin...");
-        const initOff = localStorage.getItem(OFFLINE_MODE_KEY) === '1';
-        setOfflineMode(initOff);
-        
+        addLog("Initializing...");
+        const init = localStorage.getItem(OFFLINE_MODE_KEY) === '1';
+        setOfflineMode(init);
         try { await refreshDrafts(); } catch {}
-
-        try {
-            const shared = await readSharedPrice();
-            if (shared) setPricePerM2(shared);
-        } catch {}
-
-        // Kapaciteti
+        try { const shared = await readSharedPrice(); if (shared) { setPricePerM2(shared); } } catch {}
+        
         try {
             const cached = Number(localStorage.getItem('capacity_today_pastrim_m2') || '0');
             const text = localStorage.getItem('capacity_eta_text');
@@ -370,109 +322,92 @@ export default function PranimiPage() {
     })();
   }, []);
 
+  // Net check
   useEffect(() => {
-    try { const init = loadOfflineModeInit(); setOfflineMode(init); } catch {}
-    try { const need = sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1'; if (need) { sessionStorage.removeItem(RESET_ON_SHOW_KEY); void resetForNewOrder(); } } catch {}
-
-    const onVis = () => { try { if (document.visibilityState !== 'visible') return; const need = sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1'; if (!need) return; sessionStorage.removeItem(RESET_ON_SHOW_KEY); void resetForNewOrder(); } catch {} };
-    document.addEventListener('visibilitychange', onVis);
-
     let alive = true;
-    async function run() { const s = await checkConnectivity(); if (!alive) return; setNetState(s); if (!s.ok && !offlineMode) setShowOfflinePrompt(true); }
+    async function run() {
+        if(typeof navigator !== 'undefined' && navigator.onLine === false) { setNetState({ok:false, reason:'NO_NET'}); return; }
+        setNetState({ok:true, reason:''});
+    }
     run();
-    const onOnline = () => run(); const onOffline = () => run();
-    window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline);
-    const t = setInterval(run, 20000);
-    return () => { alive = false; window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
-  }, [offlineMode]);
+    const t = setInterval(run, 15000);
+    return () => clearInterval(t);
+  }, []);
 
-  // --- CALC ---
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2)), [totalM2, pricePerM2]);
   const diff = useMemo(() => Number((totalEuro - Number(clientPaid || 0)).toFixed(2)), [totalEuro, clientPaid]);
   const currentDebt = diff > 0 ? diff : 0;
   const currentChange = diff < 0 ? Math.abs(diff) : 0;
   const copeCount = useMemo(() => {
-    return tepihaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0) +
-           stazaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0) +
-           (Number(stairsQty) > 0 ? 1 : 0);
+    return tepihaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0) + stazaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0) + (Number(stairsQty) > 0 ? 1 : 0);
   }, [tepihaRows, stazaRows, stairsQty]);
 
-  // --- AUTOSAVE DRAFT ---
+  // Autosave
   const draftTimer = useRef(null);
   useEffect(() => {
     if (creating || !oid) return;
     if (draftTimer.current) clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(() => {
         const hasData = name || phone || tepihaRows.length > 0;
-        if(hasData) {
+        if (hasData) {
             upsertDraftLocal({ id: oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, pricePerM2, clientPaid });
-            // Sync remote too
-            upsertDraftRemote({ id: oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, pricePerM2, clientPaid }).catch(()=>{});
         }
     }, 1000);
     return () => clearTimeout(draftTimer.current);
   }, [name, phone, tepihaRows, stazaRows, stairsQty, clientPaid, oid]);
 
-  // --- ACTIONS ---
-  function addRow(kind) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; const prefix = kind === 'tepiha' ? 't' : 's'; setter(rows => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '0', photoUrl: '' }]); }
-  function removeRow(kind) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; setter(rows => (rows.length ? rows.slice(0, -1) : rows)); }
-  function handleRowChange(kind, id, field, value) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; setter(rows => rows.map(r => (r.id === id ? { ...r, [field]: value } : r))); }
-  
-  function applyChip(kind, val) {
-      const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
-      const rows = kind === 'tepiha' ? tepihaRows : stazaRows;
-      if (!rows.length) { setter([{ id: `${kind[0]}1`, m2: String(val), qty: '1', photoUrl: '' }]); return; }
-      const emptyIdx = rows.findIndex(r => !r.m2);
-      if (emptyIdx !== -1) { const nr = [...rows]; nr[emptyIdx] = { ...nr[emptyIdx], m2: String(val), qty: '1' }; setter(nr); }
-      else { setter([...rows, { id: `${kind[0]}${rows.length + 1}`, m2: String(val), qty: '1', photoUrl: '' }]); }
-  }
-
-  // --- VALIDATION & SAVE ---
-  function validateBeforeContinue() {
-    if (!name.trim()) return alert('Shkruaj emrin!'), false;
-    if (!phone.trim() || phone.length < 3) return alert('Shkruaj telefonin!'), false;
-    if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), false;
-    return true;
-  }
-
-  // --- ACTIONS ---
+  function addRow(kind) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; const prefix = kind === 'tepiha' ? 't' : 's'; setter((rows) => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '0', photoUrl: '' }]); }
+  function removeRow(kind) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; setter((rows) => (rows.length ? rows.slice(0, -1) : rows)); }
+  function handleRowChange(kind, id, field, value) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; setter((rows) => rows.map((r) => (r.id === id ? { ...r, [field]: value } : r))); }
   async function handleRowPhotoChange(kind, id, file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, `${kind}_${id}`); if (url) handleRowChange(kind, id, 'photoUrl', url); } catch { alert('❌ Gabim foto!'); } finally { setPhotoUploading(false); } }
   async function handleClientPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, 'client'); if (url) setClientPhotoUrl(url); } catch { alert('❌ Gabim foto!'); } finally { setPhotoUploading(false); } }
   async function handleStairsPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, 'shkallore'); if (url) setStairsPhotoUrl(url); } catch { alert('❌ Gabim foto!'); } finally { setPhotoUploading(false); } }
-  function vibrateTap(ms = 15) { try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(ms); } catch {} }
+  function vibrateTap(ms = 15) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch {} }
   function bumpEl(el) { try { if (!el) return; el.classList.remove('chip-bump'); void el.offsetWidth; el.classList.add('chip-bump'); setTimeout(() => el.classList.remove('chip-bump'), 140); } catch {} }
+  function applyChip(kind, val, ev) {
+    vibrateTap(15); if (ev?.currentTarget) bumpEl(ev.currentTarget);
+    const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; const rows = kind === 'tepiha' ? tepihaRows : stazaRows;
+    if (!rows || rows.length === 0) { const prefix = kind === 'tepiha' ? 't' : 's'; setter([{ id: `${prefix}1`, m2: String(val), qty: '1', photoUrl: '' }]); return; }
+    const emptyIdx = rows.findIndex((r) => !r.m2);
+    if (emptyIdx !== -1) { const nr = [...rows]; const curQty = String(nr[emptyIdx]?.qty ?? '').trim(); nr[emptyIdx] = { ...nr[emptyIdx], m2: String(val), qty: curQty && curQty !== '0' ? curQty : '1' }; setter(nr); } else { const prefix = kind === 'tepiha' ? 't' : 's'; setter([...rows, { id: `${prefix}${rows.length + 1}`, m2: String(val), qty: '1', photoUrl: '' }]); }
+  }
 
   function openPay() { const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2)); setPayAdd(dueNow > 0 ? dueNow : 0); setPayMethod("CASH"); setShowPaySheet(true); }
   function openPriceEditor() { setPriceTmp(Number(pricePerM2) || PRICE_DEFAULT); setShowPriceSheet(true); }
   async function savePriceAndClose() { const v = Number(priceTmp); if (!Number.isFinite(v) || v <= 0) { alert('Shkruaj një çmim të vlefshëm.'); return; } setPricePerM2(v); try { localStorage.setItem(PRICE_KEY, String(v)); } catch {} try { await writeSharedPrice(v); } catch {} setShowPriceSheet(false); }
+  
+  const payHoldTimerRef = useRef(null);
+  const payHoldTriggeredRef = useRef(false);
   function startPayHold() { payHoldTriggeredRef.current = false; if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = setTimeout(() => { payHoldTriggeredRef.current = true; vibrateTap(25); openPriceEditor(); }, 1200); }
   function endPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; if (!payHoldTriggeredRef.current) openPay(); payHoldTriggeredRef.current = false; }
   function cancelPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; payHoldTriggeredRef.current = false; }
-  
+
   async function applyPayAndClose() {
     const cashGiven = Number((Number(payAdd) || 0).toFixed(2)); if (cashGiven <= 0) { alert('SHUMA NUK VLEN (0 €).'); return; }
     const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2))); const applied = Number(Math.min(cashGiven, due).toFixed(2)); if (applied <= 0) { alert(due <= 0 ? "KJO POROSI ESHTE PAGUAR." : 'SHUMA NUK VLEN.'); return; }
     const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2)); setClientPaid(newPaid);
     if (payMethod === 'CASH') {
-      const actor = (() => { try { const raw = localStorage.getItem('CURRENT_USER_DATA'); return raw ? JSON.parse(raw) : null; } catch { return null; } })();
       const extId = `pay_${oid}_${Date.now()}`;
-      await recordCashMove({ externalId: extId, orderId: oid, code: normalizeCode(codeRaw), name: name.trim(), amount: applied, note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`, source: 'ORDER_PAY', method: 'cash_pay', type: 'IN', createdByPin: (actor?.pin ? String(actor.pin) : (getActor()?.pin ? String(getActor().pin) : null)), createdBy: (actor?.name ? String(actor.name) : (getActor()?.name ? String(getActor().name) : null)) });
+      await recordCashMove({ externalId: extId, orderId: oid, code: normalizeCode(codeRaw), name: name.trim(), amount: applied, note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`, source: 'ORDER_PAY', method: 'cash_pay', type: 'IN' });
       const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2)); setArkaRecordedPaid(finalArka);
     }
     setShowPaySheet(false);
   }
 
-  function loadOfflineModeInit() { try { const v = localStorage.getItem(OFFLINE_MODE_KEY); return v === '1'; } catch { return false; } }
-  async function checkConnectivity() { try { if (typeof navigator !== 'undefined' && navigator.onLine === false) return { ok: false, reason: 'NO_INTERNET' }; } catch {} try { const r = await fetch('/api/backup/ping', { cache: 'no-store' }); const j = await r.json().catch(() => ({})); if (!r.ok || !j?.ok) return { ok: false, reason: j?.error || 'PING_FAILED' }; return { ok: true, reason: '' }; } catch { return { ok: false, reason: 'FETCH_FAILED' }; } }
+  function validateBeforeContinue() {
+    if (!name.trim()) return alert('Shkruaj emrin dhe mbiemrin.'), false;
+    const ph = sanitizePhone(phonePrefix + phone);
+    if (!ph || ph.length < 6) return alert('Shkruaj një numër telefoni të vlefshëm.'), false;
+    if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), false;
+    return true;
+  }
+
   function saveOfflineQueueItem(order) { try { const raw = localStorage.getItem(OFFLINE_QUEUE_KEY); const list = raw ? JSON.parse(raw) : []; const item = { local_id: order?.id || `offline_${Date.now()}`, created_at: new Date().toISOString(), name: order?.client?.name || '', phone: order?.client?.phone || '', code: order?.client?.code || '', pieces: Number(order?.tepiha?.reduce((s, r) => s + (Number(r.qty) || 0), 0) || 0) + Number(order?.staza?.reduce((s, r) => s + (Number(r.qty) || 0), 0) || 0) + Number(order?.shkallore?.qty || 0), total: Number(order?.pay?.euro || 0), paid: Number(order?.pay?.paid || 0), debt: Number(order?.pay?.debt || 0), status: 'OFFLINE', order, synced: false }; list.unshift(item); localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(list.slice(0, 2000))); return true; } catch { return false; } }
 
   async function handleContinue() {
     addLog("--- START HANDLE CONTINUE ---");
-    if (!validateBeforeContinue()) {
-        addLog("Validation Failed.");
-        return;
-    }
+    if (!validateBeforeContinue()) { addLog("Validation Failed"); return; }
     if (savingContinue) return;
     setSavingContinue(true);
     addLog("Processing order object...");
@@ -488,40 +423,20 @@ export default function PranimiPage() {
         notes: notes || '',
       };
 
-      const conn = await checkConnectivity();
-      if (offlineMode || !conn.ok) {
-        addLog("Offline mode active or no conn. Saving locally.");
-        const ok = saveOfflineQueueItem(order);
-        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-        setOfflineMode(true);
-        if (!ok) { alert('❌ OFFLINE: nuk u ruajt lokalisht!'); setSavingContinue(false); return; }
+      if (offlineMode) {
+        addLog("Offline mode active. Saving locally.");
+        saveOfflineQueueItem(order);
         alert('✅ U RUAJT OFFLINE.');
-        try { localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({ id: oid, codeRaw, name, phone, clientPhotoUrl, tepihaRows, stazaRows, stairsQty, stairsPer, stairsPhotoUrl, pricePerM2, clientPaid, arkaRecordedPaid, payMethod, notes })); } catch {}
         setSavingContinue(false);
         return;
       }
 
       addLog("Sending to saveOrderToDb...");
       const db = await saveOrderToDb(order);
-      if (db && db.order_id) {
-        addLog(`DB Save OK. ID: ${db.order_id}`);
-        order.db_id = db.order_id; order.client_id = db.client_id || null;
-        if (order.client && db.client_id) order.client.id = db.client_id;
-      } else {
-        addLog("DB returned no order_id but no error.");
-      }
+      addLog(`DB Save Result: ${JSON.stringify(db)}`);
 
-      try { localStorage.setItem(`order_${oid}`, JSON.stringify(order)); } catch {}
       try { await markCodeUsed(codeRaw, oid); } catch {}
-
-      void (async () => {
-        try { const blob = new Blob([JSON.stringify(order)], { type: 'application/json' }); await supabase.storage.from(BUCKET).upload(`orders/${oid}.json`, blob, { upsert: true, cacheControl: '0', contentType: 'application/json' }); } catch {}
-        try { removeDraftLocal(oid); } catch {}
-        try { await deleteDraftRemote(oid); } catch {}
-        try { const codeToFinalize = order?.client?.code; if (codeToFinalize) await releaseLocksForCode(codeToFinalize); } catch {}
-      })();
-
-      try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
+      try { removeDraftLocal(oid); } catch {}
 
       if (autoMsgAfterSave) {
         setPendingNavTo('/pastrimi');
@@ -533,23 +448,20 @@ export default function PranimiPage() {
       setSavingContinue(false);
       router.push('/pastrimi');
     } catch (e) {
-      console.error('PRANIMI_SAVE_ERROR', e);
-      // ✅ SMART ERROR CAPTURE
+      console.error(e);
       const msg = e.message || JSON.stringify(e);
       addLog(`ERROR CATCH: ${msg}`);
       
-      let userMsg = `❌ RUJTJA DËSHTOI:\n${msg}`;
-      if(msg.includes('duplicate key') || msg.includes('clients_phone_uniq')) {
-          userMsg = "❌ Numri i telefonit ekziston te një klient tjetër!\n(Sistemi nuk mundi ta rregullojë automatikisht. Provo ndrysho numrin pak.)";
+      let userMsg = `❌ RUJTJA DËSHTOI: ${msg}`;
+      if (msg.includes("duplicate key") || msg.includes("clients_phone_uniq")) {
+          userMsg = "❌ Numri i telefonit ekziston te një klient tjetër!\n(Sistemi s'mund ta krijojë klientin e ri me këtë numër).";
           addLog("DIAGNOSIS: Duplicate phone number in clients table.");
       }
-
       alert(userMsg);
       setSavingContinue(false);
     }
   }
 
-  // ... (Drafts Open/Load/Delete Logic unchanged) ...
   function openDrafts() { void refreshDrafts(); setShowDraftsSheet(true); }
   async function loadDraftIntoForm(id) {
     try { let d = await readDraftRemote(id); if (!d) { const raw = localStorage.getItem(`${DRAFT_ITEM_PREFIX}${id}`); if (!raw) return; d = JSON.parse(raw); }
@@ -562,7 +474,6 @@ export default function PranimiPage() {
   }
   async function deleteDraft(id) { removeDraftLocal(id); await deleteDraftRemote(id); await refreshDrafts(); }
 
-  // ... (Message Builder & Sends unchanged) ...
   function buildStartMessage() {
     const kod = normalizeCode(codeRaw); const m2 = Number(totalM2 || 0).toFixed(2); const euro = Number(totalEuro || 0).toFixed(2); const debt = Number(currentDebt || 0).toFixed(2);
     const debtLine = Number(currentDebt || 0) > 0 ? `BORXH: ${debt} €.` : `BORXH: 0.00 €.`; const nm = (name || '').trim() ? `Përshëndetje ${name.trim()},` : 'Përshëndetje,';
