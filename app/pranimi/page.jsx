@@ -38,7 +38,6 @@ const DRAFT_ITEM_PREFIX = 'draft_order_';
 
 // company contact footer
 const COMPANY_PHONE_DISPLAY = '+383 44 735 312';
-const COMPANY_PHONE_RAW = '+383447353312';
 
 // settings keys
 const AUTO_MSG_KEY = 'pranimi_auto_msg_after_save';
@@ -88,13 +87,54 @@ async function searchClientsLive(q) {
   const list = Array.isArray(clients) ? clients : [];
   if (!list.length) return [];
 
-  // ... (pjesa e mbetur e search logic - e pandryshuar për thjeshtësi)
+  const codes = list.map((c) => Number(c?.code)).filter((n) => Number.isFinite(n));
+  const activeByCode = new Map();
+
+  if (codes.length) {
+    const { data: orders, error: e2 } = await supabase
+      .from('orders')
+      .select('code, status, updated_at, created_at')
+      .in('code', codes)
+      .neq('status', 'dorzim')
+      .limit(5000);
+
+    if (!e2 && Array.isArray(orders)) {
+      for (const o of orders) {
+        const c = Number(o?.code);
+        if (!Number.isFinite(c)) continue;
+        const cur = activeByCode.get(c) || { active: 0, last_seen: null };
+        cur.active += 1;
+        const ts = o?.updated_at || o?.created_at || null;
+        if (!cur.last_seen || (ts && String(ts) > String(cur.last_seen))) cur.last_seen = ts;
+        activeByCode.set(c, cur);
+      }
+    }
+  }
+
+  function dedupeName(raw) {
+    const s = String(raw || '').trim().replace(/\s+/g, ' ');
+    if (!s) return '';
+    const parts = s.split(' ').filter(Boolean);
+    if (parts.length >= 2 && parts[parts.length - 1].toLowerCase() === parts[parts.length - 2].toLowerCase()) {
+      parts.pop();
+    }
+    return parts.join(' ').trim();
+  }
+
   return list.map((c) => {
-    const full = c.full_name || `${c.first_name||''} ${c.last_name||''}`;
+    const codeStr = String(c?.code || '').trim();
+    const fromFull = dedupeName(c?.full_name);
+    const fromParts = dedupeName(`${c?.first_name || ''} ${c?.last_name || ''}`.trim());
+    const full = fromFull || fromParts;
+    const phoneFull = String(c?.phone || '');
+    const phoneShort = phoneFull.replace('+383', '');
+    const info = activeByCode.get(Number(c?.code)) || { active: 0, last_seen: null };
     return {
-      code: String(c.code||''),
+      code: codeStr,
       name: full || 'Pa Emër',
-      phone: String(c.phone||'').replace('+383', ''),
+      phone: phoneShort,
+      active: info.active,
+      last_seen: info.last_seen,
     };
   });
 }
@@ -273,6 +313,10 @@ export default function PranimiPage() {
   const [payAdd, setPayAdd] = useState(0);
   const [notes, setNotes] = useState('');
 
+  // ✅ Këtu ishte gabimi: Këto variabla u zhdukën. Tani u kthyen.
+  const [todayPastrimM2, setTodayPastrimM2] = useState(0);
+  const [etaText, setEtaText] = useState('GATI DITËN E 2-TË (NESËR)');
+
   // offline
   const [offlineMode, setOfflineMode] = useState(false);
   const [netState, setNetState] = useState({ ok: true, reason: '' });
@@ -313,10 +357,34 @@ export default function PranimiPage() {
             if (shared) setPricePerM2(shared);
         } catch {}
 
+        // Kapaciteti
+        try {
+            const cached = Number(localStorage.getItem('capacity_today_pastrim_m2') || '0');
+            const text = localStorage.getItem('capacity_eta_text');
+            setTodayPastrimM2(Number.isFinite(cached) ? cached : 0);
+            setEtaText(text || (cached > DAILY_CAPACITY_M2 ? 'GATI DITËN E 3-TË (MBASNESËR)' : 'GATI DITËN E 2-TË (NESËR)'));
+        } catch {}
+
         await resetForNewOrder();
         setCreating(false);
     })();
   }, []);
+
+  useEffect(() => {
+    try { const init = loadOfflineModeInit(); setOfflineMode(init); } catch {}
+    try { const need = sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1'; if (need) { sessionStorage.removeItem(RESET_ON_SHOW_KEY); void resetForNewOrder(); } } catch {}
+
+    const onVis = () => { try { if (document.visibilityState !== 'visible') return; const need = sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1'; if (!need) return; sessionStorage.removeItem(RESET_ON_SHOW_KEY); void resetForNewOrder(); } catch {} };
+    document.addEventListener('visibilitychange', onVis);
+
+    let alive = true;
+    async function run() { const s = await checkConnectivity(); if (!alive) return; setNetState(s); if (!s.ok && !offlineMode) setShowOfflinePrompt(true); }
+    run();
+    const onOnline = () => run(); const onOffline = () => run();
+    window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline);
+    const t = setInterval(run, 20000);
+    return () => { alive = false; window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, [offlineMode]);
 
   // --- CALC ---
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
@@ -610,7 +678,7 @@ export default function PranimiPage() {
         </div>
       )}
 
-      {/* SHEETS (unchanged) */}
+      {/* SHEETS (FIXED UI) */}
       {showDraftsSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">TË PA PLOTSUARAT</div><div className="payfs-sub">HAP ose FSHI draftat</div></div><button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}>{drafts.length === 0 ? (<div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>S’ka “të pa plotsuara”.</div>) : (drafts.map((d) => (<div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><div style={{ background: '#16a34a', color: '#0b0b0b', padding: '8px 10px', borderRadius: 10, fontWeight: 900, minWidth: 56, textAlign: 'center' }}>{d.code || '—'}</div><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}><div style={{ fontWeight: 800 }}>KODI: {d.code || '—'}</div><div style={{ opacity: 0.85 }}>{Number(d.m2 || 0).toFixed(2)} m² • {Number(d.euro || 0).toFixed(2)} €</div></div></div><div style={{ display: 'flex', gap: 10 }}><button className="btn secondary" onClick={() => loadDraftIntoForm(d.id)}>HAP</button><button className="btn secondary" onClick={() => deleteDraft(d.id)}>FSHI</button></div></div>)))}</div><div style={{ height: 14 }} /><button className="btn secondary" style={{ width: '100%' }} onClick={() => setShowDraftsSheet(false)}>MBYLL</button></div></div>)}
       {showMsgSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">DËRGO MESAZH</div><div className="payfs-sub">VIBER / WHATSAPP / SMS</div></div><button className="btn secondary" onClick={closeMsgSheet}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: 900 }}>AUTO PAS “VAZHDO”</div><button className="btn secondary" style={{ padding: '6px 10px', fontSize: 11, borderRadius: 12 }} onClick={toggleAutoMsg}>{autoMsgAfterSave ? 'ON' : 'OFF'}</button></div><div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 10 }}><strong>PREVIEW</strong></div><pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.85)', lineHeight: 1.35 }}>{buildStartMessage()}</pre></div><div className="card"><div className="row" style={{ gap: 10 }}><button className="btn secondary" style={{ flex: 1 }} onClick={sendViaViber}>VIBER</button><button className="btn secondary" style={{ flex: 1 }} onClick={sendViaWhatsApp}>WHATSAPP</button><button className="btn secondary" style={{ flex: 1 }} onClick={sendViaSMS}>SMS</button></div><div style={{ marginTop: 12, fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>* Numri i kompanisë në fund: {COMPANY_PHONE_DISPLAY}</div></div><button className="btn secondary" style={{ width: '100%' }} onClick={closeMsgSheet}>MBYLL</button></div></div>)}
       {showPriceSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">NDËRRO QMIMIN</div><div className="payfs-sub">€/m² (ruhet & sinkronizohet)</div></div><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><div className="tot-line">QMIMI AKTUAL: <strong>{Number(pricePerM2 || 0).toFixed(2)} € / m²</strong></div><div style={{ height: 10 }} /><label className="label">QMIMI I RI (€ / m²)</label><input type="number" step="0.1" className="input" value={priceTmp} onChange={(e) => setPriceTmp(e.target.value === '' ? '' : Number(e.target.value))} /><div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>* Long-press 3 sek te “€ PAGESA” për me ardh këtu.</div></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>ANULO</button><button className="btn primary" onClick={savePriceAndClose}>RUJ</button></div></div>)}
