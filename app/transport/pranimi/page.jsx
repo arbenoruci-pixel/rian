@@ -219,7 +219,7 @@ export default function TransportPranim() {
   }
 
   function deleteDraft(id) {
-      if(!confirm("Fshi?")) return;
+      if(!confirm("A me fshi DRAFT-in?")) return;
       let list = [];
       try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
       list = list.filter(d => d.id !== id);

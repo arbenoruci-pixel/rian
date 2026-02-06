@@ -483,6 +483,12 @@ export default function TransportGatiPage() {
                 amount: amt,
               });
               if (!r?.ok) throw new Error(r?.error || 'PAY_FAILED');
+              // ✅ pas pageses, mbyll porosine (hiqet nga lista GATI)
+              try {
+                if (payOrder?.id) {
+                  await supabase.from('transport_orders').update({ status: 'dorzim' }).eq('id', payOrder.id);
+                }
+              } catch {}
               setPayOpen(false);
               setPayOrder(null);
               await load();
