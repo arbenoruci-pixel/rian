@@ -34,7 +34,10 @@ export default function TransportIncomplete() {
     setLoading(true);
     try {
       let list = readDrafts(me.transport_id);
+      // only transport drafts
       list = list.filter((d) => d?.scope === "transport");
+      // keep only incomplete
+      list = list.filter((d) => (d?.status || "transport_incomplete") === "transport_incomplete");
       list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
       setItems(list);
     } finally {
@@ -46,7 +49,7 @@ export default function TransportIncomplete() {
     if (!confirm("Fshi draftin?")) return;
     const list = readDrafts(me.transport_id).filter((d) => d.id !== id);
     writeDrafts(me.transport_id, list);
-    setItems(list);
+    setItems(list.filter((d) => d.id !== id));
   }
 
   useEffect(() => {
@@ -80,16 +83,14 @@ export default function TransportIncomplete() {
 
       <section className="card">
         {loading ? <div className="muted">DUKE NGARKUAR...</div> : null}
-        {!loading && items.length === 0 ? (
-          <div className="muted">S’KA DRAFT.</div>
-        ) : null}
+        {!loading && items.length === 0 ? <div className="muted">S’KA DRAFT.</div> : null}
 
-        <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+        <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
           {items.map((o) => (
             <div key={o.id} className="row" style={{ justifyContent: "space-between" }}>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <span className="badge">{o?.codeRaw || ""}</span>
-                <span className="pill">{(o?.name || "").toLowerCase()}</span>
+                <span className="pill">{String(o?.name || "").toLowerCase()}</span>
               </div>
 
               <div style={{ display: "flex", gap: 8 }}>
