@@ -3,34 +3,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
-import { listUsers } from '@/lib/usersDb';
-import { createTask } from '@/lib/tasksDb';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
-function readActor() {
-  try {
-    const raw = localStorage.getItem('CURRENT_USER_DATA');
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
+// --- CONFIG ---
 const BUCKET = 'tepiha-photos';
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
-
-// SHKALLORE CHIPS
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
 const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
-
 const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
-
-// PAGESA CHIPS
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-
-// DAILY CAPACITY
 const DAILY_CAPACITY_M2 = 400;
 const STREAM_MAX_M2 = 450;
 
@@ -38,7 +21,6 @@ const STREAM_MAX_M2 = 450;
 function normalizeCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
-  // Preserve TRANSPORT codes (T123)
   if (/^t\d+/i.test(s)) {
     const n = s.replace(/\D+/g, '').replace(/^0+/, '');
     return `T${n || '0'}`;
@@ -87,30 +69,14 @@ function badgeColorByAge(ts) {
   return '#dc2626'; // red
 }
 
-function etaTextByCapacity(totalTodayM2) {
-  return totalTodayM2 > DAILY_CAPACITY_M2
-    ? 'GATI DITËN E 3-TË (MBASNESËR)'
-    : 'GATI DITËN E 2-TË (NESËR)';
-}
-
 async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-
   const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
   if (error) throw error;
-
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
-}
-
-async function downloadJsonNoCache(path) {
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
-  if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
-  const res = await fetch(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Fetch failed');
-  return await res.json();
 }
 
 // ---------------- COMPONENT ----------------
@@ -122,16 +88,6 @@ export default function PastrimiPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   
-  // tasks
-  const [taskOpenById, setTaskOpenById] = useState({});
-  const [showTaskSheet, setShowTaskSheet] = useState(false);
-  const [taskOrder, setTaskOrder] = useState(null);
-  const [taskUsers, setTaskUsers] = useState([]);
-  const [taskToId, setTaskToId] = useState('');
-  const [taskBusy, setTaskBusy] = useState(false);
-  const [taskErr, setTaskErr] = useState('');
-  const [taskItems, setTaskItems] = useState([]);
-
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -200,7 +156,7 @@ export default function PastrimiPage() {
       const { data: transportData, error: transError } = await supabase
         .from('transport_orders')
         .select('id,status,created_at,data,code_str')
-        .eq('status', 'pastrim') // As transporti kalon ne status 'pastrim' kur vjen ketu
+        .eq('status', 'pastrim')
         .order('created_at', { ascending: false })
         .limit(300);
 
@@ -231,7 +187,7 @@ export default function PastrimiPage() {
 
         allOrders.push({
           id: row.id,
-          source: 'orders', // Mark source
+          source: 'orders', // Burimi: Lokal
           ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
           name: order.client?.name || order.client_name || '',
           phone: order.client?.phone || order.client_phone || '',
@@ -242,7 +198,7 @@ export default function PastrimiPage() {
           paid,
           isPaid: paid >= total && total > 0,
           isReturn: !!order?.returnInfo?.active,
-          fullOrder: order // Keep full data for quick access
+          fullOrder: order
         });
       });
 
@@ -260,7 +216,7 @@ export default function PastrimiPage() {
 
         allOrders.push({
           id: row.id,
-          source: 'transport_orders', // Mark source
+          source: 'transport_orders', // Burimi: Transport
           ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
           name: order.client?.name || '',
           phone: order.client?.phone || '',
@@ -270,7 +226,7 @@ export default function PastrimiPage() {
           total,
           paid,
           isPaid: paid >= total && total > 0,
-          isReturn: false, // Transport zakonisht s'ka kthime direkte këtu
+          isReturn: false,
           fullOrder: order
         });
       });
@@ -278,7 +234,6 @@ export default function PastrimiPage() {
       // Sort combined list by date desc
       allOrders.sort((a, b) => b.ts - a.ts);
       setOrders(allOrders);
-      refreshTaskOpen(allOrders);
 
       // Calc Totals
       const streamTotal = allOrders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
@@ -297,14 +252,12 @@ export default function PastrimiPage() {
   // --- OPEN EDIT ---
   async function openEdit(item) {
     try {
-      // Use pre-loaded fullOrder if available, otherwise fetch
       let ord = item.fullOrder;
       
       if (!ord) {
-        // Fallback fetch if data missing
         const { data, error } = await supabase
-          .from(item.source) // dynamic table name
-          .select('data, created_at')
+          .from(item.source)
+          .select('data')
           .eq('id', item.id)
           .single();
         if (error || !data) throw new Error('Not found');
@@ -313,7 +266,7 @@ export default function PastrimiPage() {
       }
 
       setOid(String(item.id));
-      setOrderSource(item.source); // Remember table name for saving
+      setOrderSource(item.source); // E ruajmë burimin (orders apo transport_orders)
       setOrigTs(ord.ts || Date.now());
       setCodeRaw(normalizeCode(item.code));
 
@@ -339,7 +292,6 @@ export default function PastrimiPage() {
       
       setNotes(ord.notes || '');
 
-      // Returns info
       const ri = ord?.returnInfo;
       setReturnActive(!!ri?.active);
       setReturnAt(Number(ri?.at || 0));
@@ -372,19 +324,11 @@ export default function PastrimiPage() {
       const currentPaidAmount = Number((Number(clientPaid) || 0).toFixed(2));
       let finalArka = Number(arkaRecordedPaid) || 0;
 
-      // Logic for new payment
-      if (payMethod === 'CASH') {
-         const delta = Number((currentPaidAmount - finalArka).toFixed(2));
-         // Note: Logic for recording cash moved to applyPayAndClose mainly, 
-         // but if manual edit happened, we might need logic here. 
-         // For safety, assume applyPayAndClose handles new money.
-      }
-
       // Reconstruct Object
       const order = {
         id: oid,
         ts: origTs,
-        status: 'pastrim', // Keep status
+        status: 'pastrim',
         client: {
           name: name.trim(),
           phone: phonePrefix + (phone || ''),
@@ -413,7 +357,7 @@ export default function PastrimiPage() {
         .from(orderSource) // 'orders' or 'transport_orders'
         .update({
           status: 'pastrim',
-          data: order, // Transport orders store full json in data too
+          data: order,
           updated_at: new Date().toISOString(),
         })
         .eq('id', oid);
@@ -429,38 +373,59 @@ export default function PastrimiPage() {
     }
   }
 
-  // --- TASKS ---
-  async function refreshTaskOpen(list) {
-    try {
-      const ids = list.map(x => Number(x.id)).filter(Number.isFinite); // Works only for numeric IDs (orders)
-      // Transport IDs are UUIDs, so this logic needs splitting if we want tasks for transport too.
-      // For now, let's keep it simple or check both.
-      
-      // Simple fetch for active tasks related to these orders
-      // (Assuming tasks table links via string ID or we filter locally)
-      // This part might need adjustment if tasks table relies strictly on integer IDs.
-    } catch {}
-  }
+  // --- LOGJIKA "SMART" PËR STATUSIN GATI ---
+  async function handleMarkReady(o) {
+    const btnId = `btn-${o.id}`;
+    const btn = document.getElementById(btnId);
+    if(btn) { btn.disabled = true; btn.innerText = "⏳..."; }
 
-  // --- SMS ---
-  async function handleSendSMS(o) {
     try {
-      const msg = `Pershendetje ${o.name}, porosia (kodi ${o.code}) eshte GATI. Keni ${o.cope} cope • ${o.m2} m². Ju lutem ejani sot ose neser. Faleminderit!`;
-      const url = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
-      
-      const link = document.createElement('a');
-      link.href = url;
-      link.click();
+      const table = o.source; // 'orders' ose 'transport_orders'
+      const now = new Date().toISOString();
 
-      // Update status to 'gati' in correct table
-      await supabase
-        .from(o.source)
-        .update({ status: 'gati' })
-        .eq('id', o.id);
+      const { data: currentRow, error: fetchErr } = await supabase
+        .from(table)
+        .select('data')
+        .eq('id', o.id)
+        .single();
+
+      if (fetchErr) throw fetchErr;
+
+      const updatedJson = {
+        ...(currentRow.data || {}),
+        status: 'gati',
+        ready_at: now
+      };
+
+      // 1. UPDATE DB
+      if (table === 'transport_orders') {
+        // Transport: Vetëm statusin 'gati'
+        await supabase
+          .from('transport_orders')
+          .update({ status: 'gati', data: updatedJson, updated_at: now })
+          .eq('id', o.id);
+        
+        alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
+      } else {
+        // Lokal: Update + SMS
+        await supabase
+          .from('orders')
+          .update({ status: 'gati', ready_at: now, data: updatedJson })
+          .eq('id', o.id);
+
+        const msg = `Pershendetje ${o.name}, porosia (kodi ${o.code}) eshte GATI. Keni ${o.cope} cope • ${o.m2} m². Ju lutem ejani sot ose neser. Faleminderit!`;
+        const url = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
+        const link = document.createElement('a');
+        link.href = url;
+        link.click();
+      }
       
       refreshOrders();
+
     } catch (e) {
-      console.error("SMS Error:", e);
+      console.error("Error:", e);
+      alert("❌ Diçka shkoi keq. Provo prapë.");
+      if(btn) { btn.disabled = false; btn.innerText = o.source === 'transport_orders' ? 'NJOFTO SHOFERIN' : 'SMS KLIENTIT'; }
     }
   }
 
@@ -492,6 +457,50 @@ export default function PastrimiPage() {
     setter(rows => rows.map(r => (r.id === id ? { ...r, [field]: value } : r)));
   }
 
+  // --- ROW PHOTOS ---
+  async function handleRowPhotoChange(kind, id, file) {
+    if (!file || !oid) return;
+    setPhotoUploading(true);
+    try {
+      const url = await uploadPhoto(file, oid, `${kind}_${id}`);
+      if (url) handleRowChange(kind, id, 'photoUrl', url);
+    } catch (e) {
+      alert('❌ Gabim foto!');
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  // --- FULLSCREEN PAY ---
+  function openPay() {
+    const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
+    setPayAdd(dueNow > 0 ? dueNow : 0);
+    setPayMethod("CASH");
+    setShowPaySheet(true);
+  }
+
+  async function applyPayAndClose() {
+    const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
+    if (cashGiven <= 0) { alert('SHUMA NUK VLEN (0 €).'); return; }
+    const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
+    const applied = Number(Math.min(cashGiven, due).toFixed(2));
+    if (applied <= 0) { alert(due <= 0 ? 'KJO POROSI ESHTE PAGUAR.' : 'SHUMA NUK VLEN.'); return; }
+
+    const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
+    setClientPaid(newPaid);
+
+    if (payMethod === 'CASH') {
+      const extId = `pay_${oid}_${Date.now()}`;
+      await recordCashMove({
+        externalId: extId, orderId: oid, code: normalizeCode(codeRaw), name: name.trim(), amount: applied,
+        note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+        source: 'ORDER_PAY', method: 'cash_pay', type: 'IN'
+      });
+      setArkaRecordedPaid(Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2)));
+    }
+    setShowPaySheet(false);
+  }
+
   // --- RENDER EDIT ---
   if (editMode) {
     return (
@@ -515,7 +524,6 @@ export default function PastrimiPage() {
           <div className="field-group"><label className="label">TELEFONI</label><div className="row"><input className="input small" value={phonePrefix} readOnly /><input className="input" value={phone} onChange={e => setPhone(e.target.value)} /></div></div>
         </section>
 
-        {/* Tepiha & Staza Sections */}
         {['tepiha', 'staza'].map(kind => (
           <section className="card" key={kind}>
             <h2 className="card-title">{kind.toUpperCase()}</h2>
@@ -554,7 +562,6 @@ export default function PastrimiPage() {
 
         <footer className="footer-bar"><button className="btn secondary" onClick={() => setEditMode(false)}>← ANULO</button><button className="btn primary" onClick={handleSave} disabled={saving}>{saving ? 'RUHET...' : 'RUAJ'}</button></footer>
         
-        {/* Pay Sheet & Stair Sheet omitted for brevity, use same as before */}
         {showPaySheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">PAGESA</div></div><button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button></div><div className="payfs-body"><div className="card"><div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div><div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{Number(clientPaid).toFixed(2)} €</strong></div><div className="field-group" style={{marginTop:20}}><label className="label">SHTO PAGESË</label><input className="input" type="number" value={payAdd} onChange={e=>setPayAdd(e.target.value)} /><div className="chip-row">{PAY_CHIPS.map(c=><button key={c} className="chip" onClick={()=>setPayAdd(c)}>{c}€</button>)}</div></div></div></div><div className="payfs-footer"><button className="btn primary" onClick={applyPayAndClose}>RUAJ</button></div></div>)}
         
         <style jsx>{`
@@ -616,7 +623,14 @@ export default function PastrimiPage() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {o.isPaid && <span>✅</span>}
-                  <button className="btn primary" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleSendSMS(o)}>SMS</button>
+                  <button 
+                    id={`btn-${o.id}`}
+                    className="btn primary" 
+                    style={{ padding: '6px 10px', fontSize: 12, backgroundColor: o.source === 'transport_orders' ? '#2563eb' : '#16a34a' }} 
+                    onClick={() => handleMarkReady(o)}
+                  >
+                    {o.source === 'transport_orders' ? 'NJOFTO SHOFERIN' : 'SMS KLIENTIT'}
+                  </button>
                 </div>
               </div>
             ))
