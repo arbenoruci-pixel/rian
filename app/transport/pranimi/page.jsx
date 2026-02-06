@@ -299,11 +299,11 @@ export default function TransportPranim() {
         code: codeNum, 
         code_n: codeNum,
         scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
-        status: 'teren',
+        status: 'pickup',
         created_at: new Date().toISOString(),
         data: {
           scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
-          status: 'teren',
+          status: 'pickup',
           at_base: false,
           needs_review: needsReview,
           offloaded_at: null,

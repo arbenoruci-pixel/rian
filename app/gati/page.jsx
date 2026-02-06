@@ -240,7 +240,13 @@ export default function GatiPage() {
         };
       });
 
-      setOrders(list);
+      // ✅ BASE GATI: mos i shfaq porositë e TRANSPORTIT (kodet T...)
+      const baseOnly = (list || []).filter((r) => {
+        const c = String(r.code || '').trim();
+        return !/^T\d+$/i.test(c);
+      });
+
+      setOrders(baseOnly);
     } finally {
       setLoading(false);
     }
@@ -373,7 +379,7 @@ export default function GatiPage() {
       });
 
       // Refresh UI
-      await loadOrders();
+      await refreshOrders();
       setShowPaySheet(false);
     } catch (e) {
       console.error(e);
