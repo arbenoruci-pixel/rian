@@ -475,11 +475,12 @@ export default function TransportGatiPage() {
             order={payOrder}
             onClose={() => { setPayOpen(false); setPayOrder(null); }}
             onSubmit={async (payload) => {
+              const amt = Number(payload?.register_eur ?? payload?.registerEur ?? payload?.amount_registered ?? payload?.amount ?? payload?.payDue ?? 0);
               const r = await submitTransportPayment({
                 orderId: payOrder?.id,
                 code: payOrder?.code,
                 name: payOrder?.client_name,
-                amount: payload?.payDue,
+                amount: amt,
               });
               if (!r?.ok) throw new Error(r?.error || 'PAY_FAILED');
               setPayOpen(false);
@@ -523,7 +524,7 @@ export default function TransportGatiPage() {
             .modalBack { position: fixed; inset: 0; background: rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; z-index: 9999; padding: 18px; }
             .modal { width: min(560px, 100%); background: #0b0f14; border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 14px; }
             .box { padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); font-size: 13px; line-height: 1.35; }
-            
+
             @media (max-width: 520px) {
               .wrap { padding: 14px; }
               .header-row { margin-bottom: 10px; }
