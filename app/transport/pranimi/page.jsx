@@ -6,9 +6,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
 import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
-import { insertTransportOrder, saveOfflineTransportOrder } from '@/lib/transport/transportDb'; 
+import { insertTransportOrder } from '@/lib/transport/transportDb'; 
 import { recordCashMove } from '@/lib/arkaCashSync';
-import { addTransportCollected } from '@/lib/transportArkaStore';
+// NOTE: keep imports minimal here to avoid circular deps in production bundles.
 
 // --- CONFIG ---
 const BUCKET = 'tepiha-photos'; 
