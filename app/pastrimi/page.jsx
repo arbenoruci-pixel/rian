@@ -266,14 +266,19 @@ export default function PastrimiPage() {
       let ord = item.fullOrder;
       
       if (!ord) {
-        const { data, error } = await supabase
-          .from(item.source)
-          .select('data')
-          .eq('id', item.id)
-          .single();
-        if (error || !data) throw new Error('Not found');
-        ord = data.data;
-        if (typeof ord === 'string') ord = JSON.parse(ord);
+        // Prefer local cached payload for BASE orders (avoids DB mismatch when list was built from local mirror)
+        if (item.source === 'orders' && item.raw_data) {
+          ord = item.raw_data;
+        } else {
+          const { data, error } = await supabase
+            .from(item.source)
+            .select('data')
+            .eq('id', item.id)
+            .single();
+          if (error || !data) throw new Error('Not found');
+          ord = data.data;
+          if (typeof ord === 'string') ord = JSON.parse(ord);
+        }
       }
 
       setOid(String(item.id));
