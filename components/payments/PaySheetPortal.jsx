@@ -87,11 +87,10 @@ export default function PaySheetPortal({ open, order, onClose, onSubmit }) {
     setCashGivenStr(payDue ? String(payDue) : "0");
   };
 
-  // Chip buttons should SET the bill amount (5/10/20/50...), not add on top of the default.
-  // Otherwise: payDue 19.50 + chip 20€ => 39.50 (confusing). User expects 20€.
-  const addChip = (bill) => {
-    const next = round2(bill);
-    setActiveChip(String(bill));
+  const addChip = (add) => {
+    const next = round2(cashGiven + add);
+    setActiveChip(String(add));
+    // Keep a nice string without trailing .00 noise
     setCashGivenStr(next % 1 === 0 ? String(next.toFixed(0)) : String(next.toFixed(2)));
   };
 
@@ -348,27 +347,28 @@ export default function PaySheetPortal({ open, order, onClose, onSubmit }) {
           background: #0f1a2c;
           border: 1px solid rgba(66, 133, 244, 0.25);
           color: #fff;
-          padding: 13px;
+          padding: 14px;
           border-radius: 14px;
-          font-size: 18px;
+          font-size: 20px;
           font-weight: 900;
           outline: none;
         }
         .chips {
           display: flex;
           flex-wrap: wrap;
-          gap: 10px;
+          gap: 8px;
           margin-top: 12px;
         }
         .chip {
-          padding: 8px 12px;
+          padding: 8px 11px;
           border-radius: 999px;
           border: 1px solid rgba(74, 163, 255, 0.35);
           background: rgba(74, 163, 255, 0.08);
           color: #a9d2ff;
           font-weight: 900;
-          letter-spacing: 0.12em;
+          letter-spacing: 0.10em;
           text-transform: uppercase;
+          font-size: 11px;
         }
         .chip.on {
           border-color: rgba(74, 163, 255, 0.9);
@@ -400,8 +400,8 @@ export default function PaySheetPortal({ open, order, onClose, onSubmit }) {
         }
         .btn {
           flex: 1;
-          height: 44px;
-          border-radius: 14px;
+          height: 54px;
+          border-radius: 16px;
           font-weight: 900;
           letter-spacing: 0.14em;
           text-transform: uppercase;

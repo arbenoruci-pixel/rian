@@ -95,11 +95,23 @@ export default function TransportArkaPage(){
       ) : (
         <>
           <section className="card">
-            <div className="row" style={{ justifyContent:"space-between", alignItems:"center" }}>
-              <span className="pill">COLLECTED: {sums.collected.toFixed(2)} €</span>
-              <span className="pill">SHPENZIME: {sums.expenses.toFixed(2)} €</span>
-              <span className="pill">TRANSFER: {sums.transfers.toFixed(2)} €</span>
-              <span className="badge">CASH NË DORË: {balance.toFixed(2)} €</span>
+            <div className="topGrid">
+              <div className="kpi">
+                <div className="k">COLLECTED</div>
+                <div className="v">€{sums.collected.toFixed(2)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">SHPENZIME</div>
+                <div className="v">€{sums.expenses.toFixed(2)}</div>
+              </div>
+              <div className="kpi">
+                <div className="k">TRANSFER</div>
+                <div className="v">€{sums.transfers.toFixed(2)}</div>
+              </div>
+              <div className="cashBox">
+                <div className="k">CASH NË DORË</div>
+                <div className="v">€{balance.toFixed(2)}</div>
+              </div>
             </div>
           </section>
 
@@ -141,6 +153,62 @@ export default function TransportArkaPage(){
               {(!state.transfers || state.transfers.length===0) ? <div className="muted">S’ka transfere ende.</div> : null}
             </div>
           </section>
+
+          <style jsx>{`
+            .wrap { padding: 18px; max-width: 980px; margin: 0 auto; }
+            .header-row { display:flex; justify-content:space-between; align-items:flex-start; gap: 12px; margin-bottom: 14px; }
+            .title { margin:0; font-size: 22px; letter-spacing: .6px; }
+            .subtitle { opacity:.75; font-size: 12px; margin-top: 2px; }
+            .card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 14px; }
+            .card-title { font-weight: 900; letter-spacing: .8px; font-size: 12px; margin-bottom: 10px; opacity: .95; }
+            .pill { padding: 8px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04); text-decoration:none; font-weight: 800; font-size: 12px; }
+            .btn { padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.08); color: inherit; font-weight: 900; font-size: 12px; }
+            .btn-primary { background: rgba(37,99,235,.20); border-color: rgba(37,99,235,.40); }
+            .input { padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); color: inherit; outline: none; }
+            .row { display:flex; align-items:center; gap: 8px; }
+            .muted { opacity:.75; font-size: 12px; }
+
+            .topGrid {
+              display: grid;
+              grid-template-columns: repeat(3, minmax(0, 1fr));
+              gap: 10px;
+              align-items: stretch;
+            }
+            .kpi {
+              border: 1px solid rgba(255,255,255,.10);
+              background: rgba(255,255,255,.03);
+              border-radius: 14px;
+              padding: 10px 12px;
+              display:flex;
+              flex-direction:column;
+              justify-content:center;
+              min-height: 64px;
+            }
+            .cashBox {
+              grid-column: 1 / -1;
+              border: 1px solid rgba(34,197,94,.22);
+              background: rgba(34,197,94,.10);
+              border-radius: 14px;
+              padding: 12px 12px;
+              display:flex;
+              justify-content:space-between;
+              align-items:center;
+            }
+            .k { font-weight: 900; letter-spacing: .8px; font-size: 11px; opacity:.85; }
+            .v { font-weight: 1000; letter-spacing: .6px; font-size: 18px; margin-top: 2px; }
+            .cashBox .v { font-size: 20px; }
+
+            @media (max-width: 520px) {
+              .wrap { padding: 14px; }
+              .topGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+              .kpi { padding: 10px; min-height: 58px; }
+              .k { font-size: 10px; }
+              .v { font-size: 16px; }
+              .cashBox { padding: 12px; }
+              .btn { min-height: 44px; }
+              .input { min-height: 44px; }
+            }
+          `}</style>
         </>
       )}
     </div>
