@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { recordCashMove } from '@/lib/arkaCashSync';
+import PaySheetPortal from '@/components/payments/PaySheetPortal';
 
 function readActor() {
   try {
@@ -13,18 +15,36 @@ function readActor() {
   }
 }
 
-function normalizeCode(raw) {
+function normalizeTCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
-  // Transport codes stored in DB as numeric offset to avoid collisions.
-  const n0 = Number(s);
-  if (Number.isFinite(n0) && n0 >= 1000000) return `T${n0 - 1000000}`;
   if (/^t\d+/i.test(s)) {
     const n = s.replace(/\D+/g, '').replace(/^0+/, '');
     return `T${n || '0'}`;
   }
+  // sometimes stored as numeric offset (>= 1,000,000)
+  const n0 = Number(s);
+  if (Number.isFinite(n0) && n0 >= 1000000) return `T${n0 - 1000000}`;
   const n = s.replace(/\D+/g, '').replace(/^0+/, '');
-  return n || '0';
+  return n ? `T${n}` : '';
+}
+
+function sanitizePhone(phone) {
+  return String(phone || '').replace(/[^\d+]+/g, '');
+}
+
+function haversineKm(a, b) {
+  // a,b: {lat,lng}
+  const R = 6371;
+  const toRad = (x) => (Number(x) * Math.PI) / 180;
+  const lat1 = toRad(a.lat), lon1 = toRad(a.lng);
+  const lat2 = toRad(b.lat), lon2 = toRad(b.lng);
+  const dLat = lat2 - lat1;
+  const dLon = lon2 - lon1;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
 function computePieces(order) {
@@ -34,55 +54,128 @@ function computePieces(order) {
   return t + s + shk;
 }
 
+function openSMS(phone, body) {
+  const p = sanitizePhone(phone);
+  const b = encodeURIComponent(body || '');
+  // iOS works with sms:<num>&body= OR sms:<num>?&body=
+  window.location.href = `sms:${p}?&body=${b}`;
+}
+
+function openAppleMaps(lat, lng) {
+  window.location.href = `maps://?daddr=${lat},${lng}`;
+}
+
+function openGoogleMaps(lat, lng) {
+  window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+}
+
 export default function TransportGatiPage() {
   const [me, setMe] = useState(null);
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState('');
 
+  // selection + bulk flow
+  const [sel, setSel] = useState(() => ({})); // {id:true}
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkIdx, setBulkIdx] = useState(0);
+  const [bulkIds, setBulkIds] = useState([]);
+
+  // route suggestion
+  const [start, setStart] = useState(null); // {lat,lng}
+  const [routeIds, setRouteIds] = useState(null); // ordered ids (stops)
+  const [routeOpen, setRouteOpen] = useState(false);
+
+  // payment
+  const [payOpen, setPayOpen] = useState(false);
+  const [payOrder, setPayOrder] = useState(null);
+  const [openId, setOpenId] = useState(null);
+
   useEffect(() => { setMe(readActor()); }, []);
 
   const role = String(me?.role || '').toUpperCase();
   const canSee = role === 'TRANSPORT' || role === 'ADMIN' || role === 'OWNER' || role === 'DISPATCH';
 
-  const myPin = String(me?.pin || '');
+  const myTransportId = String(me?.transport_id || me?.pin || '').trim();
+
+  const prettyItems = useMemo(() => {
+    return (items || []).map((it) => {
+      const o = it.order || {};
+      const name = o?.client?.name || o?.client_name || it.code;
+      const phone = o?.client?.phone || o?.client_phone || '';
+      const pieces = computePieces(o);
+      const total = Number(o?.pay?.euro || o?.pay?.total || 0);
+      const lat = Number(o?.transport?.lat || o?.transport_lat || 0);
+      const lng = Number(o?.transport?.lng || o?.transport_lng || 0);
+      const hasGeo = Number.isFinite(lat) && Number.isFinite(lng) && (Math.abs(lat) > 0.0001) && (Math.abs(lng) > 0.0001);
+      return { ...it, name, phone, pieces, total, lat, lng, hasGeo };
+    });
+  }, [items]);
+
+  const orderedForView = useMemo(() => {
+    if (!routeIds || routeIds.length === 0) return prettyItems;
+    const byId = new Map(prettyItems.map((x) => [x.id, x]));
+    const inRoute = routeIds.map((id) => byId.get(id)).filter(Boolean);
+    const rest = prettyItems.filter((x) => !routeIds.includes(x.id));
+    return [...inRoute, ...rest];
+  }, [prettyItems, routeIds]);
 
   async function load() {
     setBusy(true);
     setErr('');
     try {
-      // pull gati orders and filter locally (safe & simple)
+      // ✅ transport GATI reads transport_orders
       const { data, error } = await supabase
         .from('transport_orders')
-        .select('id, code_str, status, created_at, data')
+        .select('id, code_n, code_str, status, created_at, data')
         .eq('status', 'gati')
         .order('created_at', { ascending: false })
-        .limit(300);
+        .limit(400);
 
       if (error) throw error;
 
-      const list = (data || []).map((r) => ({
-        id: r.id,
-        code: normalizeCode(r.code_str || r.code || r.data?.code || ''),
-        status: r.status,
-        created_at: r.created_at,
-        order: r.data || {},
-        transport_pin: String(r.data?.transport_pin || r.data?.transport_id || ''),
-        transport_id: String(r.data?.transport_id || ''),
-      }))
-      .filter((x) => /^T\d+$/i.test(x.code))
-      .filter((x) => {
-        // TRANSPORT role sees only their own orders.
-        if (String(me?.role || '').toUpperCase() === 'TRANSPORT') {
-          return (String(me?.transport_id||'') && x.transport_id === String(me.transport_id)) || (myPin && x.transport_pin === myPin);
-        }
-        return true;
-      });
+      const list = (data || [])
+        .map((r) => ({
+          id: r.id,
+          code: normalizeTCode(r.code_str || r.code_n || r.data?.client?.code || ''),
+          status: r.status,
+          created_at: r.created_at,
+          order: r.data || {},
+          transport_id: String(r.data?.transport_id || r.data?.scope?.transport_id || r.data?.transport?.transport_id || r.data?.transportId || r.data?.transport_id || ''),
+          transport_name: String(r.data?.transport_name || ''),
+        }))
+        .filter((x) => /^T\d+$/i.test(x.code))
+        .filter((x) => {
+          if (String(me?.role || '').toUpperCase() === 'TRANSPORT') {
+            if (!myTransportId) return false;
+            // accept either exact match on transport_id or pin fallback
+            return String(x.transport_id || '').trim() === myTransportId;
+          }
+          return true;
+        });
 
       setItems(list);
+
+      // keep selection only for existing ids
+      setSel((prev) => {
+        const next = {};
+        for (const it of list) if (prev[it.id]) next[it.id] = true;
+        return next;
+      });
+
+      // keep routeIds only for existing
+      setRouteIds((prev) => {
+        if (!prev) return prev;
+        const setIds = new Set(list.map((x) => x.id));
+        const keep = prev.filter((id) => setIds.has(id));
+        return keep.length ? keep : null;
+      });
+
     } catch (e) {
       setErr(String(e?.message || e || 'Gabim'));
       setItems([]);
+      setSel({});
+      setRouteIds(null);
     } finally {
       setBusy(false);
     }
@@ -96,12 +189,122 @@ export default function TransportGatiPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canSee]);
 
+  const selectedIds = useMemo(() => Object.keys(sel).filter((k) => sel[k]), [sel]);
+  const allSelected = useMemo(() => prettyItems.length > 0 && selectedIds.length === prettyItems.length, [prettyItems.length, selectedIds.length]);
+
+  function toggleAll() {
+    if (allSelected) { setSel({}); return; }
+    const next = {};
+    for (const it of prettyItems) next[it.id] = true;
+    setSel(next);
+  }
+
+  function toggleOne(id) {
+    setSel((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  function startBulkConfirm() {
+    const ids = selectedIds.length ? selectedIds : [];
+    if (!ids.length) { alert('ZGJIDH TË PAKTËN 1 POROSI'); return; }
+    setBulkIds(ids);
+    setBulkIdx(0);
+    setBulkOpen(true);
+  }
+
+  function bulkCurrentItem() {
+    const id = bulkIds[bulkIdx];
+    return prettyItems.find((x) => x.id === id) || null;
+  }
+
+  function getConfirmMsg(name, code) {
+    return `Pershendetje ${name || ''}, tepihat i keni gati (${code}). A jeni ne shtepi sot me i pranu? Ju lutem pergjigju: PO ose JO. Nese s’konfirmoni, nuk i sjellim sot.`;
+  }
+
+  async function getStartGPS() {
+    try {
+      if (!navigator.geolocation) { alert('GPS nuk eshte i disponueshem'); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setStart({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          alert('START GPS U MOR ✅');
+        },
+        () => alert('S’pata leje GPS ose gabim'),
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } catch {
+      alert('GPS gabim');
+    }
+  }
+
+  function recommendRoute() {
+    const base = start;
+    const pool = prettyItems.filter((x) => x.hasGeo && (selectedIds.length ? sel[x.id] : true));
+    if (!base) {
+      alert('Shtyp “MERR START GPS” (ose ndiz GPS) pastaj provo prap.');
+      return;
+    }
+    if (pool.length < 2) {
+      alert('Duhet te pakten 2 porosi me kordinata.');
+      return;
+    }
+    const remaining = pool.map((x) => ({ id: x.id, lat: x.lat, lng: x.lng }));
+    let cur = { ...base };
+    const order = [];
+    while (remaining.length) {
+      let bestIdx = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const d = haversineKm(cur, remaining[i]);
+        if (d < bestD) { bestD = d; bestIdx = i; }
+      }
+      const nxt = remaining.splice(bestIdx, 1)[0];
+      order.push(nxt.id);
+      cur = { lat: nxt.lat, lng: nxt.lng };
+    }
+    setRouteIds(order);
+    setRouteOpen(true);
+  }
+
+  function moveRoute(id, dir) {
+    setRouteIds((prev) => {
+      if (!prev) return prev;
+      const idx = prev.indexOf(id);
+      if (idx < 0) return prev;
+      const j = idx + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = prev.slice();
+      const tmp = next[idx];
+      next[idx] = next[j];
+      next[j] = tmp;
+      return next;
+    });
+  }
+
+  async function submitTransportPayment({ orderId, code, name, amount }) {
+    const amt = Number(amount || 0);
+    if (!Number.isFinite(amt) || amt <= 0) return { ok: false, error: 'AMOUNT_INVALID' };
+    return await recordCashMove({
+      amount: amt,
+      method: 'CASH',
+      type: 'TRANSPORT',
+      status: 'COLLECTED',
+      order_id: orderId,
+      order_code: code,
+      client_name: name,
+      stage: 'GATI',
+      note: `TRANSPORT ${code} • PAGESA ${amt}€`,
+      created_by_pin: String(me?.transport_id || me?.pin || ''),
+      created_by_name: me?.transport_name || me?.name || String(me?.transport_id || me?.pin || ''),
+      approved_by_pin: null,
+    });
+  }
+
   return (
     <main className="wrap">
       <header className="header-row">
         <div>
-          <h1 className="title">TRANSPORT • GATI</h1>
-          <div className="subtitle">SHFAQ VETËM POROSITË E TUA (T)</div>
+          <h1 className="title">GATI (TRANSPORT)</h1>
+          <div className="subtitle">VETËM POROSITË E TUA • KODI T</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Link className="pill" href="/transport">MENU</Link>
@@ -124,38 +327,208 @@ export default function TransportGatiPage() {
           {err ? <section className="card"><div className="muted">{err}</div></section> : null}
 
           <section className="card">
-            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-              <div className="t">POROSI GATI (T)</div>
-              <Link className="btn" href="/transport/pranim">+ PRANIMI</Link>
+            <div className="toolbar">
+              <button className={"btn ghost"} onClick={toggleAll}>
+                {allSelected ? 'HIQ KREJT' : 'SELECT ALL'}
+              </button>
+              <button className={"btn"} onClick={startBulkConfirm}>DËRGO KONFIRMIM</button>
+              <button className={"btn ghost"} onClick={getStartGPS}>MERR START GPS</button>
+              <button className={"btn"} onClick={recommendRoute}>REKOMANDO NGARKESËN</button>
+              <Link className="btn ghost" href="/transport/pranimi">+ PRANIMI</Link>
             </div>
 
             {busy ? <div className="muted" style={{ paddingTop: 10 }}>Loading…</div> : null}
-
-            {!busy && items.length === 0 ? (
+            {!busy && orderedForView.length === 0 ? (
               <div className="muted" style={{ paddingTop: 10 }}>S’KA POROSI GATI PËR TY.</div>
             ) : null}
 
             <div className="list">
-              {items.map((it) => {
-                const o = it.order || {};
-                const clientName = o?.client?.name || it.code;
-                const pieces = computePieces(o);
-                const total = Number(o?.pay?.euro || 0);
+              {orderedForView.map((it, idx) => {
+                const checked = !!sel[it.id];
+                const isInRoute = routeIds ? routeIds.includes(it.id) : false;
                 return (
-                  <div key={it.id} className="row" style={{ justifyContent: 'space-between', gap: 10, padding: '10px 0' }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <span className="pill" style={{ background: '#16a34a' }}>{it.code}</span>
-                      <div>
-                        <div style={{ fontWeight: 700 }}>{clientName}</div>
-                        <div className="muted">{pieces} COPË • €{total.toFixed(2)}</div>
+                  <div key={it.id} className={"rowline" + (checked ? " selected" : "")}>
+                    <div className="left">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleOne(it.id)}
+                        style={{ width: 18, height: 18 }}
+                      />
+                      <span className="code">{it.code}</span>
+                      <div className="meta">
+                        <div className="name">{it.name}</div>
+                        <div className="sub">{it.pieces} COPË • €{Number(it.total || 0).toFixed(2)}</div>
                       </div>
                     </div>
-                    <Link className="btn ghost" href={`/gati?id=${it.id}`}>HAP</Link>
+
+                    <div className="actions">
+                      {it.hasGeo ? (
+                        <button
+                          className="btn ghost"
+                          onClick={() => openAppleMaps(it.lat, it.lng)}
+                          onContextMenu={(e) => { e.preventDefault(); openGoogleMaps(it.lat, it.lng); }}
+                          title="GO (tap=Apple, long=Google)"
+                        >
+                          GO
+                        </button>
+                      ) : (
+                        <button className="btn ghost" disabled title="S’ka GPS">GO</button>
+                      )}
+
+                      <button
+                        className="btn ghost"
+                        onClick={() => {
+                          const msg = getConfirmMsg(it.name, it.code);
+                          openSMS(it.phone, msg);
+                        }}
+                        title="SMS (tap)"
+                      >
+                        SMS
+                      </button>
+
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          setPayOrder({ id: it.id, code: it.code, client_name: it.name, total_eur: it.total, paidToDate: 0 });
+                          setPayOpen(true);
+                        }}
+                      >
+                        PAGUAR
+                      </button>
+
+                      <button className="btn ghost" onClick={() => setOpenId((v) => (v === it.id ? null : it.id))}>HAP</button>
+                    </div>
+
+                    {routeOpen && routeIds && isInRoute ? (
+                      <div className="routeTools">
+                        <div className="routeBadge">STOP {routeIds.indexOf(it.id)+1}</div>
+                        <button className="mini" onClick={() => moveRoute(it.id, -1)}>↑</button>
+                        <button className="mini" onClick={() => moveRoute(it.id, 1)}>↓</button>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
             </div>
+
+            {routeOpen && routeIds && routeIds.length ? (
+              <div className="routeBox">
+                <div className="t">NGARKESA (REKOMANDIM)</div>
+                <div className="muted">STOP 1 dorëzohet i pari → NGARKOHET I FUNDIT. (LOAD ORDER = reverse)</div>
+                <div className="muted" style={{ marginTop: 8 }}>
+                  LOAD ORDER: {routeIds.slice().reverse().map((id) => (prettyItems.find((x)=>x.id===id)?.code || id)).join(' → ')}
+                </div>
+                <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                  <button className="btn ghost" onClick={() => setRouteOpen(false)}>FSHIH TOOLS</button>
+                  <button className="btn ghost" onClick={() => { setRouteIds(null); setRouteOpen(false); }}>RESET</button>
+                </div>
+              </div>
+            ) : null}
+
           </section>
+
+          {/* Bulk confirm modal */}
+          {bulkOpen ? (
+            <div className="modalBack" onClick={() => setBulkOpen(false)}>
+              <div className="modal" onClick={(e)=>e.stopPropagation()}>
+                <div className="t">BULK SMS ({bulkIdx+1}/{bulkIds.length})</div>
+                {bulkCurrentItem() ? (
+                  <>
+                    <div className="muted" style={{ marginTop: 8 }}>
+                      {bulkCurrentItem().code} • {bulkCurrentItem().name}
+                    </div>
+                    <div className="box" style={{ marginTop: 10 }}>
+                      {getConfirmMsg(bulkCurrentItem().name, bulkCurrentItem().code)}
+                    </div>
+                    <div style={{ display:'flex', gap:8, marginTop:12, justifyContent:'space-between' }}>
+                      <button className="btn ghost" onClick={() => setBulkOpen(false)}>MBYLL</button>
+                      <button
+                        className="btn"
+                        onClick={() => openSMS(bulkCurrentItem().phone, getConfirmMsg(bulkCurrentItem().name, bulkCurrentItem().code))}
+                      >
+                        HAP SMS
+                      </button>
+                      <button
+                        className="btn ghost"
+                        onClick={() => {
+                          if (bulkIdx >= bulkIds.length-1) { setBulkOpen(false); return; }
+                          setBulkIdx((x)=>x+1);
+                        }}
+                      >
+                        NEXT →
+                      </button>
+                    </div>
+                    <div className="muted" style={{ marginTop: 10 }}>
+                      Tip: Pasi ta dërgosh SMS-in, kthehu në app dhe shtyp NEXT.
+                    </div>
+                  </>
+                ) : (
+                  <div className="muted" style={{ marginTop: 10 }}>S’ka item.</div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <PaySheetPortal
+            open={payOpen}
+            order={payOrder}
+            onClose={() => { setPayOpen(false); setPayOrder(null); }}
+            onSubmit={async (payload) => {
+              const r = await submitTransportPayment({
+                orderId: payOrder?.id,
+                code: payOrder?.code,
+                name: payOrder?.client_name,
+                amount: payload?.payDue,
+              });
+              if (!r?.ok) throw new Error(r?.error || 'PAY_FAILED');
+              setPayOpen(false);
+              setPayOrder(null);
+              await load();
+              return r;
+            }}
+          />
+
+          <style jsx>{`
+            .wrap { padding: 18px; max-width: 980px; margin: 0 auto; }
+            .header-row { display:flex; justify-content:space-between; align-items:flex-start; gap: 12px; margin-bottom: 14px; }
+            .title { margin:0; font-size: 22px; letter-spacing: .5px; }
+            .subtitle { opacity:.8; font-size: 12px; margin-top: 2px; }
+            .card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 14px; }
+            .pill { padding: 8px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); text-decoration:none; font-weight:700; font-size: 12px; }
+            .btn { padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.08); color: inherit; font-weight: 800; font-size: 12px; text-decoration:none; }
+            .btn.ghost { background: transparent; }
+            .btn:disabled { opacity:.4; }
+            .muted { opacity:.75; font-size: 12px; }
+            .t { font-weight: 900; letter-spacing:.6px; }
+            .toolbar { display:flex; flex-wrap:wrap; gap: 8px; align-items:center; justify-content:space-between; margin-bottom: 10px; }
+            .list { margin-top: 8px; display:flex; flex-direction:column; gap: 8px; }
+            .rowline { display:flex; justify-content:space-between; align-items:center; gap: 10px; padding: 10px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.10); background: rgba(0,0,0,.12); }
+            .rowline.selected { border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.08); }
+            .left { display:flex; align-items:center; gap: 10px; min-width: 0; flex: 1; }
+            .code { background: rgba(34,197,94,.18); border: 1px solid rgba(34,197,94,.35); padding: 6px 10px; border-radius: 999px; font-weight: 900; }
+            .meta { min-width: 0; }
+            .name { font-weight: 900; white-space: nowrap; overflow:hidden; text-overflow: ellipsis; }
+            .sub { opacity:.8; font-size: 12px; margin-top: 1px; }
+            .actions { display:flex; gap: 8px; align-items:center; }
+            .routeTools { display:flex; align-items:center; gap: 6px; margin-left: 8px; }
+            .routeBadge { font-size: 11px; font-weight: 900; padding: 4px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.16); opacity:.9; }
+            .mini { width: 28px; height: 28px; border-radius: 10px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: inherit; font-weight: 900; }
+            .expanded { width: 100%; margin-top: 10px; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
+            .expRow { display:flex; flex-direction:column; gap: 4px; }
+            .expTitle { font-weight: 900; font-size: 11px; letter-spacing:.6px; opacity:.9; }
+            .expGrid { display:grid; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
+            .expBtns { display:flex; flex-wrap:wrap; gap: 8px; margin-top: 10px; }
+            .routeBox { margin-top: 12px; padding: 12px; border-radius: 12px; border: 1px dashed rgba(255,255,255,.18); background: rgba(255,255,255,.03); }
+            .modalBack { position: fixed; inset: 0; background: rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; z-index: 9999; padding: 18px; }
+            .modal { width: min(560px, 100%); background: #0b0f14; border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 14px; }
+            .box { padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); font-size: 13px; line-height: 1.35; }
+            @media (max-width: 520px) {
+              .actions { flex-wrap: wrap; justify-content:flex-end; }
+              .btn { padding: 8px 10px; }
+              .code { padding: 6px 9px; }
+            }
+          `}</style>
         </>
       )}
     </main>
