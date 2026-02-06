@@ -87,10 +87,11 @@ export default function PaySheetPortal({ open, order, onClose, onSubmit }) {
     setCashGivenStr(payDue ? String(payDue) : "0");
   };
 
-  const addChip = (add) => {
-    const next = round2(cashGiven + add);
-    setActiveChip(String(add));
-    // Keep a nice string without trailing .00 noise
+  // Chip buttons should SET the bill amount (5/10/20/50...), not add on top of the default.
+  // Otherwise: payDue 19.50 + chip 20€ => 39.50 (confusing). User expects 20€.
+  const addChip = (bill) => {
+    const next = round2(bill);
+    setActiveChip(String(bill));
     setCashGivenStr(next % 1 === 0 ? String(next.toFixed(0)) : String(next.toFixed(2)));
   };
 
@@ -347,9 +348,9 @@ export default function PaySheetPortal({ open, order, onClose, onSubmit }) {
           background: #0f1a2c;
           border: 1px solid rgba(66, 133, 244, 0.25);
           color: #fff;
-          padding: 16px;
+          padding: 13px;
           border-radius: 14px;
-          font-size: 22px;
+          font-size: 18px;
           font-weight: 900;
           outline: none;
         }
@@ -360,7 +361,7 @@ export default function PaySheetPortal({ open, order, onClose, onSubmit }) {
           margin-top: 12px;
         }
         .chip {
-          padding: 10px 14px;
+          padding: 8px 12px;
           border-radius: 999px;
           border: 1px solid rgba(74, 163, 255, 0.35);
           background: rgba(74, 163, 255, 0.08);
@@ -399,8 +400,8 @@ export default function PaySheetPortal({ open, order, onClose, onSubmit }) {
         }
         .btn {
           flex: 1;
-          height: 54px;
-          border-radius: 16px;
+          height: 44px;
+          border-radius: 14px;
           font-weight: 900;
           letter-spacing: 0.14em;
           text-transform: uppercase;
