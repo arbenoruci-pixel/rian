@@ -192,36 +192,37 @@ export default function PastrimiPage() {
   }, []);
 
   async function dbFetchOrderById(idNum) {
-  // try base orders first
-  const { data, error } = await supabase
-    .from('orders')
-    .select('id,status,ready_at,picked_up_at,created_at,data')
-    .eq('id', idNum)
-    .single();
+    // 1) Try BASE orders first
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id,status,ready_at,picked_up_at,created_at,data')
+      .eq('id', idNum)
+      .single();
 
-  if (!error && data) {
-    const order = { ...(data.data || {}) };
+    if (!error && data) {
+}
+
+// 2) Fallback: TRANSPORT orders (pre-offload)
+const { data: tdata, error: terr } = await supabase
+  .from('transport_orders')
+  .select('id,status,created_at,data')
+  .eq('id', idNum)
+  .single();
+
+if (terr || !tdata) throw terr || new Error('ORDER_NOT_FOUND');
+
+const torder = { ...(tdata.data || {}) };
+torder.id = tdata.id;
+torder.status = tdata.status || torder.status || 'pastrim';
+return { row: tdata, order: torder };
+
+const order = { ...(data.data || {}) };
     order.id = data.id;
     order.status = data.status;
+    // keep status mirrored for safety
     if (order?.status && order?.status !== data.status) order.status = data.status;
     return { row: data, order };
   }
-
-  // fallback: transport_orders (pre-offload)
-  const { data: tdata, error: terr } = await supabase
-    .from('transport_orders')
-    .select('id,status,created_at,data')
-    .eq('id', idNum)
-    .single();
-
-  if (terr || !tdata) throw terr || new Error('ORDER_NOT_FOUND');
-
-  const torder = { ...(tdata.data || {}) };
-  torder.id = tdata.id;
-  torder.status = tdata.status || 'pickup';
-  return { row: tdata, order: torder };
-}
-
 
   async function refreshOrders() {
     setLoading(true);
@@ -234,7 +235,18 @@ export default function PastrimiPage() {
         .limit(500);
       if (error) throw error;
 
-      const list = (data || []).map((row) => {
+      
+// ALSO pull TRANSPORT orders still in transport_orders (pre-offload)
+const { data: tdata, error: terr } = await supabase
+  .from('transport_orders')
+  .select('id,status,created_at,data')
+  .eq('status', 'pastrim')
+  .order('created_at', { ascending: false })
+  .limit(500);
+if (terr) console.warn('transport_orders load failed', terr);
+
+const mergedRows = [...(data || []), ...(tdata || [])];
+const list = (mergedRows || []).map((row) => {
         // Supabase JSONB can come back as object OR string (older rows / RPC)
         let raw = row.data;
         if (typeof raw === 'string') {
