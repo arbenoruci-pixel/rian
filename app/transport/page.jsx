@@ -4,9 +4,12 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
-function scoreToLevel(score) {
-  if (score > 24) return 'HIGH';
-  if (score >= 12) return 'MID';
+// Capacity levels based ONLY on total m² in PASRTIMI.
+// Thresholds chosen so ~61 m² is NOT "E LARTE".
+function m2ToLevel(m2) {
+  const v = Number(m2) || 0;
+  if (v >= 140) return 'HIGH';
+  if (v >= 80) return 'MID';
   return 'LOW';
 }
 
@@ -67,9 +70,10 @@ async function loadGlobalPastrimi() {
 
   m2 = Number(m2.toFixed(1));
   const count = rows.length;
-  const score = (count * 1) + (m2 * 0.4);
-  const level = scoreToLevel(score);
+  const level = m2ToLevel(m2);
 
+  // Keep shape stable (some UI may still read score), but it is no longer used.
+  const score = 0;
   return { count, m2, score, level };
 }
 
