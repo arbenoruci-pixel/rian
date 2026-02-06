@@ -4,38 +4,6 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
-function normalizeCode(raw) {
-  if (!raw) return '';
-  const s = String(raw).trim();
-  if (/^t\d+/i.test(s)) {
-    const n = s.replace(/\D+/g, '').replace(/^0+/, '');
-    return `T${n || '0'}`;
-  }
-  const n = s.replace(/\D+/g, '').replace(/^0+/, '');
-  return n || '0';
-}
-
-function computeM2(order) {
-  if (!order) return 0;
-  let total = 0;
-  if (Array.isArray(order.tepiha)) {
-    for (const r of order.tepiha) total += (Number(r?.m2) || 0) * (Number(r?.qty) || 0);
-  }
-  if (Array.isArray(order.staza)) {
-    for (const r of order.staza) total += (Number(r?.m2) || 0) * (Number(r?.qty) || 0);
-  }
-  if (order.shkallore) total += (Number(order.shkallore.qty) || 0) * (Number(order.shkallore.per) || 0);
-  return Number(total.toFixed(2));
-}
-
-function computeCope(order) {
-  if (!order) return 0;
-  const t = Array.isArray(order.tepiha) ? order.tepiha.reduce((a, r) => a + (Number(r?.qty) || 0), 0) : 0;
-  const s = Array.isArray(order.staza) ? order.staza.reduce((a, r) => a + (Number(r?.qty) || 0), 0) : 0;
-  const shk = Number(order?.shkallore?.qty) > 0 ? 1 : 0;
-  return Number(t + s + shk) || 0;
-}
-
 function scoreToLevel(score) {
   if (score > 24) return 'HIGH';
   if (score >= 12) return 'MID';
@@ -59,51 +27,50 @@ async function loadGlobalPastrimi() {
       .limit(300),
   ]);
 
-  const out = [];
-
   if (normalRes?.error) console.error('GLOBAL PASTRIMI orders', normalRes.error);
   if (transRes?.error) console.error('GLOBAL PASTRIMI transport_orders', transRes.error);
 
-  for (const row of normalRes?.data || []) {
-    let raw = row.data;
+  // We only need totals for capacity (not per-order details)
+  const rows = [];
+  for (const row of normalRes?.data || []) rows.push({ source: 'orders', id: row.id, data: row.data });
+  for (const row of transRes?.data || []) rows.push({ source: 'transport_orders', id: row.id, data: row.data });
+
+  // Compute m2 roughly (same logic as before) to build a capacity score
+  let m2 = 0;
+  for (const r of rows) {
+    let raw = r.data;
     if (typeof raw === 'string') {
       try { raw = JSON.parse(raw); } catch { raw = {}; }
     }
     const o = raw || {};
+
     // normalize old shapes
-    if (!Array.isArray(o.tepiha) && Array.isArray(o.tepihaRows)) {
-      o.tepiha = o.tepihaRows.map(r => ({ m2: Number(r?.m2) || 0, qty: Number(r?.qty || r?.pieces) || 0 }));
+    const tepiha = Array.isArray(o.tepiha)
+      ? o.tepiha
+      : Array.isArray(o.tepihaRows)
+        ? o.tepihaRows.map(x => ({ m2: Number(x?.m2) || 0, qty: Number(x?.qty || x?.pieces) || 0 }))
+        : [];
+
+    const staza = Array.isArray(o.staza)
+      ? o.staza
+      : Array.isArray(o.stazaRows)
+        ? o.stazaRows.map(x => ({ m2: Number(x?.m2) || 0, qty: Number(x?.qty || x?.pieces) || 0 }))
+        : [];
+
+    for (const x of tepiha) m2 += (Number(x?.m2) || 0) * (Number(x?.qty) || 0);
+    for (const x of staza) m2 += (Number(x?.m2) || 0) * (Number(x?.qty) || 0);
+
+    if (o.shkallore) {
+      m2 += (Number(o.shkallore.qty) || 0) * (Number(o.shkallore.per) || 0);
     }
-    if (!Array.isArray(o.staza) && Array.isArray(o.stazaRows)) {
-      o.staza = o.stazaRows.map(r => ({ m2: Number(r?.m2) || 0, qty: Number(r?.qty || r?.pieces) || 0 }));
-    }
-    const m2 = computeM2(o);
-    const cope = computeCope(o);
-    const total = Number(o?.pay?.euro || o?.total || 0) || 0;
-    const code = normalizeCode(o?.client?.code || o?.code || row.code);
-    out.push({ id: row.id, source: 'orders', created_at: row.created_at, code, cope, m2, total });
   }
 
-  for (const row of transRes?.data || []) {
-    let raw = row.data;
-    if (typeof raw === 'string') {
-      try { raw = JSON.parse(raw); } catch { raw = {}; }
-    }
-    const o = raw || {};
-    if (!Array.isArray(o.tepiha) && Array.isArray(o.tepihaRows)) {
-      o.tepiha = o.tepihaRows.map(r => ({ m2: Number(r?.m2) || 0, qty: Number(r?.qty || r?.pieces) || 0 }));
-    }
-    if (!Array.isArray(o.staza) && Array.isArray(o.stazaRows)) {
-      o.staza = o.stazaRows.map(r => ({ m2: Number(r?.m2) || 0, qty: Number(r?.qty || r?.pieces) || 0 }));
-    }
-    const m2 = computeM2(o);
-    const cope = computeCope(o);
-    const total = Number(o?.pay?.euro || o?.total || 0) || 0;
-    const code = normalizeCode(o?.code_str || o?.code || row.code_str);
-    out.push({ id: row.id, source: 'transport_orders', created_at: row.created_at, code, cope, m2, total });
-  }
+  m2 = Number(m2.toFixed(1));
+  const count = rows.length;
+  const score = (count * 1) + (m2 * 0.4);
+  const level = scoreToLevel(score);
 
-  return out;
+  return { count, m2, score, level };
 }
 
 function readActor() {
@@ -117,22 +84,14 @@ function readActor() {
 
 export default function TransportHome() {
   const [me, setMe] = useState(null);
-  const [globalPastrimi, setGlobalPastrimi] = useState([]);
-  const [globalBusy, setGlobalBusy] = useState({ count: 0, m2: 0, score: 0, level: '...' });
+  const [busy, setBusy] = useState({ count: 0, m2: 0, score: 0, level: '...' });
   const [refreshing, setRefreshing] = useState(false);
 
   async function refreshGlobalPastrimi() {
     setRefreshing(true);
     try {
-      const rows = await loadGlobalPastrimi();
-      setGlobalPastrimi(rows);
-
-      const count = rows.length;
-      const m2 = rows.reduce((s, r) => s + (Number(r.m2) || 0), 0);
-      const score = (count * 1) + (m2 * 0.4);
-      const level = scoreToLevel(score);
-
-      setGlobalBusy({ count, m2, score, level });
+      const v = await loadGlobalPastrimi();
+      setBusy(v);
     } finally {
       setRefreshing(false);
     }
@@ -159,6 +118,7 @@ export default function TransportHome() {
           <h1 className="title">TRANSPORT</h1>
           <div className="subtitle">HYRJE ME PIN</div>
         </div>
+        {/* Vetem 1 HOME */}
         <Link className="pill" href="/">HOME</Link>
       </header>
 
@@ -178,7 +138,6 @@ export default function TransportHome() {
                 <div style={{ fontWeight: 800 }}>{String(me?.name || '').toUpperCase()}</div>
                 <div className="muted">{role}</div>
               </div>
-              <Link className="pill" href="/">HOME</Link>
             </div>
 
             <div style={{ height: 10 }} />
@@ -189,9 +148,10 @@ export default function TransportHome() {
               <Link className="btn" href="/pastrimi">PASTRIMI (PËRBASHKËT)</Link>
             </div>
 
-            <div style={{ marginTop: 14, opacity: 0.92 }}>
+            {/* KAPACITETI: vetëm ngarkesa, pa listë / m² / numra */}
+            <div style={{ marginTop: 16, opacity: 0.92 }}>
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                <div style={{ fontWeight: 900 }}>GLOBAL PASTRIMI (KAPACITET)</div>
+                <div style={{ fontWeight: 900 }}>KAPACITETI I PASTRIMIT</div>
                 <button
                   className="pill"
                   type="button"
@@ -203,45 +163,13 @@ export default function TransportHome() {
                 </button>
               </div>
 
-              <div style={{ display: 'flex', gap: 12, fontSize: 13, margin: '8px 0 6px 0' }}>
-                <div>AKTIVE: <b>{globalBusy.count}</b></div>
-                <div>M²: <b>{Number(globalBusy.m2 || 0).toFixed(1)}</b></div>
-                <div>
-                  NGARKESA:{' '}
-                  {globalBusy.level === 'LOW' && '🟢 LEHTE'}
-                  {globalBusy.level === 'MID' && '🟠 MESATARE'}
-                  {globalBusy.level === 'HIGH' && '🔴 E LARTE'}
-                </div>
-                <div style={{ opacity: 0.75 }}>SCORE: <b>{Number(globalBusy.score || 0).toFixed(1)}</b></div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 15, marginTop: 10, fontWeight: 900 }}>
+                <div>NGARKESA:</div>
+                {busy.level === 'LOW' && <div>🟢 LEHTE</div>}
+                {busy.level === 'MID' && <div>🟠 MESATARE</div>}
+                {busy.level === 'HIGH' && <div>🔴 E LARTE</div>}
+                {busy.level === '...' && <div style={{ opacity: 0.7 }}>...</div>}
               </div>
-
-              {globalBusy.level === 'HIGH' && (
-                <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 800 }}>
-                  TRANSPORT: PRANO ME KUJDES
-                </div>
-              )}
-
-              {globalPastrimi.length === 0 && (
-                <div style={{ opacity: 0.6 }}>ASNJE POROSI NE PASTRIM</div>
-              )}
-
-              {globalPastrimi.map(o => (
-                <div
-                  key={`${o.source}_${o.id}`}
-                  style={{
-                    display: 'flex',
-                    gap: 10,
-                    fontSize: 13,
-                    padding: '4px 0',
-                    borderBottom: '1px solid #222'
-                  }}
-                >
-                  <div style={{ width: 46 }}>{o.code}</div>
-                  <div style={{ width: 56 }}>{o.cope || 0} copë</div>
-                  <div style={{ width: 70 }}>{Number(o.m2 || 0).toFixed(1)} m²</div>
-                  <div>€{Number(o.total || 0).toFixed(2)}</div>
-                </div>
-              ))}
             </div>
           </>
         )}
