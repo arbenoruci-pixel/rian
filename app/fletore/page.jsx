@@ -22,6 +22,190 @@ export default function FletorePage() {
   const [q, setQ] = useState("");
   const [running, setRunning] = useState(false);
 
+  // --- PDF (DOWNLOAD, JO PRINT) ---
+  function pdfEscape(s) {
+    return String(s ?? "")
+      .replace(/\\/g, "\\\\")
+      .replace(/\(/g, "\\(")
+      .replace(/\)/g, "\\)");
+  }
+
+  // Minimal text-only PDF generator (pa libra extra). Qëllimi: "DOWNLOAD" direkt në iPhone,
+  // jo me të çu te Print dialog.
+  function buildSimplePdfBytes(pages) {
+    // pages: Array<Array<string>> (each page is array of lines)
+    const objects = [];
+    const offsets = [0];
+    const pushObj = (s) => {
+      objects.push(s);
+    };
+
+    // 1) Catalog
+    pushObj("<< /Type /Catalog /Pages 2 0 R >>");
+
+    // 2) Pages container (kids filled later)
+    // placeholder, we'll replace after kids are known
+    pushObj("__PAGES__");
+
+    // Font object
+    const fontObjNum = 3;
+    pushObj("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+
+    // For each page: content stream + page object
+    const pageObjs = [];
+    const contentObjs = [];
+    const firstContentObjNum = 4;
+    let objNum = firstContentObjNum;
+
+    const makeStream = (lines) => {
+      // A4: 595 x 842 pts. Margins.
+      const left = 40;
+      let y = 800;
+      const lineH = 14;
+      const fontSize = 11;
+      let content = "BT\n";
+      content += `/F1 ${fontSize} Tf\n`;
+      content += `${left} ${y} Td\n`;
+      for (const raw of lines) {
+        const t = pdfEscape(raw);
+        content += `(${t}) Tj\n`;
+        content += `0 -${lineH} Td\n`;
+      }
+      content += "ET\n";
+      return content;
+    };
+
+    for (const lines of pages) {
+      const stream = makeStream(lines);
+      const bytesLen = new TextEncoder().encode(stream).length;
+      const contentObj = `<< /Length ${bytesLen} >>\nstream\n${stream}endstream`;
+      contentObjs.push({ num: objNum, body: contentObj });
+      objNum += 1;
+
+      const pageObjNum = objNum;
+      const pageObj = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontObjNum} 0 R >> >> /Contents ${contentObjs[contentObjs.length - 1].num} 0 R >>`;
+      pageObjs.push({ num: pageObjNum, body: pageObj });
+      objNum += 1;
+    }
+
+    // Insert content + page objects
+    for (const c of contentObjs) pushObj(c.body);
+    for (const p of pageObjs) pushObj(p.body);
+
+    // Now replace Pages object (#2)
+    const kids = pageObjs.map((p) => `${p.num} 0 R`).join(" ");
+    objects[1] = `<< /Type /Pages /Count ${pageObjs.length} /Kids [ ${kids} ] >>`;
+
+    // Build xref
+    let out = "%PDF-1.4\n";
+    for (let i = 0; i < objects.length; i++) {
+      offsets.push(new TextEncoder().encode(out).length);
+      out += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+    }
+    const xrefStart = new TextEncoder().encode(out).length;
+    out += `xref\n0 ${objects.length + 1}\n`;
+    out += `0000000000 65535 f \n`;
+    for (let i = 1; i <= objects.length; i++) {
+      const off = offsets[i] || 0;
+      out += `${String(off).padStart(10, "0")} 00000 n \n`;
+    }
+    out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+    return new TextEncoder().encode(out);
+  }
+
+  function buildBackupPdfLines() {
+    const lines = [];
+    const gen = data?.generated_at ? fmtDate(data.generated_at) : "LIVE TANI";
+    lines.push("SISTEMI BACKUP");
+    lines.push(`DATA E GJENERIMIT: ${gen}`);
+    lines.push(" ");
+
+    const act = Array.isArray(activeClients) ? activeClients : [];
+    const ina = Array.isArray(inactiveClients) ? inactiveClients : [];
+
+    lines.push(`KLIENTAT NE PROCES (${act.length})`);
+    lines.push("----------------------------------------");
+    for (const c of act) {
+      const o = c?._activeOrder || c?._lastOrder || null;
+      const st = String(o?.status || "").toUpperCase();
+      const pieces = piecesSummaryFromOrder(o);
+      const hand = orderHandLines(o);
+      const pay = payOfOrder(o);
+
+      const m2FromPay = Number(pay?.m2);
+      const m2FromLines = (hand?.lines || []).reduce((s, v) => s + (Number(String(v).replace(",", ".")) || 0), 0);
+      const m2 = Number.isFinite(m2FromPay) && m2FromPay > 0 ? m2FromPay : (m2FromLines > 0 ? Number(m2FromLines.toFixed(2)) : 0);
+      const total = Number(pay?.total);
+
+      lines.push(`#${c.code}  ${nameOfClient(c)}`);
+      lines.push(`TEL: ${phoneOfClient(c)}   STATUS: ${st || "-"}   ${pieces || ""}`.trim());
+      if (hand?.lines?.length) {
+        lines.push("COPET / MATJET:");
+        for (const v of hand.lines) lines.push(`  - ${v} m2`);
+      } else {
+        lines.push("(PA MATJE AKOMA)");
+      }
+      if (hand?.extra?.length) {
+        for (const ex of hand.extra) lines.push(`  ${ex}`);
+      }
+      if (m2 > 0) lines.push(`M2 TOTAL: ${m2}`);
+      if (Number.isFinite(total)) lines.push(`TOTAL: ${total.toFixed(2)} EUR`);
+      lines.push(" ");
+    }
+
+    lines.push(" ");
+    lines.push(`KLIENTAT E TJERE / TE KRYER (${ina.length})`);
+    lines.push("----------------------------------------");
+    for (const c of ina) {
+      const o = c?._lastOrder || null;
+      const st = String(o?.status || "").toUpperCase();
+      const pay = payOfOrder(o);
+      const total = Number(pay?.total);
+      lines.push(`#${c.code}  ${nameOfClient(c)}  TEL: ${phoneOfClient(c)}  ${st || "-"}`);
+      if (Number.isFinite(total)) lines.push(`  TOTAL: ${total.toFixed(2)} EUR`);
+    }
+
+    return lines;
+  }
+
+  function splitLinesToPages(lines, maxPerPage = 52) {
+    const pages = [];
+    let buf = [];
+    for (const ln of lines) {
+      buf.push(ln);
+      if (buf.length >= maxPerPage) {
+        pages.push(buf);
+        buf = [];
+      }
+    }
+    if (buf.length) pages.push(buf);
+    return pages.length ? pages : [["SISTEMI BACKUP"]];
+  }
+
+  async function downloadPdf() {
+    try {
+      const lines = buildBackupPdfLines();
+      const pages = splitLinesToPages(lines);
+      const pdfBytes = buildSimplePdfBytes(pages);
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const da = String(d.getDate()).padStart(2, "0");
+      a.href = url;
+      a.download = `TEPIHA_BACKUP_${y}${m}${da}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    } catch (e) {
+      alert("S'MUN U KRIJU PDF. PROVO PRAP.");
+      console.error(e);
+    }
+  }
+
   // Helper për emrin
   const nameOfClient = (c) => {
     const full = String(c?.full_name || c?.name || "").trim();
@@ -98,28 +282,6 @@ export default function FletorePage() {
     }
 
     return { lines, extra };
-  }
-
-  function computeM2FromOrder(o) {
-    const d = getOrderData(o);
-    let total = 0;
-
-    const add = (arr) => {
-      (arr || []).forEach((r) => {
-        const m2 = Number(r?.m2) || 0;
-        const qty = Number(r?.qty) || 0;
-        if (m2 > 0 && qty > 0) total += m2 * qty;
-      });
-    };
-
-    add(Array.isArray(d?.tepihaRows) ? d.tepihaRows : (Array.isArray(d?.tepiha) ? d.tepiha : []));
-    add(Array.isArray(d?.stazaRows) ? d.stazaRows : (Array.isArray(d?.staza) ? d.staza : []));
-
-    const stairsQty = Number(d?.stairsQty) || 0;
-    const stairsPer = Number(d?.stairsPer) || 0.3;
-    if (stairsQty > 0 && stairsPer > 0) total += stairsQty * stairsPer;
-
-    return Number.isFinite(total) ? Number(total.toFixed(2)) : 0;
   }
 
   function m2LinesFromOrder(o, maxLines = 12) {
@@ -351,8 +513,8 @@ export default function FletorePage() {
           <button onClick={runNow} disabled={running} style={{ padding: "10px 15px", backgroundColor: "#000", color: "#fff", cursor: "pointer" }}>
             {running ? "..." : "RUAJ TANI"}
           </button>
-          <button onClick={() => window.print()} style={{ padding: "10px 15px", backgroundColor: "#444", color: "#fff", cursor: "pointer" }}>
-            📄 PDF
+          <button onClick={downloadPdf} style={{ padding: "10px 15px", backgroundColor: "#444", color: "#fff", cursor: "pointer" }}>
+            ⬇️ PDF
           </button>
         </div>
         
@@ -408,9 +570,9 @@ export default function FletorePage() {
                   const pay = payOfOrder(o);
                   const status = String(o?.status || "").toUpperCase() || "-";
                   const pieces = piecesSummaryFromOrder(o);
-                  const hand = orderHandLines(o);
+                  const lines = orderHandLines(o);
                   const total = Number(pay?.euro) || Number(o?.total) || 0;
-                  const m2 = Number(pay?.m2) || computeM2FromOrder(o) || 0;
+                  const m2 = Number(pay?.m2) || 0;
 
                   return (
                     <>
@@ -455,16 +617,8 @@ export default function FletorePage() {
                             whiteSpace: "pre-wrap",
                           }}
                         >
-                          {hand?.lines?.length ? hand.lines.join("\n") : "(PA MATJE AKOMA)"}
+                          {lines.length ? lines.join("\n") : "(PA MATJE AKOMA)"}
                         </div>
-
-                        {hand?.extra?.length ? (
-                          <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: "700", color: "#333" }}>
-                            {hand.extra.map((t, i) => (
-                              <div key={i}>{t}</div>
-                            ))}
-                          </div>
-                        ) : null}
                       </div>
 
                       <div
