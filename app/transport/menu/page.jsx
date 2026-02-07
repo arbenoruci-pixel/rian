@@ -40,6 +40,7 @@ export default function TransportMenu() {
 <Link className="btn" href="/transport/te-pa-plotsuara">TË PA PLOTSUARA</Link>
           <Link className="btn" href="/transport/offload">OFFLOAD NË BAZË</Link>
           <Link className="btn" href="/transport/gati">GATI (VETËM TË MIAT)</Link>
+          <Link className="btn" href="/transport/fletore">FLETORJA (PDF)</Link>
           <Link className="btn" href="/transport/arka">ARKA (TRANSPORT)</Link>
         </div>
       </section>
