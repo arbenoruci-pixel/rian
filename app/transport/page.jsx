@@ -1,194 +1,350 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
-import { getTransportSession } from '@/lib/transportAuth';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { supabase } from "@/lib/supabaseClient";
+import { getTransportSession, transportLogout } from "@/lib/transportAuth";
 
-// Capacity levels based ONLY on total m² in PASRTIMI.
-// Thresholds chosen so ~61 m² is NOT "E LARTE".
+// --- LOGJIKA E KAPACITETIT ---
+
+// 1. KAPACITETI I BAZES (Global)
 function m2ToLevel(m2) {
   const v = Number(m2) || 0;
-  if (v >= 140) return 'HIGH';
-  if (v >= 80) return 'MID';
-  return 'LOW';
+  if (v >= 140) return "HIGH";
+  if (v >= 80) return "MID";
+  return "LOW";
 }
 
-async function loadGlobalPastrimi() {
-  // Read-only capacity view: merge NORMAL + TRANSPORT pastrim
-  const [normalRes, transRes] = await Promise.all([
-    supabase
-      .from('orders')
-      .select('id,created_at,data,code,status')
-      .eq('status', 'pastrim')
-      .order('created_at', { ascending: true })
-      .limit(300),
-    supabase
-      .from('transport_orders')
-      .select('id,created_at,data,code_str,status')
-      .eq('status', 'pastrim')
-      .order('created_at', { ascending: true })
-      .limit(300),
-  ]);
-
-  if (normalRes?.error) console.error('GLOBAL PASTRIMI orders', normalRes.error);
-  if (transRes?.error) console.error('GLOBAL PASTRIMI transport_orders', transRes.error);
-
-  // We only need totals for capacity (not per-order details)
-  const rows = [];
-  for (const row of normalRes?.data || []) rows.push({ source: 'orders', id: row.id, data: row.data });
-  for (const row of transRes?.data || []) rows.push({ source: 'transport_orders', id: row.id, data: row.data });
-
-  // Compute m2 roughly (same logic as before) to build a capacity score
+// Helper për llogaritjen e m2 nga JSON
+function calculateM2(rows) {
   let m2 = 0;
   for (const r of rows) {
-    let raw = r.data;
-    if (typeof raw === 'string') {
-      try { raw = JSON.parse(raw); } catch { raw = {}; }
+    let raw = r?.data;
+    if (typeof raw === "string") {
+      try {
+        raw = JSON.parse(raw);
+      } catch {}
     }
     const o = raw || {};
 
-    // normalize old shapes
     const tepiha = Array.isArray(o.tepiha)
       ? o.tepiha
-      : Array.isArray(o.tepihaRows)
-        ? o.tepihaRows.map(x => ({ m2: Number(x?.m2) || 0, qty: Number(x?.qty || x?.pieces) || 0 }))
-        : [];
+      : (o.tepihaRows || []).map((x) => ({
+          m2: Number(x?.m2) || 0,
+          qty: Number(x?.qty || x?.pieces) || 0,
+        }));
 
     const staza = Array.isArray(o.staza)
       ? o.staza
-      : Array.isArray(o.stazaRows)
-        ? o.stazaRows.map(x => ({ m2: Number(x?.m2) || 0, qty: Number(x?.qty || x?.pieces) || 0 }))
-        : [];
+      : (o.stazaRows || []).map((x) => ({
+          m2: Number(x?.m2) || 0,
+          qty: Number(x?.qty || x?.pieces) || 0,
+        }));
 
-    for (const x of tepiha) m2 += (Number(x?.m2) || 0) * (Number(x?.qty) || 0);
-    for (const x of staza) m2 += (Number(x?.m2) || 0) * (Number(x?.qty) || 0);
+    for (const x of tepiha) m2 += (Number(x.m2) || 0) * (Number(x.qty) || 0);
+    for (const x of staza) m2 += (Number(x.m2) || 0) * (Number(x.qty) || 0);
+    if (o.shkallore) m2 += (Number(o.shkallore.qty) || 0) * (Number(o.shkallore.per) || 0);
+  }
+  return Number(m2.toFixed(1));
+}
 
-    if (o.shkallore) {
-      m2 += (Number(o.shkallore.qty) || 0) * (Number(o.shkallore.per) || 0);
-    }
+async function loadStats(myTransportId) {
+  // 1. BAZA (PASTRIMI) - Të gjitha porositë në pastrim (base + transport)
+  const [bazaNormal, bazaTrans] = await Promise.all([
+    supabase.from("orders").select("data").eq("status", "pastrim").limit(300),
+    supabase.from("transport_orders").select("data").eq("status", "pastrim").limit(300),
+  ]);
+
+  const bazaRows = [...(bazaNormal.data || []), ...(bazaTrans.data || [])];
+  const bazaM2 = calculateM2(bazaRows);
+
+  // 2. KAMIONI (PICKUP) - porositë e mia në pickup/loaded
+  // (Transport orders janë të ndara në tabelën transport_orders)
+  let truckRows = [];
+  if (myTransportId) {
+    const { data } = await supabase
+      .from("transport_orders")
+      .select("data,status")
+      .eq("transport_id", myTransportId)
+      .in("status", ["pickup", "loaded"])
+      .limit(400);
+    truckRows = data || [];
   }
 
-  m2 = Number(m2.toFixed(1));
-  const count = rows.length;
-  const level = m2ToLevel(m2);
+  const truckM2 = calculateM2(truckRows);
+  const truckCount = truckRows.length;
 
-  // Keep shape stable (some UI may still read score), but it is no longer used.
-  const score = 0;
-  return { count, m2, score, level };
+  return {
+    baza: { m2: bazaM2, level: m2ToLevel(bazaM2) },
+    truck: { m2: truckM2, count: truckCount },
+  };
 }
 
 function readActor() {
-  // Prefer dedicated transport session (or reused TRANSPORT actor session)
   try {
     const s = getTransportSession();
     if (!s?.transport_id) return null;
     return {
-      role: s?.role || 'TRANSPORT',
-      name: s?.transport_name || 'TRANSPORT',
-      pin: String(s.transport_id),
-      transport_id: String(s.transport_id),
-      from: s?.from || 'transport',
+      role: s.role || "TRANSPORT",
+      name: s.transport_name || "TRANSPORT",
+      pin: s.transport_id,
     };
   } catch {
     return null;
   }
 }
 
+// --- UI MODERNE ---
+
 export default function TransportHome() {
   const [me, setMe] = useState(null);
-  const [busy, setBusy] = useState({ count: 0, m2: 0, score: 0, level: '...' });
+  const [stats, setStats] = useState({
+    baza: { m2: 0, level: "..." },
+    truck: { m2: 0, count: 0 },
+  });
   const [refreshing, setRefreshing] = useState(false);
 
-  async function refreshGlobalPastrimi() {
+  async function refreshData() {
     setRefreshing(true);
     try {
-      const v = await loadGlobalPastrimi();
-      setBusy(v);
+      const v = await loadStats(me?.pin);
+      setStats(v);
     } finally {
       setRefreshing(false);
     }
   }
 
   useEffect(() => {
-    setMe(readActor());
-    refreshGlobalPastrimi();
+    const actor = readActor();
+    setMe(actor);
+
+    // Load fillestar
+    loadStats(actor?.pin || null).then(setStats).catch(() => {});
 
     const t = setInterval(() => {
-      refreshGlobalPastrimi();
+      const currentActor = readActor();
+      loadStats(currentActor?.pin || null).then(setStats).catch(() => {});
     }, 30000);
 
     return () => clearInterval(t);
   }, []);
 
-  const role = String(me?.role || '').toUpperCase();
-  const ok = role === 'TRANSPORT' || role === 'OWNER' || role === 'ADMIN' || role === 'DISPATCH';
+  // --- LLOGARITJET VIZUALE ---
+
+  // 1. KAMIONI (Max 200m2)
+  const truckPercent = Math.min((stats.truck.m2 / 200) * 100, 100);
+  let truckColor = "#3b82f6"; // Blue
+  if (truckPercent > 80) truckColor = "#f59e0b"; // Orange warning
+  if (truckPercent > 95) truckColor = "#ef4444"; // Red full
+
+  // 2. BAZA (Max 150m2 visual)
+  const basePercent = Math.min((stats.baza.m2 / 150) * 100, 100);
+  let baseColor = "#10b981"; // Green
+  let baseText = "LIRË";
+  if (stats.baza.level === "MID") {
+    baseColor = "#f59e0b";
+    baseText = "MESATAR";
+  }
+  if (stats.baza.level === "HIGH") {
+    baseColor = "#ef4444";
+    baseText = "FULL";
+  }
 
   return (
-    <div className="wrap">
-      <header className="header-row">
-        <div>
-          <h1 className="title">TRANSPORT</h1>
-          <div className="subtitle">HYRJE ME PIN</div>
-        </div>
-        {/* Vetem 1 HOME */}
-        <Link className="pill" href="/">HOME</Link>
-      </header>
+    <div
+      style={{
+        backgroundColor: "#f0f2f5",
+        minHeight: "100vh",
+        padding: "20px 16px",
+        fontFamily: "-apple-system, system-ui, sans-serif",
+      }}
+    >
+      <div style={{ maxWidth: 500, margin: "0 auto" }}>
+        {/* HEADER */}
+        <header
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 20,
+          }}
+        >
+          <h1 style={{ fontSize: 24, fontWeight: 800, color: "#111827", margin: 0 }}>
+            TRANSPORT
+          </h1>
 
-      <section className="card">
-        {!ok ? (
-          <>
-            <div className="muted" style={{ marginBottom: 10 }}>
-              NUK JE I KYÇUR — Shko te LOGIN dhe hyn me PIN.
-            </div>
-            <Link className="btn btn-primary" href="/login">LOGIN</Link>
-          </>
-        ) : (
-          <>
-            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div className="label">PËRDORUESI</div>
-                <div style={{ fontWeight: 800 }}>{String(me?.name || '').toUpperCase()}</div>
-                <div className="muted">{role}</div>
+          {me ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
+                  {me.name}
+                </div>
               </div>
+              <button
+                onClick={() => {
+                  transportLogout();
+                  window.location.href = "/transport";
+                }}
+                style={{
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  borderRadius: 999,
+                  padding: "8px 10px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#111827",
+                  cursor: "pointer",
+                  lineHeight: 1,
+                }}
+                aria-label="LOG OUT"
+              >
+                LOG OUT
+              </button>
             </div>
+          ) : (
+            <Link href="/transport/login" style={{ fontSize: 14, fontWeight: 700, color: "#2563eb" }}>
+              HYRJE
+            </Link>
+          )}
+        </header>
 
-            <div style={{ height: 10 }} />
-            <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-              <Link className="btn btn-primary" href="/transport/pranimi">PRANIMI (TRANSPORT)</Link>
-	              <Link className="btn" href="/transport/pickup">PICKUP / LOADED</Link>
-              <Link className="btn" href="/transport/fletore">FLETORJA (PDF)</Link>
-              <Link className="btn" href="/transport/gati">GATI (TRANSPORT)</Link>
-              <Link className="btn" href="/transport/arka">ARKA (TRANSPORT)</Link>
-              <Link className="btn" href="/pastrimi">PASTRIMI (PËRBASHKËT)</Link>
-            </div>
+        {me && (
+          <>
+            {/* KARTELA E STATISTIKAVE */}
+            <div
+              style={{
+                backgroundColor: "#fff",
+                borderRadius: 16,
+                padding: "16px 20px",
+                boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)",
+                marginBottom: 24,
+              }}
+            >
+              {/* 1. KAMIONI IM (Pickup) */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, alignItems: "flex-end" }}>
+                  <span style={{ fontSize: 12, color: "#475569", fontWeight: 800 }}>
+                    KAMIONI IM (PICKUP)
+                  </span>
+                  <span style={{ fontSize: 12, color: "#334155", fontWeight: 700 }}>
+                    {stats.truck.count} POROSI <span style={{ color: "#cbd5e1" }}>|</span> {Math.round(stats.truck.m2)} m²
+                  </span>
+                </div>
+                <div style={{ height: 12, width: "100%", backgroundColor: "#f1f5f9", borderRadius: 10, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${truckPercent}%`,
+                      backgroundColor: truckColor,
+                      borderRadius: 10,
+                      transition: "width 0.5s ease",
+                    }}
+                  />
+                </div>
+              </div>
 
-            {/* KAPACITETI: vetëm ngarkesa, pa listë / m² / numra */}
-            <div style={{ marginTop: 16, opacity: 0.92 }}>
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                <div style={{ fontWeight: 900 }}>KAPACITETI I PASTRIMIT</div>
+              {/* 2. KAPACITETI BAZES */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, alignItems: "flex-end" }}>
+                  <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 800 }}>
+                    NGARKESA NË BAZË
+                  </span>
+                  <span style={{ fontSize: 11, color: baseColor, fontWeight: 900 }}>{baseText}</span>
+                </div>
+                <div style={{ height: 8, width: "100%", backgroundColor: "#f8fafc", borderRadius: 10, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${basePercent}%`,
+                      backgroundColor: baseColor,
+                      borderRadius: 10,
+                      opacity: 0.8,
+                      transition: "width 0.5s ease",
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Refresh */}
+              <div style={{ textAlign: "right", marginTop: 10 }}>
                 <button
-                  className="pill"
-                  type="button"
-                  onClick={refreshGlobalPastrimi}
-                  disabled={refreshing}
-                  style={{ cursor: refreshing ? 'not-allowed' : 'pointer', opacity: refreshing ? 0.6 : 1 }}
+                  onClick={refreshData}
+                  style={{ background: "none", border: "none", fontSize: 11, color: "#94a3b8", cursor: "pointer", fontWeight: 800 }}
                 >
-                  {refreshing ? 'REFRESH...' : 'REFRESH'}
+                  {refreshing ? "DUKE LLOGARITUR..." : "RIFRESKO"}
                 </button>
               </div>
+            </div>
 
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 15, marginTop: 10, fontWeight: 900 }}>
-                <div>NGARKESA:</div>
-                {busy.level === 'LOW' && <div>🟢 LEHTE</div>}
-                {busy.level === 'MID' && <div>🟠 MESATARE</div>}
-                {busy.level === 'HIGH' && <div>🔴 E LARTE</div>}
-                {busy.level === '...' && <div style={{ opacity: 0.7 }}>...</div>}
-              </div>
+            {/* VEPRIMET KRYESORE */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              <Link href="/transport/pranimi" style={{ textDecoration: "none" }}>
+                <div style={primaryCardStyle("#2563eb")}>
+                  <span style={{ fontSize: 28, marginBottom: 8 }}>📥</span>
+                  <span style={{ fontWeight: 900, fontSize: 15 }}>PRANIMI</span>
+                </div>
+              </Link>
+              <Link href="/transport/pickup" style={{ textDecoration: "none" }}>
+                <div style={primaryCardStyle("#4f46e5")}>
+                  <span style={{ fontSize: 28, marginBottom: 8 }}>🚚</span>
+                  <span style={{ fontWeight: 900, fontSize: 15 }}>PICKUP</span>
+                </div>
+              </Link>
+            </div>
+
+            {/* VEPRIMET DYTESORE */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Link href="/transport/te-pa-plotsuara" style={secondaryCardStyle}>
+                <span>📝 TË PA PLOTSUARA</span>
+              </Link>
+              <Link href="/transport/gati" style={secondaryCardStyle}>
+                <span>✅ GATI</span>
+              </Link>
+              <Link href="/transport/arka" style={secondaryCardStyle}>
+                <span>💰 ARKA</span>
+              </Link>
+              <Link href="/transport/fletore" style={secondaryCardStyle}>
+                <span>📄 FLETORJA</span>
+              </Link>
+              <Link href="/pastrimi" style={secondaryCardStyle}>
+                <span>🧼 PASTRIMI</span>
+              </Link>
+              <Link href="/transport/menu" style={secondaryCardStyle}>
+                <span>☰ MENU</span>
+              </Link>
             </div>
           </>
         )}
-      </section>
+      </div>
     </div>
   );
 }
+
+// STYLES
+const primaryCardStyle = (bg) => ({
+  backgroundColor: bg,
+  color: "white",
+  padding: "24px 16px",
+  borderRadius: 16,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  boxShadow: `0 10px 15px -3px ${bg}40`,
+  height: 130,
+});
+
+const secondaryCardStyle = {
+  backgroundColor: "#ffffff",
+  color: "#374151",
+  borderRadius: 12,
+  padding: "16px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: 800,
+  fontSize: 13,
+  textDecoration: "none",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+  height: 60,
+};

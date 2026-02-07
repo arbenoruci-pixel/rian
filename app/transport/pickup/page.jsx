@@ -54,7 +54,8 @@ export default function TransportPickupPage() {
       // (derived from data->>'transport_id') so RLS/policies and filtering work.
       const { data, error } = await supabase
         .from("transport_orders")
-        .select("id, created_at, status, code_str, code, code_n, data")
+        // NOTE: transport_orders nuk ka kolonë "code" (ka vetëm code_str/code_n)
+        .select("id, created_at, status, code_str, code_n, data")
         .eq("transport_id", tid)
         .in("status", ["pickup", "loaded"])
         .order("created_at", { ascending: false })
