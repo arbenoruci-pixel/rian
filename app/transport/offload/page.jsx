@@ -75,7 +75,7 @@ export default function TransportOffloadPage(){
       const { data, error } = await supabase
         .from('transport_orders')
         .select('id,status,created_at,code_str,code_n,data')
-        .in('status', ['teren','transport_incomplete','pickup','transport_pickup'])
+        .in('status', ['teren','transport_incomplete','pickup','loaded','transport_pickup'])
         .order('created_at', { ascending:false })
         .limit(500);
       if (error) throw error;

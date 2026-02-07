@@ -35,7 +35,10 @@ export default function TransportMenu() {
 
       <section className="card">
         <div className="grid" style={{ display:"grid", gap:10 }}>
-          <Link className="btn btn-primary" href="/transport/pranimi">PRANIMI (T)</Link>          <Link className="btn" href="/transport/offload">OFFLOAD NË BAZË</Link>
+          <Link className="btn btn-primary" href="/transport/pranimi">PRANIMI (T)</Link>
+	          <Link className="btn" href="/transport/pickup">PICKUP / LOADED</Link>
+          <Link className="btn" href="/transport/te-pa-plotsuara">TË PA PLOTSUARA</Link>
+          <Link className="btn" href="/transport/offload">OFFLOAD NË BAZË</Link>
           <Link className="btn" href="/transport/gati">GATI (VETËM TË MIAT)</Link>
           <Link className="btn" href="/transport/arka">ARKA (TRANSPORT)</Link>
         </div>
