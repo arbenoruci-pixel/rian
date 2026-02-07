@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
 
-// --- LOGJIKA (E PANDRYSHUAR) ---
+// --- LOGJIKA E KAPACITETIT ---
+
+// 1. KAPACITETI I BAZES (Global)
 function m2ToLevel(m2) {
   const v = Number(m2) || 0;
   if (v >= 140) return 'HIGH';
@@ -13,16 +15,8 @@ function m2ToLevel(m2) {
   return 'LOW';
 }
 
-async function loadGlobalPastrimi() {
-  const [normalRes, transRes] = await Promise.all([
-    supabase.from('orders').select('id,data,status').eq('status', 'pastrim').limit(300),
-    supabase.from('transport_orders').select('id,data,status').eq('status', 'pastrim').limit(300),
-  ]);
-
-  const rows = [];
-  if (normalRes.data) rows.push(...normalRes.data);
-  if (transRes.data) rows.push(...transRes.data);
-
+// Helper për llogaritjen e m2 nga JSON
+function calculateM2(rows) {
   let m2 = 0;
   for (const r of rows) {
     let raw = r.data;
@@ -36,9 +30,37 @@ async function loadGlobalPastrimi() {
     for (const x of staza) m2 += (Number(x.m2)||0) * (Number(x.qty)||0);
     if (o.shkallore) m2 += (Number(o.shkallore.qty)||0) * (Number(o.shkallore.per)||0);
   }
+  return Number(m2.toFixed(1));
+}
 
-  m2 = Number(m2.toFixed(1));
-  return { count: rows.length, m2, score: 0, level: m2ToLevel(m2) };
+async function loadStats(myTransportId) {
+  // 1. BAZA (PASTRIMI) - Të gjitha porositë në pastrim
+  const [bazaNormal, bazaTrans] = await Promise.all([
+    supabase.from('orders').select('data').eq('status', 'pastrim').limit(300),
+    supabase.from('transport_orders').select('data').eq('status', 'pastrim').limit(300),
+  ]);
+  
+  const bazaRows = [...(bazaNormal.data || []), ...(bazaTrans.data || [])];
+  const bazaM2 = calculateM2(bazaRows);
+
+  // 2. KAMIONI (PICKUP) - Porositë e mia që janë 'transport' (në makinë)
+  // Supozojmë që statusi kur i merr është 'transport'. Nëse është ndryshe, ndërro 'transport' me statusin tënd.
+  let truckRows = [];
+  if (myTransportId) {
+    const [truckNormal, truckTrans] = await Promise.all([
+      supabase.from('orders').select('data').eq('transport_id', myTransportId).eq('status', 'transport'),
+      supabase.from('transport_orders').select('data').eq('transport_id', myTransportId).eq('status', 'transport'),
+    ]);
+    truckRows = [...(truckNormal.data || []), ...(truckTrans.data || [])];
+  }
+
+  const truckM2 = calculateM2(truckRows);
+  const truckCount = truckRows.length;
+
+  return {
+    baza: { m2: bazaM2, level: m2ToLevel(bazaM2) },
+    truck: { m2: truckM2, count: truckCount }
+  };
 }
 
 function readActor() {
@@ -49,69 +71,71 @@ function readActor() {
   } catch { return null; }
 }
 
-// --- UI E PËRMIRËSUAR (SOFT BACKGROUND) ---
+// --- UI MODERNE ---
 
 export default function TransportHome() {
   const [me, setMe] = useState(null);
-  const [busy, setBusy] = useState({ m2: 0, level: '...' });
+  const [stats, setStats] = useState({ 
+    baza: { m2: 0, level: '...' }, 
+    truck: { m2: 0, count: 0 } 
+  });
   const [refreshing, setRefreshing] = useState(false);
 
-  async function refreshGlobalPastrimi() {
+  async function refreshData() {
     setRefreshing(true);
     try {
-      const v = await loadGlobalPastrimi();
-      setBusy(v);
+      // Pass ID to filter my truck orders
+      const v = await loadStats(me?.pin);
+      setStats(v);
     } finally {
       setRefreshing(false);
     }
   }
 
   useEffect(() => {
-    setMe(readActor());
-    refreshGlobalPastrimi();
-    const t = setInterval(refreshGlobalPastrimi, 30000);
+    const actor = readActor();
+    setMe(actor);
+    
+    // Load fillestar
+    if (actor?.pin) {
+      loadStats(actor.pin).then(setStats);
+    } else {
+      loadStats(null).then(setStats);
+    }
+
+    const t = setInterval(() => {
+      const currentActor = readActor();
+      if (currentActor?.pin) loadStats(currentActor.pin).then(setStats);
+    }, 30000);
+
     return () => clearInterval(t);
   }, []);
 
-  // Llogaritja e Loading Bar (max 150m2 vizualisht)
-  const percent = Math.min((busy.m2 / 150) * 100, 100);
-  
-  // Ngjyrat dinamike
-  let barColor = '#10b981'; // Green (Emerald)
-  let statusText = 'LIRË';
-  
-  if (busy.level === 'MID') {
-    barColor = '#f59e0b'; // Amber
-    statusText = 'MESATAR';
-  } else if (busy.level === 'HIGH') {
-    barColor = '#ef4444'; // Red
-    statusText = 'FULL';
-  }
+  // --- LLOGARITJET VIZUALE ---
+
+  // 1. KAMIONI (Max 200m2)
+  const truckPercent = Math.min((stats.truck.m2 / 200) * 100, 100);
+  let truckColor = '#3b82f6'; // Blue
+  if (truckPercent > 80) truckColor = '#f59e0b'; // Orange warning
+  if (truckPercent > 95) truckColor = '#ef4444'; // Red full
+
+  // 2. BAZA (Max 150m2 visual)
+  const basePercent = Math.min((stats.baza.m2 / 150) * 100, 100);
+  let baseColor = '#10b981'; // Green
+  let baseText = 'LIRË';
+  if (stats.baza.level === 'MID') { baseColor = '#f59e0b'; baseText = 'MESATAR'; }
+  if (stats.baza.level === 'HIGH') { baseColor = '#ef4444'; baseText = 'FULL'; }
 
   return (
-    // Këtu është ndryshimi kryesor: Background #f0f2f5 (Soft Grey)
-    <div style={{ 
-      backgroundColor: '#f0f2f5', 
-      minHeight: '100vh', 
-      padding: '20px 16px', 
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' 
-    }}>
-      
+    <div style={{ backgroundColor: '#f0f2f5', minHeight: '100vh', padding: '20px 16px', fontFamily: '-apple-system, sans-serif' }}>
       <div style={{ maxWidth: 500, margin: '0 auto' }}>
         
         {/* HEADER */}
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111827', margin: 0 }}>TRANSPORT</h1>
-          </div>
-          
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111827', margin: 0 }}>TRANSPORT</h1>
           {me ? (
-            <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-              {/* Emri shumë i vogël dhe diskret */}
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                {me.name}
-              </span>
-              <Link href="/" style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'none' }}>Dil</Link>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{me.name}</span>
             </div>
           ) : (
              <Link href="/login" style={{ fontSize: 14, fontWeight: 600, color: '#2563eb' }}>Hyrje</Link>
@@ -120,85 +144,65 @@ export default function TransportHome() {
 
         {me && (
           <>
-            {/* KAPACITETI - KARTELË E BARDHË ME LOADING BAR */}
-            <div style={{ 
-              backgroundColor: '#ffffff', 
-              borderRadius: 16, 
-              padding: '16px 20px', 
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', 
-              marginBottom: 24 
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, alignItems: 'flex-end' }}>
-                <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>NGARKESA NË BAZË</span>
-                <span style={{ fontSize: 12, color: barColor, fontWeight: 800 }}>{statusText}</span>
-              </div>
+            {/* KARTELA E STATISTIKAVE (GRID 2-ROW) */}
+            <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: '16px 20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', marginBottom: 24 }}>
               
-              {/* Sfondi i Bar-it (shumë i lehtë) */}
-              <div style={{ height: 12, width: '100%', backgroundColor: '#f3f4f6', borderRadius: 10, overflow: 'hidden' }}>
-                {/* Pjesa e mbushur */}
-                <div style={{ 
-                  height: '100%', 
-                  width: `${percent}%`, 
-                  backgroundColor: barColor, 
-                  borderRadius: 10,
-                  transition: 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)'
-                }} />
+              {/* 1. KAMIONI IM (Pickup) */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'flex-end' }}>
+                  <span style={{ fontSize: 12, color: '#475569', fontWeight: 700 }}>KAMIONI IM (PICKUP)</span>
+                  <span style={{ fontSize: 12, color: '#334155', fontWeight: 600 }}>
+                    {stats.truck.count} Porosi <span style={{color:'#cbd5e1'}}>|</span> {Math.round(stats.truck.m2)} m²
+                  </span>
+                </div>
+                <div style={{ height: 12, width: '100%', backgroundColor: '#f1f5f9', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${truckPercent}%`, backgroundColor: truckColor, borderRadius: 10, transition: 'width 0.5s ease' }} />
+                </div>
               </div>
-              
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                 <button 
-                   onClick={refreshGlobalPastrimi} 
-                   style={{ 
-                     background: 'none', border: 'none', 
-                     fontSize: 11, color: '#9ca3af', cursor: 'pointer', padding: 0 
-                   }}>
-                   {refreshing ? 'Duke matur...' : 'Rifresko'}
-                 </button>
+
+              {/* 2. KAPACITETI BAZES */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'flex-end' }}>
+                  <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>NGARKESA NË BAZË</span>
+                  <span style={{ fontSize: 11, color: baseColor, fontWeight: 800 }}>{baseText}</span>
+                </div>
+                <div style={{ height: 8, width: '100%', backgroundColor: '#f8fafc', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${basePercent}%`, backgroundColor: baseColor, borderRadius: 10, opacity: 0.8, transition: 'width 0.5s ease' }} />
+                </div>
+              </div>
+
+              {/* Refresh Button Text */}
+              <div style={{ textAlign: 'right', marginTop: 10 }}>
+                <button onClick={refreshData} style={{ background: 'none', border: 'none', fontSize: 11, color: '#94a3b8', cursor: 'pointer' }}>
+                  {refreshing ? 'Duke llogaritur...' : 'Rifresko Të Dhënat'}
+                </button>
               </div>
             </div>
 
-            {/* BUTONAT KRYESORË (BIG & BOLD) */}
+            {/* VEPRIMET KRYESORE */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
               <Link href="/transport/pranimi" style={{ textDecoration: 'none' }}>
-                <div style={primaryCardStyle('#2563eb')}> {/* Strong Blue */}
+                <div style={primaryCardStyle('#2563eb')}>
                   <span style={{ fontSize: 28, marginBottom: 8 }}>📥</span>
                   <span style={{ fontWeight: 700, fontSize: 15 }}>PRANIMI</span>
                 </div>
               </Link>
-
               <Link href="/transport/pickup" style={{ textDecoration: 'none' }}>
-                <div style={primaryCardStyle('#4f46e5')}> {/* Indigo */}
+                <div style={primaryCardStyle('#4f46e5')}>
                   <span style={{ fontSize: 28, marginBottom: 8 }}>🚚</span>
                   <span style={{ fontWeight: 700, fontSize: 15 }}>PICKUP</span>
                 </div>
               </Link>
             </div>
 
-            {/* BUTONAT SEKONDARË (CLEAN WHITE) */}
+            {/* VEPRIMET DYTESORE */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Link href="/transport/gati" style={secondaryCardStyle}>
-                <span>✅ GATI</span>
-              </Link>
-              
-              <Link href="/transport/arka" style={secondaryCardStyle}>
-                <span>💰 ARKA</span>
-              </Link>
-
-              <Link href="/transport/fletore" style={secondaryCardStyle}>
-                <span>📝 FLETORJA</span>
-              </Link>
-
-              <Link href="/pastrimi" style={secondaryCardStyle}>
-                <span>🧼 PASTRIMI</span>
-              </Link>
+              <Link href="/transport/gati" style={secondaryCardStyle}><span>✅ GATI</span></Link>
+              <Link href="/transport/arka" style={secondaryCardStyle}><span>💰 ARKA</span></Link>
+              <Link href="/transport/fletore" style={secondaryCardStyle}><span>📝 FLETORJA</span></Link>
+              <Link href="/pastrimi" style={secondaryCardStyle}><span>🧼 PASTRIMI</span></Link>
             </div>
           </>
-        )}
-
-        {!me && (
-          <div style={{ textAlign: 'center', marginTop: 40, color: '#6b7280' }}>
-            <p>Ju lutem kyçuni për të vazhduar.</p>
-          </div>
         )}
       </div>
     </div>
@@ -215,9 +219,8 @@ const primaryCardStyle = (bg) => ({
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  boxShadow: `0 10px 15px -3px ${bg}40`, // Colored soft shadow
+  boxShadow: `0 10px 15px -3px ${bg}40`,
   height: 130,
-  transition: 'transform 0.1s active'
 });
 
 const secondaryCardStyle = {
@@ -231,7 +234,6 @@ const secondaryCardStyle = {
   fontWeight: 600,
   fontSize: 13,
   textDecoration: 'none',
-  boxShadow: '0 1px 3px rgba(0,0,0,0.05)', // Subtle shadow
+  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
   height: 60,
-  border: '1px solid transparent' // Keeps spacing clean
 };
