@@ -84,6 +84,8 @@ export default function TransportPranim() {
   const router = useRouter();
   const sp = useSearchParams();
   const editId = sp.get('id') || '';
+  const back = sp.get('back') || sp.get('return') || '/transport/offload';
+  const openDraftsOnLoad = sp.get('drafts') === '1';
 
   const [me, setMe] = useState(null);
   const [creating, setCreating] = useState(true);
@@ -419,7 +421,7 @@ export default function TransportPranim() {
 
       // TRANSPORT flow: keep orders out of BASE until transport does OFFLOAD.
       // After a full save, send driver to OFFLOAD list to "SHKARKO NË BAZË".
-            router.push('/transport/offload');
+            router.push(back);
 
     } catch (e) {
       addLog(`ERROR: ${e.message}`);
@@ -429,7 +431,7 @@ export default function TransportPranim() {
       if (savedOffline) {
         alert("⚠️ S'ka rrjet (Ose DB Error)! U ruajt LOKALISHT.");
         deleteDraft(oid, true);
-        router.push('/transport/offload');
+        router.push(back);
       } else {
         alert(`❌ DËSHTOI RUAJTJA!\n\n${e.message}`);
       }

@@ -60,11 +60,6 @@ export default function TransportOffloadPage(){
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState('');
   const [sel, setSel] = useState({}); // id -> true
-  const [editOpen, setEditOpen] = useState(false);
-  const [editId, setEditId] = useState('');
-  const [editName, setEditName] = useState('');
-  const [editPhone, setEditPhone] = useState('');
-  const [editBusy, setEditBusy] = useState(false);
   const transportId = String(me?.transport_id || '').trim();
 
   useEffect(() => {
@@ -144,62 +139,6 @@ export default function TransportOffloadPage(){
   }
   function toggleOne(id){
     setSel(prev => ({...prev, [id]: !prev[id]}));
-  }
-
-  function openEditClient(it){
-    const o = it?.order || {};
-    const nm = String(o?.client?.name || '').trim();
-    const ph = String(o?.client?.phone || '').trim();
-    setEditId(it.id);
-    setEditName(nm);
-    setEditPhone(ph);
-    setEditOpen(true);
-  }
-
-  function closeEditClient(){
-    if (editBusy) return;
-    setEditOpen(false);
-    setEditId('');
-    setEditName('');
-    setEditPhone('');
-  }
-
-  async function saveEditClient(){
-    if (!editId) return;
-    const nm = String(editName || '').trim();
-    const phRaw = String(editPhone || '').trim();
-    const phDigits = phRaw.replace(/\D+/g, '');
-    if (!phDigits || phDigits.length < 6) {
-      alert('TELEFONI ËSHTË I DETYRUESHËM');
-      return;
-    }
-    setEditBusy(true);
-    try{
-      const it = view.find(x => x.id === editId);
-      if (!it) { closeEditClient(); return; }
-      const now = new Date().toISOString();
-      const nextData = { ...(it.order || {}) };
-      nextData.client = { ...(nextData.client || {}) };
-      nextData.client.name = nm;
-      nextData.client.phone = phRaw;
-
-      const { error } = await supabase
-        .from('transport_orders')
-        .update({
-          data: nextData,
-          client_name: nm,
-          client_phone: phRaw,
-          updated_at: now,
-        })
-        .eq('id', editId);
-      if (error) throw error;
-      closeEditClient();
-      await load();
-    }catch(e){
-      alert('GABIM: ' + String(e?.message || e || '')); 
-    }finally{
-      setEditBusy(false);
-    }
   }
 
   async function offloadOne(it){
@@ -298,32 +237,13 @@ export default function TransportOffloadPage(){
               </div>
 
               <div className="actions">
-                <Link className="btn ghost" href={`/transport/pranimi?id=${encodeURIComponent(it.id)}`}>EDIT</Link>
-                <button className="btn ghost" onClick={() => openEditClient(it)}>KLIENT</button>
+                <Link className="btn ghost" href={`/transport/pranimi?id=${it.id}`}>EDIT</Link>
                 <button className="btn" onClick={() => offloadOne(it)}>SHKARKO</button>
               </div>
             </div>
           ))}
         </div>
       </section>
-
-      {editOpen ? (
-        <div className="modalBack" onClick={closeEditClient}>
-          <div className="modal" onClick={(e)=>e.stopPropagation()}>
-            <div className="modalTitle">EDIT KLIENTI</div>
-            <div className="modalGrid">
-              <label className="lbl">EMRI (opsional)</label>
-              <input className="inp" value={editName} onChange={(e)=>setEditName(e.target.value)} placeholder="Emri" />
-              <label className="lbl">TELEFONI (detyrueshem)</label>
-              <input className="inp" value={editPhone} onChange={(e)=>setEditPhone(e.target.value)} placeholder="+383..." />
-            </div>
-            <div className="modalBtns">
-              <button className="btn ghost" onClick={closeEditClient} disabled={editBusy}>ANULO</button>
-              <button className="btn" onClick={saveEditClient} disabled={editBusy}>{editBusy ? 'DUKE RUAJT...' : 'RUAJ'}</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <style jsx>{`
         .wrap { padding: 18px; max-width: 980px; margin: 0 auto; }
@@ -349,15 +269,6 @@ export default function TransportOffloadPage(){
         .warn { margin-top: 4px; font-size: 11px; font-weight: 900; color: #f59e0b; }
         .ok { margin-top: 4px; font-size: 11px; font-weight: 900; color: #22c55e; }
         .actions { display:flex; gap: 8px; align-items:center; }
-
-        .modalBack { position: fixed; inset: 0; background: rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding: 18px; z-index: 50; }
-        .modal { width: 100%; max-width: 520px; border-radius: 16px; border: 1px solid rgba(255,255,255,.14); background: rgba(10,10,10,.92); padding: 14px; }
-        .modalTitle { font-weight: 1000; letter-spacing: .4px; margin-bottom: 10px; }
-        .modalGrid { display:grid; grid-template-columns: 1fr; gap: 8px; }
-        .lbl { font-size: 12px; opacity: .8; font-weight: 800; }
-        .inp { width: 100%; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color: inherit; padding: 12px; font-weight: 800; }
-        .modalBtns { display:flex; gap: 10px; margin-top: 12px; }
-        .modalBtns .btn { flex: 1; min-height: 44px; }
 
         @media (max-width: 520px) {
           .wrap { padding: 14px; }
