@@ -123,6 +123,7 @@ export default function TransportPranim() {
 
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
+  const payTouchRef = useRef({ x: 0, y: 0, moved: false });
   const draftTimerRef = useRef(null);
 
   // LOG HELPER
@@ -131,12 +132,62 @@ export default function TransportPranim() {
       console.log(`[DEBUG] ${msg}`);
   }
 
-  // Init
+  
+  async function searchPastClients(q) {
+    const term = String(q || '').trim();
+    if (!term) { setClientHits([]); return; }
+    setClientSearchBusy(true);
+    try {
+      // Prefer transport_clients table if present; fallback to transport_orders
+      const like = `%${term}%`;
+      let hits = [];
+      const res1 = await supabase
+        .from('transport_clients')
+        .select('client_name, client_phone')
+        .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
+        .order('updated_at', { ascending: false })
+        .limit(20);
+      if (!res1.error && Array.isArray(res1.data) && res1.data.length) {
+        hits = res1.data.map(r => ({ name: r.client_name || '', phone: r.client_phone || '' }));
+      } else {
+        const res2 = await supabase
+          .from('transport_orders')
+          .select('client_name, client_phone, updated_at')
+          .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
+          .order('updated_at', { ascending: false })
+          .limit(20);
+        if (!res2.error && Array.isArray(res2.data)) {
+          const seen = new Set();
+          hits = [];
+          for (const r of res2.data) {
+            const key = `${r.client_phone||''}::${r.client_name||''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            hits.push({ name: r.client_name || '', phone: r.client_phone || '' });
+          }
+        }
+      }
+      setClientHits(hits);
+    } catch (e) {
+      console.error('searchPastClients', e);
+    } finally {
+      setClientSearchBusy(false);
+    }
+  }
+// Init
   useEffect(() => {
     const s = getTransportSession();
     if (!s?.transport_id) { router.push('/transport'); return; }
     setMe(s);
   }, [router]);
+
+  useEffect(() => {
+    const q = String(clientSearch || '').trim();
+    if (!q) { setClientHits([]); return; }
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => { searchPastClients(q); }, 180);
+    return () => { if (draftTimerRef.current) clearTimeout(draftTimerRef.current); };
+  }, [clientSearch]);
 
   useEffect(() => {
     if (!me?.transport_id) return;
@@ -218,8 +269,8 @@ export default function TransportPranim() {
       setShowDraftsSheet(false);
   }
 
-  function deleteDraft(id) {
-      if(!confirm("Fshi?")) return;
+  function deleteDraft(id, silent = false) {
+      if(!silent) { if(!confirm("Fshi?")) return; }
       let list = [];
       try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
       list = list.filter(d => d.id !== id);
@@ -266,8 +317,27 @@ export default function TransportPranim() {
   // Pay
   function openPay() { const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2)); setPayAddRaw(dueNow > 0 ? String(dueNow.toFixed(2)) : ''); setShowPaySheet(true); }
   function applyPayAndClose() { const cashGiven = parseNum(payAddRaw, 0); if (!(cashGiven > 0)) { setShowPaySheet(false); return; } const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2))); const applied = Number(Math.min(cashGiven, due).toFixed(2)); setClientPaid(Number((Number(clientPaid || 0) + applied).toFixed(2))); setShowPaySheet(false); setPayAddRaw(''); }
-  function startPayHold() { payHoldTriggeredRef.current = false; if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = setTimeout(() => { payHoldTriggeredRef.current = true; vibrateTap(25); setPriceTmp(Number(pricePerM2) || PRICE_DEFAULT); setShowPriceSheet(true); }, 1000); }
-  function endPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; if (!payHoldTriggeredRef.current) openPay(); payHoldTriggeredRef.current = false; }
+  function startPayHold(e) {
+    try {
+      const p = (e && (e.touches?.[0] || e.changedTouches?.[0])) || (e && ('clientX' in e) ? e : null);
+      if (p) payTouchRef.current = { x: p.clientX || 0, y: p.clientY || 0, moved: false };
+    } catch {}
+ payHoldTriggeredRef.current = false; if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = setTimeout(() => { payHoldTriggeredRef.current = true; vibrateTap(25); setPriceTmp(Number(pricePerM2) || PRICE_DEFAULT); setShowPriceSheet(true); }, 1000); }
+  function endPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; if (payTouchRef.current?.moved) { payHoldTriggeredRef.current = false; return; }
+    if (!payHoldTriggeredRef.current) openPay(); payHoldTriggeredRef.current = false; }
+  function onPayPointerMove(e) {
+    try {
+      const p = (e && (e.touches?.[0] || e.changedTouches?.[0])) || (e && ('clientX' in e) ? e : null);
+      if (!p) return;
+      const dx = Math.abs((p.clientX || 0) - (payTouchRef.current?.x || 0));
+      const dy = Math.abs((p.clientY || 0) - (payTouchRef.current?.y || 0));
+      if (dx > 10 || dy > 10) {
+        payTouchRef.current.moved = true;
+        cancelPayHold();
+      }
+    } catch {}
+  }
+
   function cancelPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; payHoldTriggeredRef.current = false; }
 
   function validate() {
@@ -340,7 +410,7 @@ export default function TransportPranim() {
       }
       
       // ✅ Fshi draftin sepse u ruajt me sukses
-      deleteDraft(oid);
+      deleteDraft(oid, true);
 
       // TRANSPORT flow: keep orders out of BASE until transport does OFFLOAD.
       // After a full save, send driver to OFFLOAD list to "SHKARKO NË BAZË".
@@ -353,7 +423,7 @@ export default function TransportPranim() {
       const savedOffline = orderData ? saveOfflineTransportOrder({ ...orderData, saved_at: Date.now(), is_offline: true }) : false;
       if (savedOffline) {
         alert("⚠️ S'ka rrjet (Ose DB Error)! U ruajt LOKALISHT.");
-        deleteDraft(oid);
+        deleteDraft(oid, true);
         router.push('/transport/offload');
       } else {
         alert(`❌ DËSHTOI RUAJTJA!\n\n${e.message}`);
@@ -386,9 +456,9 @@ export default function TransportPranim() {
         <h2 className="card-title">KLIENTI & ADRESA</h2>
         {/* "E PA PLOTSUAR" checkbox intentionally removed */}
         <div className="field-group">
-          <label className="label">EMRI & MBIEMRI</label>
+          <label className="label">EMRI</label>
           <div className="row" style={{ alignItems: 'center', gap: 10 }}>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Emri Mbiemri" style={{ flex: 1 }} />
+            <input className="input transport" value={name} onChange={(e) => setName(e.target.value)} placeholder="Emri Mbiemri" style={{ flex: 1 }} />
             {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini" /> : null}
             <label className="camera-btn" title="FOTO KLIENTI" style={{ marginLeft: 2 }}>📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} /></label>
           </div>
@@ -396,15 +466,15 @@ export default function TransportPranim() {
         </div>
         <div className="field-group">
           <label className="label">TELEFONI</label>
-          <div className="row"><input className="input small" value={phonePrefix} onChange={(e) => setPhonePrefix(e.target.value)} /><input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="4x xxx xxx" /></div>
+          <div className="row"><input className="input small" value={phonePrefix} onChange={(e) => setPhonePrefix(e.target.value)} /><input className="input transport" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="4x xxx xxx" /></div>
         </div>
         <div style={{height: 12}} />
         <div className="field-group">
             <label className="label">ADRESA / GPS</label>
-            <div className="row" style={{gap: 8}}><input className="input" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Rruga..." style={{flex: 1}} /><button type="button" className="btn secondary" onClick={getGps} style={{padding: '0 12px'}}>📍 GPS</button></div>
+            <div className="row" style={{gap: 8}}><input className="input transport" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Rruga..." style={{flex: 1}} /><button type="button" className="btn secondary" onClick={getGps} style={{padding: '0 12px'}}>📍 GPS</button></div>
             {(gpsLat || gpsLng) && <div style={{fontSize: 10, marginTop: 4, opacity: 0.7, fontFamily: 'monospace'}}>{gpsLat}, {gpsLng}</div>}
         </div>
-        <div className="field-group" style={{marginTop: 10}}><label className="label">PËRSHKRIM SHTESË</label><textarea className="input" rows={2} value={clientDesc} onChange={(e) => setClientDesc(e.target.value)} placeholder="Kati, hymja, etj..." /></div>
+        <div className="field-group" style={{marginTop: 10}}><label className="label">PËRSHKRIM SHTESË</label><textarea className="input transport" rows={2} value={clientDesc} onChange={(e) => setClientDesc(e.target.value)} placeholder="Kati, hymja, etj..." /></div>
       </section>
 
       <section className="card">
@@ -424,7 +494,7 @@ export default function TransportPranim() {
       <section className="card">
         <div className="row util-row" style={{ gap: 10 }}>
           <button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowStairsSheet(true)}>🪜 SHKALLORE</button>
-          <button className="btn secondary" style={{ flex: 1 }} onMouseDown={startPayHold} onMouseUp={endPayHold} onMouseLeave={cancelPayHold} onTouchStart={(e) => { startPayHold(); }} onTouchEnd={(e) => { e.preventDefault(); endPayHold(); }}>€ PAGESA</button>
+          <button className="btn secondary" style={{ flex: 1 }} onPointerDown={startPayHold} onPointerUp={endPayHold} onPointerCancel={cancelPayHold} onPointerLeave={cancelPayHold} onPointerMove={onPayPointerMove}>€ PAGESA</button>
         </div>
         <div className="tot-line">M² Total: <strong>{totalM2}</strong></div>
         <div className="tot-line">Copë: <strong>{copeCount}</strong></div>
@@ -434,7 +504,7 @@ export default function TransportPranim() {
         {currentChange > 0 && <div className="tot-line">Kthim: <strong style={{ color: '#2563eb' }}>{currentChange.toFixed(2)} €</strong></div>}
       </section>
 
-      <section className="card"><h2 className="card-title">SHËNIME</h2><textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></section>
+      <section className="card"><h2 className="card-title">SHËNIME</h2><textarea className="input transport" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></section>
 
       <footer className="footer-bar">
         <button className="btn secondary" onClick={() => router.push('/')}>🏠 HOME</button>
@@ -447,9 +517,9 @@ export default function TransportPranim() {
           {logs.length === 0 ? <div style={{opacity:0.5}}>...Duke pritur veprim...</div> : logs.map((l, i) => <div key={i}>{l}</div>)}
       </div>
 
-      {showPaySheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">PAGESA (TRANSPORT)</div><div className="payfs-sub">KODI: {normalizeTCode(codeRaw)} • {name || '—'}</div></div><button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div><div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div><div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>SOT MERREN: <strong>{Number(parseNum(payAddRaw,0)).toFixed(2)} €</strong></div></div><div className="card"><div className="field-group"><label className="label">KLIENTI DHA (€)</label><input type="text" inputMode="decimal" pattern="[0-9]*" className="input" value={payAddRaw} onChange={(e) => setPayAddRaw(e.target.value)} /><div className="chip-row" style={{ marginTop: 10 }}>{PAY_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => setPayAddRaw(String(v))}>{v}€</button> ))} <button className="chip" type="button" onClick={() => setPayAddRaw('')} style={{ opacity: 0.9 }}>FSHI</button></div></div></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button><button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button></div></div>)}
-      {showPriceSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">NDËRRO QMIMIN</div><div className="payfs-sub">€/m²</div></div><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><label className="label">QMIMI I RI (€ / m²)</label><input type="number" step="0.1" className="input" value={priceTmp} onChange={(e) => setPriceTmp(e.target.value === '' ? '' : Number(e.target.value))} /></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>ANULO</button><button className="btn primary" onClick={() => { setPricePerM2(priceTmp); setShowPriceSheet(false); }}>RUJ</button></div></div>)}
-      {showStairsSheet && (<div className="modal-overlay" onClick={() => setShowStairsSheet(false)}><div className="modal-content dark" onClick={(e) => e.stopPropagation()}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 className="card-title" style={{ margin: 0, color: '#fff' }}>SHKALLORE</h3><button className="btn secondary" onClick={() => setShowStairsSheet(false)}>✕</button></div><div className="field-group" style={{ marginTop: 12 }}><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label><div className="chip-row">{SHKALLORE_QTY_CHIPS.map((n) => ( <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button> ))}</div><input type="number" className="input" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => setStairsQty(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label><div className="chip-row">{SHKALLORE_PER_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button> ))}</div><input type="number" step="0.01" className="input" value={stairsPer} onChange={(e) => setStairsPer(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label><label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>{stairsPhotoUrl && ( <div style={{ marginTop: 8 }}><img src={stairsPhotoUrl} className="photo-thumb" alt="" /><button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI FOTO</button></div> )}</div><button className="btn primary" style={{ width: '100%', marginTop: 12 }} onClick={() => setShowStairsSheet(false)}>MBYLL</button></div></div>)}
+      {showPaySheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">PAGESA (TRANSPORT)</div><div className="payfs-sub">KODI: {normalizeTCode(codeRaw)} • {name || '—'}</div></div><button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div><div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div><div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>SOT MERREN: <strong>{Number(parseNum(payAddRaw,0)).toFixed(2)} €</strong></div></div><div className="card"><div className="field-group"><label className="label">KLIENTI DHA (€)</label><input type="text" inputMode="decimal" pattern="[0-9]*" className="input transport" value={payAddRaw} onChange={(e) => setPayAddRaw(e.target.value)} /><div className="chip-row" style={{ marginTop: 10 }}>{PAY_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => setPayAddRaw(String(v))}>{v}€</button> ))} <button className="chip" type="button" onClick={() => setPayAddRaw('')} style={{ opacity: 0.9 }}>FSHI</button></div></div></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button><button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button></div></div>)}
+      {showPriceSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">NDËRRO QMIMIN</div><div className="payfs-sub">€/m²</div></div><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><label className="label">QMIMI I RI (€ / m²)</label><input type="number" step="0.1" className="input transport" value={priceTmp} onChange={(e) => setPriceTmp(e.target.value === '' ? '' : Number(e.target.value))} /></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>ANULO</button><button className="btn primary" onClick={() => { setPricePerM2(priceTmp); setShowPriceSheet(false); }}>RUJ</button></div></div>)}
+      {showStairsSheet && (<div className="modal-overlay" onClick={() => setShowStairsSheet(false)}><div className="modal-content dark" onClick={(e) => e.stopPropagation()}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 className="card-title" style={{ margin: 0, color: '#fff' }}>SHKALLORE</h3><button className="btn secondary" onClick={() => setShowStairsSheet(false)}>✕</button></div><div className="field-group" style={{ marginTop: 12 }}><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label><div className="chip-row">{SHKALLORE_QTY_CHIPS.map((n) => ( <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button> ))}</div><input type="number" className="input transport" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => setStairsQty(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label><div className="chip-row">{SHKALLORE_PER_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button> ))}</div><input type="number" step="0.01" className="input transport" value={stairsPer} onChange={(e) => setStairsPer(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label><label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>{stairsPhotoUrl && ( <div style={{ marginTop: 8 }}><img src={stairsPhotoUrl} className="photo-thumb" alt="" /><button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI FOTO</button></div> )}</div><button className="btn primary" style={{ width: '100%', marginTop: 12 }} onClick={() => setShowStairsSheet(false)}>MBYLL</button></div></div>)}
       
       {/* DRAFTS FULLSCREEN */}
       {showDraftsSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">TË PA PLOTSUARAT</div><div className="payfs-sub">HAP ose FSHI</div></div><button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{marginTop: 0}}>{drafts.length === 0 ? <div style={{textAlign: 'center', padding: '20px', color: 'rgba(255,255,255,0.7)'}}>S'ka drafte.</div> : drafts.map(d => (<div key={d.id} style={{borderBottom:'1px solid rgba(255,255,255,0.1)', padding:'10px 0', display:'flex', justifyContent:'space-between', alignItems:'center'}}><div><div style={{fontWeight:900, fontSize:15}}>{normalizeTCode(d.codeRaw)}</div><div style={{fontSize:12, opacity:0.8}}>{d.name || 'Pa Emër'} • {d.phone || '-'}</div><div style={{fontSize:10, opacity:0.5}}>{new Date(d.ts).toLocaleString()}</div></div><div style={{display:'flex', gap:8}}><button className="btn secondary" style={{padding:'6px 10px', fontSize:11}} onClick={() => loadDraft(d)}>HAP</button><button className="btn secondary" style={{padding:'6px 10px', fontSize:11, color:'#ef4444'}} onClick={() => deleteDraft(d.id)}>FSHI</button></div></div>))}</div></div></div>)}

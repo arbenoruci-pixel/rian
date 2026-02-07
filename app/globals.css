@@ -121,6 +121,14 @@ a {
   font-size: 14px;
 }
 
+.input.transport {
+  background: #071028;
+  border-color: #2a3b66;
+}
+.input.transport::placeholder {
+  color: rgba(255,255,255,0.55);
+}
+
 .input.small {
   max-width: 120px;
 }
