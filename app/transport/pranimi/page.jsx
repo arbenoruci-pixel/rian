@@ -461,6 +461,37 @@ export default function TransportPranim() {
         <h2 className="card-title">KLIENTI & ADRESA</h2>
         {/* "E PA PLOTSUAR" checkbox intentionally removed */}
         <div className="field-group">
+          <label className="label">KËRKO KLIENT (HISTORI)</label>
+          <input
+            className="input transport"
+            value={clientSearch}
+            onChange={(e) => setClientSearch(e.target.value)}
+            placeholder="Shkruaj emrin ose numrin…"
+          />
+          {clientSearchBusy ? <div className="hint">DUKE KËRKUAR…</div> : null}
+          {clientHits?.length ? (
+            <div className="list" style={{ marginTop: 8 }}>
+              {clientHits.map((c, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className="list-row"
+                  onClick={() => {
+                    setName(c.name || "");
+                    setPhone(c.phone || "");
+                    setClientHits([]);
+                    setClientSearch("");
+                  }}
+                >
+                  <span style={{ flex: 1, textAlign: "left" }}>{(c.name || "PA EMËR").toUpperCase()}</span>
+                  <span className="badge">{c.phone || ""}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="field-group">
           <label className="label">EMRI</label>
           <div className="row" style={{ alignItems: 'center', gap: 10 }}>
             <input className="input transport" value={name} onChange={(e) => setName(e.target.value)} placeholder="Emri Mbiemri" style={{ flex: 1 }} />
