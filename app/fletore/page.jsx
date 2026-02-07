@@ -20,9 +20,8 @@ export default function FletorePage() {
   const [data, setData] = useState(null);
   const [pin, setPin] = useState("");
   const [q, setQ] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
-
   const [running, setRunning] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   // Helper për emrin
   const nameOfClient = (c) => {
@@ -80,32 +79,7 @@ export default function FletorePage() {
     return out;
   }
 
-  
-  function calcM2Total(o) {
-    const d = getOrderData(o);
-    const tepiha = Array.isArray(d?.tepihaRows) ? d.tepihaRows : (Array.isArray(d?.tepiha) ? d.tepiha : []);
-    const staza = Array.isArray(d?.stazaRows) ? d.stazaRows : (Array.isArray(d?.staza) ? d.staza : []);
-
-    const sumRows = (arr) => {
-      let s = 0;
-      (arr || []).forEach((r) => {
-        const m2 = Number(r?.m2);
-        const qty = Math.max(1, Number(r?.qty) || 1);
-        if (!Number.isFinite(m2) || m2 <= 0) return;
-        s += m2 * qty;
-      });
-      return s;
-    };
-
-    const stairsQty = Number(d?.stairsQty) || 0;
-    const stairsPer = Number(d?.stairsPer) || 0.3;
-    let total = sumRows(tepiha) + sumRows(staza);
-    if (stairsQty > 0 && stairsPer > 0) total += stairsQty * stairsPer;
-    total = Number(total.toFixed(2));
-    return Number.isFinite(total) && total > 0 ? total : 0;
-  }
-
-function orderHandLines(o) {
+  function orderHandLines(o) {
     const d = getOrderData(o);
     const tepiha = Array.isArray(d?.tepihaRows) ? d.tepihaRows : (Array.isArray(d?.tepiha) ? d.tepiha : []);
     const staza = Array.isArray(d?.stazaRows) ? d.stazaRows : (Array.isArray(d?.staza) ? d.staza : []);
@@ -327,182 +301,7 @@ function orderHandLines(o) {
   }, [data, q]);
 
 
-  
-  function escapePdfText(s) {
-    return String(s ?? "")
-      .replace(/\\/g, "\\\\")
-      .replace(/\(/g, "\\(")
-      .replace(/\)/g, "\\)")
-      .replace(/\r?\n/g, " ");
-  }
-
-  function buildSimplePdf(lines) {
-    const pageW = 595.28; // A4
-    const pageH = 841.89;
-    const left = 40;
-    const top = pageH - 50;
-    const fontSize = 11;
-    const leading = 14;
-
-    // Content stream
-    let y = top;
-    let stream = "BT\n/F1 " + fontSize + " Tf\n";
-    stream += left + " " + y + " Td\n";
-    for (let i = 0; i < lines.length; i++) {
-      const t = escapePdfText(lines[i]);
-      stream += "(" + t + ") Tj\n";
-      if (i !== lines.length - 1) stream += "0 -" + leading + " Td\n";
-    }
-    stream += "ET\n";
-
-    const enc = new TextEncoder();
-    const streamBytes = enc.encode(stream);
-
-    // Objects
-    const objs = [];
-    const pushObj = (s) => {
-      const b = typeof s === "string" ? enc.encode(s) : s;
-      objs.push(b);
-      return objs.length; // object number (1-based)
-    };
-
-    const obj1 = pushObj("%PDF-1.4\n");
-    // 2: catalog
-    const obj2 = pushObj("2 0 obj\n<< /Type /Catalog /Pages 3 0 R >>\nendobj\n");
-    // 3: pages
-    const obj3 = pushObj("3 0 obj\n<< /Type /Pages /Kids [4 0 R] /Count 1 >>\nendobj\n");
-    // 4: page
-    const obj4 = pushObj(
-      "4 0 obj\n<< /Type /Page /Parent 3 0 R /MediaBox [0 0 " +
-        pageW +
-        " " +
-        pageH +
-        "] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>\nendobj\n"
-    );
-    // 5: font
-    const obj5 = pushObj("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
-    // 6: contents stream
-    const obj6Header =
-      "6 0 obj\n<< /Length " + streamBytes.length + " >>\nstream\n";
-    const obj6Footer = "\nendstream\nendobj\n";
-    const obj6 = pushObj(
-      new Uint8Array([
-        ...enc.encode(obj6Header),
-        ...streamBytes,
-        ...enc.encode(obj6Footer),
-      ])
-    );
-
-    // Build xref
-    let offset = 0;
-    const offsets = [0]; // object 0
-    for (const b of objs) {
-      offsets.push(offset);
-      offset += b.length;
-    }
-
-    let xref = "xref\n0 " + (objs.length + 1) + "\n";
-    xref += "0000000000 65535 f \n";
-    for (let i = 1; i <= objs.length; i++) {
-      const off = offsets[i];
-      xref += String(off).padStart(10, "0") + " 00000 n \n";
-    }
-
-    const trailer =
-      "trailer\n<< /Size " +
-      (objs.length + 1) +
-      " /Root 2 0 R >>\nstartxref\n" +
-      offset +
-      "\n%%EOF";
-
-    const xrefBytes = enc.encode(xref + trailer);
-
-    const out = new Uint8Array(offset + xrefBytes.length);
-    let p = 0;
-    for (const b of objs) {
-      out.set(b, p);
-      p += b.length;
-    }
-    out.set(xrefBytes, p);
-    return out;
-  }
-
-  function downloadBlob(bytes, filename, mime = "application/pdf") {
-    const blob = new Blob([bytes], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  }
-
-  function downloadPdf() {
-    try {
-      // build a compact list from current data
-      const a = Array.isArray(activeClients) ? activeClients : [];
-      const b = Array.isArray(inactiveClients) ? inactiveClients : [];
-      const lines = [];
-
-      const now = new Date();
-      const y = now.getFullYear();
-      const m = String(now.getMonth() + 1).padStart(2, "0");
-      const d = String(now.getDate()).padStart(2, "0");
-
-      lines.push("TEPIHA — SISTEMI BACKUP");
-      lines.push("DATA: " + d + "." + m + "." + y);
-      lines.push(" ");
-
-      if (a.length) {
-        lines.push("KLIENTAT NE PROCES (" + a.length + ")");
-        lines.push("------------------------------");
-        a.forEach((c) => {
-          const o = c?.activeOrder;
-          const pay = o?.payments || o?.pay || {};
-          const code = c?.client_code || c?.code || "";
-          const name = nameOfClient(c);
-          const phone = String(c?.phone || c?.tel || "");
-          const hand = orderHandLines(o);
-          const m2calc = calcM2Total(o);
-          const euro = Number(pay?.euro) || Number(o?.total) || 0;
-
-          lines.push("#" + code + "  " + name + (phone ? "  " + phone : ""));
-          if (hand?.lines?.length) {
-            lines.push("COPET: " + hand.lines.join(", "));
-          } else {
-            lines.push("(PA MATJE AKOMA)");
-          }
-          if (hand?.extra?.length) hand.extra.forEach((x) => lines.push(x));
-          lines.push("M2: " + (m2calc ? m2calc.toFixed(2) : "____") + "   TOTAL: " + (euro ? euro.toFixed(2) : "____") + " EUR");
-          lines.push(" ");
-        });
-      }
-
-      if (b.length) {
-        lines.push("KLIENTAT E TJERE / TE KRYER (" + b.length + ")");
-        lines.push("------------------------------");
-        b.slice(0, 400).forEach((c) => {
-          const code = c?.client_code || c?.code || "";
-          const name = nameOfClient(c);
-          const phone = String(c?.phone || c?.tel || "");
-          const last = fmtDate(c?.last_at || c?.updated_at || c?.created_at);
-          const euro = Number(c?.last_total || 0);
-          lines.push("#" + code + "  " + name + (phone ? "  " + phone : "") + (last ? "  (" + last + ")" : "") + (euro ? "  EUR " + euro.toFixed(2) : ""));
-        });
-        if (b.length > 400) lines.push("... (" + (b.length - 400) + " tjera)");
-      }
-
-      const pdfBytes = buildSimplePdf(lines);
-      const file = "TEPIHA_BACKUP_" + y + m + d + ".pdf";
-      downloadBlob(pdfBytes, file);
-    } catch (e) {
-      alert("PDF s’u gjenerua: " + (e?.message || e));
-    }
-  }
-
-return (
+  return (
     <main style={{ padding: "20px", maxWidth: "1200px", margin: "0 auto", backgroundColor: "#fff", color: "#000", minHeight: "100vh" }}>
       
       {/* HEADER & CONTROLS (Nuk printohen) */}
@@ -531,7 +330,7 @@ return (
           <button onClick={runNow} disabled={running} style={{ padding: "10px 15px", backgroundColor: "#000", color: "#fff", cursor: "pointer" }}>
             {running ? "..." : "RUAJ TANI"}
           </button>
-          <button onClick={downloadPdf} style={{ padding: "10px 15px", backgroundColor: "#444", color: "#fff", cursor: "pointer" }}>
+          <button onClick={() => window.print()} style={{ padding: "10px 15px", backgroundColor: "#444", color: "#fff", cursor: "pointer" }}>
             📄 PDF
           </button>
         </div>
@@ -588,11 +387,9 @@ return (
                   const pay = payOfOrder(o);
                   const status = String(o?.status || "").toUpperCase() || "-";
                   const pieces = piecesSummaryFromOrder(o);
-                  const hand = orderHandLines(o);
-                  const lines = hand?.lines || [];
-                  const extraLines = hand?.extra || [];
+                  const lines = orderHandLines(o);
                   const total = Number(pay?.euro) || Number(o?.total) || 0;
-                  const m2 = Number(pay?.m2) || calcM2Total(o) || 0;
+                  const m2 = Number(pay?.m2) || 0;
 
                   return (
                     <>
@@ -637,7 +434,7 @@ return (
                             whiteSpace: "pre-wrap",
                           }}
                         >
-                          {lines.length ? [...lines, ...extraLines].join("\n") : (extraLines.length ? extraLines.join("\n") : "(PA MATJE AKOMA)")}
+                          {lines.length ? lines.join("\n") : "(PA MATJE AKOMA)"}
                         </div>
                       </div>
 
@@ -670,42 +467,41 @@ return (
       {inactiveClients.length > 0 && (
         <section>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-            <h2
-              style={{
-                fontSize: "18px",
-                borderBottom: "2px solid #000",
-                paddingBottom: "5px",
-                marginBottom: "10px",
-                marginTop: "20px",
-                color: "#444",
-                textTransform: "uppercase",
-                flex: 1,
-              }}
-            >
+            <h2 style={{ 
+              fontSize: "18px", 
+              borderBottom: "2px solid #000", 
+              paddingBottom: "5px", 
+              marginBottom: "10px",
+              marginTop: "20px",
+              color: "#444",
+              textTransform: "uppercase",
+              flex: 1
+            }}>
               🗄️ Klientat e Tjerë / Të kryer ({inactiveClients.length})
             </h2>
 
             <button
-              onClick={() => setShowInactive((v) => !v)}
+              onClick={() => setShowCompleted(v => !v)}
               style={{
-                padding: "10px 12px",
-                border: "2px solid #000",
-                background: showInactive ? "#000" : "#fff",
-                color: showInactive ? "#fff" : "#000",
-                fontWeight: "900",
+                padding: "8px 10px",
+                fontSize: "12px",
+                borderRadius: "8px",
+                border: "1px solid rgba(0,0,0,0.35)",
+                background: "transparent",
+                color: "#000",
                 textTransform: "uppercase",
                 cursor: "pointer",
-                borderRadius: "10px",
-                height: "44px",
-                whiteSpace: "nowrap",
+                whiteSpace: "nowrap"
               }}
             >
-              {showInactive ? "FSHIH LISTËN" : "HAP LISTËN"}
+              {showCompleted ? "FSHIH LISTËN" : "HAP LISTËN"}
             </button>
           </div>
 
-          {showInactive && (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
+          {showCompleted && (
+
+          
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
             <thead>
               <tr style={{ borderBottom: "2px solid #000", textAlign: "left" }}>
                 <th style={{ padding: "5px", width: "80px" }}>KODI</th>
@@ -730,7 +526,6 @@ return (
           )}
         </section>
       )}
-
 
       {/* STILI PER PRINTIM */}
       <style jsx global>{`
