@@ -1,21 +1,15 @@
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
-import { getActor } from '@/lib/actorSession';
-import { getTransportSession } from '@/lib/transportAuth';
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { supabase } from "@/lib/supabaseClient";
+import { getActor } from "@/lib/actorSession";
+import { getTransportSession } from "@/lib/transportAuth";
 
-function fmtDateTime(d) {
-  if (!d) return '';
+function fmtDate(d) {
+  if (!d) return "";
   try {
-    return new Date(d).toLocaleString('sq-AL', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return new Date(d).toLocaleDateString("sq-AL", { day: "2-digit", month: "2-digit" });
   } catch {
     return String(d);
   }
@@ -23,81 +17,108 @@ function fmtDateTime(d) {
 
 function jparse(v, fallback) {
   try {
-    if (v && typeof v === 'object') return v;
+    if (v && typeof v === "object") return v;
     return JSON.parse(String(v));
   } catch {
     return fallback;
   }
 }
 
-function normPhone(v) {
-  return String(v || '').replace(/\D+/g, '');
-}
-
 function getOrderData(o) {
   return jparse(o?.data, {}) || {};
 }
 
-function listQty(arr) {
-  return (arr || []).reduce((acc, r) => acc + (Number(r?.qty) || 0), 0);
+function normPhone(v) {
+  return String(v || "").replace(/\D+/g, "");
+}
+
+// --- UI helpers (same vibe as baza) ---
+function nameOfClient(c) {
+  const full = String(c?.full_name || c?.name || c?.client_name || "").trim();
+  if (full) return full;
+  const fn = String(c?.first_name || "").trim();
+  const ln = String(c?.last_name || "").trim();
+  return `${fn} ${ln}`.trim() || "-";
+}
+
+function phoneOfClient(c) {
+  return String(c?.phone || c?.client_phone || "").trim() || "-";
+}
+
+function payOfOrder(o) {
+  const d = getOrderData(o);
+  return d?.pay && typeof d.pay === "object" ? d.pay : {};
 }
 
 function piecesSummaryFromOrder(o) {
   const d = getOrderData(o);
-
   const pieces = Number(d?.pieces ?? d?.copa ?? d?.qty_total ?? 0) || 0;
   if (pieces > 0) return `${pieces} COPË`;
 
-  const t = Array.isArray(d?.tepiha) ? d.tepiha : (Array.isArray(d?.tepihaRows) ? d.tepihaRows : []);
-  const s = Array.isArray(d?.staza) ? d.staza : (Array.isArray(d?.stazaRows) ? d.stazaRows : []);
+  const t = Array.isArray(d?.tepihaRows) ? d.tepihaRows : (Array.isArray(d?.tepiha) ? d.tepiha : []);
+  const s = Array.isArray(d?.stazaRows) ? d.stazaRows : (Array.isArray(d?.staza) ? d.staza : []);
   const sumQty = (arr) => (arr || []).reduce((acc, r) => acc + (Number(r?.qty) || 0), 0);
 
+  // shkallore te transporti ruhet si objekt (qty, per)
   const stairsQty = Number(d?.shkallore?.qty ?? d?.stairsQty ?? 0) || 0;
-  const total = sumQty(t) + sumQty(s) + (stairsQty > 0 ? 1 : 0);
-  return total > 0 ? `${total} COPË` : '';
+  const total = sumQty(t) + sumQty(s) + (stairsQty > 0 ? stairsQty : 0);
+  return total > 0 ? `${total} COPË` : "";
 }
 
-function m2TotalFromOrder(o) {
+function expandM2Lines(rows, maxLines = 12) {
+  const out = [];
+  for (const r of rows || []) {
+    const m2 = Number(r?.m2) || 0;
+    const qty = Number(r?.qty) || 0;
+    if (m2 <= 0 || qty <= 0) continue;
+    for (let i = 0; i < qty; i++) {
+      out.push(m2);
+      if (out.length >= maxLines) break;
+    }
+    if (out.length >= maxLines) break;
+  }
+  return out;
+}
+
+function orderHandLines(o) {
   const d = getOrderData(o);
+  const tepiha = Array.isArray(d?.tepihaRows) ? d.tepihaRows : (Array.isArray(d?.tepiha) ? d.tepiha : []);
+  const staza = Array.isArray(d?.stazaRows) ? d.stazaRows : (Array.isArray(d?.staza) ? d.staza : []);
 
-  const t = Array.isArray(d?.tepiha) ? d.tepiha : (Array.isArray(d?.tepihaRows) ? d.tepihaRows : []);
-  const s = Array.isArray(d?.staza) ? d.staza : (Array.isArray(d?.stazaRows) ? d.stazaRows : []);
+  const stairsQty = Number(d?.shkallore?.qty ?? d?.stairsQty ?? 0) || 0;
+  const stairsPer = Number(d?.shkallore?.per ?? d?.stairsPer ?? 0.3) || 0.3;
 
-  const sumM2 = (arr) => (arr || []).reduce((acc, r) => acc + (Number(r?.m2) || 0) * (Number(r?.qty) || 0), 0);
+  const lines = [];
+  for (const v of expandM2Lines(tepiha, 12)) lines.push(String(v.toFixed(1)));
+  for (const v of expandM2Lines(staza, 12 - lines.length)) lines.push(String(v.toFixed(1)));
 
-  const shQty = Number(d?.shkallore?.qty ?? d?.stairsQty ?? 0) || 0;
-  const shPer = Number(d?.shkallore?.per ?? d?.stairsPer ?? 0.3) || 0.3;
-
-  const v = Number((sumM2(t) + sumM2(s) + (shQty * shPer)).toFixed(2));
-  return Number.isFinite(v) ? v : 0;
+  const extra = [];
+  if (stairsQty > 0) {
+    const total = Number((stairsQty * stairsPer).toFixed(2));
+    extra.push(`SHKALLË: ${stairsQty} x ${stairsPer} = ${total}m²`);
+  }
+  return { lines, extra };
 }
 
 function totalEurFromOrder(o) {
-  const d = getOrderData(o);
-  const pay = d?.pay && typeof d.pay === 'object' ? d.pay : {};
-
-  const euro = Number(pay?.euro ?? pay?.total ?? d?.total ?? d?.sum ?? d?.shuma ?? NaN);
+  const pay = payOfOrder(o);
+  const euro = Number(pay?.euro ?? pay?.total ?? NaN);
   if (Number.isFinite(euro)) return Number(euro.toFixed(2));
 
-  const rate = Number(pay?.rate ?? pay?.price ?? pay?.pricePerM2 ?? d?.price ?? d?.eur_per_m2 ?? 0) || 0;
-  const m2 = m2TotalFromOrder(o);
-  return Number((rate * m2).toFixed(2)) || 0;
-}
-
-function paidEurFromOrder(o) {
   const d = getOrderData(o);
-  const pay = (d?.pay && typeof d.pay === 'object') ? d.pay : {};
-  const paid = Number(pay?.paid);
-  return Number.isFinite(paid) ? Number(paid.toFixed(2)) : 0;
+  // fallback: rate * m2
+  const rate = Number(pay?.price ?? pay?.rate ?? d?.price ?? 0) || 0;
+  const m2 = Number(pay?.m2 ?? 0) || 0;
+  const v = rate * m2;
+  return Number.isFinite(v) ? Number(v.toFixed(2)) : 0;
 }
 
 export default function TransportFletorePage() {
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [meta, setMeta] = useState(null);
-  const [groups, setGroups] = useState([]);
-  const [q, setQ] = useState('');
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [data, setData] = useState(null);
+  const [q, setQ] = useState("");
   const [showCompleted, setShowCompleted] = useState(false);
 
   const actor = useMemo(() => {
@@ -108,110 +129,107 @@ export default function TransportFletorePage() {
     try { return getTransportSession(); } catch { return null; }
   }, [actor?.pin, actor?.role]);
 
-  const transportId = String(session?.transport_id || '').trim();
-  const transportName = String(session?.transport_name || session?.name || actor?.name || 'TRANSPORT').trim();
+  const transportId = String(session?.transport_id || "").trim();
+  const transportName = String(session?.transport_name || session?.name || actor?.name || "TRANSPORT").trim();
 
   const ok = useMemo(() => {
-    const role = String(actor?.role || '').toUpperCase();
-    return role === 'TRANSPORT' || role === 'OWNER' || role === 'ADMIN' || role === 'DISPATCH';
+    const role = String(actor?.role || "").toUpperCase();
+    return role === "TRANSPORT" || role === "OWNER" || role === "ADMIN" || role === "DISPATCH";
   }, [actor?.role]);
 
   async function load() {
-    setError('');
-    setNotice('');
+    setError("");
+    setNotice("");
     setLoading(true);
 
     if (!ok) {
       setLoading(false);
-      setError('NUK JE I KYÇUR — Shko te LOGIN dhe hyn me PIN.');
+      setError("NUK JE I KYÇUR — Shko te LOGIN dhe hyn me PIN.");
       return;
     }
     if (!transportId) {
       setLoading(false);
-      setError('TRANSPORT SESSION MUNGON — Hape /TRANSPORT edhe provo prapë.');
+      setError("TRANSPORT SESSION MUNGON — Hape /TRANSPORT edhe provo prapë.");
       return;
     }
 
     try {
-      const started = Date.now();
-
       const ordersQ = supabase
-        .from('transport_orders')
-        .select('id,created_at,updated_at,code_str,client_name,client_phone,status,data,transport_id')
-        .eq('transport_id', transportId)
-        .order('created_at', { ascending: false })
+        .from("transport_orders")
+        .select("id,created_at,updated_at,code_str,client_name,client_phone,status,data,transport_id")
+        .eq("transport_id", transportId)
+        .order("created_at", { ascending: false })
         .limit(5000);
 
-      // Clients table is optional. If it fails, we still build from orders.
+      // Optional clients (nese s'ekziston tabela, vazhdon me orders)
       const clientsQ = supabase
-        .from('transport_clients')
-        .select('id,full_name,phone,created_at,updated_at')
-        .order('created_at', { ascending: true })
+        .from("transport_clients")
+        .select("id,full_name,phone,created_at,updated_at")
+        .order("created_at", { ascending: true })
         .limit(5000);
 
       const [ordersRes, clientsRes] = await Promise.all([ordersQ, clientsQ]);
       if (ordersRes?.error) throw ordersRes.error;
 
-      const orders = ordersRes?.data || [];
-      const clients = (clientsRes && !clientsRes.error) ? (clientsRes.data || []) : [];
-
-      const byPhone = new Map();
-      for (const c of clients) {
-        const p = normPhone(c?.phone);
-        if (!p) continue;
-        byPhone.set(p, { name: c?.full_name || '-', phone: p });
-      }
-
-      for (const o of orders) {
-        const p = normPhone(o?.client_phone);
-        if (!p) continue;
-        if (!byPhone.has(p)) byPhone.set(p, { name: o?.client_name || '-', phone: p });
-      }
-
-      const out = [];
-      for (const [phone, c] of byPhone.entries()) {
-        let list = orders.filter((o) => normPhone(o?.client_phone) === phone);
-        if (!list.length) continue;
-
-        if (!showCompleted) {
-          list = list.filter((o) => !['dorzim', 'done', 'completed'].includes(String(o?.status || '').toLowerCase()));
-        }
-        if (!list.length) continue;
-
-        // newest first already from query order, but filter keeps order
-        const last = list[0];
-        const sumEur = list.reduce((a, o) => a + (totalEurFromOrder(o) || 0), 0);
-        const sumPaid = list.reduce((a, o) => a + (paidEurFromOrder(o) || 0), 0);
-        const sumM2 = list.reduce((a, o) => a + (m2TotalFromOrder(o) || 0), 0);
-
-        out.push({
-          phone,
-          name: c?.name || '-',
-          count: list.length,
-          lastStatus: String(last?.status || '').toUpperCase() || '-',
-          lastDate: last?.created_at || last?.updated_at || null,
-          sumEur: Number(sumEur.toFixed(2)),
-          sumPaid: Number(sumPaid.toFixed(2)),
-          sumDebt: Number(Math.max(0, sumEur - sumPaid).toFixed(2)),
-          sumM2: Number(sumM2.toFixed(2)),
-          orders: list,
-        });
-      }
-
-      out.sort((a, b) => new Date(b.lastDate || 0).getTime() - new Date(a.lastDate || 0).getTime());
-
-      const tookMs = Date.now() - started;
-      setGroups(out);
-      setMeta({
-        transportId,
-        transportName,
-        ordersCount: orders.length,
-        clientsCount: out.length,
-        loadedAt: new Date().toISOString(),
-        tookMs,
+      const orders = (ordersRes?.data || []).map((o) => {
+        const d = getOrderData(o);
+        const c = d?.client && typeof d.client === "object" ? d.client : {};
+        return {
+          ...o,
+          // unify a bit (si baza)
+          code: o?.code_str || c?.code || "",
+          client_name: String(o?.client_name || c?.name || "").trim(),
+          client_phone: String(o?.client_phone || c?.phone || "").trim(),
+        };
       });
 
-      setNotice(clientsRes?.error ? 'KUJDES: transport_clients nuk u lexua (po përdor vetëm orders).' : '');
+      // Build clients list (prefer transport_clients, else derive from orders)
+      const clients = [];
+      const seen = new Set();
+
+      const addClient = (code, full_name, phone) => {
+        const k = `${String(code || "").trim()}|${normPhone(phone)}`;
+        if (!String(code || "").trim() && !normPhone(phone)) return;
+        if (seen.has(k)) return;
+        seen.add(k);
+        clients.push({ code: String(code || "").trim(), full_name: String(full_name || "-").trim(), phone: String(phone || "-").trim() });
+      };
+
+      const clientsOk = clientsRes && !clientsRes.error ? (clientsRes.data || []) : null;
+
+      if (clientsOk && clientsOk.length) {
+        // transport_clients doesn't have code in your schema - so we still derive code from orders for grouping,
+        // but we use the table mainly for name/phone canonicalization.
+        const byPhone = new Map();
+        for (const c of clientsOk) {
+          const p = normPhone(c?.phone);
+          if (!p) continue;
+          byPhone.set(p, c);
+        }
+        for (const o of orders) {
+          const d = getOrderData(o);
+          const c = d?.client && typeof d.client === "object" ? d.client : {};
+          const code = String(o?.code_str || c?.code || "").trim();
+          const phone = String(o?.client_phone || c?.phone || "").trim();
+          const p = normPhone(phone);
+          const cc = byPhone.get(p);
+          addClient(code, cc?.full_name || o?.client_name || c?.name, phone);
+        }
+      } else {
+        for (const o of orders) {
+          const d = getOrderData(o);
+          const c = d?.client && typeof d.client === "object" ? d.client : {};
+          addClient(String(o?.code_str || c?.code || "").trim(), o?.client_name || c?.name, o?.client_phone || c?.phone);
+        }
+        setNotice("KUJDES: transport_clients nuk u lexua (po përdor vetëm orders).");
+      }
+
+      setData({
+        generated_at: new Date().toISOString(),
+        transport: { id: transportId, name: transportName },
+        clients,
+        orders,
+      });
     } catch (e) {
       setError(String(e?.message || e));
     } finally {
@@ -219,162 +237,322 @@ export default function TransportFletorePage() {
     }
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transportId, ok, showCompleted]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [transportId, ok]);
 
-  const filtered = useMemo(() => {
-    const s = String(q || '').trim().toLowerCase();
-    if (!s) return groups;
-    return groups.filter((g) => {
-      const phone = String(g.phone || '').toLowerCase();
-      const name = String(g.name || '').toLowerCase();
-      const codes = (g.orders || []).map((o) => String(o.code_str || '').toLowerCase()).join(' ');
-      return phone.includes(s) || name.includes(s) || codes.includes(s);
+  // --- LOGJIKA KRYESORE (si baza): AKTIV vs JO-AKTIV ---
+  const { activeClients, inactiveClients } = useMemo(() => {
+    const allClients = Array.isArray(data?.clients) ? data.clients : [];
+    const allOrders = Array.isArray(data?.orders) ? data.orders : [];
+    const search = String(q || "").trim().toLowerCase();
+
+    const doneStatuses = new Set(["dorezuar","dorëzuar","dorzim","dorezim","paguar","anuluar","arkiv","arkivuar","done","completed"]);
+
+    // Map orders by client code (Txx)
+    const ordersByCode = new Map();
+    allOrders.forEach((o) => {
+      const code = String(o?.code_str || o?.code || "").trim();
+      if (!code) return;
+      if (!ordersByCode.has(code)) ordersByCode.set(code, []);
+      ordersByCode.get(code).push(o);
     });
-  }, [groups, q]);
 
-  const totals = useMemo(() => {
-    const sumEur = filtered.reduce((a, g) => a + (Number(g.sumEur) || 0), 0);
-    const sumPaid = filtered.reduce((a, g) => a + (Number(g.sumPaid) || 0), 0);
-    const sumDebt = filtered.reduce((a, g) => a + (Number(g.sumDebt) || 0), 0);
-    const sumM2 = filtered.reduce((a, g) => a + (Number(g.sumM2) || 0), 0);
-    return {
-      eur: Number(sumEur.toFixed(2)),
-      paid: Number(sumPaid.toFixed(2)),
-      debt: Number(sumDebt.toFixed(2)),
-      m2: Number(sumM2.toFixed(2)),
-    };
-  }, [filtered]);
+    for (const [k, arr] of ordersByCode.entries()) {
+      arr.sort((a, b) => {
+        const ta = new Date(a?.created_at || 0).getTime();
+        const tb = new Date(b?.created_at || 0).getTime();
+        return tb - ta;
+      });
+      ordersByCode.set(k, arr);
+    }
 
-  function doPrint() {
-    try { window.print(); } catch {}
-  }
+    const activeCodes = new Set();
+    const activeOrderByCode = new Map();
+    const lastOrderByCode = new Map();
+
+    for (const [code, arr] of ordersByCode.entries()) {
+      const last = arr[0];
+      if (last) lastOrderByCode.set(code, last);
+
+      const active = arr.find((o) => {
+        const s = String(o?.status || "").toLowerCase();
+        return !doneStatuses.has(s);
+      });
+      if (active) {
+        activeCodes.add(code);
+        activeOrderByCode.set(code, active);
+      }
+    }
+
+    const active = [];
+    const inactive = [];
+
+    allClients.forEach((c) => {
+      const codeRaw = c?.code ?? "";
+      const code = String(codeRaw ?? "").toLowerCase();
+      const name = nameOfClient(c).toLowerCase();
+      const phone = phoneOfClient(c).toLowerCase();
+
+      const matches = !search || code.includes(search) || name.includes(search) || phone.includes(search);
+      if (!matches) return;
+
+      if (codeRaw && activeCodes.has(String(codeRaw))) {
+        const o = activeOrderByCode.get(String(codeRaw)) || null;
+        const last = lastOrderByCode.get(String(codeRaw)) || null;
+        active.push({ ...c, _activeOrder: o, _lastOrder: last });
+      } else {
+        const last = codeRaw ? (lastOrderByCode.get(String(codeRaw)) || null) : null;
+        inactive.push({ ...c, _lastOrder: last });
+      }
+    });
+
+    // Hide completed if unchecked
+    const inactiveFiltered = showCompleted ? inactive : inactive.filter((c) => {
+      const o = c?._lastOrder;
+      if (!o) return false;
+      const s = String(o?.status || "").toLowerCase();
+      return !doneStatuses.has(s) ? true : false; // if last is done, hide unless showCompleted
+    });
+
+    return { activeClients: active, inactiveClients: inactiveFiltered };
+  }, [data, q, showCompleted]);
 
   return (
-    <div className="wrap">
+    <main style={{ padding: "20px", maxWidth: "1200px", margin: "0 auto", backgroundColor: "#fff", color: "#000", minHeight: "100vh" }}>
+
+      {/* HEADER & CONTROLS (Nuk printohen) */}
+      <div className="no-print">
+        <div style={{ borderBottom: "2px solid #000", marginBottom: 20, paddingBottom: 10 }}>
+          <h1 style={{ margin: 0, fontSize: "24px", fontWeight: "900", textTransform: "uppercase" }}>
+            SISTEMI BACKUP — TRANSPORT
+          </h1>
+          <p style={{ margin: "5px 0", fontSize: "14px", color: "#666" }}>
+            Transport: <b>{transportName}</b> • ID: <b>{transportId || "-"}</b> • Data e gjenerimit: <b>{data?.generated_at ? fmtDate(data.generated_at) : "—"}</b>
+          </p>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20, backgroundColor: "#f0f0f0", padding: 15, borderRadius: 8 }}>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Kërko: EMËR / TEL / KOD"
+            style={{ padding: "10px", borderRadius: 5, border: "1px solid #ccc", flex: 1 }}
+          />
+
+          <button onClick={load} style={{ padding: "10px 15px", cursor: "pointer", fontWeight: "bold" }}>
+            REFRESH
+          </button>
+
+          <button onClick={() => window.print()} style={{ padding: "10px 15px", backgroundColor: "#444", color: "#fff", cursor: "pointer" }}>
+            📄 PDF
+          </button>
+
+          <Link href="/transport/menu" style={{ padding: "10px 15px", backgroundColor: "#000", color: "#fff", textDecoration: "none", fontWeight: "bold" }}>
+            MENU TRANSPORT
+          </Link>
+
+          <Link href="/transport" style={{ padding: "10px 15px", backgroundColor: "#000", color: "#fff", textDecoration: "none", fontWeight: "bold" }}>
+            TRANSPORT HOME
+          </Link>
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <input type="checkbox" checked={showCompleted} onChange={(e) => setShowCompleted(e.target.checked)} />
+          <b>SHFAQ EDHE TË DORËZUARA</b>
+        </label>
+
+        {notice ? <div style={{ marginBottom: 10, color: "#333" }}>{notice}</div> : null}
+        {loading && <div>Duke ngarkuar...</div>}
+        {error && <div style={{ color: "crimson", fontWeight: "bold" }}>{error}</div>}
+      </div>
+
+      {/* --- PJESA 1: KLIENTAT AKTIV - FORMA E FLETORES --- */}
+      {activeClients.length > 0 && (
+        <section style={{ marginBottom: "40px" }}>
+          <h2 style={{
+            fontSize: "22px",
+            borderBottom: "3px solid #000",
+            paddingBottom: "5px",
+            marginBottom: "15px",
+            textTransform: "uppercase"
+          }}>
+            📋 KLIENTAT NË PROCES ({activeClients.length})
+          </h2>
+
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+            gap: "0px",
+            borderTop: "2px solid #000",
+            borderLeft: "2px solid #000"
+          }}>
+            {activeClients.map((c, idx) => (
+              <div key={idx} style={{
+                borderRight: "2px solid #000",
+                borderBottom: "2px solid #000",
+                padding: "12px",
+                minHeight: "180px",
+                pageBreakInside: "avoid",
+                position: "relative"
+              }}>
+                <div style={{ position: "absolute", right: 8, top: 4, fontSize: "24px", fontWeight: "900", color: "#333" }}>
+                  {String(c.code || "").toUpperCase()}
+                </div>
+
+                <div style={{ paddingRight: "90px", marginBottom: "8px" }}>
+                  <div style={{ fontSize: "18px", fontWeight: "900", textTransform: "uppercase", lineHeight: "1.1" }}>
+                    {nameOfClient(c)}
+                  </div>
+                </div>
+
+                <div style={{ fontSize: "16px", fontFamily: "monospace", fontWeight: "600", marginBottom: "12px" }}>
+                  {phoneOfClient(c)}
+                </div>
+
+                {(() => {
+                  const o = c?._activeOrder;
+                  const pay = payOfOrder(o);
+                  const status = String(o?.status || "").toUpperCase() || "-";
+                  const pieces = piecesSummaryFromOrder(o);
+                  const lines = orderHandLines(o);
+                  const total = totalEurFromOrder(o);
+                  const m2 = Number(pay?.m2) || 0;
+
+                  return (
+                    <>
+                      <div style={{ marginTop: "auto", borderTop: "1px dashed #999", paddingTop: "5px", minHeight: "80px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "baseline" }}>
+                          <span style={{ fontSize: "10px", color: "#666", textTransform: "uppercase" }}>
+                            POROSIA AKTIVE:
+                          </span>
+                          <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase" }}>
+                            {status} {pieces ? `• ${pieces}` : ""}
+                          </span>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "12px", marginTop: "6px" }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontFamily: "monospace", fontSize: "14px", lineHeight: "1.4" }}>
+                              {lines.lines.length > 0 ? (
+                                lines.lines.map((v, i) => (
+                                  <div key={i}>{v}</div>
+                                ))
+                              ) : (
+                                <div style={{ color: "#999" }}>—</div>
+                              )}
+                            </div>
+
+                            {lines.extra.length > 0 && (
+                              <div style={{ marginTop: "6px", fontSize: "11px", color: "#333" }}>
+                                {lines.extra.map((t, i) => (
+                                  <div key={i}>{t}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div style={{ width: "120px", textAlign: "right" }}>
+                            <div style={{ fontSize: "12px", color: "#666", textTransform: "uppercase" }}>M²</div>
+                            <div style={{ fontSize: "18px", fontWeight: "900" }}>{m2 ? m2 : "—"}</div>
+                            <div style={{ marginTop: "6px", fontSize: "12px", color: "#666", textTransform: "uppercase" }}>€</div>
+                            <div style={{ fontSize: "18px", fontWeight: "900" }}>{total ? total : "—"}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* --- PJESA 2: KLIENTAT TJERË / TË KRYER --- */}
+      {inactiveClients.length > 0 && (
+        <section style={{ marginBottom: "40px" }}>
+          <h2 style={{
+            fontSize: "22px",
+            borderBottom: "3px solid #000",
+            paddingBottom: "5px",
+            marginBottom: "15px",
+            textTransform: "uppercase"
+          }}>
+            🗄️ KLIENTAT E TJERË / TË KRYER ({inactiveClients.length})
+          </h2>
+
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+            gap: "0px",
+            borderTop: "2px solid #000",
+            borderLeft: "2px solid #000"
+          }}>
+            {inactiveClients.map((c, idx) => {
+              const o = c?._lastOrder;
+              const pay = payOfOrder(o);
+              const status = String(o?.status || "").toUpperCase() || "-";
+              const pieces = piecesSummaryFromOrder(o);
+              const total = totalEurFromOrder(o);
+              const m2 = Number(pay?.m2) || 0;
+
+              return (
+                <div key={idx} style={{
+                  borderRight: "2px solid #000",
+                  borderBottom: "2px solid #000",
+                  padding: "12px",
+                  minHeight: "150px",
+                  pageBreakInside: "avoid",
+                  position: "relative",
+                  backgroundColor: "#fafafa"
+                }}>
+                  <div style={{ position: "absolute", right: 8, top: 4, fontSize: "22px", fontWeight: "900", color: "#555" }}>
+                    {String(c.code || "").toUpperCase()}
+                  </div>
+
+                  <div style={{ paddingRight: "90px", marginBottom: "8px" }}>
+                    <div style={{ fontSize: "16px", fontWeight: "900", textTransform: "uppercase", lineHeight: "1.1" }}>
+                      {nameOfClient(c)}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: "14px", fontFamily: "monospace", fontWeight: "600", marginBottom: "10px" }}>
+                    {phoneOfClient(c)}
+                  </div>
+
+                  <div style={{ borderTop: "1px dashed #bbb", paddingTop: "6px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#666", textTransform: "uppercase" }}>
+                      <span>STATUS</span>
+                      <span style={{ fontWeight: "800", color: "#111" }}>{status}</span>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+                      <div style={{ fontSize: "12px", color: "#333" }}>
+                        {pieces ? pieces : "—"}
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "12px", color: "#666" }}>M²: <b>{m2 || "—"}</b></div>
+                        <div style={{ fontSize: "12px", color: "#666" }}>€: <b>{total || "—"}</b></div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 8, fontSize: "11px", color: "#444" }}>
+                      {o?.created_at ? `DATA: ${fmtDate(o.created_at)}` : ""}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Print CSS minimal (si baza) */}
       <style jsx global>{`
         @media print {
           .no-print { display: none !important; }
-          body { background: #fff !important; color: #000 !important; }
-          .card { box-shadow: none !important; border: 1px solid #ddd !important; }
-          .btn, .pill { border: 1px solid #333 !important; color: #000 !important; }
-          .title, .card-title { color: #000 !important; }
+          body { background: #fff !important; }
         }
       `}</style>
-
-      <header className="header-row no-print">
-        <div>
-          <h1 className="title">FLETORJA • TRANSPORT</h1>
-          <div className="subtitle">{transportName ? transportName.toLowerCase() : 'transport'} • ID {transportId || '-'}</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Link className="pill" href="/transport/menu">MENU</Link>
-          <button className="pill" type="button" onClick={load} disabled={loading} style={{ opacity: loading ? 0.6 : 1 }}>
-            {loading ? 'DUKE NGARKU...' : 'REFRESH'}
-          </button>
-          <button className="pill" type="button" onClick={doPrint}>📄 PDF</button>
-        </div>
-      </header>
-
-      <section className="card no-print">
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              className="input"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="KËRKO (EMËR / TEL / KOD)"
-              style={{ minWidth: 220 }}
-            />
-            <label className="pill" style={{ cursor: 'pointer', userSelect: 'none' }}>
-              <input
-                type="checkbox"
-                checked={showCompleted}
-                onChange={(e) => setShowCompleted(e.target.checked)}
-                style={{ marginRight: 8 }}
-              />
-              SHFAQ EDHE TË DORËZUARA
-            </label>
-          </div>
-
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontWeight: 900 }}>
-            <div>M²: {totals.m2}</div>
-            <div>€ TOTAL: {totals.eur}</div>
-            <div>€ PAGUAR: {totals.paid}</div>
-            <div>€ BORXH: {totals.debt}</div>
-          </div>
-        </div>
-
-        {notice ? <div className="muted" style={{ marginTop: 10 }}>{notice}</div> : null}
-        {error ? <div style={{ marginTop: 10, color: '#ffb4b4', fontWeight: 900 }}>{error}</div> : null}
-        {meta ? (
-          <div className="muted" style={{ marginTop: 10 }}>
-            KLIENTA: {meta.clientsCount} • POROSI: {meta.ordersCount} • NGARKUAR: {fmtDateTime(meta.loadedAt)}
-          </div>
-        ) : null}
-      </section>
-
-      {/* PRINT HEADER */}
-      <section className="card" style={{ marginTop: 10 }}>
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontWeight: 1000, fontSize: 16 }}>FLETORJA — TRANSPORT</div>
-            <div className="muted" style={{ marginTop: 4 }}>TRANSPORT: {transportName} • ID: {transportId || '-'}</div>
-            <div className="muted">DATA: {fmtDateTime(new Date().toISOString())}</div>
-          </div>
-          <div style={{ textAlign: 'right', fontWeight: 900 }}>
-            <div>€ TOTAL: {totals.eur}</div>
-            <div>€ PAGUAR: {totals.paid}</div>
-            <div>€ BORXH: {totals.debt}</div>
-          </div>
-        </div>
-      </section>
-
-      <section className="card" style={{ marginTop: 10 }}>
-        {loading ? (
-          <div className="muted">DUKE NGARKU...</div>
-        ) : (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {filtered.map((g) => (
-              <div key={g.phone} style={{ padding: 10, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14 }}>
-                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontWeight: 1000 }}>{String(g.name || '-').toUpperCase()}</div>
-                    <div className="muted">TEL: {g.phone}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', fontWeight: 900 }}>
-                    <div>{g.count} POROSI</div>
-                    <div>M² {g.sumM2}</div>
-                    <div>€ {g.sumEur}</div>
-                    <div>€ BORXH {g.sumDebt}</div>
-                    <div style={{ opacity: 0.85 }}>{g.lastStatus}</div>
-                    <div className="muted">{fmtDateTime(g.lastDate)}</div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
-                  {(g.orders || []).map((o) => (
-                    <div key={o.id} className="row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
-                      <div style={{ fontWeight: 1000 }}>{String(o.code_str || '').toUpperCase()}</div>
-                      <div style={{ opacity: 0.9 }}>{piecesSummaryFromOrder(o)}</div>
-                      <div style={{ opacity: 0.9 }}>M² {m2TotalFromOrder(o)}</div>
-                      <div style={{ opacity: 0.9 }}>€ {totalEurFromOrder(o)}</div>
-                      <div className="muted">{String(o.status || '').toUpperCase()}</div>
-                      <div className="muted">{fmtDateTime(o.created_at || o.updated_at)}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            {!filtered.length ? <div className="muted">S’KA REZULTATE.</div> : null}
-          </div>
-        )}
-      </section>
-
-      <div className="no-print" style={{ height: 30 }} />
-    </div>
+    </main>
   );
 }
