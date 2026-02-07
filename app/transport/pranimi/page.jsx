@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
-import { reserveTransportCode, markTransportCodeUsed, getTransportCodePoolCount } from '@/lib/transportCodes';
+import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
 import { insertTransportOrder, saveOfflineTransportOrder } from '@/lib/transport/transportDb'; 
 import { recordCashMove } from '@/lib/arkaCashSync';
 import { addTransportCollected } from '@/lib/transportArkaStore';
@@ -109,6 +109,7 @@ export default function TransportPranim() {
   const [clientPaid, setClientPaid] = useState(0);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  // NOTE: "E PA PLOTSUAR" checkbox removed. Drafts are handled via local drafts list.
 
   // DEBUG & Modals
   const [logs, setLogs] = useState([]);
@@ -155,10 +156,8 @@ export default function TransportPranim() {
         const id = crypto.randomUUID(); 
         setOid(id);
         
-        const who = String(me.transport_id || me.transport_name || 'TRANSPORT');
-        const tcode = await reserveTransportCode(who);
+        const tcode = await reserveTransportCode();
         setCodeRaw(tcode);
-        setPoolCount(getTransportCodePoolCount(who));
         setCreating(false);
       } catch (e) { 
           console.error(e); 
@@ -385,6 +384,7 @@ export default function TransportPranim() {
 
       <section className="card">
         <h2 className="card-title">KLIENTI & ADRESA</h2>
+        {/* "E PA PLOTSUAR" checkbox intentionally removed */}
         <div className="field-group">
           <label className="label">EMRI & MBIEMRI</label>
           <div className="row" style={{ alignItems: 'center', gap: 10 }}>
