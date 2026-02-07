@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
-import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
+import { reserveTransportCode, markTransportCodeUsed, getTransportCodePoolCount } from '@/lib/transportCodes';
 import { insertTransportOrder, saveOfflineTransportOrder } from '@/lib/transport/transportDb'; 
 import { recordCashMove } from '@/lib/arkaCashSync';
 import { addTransportCollected } from '@/lib/transportArkaStore';
@@ -90,6 +90,7 @@ export default function TransportPranim() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [oid, setOid] = useState('');
   const [codeRaw, setCodeRaw] = useState('');
+  const [poolCount, setPoolCount] = useState(0);
 
   // Data
   const [name, setName] = useState('');
@@ -157,8 +158,9 @@ export default function TransportPranim() {
         const id = crypto.randomUUID(); 
         setOid(id);
         
-        const tcode = await reserveTransportCode();
+        const tcode = await reserveTransportCode(String(me.transport_id || me.transport_name || 'TRANSPORT'));
         setCodeRaw(tcode);
+        setPoolCount(getTransportCodePoolCount(String(me.transport_id || me.transport_name || 'TRANSPORT')));
         setCreating(false);
       } catch (e) { 
           console.error(e); 
@@ -335,7 +337,7 @@ export default function TransportPranim() {
         throw new Error(res?.error || "Insert failed.");
       }
 
-      await markTransportCodeUsed(codeStr);
+      await markTransportCodeUsed(codeStr, String(me.transport_id || me.transport_name || 'TRANSPORT'));
       if (paidEuro > 0) { 
           await recordCashMove({ amount: paidEuro, method: 'CASH', type: 'TRANSPORT', status: 'COLLECTED', order_id: orderData.id, order_code: codeStr, client_name: name.trim(), stage: 'PRANIMI', note: `TRANSPORT ${codeStr}`, created_by_pin: String(me.transport_id), created_by_name: me.transport_name || me.transport_id, approved_by_pin: null }); 
       }
@@ -373,7 +375,12 @@ export default function TransportPranim() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
              <Link className="btn secondary" href="/transport/menu" style={{fontSize: 10, padding: '6px 10px'}}>MENU</Link>
         </div>
-        <div className="code-badge"><span className="badge">{`KODI: ${normalizeTCode(codeRaw)}`}</span></div>
+        <div className="code-badge">
+          <span className="badge">{`KODI: ${normalizeTCode(codeRaw)}`}</span>
+          <div style={{ fontSize: 10, opacity: 0.75, marginTop: 4, textAlign: 'right' }}>
+            POOL: {poolCount}
+          </div>
+        </div>
       </header>
 
       {/* DRAFTS BUTTON */}
