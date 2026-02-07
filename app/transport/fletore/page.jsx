@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import { downloadPdf } from "@/lib/downloadPdf";
 import { getActor } from "@/lib/actorSession";
 import { getTransportSession } from "@/lib/transportAuth";
 
@@ -342,7 +343,10 @@ export default function TransportFletorePage() {
             REFRESH
           </button>
 
-          <button onClick={() => window.print()} style={{ padding: "10px 15px", backgroundColor: "#444", color: "#fff", cursor: "pointer" }}>
+          <button
+            onClick={() => downloadPdf("fletore-root", `fletore-transport-${transportId || ""}-${new Date().toISOString().slice(0, 10)}.pdf`)}
+            style={{ padding: "10px 15px", backgroundColor: "#444", color: "#fff", cursor: "pointer" }}
+          >
             📄 PDF
           </button>
 
@@ -364,6 +368,9 @@ export default function TransportFletorePage() {
         {loading && <div>Duke ngarkuar...</div>}
         {error && <div style={{ color: "crimson", fontWeight: "bold" }}>{error}</div>}
       </div>
+
+      {/* PDF ROOT (vetëm kjo pjesë shkarkohet si PDF) */}
+      <div id="fletore-root">
 
       {/* --- PJESA 1: KLIENTAT AKTIV - FORMA E FLETORES --- */}
       {activeClients.length > 0 && (
@@ -545,6 +552,8 @@ export default function TransportFletorePage() {
           </div>
         </section>
       )}
+
+      </div>
 
       {/* Print CSS minimal (si baza) */}
       <style jsx global>{`

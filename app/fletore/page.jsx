@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { downloadPdf } from "@/lib/downloadPdf";
 
 function fmtDate(d) {
   if (!d) return "";
@@ -330,7 +331,10 @@ export default function FletorePage() {
           <button onClick={runNow} disabled={running} style={{ padding: "10px 15px", backgroundColor: "#000", color: "#fff", cursor: "pointer" }}>
             {running ? "..." : "RUAJ TANI"}
           </button>
-          <button onClick={() => window.print()} style={{ padding: "10px 15px", backgroundColor: "#444", color: "#fff", cursor: "pointer" }}>
+          <button
+            onClick={() => downloadPdf("fletore-root", `fletore-baze-${new Date().toISOString().slice(0, 10)}.pdf`)}
+            style={{ padding: "10px 15px", backgroundColor: "#444", color: "#fff", cursor: "pointer" }}
+          >
             📄 PDF
           </button>
         </div>
@@ -338,6 +342,9 @@ export default function FletorePage() {
         {loading && <div>Duke ngarkuar...</div>}
       </div>
 
+
+      {/* PDF ROOT (vetëm kjo pjesë shkarkohet si PDF) */}
+      <div id="fletore-root">
 
       {/* --- PJESA 1: KLIENTAT AKTIV (NË PROCES) - FORMA E FLETORES --- */}
       {activeClients.length > 0 && (
@@ -526,6 +533,8 @@ export default function FletorePage() {
           )}
         </section>
       )}
+
+      </div>
 
       {/* STILI PER PRINTIM */}
       <style jsx global>{`
