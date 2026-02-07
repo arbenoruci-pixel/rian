@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { getTransportSession } from '@/lib/transportAuth';
 
 // Capacity levels based ONLY on total m² in PASRTIMI.
 // Thresholds chosen so ~61 m² is NOT "E LARTE".
@@ -78,9 +79,17 @@ async function loadGlobalPastrimi() {
 }
 
 function readActor() {
+  // Prefer dedicated transport session (or reused TRANSPORT actor session)
   try {
-    const raw = localStorage.getItem('CURRENT_USER_DATA');
-    return raw ? JSON.parse(raw) : null;
+    const s = getTransportSession();
+    if (!s?.transport_id) return null;
+    return {
+      role: s?.role || 'TRANSPORT',
+      name: s?.transport_name || 'TRANSPORT',
+      pin: String(s.transport_id),
+      transport_id: String(s.transport_id),
+      from: s?.from || 'transport',
+    };
   } catch {
     return null;
   }
