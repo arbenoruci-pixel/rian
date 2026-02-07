@@ -669,17 +669,19 @@ return (
       {/* --- PJESA 2: KLIENTAT E TJERË (TË KRYER) - LISTË KOMPAKTE --- */}
       {inactiveClients.length > 0 && (
         <section>
-          <div style={ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }>
-            <h2 style={ 
-            fontSize: "18px", 
-            borderBottom: "2px solid #000", 
-            paddingBottom: "5px", 
-            marginBottom: "10px",
-            marginTop: "20px",
-            color: "#444",
-            textTransform: "uppercase",
-            flex: 1
-          }>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+            <h2
+              style={{
+                fontSize: "18px",
+                borderBottom: "2px solid #000",
+                paddingBottom: "5px",
+                marginBottom: "10px",
+                marginTop: "20px",
+                color: "#444",
+                textTransform: "uppercase",
+                flex: 1,
+              }}
+            >
               🗄️ Klientat e Tjerë / Të kryer ({inactiveClients.length})
             </h2>
 
