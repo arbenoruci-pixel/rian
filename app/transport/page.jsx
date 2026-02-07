@@ -148,8 +148,8 @@ export default function TransportHome() {
             <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
               <Link className="btn btn-primary" href="/transport/pranimi">PRANIMI (TRANSPORT)</Link>
 	              <Link className="btn" href="/transport/pickup">PICKUP / LOADED</Link>
-              <Link className="btn" href="/transport/gati">GATI (TRANSPORT)</Link>
               <Link className="btn" href="/transport/fletore">FLETORJA (PDF)</Link>
+              <Link className="btn" href="/transport/gati">GATI (TRANSPORT)</Link>
               <Link className="btn" href="/transport/arka">ARKA (TRANSPORT)</Link>
               <Link className="btn" href="/pastrimi">PASTRIMI (PËRBASHKËT)</Link>
             </div>

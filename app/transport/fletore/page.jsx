@@ -9,16 +9,13 @@ import { getTransportSession } from '@/lib/transportAuth';
 function fmtDateTime(d) {
   if (!d) return '';
   try {
-    return new Date(d).toLocaleString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return String(d);
-  }
-}
-
-function fmtDate(d) {
-  if (!d) return '';
-  try {
-    return new Date(d).toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit' });
+    return new Date(d).toLocaleString('sq-AL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   } catch {
     return String(d);
   }
@@ -37,45 +34,61 @@ function normPhone(v) {
   return String(v || '').replace(/\D+/g, '');
 }
 
-function normCodeN(v) {
-  const n = String(v ?? '').replace(/\D+/g, '').replace(/^0+/, '');
-  return n || '';
-}
-
 function getOrderData(o) {
   return jparse(o?.data, {}) || {};
 }
 
+function listQty(arr) {
+  return (arr || []).reduce((acc, r) => acc + (Number(r?.qty) || 0), 0);
+}
+
 function piecesSummaryFromOrder(o) {
   const d = getOrderData(o);
+
   const pieces = Number(d?.pieces ?? d?.copa ?? d?.qty_total ?? 0) || 0;
   if (pieces > 0) return `${pieces} COPË`;
 
-  const t = Array.isArray(d?.tepihaRows) ? d.tepihaRows : (Array.isArray(d?.tepiha) ? d.tepiha : []);
-  const s = Array.isArray(d?.stazaRows) ? d.stazaRows : (Array.isArray(d?.staza) ? d.staza : []);
+  const t = Array.isArray(d?.tepiha) ? d.tepiha : (Array.isArray(d?.tepihaRows) ? d.tepihaRows : []);
+  const s = Array.isArray(d?.staza) ? d.staza : (Array.isArray(d?.stazaRows) ? d.stazaRows : []);
   const sumQty = (arr) => (arr || []).reduce((acc, r) => acc + (Number(r?.qty) || 0), 0);
-  const total = sumQty(t) + sumQty(s) + (Number(d?.stairsQty) || 0);
+
+  const stairsQty = Number(d?.shkallore?.qty ?? d?.stairsQty ?? 0) || 0;
+  const total = sumQty(t) + sumQty(s) + (stairsQty > 0 ? 1 : 0);
   return total > 0 ? `${total} COPË` : '';
 }
 
 function m2TotalFromOrder(o) {
   const d = getOrderData(o);
-  // transport data uses tepihaRows/stazaRows + shkallore
-  const t = (Array.isArray(d?.tepihaRows) ? d.tepihaRows : []).reduce((a, r) => a + (Number(r?.m2) || 0) * (Number(r?.qty) || 0), 0);
-  const s = (Array.isArray(d?.stazaRows) ? d.stazaRows : []).reduce((a, r) => a + (Number(r?.m2) || 0) * (Number(r?.qty) || 0), 0);
-  const sh = (Number(d?.stairsQty) || 0) * (Number(d?.stairsPer) || 0.3);
-  const v = Number((t + s + sh).toFixed(2));
+
+  const t = Array.isArray(d?.tepiha) ? d.tepiha : (Array.isArray(d?.tepihaRows) ? d.tepihaRows : []);
+  const s = Array.isArray(d?.staza) ? d.staza : (Array.isArray(d?.stazaRows) ? d.stazaRows : []);
+
+  const sumM2 = (arr) => (arr || []).reduce((acc, r) => acc + (Number(r?.m2) || 0) * (Number(r?.qty) || 0), 0);
+
+  const shQty = Number(d?.shkallore?.qty ?? d?.stairsQty ?? 0) || 0;
+  const shPer = Number(d?.shkallore?.per ?? d?.stairsPer ?? 0.3) || 0.3;
+
+  const v = Number((sumM2(t) + sumM2(s) + (shQty * shPer)).toFixed(2));
   return Number.isFinite(v) ? v : 0;
 }
 
 function totalEurFromOrder(o) {
   const d = getOrderData(o);
   const pay = d?.pay && typeof d.pay === 'object' ? d.pay : {};
-  const total = Number(pay?.total ?? d?.total ?? d?.sum ?? d?.shuma ?? NaN);
-  if (Number.isFinite(total)) return total;
-  const price = Number(pay?.pricePerM2 ?? d?.price ?? d?.eur_per_m2 ?? 0) || 0;
+
+  const euro = Number(pay?.euro ?? pay?.total ?? d?.total ?? d?.sum ?? d?.shuma ?? NaN);
+  if (Number.isFinite(euro)) return Number(euro.toFixed(2));
+
+  const rate = Number(pay?.rate ?? pay?.price ?? pay?.pricePerM2 ?? d?.price ?? d?.eur_per_m2 ?? 0) || 0;
   const m2 = m2TotalFromOrder(o);
-  return Number((price * m2).toFixed(2)) || 0;
+  return Number((rate * m2).toFixed(2)) || 0;
+}
+
+function paidEurFromOrder(o) {
+  const d = getOrderData(o);
+  const pay = (d?.pay && typeof d.pay === 'object') ? d.pay : {};
+  const paid = Number(pay?.paid);
+  return Number.isFinite(paid) ? Number(paid.toFixed(2)) : 0;
 }
 
 export default function TransportFletorePage() {
@@ -83,9 +96,8 @@ export default function TransportFletorePage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [meta, setMeta] = useState(null);
-  const [rows, setRows] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [q, setQ] = useState('');
-  const [running, setRunning] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
 
   const actor = useMemo(() => {
@@ -107,18 +119,15 @@ export default function TransportFletorePage() {
   async function load() {
     setError('');
     setNotice('');
-    setRunning(true);
     setLoading(true);
 
     if (!ok) {
       setLoading(false);
-      setRunning(false);
       setError('NUK JE I KYÇUR — Shko te LOGIN dhe hyn me PIN.');
       return;
     }
     if (!transportId) {
       setLoading(false);
-      setRunning(false);
       setError('TRANSPORT SESSION MUNGON — Hape /TRANSPORT edhe provo prapë.');
       return;
     }
@@ -126,23 +135,21 @@ export default function TransportFletorePage() {
     try {
       const started = Date.now();
 
-      // 1) Orders for this transport only
       const ordersQ = supabase
         .from('transport_orders')
-        .select('id,created_at,updated_at,code_n,code_str,client_name,client_phone,status,data,transport_id')
+        .select('id,created_at,updated_at,code_str,client_name,client_phone,status,data,transport_id')
         .eq('transport_id', transportId)
         .order('created_at', { ascending: false })
-        .limit(4000);
+        .limit(5000);
 
-      // 2) Clients table (optional; fallback is orders list)
+      // Clients table is optional. If it fails, we still build from orders.
       const clientsQ = supabase
         .from('transport_clients')
         .select('id,full_name,phone,created_at,updated_at')
         .order('created_at', { ascending: true })
-        .limit(4000);
+        .limit(5000);
 
       const [ordersRes, clientsRes] = await Promise.all([ordersQ, clientsQ]);
-
       if (ordersRes?.error) throw ordersRes.error;
 
       const orders = ordersRes?.data || [];
@@ -155,61 +162,60 @@ export default function TransportFletorePage() {
         byPhone.set(p, { name: c?.full_name || '-', phone: p });
       }
 
-      // Merge: ensure every order phone exists as a client in map
       for (const o of orders) {
         const p = normPhone(o?.client_phone);
         if (!p) continue;
-        if (!byPhone.has(p)) {
-          byPhone.set(p, { name: o?.client_name || '-', phone: p });
-        }
+        if (!byPhone.has(p)) byPhone.set(p, { name: o?.client_name || '-', phone: p });
       }
 
-      // Group orders per client phone
-      const groups = [];
+      const out = [];
       for (const [phone, c] of byPhone.entries()) {
-        const list = orders.filter((o) => normPhone(o?.client_phone) === phone);
+        let list = orders.filter((o) => normPhone(o?.client_phone) === phone);
         if (!list.length) continue;
 
-        // Completed means dorzim or completed/done variants
-        const filtered = showCompleted ? list : list.filter((o) => !['dorzim', 'done', 'completed'].includes(String(o?.status || '').toLowerCase()));
+        if (!showCompleted) {
+          list = list.filter((o) => !['dorzim', 'done', 'completed'].includes(String(o?.status || '').toLowerCase()));
+        }
+        if (!list.length) continue;
 
-        if (!filtered.length) continue;
+        // newest first already from query order, but filter keeps order
+        const last = list[0];
+        const sumEur = list.reduce((a, o) => a + (totalEurFromOrder(o) || 0), 0);
+        const sumPaid = list.reduce((a, o) => a + (paidEurFromOrder(o) || 0), 0);
+        const sumM2 = list.reduce((a, o) => a + (m2TotalFromOrder(o) || 0), 0);
 
-        const last = filtered[0];
-        const sumEur = filtered.reduce((a, o) => a + (totalEurFromOrder(o) || 0), 0);
-        const sumM2 = filtered.reduce((a, o) => a + (m2TotalFromOrder(o) || 0), 0);
-
-        groups.push({
+        out.push({
           phone,
           name: c?.name || '-',
-          count: filtered.length,
+          count: list.length,
           lastStatus: String(last?.status || '').toUpperCase() || '-',
           lastDate: last?.created_at || last?.updated_at || null,
           sumEur: Number(sumEur.toFixed(2)),
+          sumPaid: Number(sumPaid.toFixed(2)),
+          sumDebt: Number(Math.max(0, sumEur - sumPaid).toFixed(2)),
           sumM2: Number(sumM2.toFixed(2)),
-          orders: filtered,
+          orders: list,
         });
       }
 
-      // Sort: newest activity first
-      groups.sort((a, b) => new Date(b.lastDate || 0).getTime() - new Date(a.lastDate || 0).getTime());
+      out.sort((a, b) => new Date(b.lastDate || 0).getTime() - new Date(a.lastDate || 0).getTime());
 
       const tookMs = Date.now() - started;
-      setRows(groups);
+      setGroups(out);
       setMeta({
         transportId,
         transportName,
         ordersCount: orders.length,
-        clientsCount: groups.length,
+        clientsCount: out.length,
         loadedAt: new Date().toISOString(),
         tookMs,
       });
+
       setNotice(clientsRes?.error ? 'KUJDES: transport_clients nuk u lexua (po përdor vetëm orders).' : '');
     } catch (e) {
       setError(String(e?.message || e));
     } finally {
       setLoading(false);
-      setRunning(false);
     }
   }
 
@@ -219,151 +225,156 @@ export default function TransportFletorePage() {
   }, [transportId, ok, showCompleted]);
 
   const filtered = useMemo(() => {
-    const qq = String(q || '').trim().toLowerCase();
-    if (!qq) return rows;
-
-    return (rows || []).filter((r) => {
-      const phone = String(r.phone || '');
-      const name = String(r.name || '').toLowerCase();
-      const codes = (r.orders || []).map((o) => String(o.code_str || o.code_n || '')).join(' ').toLowerCase();
-      return name.includes(qq) || phone.includes(qq) || codes.includes(qq);
+    const s = String(q || '').trim().toLowerCase();
+    if (!s) return groups;
+    return groups.filter((g) => {
+      const phone = String(g.phone || '').toLowerCase();
+      const name = String(g.name || '').toLowerCase();
+      const codes = (g.orders || []).map((o) => String(o.code_str || '').toLowerCase()).join(' ');
+      return phone.includes(s) || name.includes(s) || codes.includes(s);
     });
-  }, [rows, q]);
+  }, [groups, q]);
+
+  const totals = useMemo(() => {
+    const sumEur = filtered.reduce((a, g) => a + (Number(g.sumEur) || 0), 0);
+    const sumPaid = filtered.reduce((a, g) => a + (Number(g.sumPaid) || 0), 0);
+    const sumDebt = filtered.reduce((a, g) => a + (Number(g.sumDebt) || 0), 0);
+    const sumM2 = filtered.reduce((a, g) => a + (Number(g.sumM2) || 0), 0);
+    return {
+      eur: Number(sumEur.toFixed(2)),
+      paid: Number(sumPaid.toFixed(2)),
+      debt: Number(sumDebt.toFixed(2)),
+      m2: Number(sumM2.toFixed(2)),
+    };
+  }, [filtered]);
+
+  function doPrint() {
+    try { window.print(); } catch {}
+  }
 
   return (
-    <div style={{ padding: 20, fontFamily: 'Arial', color: '#f2f2f2' }}>
-      {/* HEADER & CONTROLS (Nuk printohen) */}
-      <div className="no-print">
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 22, letterSpacing: 1 }}>FLETORJA — TRANSPORT</h1>
-            <div style={{ opacity: 0.85, fontWeight: 700 }}>{transportName ? transportName.toUpperCase() : 'TRANSPORT'} • ID: {transportId || '-'}</div>
-            <div style={{ opacity: 0.75, marginTop: 4, fontSize: 13 }}>
-              {meta?.loadedAt ? `E NGARKUAR: ${fmtDateTime(meta.loadedAt)}` : ''}
-              {meta?.tookMs ? ` • ${meta.tookMs}ms` : ''}
-            </div>
-          </div>
+    <div className="wrap">
+      <style jsx global>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: #fff !important; color: #000 !important; }
+          .card { box-shadow: none !important; border: 1px solid #ddd !important; }
+          .btn, .pill { border: 1px solid #333 !important; color: #000 !important; }
+          .title, .card-title { color: #000 !important; }
+        }
+      `}</style>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <Link className="pill" href="/transport/menu">MENU</Link>
-            <Link className="pill" href="/transport">TRANSPORT</Link>
-            <Link className="pill" href="/">HOME</Link>
-            <button
-              onClick={() => window.print()}
-              style={{ padding: '10px 14px', backgroundColor: '#444', color: '#fff', cursor: 'pointer', border: '1px solid #666', borderRadius: 10, fontWeight: 800 }}
-              title="Ruaje si PDF (Print → Save as PDF)"
-            >
-              📄 PDF
-            </button>
-          </div>
+      <header className="header-row no-print">
+        <div>
+          <h1 className="title">FLETORJA • TRANSPORT</h1>
+          <div className="subtitle">{transportName ? transportName.toLowerCase() : 'transport'} • ID {transportId || '-'}</div>
         </div>
-
-        <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="KËRKO: EMËR / TEL / KOD"
-            style={{ padding: 10, minWidth: 260, borderRadius: 10, border: '1px solid #555', background: '#111', color: '#fff', fontWeight: 800 }}
-          />
-          <button
-            onClick={load}
-            disabled={running}
-            style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #666', background: '#222', color: '#fff', fontWeight: 900, cursor: running ? 'not-allowed' : 'pointer', opacity: running ? 0.7 : 1 }}
-          >
-            {running ? 'DUKE NGARKUAR…' : 'REFRESH'}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Link className="pill" href="/transport/menu">MENU</Link>
+          <button className="pill" type="button" onClick={load} disabled={loading} style={{ opacity: loading ? 0.6 : 1 }}>
+            {loading ? 'DUKE NGARKU...' : 'REFRESH'}
           </button>
+          <button className="pill" type="button" onClick={doPrint}>📄 PDF</button>
+        </div>
+      </header>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 900 }}>
-            <input type="checkbox" checked={showCompleted} onChange={(e) => setShowCompleted(e.target.checked)} />
-            SHFAQ EDHE TË DORËZUARA
-          </label>
+      <section className="card no-print">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              className="input"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="KËRKO (EMËR / TEL / KOD)"
+              style={{ minWidth: 220 }}
+            />
+            <label className="pill" style={{ cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={showCompleted}
+                onChange={(e) => setShowCompleted(e.target.checked)}
+                style={{ marginRight: 8 }}
+              />
+              SHFAQ EDHE TË DORËZUARA
+            </label>
+          </div>
 
-          <div style={{ marginLeft: 'auto', opacity: 0.9, fontWeight: 800 }}>
-            {meta ? `${meta.clientsCount || 0} KLIENTË • ${meta.ordersCount || 0} POROSI (TË MIAT)` : ''}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontWeight: 900 }}>
+            <div>M²: {totals.m2}</div>
+            <div>€ TOTAL: {totals.eur}</div>
+            <div>€ PAGUAR: {totals.paid}</div>
+            <div>€ BORXH: {totals.debt}</div>
           </div>
         </div>
 
-        {notice ? <div style={{ marginTop: 10, color: '#ffd54a', fontWeight: 800 }}>{notice}</div> : null}
-        {error ? <div style={{ marginTop: 10, color: '#ff6b6b', fontWeight: 800 }}>{error}</div> : null}
-      </div>
+        {notice ? <div className="muted" style={{ marginTop: 10 }}>{notice}</div> : null}
+        {error ? <div style={{ marginTop: 10, color: '#ffb4b4', fontWeight: 900 }}>{error}</div> : null}
+        {meta ? (
+          <div className="muted" style={{ marginTop: 10 }}>
+            KLIENTA: {meta.clientsCount} • POROSI: {meta.ordersCount} • NGARKUAR: {fmtDateTime(meta.loadedAt)}
+          </div>
+        ) : null}
+      </section>
 
-      {/* PRINT CONTENT */}
-      <div style={{ marginTop: 16 }}>
+      {/* PRINT HEADER */}
+      <section className="card" style={{ marginTop: 10 }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontWeight: 1000, fontSize: 16 }}>FLETORJA — TRANSPORT</div>
+            <div className="muted" style={{ marginTop: 4 }}>TRANSPORT: {transportName} • ID: {transportId || '-'}</div>
+            <div className="muted">DATA: {fmtDateTime(new Date().toISOString())}</div>
+          </div>
+          <div style={{ textAlign: 'right', fontWeight: 900 }}>
+            <div>€ TOTAL: {totals.eur}</div>
+            <div>€ PAGUAR: {totals.paid}</div>
+            <div>€ BORXH: {totals.debt}</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="card" style={{ marginTop: 10 }}>
         {loading ? (
-          <div style={{ opacity: 0.8, fontWeight: 800 }}>DUKE NGARKUAR…</div>
+          <div className="muted">DUKE NGARKU...</div>
         ) : (
-          <>
-            {(filtered || []).map((c) => (
-              <div
-                key={c.phone}
-                style={{
-                  background: '#0d0d0d',
-                  border: '1px solid #333',
-                  borderRadius: 14,
-                  padding: 14,
-                  marginBottom: 12,
-                  pageBreakInside: 'avoid',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                  <div style={{ fontSize: 16, fontWeight: 900, letterSpacing: 0.5 }}>
-                    {String(c.name || '-').toUpperCase()} <span style={{ opacity: 0.85 }}>({c.phone})</span>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {filtered.map((g) => (
+              <div key={g.phone} style={{ padding: 10, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14 }}>
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontWeight: 1000 }}>{String(g.name || '-').toUpperCase()}</div>
+                    <div className="muted">TEL: {g.phone}</div>
                   </div>
-                  <div style={{ fontWeight: 900, opacity: 0.9 }}>
-                    {c.count} POROSI • {c.sumM2}m² • €{c.sumEur}
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', fontWeight: 900 }}>
+                    <div>{g.count} POROSI</div>
+                    <div>M² {g.sumM2}</div>
+                    <div>€ {g.sumEur}</div>
+                    <div>€ BORXH {g.sumDebt}</div>
+                    <div style={{ opacity: 0.85 }}>{g.lastStatus}</div>
+                    <div className="muted">{fmtDateTime(g.lastDate)}</div>
                   </div>
                 </div>
 
-                <div style={{ marginTop: 10, borderTop: '1px solid #222', paddingTop: 10 }}>
-                  {(c.orders || []).slice(0, 30).map((o) => {
-                    const codeStr = String(o?.code_str || '').trim();
-                    const codeN = normCodeN(o?.code_n);
-                    const code = codeStr || (codeN ? `T${codeN}` : '-');
-                    const st = String(o?.status || '').toUpperCase() || '-';
-                    const dt = fmtDate(o?.created_at || o?.updated_at);
-                    const pcs = piecesSummaryFromOrder(o);
-                    const m2 = m2TotalFromOrder(o);
-                    const eur = totalEurFromOrder(o);
-
-                    return (
-                      <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '6px 0', borderBottom: '1px dashed #1d1d1d' }}>
-                        <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                          <div style={{ fontWeight: 900, minWidth: 52 }}>{code}</div>
-                          <div style={{ opacity: 0.9, fontWeight: 800 }}>{dt}</div>
-                          <div style={{ opacity: 0.9, fontWeight: 900 }}>{st}</div>
-                          {pcs ? <div style={{ opacity: 0.85, fontWeight: 800 }}>{pcs}</div> : null}
-                        </div>
-                        <div style={{ fontWeight: 900, opacity: 0.9 }}>
-                          {m2 ? `${m2}m²` : ''} {eur ? ` • €${Number(eur).toFixed(2)}` : ''}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {(c.orders || []).length > 30 ? (
-                    <div style={{ marginTop: 8, opacity: 0.75, fontWeight: 800 }}>
-                      + {c.orders.length - 30} POROSI TË TJERA (NË PDF KUFIZOJME 30 RRESHTA PËR KLIENT)
+                <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                  {(g.orders || []).map((o) => (
+                    <div key={o.id} className="row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
+                      <div style={{ fontWeight: 1000 }}>{String(o.code_str || '').toUpperCase()}</div>
+                      <div style={{ opacity: 0.9 }}>{piecesSummaryFromOrder(o)}</div>
+                      <div style={{ opacity: 0.9 }}>M² {m2TotalFromOrder(o)}</div>
+                      <div style={{ opacity: 0.9 }}>€ {totalEurFromOrder(o)}</div>
+                      <div className="muted">{String(o.status || '').toUpperCase()}</div>
+                      <div className="muted">{fmtDateTime(o.created_at || o.updated_at)}</div>
                     </div>
-                  ) : null}
+                  ))}
                 </div>
               </div>
             ))}
 
-            {(!filtered || filtered.length === 0) && !error ? (
-              <div style={{ opacity: 0.8, fontWeight: 800 }}>S’KA TË DHËNA.</div>
-            ) : null}
-          </>
+            {!filtered.length ? <div className="muted">S’KA REZULTATE.</div> : null}
+          </div>
         )}
-      </div>
+      </section>
 
-      {/* PRINT STYLES */}
-      <style jsx>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { background: white; -webkit-print-color-adjust: exact; color-adjust: exact; }
-          div { color: #000 !important; }
-        }
-      `}</style>
+      <div className="no-print" style={{ height: 30 }} />
     </div>
   );
 }
