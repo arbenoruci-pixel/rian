@@ -28,8 +28,8 @@ export default function TransportMenu() {
           <div className="subtitle">{(s?.name||"").toLowerCase()} • TRANSPORT</div>
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          <Link className="pill" href="/?base=1" title="HAP BAZEN (OPSION)">SWITCH TO BASE</Link>
-          <button className="pill" onClick={logout}>LOG OUT</button>
+          <Link className="pill pillSmall" href="/?base=1" title="HAP BAZEN (OPSION)">SWITCH TO BASE</Link>
+          <button className="pill pillSmall" onClick={logout}>LOG OUT</button>
         </div>
       </header>
 
@@ -44,6 +44,14 @@ export default function TransportMenu() {
           <Link className="btn" href="/transport/arka">ARKA (TRANSPORT)</Link>
         </div>
       </section>
+
+      <style jsx>{`
+        .pillSmall{
+          padding: 7px 10px !important;
+          font-size: 11px !important;
+          letter-spacing: 0.06em !important;
+        }
+      `}</style>
     </div>
   );
 }
