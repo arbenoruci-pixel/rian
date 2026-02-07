@@ -100,6 +100,28 @@ export default function FletorePage() {
     return { lines, extra };
   }
 
+  function computeM2FromOrder(o) {
+    const d = getOrderData(o);
+    let total = 0;
+
+    const add = (arr) => {
+      (arr || []).forEach((r) => {
+        const m2 = Number(r?.m2) || 0;
+        const qty = Number(r?.qty) || 0;
+        if (m2 > 0 && qty > 0) total += m2 * qty;
+      });
+    };
+
+    add(Array.isArray(d?.tepihaRows) ? d.tepihaRows : (Array.isArray(d?.tepiha) ? d.tepiha : []));
+    add(Array.isArray(d?.stazaRows) ? d.stazaRows : (Array.isArray(d?.staza) ? d.staza : []));
+
+    const stairsQty = Number(d?.stairsQty) || 0;
+    const stairsPer = Number(d?.stairsPer) || 0.3;
+    if (stairsQty > 0 && stairsPer > 0) total += stairsQty * stairsPer;
+
+    return Number.isFinite(total) ? Number(total.toFixed(2)) : 0;
+  }
+
   function m2LinesFromOrder(o, maxLines = 12) {
     const d = getOrderData(o);
     const rows = [];
@@ -386,9 +408,9 @@ export default function FletorePage() {
                   const pay = payOfOrder(o);
                   const status = String(o?.status || "").toUpperCase() || "-";
                   const pieces = piecesSummaryFromOrder(o);
-                  const lines = orderHandLines(o);
+                  const hand = orderHandLines(o);
                   const total = Number(pay?.euro) || Number(o?.total) || 0;
-                  const m2 = Number(pay?.m2) || 0;
+                  const m2 = Number(pay?.m2) || computeM2FromOrder(o) || 0;
 
                   return (
                     <>
@@ -433,8 +455,16 @@ export default function FletorePage() {
                             whiteSpace: "pre-wrap",
                           }}
                         >
-                          {lines.length ? lines.join("\n") : "(PA MATJE AKOMA)"}
+                          {hand?.lines?.length ? hand.lines.join("\n") : "(PA MATJE AKOMA)"}
                         </div>
+
+                        {hand?.extra?.length ? (
+                          <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: "700", color: "#333" }}>
+                            {hand.extra.map((t, i) => (
+                              <div key={i}>{t}</div>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
 
                       <div
