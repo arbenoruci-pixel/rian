@@ -217,6 +217,19 @@ export default function TransportPranim() {
       setShowDraftsSheet(false);
   }
 
+  // UI delete is removed; we only do a silent cleanup of the matching local draft
+  // after a successful full save to prevent accidental code re-use.
+  function cleanupDraftAfterSave(id) {
+    if (!id) return;
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      const next = Array.isArray(list) ? list.filter((d) => d?.id !== id) : [];
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+      setDrafts(next);
+    } catch {}
+  }
+
   // Calculations & UI Helpers
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * parseNum(pricePerM2, 0)).toFixed(2)), [totalM2, pricePerM2]);
@@ -328,11 +341,13 @@ export default function TransportPranim() {
       if (paidEuro > 0) { 
           await recordCashMove({ amount: paidEuro, method: 'CASH', type: 'TRANSPORT', status: 'COLLECTED', order_id: orderData.id, order_code: codeStr, client_name: name.trim(), stage: 'PRANIMI', note: `TRANSPORT ${codeStr}`, created_by_pin: String(me.transport_id), created_by_name: me.transport_name || me.transport_id, approved_by_pin: null }); 
       }
-      
+
+      // silent cleanup of the local draft (no UI delete)
+      cleanupDraftAfterSave(oid);
 
       // TRANSPORT flow: keep orders out of BASE until transport does OFFLOAD.
       // After a full save, send driver to OFFLOAD list to "SHKARKO NË BAZË".
-            router.push('/transport/offload');
+      router.push('/transport/offload');
 
     } catch (e) {
       addLog(`ERROR: ${e.message}`);
@@ -341,6 +356,7 @@ export default function TransportPranim() {
       const savedOffline = orderData ? saveOfflineTransportOrder({ ...orderData, saved_at: Date.now(), is_offline: true }) : false;
       if (savedOffline) {
         alert("⚠️ S'ka rrjet (Ose DB Error)! U ruajt LOKALISHT.");
+        cleanupDraftAfterSave(oid);
         router.push('/transport/offload');
       } else {
         alert(`❌ DËSHTOI RUAJTJA!\n\n${e.message}`);
