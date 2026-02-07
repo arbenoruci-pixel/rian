@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
 
-// --- LOGJIKA E PANDRYSHUAR ---
+// --- LOGJIKA (E PANDRYSHUAR) ---
 function m2ToLevel(m2) {
   const v = Number(m2) || 0;
   if (v >= 140) return 'HIGH';
@@ -29,7 +29,6 @@ async function loadGlobalPastrimi() {
     if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch {} }
     const o = raw || {};
     
-    // Normalizimi
     const tepiha = Array.isArray(o.tepiha) ? o.tepiha : (o.tepihaRows || []).map(x => ({ m2: Number(x?.m2)||0, qty: Number(x?.qty||x?.pieces)||0 }));
     const staza = Array.isArray(o.staza) ? o.staza : (o.stazaRows || []).map(x => ({ m2: Number(x?.m2)||0, qty: Number(x?.qty||x?.pieces)||0 }));
 
@@ -50,7 +49,7 @@ function readActor() {
   } catch { return null; }
 }
 
-// --- UI MODERNE / KOMPAKTE ---
+// --- UI E PËRMIRËSUAR (SOFT BACKGROUND) ---
 
 export default function TransportHome() {
   const [me, setMe] = useState(null);
@@ -74,15 +73,15 @@ export default function TransportHome() {
     return () => clearInterval(t);
   }, []);
 
-  // Llogaritja e përqindjes për "Loading Bar" (Max 150m2 visualisht)
+  // Llogaritja e Loading Bar (max 150m2 vizualisht)
   const percent = Math.min((busy.m2 / 150) * 100, 100);
   
   // Ngjyrat dinamike
-  let barColor = '#22c55e'; // Green
+  let barColor = '#10b981'; // Green (Emerald)
   let statusText = 'LIRË';
   
   if (busy.level === 'MID') {
-    barColor = '#f59e0b'; // Orange
+    barColor = '#f59e0b'; // Amber
     statusText = 'MESATAR';
   } else if (busy.level === 'HIGH') {
     barColor = '#ef4444'; // Red
@@ -90,126 +89,149 @@ export default function TransportHome() {
   }
 
   return (
-    <div style={{ maxWidth: 500, margin: '0 auto', padding: '10px 15px', fontFamily: '-apple-system, sans-serif', background: '#f8fafc', minHeight: '100vh' }}>
+    // Këtu është ndryshimi kryesor: Background #f0f2f5 (Soft Grey)
+    <div style={{ 
+      backgroundColor: '#f0f2f5', 
+      minHeight: '100vh', 
+      padding: '20px 16px', 
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' 
+    }}>
       
-      {/* 1. HEADER I THJESHTE */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingTop: 10 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-0.5px' }}>TRANSPORT</h1>
-        </div>
+      <div style={{ maxWidth: 500, margin: '0 auto' }}>
         
-        {me ? (
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>{me.name.toUpperCase()}</div>
-            <Link href="/" style={{ fontSize: 11, color: '#94a3b8', textDecoration: 'none', fontWeight: 500 }}>DIL (LOGOUT)</Link>
+        {/* HEADER */}
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111827', margin: 0 }}>TRANSPORT</h1>
           </div>
-        ) : (
-           <Link href="/login" style={{ fontSize: 13, fontWeight: 600, color: '#2563eb' }}>LOGIN</Link>
+          
+          {me ? (
+            <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              {/* Emri shumë i vogël dhe diskret */}
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {me.name}
+              </span>
+              <Link href="/" style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'none' }}>Dil</Link>
+            </div>
+          ) : (
+             <Link href="/login" style={{ fontSize: 14, fontWeight: 600, color: '#2563eb' }}>Hyrje</Link>
+          )}
+        </header>
+
+        {me && (
+          <>
+            {/* KAPACITETI - KARTELË E BARDHË ME LOADING BAR */}
+            <div style={{ 
+              backgroundColor: '#ffffff', 
+              borderRadius: 16, 
+              padding: '16px 20px', 
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', 
+              marginBottom: 24 
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, alignItems: 'flex-end' }}>
+                <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>NGARKESA NË BAZË</span>
+                <span style={{ fontSize: 12, color: barColor, fontWeight: 800 }}>{statusText}</span>
+              </div>
+              
+              {/* Sfondi i Bar-it (shumë i lehtë) */}
+              <div style={{ height: 12, width: '100%', backgroundColor: '#f3f4f6', borderRadius: 10, overflow: 'hidden' }}>
+                {/* Pjesa e mbushur */}
+                <div style={{ 
+                  height: '100%', 
+                  width: `${percent}%`, 
+                  backgroundColor: barColor, 
+                  borderRadius: 10,
+                  transition: 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)'
+                }} />
+              </div>
+              
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                 <button 
+                   onClick={refreshGlobalPastrimi} 
+                   style={{ 
+                     background: 'none', border: 'none', 
+                     fontSize: 11, color: '#9ca3af', cursor: 'pointer', padding: 0 
+                   }}>
+                   {refreshing ? 'Duke matur...' : 'Rifresko'}
+                 </button>
+              </div>
+            </div>
+
+            {/* BUTONAT KRYESORË (BIG & BOLD) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <Link href="/transport/pranimi" style={{ textDecoration: 'none' }}>
+                <div style={primaryCardStyle('#2563eb')}> {/* Strong Blue */}
+                  <span style={{ fontSize: 28, marginBottom: 8 }}>📥</span>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>PRANIMI</span>
+                </div>
+              </Link>
+
+              <Link href="/transport/pickup" style={{ textDecoration: 'none' }}>
+                <div style={primaryCardStyle('#4f46e5')}> {/* Indigo */}
+                  <span style={{ fontSize: 28, marginBottom: 8 }}>🚚</span>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>PICKUP</span>
+                </div>
+              </Link>
+            </div>
+
+            {/* BUTONAT SEKONDARË (CLEAN WHITE) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Link href="/transport/gati" style={secondaryCardStyle}>
+                <span>✅ GATI</span>
+              </Link>
+              
+              <Link href="/transport/arka" style={secondaryCardStyle}>
+                <span>💰 ARKA</span>
+              </Link>
+
+              <Link href="/transport/fletore" style={secondaryCardStyle}>
+                <span>📝 FLETORJA</span>
+              </Link>
+
+              <Link href="/pastrimi" style={secondaryCardStyle}>
+                <span>🧼 PASTRIMI</span>
+              </Link>
+            </div>
+          </>
         )}
-      </header>
 
-      {me && (
-        <>
-          {/* 2. KAPACITETI (LOADING BAR STYLE) */}
-          <div style={{ background: '#fff', padding: '12px 16px', borderRadius: 14, boxShadow: '0 2px 4px rgba(0,0,0,0.04)', marginBottom: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'flex-end' }}>
-              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Ngarkesa në bazë</span>
-              <span style={{ fontSize: 11, color: barColor, fontWeight: 800 }}>{statusText}</span>
-            </div>
-            
-            {/* The Bar Container */}
-            <div style={{ height: 10, width: '100%', background: '#f1f5f9', borderRadius: 10, overflow: 'hidden' }}>
-              {/* The Filled Part */}
-              <div style={{ 
-                height: '100%', 
-                width: `${percent}%`, 
-                background: barColor, 
-                borderRadius: 10,
-                transition: 'width 0.5s ease-in-out'
-              }} />
-            </div>
-            
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
-               <button onClick={refreshGlobalPastrimi} style={{ background: 'none', border: 'none', fontSize: 10, color: '#94a3b8', cursor: 'pointer' }}>
-                 {refreshing ? 'Duke u matur...' : 'Rifresko'}
-               </button>
-            </div>
+        {!me && (
+          <div style={{ textAlign: 'center', marginTop: 40, color: '#6b7280' }}>
+            <p>Ju lutem kyçuni për të vazhduar.</p>
           </div>
-
-          {/* 3. VEPRIMET KRYESORE (BIG BUTTONS) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <Link href="/transport/pranimi" style={{ textDecoration: 'none' }}>
-              <div style={bigCardStyle('#3b82f6')}> {/* Blue */}
-                <span style={{ fontSize: 26 }}>📥</span>
-                <span style={{ fontWeight: 700, fontSize: 16, marginTop: 4 }}>PRANIMI</span>
-              </div>
-            </Link>
-
-            <Link href="/transport/pickup" style={{ textDecoration: 'none' }}>
-              <div style={bigCardStyle('#6366f1')}> {/* Indigo */}
-                <span style={{ fontSize: 26 }}>🚚</span>
-                <span style={{ fontWeight: 700, fontSize: 16, marginTop: 4 }}>PICKUP</span>
-              </div>
-            </Link>
-          </div>
-
-          {/* 4. VEPRIMET DYTESORE (GRID) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Link href="/transport/gati" style={smallCardStyle}>
-              <span>✅ GATI</span>
-            </Link>
-            
-            <Link href="/transport/arka" style={smallCardStyle}>
-              <span>💰 ARKA</span>
-            </Link>
-
-            <Link href="/transport/fletore" style={smallCardStyle}>
-              <span>📝 FLETORJA</span>
-            </Link>
-
-            <Link href="/pastrimi" style={smallCardStyle}>
-              <span>🧼 PASTRIMI</span>
-            </Link>
-          </div>
-        </>
-      )}
-
-      {!me && (
-        <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-          Duhet të hysh me PIN.
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
 // STYLES
-const bigCardStyle = (color) => ({
-  background: color,
+const primaryCardStyle = (bg) => ({
+  backgroundColor: bg,
   color: 'white',
-  padding: '20px',
+  padding: '24px 16px',
   borderRadius: 16,
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  boxShadow: `0 8px 15px -3px ${color}55`, // Colored shadow
-  height: 120,
-  transition: 'transform 0.1s'
+  boxShadow: `0 10px 15px -3px ${bg}40`, // Colored soft shadow
+  height: 130,
+  transition: 'transform 0.1s active'
 });
 
-const smallCardStyle = {
-  background: '#fff',
-  color: '#334155',
-  border: '1px solid #e2e8f0',
+const secondaryCardStyle = {
+  backgroundColor: '#ffffff',
+  color: '#374151',
   borderRadius: 12,
-  padding: '14px',
+  padding: '16px',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   fontWeight: 600,
-  fontSize: 14,
+  fontSize: 13,
   textDecoration: 'none',
-  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-  height: 50
+  boxShadow: '0 1px 3px rgba(0,0,0,0.05)', // Subtle shadow
+  height: 60,
+  border: '1px solid transparent' // Keeps spacing clean
 };
