@@ -121,6 +121,11 @@ export default function TransportPranim() {
   const [payAddRaw, setPayAddRaw] = useState('');
   const [drafts, setDrafts] = useState([]);
 
+  // Client search (past clients)
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientHits, setClientHits] = useState([]);
+  const [clientSearchBusy, setClientSearchBusy] = useState(false);
+
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
   const payTouchRef = useRef({ x: 0, y: 0, moved: false });
