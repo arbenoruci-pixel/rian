@@ -72,28 +72,30 @@ export default function TransportOffloadPage(){
     if (!transportId) return;
     setBusy(true); setErr('');
     try{
+      // DB FIX REQUIRED:
+      // Ensure table public.transport_orders has a real column `transport_id` (generated from JSONB data)
+      // so RLS/policies and filtering do not reference a missing column.
       const { data, error } = await supabase
         .from('transport_orders')
         .select('id,status,created_at,code_str,code_n,data')
+        .eq('transport_id', transportId)
         .in('status', ['teren','transport_incomplete','pickup','loaded','transport_pickup'])
         .order('created_at', { ascending:false })
         .limit(500);
       if (error) throw error;
 
-      const list = (data||[])
-        .map(r => {
-          const d = safeJson(r.data);
-          const code = normalizeTCode(r.code_str || r.code_n || d?.client?.code || '');
-          return {
-            id: r.id,
-            code,
-            created_at: r.created_at,
-            status: r.status,
-            order: d || {},
-            transport_id: String(d?.transport_id || d?.scope?.transport_id || ''),
-          };
-        })
-        .filter(x => x.transport_id && x.transport_id.trim() === transportId);
+      const list = (data||[]).map(r => {
+        const d = safeJson(r.data);
+        const code = normalizeTCode(r.code_str || r.code_n || d?.client?.code || '');
+        return {
+          id: r.id,
+          code,
+          created_at: r.created_at,
+          status: r.status,
+          order: d || {},
+          transport_id: transportId,
+        };
+      });
 
       setItems(list);
       setSel(prev => {

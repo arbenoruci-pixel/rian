@@ -47,24 +47,27 @@ export default function TransportPickupPage() {
     setLoading(true);
     setErr("");
     try {
-      // IMPORTANT:
-      // transport_orders table does NOT have a transport_id column.
-      // We filter by data->transport_id in JS to avoid the "column ... transport_id does not exist" error.
+      const tid = String(me.transport_id);
+
+      // NOTE:
+      // In Supabase we add a generated column `transport_id` on public.transport_orders
+      // (derived from data->>'transport_id') so RLS/policies and filtering work.
       const { data, error } = await supabase
         .from("transport_orders")
         .select("id, created_at, status, code_str, code, code_n, data")
+        .eq("transport_id", tid)
         .in("status", ["pickup", "loaded"])
         .order("created_at", { ascending: false })
         .limit(400);
 
       if (error) throw error;
 
-      const tid = String(me.transport_id);
+      // Keep an extra safety filter (legacy rows), but DB-side filter should already do it.
       const filtered = (data || []).filter((r) => {
         const d = r?.data || {};
-        const dTid = String(d.transport_id || d.transportId || "");
-        const scope = String(d.scope || "");
-        return scope === "transport" && dTid === tid;
+        const dTid = String(d.transport_id || d.transportId || d?.scope?.transport_id || "");
+        const scope = String(d.scope || d?.scope?.name || "transport");
+        return String(dTid) === tid && String(scope) === "transport";
       });
 
       setRows(filtered);
