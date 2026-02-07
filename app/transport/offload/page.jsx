@@ -298,7 +298,8 @@ export default function TransportOffloadPage(){
               </div>
 
               <div className="actions">
-                <button className="btn ghost" onClick={() => openEditClient(it)}>EDIT</button>
+                <Link className="btn ghost" href={`/transport/pranimi?id=${encodeURIComponent(it.id)}`}>EDIT</Link>
+                <button className="btn ghost" onClick={() => openEditClient(it)}>KLIENT</button>
                 <button className="btn" onClick={() => offloadOne(it)}>SHKARKO</button>
               </div>
             </div>
