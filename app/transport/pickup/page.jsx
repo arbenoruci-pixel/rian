@@ -1,173 +1,163 @@
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
-import { getTransportSession } from '@/lib/transportAuth';
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+import { getTransportSession } from "@/lib/transportAuth";
 
 function normalizeT(code) {
-  const s = String(code || '').trim();
-  if (!s) return '';
-  const n = s.replace(/\D+/g, '').replace(/^0+/, '') || '0';
-  return `T${n}`;
+  if (!code) return "";
+  const s = String(code).trim();
+  if (/^t\d+/i.test(s)) {
+    const n = s.replace(/\D+/g, "").replace(/^0+/, "") || "0";
+    return `T${n}`;
+  }
+  const n = s.replace(/\D+/g, "").replace(/^0+/, "");
+  return n ? `T${n}` : "";
 }
 
-function safeObj(v) {
-  if (!v) return {};
-  if (typeof v === 'object') return v;
-  try { return JSON.parse(v); } catch { return {}; }
+function pickCode(row) {
+  return (
+    normalizeT(row?.code_str) ||
+    normalizeT(row?.code) ||
+    (row?.code_n ? `T${Number(row.code_n)}` : "") ||
+    normalizeT(row?.data?.client?.code)
+  );
 }
 
 export default function TransportPickupPage() {
+  const router = useRouter();
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState([]);
-  const [err, setErr] = useState('');
+  const [err, setErr] = useState("");
+  const [rows, setRows] = useState([]);
 
-  const transportId = String(me?.transport_id || '').trim();
+  useEffect(() => {
+    const s = getTransportSession();
+    if (!s?.transport_id) {
+      router.push("/transport");
+      return;
+    }
+    setMe(s);
+  }, [router]);
 
   async function load() {
-    if (!transportId) return;
+    if (!me?.transport_id) return;
     setLoading(true);
-    setErr('');
+    setErr("");
     try {
-      const res = await supabase
-        .from('transport_orders')
-        .select('id,created_at,code_str,status,data')
-        .eq('transport_id', transportId)
-        .in('status', ['pickup', 'loaded', 'transport_pickup', 'transport_loaded'])
-        .order('created_at', { ascending: true })
-        .limit(300);
-      if (res?.error) throw res.error;
+      // IMPORTANT:
+      // transport_orders table does NOT have a transport_id column.
+      // We filter by data->transport_id in JS to avoid the "column ... transport_id does not exist" error.
+      const { data, error } = await supabase
+        .from("transport_orders")
+        .select("id, created_at, status, code_str, code, code_n, data")
+        .in("status", ["pickup", "loaded"])
+        .order("created_at", { ascending: false })
+        .limit(400);
 
-      const out = (res?.data || []).map((r) => {
-        const d = safeObj(r.data);
-        const name = String(d?.client?.name || '').trim();
-        return {
-          id: r.id,
-          created_at: r.created_at,
-          status: String(r.status || '').toLowerCase(),
-          code: normalizeT(r.code_str || d?.client?.code || d?.code || ''),
-          name,
-        };
+      if (error) throw error;
+
+      const tid = String(me.transport_id);
+      const filtered = (data || []).filter((r) => {
+        const d = r?.data || {};
+        const dTid = String(d.transport_id || d.transportId || "");
+        const scope = String(d.scope || "");
+        return scope === "transport" && dTid === tid;
       });
-      setItems(out);
+
+      setRows(filtered);
     } catch (e) {
-      setErr(e?.message || 'Gabim');
+      setErr(e?.message || String(e));
+      setRows([]);
     } finally {
       setLoading(false);
     }
   }
 
-  async function setStatus(id, next) {
+  useEffect(() => {
+    if (!me?.transport_id) return;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.transport_id]);
+
+  const pickup = useMemo(() => rows.filter((r) => r.status === "pickup"), [rows]);
+  const loaded = useMemo(() => rows.filter((r) => r.status === "loaded"), [rows]);
+
+  async function setStatus(id, status) {
     try {
-      const row = items.find((x) => x.id === id);
-      if (!row) return;
-      const { data, error } = await supabase
-        .from('transport_orders')
-        .select('data')
-        .eq('id', id)
-        .single();
+      const { error } = await supabase
+        .from("transport_orders")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("id", id);
       if (error) throw error;
-      const d = safeObj(data?.data);
-      const merged = { ...d, status: next, updated_at: new Date().toISOString() };
-      const up = await supabase
-        .from('transport_orders')
-        .update({ status: next, data: merged })
-        .eq('id', id);
-      if (up?.error) throw up.error;
       await load();
     } catch (e) {
-      alert(`❌ S'u ndrru statusi\n${e?.message || ''}`);
+      alert(e?.message || String(e));
     }
   }
 
-  useEffect(() => {
-    const s = getTransportSession();
-    setMe(s || null);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    if (!transportId) return;
-    load();
-    const t = setInterval(load, 25000);
-    return () => clearInterval(t);
-  }, [transportId]);
-
-  const grouped = useMemo(() => {
-    const pickup = [];
-    const loaded = [];
-    for (const x of items) {
-      if (x.status.includes('loaded')) loaded.push(x);
-      else pickup.push(x);
-    }
-    return { pickup, loaded };
-  }, [items]);
-
-  const ok = !!transportId;
-
   return (
     <div className="wrap">
-      <header className="header-row">
+      <header className="header-row" style={{ alignItems: "flex-start" }}>
         <div>
           <h1 className="title">TRANSPORT • PICKUP</h1>
           <div className="subtitle">PICKUP → LOADED → SHKARKO NË BAZË</div>
         </div>
-        <Link className="pill" href="/transport/menu">MENU</Link>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Link className="btn secondary" href="/transport/menu">MENU</Link>
+        </div>
       </header>
 
-      <section className="card">
-        {!ok ? (
-          <div className="muted">NUK JE I KYÇUR — KTHEHU TE TRANSPORT dhe hyn me PIN.</div>
+      <section className="card" style={{ marginTop: 14 }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <button className="btn secondary" onClick={load} disabled={loading}>
+            REFRESH
+          </button>
+          <div style={{ fontWeight: 900, letterSpacing: 0.5 }}>SHKARKO NË BAZË</div>
+        </div>
+
+        {err ? (
+          <div style={{ color: "#ef4444", marginTop: 10, fontWeight: 800 }}>{err}</div>
+        ) : null}
+
+        <div style={{ marginTop: 14, fontWeight: 900, fontSize: 18 }}>PICKUP ({pickup.length})</div>
+        {pickup.length === 0 ? (
+          <div style={{ opacity: 0.75, marginTop: 6 }}>S'ka asnjë porosi në PICKUP.</div>
         ) : (
-          <>
-            <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-              <button className="pill" type="button" onClick={load} disabled={loading}>
-                {loading ? 'REFRESH...' : 'REFRESH'}
-              </button>
-              <Link className="pill" href="/transport/offload">SHKARKO NË BAZË</Link>
-            </div>
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+            {pickup.map((r) => (
+              <div key={r.id} className="row" style={{ justifyContent: "space-between", gap: 10 }}>
+                <div style={{ minWidth: 90, fontWeight: 900 }}>{pickCode(r) || "T?"}</div>
+                <div style={{ flex: 1, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {r?.data?.client?.name || "—"}
+                </div>
+                <button className="btn secondary" onClick={() => setStatus(r.id, "loaded")}>
+                  LOADED
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
-            {err ? <div className="muted" style={{ marginTop: 10, color: '#ef4444' }}>{err}</div> : null}
-
-            <div style={{ marginTop: 14 }}>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>PICKUP ({grouped.pickup.length})</div>
-              {grouped.pickup.length === 0 ? (
-                <div className="muted">S'ka asnjë porosi në PICKUP.</div>
-              ) : (
-                grouped.pickup.map((o) => (
-                  <div key={o.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #222' }}>
-                    <div style={{ width: 64, fontWeight: 900 }}>{o.code}</div>
-                    <div style={{ flex: 1, opacity: 0.92 }}>{(o.name || 'PA EMËR').toUpperCase()}</div>
-                    <button className="btn" type="button" onClick={() => setStatus(o.id, 'loaded')} style={{ padding: '8px 10px' }}>
-                      LOADED
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div style={{ marginTop: 18 }}>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>LOADED ({grouped.loaded.length})</div>
-              {grouped.loaded.length === 0 ? (
-                <div className="muted">S'ka asnjë porosi të LOADED.</div>
-              ) : (
-                grouped.loaded.map((o) => (
-                  <div key={o.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #222' }}>
-                    <div style={{ width: 64, fontWeight: 900 }}>{o.code}</div>
-                    <div style={{ flex: 1, opacity: 0.92 }}>{(o.name || 'PA EMËR').toUpperCase()}</div>
-                    <button className="btn secondary" type="button" onClick={() => setStatus(o.id, 'pickup')} style={{ padding: '8px 10px' }}>
-                      KTHE PICKUP
-                    </button>
-                    <Link className="btn" href="/transport/offload" style={{ padding: '8px 10px' }}>
-                      SHKARKO
-                    </Link>
-                  </div>
-                ))
-              )}
-            </div>
-          </>
+        <div style={{ marginTop: 16, fontWeight: 900, fontSize: 18 }}>LOADED ({loaded.length})</div>
+        {loaded.length === 0 ? (
+          <div style={{ opacity: 0.75, marginTop: 6 }}>S'ka asnjë porosi të LOADED.</div>
+        ) : (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+            {loaded.map((r) => (
+              <div key={r.id} className="row" style={{ justifyContent: "space-between", gap: 10 }}>
+                <div style={{ minWidth: 90, fontWeight: 900 }}>{pickCode(r) || "T?"}</div>
+                <div style={{ flex: 1, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {r?.data?.client?.name || "—"}
+                </div>
+                <Link className="btn primary" href={`/transport/offload?id=${encodeURIComponent(r.id)}`}>
+                  SHKARKO
+                </Link>
+              </div>
+            ))}
+          </div>
         )}
       </section>
     </div>
