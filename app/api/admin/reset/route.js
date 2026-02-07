@@ -59,7 +59,7 @@ export async function POST(req) {
     if (!supabase) return json({ ok: false, error: 'MISSING_ENV' }, 500);
 
     // Modes:
-    // - brand_new (default): wipes everything via tepiha_brand_new_v1
+    // - brand_new (default): full reset of operational data (BASE + TRANSPORT) via factory_reset_full_tepiha_v1
     // - clients_only: wipes only clients/orders/payments/arka operational tables via factory_reset_clients_only
     const mode = String(body?.mode || body?.reset_mode || 'brand_new').toLowerCase();
 
@@ -77,14 +77,18 @@ export async function POST(req) {
       return json({ ok: true, mode: 'clients_only', result: data || null });
     }
 
-    const { error } = await supabase.rpc('tepiha_brand_new_v1');
+    // Full destructive reset (but keeps schema). Includes BASE + TRANSPORT tables.
+    // Requires installing the SQL in /supabase/factory_reset_full_tepiha_transport.sql
+    const { data, error } = await supabase.rpc('factory_reset_full_tepiha_v1', {
+      pin: Number(expectedPin),
+    });
     if (error) return json({ ok: false, error: 'RPC_FAILED', detail: error.message, hint: error.hint }, 500);
 
     if (body?.wipe_photos) {
       try { await wipeBucketAll(supabase, 'tepiha-photos'); } catch {}
     }
 
-    return json({ ok: true, mode: 'brand_new' });
+    return json({ ok: true, mode: 'brand_new', result: data || null });
   } catch (err) {
     return json({ ok: false, error: 'UNEXPECTED', detail: String(err?.message || err) }, 500);
   }

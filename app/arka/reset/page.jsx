@@ -5,6 +5,40 @@ import Link from 'next/link';
 
 const LS_USER = 'CURRENT_USER_DATA';
 
+function wipeLocalTepihaData() {
+  try {
+    const prefixes = [
+      'TEPIHA',
+      'order_',
+      'orders_',
+      'client_',
+      'clients_',
+      'transport_',
+      'arka_',
+      'company_budget',
+      'code_',
+      'photo_',
+      'X_CODE',
+      'T_CODE',
+    ];
+
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k) keys.push(k);
+    }
+
+    keys.forEach((k) => {
+      const hit = prefixes.some((p) => k.startsWith(p));
+      if (hit || k === 'tepiha_session_v1' || k === 'CURRENT_USER_DATA' || k === 'client_code_counter' || k === 'code_counter') {
+        try { localStorage.removeItem(k); } catch {}
+      }
+    });
+  } catch {
+    // ignore
+  }
+}
+
 function readJSON(key, fallback = null) {
   try {
     const raw = localStorage.getItem(key);
@@ -63,7 +97,7 @@ export default function FactoryResetPage() {
     setBusy(true);
     try {
       // IMPORTANT:
-      // Use /api/admin/reset (canonical). The old /api/admin/factory-reset expects a different body.
+      // Use /api/admin/reset (canonical). This calls a Supabase RPC that TRUNCATES data but keeps schema.
       const res = await fetch('/api/admin/reset', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -71,9 +105,8 @@ export default function FactoryResetPage() {
           requester_pin: String(user?.pin || '').trim(),
           pin: String(resetPin || '').trim(),
           confirm: String(confirmText || '').trim(),
-          wipe_db: true,
-          wipe_photos: true,
-          wipe_backups: true,
+          mode: 'brand_new',
+          wipe_photos: true
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -82,11 +115,8 @@ export default function FactoryResetPage() {
         return;
       }
 
-      // After reset: clear local session so app reloads clean.
-      try {
-        localStorage.removeItem('tepiha_session_v1');
-        localStorage.removeItem('CURRENT_USER_DATA');
-      } catch {}
+      // After reset: clear LOCAL app data (pools, queues, caches) so everything starts from scratch.
+      wipeLocalTepihaData();
 
       setMsg('OK — FACTORY RESET U KRY. PO RILOGOHESH…');
       setTimeout(() => {
