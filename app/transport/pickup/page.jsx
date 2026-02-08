@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
-import TransportEditModal from '@/components/transport/TransportEditModal';
+import TransportInlineEdit from '@/components/transport/TransportInlineEdit';
 
 function safeJson(v) {
   try {
@@ -81,23 +81,7 @@ export default function TransportPickupPage() {
   const [err, setErr] = useState('');
   const [rows, setRows] = useState([]);
   const [busyId, setBusyId] = useState(null);
-
-  const [editOpen, setEditOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
-
-  function openEdit(row) {
-    if (!row?.id) return;
-    const c = calcFromData(row.data);
-    const code = row.code_str || (row.code_n != null ? `T${row.code_n}` : 'T?');
-    setEditItem({
-      id: row.id,
-      data: safeJson(row.data),
-      code_str: code,
-      client_name: row.client_name || c.clientName || '',
-      client_phone: row.client_phone || c.clientPhone || '',
-    });
-    setEditOpen(true);
-  }
 
   async function load() {
     setLoading(true);
@@ -197,6 +181,26 @@ export default function TransportPickupPage() {
     }
   }
 
+  // --- INLINE EDIT (same idea as PASTRIMI edit: stay on same stage page) ---
+  if (editItem) {
+    return (
+      <TransportInlineEdit
+        item={{
+          id: editItem.id,
+          code: editItem.code_str || (editItem.code_n != null ? `T${editItem.code_n}` : ''),
+          order: safeJson(editItem.data),
+          status: editItem.status,
+          transport_id: editItem.transport_id,
+        }}
+        transportId={String(me?.transport_id || '')}
+        title="TRANSPORT • PICKUP"
+        subtitle="EDITIMI"
+        onClose={() => setEditItem(null)}
+        onSaved={load}
+      />
+    );
+  }
+
   return (
     <div style={styles.page}>
       <div style={styles.wrap}>
@@ -244,7 +248,7 @@ export default function TransportPickupPage() {
           items={pickup}
           actionLabel="LOADED"
           onAction={markLoaded}
-          onEdit={openEdit}
+          onEdit={(row) => setEditItem(row)}
           busyId={busyId}
         />
 
@@ -254,7 +258,7 @@ export default function TransportPickupPage() {
           items={loaded}
           actionLabel="KTHE NË PICKUP"
           onAction={markPickup}
-          onEdit={openEdit}
+          onEdit={(row) => setEditItem(row)}
           busyId={busyId}
           secondary
         />
@@ -264,13 +268,6 @@ export default function TransportPickupPage() {
         <Link href="/transport/offload" style={styles.offloadBtn}>
           SHKARKO NË BAZË
         </Link>
-
-        <TransportEditModal
-          open={editOpen}
-          item={editItem}
-          onClose={() => { setEditOpen(false); setEditItem(null); }}
-          onSaved={load}
-        />
       </div>
     </div>
   );
@@ -307,22 +304,22 @@ function Section({ title, emptyText, items, actionLabel, onAction, onEdit, busyI
                   </div>
                 </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'stretch' }}>
-                <button
-                  onClick={() => onEdit?.(r)}
-                  style={styles.btnGhost}
-                  type="button"
-                >
-                  EDIT
-                </button>
-                <button
-                  onClick={() => onAction(r.id)}
-                  style={secondary ? styles.btnSecondary : styles.btnPrimary}
-                  disabled={busyId === r.id}
-                >
-                  {busyId === r.id ? '...' : actionLabel}
-                </button>
-              </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    onClick={() => onEdit?.(r)}
+                    style={styles.btnEdit}
+                    disabled={busyId === r.id}
+                  >
+                    EDIT
+                  </button>
+                  <button
+                    onClick={() => onAction(r.id)}
+                    style={secondary ? styles.btnSecondary : styles.btnPrimary}
+                    disabled={busyId === r.id}
+                  >
+                    {busyId === r.id ? '...' : actionLabel}
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -431,23 +428,23 @@ const styles = {
   },
   name: { fontWeight: 900, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   meta: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12, color: 'rgba(226,232,240,0.75)' },
+  btnEdit: {
+    border: '1px solid rgba(148,163,184,0.30)',
+    borderRadius: 14,
+    padding: '10px 10px',
+    background: 'rgba(15, 23, 42, 0.25)',
+    color: '#e5e7eb',
+    fontWeight: 900,
+    fontSize: 12,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
   btnPrimary: {
     border: 'none',
     borderRadius: 14,
     padding: '10px 12px',
     background: '#2563eb',
     color: '#fff',
-    fontWeight: 900,
-    fontSize: 12,
-    cursor: 'pointer',
-    flexShrink: 0,
-  },
-  btnGhost: {
-    border: '1px solid rgba(148,163,184,0.25)',
-    borderRadius: 14,
-    padding: '10px 12px',
-    background: 'transparent',
-    color: '#e5e7eb',
     fontWeight: 900,
     fontSize: 12,
     cursor: 'pointer',

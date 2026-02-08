@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
-import TransportEditModal from '@/components/transport/TransportEditModal';
+import TransportInlineEdit from '@/components/transport/TransportInlineEdit';
 
 function safeJson(v){
   if (!v) return {};
@@ -61,8 +61,6 @@ export default function TransportOffloadPage(){
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState('');
   const [sel, setSel] = useState({}); // id -> true
-
-  const [editOpen, setEditOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const transportId = String(me?.transport_id || '').trim();
 
@@ -201,6 +199,20 @@ export default function TransportOffloadPage(){
     setSel({});
   }
 
+  // --- INLINE EDIT (same style as PASTRIMI edit) ---
+  if (editItem) {
+    return (
+      <TransportInlineEdit
+        item={editItem}
+        transportId={transportId}
+        title="OFFLOAD NË BAZË"
+        subtitle="EDITIMI"
+        onClose={() => setEditItem(null)}
+        onSaved={load}
+      />
+    );
+  }
+
   return (
     <main className="wrap">
       <header className="header-row">
@@ -241,29 +253,13 @@ export default function TransportOffloadPage(){
               </div>
 
               <div className="actions">
-                <button
-                  className="btn ghost"
-                  type="button"
-                  onClick={() => {
-                    setEditItem({ id: it.id, data: it.order, code_str: it.code });
-                    setEditOpen(true);
-                  }}
-                >
-                  EDIT
-                </button>
+                <button className="btn ghost" onClick={() => setEditItem(it)}>EDIT</button>
                 <button className="btn" onClick={() => offloadOne(it)}>SHKARKO</button>
               </div>
             </div>
           ))}
         </div>
       </section>
-
-      <TransportEditModal
-        open={editOpen}
-        item={editItem}
-        onClose={() => { setEditOpen(false); setEditItem(null); }}
-        onSaved={load}
-      />
 
       <style jsx>{`
         .wrap { padding: 18px; max-width: 980px; margin: 0 auto; }
