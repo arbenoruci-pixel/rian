@@ -54,6 +54,7 @@ export default function TransportPickupPage() {
       // (derived from data->>'transport_id') so RLS/policies and filtering work.
       const { data, error } = await supabase
         .from("transport_orders")
+        // transport_orders: përdor code_str + code_n (s'ka kolonë "code")
         .select("id, created_at, status, code_str, code_n, data")
         .eq("transport_id", tid)
         .in("status", ["pickup", "loaded"])
@@ -136,7 +137,6 @@ export default function TransportPickupPage() {
                 <div style={{ flex: 1, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {r?.data?.client?.name || "—"}
                 </div>
-                <Link className="btn secondary" href={"/transport/pranimi?id=" + r.id + "&back=/transport/pickup"}>EDIT</Link>
                 <button className="btn secondary" onClick={() => setStatus(r.id, "loaded")}>
                   LOADED
                 </button>
@@ -156,8 +156,7 @@ export default function TransportPickupPage() {
                 <div style={{ flex: 1, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {r?.data?.client?.name || "—"}
                 </div>
-                <Link className="btn secondary" href={"/transport/pranimi?id=" + r.id + "&back=/transport/pickup"}>EDIT</Link>
-                <Link className="btn primary" href={`/transport/offload?id=${encodeURIComponent(r.id)}&back=/transport/pickup`}>
+                <Link className="btn primary" href={`/transport/offload?id=${encodeURIComponent(r.id)}`}>
                   SHKARKO
                 </Link>
               </div>
