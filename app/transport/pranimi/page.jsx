@@ -20,22 +20,10 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-const DRAFT_KEY = 'transport_drafts_v1'; // NOTE: drafts list page may use a different key; leave as-is here.
+const DRAFT_KEY = 'transport_drafts_v1';
 
 // --- HELPERS ---
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
-function splitPhoneFull(raw, fallbackPrefix = PHONE_PREFIX_DEFAULT) {
-  const s = String(raw || '').trim();
-  if (!s) return { prefix: fallbackPrefix, phone: '' };
-  if (s.startsWith('+')) {
-    const m = s.match(/^\+\d{1,4}/);
-    const prefix = m?.[0] || fallbackPrefix;
-    const rest = s.slice(prefix.length);
-    return { prefix, phone: rest.replace(/\s+/g, '') };
-  }
-  // If user stored phone without prefix
-  return { prefix: fallbackPrefix, phone: s.replace(/\s+/g, '') };
-}
 function normalizeTCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
@@ -157,56 +145,51 @@ export default function TransportPranim() {
     if (!term) { setClientHits([]); return; }
     setClientSearchBusy(true);
     try {
-      // ✅ Same master client search as BASE/PASTRIMI
-      // Your DB has `full_name` filled, while `name` might be NULL.
-      const safe = term.replace(/[,%]/g, ' ').trim();
-      const likeName = `%${safe}%`;
-      const onlyDigits = term.replace(/\D+/g, '');
-      const codeN = onlyDigits ? Number(onlyDigits) : NaN;
-
+      // Prefer transport_clients (name/phone/address/gps); fallback to transport_orders (client_name/client_phone)
+      // NOTE: transport_clients has columns: name, phone (NOT client_name/client_phone).
+      const digits = sanitizePhone(term);
+      const likeName = `%${term}%`;
+      const likeDigits = digits ? `%${digits}%` : '';
       let hits = [];
-      // IMPORTANT: don't build a phone filter from name text (it can break parsing / return nothing)
-      const ors = [`full_name.ilike.${likeName}`];
-      if (onlyDigits) ors.push(`phone.ilike.%${onlyDigits}%`);
-      if (Number.isFinite(codeN)) ors.push(`code.eq.${codeN}`);
-
-      const resClients = await supabase
-        .from('clients')
-        .select('id, code, full_name, phone, photo_url, updated_at')
-        .or(ors.join(','))
+      // 1) transport_clients
+      const orParts1 = [`name.ilike.${likeName}`];
+      if (likeDigits) orParts1.push(`phone.ilike.${likeDigits}`);
+      const res1 = await supabase
+        .from('transport_clients')
+        .select('id, name, phone, address, gps_lat, gps_lng, notes, updated_at')
+        .or(orParts1.join(','))
         .order('updated_at', { ascending: false })
         .limit(20);
 
-      if (!resClients.error && Array.isArray(resClients.data) && resClients.data.length) {
-        hits = resClients.data.map(r => ({
-          source: 'clients',
-          client_id: r.id,
-          code: r.code,
-          name: r.full_name || '',
+      if (!res1.error && Array.isArray(res1.data) && res1.data.length) {
+        hits = res1.data.map(r => ({
+          id: r.id,
+          name: r.name || '',
           phone: r.phone || '',
-          photo_url: r.photo_url || ''
+          address: r.address || '',
+          gps_lat: r.gps_lat ?? null,
+          gps_lng: r.gps_lng ?? null,
+          notes: r.notes || '',
         }));
-        setClientHits(hits);
-        return;
-      }
-
-      // Fallback: transport history (so you can still find transport-only clients)
-      const res2 = await supabase
-        .from('transport_orders')
-        .select('client_name, client_phone, updated_at')
-        .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
-        .order('updated_at', { ascending: false })
-        .limit(20);
-      if (!res2.error && Array.isArray(res2.data)) {
-        const seen = new Set();
-        for (const r of res2.data) {
-          const key = `${r.client_phone||''}::${r.client_name||''}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          hits.push({ source: 'transport_orders', name: r.client_name || '', phone: r.client_phone || '' });
+      } else {
+        // 2) transport_orders fallback (unique by phone+name)
+        const res2 = await supabase
+          .from('transport_orders')
+          .select('client_name, client_phone, updated_at')
+          .or(`client_name.ilike.%${term}%,client_phone.ilike.%${digits || term}%`)
+          .order('updated_at', { ascending: false })
+          .limit(20);
+        if (!res2.error && Array.isArray(res2.data)) {
+          const seen = new Set();
+          hits = [];
+          for (const r of res2.data) {
+            const key = `${r.client_phone||''}::${r.client_name||''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            hits.push({ name: r.client_name || '', phone: r.client_phone || '' });
+          }
         }
       }
-
       setClientHits(hits);
     } catch (e) {
       console.error('searchPastClients', e);
@@ -512,17 +495,30 @@ export default function TransportPranim() {
                   type="button"
                   className="list-row"
                   onClick={() => {
-                    setName(c.name || "");
-                    const sp = splitPhoneFull(c.phone || "", PHONE_PREFIX_DEFAULT);
-                    setPhonePrefix(sp.prefix);
-                    setPhone(sp.phone);
-                    if (c.photo_url) setClientPhotoUrl(c.photo_url);
+                    const pickedName = c.name || "";
+                    const pickedPhone = String(c.phone || "");
+                    // Split phone into prefix + digits (default +383)
+                    let pref = PHONE_PREFIX_DEFAULT;
+                    let num = sanitizePhone(pickedPhone);
+                    if (pickedPhone.startsWith('+')) {
+                      const m = pickedPhone.match(/^\+\d{1,4}/);
+                      if (m?.[0]) {
+                        pref = m[0];
+                        num = sanitizePhone(pickedPhone.slice(m[0].length));
+                      }
+                    }
+                    setName(pickedName);
+                    setPhonePrefix(pref);
+                    setPhone(num);
+                    if (c.address) setAddress(c.address);
+                    if (c.gps_lat != null) setGpsLat(String(c.gps_lat));
+                    if (c.gps_lng != null) setGpsLng(String(c.gps_lng));
                     setClientHits([]);
                     setClientSearch("");
                   }}
                 >
                   <span style={{ flex: 1, textAlign: "left" }}>{(c.name || "PA EMËR").toUpperCase()}</span>
-                  <span className="badge">{c.code ? `#${c.code}` : (c.phone || "")}</span>
+                  <span className="badge">{c.phone || ""}</span>
                 </button>
               ))}
             </div>
