@@ -392,6 +392,10 @@ export default function PranimiPage() {
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [savingContinue, setSavingContinue] = useState(false);
+  // ✅ DEBUG ERROR BOX (persists so you can screenshot/copy)
+  const [debugErr, setDebugErr] = useState(null);
+  const [showDebugErr, setShowDebugErr] = useState(false);
+
 
   const [oid, setOid] = useState('');
   const [codeRaw, setCodeRaw] = useState('');
@@ -455,30 +459,6 @@ export default function PranimiPage() {
   const [netState, setNetState] = useState({ ok: true, reason: '' });
 
 const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
-  const [toastMsg, setToastMsg] = useState('');
-  const toastTimerRef = useRef(null);
-  const offlineHoldRef = useRef(null);
-
-  function flash(msg, ms = 2600) {
-    try { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); } catch {}
-    setToastMsg(String(msg || ''));
-    try {
-      toastTimerRef.current = setTimeout(() => {
-        setToastMsg('');
-      }, ms);
-    } catch {}
-  }
-
-  function startOfflineHold() {
-    try { if (offlineHoldRef.current) clearTimeout(offlineHoldRef.current); } catch {}
-    offlineHoldRef.current = setTimeout(() => {
-      setShowOfflinePrompt(true);
-    }, 650);
-  }
-  function cancelOfflineHold() {
-    try { if (offlineHoldRef.current) clearTimeout(offlineHoldRef.current); } catch {}
-  }
-
 
   // If the user returns to PRANIMI via browser history, Next.js can restore old component state.
   // This flag lets us reset the form (new OID + new code) when the page becomes visible again.
@@ -557,9 +537,7 @@ useEffect(() => {
     const s = await checkConnectivity();
     if (!alive) return;
     setNetState(s);
-    // NOTE: mos e hap automatikisht dialogun (na ka pengu ne terren).
-    // OFFLINE dialog hapet vetem me HOLD te titulli PRANIMI.
-    // if (!s.ok && !offlineMode) setShowOfflinePrompt(true);
+    if (!s.ok && !offlineMode) setShowOfflinePrompt(true);
   }
 
   run();
@@ -1172,6 +1150,34 @@ function saveOfflineQueueItem(order) {
   }
 }
 
+
+function persistAndShowError(err, context = 'UNKNOWN') {
+  try {
+    const msg = (err && (err.message || err.error_description || err.toString()))
+      ? (err.message || err.error_description || err.toString())
+      : 'Gabim i panjohur';
+    const details = (err && (err.details || err.hint))
+      ? `${err.details || ''}${err.hint ? `\n${err.hint}` : ''}`
+      : '';
+    const code = err?.code ? String(err.code) : '';
+    const stack = err?.stack ? String(err.stack) : '';
+    const payload = {
+      at: new Date().toISOString(),
+      context,
+      msg,
+      details,
+      code,
+      raw: (() => { try { return JSON.stringify(err); } catch { return String(err); } })(),
+      stack,
+    };
+    try { localStorage.setItem('tepiha_last_error_v1', JSON.stringify(payload)); } catch {}
+    // return payload so caller can setState
+    return payload;
+  } catch {
+    return { at: new Date().toISOString(), context, msg: 'Gabim i panjohur', details: '', code: '', raw: '', stack: '' };
+  }
+}
+
   async function handleContinue() {
     if (!validateBeforeContinue()) return;
 
@@ -1213,11 +1219,11 @@ if (offlineMode || !conn.ok) {
   try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
   setOfflineMode(true);
   if (!ok) {
-    flash('❌ OFFLINE: nuk u ruajt lokalisht!');
+    alert('❌ OFFLINE: nuk u ruajt lokalisht!');
     setSavingContinue(false);
     return;
   }
-  flash('⚠️ S’ka rrjet / DB. U ruajt LOKALISHT.', 3200);
+  alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, mund t’i integroni/sync më vonë.');
   // keep draft for extra safety
   try {
     localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({
@@ -1301,13 +1307,11 @@ if (offlineMode || !conn.ok) {
       router.push('/pastrimi');
     } catch (e) {
       console.error('PRANIMI_SAVE_ERROR', e);
-      const msg = (e && (e.message || e.error_description || e.toString())) ? (e.message || e.error_description || e.toString()) : 'Gabim i panjohur';
-      // ✅ Build-safe: avoid nested quotes inside template literals
-      const details = (e && (e.details || e.hint))
-        ? `\n${e.details || ''}${e.hint ? `\n${e.hint}` : ''}`
-        : '';
-      flash(`❌ RUJTJA DËSHTOI: ${msg}` + (details ? ' (shih log)' : ''), 4200);
+      const payload = persistAndShowError(e, 'PRANIMI_SAVE');
+      setDebugErr(payload);
+      setShowDebugErr(true);
       setSavingContinue(false);
+      return;
     }
   }
 
@@ -1439,6 +1443,84 @@ if (offlineMode || !conn.ok) {
   if (creating) {
     return (
       <div className="wrap">
+      {showDebugErr && debugErr ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: 14,
+          }}
+          onClick={() => setShowDebugErr(false)}
+        >
+          <div
+            style={{
+              width: 'min(520px, 95vw)',
+              background: '#0b1220',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 14,
+              padding: 14,
+              boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ fontWeight: 800, letterSpacing: 1 }}>⚠️ GABIM (MOS U MSHEF)</div>
+              <button className="btn" onClick={() => setShowDebugErr(false)}>MBYLL</button>
+            </div>
+            <div style={{ opacity: 0.85, fontSize: 12, marginTop: 6 }}>
+              {debugErr.context} • {debugErr.at} {debugErr.code ? `• CODE ${debugErr.code}` : ''}
+            </div>
+            <pre
+              style={{
+                marginTop: 10,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.10)',
+                borderRadius: 12,
+                padding: 12,
+                maxHeight: '55vh',
+                overflow: 'auto',
+                fontSize: 12,
+              }}
+            >
+              {`${debugErr.msg}${debugErr.details ? `\n\n${debugErr.details}` : ''}`}
+            </pre>
+            <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+              <button
+                className="btn primary"
+                onClick={async () => {
+                  const text = JSON.stringify(debugErr, null, 2);
+                  try {
+                    await navigator.clipboard.writeText(text);
+                  } catch {
+                    // fallback: show raw in prompt so user can copy
+                    try { window.prompt('COPY ERROR JSON:', text); } catch {}
+                  }
+                }}
+              >
+                COPY ERROR
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  try { localStorage.removeItem('tepiha_last_error_v1'); } catch {}
+                  setDebugErr(null);
+                  setShowDebugErr(false);
+                }}
+              >
+                FSHI
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
         <p style={{ textAlign: 'center', paddingTop: 30 }}>Duke u përgatitur PRANIMI...</p>
       </div>
     );
@@ -1447,43 +1529,6 @@ if (offlineMode || !conn.ok) {
 
 return (
   <div className="wrap">
-    {toastMsg ? (
-      <div
-        style={{
-          position: 'fixed',
-          left: 12,
-          right: 12,
-          bottom: 84,
-          zIndex: 9999,
-          background: 'rgba(13,15,20,0.95)',
-          border: '1px solid rgba(255,255,255,0.14)',
-          borderRadius: 12,
-          padding: '12px 12px',
-          fontWeight: 900,
-          letterSpacing: 0.3,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}
-      >
-        <div style={{ lineHeight: 1.25 }}>{toastMsg}</div>
-        <button
-          onClick={() => setToastMsg('')}
-          style={{
-            background: 'transparent',
-            border: '1px solid rgba(255,255,255,0.16)',
-            color: '#fff',
-            borderRadius: 10,
-            padding: '8px 10px',
-            fontWeight: 900,
-          }}
-        >
-          MBYLL
-        </button>
-      </div>
-    ) : null}
-
     {showOfflinePrompt ? (
       <div
         style={{
@@ -1550,17 +1595,7 @@ return (
 
       <header className="header-row" style={{ alignItems: 'flex-start' }}>
         <div>
-          <h1
-            className="title"
-            onTouchStart={startOfflineHold}
-            onTouchEnd={cancelOfflineHold}
-            onTouchCancel={cancelOfflineHold}
-            onMouseDown={startOfflineHold}
-            onMouseUp={cancelOfflineHold}
-            onMouseLeave={cancelOfflineHold}
-          >
-            PRANIMI
-          </h1>
+          <h1 className="title">PRANIMI</h1>
           <div className="subtitle">KRIJO POROSI</div>
         </div>
         
