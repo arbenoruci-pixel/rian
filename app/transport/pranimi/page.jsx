@@ -20,27 +20,9 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-// Drafts MUST be a single source shared between PRANIMI + /te-pa-plotsuara
-// and isolated per transport_id so drivers don't see each other's drafts.
-function draftKeyFor(transportId) {
-  return `transport_drafts_v1__${String(transportId || 'unknown')}`;
-}
-
-function readDrafts(transportId) {
-  try {
-    const raw = localStorage.getItem(draftKeyFor(transportId));
-    const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeDrafts(transportId, list) {
-  try {
-    localStorage.setItem(draftKeyFor(transportId), JSON.stringify(Array.isArray(list) ? list : []));
-  } catch {}
-}
+// IMPORTANT: drafts must be a single source per transport_id
+// so PRANIMI and /transport/te-pa-plotsuara are always in sync.
+const DRAFT_KEY_BASE = 'transport_drafts_v1__';
 
 // --- HELPERS ---
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
@@ -107,6 +89,10 @@ export default function TransportPranim() {
   const back = sp.get('back') || sp.get('return') || '/transport/offload';
   const openDraftsOnLoad = sp.get('drafts') === '1';
 
+  function draftKeyForTransport(tid) {
+    return `${DRAFT_KEY_BASE}${String(tid || 'unknown')}`;
+  }
+
   const [me, setMe] = useState(null);
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -160,91 +146,71 @@ export default function TransportPranim() {
   }
 
   
-  function splitPrefixAndPhone(raw) {
+  function splitPhonePrefixAndNumber(raw) {
     const s = String(raw || '').trim();
-    if (!s) return { prefix: PHONE_PREFIX_DEFAULT, phone: '' };
-    // If user stored +383XXXXXXXX
-    if (s.startsWith('+')) {
-      const m = s.match(/^(\+\d{1,4})(.*)$/);
-      const prefix = m?.[1] || PHONE_PREFIX_DEFAULT;
-      const rest = (m?.[2] || '').replace(/\s+/g, '');
-      return { prefix, phone: rest.replace(/[^0-9]/g, '') };
+    if (!s) return { prefix: PHONE_PREFIX_DEFAULT, number: '' };
+    if (s.startsWith('+383')) {
+      return { prefix: '+383', number: sanitizePhone(s.slice(4)) };
     }
-    return { prefix: PHONE_PREFIX_DEFAULT, phone: s.replace(/[^0-9]/g, '') };
+    if (s.startsWith('+')) {
+      // keep a reasonable prefix (up to 4 chars like +355, +389, +381)
+      const m = s.match(/^\+\d{1,3}/);
+      const p = m ? m[0] : PHONE_PREFIX_DEFAULT;
+      return { prefix: p, number: sanitizePhone(s.slice(p.length)) };
+    }
+    return { prefix: PHONE_PREFIX_DEFAULT, number: sanitizePhone(s) };
   }
 
   async function searchPastClients(q) {
     const term = String(q || '').trim();
     if (!term) { setClientHits([]); return; }
-
     setClientSearchBusy(true);
     try {
       const like = `%${term}%`;
-      const digits = String(term).replace(/\D+/g, '');
-      const text = String(term).toLowerCase();
 
-      // ✅ Prefer BASE clients (same as PASRTIMI).
-      // If RLS blocks, fall back to transport tables.
+      // ✅ SOURCE OF TRUTH: clients table (same as PASTRIMI)
+      // NOTE: in DB you have full_name populated, and name may be null.
+      const termNum = Number(String(term).replace(/\D+/g, ''));
+      const orParts = [`full_name.ilike.${like}`, `phone.ilike.${like}`];
+      if (Number.isFinite(termNum) && termNum > 0) orParts.push(`code.eq.${termNum}`);
+
+      const c = await supabase
+        .from('clients')
+        .select('id, code, full_name, phone')
+        .or(orParts.join(','))
+        .order('updated_at', { ascending: false })
+        .limit(20);
+
+      if (!c.error && Array.isArray(c.data) && c.data.length) {
+        const hits = c.data.map(r => ({
+          name: r.full_name || '',
+          phone: r.phone || '',
+          code: r.code
+        }));
+        setClientHits(hits);
+        return;
+      }
+
+      // Fallback: transport tables (older data)
       let hits = [];
-      try {
-        let q1 = supabase
-          .from('clients')
-          .select('full_name, first_name, last_name, phone, updated_at')
-          .order('updated_at', { ascending: false })
-          .limit(20);
-        if (digits) {
-          q1 = q1.or(
-            `phone.ilike.%${digits}%,full_name.ilike.%${text}%,first_name.ilike.%${text}%,last_name.ilike.%${text}%`
-          );
-        } else {
-          q1 = q1.or(`full_name.ilike.%${text}%,first_name.ilike.%${text}%,last_name.ilike.%${text}%,phone.ilike.%${text}%`);
-        }
-        const res = await q1;
-        if (!res.error && Array.isArray(res.data) && res.data.length) {
-          hits = res.data.map((r) => ({
-            name: (r.full_name || `${r.first_name || ''} ${r.last_name || ''}`).trim(),
-            phone: r.phone || ''
-          }));
-        }
-      } catch {}
-
-      if (!hits.length) {
-        // fallback 1: transport_clients
-        const res1 = await supabase
-          .from('transport_clients')
-          .select('client_name, client_phone')
-          .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
-          .order('updated_at', { ascending: false })
-          .limit(20);
-        if (!res1.error && Array.isArray(res1.data) && res1.data.length) {
-          hits = res1.data.map(r => ({ name: r.client_name || '', phone: r.client_phone || '' }));
+      const res2 = await supabase
+        .from('transport_orders')
+        .select('client_name, client_phone, updated_at')
+        .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
+        .order('updated_at', { ascending: false })
+        .limit(20);
+      if (!res2.error && Array.isArray(res2.data)) {
+        const seen = new Set();
+        for (const r of res2.data) {
+          const key = `${r.client_phone||''}::${r.client_name||''}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          hits.push({ name: r.client_name || '', phone: r.client_phone || '' });
         }
       }
-
-      if (!hits.length) {
-        // fallback 2: transport_orders history
-        const res2 = await supabase
-          .from('transport_orders')
-          .select('client_name, client_phone, updated_at')
-          .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
-          .order('updated_at', { ascending: false })
-          .limit(30);
-        if (!res2.error && Array.isArray(res2.data)) {
-          const seen = new Set();
-          hits = [];
-          for (const r of res2.data) {
-            const key = `${r.client_phone||''}::${r.client_name||''}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            hits.push({ name: r.client_name || '', phone: r.client_phone || '' });
-          }
-        }
-      }
-
       setClientHits(hits);
     } catch (e) {
       console.error('searchPastClients', e);
-      setClientHits([]);
     } finally {
       setClientSearchBusy(false);
     }
@@ -268,36 +234,21 @@ export default function TransportPranim() {
     if (!me?.transport_id) return;
     (async () => {
       try {
+        migrateDraftsIfNeeded();
         refreshDrafts();
-
-        // 1) Open from /te-pa-plotsuara? -> load the draft into the form.
+        
+        // 1) Nëse vjen nga URL (HAP nga TË PA PLOTSUARAT)
         if (editId) {
-          const list = readDrafts(me.transport_id).filter((d) => d?.scope === 'transport');
-          const d = list.find((x) => String(x?.id) === String(editId));
+          const d = findDraftById(editId);
           if (d) {
-            setOid(d.id);
-            setCodeRaw(d.codeRaw || '');
-            // load values
-            setName(d.name || '');
-            setPhone(String(d.phone || '').replace(/\D+/g, ''));
-            setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT);
-            setClientPhotoUrl(d.clientPhotoUrl || '');
-            setAddress(d.address || '');
-            setGpsLat(d.gpsLat || '');
-            setGpsLng(d.gpsLng || '');
-            setClientDesc(d.clientDesc || '');
-            setTepihaRows(d.tepihaRows || []);
-            setStazaRows(d.stazaRows || []);
-            setStairsQty(d.stairsQty || 0);
-            setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
-            setStairsPhotoUrl(d.stairsPhotoUrl || '');
-            setPricePerM2(d.pricePerM2 || PRICE_DEFAULT);
-            setClientPaid(d.clientPaid || 0);
-            setNotes(d.notes || '');
+            loadDraftNoConfirm(d);
             setCreating(false);
             return;
           }
-          // if not found, continue new order normally
+          // fallback: at least set the oid
+          setOid(editId);
+          setCreating(false);
+          return;
         }
 
         // ✅ FIX KRYESOR: Përdor UUID të vërtetë, jo tord_...
@@ -314,6 +265,50 @@ export default function TransportPranim() {
       }
     })();
   }, [me, editId]);
+
+  function getDraftStorageKey() {
+    return draftKeyForTransport(me?.transport_id);
+  }
+
+  function readDraftList() {
+    try {
+      const key = getDraftStorageKey();
+      const raw = localStorage.getItem(key);
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function writeDraftList(list) {
+    const key = getDraftStorageKey();
+    localStorage.setItem(key, JSON.stringify(Array.isArray(list) ? list : []));
+  }
+
+  // one-time migration from old single key -> per-transport key
+  function migrateDraftsIfNeeded() {
+    try {
+      const newKey = getDraftStorageKey();
+      if (!me?.transport_id) return;
+      if (localStorage.getItem(newKey)) return; // already migrated/using
+      const legacyRaw = localStorage.getItem('transport_drafts_v1');
+      if (!legacyRaw) return;
+      const legacy = JSON.parse(legacyRaw);
+      if (!Array.isArray(legacy) || legacy.length === 0) return;
+      const migrated = legacy.map((d) => ({
+        ...(d || {}),
+        scope: 'transport',
+        transport_id: me.transport_id,
+      }));
+      localStorage.setItem(newKey, JSON.stringify(migrated));
+    } catch {}
+  }
+
+  function findDraftById(id) {
+    const list = readDraftList();
+    return list.find((d) => String(d?.id || '') === String(id || '')) || null;
+  }
 
   // ✅ LOGJIKA E DRAFTEVE (Të pa plotsuara)
   useEffect(() => {
@@ -335,66 +330,85 @@ export default function TransportPranim() {
 
   function refreshDrafts() {
     try {
-      if (!me?.transport_id) return;
-      let list = readDrafts(me.transport_id);
-      list = list.filter((d) => d?.scope === 'transport');
-      list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-      setDrafts(list);
-    } catch { }
+        let list = readDraftList();
+        // only transport drafts for this transport_id
+        list = list.filter((d) => d?.scope === 'transport');
+        list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+        setDrafts(list);
+    } catch {}
   }
 
   function saveDraftLocal() {
     try {
-      if (!me?.transport_id) return;
-      const draft = {
-        id: oid,
-        ts: Date.now(),
-        scope: 'transport',
-        transport_id: String(me.transport_id),
-        codeRaw,
-        name,
-        phone,
-        phonePrefix,
-        clientPhotoUrl,
-        address,
-        gpsLat,
-        gpsLng,
-        clientDesc,
-        tepihaRows,
-        stazaRows,
-        stairsQty,
-        stairsPer,
-        stairsPhotoUrl,
-        pricePerM2,
-        clientPaid,
-        notes,
-      };
-      let list = readDrafts(me.transport_id);
-      list = list.filter((d) => d?.scope === 'transport');
-      list = list.filter((d) => d.id !== oid);
-      list.unshift(draft);
-      if (list.length > 80) list = list.slice(0, 80);
-      writeDrafts(me.transport_id, list);
-      setDrafts(list);
+        const draft = {
+          scope: 'transport',
+          transport_id: me?.transport_id,
+          id: oid,
+          ts: Date.now(),
+          codeRaw,
+          name,
+          phone,
+          phonePrefix,
+          clientPhotoUrl,
+          address,
+          gpsLat,
+          gpsLng,
+          clientDesc,
+          tepihaRows,
+          stazaRows,
+          stairsQty,
+          stairsPer,
+          stairsPhotoUrl,
+          pricePerM2,
+          clientPaid,
+          notes,
+        };
+
+        let list = readDraftList();
+        
+        // E zëvendësojmë ekzistuesin me këtë të riun (Update)
+        list = list.filter(d => d.id !== oid);
+        list.unshift(draft);
+        
+        if (list.length > 50) list = list.slice(0, 50);
+        writeDraftList(list);
+        setDrafts(list);
     } catch {}
   }
 
+  function loadDraftNoConfirm(d) {
+    setOid(d.id);
+    setCodeRaw(d.codeRaw || '');
+    setName(d.name || '');
+    setPhone(d.phone || '');
+    setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT);
+    setClientPhotoUrl(d.clientPhotoUrl || '');
+    setAddress(d.address || '');
+    setGpsLat(d.gpsLat || '');
+    setGpsLng(d.gpsLng || '');
+    setClientDesc(d.clientDesc || '');
+    setTepihaRows(d.tepihaRows || []);
+    setStazaRows(d.stazaRows || []);
+    setStairsQty(d.stairsQty || 0);
+    setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
+    setStairsPhotoUrl(d.stairsPhotoUrl || '');
+    setPricePerM2(d.pricePerM2 || PRICE_DEFAULT);
+    setClientPaid(d.clientPaid || 0);
+    setNotes(d.notes || '');
+    setShowDraftsSheet(false);
+  }
+
   function loadDraft(d) {
-      // Kur hap draftin, e marrim fiks ID dhe KODIN që ka pasur
-      if(!confirm("A je i sigurt? Fushat aktuale do zëvendësohen.")) return;
-      setOid(d.id); 
-      setCodeRaw(d.codeRaw); 
-      setName(d.name || ''); setPhone(d.phone || ''); setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT); setClientPhotoUrl(d.clientPhotoUrl || ''); setAddress(d.address || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || ''); setClientDesc(d.clientDesc || ''); setTepihaRows(d.tepihaRows || []); setStazaRows(d.stazaRows || []); setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT); setStairsPhotoUrl(d.stairsPhotoUrl || ''); setPricePerM2(d.pricePerM2 || PRICE_DEFAULT); setClientPaid(d.clientPaid || 0); setNotes(d.notes || '');
-      setShowDraftsSheet(false);
+    // Manual open from in-page drafts list
+    if (!confirm('A je i sigurt? Fushat aktuale do zëvendësohen.')) return;
+    loadDraftNoConfirm(d);
   }
 
   function deleteDraft(id, silent = false) {
       if(!silent) { if(!confirm("Fshi?")) return; }
-      if (!me?.transport_id) return;
-      let list = readDrafts(me.transport_id);
-      list = list.filter((d) => d?.scope === 'transport');
+      let list = readDraftList();
       list = list.filter(d => d.id !== id);
-      writeDrafts(me.transport_id, list);
+      writeDraftList(list);
       setDrafts(list);
   }
 
@@ -593,9 +607,9 @@ export default function TransportPranim() {
                   className="list-row"
                   onClick={() => {
                     setName(c.name || "");
-                    const sp = splitPrefixAndPhone(c.phone);
+                    const sp = splitPhonePrefixAndNumber(c.phone || "");
                     setPhonePrefix(sp.prefix);
-                    setPhone(sp.phone);
+                    setPhone(sp.number);
                     setClientHits([]);
                     setClientSearch("");
                   }}
