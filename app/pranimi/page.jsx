@@ -455,6 +455,30 @@ export default function PranimiPage() {
   const [netState, setNetState] = useState({ ok: true, reason: '' });
 
 const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  const toastTimerRef = useRef(null);
+  const offlineHoldRef = useRef(null);
+
+  function flash(msg, ms = 2600) {
+    try { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); } catch {}
+    setToastMsg(String(msg || ''));
+    try {
+      toastTimerRef.current = setTimeout(() => {
+        setToastMsg('');
+      }, ms);
+    } catch {}
+  }
+
+  function startOfflineHold() {
+    try { if (offlineHoldRef.current) clearTimeout(offlineHoldRef.current); } catch {}
+    offlineHoldRef.current = setTimeout(() => {
+      setShowOfflinePrompt(true);
+    }, 650);
+  }
+  function cancelOfflineHold() {
+    try { if (offlineHoldRef.current) clearTimeout(offlineHoldRef.current); } catch {}
+  }
+
 
   // If the user returns to PRANIMI via browser history, Next.js can restore old component state.
   // This flag lets us reset the form (new OID + new code) when the page becomes visible again.
@@ -533,7 +557,9 @@ useEffect(() => {
     const s = await checkConnectivity();
     if (!alive) return;
     setNetState(s);
-    if (!s.ok && !offlineMode) setShowOfflinePrompt(true);
+    // NOTE: mos e hap automatikisht dialogun (na ka pengu ne terren).
+    // OFFLINE dialog hapet vetem me HOLD te titulli PRANIMI.
+    // if (!s.ok && !offlineMode) setShowOfflinePrompt(true);
   }
 
   run();
@@ -1187,11 +1213,11 @@ if (offlineMode || !conn.ok) {
   try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
   setOfflineMode(true);
   if (!ok) {
-    alert('❌ OFFLINE: nuk u ruajt lokalisht!');
+    flash('❌ OFFLINE: nuk u ruajt lokalisht!');
     setSavingContinue(false);
     return;
   }
-  alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, mund t’i integroni/sync më vonë.');
+  flash('⚠️ S’ka rrjet / DB. U ruajt LOKALISHT.', 3200);
   // keep draft for extra safety
   try {
     localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({
@@ -1280,8 +1306,7 @@ if (offlineMode || !conn.ok) {
       const details = (e && (e.details || e.hint))
         ? `\n${e.details || ''}${e.hint ? `\n${e.hint}` : ''}`
         : '';
-      alert(`❌ RUJTJA DËSHTOI:
-${msg}${details}`);
+      flash(`❌ RUJTJA DËSHTOI: ${msg}` + (details ? ' (shih log)' : ''), 4200);
       setSavingContinue(false);
     }
   }
@@ -1422,6 +1447,43 @@ ${msg}${details}`);
 
 return (
   <div className="wrap">
+    {toastMsg ? (
+      <div
+        style={{
+          position: 'fixed',
+          left: 12,
+          right: 12,
+          bottom: 84,
+          zIndex: 9999,
+          background: 'rgba(13,15,20,0.95)',
+          border: '1px solid rgba(255,255,255,0.14)',
+          borderRadius: 12,
+          padding: '12px 12px',
+          fontWeight: 900,
+          letterSpacing: 0.3,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <div style={{ lineHeight: 1.25 }}>{toastMsg}</div>
+        <button
+          onClick={() => setToastMsg('')}
+          style={{
+            background: 'transparent',
+            border: '1px solid rgba(255,255,255,0.16)',
+            color: '#fff',
+            borderRadius: 10,
+            padding: '8px 10px',
+            fontWeight: 900,
+          }}
+        >
+          MBYLL
+        </button>
+      </div>
+    ) : null}
+
     {showOfflinePrompt ? (
       <div
         style={{
@@ -1488,7 +1550,17 @@ return (
 
       <header className="header-row" style={{ alignItems: 'flex-start' }}>
         <div>
-          <h1 className="title">PRANIMI</h1>
+          <h1
+            className="title"
+            onTouchStart={startOfflineHold}
+            onTouchEnd={cancelOfflineHold}
+            onTouchCancel={cancelOfflineHold}
+            onMouseDown={startOfflineHold}
+            onMouseUp={cancelOfflineHold}
+            onMouseLeave={cancelOfflineHold}
+          >
+            PRANIMI
+          </h1>
           <div className="subtitle">KRIJO POROSI</div>
         </div>
         
