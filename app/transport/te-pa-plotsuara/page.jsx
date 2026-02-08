@@ -34,6 +34,20 @@ export default function TransportIncomplete() {
     setLoading(true);
     try {
       let list = readDrafts(me.transport_id);
+      // MIGRATE legacy drafts stored under old key (transport_drafts_v1)
+      if (!list?.length) {
+        try {
+          const legacyRaw = localStorage.getItem('transport_drafts_v1');
+          const legacy = legacyRaw ? JSON.parse(legacyRaw) : [];
+          const leg = Array.isArray(legacy) ? legacy : [];
+          const migrated = leg.map(d => ({ ...d, scope: d?.scope || 'transport', transport_id: String(me.transport_id) }))
+            .filter(d => d && d.id);
+          if (migrated.length) {
+            writeDrafts(me.transport_id, migrated);
+            list = migrated;
+          }
+        } catch {}
+      }
       // vetëm draftet e transportit të këtij shoferi
       list = list.filter((d) => d?.scope === "transport");
       list.sort((a, b) => (b.ts || 0) - (a.ts || 0));

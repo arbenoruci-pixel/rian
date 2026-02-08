@@ -20,10 +20,42 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-// DRAFTS are per-transport (per driver) so they don't mix across accounts.
-function draftKeyFor(transportId) {
+const DRAFT_KEY = 'transport_drafts_v1';
+
+// Drafts are per-transport to avoid mixing drivers.
+function draftKeyForTransport(transportId) {
   return `transport_drafts_v1__${String(transportId || 'unknown')}`;
 }
+function readDraftList(transportId) {
+  try {
+    const raw = localStorage.getItem(draftKeyForTransport(transportId));
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+function writeDraftList(transportId, list) {
+  try {
+    localStorage.setItem(draftKeyForTransport(transportId), JSON.stringify(list || []));
+  } catch {}
+}
+function splitPrefixAndPhone(rawPhone) {
+  const p = String(rawPhone || '').trim();
+  if (!p) return { prefix: PHONE_PREFIX_DEFAULT, phone: '' };
+  if (p.startsWith('+')) {
+    // +383 44 123 456  -> prefix +383, phone 44123456
+    const m = p.match(/^\+(\d{1,4})\s*(.*)$/);
+    if (m) {
+      const pref = `+${m[1]}`;
+      const rest = String(m[2] || '').replace(/\D+/g, '');
+      return { prefix: pref, phone: rest };
+    }
+  }
+  // already digits (no prefix)
+  return { prefix: PHONE_PREFIX_DEFAULT, phone: p.replace(/\D+/g, '') };
+}
+
 
 // --- HELPERS ---
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
@@ -47,18 +79,6 @@ function parseNum(v, fallback = 0) {
   const s = String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.');
   const n = Number(s);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function splitPhonePrefix(full) {
-  const s = String(full || '').trim();
-  if (!s) return { prefix: PHONE_PREFIX_DEFAULT, phone: '' };
-  if (!s.startsWith('+')) return { prefix: PHONE_PREFIX_DEFAULT, phone: s };
-  // Prefer Kosovo +383, otherwise keep whatever prefix we can detect.
-  if (s.startsWith('+383')) return { prefix: '+383', phone: s.slice(4) };
-  // Generic: take + and up to 3 digits as prefix.
-  const m = s.match(/^\+(\d{1,3})(.*)$/);
-  if (m) return { prefix: `+${m[1]}`, phone: (m[2] || '').trim() };
-  return { prefix: PHONE_PREFIX_DEFAULT, phone: s };
 }
 
 // --- UPLOAD ---
@@ -160,35 +180,52 @@ export default function TransportPranim() {
     if (!term) { setClientHits([]); return; }
     setClientSearchBusy(true);
     try {
-      // Prefer transport_clients table if present; fallback to transport_orders
       const like = `%${term}%`;
       let hits = [];
-      const res1 = await supabase
-        .from('transport_clients')
-        .select('client_name, client_phone')
-        .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
+
+      // 1) BASE clients table (same clients you see in PASRTIMI)
+      const cRes = await supabase
+        .from('clients')
+        .select('full_name, phone')
+        .or(`full_name.ilike.${like},phone.ilike.${like}`)
         .order('updated_at', { ascending: false })
         .limit(20);
-      if (!res1.error && Array.isArray(res1.data) && res1.data.length) {
-        hits = res1.data.map(r => ({ name: r.client_name || '', phone: r.client_phone || '' }));
+
+      if (!cRes.error && Array.isArray(cRes.data) && cRes.data.length) {
+        hits = cRes.data.map(r => ({ name: r.full_name || '', phone: r.phone || '' }));
       } else {
-        const res2 = await supabase
-          .from('transport_orders')
-          .select('client_name, client_phone, updated_at')
+        // 2) transport_clients if allowed
+        const res1 = await supabase
+          .from('transport_clients')
+          .select('client_name, client_phone')
           .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
           .order('updated_at', { ascending: false })
           .limit(20);
-        if (!res2.error && Array.isArray(res2.data)) {
-          const seen = new Set();
-          hits = [];
-          for (const r of res2.data) {
-            const key = `${r.client_phone||''}::${r.client_name||''}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            hits.push({ name: r.client_name || '', phone: r.client_phone || '' });
+
+        if (!res1.error && Array.isArray(res1.data) && res1.data.length) {
+          hits = res1.data.map(r => ({ name: r.client_name || '', phone: r.client_phone || '' }));
+        } else {
+          // 3) fallback: distinct from transport_orders
+          const res2 = await supabase
+            .from('transport_orders')
+            .select('client_name, client_phone, updated_at')
+            .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
+            .order('updated_at', { ascending: false })
+            .limit(30);
+
+          if (!res2.error && Array.isArray(res2.data)) {
+            const seen = new Set();
+            for (const r of res2.data) {
+              const key = `${r.client_phone||''}::${r.client_name||''}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              hits.push({ name: r.client_name || '', phone: r.client_phone || '' });
+              if (hits.length >= 20) break;
+            }
           }
         }
       }
+
       setClientHits(hits);
     } catch (e) {
       console.error('searchPastClients', e);
@@ -197,6 +234,7 @@ export default function TransportPranim() {
     }
   }
 // Init
+
   useEffect(() => {
     const s = getTransportSession();
     if (!s?.transport_id) { router.push('/transport'); return; }
@@ -216,11 +254,11 @@ export default function TransportPranim() {
     (async () => {
       try {
         refreshDrafts();
+        if (openDraftsOnLoad) setShowDraftsSheet(true);
         
-        // 1. Nëse vjen nga URL (edit)
+        // 1. Nëse vjen nga URL (draft / edit)
         if (editId) {
-            // Open draft directly if it exists locally (from /transport/te-pa-plotsuara)
-            setOid(editId);
+            // try to load from drafts list first (TË PA PLOTSUARAT)
             loadDraftById(editId);
             setCreating(false);
             return;
@@ -261,21 +299,42 @@ export default function TransportPranim() {
 
   function refreshDrafts() {
     try {
-        const key = draftKeyFor(me?.transport_id);
-        const raw = localStorage.getItem(key);
-        const list = raw ? JSON.parse(raw) : [];
+        const tid = me?.transport_id;
+        let list = [];
+        if (tid) list = readDraftList(tid);
+        // MIGRATE legacy drafts (old key without transport_id suffix)
+        if (tid && (!Array.isArray(list) || list.length === 0)) {
+          try {
+            const legacy = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]');
+            const leg = Array.isArray(legacy) ? legacy : [];
+            const migrated = leg.map(d => ({ ...d, scope: d?.scope || 'transport', transport_id: String(tid) }))
+              .filter(d => d && d.id);
+            if (migrated.length) {
+              writeDraftList(tid, migrated);
+              list = migrated;
+              // keep legacy as-is (do not delete) to avoid data loss
+            }
+          } catch {}
+        }
+
+        else { try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch { list = []; } }
+        list = Array.isArray(list) ? list : [];
+        // keep only transport drafts (new unified source)
+        list = list.filter(d => d?.scope === 'transport' || d?.transport_id);
         list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
         setDrafts(list);
     } catch {}
+  } catch {}
   }
 
   function saveDraftLocal() {
     try {
+        const tid = me?.transport_id;
         const draft = {
-          scope: 'transport',
-          transport_id: String(me?.transport_id || ''),
           id: oid,
           ts: Date.now(),
+          scope: 'transport',
+          transport_id: String(tid || ''),
           codeRaw,
           name,
           phone,
@@ -292,372 +351,30 @@ export default function TransportPranim() {
           stairsPhotoUrl,
           pricePerM2,
           clientPaid,
-          notes,
+          notes
         };
+
         let list = [];
-        const key = draftKeyFor(me?.transport_id);
-        try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
-        
-        // E zëvendësojmë ekzistuesin me këtë të riun (Update)
+        if (tid) {
+          list = readDraftList(tid);
+        } else {
+          try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch { list = []; }
+        }
+        list = Array.isArray(list) ? list : [];
         list = list.filter(d => d.id !== oid);
         list.unshift(draft);
-        
         if (list.length > 50) list = list.slice(0, 50);
-        localStorage.setItem(key, JSON.stringify(list));
+
+        if (tid) writeDraftList(tid, list);
+        else localStorage.setItem(DRAFT_KEY, JSON.stringify(list));
+
         setDrafts(list);
     } catch {}
-  }
-
-  function loadDraft(d) {
-      // Kur hap draftin, e marrim fiks ID dhe KODIN që ka pasur
-      if(!confirm("A je i sigurt? Fushat aktuale do zëvendësohen.")) return;
-      setOid(d.id); 
-      setCodeRaw(d.codeRaw); 
-      setName(d.name || ''); setPhone(d.phone || ''); setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT); setClientPhotoUrl(d.clientPhotoUrl || ''); setAddress(d.address || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || ''); setClientDesc(d.clientDesc || ''); setTepihaRows(d.tepihaRows || []); setStazaRows(d.stazaRows || []); setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT); setStairsPhotoUrl(d.stairsPhotoUrl || ''); setPricePerM2(d.pricePerM2 || PRICE_DEFAULT); setClientPaid(d.clientPaid || 0); setNotes(d.notes || '');
-      setShowDraftsSheet(false);
+  } catch {}
   }
 
   function loadDraftById(id) {
-    try {
-      const key = draftKeyFor(me?.transport_id);
-      const raw = localStorage.getItem(key);
-      const list = raw ? JSON.parse(raw) : [];
-      const d = Array.isArray(list) ? list.find(x => x?.id === id) : null;
-      if (!d) return false;
-      // silent load (no confirm) when opening from the "TË PA PLOTSUARAT" page
-      setOid(d.id);
-      setCodeRaw(d.codeRaw);
-      setName(d.name || '');
-      setPhone(d.phone || '');
-      setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT);
-      setClientPhotoUrl(d.clientPhotoUrl || '');
-      setAddress(d.address || '');
-      setGpsLat(d.gpsLat || '');
-      setGpsLng(d.gpsLng || '');
-      setClientDesc(d.clientDesc || '');
-      setTepihaRows(d.tepihaRows || []);
-      setStazaRows(d.stazaRows || []);
-      setStairsQty(d.stairsQty || 0);
-      setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
-      setStairsPhotoUrl(d.stairsPhotoUrl || '');
-      setPricePerM2(d.pricePerM2 || PRICE_DEFAULT);
-      setClientPaid(d.clientPaid || 0);
-      setNotes(d.notes || '');
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function deleteDraft(id, silent = false) {
-      if(!silent) { if(!confirm("Fshi?")) return; }
-      let list = [];
-      const key = draftKeyFor(me?.transport_id);
-      try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
-      list = list.filter(d => d.id !== id);
-      localStorage.setItem(key, JSON.stringify(list));
-      setDrafts(list);
-  }
-
-  // Calculations & UI Helpers
-  const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
-  const totalEuro = useMemo(() => Number((totalM2 * parseNum(pricePerM2, 0)).toFixed(2)), [totalM2, pricePerM2]);
-  const paidEuro = useMemo(() => parseNum(clientPaid, 0), [clientPaid]);
-  const debt = useMemo(() => { const d = Number((totalEuro - paidEuro).toFixed(2)); return d > 0 ? d : 0; }, [totalEuro, paidEuro]);
-  const currentChange = totalEuro - paidEuro < 0 ? Math.abs(totalEuro - paidEuro) : 0;
-  const copeCount = useMemo(() => {
-    const t = tepihaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
-    const s = stazaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
-    const sh = Number(stairsQty) > 0 ? 1 : 0;
-    return t + s + sh;
-  }, [tepihaRows, stazaRows, stairsQty]);
-
-  function vibrateTap(ms = 15) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch {} }
-  function bumpEl(el) { try { if (!el) return; el.classList.remove('chip-bump'); void el.offsetWidth; el.classList.add('chip-bump'); setTimeout(() => el.classList.remove('chip-bump'), 140); } catch {} }
-
-  // Rows Actions
-  function addRow(kind) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; const prefix = kind === 'tepiha' ? 't' : 's'; setter((rows) => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '0', photoUrl: '' }]); }
-  function removeRow(kind) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; setter((rows) => (rows.length ? rows.slice(0, -1) : rows)); }
-  function handleRowChange(kind, id, field, value) { const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; setter((rows) => rows.map((r) => (r.id === id ? { ...r, [field]: value } : r))); }
-
-  // Photos Actions
-  async function handleRowPhotoChange(kind, id, file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, `${kind}_${id}`); if (url) handleRowChange(kind, id, 'photoUrl', url); } catch (e) { alert('❌ Gabim Foto'); } finally { setPhotoUploading(false); } }
-  async function handleStairsPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, 'shkallore'); if (url) setStairsPhotoUrl(url); } catch (e) { alert('❌ Gabim Foto'); } finally { setPhotoUploading(false); } }
-  async function handleClientPhotoChange(file) { if (!file || !oid) return; setPhotoUploading(true); try { const url = await uploadPhoto(file, oid, 'client'); if (url) setClientPhotoUrl(url); } catch (e) { alert('❌ Gabim Foto'); } finally { setPhotoUploading(false); } }
-  
-  function applyChip(kind, val, ev) {
-    vibrateTap(15); if (ev?.currentTarget) bumpEl(ev.currentTarget);
-    const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows; const rows = kind === 'tepiha' ? tepihaRows : stazaRows;
-    if (!rows || rows.length === 0) { const prefix = kind === 'tepiha' ? 't' : 's'; setter([{ id: `${prefix}1`, m2: String(val), qty: '1', photoUrl: '' }]); return; }
-    const emptyIdx = rows.findIndex((r) => !r.m2);
-    if (emptyIdx !== -1) { const nr = [...rows]; const curQty = String(nr[emptyIdx]?.qty ?? '').trim(); nr[emptyIdx] = { ...nr[emptyIdx], m2: String(val), qty: curQty && curQty !== '0' ? curQty : '1' }; setter(nr); } else { const prefix = kind === 'tepiha' ? 't' : 's'; setter([...rows, { id: `${prefix}${rows.length + 1}`, m2: String(val), qty: '1', photoUrl: '' }]); }
-  }
-
-  function getGps() { if (typeof navigator === 'undefined' || !navigator.geolocation) { alert('GPS s’mund të merret.'); return; } navigator.geolocation.getCurrentPosition((pos) => { setGpsLat(String(pos.coords.latitude)); setGpsLng(String(pos.coords.longitude)); alert('✅ GPS OK'); }, () => { alert('S’u mor GPS.'); }, { enableHighAccuracy: true, timeout: 8000 }); }
-
-  // Pay
-  function openPay() { const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2)); setPayAddRaw(dueNow > 0 ? String(dueNow.toFixed(2)) : ''); setShowPaySheet(true); }
-  function applyPayAndClose() { const cashGiven = parseNum(payAddRaw, 0); if (!(cashGiven > 0)) { setShowPaySheet(false); return; } const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2))); const applied = Number(Math.min(cashGiven, due).toFixed(2)); setClientPaid(Number((Number(clientPaid || 0) + applied).toFixed(2))); setShowPaySheet(false); setPayAddRaw(''); }
-  function startPayHold(e) {
-    try {
-      const p = (e && (e.touches?.[0] || e.changedTouches?.[0])) || (e && ('clientX' in e) ? e : null);
-      if (p) payTouchRef.current = { x: p.clientX || 0, y: p.clientY || 0, moved: false };
-    } catch {}
- payHoldTriggeredRef.current = false; if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = setTimeout(() => { payHoldTriggeredRef.current = true; vibrateTap(25); setPriceTmp(Number(pricePerM2) || PRICE_DEFAULT); setShowPriceSheet(true); }, 1000); }
-  function endPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; if (payTouchRef.current?.moved) { payHoldTriggeredRef.current = false; return; }
-    if (!payHoldTriggeredRef.current) openPay(); payHoldTriggeredRef.current = false; }
-  function onPayPointerMove(e) {
-    try {
-      const p = (e && (e.touches?.[0] || e.changedTouches?.[0])) || (e && ('clientX' in e) ? e : null);
-      if (!p) return;
-      const dx = Math.abs((p.clientX || 0) - (payTouchRef.current?.x || 0));
-      const dy = Math.abs((p.clientY || 0) - (payTouchRef.current?.y || 0));
-      if (dx > 10 || dy > 10) {
-        payTouchRef.current.moved = true;
-        cancelPayHold();
-      }
-    } catch {}
-  }
-
-  function cancelPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = null; payHoldTriggeredRef.current = false; }
-
-  function validate() {
-    if (!name.trim()) return alert('Shkruaj emrin!'), false;
-    const ph = sanitizePhone(phonePrefix + phone);
-    if (!ph || ph.length < 6) return alert('Telefoni jo valid!'), false;
-    const allRows = [...(tepihaRows || []), ...(stazaRows || [])];
-    for (const r of allRows) { const m2 = parseFloat(String(r.m2 || '0').replace(',', '.')) || 0; const q = parseInt(String(r.qty || '0'), 10) || 0; if (m2 > 0 && q <= 0) return alert('COPË duhet > 0'), false; }
-    if (totalM2 <= 0) return alert('Shto të paktën 1 m².'), false;
-    return true;
-  }
-
-  // --- SAVE LOGIC ---
-  async function saveOrder() {
-    addLog("--- START SAVE ---");
-    if (!me?.transport_id) { alert("❌ Gabim Sesioni."); return; }
-    if (!validate()) return;
-
-    setSaving(true);
-    let orderData = null;
-    try {
-      const codeStr = normalizeTCode(codeRaw); 
-      const codeNum = Number(codeStr.replace(/\D+/g, '')) || 0; 
-      
-      const needsReview = !name.trim() || sanitizePhone(phonePrefix + phone).length < 6 || Number(totalM2 || 0) <= 0;
-      
-      orderData = {
-        id: oid, // ✅ Tani kjo është UUID e vlefshme
-        code: codeNum, 
-        code_n: codeNum,
-        scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
-        status: 'pickup',
-        created_at: new Date().toISOString(),
-        data: {
-          scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
-          status: 'pickup',
-          at_base: false,
-          needs_review: needsReview,
-          offloaded_at: null,
-          offloaded_by: null,
-          client: { name: name.trim(), phone: phonePrefix + (phone || ''), code: codeStr, photoUrl: clientPhotoUrl || '' },
-          transport: { address: address || '', lat: gpsLat || '', lng: gpsLng || '', desc: clientDesc || '' },
-          tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
-          staza: stazaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
-          shkallore: { qty: parseNum(stairsQty, 0), per: parseNum(stairsPer, SHKALLORE_M2_PER_STEP_DEFAULT), photoUrl: stairsPhotoUrl || '' },
-          // NOTE: Base system uses `pay.rate` (€/m²). Keep `pay.price` only for backward compatibility.
-          pay: {
-            rate: parseNum(pricePerM2, 0),
-            price: parseNum(pricePerM2, 0),
-            m2: Number(totalM2) || 0,
-            euro: Number(totalEuro) || 0,
-            paid: Number(paidEuro) || 0,
-            debt: Number(debt) || 0,
-            method: 'CASH',
-          },
-          notes: notes || '',
-        },
-      };
-
-      addLog("Sending to DB...");
-      const res = await insertTransportOrder(orderData);
-      
-      if (!res?.ok) {
-        throw new Error(res?.error || "Insert failed.");
-      }
-
-      await markTransportCodeUsed(codeStr);
-      if (paidEuro > 0) { 
-          await recordCashMove({ amount: paidEuro, method: 'CASH', type: 'TRANSPORT', status: 'COLLECTED', order_id: orderData.id, order_code: codeStr, client_name: name.trim(), stage: 'PRANIMI', note: `TRANSPORT ${codeStr}`, created_by_pin: String(me.transport_id), created_by_name: me.transport_name || me.transport_id, approved_by_pin: null }); 
-      }
-      
-      // ✅ Fshi draftin sepse u ruajt me sukses
-      deleteDraft(oid, true);
-
-      // TRANSPORT flow: keep orders out of BASE until transport does OFFLOAD.
-      // After a full save, send driver to OFFLOAD list to "SHKARKO NË BAZË".
-            router.push(back);
-
-    } catch (e) {
-      addLog(`ERROR: ${e.message}`);
-      
-      // Fallback Offline
-      const savedOffline = orderData ? saveOfflineTransportOrder({ ...orderData, saved_at: Date.now(), is_offline: true }) : false;
-      if (savedOffline) {
-        alert("⚠️ S'ka rrjet (Ose DB Error)! U ruajt LOKALISHT.");
-        deleteDraft(oid, true);
-        router.push(back);
-      } else {
-        alert(`❌ DËSHTOI RUAJTJA!\n\n${e.message}`);
-      }
-    } finally { 
-      setSaving(false); 
-    }
-  }
-
-  if (creating) { return (<div className="wrap"><header className="header-row"><div><h1 className="title">TRANSPORT</h1><div className="subtitle">Duke hapur...</div></div></header></div>); }
-
-  return (
-    <div className="wrap" style={{paddingBottom: 200}}>
-      <header className="header-row" style={{ alignItems: 'flex-start' }}>
-        <div><h1 className="title">TRANSPORT • PRANIMI</h1><div className="subtitle">{me?.transport_name || 'SHOFER'}</div></div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-             <Link className="btn secondary" href="/transport/menu" style={{fontSize: 10, padding: '6px 10px'}}>MENU</Link>
-        </div>
-        <div className="code-badge"><span className="badge">{`KODI: ${normalizeTCode(codeRaw)}`}</span></div>
-      </header>
-
-      {/* DRAFTS BUTTON */}
-      <section style={{marginTop: 8, marginBottom: 12}}>
-        <button type="button" className="btn secondary" style={{width: '100%', padding: '12px 14px', borderRadius: 18}} onClick={() => { refreshDrafts(); setShowDraftsSheet(true); }}>
-            📝 TË PA PLOTSUARAT {drafts.length > 0 ? `(${drafts.length})` : ''}
-        </button>
-      </section>
-
-      <section className="card">
-        <h2 className="card-title">KLIENTI & ADRESA</h2>
-        {/* "E PA PLOTSUAR" checkbox intentionally removed */}
-        <div className="field-group">
-          <label className="label">KËRKO KLIENT (HISTORI)</label>
-          <input
-            className="input transport"
-            value={clientSearch}
-            onChange={(e) => setClientSearch(e.target.value)}
-            placeholder="Shkruaj emrin ose numrin…"
-          />
-          {clientSearchBusy ? <div className="hint">DUKE KËRKUAR…</div> : null}
-          {clientHits?.length ? (
-            <div className="list" style={{ marginTop: 8 }}>
-              {clientHits.map((c, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className="list-row"
-                  onClick={() => {
-                    setName(c.name || "");
-                    const sp = splitPhonePrefix(c.phone || "");
-                    setPhonePrefix(sp.prefix);
-                    setPhone(sp.phone);
-                    setClientHits([]);
-                    setClientSearch("");
-                  }}
-                >
-                  <span style={{ flex: 1, textAlign: "left" }}>{(c.name || "PA EMËR").toUpperCase()}</span>
-                  <span className="badge">{c.phone || ""}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="field-group">
-          <label className="label">EMRI</label>
-          <div className="row" style={{ alignItems: 'center', gap: 10 }}>
-            <input className="input transport" value={name} onChange={(e) => setName(e.target.value)} placeholder="Emri Mbiemri" style={{ flex: 1 }} />
-            {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini" /> : null}
-            <label className="camera-btn" title="FOTO KLIENTI" style={{ marginLeft: 2 }}>📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} /></label>
-          </div>
-           {clientPhotoUrl && <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 8 }} onClick={() => setClientPhotoUrl('')}>🗑️ FSHI FOTO</button>}
-        </div>
-        <div className="field-group">
-          <label className="label">TELEFONI</label>
-          <div className="row"><input className="input small" value={phonePrefix} onChange={(e) => setPhonePrefix(e.target.value)} /><input className="input transport" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="4x xxx xxx" /></div>
-        </div>
-        <div style={{height: 12}} />
-        <div className="field-group">
-            <label className="label">ADRESA / GPS</label>
-            <div className="row" style={{gap: 8}}><input className="input transport" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Rruga..." style={{flex: 1}} /><button type="button" className="btn secondary" onClick={getGps} style={{padding: '0 12px'}}>📍 GPS</button></div>
-            {(gpsLat || gpsLng) && <div style={{fontSize: 10, marginTop: 4, opacity: 0.7, fontFamily: 'monospace'}}>{gpsLat}, {gpsLng}</div>}
-        </div>
-        <div className="field-group" style={{marginTop: 10}}><label className="label">PËRSHKRIM SHTESË</label><textarea className="input transport" rows={2} value={clientDesc} onChange={(e) => setClientDesc(e.target.value)} placeholder="Kati, hymja, etj..." /></div>
-      </section>
-
-      <section className="card">
-        <h2 className="card-title">TEPIHA</h2>
-        <div className="chip-row modern">{TEPIHA_CHIPS.map((v) => ( <button key={v} type="button" className="chip chip-modern" onClick={(e) => applyChip('tepiha', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button> ))}</div>
-        {tepihaRows.map((row) => ( <div className="piece-row" key={row.id}><div className="row"><input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" /><input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" /><label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} /></label></div>{row.photoUrl && (<div style={{ marginTop: 8 }}><img src={row.photoUrl} className="photo-thumb" alt="" /><button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => handleRowChange('tepiha', row.id, 'photoUrl', '')}>🗑️ FSHI FOTO</button></div>)}</div> ))}
-        <div className="row btn-row"><button className="btn secondary" onClick={() => addRow('tepiha')}>+ RRESHT</button><button className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button></div>
-      </section>
-
-      <section className="card">
-        <h2 className="card-title">STAZA</h2>
-        <div className="chip-row modern">{STAZA_CHIPS.map((v) => ( <button key={v} type="button" className="chip chip-modern" onClick={(e) => applyChip('staza', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button> ))}</div>
-        {stazaRows.map((row) => ( <div className="piece-row" key={row.id}><div className="row"><input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" /><input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" /><label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} /></label></div>{row.photoUrl && (<div style={{ marginTop: 8 }}><img src={row.photoUrl} className="photo-thumb" alt="" /><button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => handleRowChange('staza', row.id, 'photoUrl', '')}>🗑️ FSHI FOTO</button></div>)}</div> ))}
-        <div className="row btn-row"><button className="btn secondary" onClick={() => addRow('staza')}>+ RRESHT</button><button className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button></div>
-      </section>
-
-      <section className="card">
-        <div className="row util-row" style={{ gap: 10 }}>
-          <button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowStairsSheet(true)}>🪜 SHKALLORE</button>
-          <button className="btn secondary" style={{ flex: 1 }} onPointerDown={startPayHold} onPointerUp={endPayHold} onPointerCancel={cancelPayHold} onPointerLeave={cancelPayHold} onPointerMove={onPayPointerMove}>€ PAGESA</button>
-        </div>
-        <div className="tot-line">M² Total: <strong>{totalM2}</strong></div>
-        <div className="tot-line">Copë: <strong>{copeCount}</strong></div>
-        <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
-        <div className="tot-line" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 10, paddingTop: 10 }}>Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div>
-        {debt > 0 && <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{debt.toFixed(2)} €</strong></div>}
-        {currentChange > 0 && <div className="tot-line">Kthim: <strong style={{ color: '#2563eb' }}>{currentChange.toFixed(2)} €</strong></div>}
-      </section>
-
-      <section className="card"><h2 className="card-title">SHËNIME</h2><textarea className="input transport" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></section>
-
-      <footer className="footer-bar">
-        <button className="btn secondary" onClick={() => router.push('/')}>🏠 HOME</button>
-        <button className="btn primary" onClick={saveOrder} disabled={saving || photoUploading}>{saving ? '⏳ DUKE RUJT...' : (photoUploading ? '⏳ FOTO...' : '▶ RUAJ')}</button>
-      </footer>
-
-      {/* DEBUG BOX */}
-      <div style={{background: '#000', color: '#0f0', padding: 10, fontSize: 10, fontFamily: 'monospace', maxHeight: 150, overflow: 'auto', borderTop: '1px solid #333'}}>
-          <div style={{fontWeight: 'bold', borderBottom: '1px solid #333', marginBottom: 5}}>LOGU I PROCESIT:</div>
-          {logs.length === 0 ? <div style={{opacity:0.5}}>...Duke pritur veprim...</div> : logs.map((l, i) => <div key={i}>{l}</div>)}
-      </div>
-
-      {showPaySheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">PAGESA (TRANSPORT)</div><div className="payfs-sub">KODI: {normalizeTCode(codeRaw)} • {name || '—'}</div></div><button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div><div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div><div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>SOT MERREN: <strong>{Number(parseNum(payAddRaw,0)).toFixed(2)} €</strong></div></div><div className="card"><div className="field-group"><label className="label">KLIENTI DHA (€)</label><input type="text" inputMode="decimal" pattern="[0-9]*" className="input transport" value={payAddRaw} onChange={(e) => setPayAddRaw(e.target.value)} /><div className="chip-row" style={{ marginTop: 10 }}>{PAY_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => setPayAddRaw(String(v))}>{v}€</button> ))} <button className="chip" type="button" onClick={() => setPayAddRaw('')} style={{ opacity: 0.9 }}>FSHI</button></div></div></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button><button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button></div></div>)}
-      {showPriceSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">NDËRRO QMIMIN</div><div className="payfs-sub">€/m²</div></div><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{ marginTop: 0 }}><label className="label">QMIMI I RI (€ / m²)</label><input type="number" step="0.1" className="input transport" value={priceTmp} onChange={(e) => setPriceTmp(e.target.value === '' ? '' : Number(e.target.value))} /></div></div><div className="payfs-footer"><button className="btn secondary" onClick={() => setShowPriceSheet(false)}>ANULO</button><button className="btn primary" onClick={() => { setPricePerM2(priceTmp); setShowPriceSheet(false); }}>RUJ</button></div></div>)}
-      {showStairsSheet && (<div className="modal-overlay" onClick={() => setShowStairsSheet(false)}><div className="modal-content dark" onClick={(e) => e.stopPropagation()}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 className="card-title" style={{ margin: 0, color: '#fff' }}>SHKALLORE</h3><button className="btn secondary" onClick={() => setShowStairsSheet(false)}>✕</button></div><div className="field-group" style={{ marginTop: 12 }}><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label><div className="chip-row">{SHKALLORE_QTY_CHIPS.map((n) => ( <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button> ))}</div><input type="number" className="input transport" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => setStairsQty(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label><div className="chip-row">{SHKALLORE_PER_CHIPS.map((v) => ( <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button> ))}</div><input type="number" step="0.01" className="input transport" value={stairsPer} onChange={(e) => setStairsPer(e.target.value)} style={{marginTop: 8}} /></div><div className="field-group"><label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label><label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>{stairsPhotoUrl && ( <div style={{ marginTop: 8 }}><img src={stairsPhotoUrl} className="photo-thumb" alt="" /><button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI FOTO</button></div> )}</div><button className="btn primary" style={{ width: '100%', marginTop: 12 }} onClick={() => setShowStairsSheet(false)}>MBYLL</button></div></div>)}
-      
-      {/* DRAFTS FULLSCREEN */}
-      {showDraftsSheet && (<div className="payfs"><div className="payfs-top"><div><div className="payfs-title">TË PA PLOTSUARAT</div><div className="payfs-sub">HAP ose FSHI</div></div><button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button></div><div className="payfs-body"><div className="card" style={{marginTop: 0}}>{drafts.length === 0 ? <div style={{textAlign: 'center', padding: '20px', color: 'rgba(255,255,255,0.7)'}}>S'ka drafte.</div> : drafts.map(d => (<div key={d.id} style={{borderBottom:'1px solid rgba(255,255,255,0.1)', padding:'10px 0', display:'flex', justifyContent:'space-between', alignItems:'center'}}><div><div style={{fontWeight:900, fontSize:15}}>{normalizeTCode(d.codeRaw)}</div><div style={{fontSize:12, opacity:0.8}}>{d.name || 'Pa Emër'} • {d.phone || '-'}</div><div style={{fontSize:10, opacity:0.5}}>{new Date(d.ts).toLocaleString()}</div></div><div style={{display:'flex', gap:8}}><button className="btn secondary" style={{padding:'6px 10px', fontSize:11}} onClick={() => loadDraft(d)}>HAP</button><button className="btn secondary" style={{padding:'6px 10px', fontSize:11, color:'#ef4444'}} onClick={() => deleteDraft(d.id)}>FSHI</button></div></div>))}</div></div></div>)}
-
-      <style jsx>{`
-        .client-mini{ width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 6px 14px rgba(0,0,0,0.35); }
-        .photo-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); }
-        .camera-btn { background: rgba(255,255,255,0.1); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; cursor: pointer; border: 1px solid rgba(255,255,255,0.15); }
-        .chip-row.modern { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-        .chip-modern { padding: 10px 14px; border-radius: 14px; font-weight: 900; letter-spacing: 0.2px; color: rgba(255,255,255,0.92); backdrop-filter: blur(8px); }
-        .chip-modern:active { transform: translateY(1px); }
-        .chip-bump { animation: chipBump 140ms ease-in-out; }
-        @keyframes chipBump { 0% { transform: translateY(0) scale(1); } 40% { transform: translateY(1px) scale(0.98); } 70% { transform: translateY(0) scale(1.02); } 100% { transform: translateY(0) scale(1); } }
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px; }
-        .modal-content { width: 100%; max-width: 420px; padding: 18px; border-radius: 18px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35); background: white; }
-        .modal-content.dark { background: #0b0b0b; color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); }
-        .payfs { position: fixed; inset: 0; background: #0b0b0b; z-index: 10000; display: flex; flex-direction: column; }
-        .payfs-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 14px; background: #0b0b0b; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-        .payfs-title { color: #fff; font-weight: 900; font-size: 18px; }
-        .payfs-sub { color: rgba(255, 255, 255, 0.7); font-size: 12px; margin-top: 2px; }
-        .payfs-body { flex: 1; overflow: auto; padding: 14px; }
-        .payfs-footer { display: flex; gap: 10px; padding: 12px 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); background: #0b0b0b; }
-        .payfs-footer .btn { flex: 1; }
-      `}</style>
-    </div>
-  );
-}
+      try {
+        const tid = me?.transport_id;
+        let list = [];
+        if (tid) list = readDraftList(tid);
