@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
@@ -82,24 +82,21 @@ export default function TransportPickupPage() {
   const [rows, setRows] = useState([]);
   const [busyId, setBusyId] = useState(null);
 
-  // --- EDIT (same system as /pastrimi: long press on a row) ---
-  const longPressTimer = useRef(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [editRow, setEditRow] = useState(null);
+  const [editItem, setEditItem] = useState(null);
 
-  function startLongPress(r) {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    longPressTimer.current = setTimeout(() => {
-      setEditRow(r);
-      setEditOpen(true);
-    }, 550);
-  }
-
-  function cancelLongPress() {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+  function openEdit(row) {
+    if (!row?.id) return;
+    const c = calcFromData(row.data);
+    const code = row.code_str || (row.code_n != null ? `T${row.code_n}` : 'T?');
+    setEditItem({
+      id: row.id,
+      data: safeJson(row.data),
+      code_str: code,
+      client_name: row.client_name || c.clientName || '',
+      client_phone: row.client_phone || c.clientPhone || '',
+    });
+    setEditOpen(true);
   }
 
   async function load() {
@@ -247,9 +244,8 @@ export default function TransportPickupPage() {
           items={pickup}
           actionLabel="LOADED"
           onAction={markLoaded}
+          onEdit={openEdit}
           busyId={busyId}
-          onStartLongPress={startLongPress}
-          onCancelLongPress={cancelLongPress}
         />
 
         <Section
@@ -258,10 +254,9 @@ export default function TransportPickupPage() {
           items={loaded}
           actionLabel="KTHE NË PICKUP"
           onAction={markPickup}
+          onEdit={openEdit}
           busyId={busyId}
           secondary
-          onStartLongPress={startLongPress}
-          onCancelLongPress={cancelLongPress}
         />
 
         <div style={{ height: 22 }} />
@@ -272,8 +267,8 @@ export default function TransportPickupPage() {
 
         <TransportEditModal
           open={editOpen}
-          row={editRow}
-          onClose={() => setEditOpen(false)}
+          item={editItem}
+          onClose={() => { setEditOpen(false); setEditItem(null); }}
           onSaved={load}
         />
       </div>
@@ -281,7 +276,7 @@ export default function TransportPickupPage() {
   );
 }
 
-function Section({ title, emptyText, items, actionLabel, onAction, busyId, secondary, onStartLongPress, onCancelLongPress }) {
+function Section({ title, emptyText, items, actionLabel, onAction, onEdit, busyId, secondary }) {
   return (
     <div style={styles.section}>
       <div style={styles.sectionTitle}>{title}</div>
@@ -295,16 +290,7 @@ function Section({ title, emptyText, items, actionLabel, onAction, busyId, secon
             const nm = r.client_name || c.clientName || 'PA EMËR';
             const ph = r.client_phone || c.clientPhone || '';
             return (
-              <div
-                key={r.id}
-                style={styles.item}
-                onMouseDown={() => onStartLongPress?.(r)}
-                onMouseUp={onCancelLongPress}
-                onMouseLeave={onCancelLongPress}
-                onTouchStart={() => onStartLongPress?.(r)}
-                onTouchEnd={onCancelLongPress}
-                onTouchCancel={onCancelLongPress}
-              >
+              <div key={r.id} style={styles.item}>
                 <div style={styles.itemLeft}>
                   <div style={styles.itemTop}>
                     <span style={styles.badge}>{code}</span>
@@ -321,6 +307,14 @@ function Section({ title, emptyText, items, actionLabel, onAction, busyId, secon
                   </div>
                 </div>
 
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'stretch' }}>
+                <button
+                  onClick={() => onEdit?.(r)}
+                  style={styles.btnGhost}
+                  type="button"
+                >
+                  EDIT
+                </button>
                 <button
                   onClick={() => onAction(r.id)}
                   style={secondary ? styles.btnSecondary : styles.btnPrimary}
@@ -328,6 +322,7 @@ function Section({ title, emptyText, items, actionLabel, onAction, busyId, secon
                 >
                   {busyId === r.id ? '...' : actionLabel}
                 </button>
+              </div>
               </div>
             );
           })}
@@ -442,6 +437,17 @@ const styles = {
     padding: '10px 12px',
     background: '#2563eb',
     color: '#fff',
+    fontWeight: 900,
+    fontSize: 12,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  btnGhost: {
+    border: '1px solid rgba(148,163,184,0.25)',
+    borderRadius: 14,
+    padding: '10px 12px',
+    background: 'transparent',
+    color: '#e5e7eb',
     fontWeight: 900,
     fontSize: 12,
     cursor: 'pointer',

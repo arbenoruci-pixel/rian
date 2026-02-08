@@ -1,217 +1,98 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-// Shared edit modal for TRANSPORT orders (same idea as /pastrimi long-press edit)
-
-const PRICE_DEFAULT = 3.0;
-const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
-
 function safeJson(v) {
-  try {
-    if (!v) return {};
-    if (typeof v === 'string') return JSON.parse(v) || {};
-    // some rows store payload under .data
-    if (v && typeof v === 'object' && v.data) {
-      const d = typeof v.data === 'string' ? (JSON.parse(v.data) || {}) : v.data;
-      if (d && typeof d === 'object') return d;
-    }
-    return v || {};
-  } catch {
-    return {};
+  if (!v) return {};
+  if (typeof v === 'string') {
+    try { return JSON.parse(v) || {}; } catch { return {}; }
   }
+  return typeof v === 'object' ? v : {};
 }
 
-function computeM2(o) {
-  const tepiha = Array.isArray(o?.tepiha) ? o.tepiha : [];
-  const staza = Array.isArray(o?.staza) ? o.staza : [];
-  let total = 0;
-  for (const r of tepiha) total += (Number(r?.m2) || 0) * (Number(r?.qty) || 0);
-  for (const r of staza) total += (Number(r?.m2) || 0) * (Number(r?.qty) || 0);
-  if (o?.shkallore) total += (Number(o?.shkallore?.qty) || 0) * (Number(o?.shkallore?.per) || 0);
-  return Number(total.toFixed(2));
+function parseAmount(v, fallback = 0) {
+  let s = String(v ?? '').trim();
+  s = s.replace(/\s+/g, '');
+  s = s.replace('€', '');
+  s = s.replace(',', '.');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : fallback;
 }
 
-function computeEuro(m2, rate) {
-  const r = Number(rate);
-  const rr = Number.isFinite(r) && r > 0 ? r : PRICE_DEFAULT;
-  return Number((Number(m2 || 0) * rr).toFixed(2));
+function sanitizePhone(v) {
+  const s = String(v || '').trim();
+  if (s.startsWith('+')) return '+' + s.replace(/\D+/g, '');
+  return s.replace(/\D+/g, '');
 }
 
-function rowToUiRows(arr, prefix) {
-  const a = Array.isArray(arr) ? arr : [];
-  if (!a.length) return [{ id: `${prefix}1`, m2: '', qty: '' }];
-  return a.map((x, i) => ({
-    id: `${prefix}${i + 1}`,
-    m2: String(x?.m2 ?? ''),
-    qty: String(x?.qty ?? ''),
-  }));
-}
+export default function TransportEditModal({ open, item, onClose, onSaved }) {
+  const data = useMemo(() => safeJson(item?.data), [item]);
+  const code = item?.code_str || item?.code || item?.code_n || data?.client?.code || '';
 
-function uiToRows(ui) {
-  return (ui || []).map((r) => ({
-    m2: Number(r?.m2) || 0,
-    qty: Number(r?.qty) || 0,
-  })).filter((r) => (r.m2 > 0 && r.qty > 0) || (r.m2 === 0 && r.qty > 0) || (r.m2 > 0 && r.qty === 0));
-}
-
-export default function TransportEditModal({ open, row, onClose, onSaved }) {
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
-  const [oid, setOid] = useState('');
-  const [status, setStatus] = useState('');
-  const [codeStr, setCodeStr] = useState('');
-  const [codeN, setCodeN] = useState(null);
-
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-
-  const [tepihaRows, setTepihaRows] = useState([{ id: 't1', m2: '', qty: '' }]);
-  const [stazaRows, setStazaRows] = useState([{ id: 's1', m2: '', qty: '' }]);
-  const [stairsQty, setStairsQty] = useState(0);
-  const [stairsPer, setStairsPer] = useState(SHKALLORE_M2_PER_STEP_DEFAULT);
-
-  const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
-  const [clientPaid, setClientPaid] = useState(0);
+  const [address, setAddress] = useState('');
+  const [lat, setLat] = useState('');
+  const [lng, setLng] = useState('');
+  const [desc, setDesc] = useState('');
   const [notes, setNotes] = useState('');
-
-  const didInit = useRef(false);
+  const [totalEur, setTotalEur] = useState('');
 
   useEffect(() => {
-    if (!open) {
-      didInit.current = false;
-      setErr('');
-      return;
-    }
-    if (!row?.id) return;
-    if (didInit.current && String(row.id) === oid) return;
-    didInit.current = true;
-    (async () => {
-      setLoading(true);
-      setErr('');
-      try {
-        const { data, error } = await supabase
-          .from('transport_orders')
-          .select('id,status,code_str,code_n,client_name,client_phone,data')
-          .eq('id', row.id)
-          .single();
-        if (error) throw error;
-        const o = safeJson(data?.data);
+    if (!open) return;
+    const d = safeJson(item?.data);
+    setErr('');
+    setName(String(d?.client?.name || item?.client_name || '').trim());
+    setPhone(String(d?.client?.phone || item?.client_phone || '').trim());
+    setAddress(String(d?.transport?.address || '').trim());
+    setLat(String(d?.transport?.lat || '').trim());
+    setLng(String(d?.transport?.lng || '').trim());
+    setDesc(String(d?.transport?.desc || '').trim());
+    setNotes(String(d?.notes || '').trim());
+    setTotalEur(String(d?.pay?.euro ?? '').trim());
+  }, [open, item]);
 
-        setOid(String(data.id));
-        setStatus(String(data.status || ''));
-        setCodeStr(String(data.code_str || o?.code_str || ''));
-        setCodeN(data.code_n ?? o?.code_n ?? null);
-
-        setName(String(o?.client?.name ?? data.client_name ?? ''));
-        setPhone(String(o?.client?.phone ?? data.client_phone ?? ''));
-
-        setTepihaRows(rowToUiRows(o?.tepiha, 't'));
-        setStazaRows(rowToUiRows(o?.staza, 's'));
-        setStairsQty(Number(o?.shkallore?.qty) || 0);
-        setStairsPer(Number(o?.shkallore?.per) || SHKALLORE_M2_PER_STEP_DEFAULT);
-
-        const rate = Number(o?.pay?.rate ?? o?.pay?.price ?? PRICE_DEFAULT);
-        setPricePerM2(Number.isFinite(rate) ? rate : PRICE_DEFAULT);
-        setClientPaid(Number(o?.pay?.paid ?? 0) || 0);
-        setNotes(String(o?.notes || ''));
-      } catch (e) {
-        setErr(String(e?.message || e));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [open, row?.id]);
-
-  const totalM2 = useMemo(() => {
-    const o = {
-      tepiha: uiToRows(tepihaRows),
-      staza: uiToRows(stazaRows),
-      shkallore: { qty: Number(stairsQty) || 0, per: Number(stairsPer) || 0 },
-    };
-    return computeM2(o);
-  }, [tepihaRows, stazaRows, stairsQty, stairsPer]);
-
-  const totalEuro = useMemo(() => computeEuro(totalM2, pricePerM2), [totalM2, pricePerM2]);
-  const debtEuro = useMemo(() => Number((totalEuro - (Number(clientPaid) || 0)).toFixed(2)), [totalEuro, clientPaid]);
-
-  function addRow(kind) {
-    if (kind === 't') {
-      setTepihaRows((p) => [...p, { id: `t${p.length + 1}`, m2: '', qty: '' }]);
-    } else {
-      setStazaRows((p) => [...p, { id: `s${p.length + 1}`, m2: '', qty: '' }]);
-    }
-  }
-
-  function updateRow(kind, id, field, value) {
-    const set = kind === 't' ? setTepihaRows : setStazaRows;
-    set((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
-  }
-
-  function removeRow(kind, id) {
-    const set = kind === 't' ? setTepihaRows : setStazaRows;
-    set((prev) => {
-      const next = prev.filter((r) => r.id !== id);
-      return next.length ? next : [{ id: `${kind}1`, m2: '', qty: '' }];
-    });
-  }
+  if (!open) return null;
 
   async function save() {
     setSaving(true);
     setErr('');
     try {
-      const { data: currentRow, error: fetchErr } = await supabase
-        .from('transport_orders')
-        .select('data,transport_id,created_at')
-        .eq('id', oid)
-        .single();
-      if (fetchErr) throw fetchErr;
+      if (!item?.id) throw new Error('MUNGON ID');
+      const d0 = safeJson(item?.data);
+      const d = { ...d0 };
 
-      const base = safeJson(currentRow?.data);
+      const nm = String(name || '').trim();
+      const ph = sanitizePhone(phone);
 
-      const order = {
-        ...base,
-        id: oid,
-        status: status || base.status,
-        code_str: codeStr || base.code_str,
-        code_n: codeN ?? base.code_n,
-        client: {
-          ...(base.client || {}),
-          name: String(name || '').trim(),
-          phone: String(phone || '').trim(),
-        },
-        tepiha: uiToRows(tepihaRows),
-        staza: uiToRows(stazaRows),
-        shkallore: {
-          qty: Number(stairsQty) || 0,
-          per: Number(stairsPer) || 0,
-        },
-        pay: {
-          ...(base.pay || {}),
-          m2: totalM2,
-          rate: Number(pricePerM2) || PRICE_DEFAULT,
-          euro: totalEuro,
-          paid: Number(clientPaid) || 0,
-          debt: debtEuro,
-        },
-        notes: notes || '',
+      d.client = { ...(d.client || {}), name: nm, phone: ph };
+      d.transport = {
+        ...(d.transport || {}),
+        address: String(address || '').trim(),
+        lat: String(lat || '').trim(),
+        lng: String(lng || '').trim(),
+        desc: String(desc || '').trim(),
       };
+      d.notes = String(notes || '').trim();
 
-      const { error: upErr } = await supabase
+      const eur = parseAmount(totalEur, d?.pay?.euro ?? 0);
+      d.pay = { ...(d.pay || {}), euro: eur };
+
+      const { error } = await supabase
         .from('transport_orders')
         .update({
-          client_name: order.client?.name || null,
-          client_phone: order.client?.phone || null,
-          data: order,
+          data: d,
+          client_name: nm || null,
+          client_phone: ph || null,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', oid);
+        .eq('id', item.id);
 
-      if (upErr) throw upErr;
-
+      if (error) throw error;
       onSaved?.();
       onClose?.();
     } catch (e) {
@@ -221,101 +102,62 @@ export default function TransportEditModal({ open, row, onClose, onSaved }) {
     }
   }
 
-  if (!open) return null;
-
   return (
-    <div style={styles.overlay}>
-      <div style={styles.modal}>
+    <div style={styles.backdrop} onClick={() => { if (!saving) onClose?.(); }}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
-          <div>
-            <div style={styles.hTitle}>EDIT • {codeStr || ''}</div>
-            <div style={styles.hSub}>STATUS: {String(status || '').toUpperCase()}</div>
-          </div>
-          <button style={styles.close} onClick={onClose} aria-label="Close">✕</button>
+          <div style={styles.title}>EDIT • {String(code || 'T?')}</div>
+          <button style={styles.x} onClick={() => { if (!saving) onClose?.(); }}>✕</button>
         </div>
 
         {err ? <div style={styles.err}>{err}</div> : null}
-        {loading ? <div style={styles.loading}>DUKE NGARKUAR…</div> : null}
 
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>KLIENTI</div>
-          <div style={styles.grid2}>
-            <div>
-              <div style={styles.label}>EMRI</div>
-              <input style={styles.input} value={name} onChange={(e) => setName(e.target.value)} placeholder="Emri" />
-            </div>
-            <div>
-              <div style={styles.label}>TEL</div>
-              <input style={styles.input} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+383..." />
-            </div>
+        <div style={styles.grid}>
+          <label style={styles.lbl}>
+            EMRI
+            <input style={styles.inp} value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+
+          <label style={styles.lbl}>
+            TEL
+            <input style={styles.inp} value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </label>
+
+          <label style={styles.lbl}>
+            ADRESA
+            <input style={styles.inp} value={address} onChange={(e) => setAddress(e.target.value)} />
+          </label>
+
+          <div style={styles.row2}>
+            <label style={{ ...styles.lbl, marginBottom: 0 }}>
+              LAT
+              <input style={styles.inp} value={lat} onChange={(e) => setLat(e.target.value)} />
+            </label>
+            <label style={{ ...styles.lbl, marginBottom: 0 }}>
+              LNG
+              <input style={styles.inp} value={lng} onChange={(e) => setLng(e.target.value)} />
+            </label>
           </div>
-        </div>
 
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>TEPIHA</div>
-          {(tepihaRows || []).map((r) => (
-            <div key={r.id} style={styles.row3}>
-              <input style={styles.input} value={r.m2} onChange={(e) => updateRow('t', r.id, 'm2', e.target.value)} placeholder="m²" />
-              <input style={styles.input} value={r.qty} onChange={(e) => updateRow('t', r.id, 'qty', e.target.value)} placeholder="COPË" />
-              <button style={styles.iconBtn} onClick={() => removeRow('t', r.id)}>—</button>
-            </div>
-          ))}
-          <button style={styles.addBtn} onClick={() => addRow('t')}>+ SHTO</button>
-        </div>
+          <label style={styles.lbl}>
+            PËRSHKRIMI
+            <input style={styles.inp} value={desc} onChange={(e) => setDesc(e.target.value)} />
+          </label>
 
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>STAZA</div>
-          {(stazaRows || []).map((r) => (
-            <div key={r.id} style={styles.row3}>
-              <input style={styles.input} value={r.m2} onChange={(e) => updateRow('s', r.id, 'm2', e.target.value)} placeholder="m²" />
-              <input style={styles.input} value={r.qty} onChange={(e) => updateRow('s', r.id, 'qty', e.target.value)} placeholder="COPË" />
-              <button style={styles.iconBtn} onClick={() => removeRow('s', r.id)}>—</button>
-            </div>
-          ))}
-          <button style={styles.addBtn} onClick={() => addRow('s')}>+ SHTO</button>
-        </div>
+          <label style={styles.lbl}>
+            TOTAL € (VETËM EURO)
+            <input style={styles.inp} inputMode="decimal" value={totalEur} onChange={(e) => setTotalEur(e.target.value)} />
+          </label>
 
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>SHKALLORE</div>
-          <div style={styles.grid2}>
-            <div>
-              <div style={styles.label}>SASI (COPË)</div>
-              <input style={styles.input} value={stairsQty} onChange={(e) => setStairsQty(e.target.value)} placeholder="0" />
-            </div>
-            <div>
-              <div style={styles.label}>m² / COPË</div>
-              <input style={styles.input} value={stairsPer} onChange={(e) => setStairsPer(e.target.value)} placeholder="0.3" />
-            </div>
-          </div>
-        </div>
-
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>PAGESA</div>
-          <div style={styles.grid2}>
-            <div>
-              <div style={styles.label}>€ / m²</div>
-              <input style={styles.input} value={pricePerM2} onChange={(e) => setPricePerM2(e.target.value)} />
-            </div>
-            <div>
-              <div style={styles.label}>KLIENTI DHA (€)</div>
-              <input style={styles.input} value={clientPaid} onChange={(e) => setClientPaid(e.target.value)} />
-            </div>
-          </div>
-          <div style={styles.kpis}>
-            <div style={styles.kpi}><span style={styles.kpiL}>m²</span><span style={styles.kpiV}>{totalM2}</span></div>
-            <div style={styles.kpi}><span style={styles.kpiL}>TOTAL</span><span style={styles.kpiV}>€{totalEuro}</span></div>
-            <div style={styles.kpi}><span style={styles.kpiL}>BORXH</span><span style={styles.kpiV}>€{debtEuro}</span></div>
-          </div>
-        </div>
-
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>SHENIM</div>
-          <textarea style={styles.textarea} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Shënim (opsionale)" />
+          <label style={styles.lbl}>
+            SHËNIM
+            <textarea style={styles.ta} value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+          </label>
         </div>
 
         <div style={styles.footer}>
-          <button style={styles.cancel} onClick={onClose} disabled={saving}>MBYLL</button>
-          <button style={styles.save} onClick={save} disabled={saving}>{saving ? 'DUKE RUAJTUR…' : 'RUAJ'}</button>
+          <button style={styles.btnGhost} onClick={() => { if (!saving) onClose?.(); }}>ANULO</button>
+          <button style={styles.btn} onClick={save} disabled={saving}>{saving ? '...' : 'RUAJ'}</button>
         </div>
       </div>
     </div>
@@ -323,137 +165,77 @@ export default function TransportEditModal({ open, row, onClose, onSaved }) {
 }
 
 const styles = {
-  overlay: {
+  backdrop: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.55)',
-    zIndex: 9999,
+    background: 'rgba(0,0,0,0.65)',
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'center',
-    padding: '14px',
-    overflowY: 'auto',
+    padding: 14,
+    zIndex: 9999,
   },
   modal: {
     width: '100%',
-    maxWidth: 520,
-    background: '#0b1220',
-    color: '#e5e7eb',
+    maxWidth: 560,
     borderRadius: 16,
-    border: '1px solid rgba(255,255,255,0.10)',
-    boxShadow: '0 20px 50px rgba(0,0,0,0.45)',
-    padding: 14,
+    border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(2, 6, 23, 0.98)',
+    boxShadow: '0 30px 90px rgba(0,0,0,0.55)',
+    overflow: 'hidden',
+    color: '#e5e7eb',
+    fontFamily: '-apple-system, system-ui, Segoe UI, Roboto, sans-serif',
   },
   header: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    padding: '12px 14px',
+    borderBottom: '1px solid rgba(255,255,255,0.10)',
   },
-  hTitle: { fontWeight: 900, letterSpacing: 0.3 },
-  hSub: { fontSize: 11, color: '#94a3b8', fontWeight: 800, marginTop: 2 },
-  close: {
-    border: 'none',
-    background: 'rgba(255,255,255,0.10)',
-    color: '#fff',
+  title: { fontWeight: 900, letterSpacing: 1.1 },
+  x: {
+    border: '1px solid rgba(255,255,255,0.18)',
+    background: 'transparent',
+    color: '#e5e7eb',
     borderRadius: 10,
-    width: 36,
-    height: 36,
+    padding: '6px 10px',
     fontWeight: 900,
-    cursor: 'pointer',
   },
   err: {
-    background: 'rgba(239,68,68,0.18)',
-    border: '1px solid rgba(239,68,68,0.35)',
-    color: '#fecaca',
-    padding: '10px 12px',
+    margin: 12,
+    padding: 10,
     borderRadius: 12,
+    border: '1px solid rgba(239,68,68,0.35)',
+    background: 'rgba(239,68,68,0.12)',
+    color: '#fecaca',
     fontWeight: 800,
     fontSize: 12,
-    marginBottom: 10,
   },
-  loading: { color: '#93c5fd', fontWeight: 900, fontSize: 12, marginBottom: 10 },
-  section: {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 10,
-  },
-  sectionTitle: { fontWeight: 900, fontSize: 12, color: '#cbd5e1', marginBottom: 8 },
-  label: { fontSize: 11, fontWeight: 900, color: '#94a3b8', marginBottom: 6 },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 },
-  input: {
-    width: '100%',
-    background: 'rgba(0,0,0,0.35)',
-    border: '1px solid rgba(255,255,255,0.12)',
+  grid: { padding: 14, display: 'grid', gap: 10 },
+  lbl: { display: 'grid', gap: 6, fontWeight: 900, fontSize: 12, letterSpacing: 1.1 },
+  inp: {
+    height: 42,
     borderRadius: 12,
-    padding: '10px 12px',
-    color: '#fff',
+    border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(15, 23, 42, 0.55)',
+    color: '#e5e7eb',
+    padding: '0 12px',
     fontWeight: 800,
     outline: 'none',
   },
-  textarea: {
-    width: '100%',
-    minHeight: 70,
-    background: 'rgba(0,0,0,0.35)',
-    border: '1px solid rgba(255,255,255,0.12)',
+  ta: {
     borderRadius: 12,
+    border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(15, 23, 42, 0.55)',
+    color: '#e5e7eb',
     padding: '10px 12px',
-    color: '#fff',
-    fontWeight: 700,
+    fontWeight: 800,
     outline: 'none',
+    resize: 'vertical',
   },
-  row3: { display: 'grid', gridTemplateColumns: '1fr 1fr 42px', gap: 8, marginBottom: 8 },
-  iconBtn: {
-    border: 'none',
-    background: 'rgba(255,255,255,0.10)',
-    color: '#fff',
-    borderRadius: 12,
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  addBtn: {
-    width: '100%',
-    marginTop: 6,
-    border: '1px dashed rgba(255,255,255,0.20)',
-    background: 'rgba(255,255,255,0.05)',
-    color: '#fff',
-    borderRadius: 12,
-    padding: '10px 12px',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  kpis: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 10 },
-  kpi: {
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 12,
-    padding: '10px 12px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 10,
-    fontWeight: 900,
-  },
-  kpiL: { fontSize: 11, color: '#94a3b8' },
-  kpiV: { fontSize: 13, color: '#fff' },
-  footer: { display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 },
-  cancel: {
-    border: '1px solid rgba(255,255,255,0.16)',
-    background: 'rgba(255,255,255,0.06)',
-    color: '#fff',
-    borderRadius: 12,
-    padding: '10px 14px',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  save: {
-    border: 'none',
-    background: '#22c55e',
-    color: '#052e16',
-    borderRadius: 12,
-    padding: '10px 14px',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
+  row2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 },
+  footer: { display: 'flex', justifyContent: 'space-between', gap: 10, padding: 14, borderTop: '1px solid rgba(255,255,255,0.10)' },
+  btnGhost: { padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.18)', background: 'transparent', color: '#e5e7eb', fontWeight: 900 },
+  btn: { padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.18)', color: '#e5e7eb', fontWeight: 900 },
 };

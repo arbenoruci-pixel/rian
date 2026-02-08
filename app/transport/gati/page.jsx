@@ -1,12 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import PaySheetPortal from '@/components/payments/PaySheetPortal';
 import { getTransportSession } from '@/lib/transportAuth';
-import TransportEditModal from '@/components/transport/TransportEditModal';
 import TransportEditModal from '@/components/transport/TransportEditModal';
 
 function readActor() {
@@ -86,25 +85,6 @@ export default function TransportGatiPage() {
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState('');
 
-  // --- EDIT (same system as /pastrimi) ---
-  const longPressTimer = useRef(null);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editRow, setEditRow] = useState(null);
-
-  function startLongPress(r) {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    longPressTimer.current = setTimeout(() => {
-      setEditRow({ id: r.id });
-      setEditOpen(true);
-    }, 550);
-  }
-  function cancelLongPress() {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }
-
   // selection + bulk flow
   const [sel, setSel] = useState(() => ({})); // {id:true}
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -121,12 +101,31 @@ export default function TransportGatiPage() {
   const [payOrder, setPayOrder] = useState(null);
   const [openId, setOpenId] = useState(null);
 
+  // edit modal
+  const [editOpen, setEditOpen] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+
   useEffect(() => { setMe(readActor()); }, []);
 
   const role = String(me?.role || '').toUpperCase();
   const canSee = role === 'TRANSPORT' || role === 'ADMIN' || role === 'OWNER' || role === 'DISPATCH';
 
   const myTransportId = String(me?.transport_id || me?.pin || '').trim();
+
+  function openEdit(it) {
+    if (!it?.id) return;
+    // it is the "pretty" view item; map back to raw order
+    const raw = items.find((x) => x.id === it.id) || null;
+    const rawData = raw ? (raw.data || {}) : {};
+    setEditItem({
+      id: it.id,
+      data: rawData,
+      code_str: it.code,
+      client_name: it.name || null,
+      client_phone: it.phone || null,
+    });
+    setEditOpen(true);
+  }
 
   const prettyItems = useMemo(() => {
     return (items || []).map((it) => {
@@ -377,16 +376,7 @@ export default function TransportGatiPage() {
                 const checked = !!sel[it.id];
                 const isInRoute = routeIds ? routeIds.includes(it.id) : false;
                 return (
-                  <div
-                    key={it.id}
-                    className={"rowline" + (checked ? " selected" : "")}
-                    onMouseDown={() => startLongPress(it)}
-                    onMouseUp={cancelLongPress}
-                    onMouseLeave={cancelLongPress}
-                    onTouchStart={() => startLongPress(it)}
-                    onTouchEnd={cancelLongPress}
-                    onTouchCancel={cancelLongPress}
-                  >
+                  <div key={it.id} className={"rowline" + (checked ? " selected" : "")}>
                     <div className="left">
                       <input
                         type="checkbox"
@@ -417,12 +407,6 @@ export default function TransportGatiPage() {
 
                       <button
                         className="btn ghost"
-                        onClick={() => { setEditRow({ id: it.id }); setEditOpen(true); }}
-                        title="EDIT (tap)"
-                      >EDIT</button>
-
-                      <button
-                        className="btn ghost"
                         onClick={() => {
                           const msg = getConfirmMsg(it.name, it.code);
                           openSMS(it.phone, msg);
@@ -441,6 +425,8 @@ export default function TransportGatiPage() {
                       >
                         PAGUAR
                       </button>
+
+                      <button className="btn ghost" onClick={() => openEdit(it)}>EDIT</button>
 
                       <button className="btn ghost" onClick={() => setOpenId((v) => (v === it.id ? null : it.id))}>HAP</button>
                     </div>
@@ -515,13 +501,6 @@ export default function TransportGatiPage() {
             </div>
           ) : null}
 
-          <TransportEditModal
-            open={editOpen}
-            row={editRow}
-            onClose={() => setEditOpen(false)}
-            onSaved={load}
-          />
-
           <PaySheetPortal
             open={payOpen}
             order={payOrder}
@@ -546,6 +525,13 @@ export default function TransportGatiPage() {
               await load();
               return r;
             }}
+          />
+
+          <TransportEditModal
+            open={editOpen}
+            item={editItem}
+            onClose={() => { setEditOpen(false); setEditItem(null); }}
+            onSaved={load}
           />
 
           <style jsx>{`
