@@ -241,6 +241,10 @@ export default function TransportInlineEdit({
     }
   }
 
+  const goHref = (gpsLat && gpsLng)
+    ? `https://www.google.com/maps?q=${encodeURIComponent(gpsLat)},${encodeURIComponent(gpsLng)}`
+    : '';
+
   return (
     <div className="wrap">
       <header className="header-row" style={{ alignItems: 'flex-start' }}>
@@ -252,35 +256,35 @@ export default function TransportInlineEdit({
       </header>
 
       <section className="card">
-        <h2 className="card-title">KLIENTI</h2>
+        <h2 className="card-title">Klienti</h2>
         <div className="field-group">
           <label className="label">EMRI</label>
-          <div className="row" style={{ alignItems: 'center', gap: 10 }}>
-            <input className="input" value={name} onChange={e => setName(e.target.value)} style={{ flex: 1 }} />
+          <div className="row" style={{ alignItems: 'center' }}>
+            <input className="input" value={name} onChange={e => setName(e.target.value)} />
             {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini" /> : null}
             <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleClientPhotoChange(e.target.files?.[0])} /></label>
           </div>
-          {clientPhotoUrl ? <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 8 }} onClick={() => setClientPhotoUrl('')}>🗑️ FSHI FOTO</button> : null}
+          {clientPhotoUrl ? <button className="btn secondary" style={{ display: 'block', fontSize: 11, padding: '6px 10px', marginTop: 8 }} onClick={() => setClientPhotoUrl('')}>🗑️ FSHI FOTO</button> : null}
         </div>
         <div className="field-group">
           <label className="label">TELEFONI</label>
           <div className="row">
-            <input className="input small" value={phonePrefix} onChange={e => setPhonePrefix(e.target.value)} />
+            <input className="input" style={{ maxWidth: 90 }} value={phonePrefix} onChange={e => setPhonePrefix(e.target.value)} />
             <input className="input" value={phone} onChange={e => setPhone(e.target.value)} />
           </div>
         </div>
       </section>
 
       <section className="card">
-        <h2 className="card-title">ADRESA & GPS</h2>
+        <h2 className="card-title">TRANSPORT</h2>
         <div className="field-group"><label className="label">ADRESA</label><input className="input" value={address} onChange={e => setAddress(e.target.value)} /></div>
         <div className="row">
           <div style={{ flex: 1 }} className="field-group"><label className="label">LAT</label><input className="input" value={gpsLat} onChange={e => setGpsLat(e.target.value)} /></div>
           <div style={{ flex: 1 }} className="field-group"><label className="label">LNG</label><input className="input" value={gpsLng} onChange={e => setGpsLng(e.target.value)} /></div>
         </div>
-        <div className="field-group"><label className="label">PËRSHKRIMI</label><textarea className="input" style={{ minHeight: 80 }} value={clientDesc} onChange={e => setClientDesc(e.target.value)} /></div>
-        {(gpsLat && gpsLng) ? (
-          <a className="btn ghost" style={{ display: 'inline-block', marginTop: 6 }} href={`https://www.google.com/maps?q=${encodeURIComponent(gpsLat)},${encodeURIComponent(gpsLng)}`} target="_blank" rel="noreferrer">GO ➜</a>
+        <div className="field-group"><label className="label">PËRSHKRIMI</label><textarea className="input" style={{ minHeight: 90 }} value={clientDesc} onChange={e => setClientDesc(e.target.value)} /></div>
+        {goHref ? (
+          <a className="btn secondary" style={{ display: 'inline-flex', flex: 'unset', width: 'auto', paddingLeft: 14, paddingRight: 14 }} href={goHref} target="_blank" rel="noreferrer">GO ➜</a>
         ) : null}
       </section>
 
@@ -329,9 +333,9 @@ export default function TransportInlineEdit({
 
       <section className="card">
         <h2 className="card-title">SHKALLORE</h2>
-        <div className="row">
-          <input className="input small" type="number" value={stairsQty} onChange={e => setStairsQty(e.target.value)} placeholder="copë" />
-          <input className="input small" type="number" step="0.01" value={stairsPer} onChange={e => setStairsPer(e.target.value)} placeholder="m²/copë" />
+        <div className="row" style={{ alignItems: 'center' }}>
+          <input className="input" style={{ maxWidth: 110 }} type="number" value={stairsQty} onChange={e => setStairsQty(e.target.value)} placeholder="copë" />
+          <input className="input" style={{ maxWidth: 110 }} type="number" step="0.01" value={stairsPer} onChange={e => setStairsPer(e.target.value)} placeholder="m²/copë" />
           <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleStairsPhotoChange(e.target.files?.[0])} /></label>
         </div>
         {stairsPhotoUrl ? (
@@ -349,10 +353,10 @@ export default function TransportInlineEdit({
           <div style={{ flex: 1 }} className="field-group"><label className="label">PAGUAR</label><input className="input" type="number" step="0.01" value={clientPaid} onChange={e => setClientPaid(e.target.value)} /></div>
         </div>
         <div className="chip-row">{PAY_CHIPS.map(c => <button key={c} className="chip" onClick={() => setClientPaid(String(Number(paidEuro + c).toFixed(2)))}>{c}€</button>)}</div>
-        <div className="tot-line">M² Total: <strong>{totalM2}</strong> • COPË: <strong>{computePieces({ tepiha: tepihaRows, staza: stazaRows, shkallore: { qty: parseNum(stairsQty, 0), per: parseNum(stairsPer, STAIRS_PER_DEFAULT) } })}</strong></div>
-        <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
-        <div className="tot-line">Paguar: <strong style={{ color: '#16a34a' }}>{paidEuro.toFixed(2)} €</strong></div>
-        {debtEuro > 0 ? <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{debtEuro.toFixed(2)} €</strong></div> : null}
+        <div className="tot-line">M² TOTAL: <strong>{totalM2}</strong></div>
+        <div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div>
+        <div className="tot-line">PAGUAR: <strong style={{ color: '#1bd97b' }}>{paidEuro.toFixed(2)} €</strong></div>
+        {debtEuro > 0 ? <div className="tot-line">BORXH: <strong style={{ color: '#ff4b4b' }}>{debtEuro.toFixed(2)} €</strong></div> : null}
       </section>
 
       <section className="card">
@@ -366,36 +370,13 @@ export default function TransportInlineEdit({
       </footer>
 
       <style jsx>{`
-        .wrap { padding: 18px; max-width: 980px; margin: 0 auto; padding-bottom: 200px; }
-        .header-row { display:flex; justify-content:space-between; align-items:flex-start; gap: 12px; margin-bottom: 14px; }
-        .title { margin:0; font-size: 22px; letter-spacing: .5px; }
-        .subtitle { opacity:.8; font-size: 12px; margin-top: 2px; }
-        .card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
-        .card-title { margin: 0 0 10px 0; font-size: 13px; opacity: .9; letter-spacing: .8px; }
-        .label { display:block; font-size: 11px; opacity: .75; margin-bottom: 6px; font-weight: 900; letter-spacing: .8px; }
-        .field-group { margin-bottom: 12px; }
-        .row { display:flex; gap: 10px; align-items: center; }
-        .input { width: 100%; padding: 12px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: rgba(0,0,0,.25); color: #fff; font-weight: 700; }
-        .input.small { width: 120px; }
-        .btn { padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.08); color: inherit; font-weight: 800; font-size: 12px; text-decoration:none; }
-        .btn.ghost { background: transparent; }
-        .btn.primary { background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.35); }
-        .btn.secondary { background: transparent; }
-        .footer-bar { position: sticky; bottom: 12px; display:flex; gap: 10px; padding: 12px; border-radius: 16px; background: rgba(0,0,0,.60); border: 1px solid rgba(255,255,255,.10); backdrop-filter: blur(8px); }
-        .footer-bar .btn { flex: 1; min-height: 46px; }
-        .code-badge .badge { background: rgba(34,197,94,.18); border: 1px solid rgba(34,197,94,.35); padding: 10px 12px; border-radius: 999px; font-weight: 900; }
         .client-mini{ width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid rgba(255,255,255,0.18); }
-        .photo-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; }
-        .camera-btn { background: rgba(255,255,255,0.1); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); }
+        .photo-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 12px; border: 1px solid rgba(135, 206, 255, 0.12); }
+        .camera-btn { background: #050b23; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid #243154; cursor: pointer; }
         .chip-row { display:flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 10px; }
-        .chip { padding: 9px 12px; border-radius: 999px; border: 1px solid rgba(59,130,246,.35); background: rgba(59,130,246,.12); font-weight: 900; }
-        .piece-row { padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.03); margin-top: 8px; }
+        .chip { padding: 8px 12px; border-radius: 999px; border: 1px solid #243154; background: #050b23; font-weight: 800; cursor: pointer; }
+        .piece-row { padding: 10px; border-radius: 14px; border: 1px solid rgba(135, 206, 255, 0.10); background: rgba(2, 5, 20, 0.45); margin-top: 8px; }
         .btn-row { justify-content: space-between; }
-        .tot-line { font-size: 12px; opacity: .9; margin-top: 6px; }
-        @media (max-width: 520px) {
-          .wrap { padding: 14px; }
-          .input.small { width: 100px; }
-        }
       `}</style>
     </div>
   );
