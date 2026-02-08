@@ -20,11 +20,27 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-// Drafts are stored per transport_id (same as /transport/te-pa-plotsuara)
+// Drafts MUST be a single source shared between PRANIMI + /te-pa-plotsuara
+// and isolated per transport_id so drivers don't see each other's drafts.
 function draftKeyFor(transportId) {
   return `transport_drafts_v1__${String(transportId || 'unknown')}`;
 }
 
+function readDrafts(transportId) {
+  try {
+    const raw = localStorage.getItem(draftKeyFor(transportId));
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDrafts(transportId, list) {
+  try {
+    localStorage.setItem(draftKeyFor(transportId), JSON.stringify(Array.isArray(list) ? list : []));
+  } catch {}
+}
 
 // --- HELPERS ---
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
@@ -144,62 +160,75 @@ export default function TransportPranim() {
   }
 
   
-  async function searchPastClients(q) {
-    const qq = String(q || '').trim();
-    if (!qq) { setClientHits([]); return; }
+  function splitPrefixAndPhone(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return { prefix: PHONE_PREFIX_DEFAULT, phone: '' };
+    // If user stored +383XXXXXXXX
+    if (s.startsWith('+')) {
+      const m = s.match(/^(\+\d{1,4})(.*)$/);
+      const prefix = m?.[1] || PHONE_PREFIX_DEFAULT;
+      const rest = (m?.[2] || '').replace(/\s+/g, '');
+      return { prefix, phone: rest.replace(/[^0-9]/g, '') };
+    }
+    return { prefix: PHONE_PREFIX_DEFAULT, phone: s.replace(/[^0-9]/g, '') };
+  }
 
-    const qDigits = String(qq).replace(/\D+/g, '');
-    const qText = qq.toLowerCase();
+  async function searchPastClients(q) {
+    const term = String(q || '').trim();
+    if (!term) { setClientHits([]); return; }
 
     setClientSearchBusy(true);
     try {
-      const like = `%${qq}%`;
+      const like = `%${term}%`;
+      const digits = String(term).replace(/\D+/g, '');
+      const text = String(term).toLowerCase();
 
-      // 1) KËRKO te MASTER CLIENTS (njësoj si PRANIMI bazë) — këtu janë klientët që i sheh në PASTRIMI
-      let query = supabase
-        .from('clients')
-        .select('id, code, first_name, last_name, full_name, phone, updated_at')
-        .order('updated_at', { ascending: false })
-        .limit(20);
-
-      if (qDigits) {
-        query = query.or(`code.eq.${Number(qDigits)},phone.ilike.%${qDigits}%,first_name.ilike.%${qText}%,last_name.ilike.%${qText}%,full_name.ilike.%${qText}%`);
-      } else {
-        query = query.or(`first_name.ilike.%${qText}%,last_name.ilike.%${qText}%,full_name.ilike.%${qText}%`);
-      }
-
-      const resC = await query;
-      if (!resC.error && Array.isArray(resC.data) && resC.data.length) {
-        const hits = resC.data.map(r => ({
-          name: (r.full_name || `${r.first_name || ''} ${r.last_name || ''}` || '').trim(),
-          phone: r.phone || '',
-          client_id: r.id || null,
-          code: r.code ?? null,
-        }));
-        setClientHits(hits);
-        return;
-      }
-
-      // 2) Fallback: transport_clients / transport_orders (nëse ekzistojnë)
+      // ✅ Prefer BASE clients (same as PASRTIMI).
+      // If RLS blocks, fall back to transport tables.
       let hits = [];
-      const like2 = `%${qq}%`;
-      const res1 = await supabase
-        .from('transport_clients')
-        .select('client_name, client_phone')
-        .or(`client_name.ilike.${like2},client_phone.ilike.${like2}`)
-        .order('updated_at', { ascending: false })
-        .limit(20);
+      try {
+        let q1 = supabase
+          .from('clients')
+          .select('full_name, first_name, last_name, phone, updated_at')
+          .order('updated_at', { ascending: false })
+          .limit(20);
+        if (digits) {
+          q1 = q1.or(
+            `phone.ilike.%${digits}%,full_name.ilike.%${text}%,first_name.ilike.%${text}%,last_name.ilike.%${text}%`
+          );
+        } else {
+          q1 = q1.or(`full_name.ilike.%${text}%,first_name.ilike.%${text}%,last_name.ilike.%${text}%,phone.ilike.%${text}%`);
+        }
+        const res = await q1;
+        if (!res.error && Array.isArray(res.data) && res.data.length) {
+          hits = res.data.map((r) => ({
+            name: (r.full_name || `${r.first_name || ''} ${r.last_name || ''}`).trim(),
+            phone: r.phone || ''
+          }));
+        }
+      } catch {}
 
-      if (!res1.error && Array.isArray(res1.data) && res1.data.length) {
-        hits = res1.data.map(r => ({ name: r.client_name || '', phone: r.client_phone || '' }));
-      } else {
+      if (!hits.length) {
+        // fallback 1: transport_clients
+        const res1 = await supabase
+          .from('transport_clients')
+          .select('client_name, client_phone')
+          .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
+          .order('updated_at', { ascending: false })
+          .limit(20);
+        if (!res1.error && Array.isArray(res1.data) && res1.data.length) {
+          hits = res1.data.map(r => ({ name: r.client_name || '', phone: r.client_phone || '' }));
+        }
+      }
+
+      if (!hits.length) {
+        // fallback 2: transport_orders history
         const res2 = await supabase
           .from('transport_orders')
           .select('client_name, client_phone, updated_at')
-          .or(`client_name.ilike.${like2},client_phone.ilike.${like2}`)
+          .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
           .order('updated_at', { ascending: false })
-          .limit(20);
-
+          .limit(30);
         if (!res2.error && Array.isArray(res2.data)) {
           const seen = new Set();
           hits = [];
@@ -211,6 +240,7 @@ export default function TransportPranim() {
           }
         }
       }
+
       setClientHits(hits);
     } catch (e) {
       console.error('searchPastClients', e);
@@ -239,12 +269,35 @@ export default function TransportPranim() {
     (async () => {
       try {
         refreshDrafts();
-        
-        // 1. Nëse vjen nga URL (edit)
-        if (editId) { 
-            setOid(editId); 
-            setCreating(false); 
-            return; 
+
+        // 1) Open from /te-pa-plotsuara? -> load the draft into the form.
+        if (editId) {
+          const list = readDrafts(me.transport_id).filter((d) => d?.scope === 'transport');
+          const d = list.find((x) => String(x?.id) === String(editId));
+          if (d) {
+            setOid(d.id);
+            setCodeRaw(d.codeRaw || '');
+            // load values
+            setName(d.name || '');
+            setPhone(String(d.phone || '').replace(/\D+/g, ''));
+            setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT);
+            setClientPhotoUrl(d.clientPhotoUrl || '');
+            setAddress(d.address || '');
+            setGpsLat(d.gpsLat || '');
+            setGpsLng(d.gpsLng || '');
+            setClientDesc(d.clientDesc || '');
+            setTepihaRows(d.tepihaRows || []);
+            setStazaRows(d.stazaRows || []);
+            setStairsQty(d.stairsQty || 0);
+            setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
+            setStairsPhotoUrl(d.stairsPhotoUrl || '');
+            setPricePerM2(d.pricePerM2 || PRICE_DEFAULT);
+            setClientPaid(d.clientPaid || 0);
+            setNotes(d.notes || '');
+            setCreating(false);
+            return;
+          }
+          // if not found, continue new order normally
         }
 
         // ✅ FIX KRYESOR: Përdor UUID të vërtetë, jo tord_...
@@ -282,26 +335,47 @@ export default function TransportPranim() {
 
   function refreshDrafts() {
     try {
-        const raw = localStorage.getItem(draftKeyFor(me?.transport_id));
-        const list = raw ? JSON.parse(raw) : [];
-        list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-        setDrafts(list);
-    } catch {}
+      if (!me?.transport_id) return;
+      let list = readDrafts(me.transport_id);
+      list = list.filter((d) => d?.scope === 'transport');
+      list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      setDrafts(list);
+    } catch { }
   }
 
   function saveDraftLocal() {
     try {
-        const draft = { id: oid, ts: Date.now(), codeRaw, name, phone, phonePrefix, clientPhotoUrl, address, gpsLat, gpsLng, clientDesc, tepihaRows, stazaRows, stairsQty, stairsPer, stairsPhotoUrl, pricePerM2, clientPaid, notes };
-        let list = [];
-        try { list = JSON.parse(localStorage.getItem(draftKeyFor(me?.transport_id)) || '[]'); } catch {}
-        
-        // E zëvendësojmë ekzistuesin me këtë të riun (Update)
-        list = list.filter(d => d.id !== oid);
-        list.unshift(draft);
-        
-        if (list.length > 50) list = list.slice(0, 50);
-        localStorage.setItem(draftKeyFor(me?.transport_id), JSON.stringify(list));
-        setDrafts(list);
+      if (!me?.transport_id) return;
+      const draft = {
+        id: oid,
+        ts: Date.now(),
+        scope: 'transport',
+        transport_id: String(me.transport_id),
+        codeRaw,
+        name,
+        phone,
+        phonePrefix,
+        clientPhotoUrl,
+        address,
+        gpsLat,
+        gpsLng,
+        clientDesc,
+        tepihaRows,
+        stazaRows,
+        stairsQty,
+        stairsPer,
+        stairsPhotoUrl,
+        pricePerM2,
+        clientPaid,
+        notes,
+      };
+      let list = readDrafts(me.transport_id);
+      list = list.filter((d) => d?.scope === 'transport');
+      list = list.filter((d) => d.id !== oid);
+      list.unshift(draft);
+      if (list.length > 80) list = list.slice(0, 80);
+      writeDrafts(me.transport_id, list);
+      setDrafts(list);
     } catch {}
   }
 
@@ -316,10 +390,11 @@ export default function TransportPranim() {
 
   function deleteDraft(id, silent = false) {
       if(!silent) { if(!confirm("Fshi?")) return; }
-      let list = [];
-      try { list = JSON.parse(localStorage.getItem(draftKeyFor(me?.transport_id)) || '[]'); } catch {}
+      if (!me?.transport_id) return;
+      let list = readDrafts(me.transport_id);
+      list = list.filter((d) => d?.scope === 'transport');
       list = list.filter(d => d.id !== id);
-      localStorage.setItem(draftKeyFor(me?.transport_id), JSON.stringify(list));
+      writeDrafts(me.transport_id, list);
       setDrafts(list);
   }
 
@@ -518,9 +593,9 @@ export default function TransportPranim() {
                   className="list-row"
                   onClick={() => {
                     setName(c.name || "");
-                    setPhone(String(c.phone || '').replace(/^\+?\d{1,4}\s*/, '')); // keep digits
-                    // prefix stays default (+383) for now
-
+                    const sp = splitPrefixAndPhone(c.phone);
+                    setPhonePrefix(sp.prefix);
+                    setPhone(sp.phone);
                     setClientHits([]);
                     setClientSearch("");
                   }}
