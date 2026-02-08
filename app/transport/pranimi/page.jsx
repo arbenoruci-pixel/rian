@@ -131,7 +131,8 @@ export default function TransportPranim() {
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
   const payTouchRef = useRef({ x: 0, y: 0, moved: false });
-  const draftTimerRef = useRef(null);
+  const searchTimerRef = useRef(null);
+  const autosaveTimerRef = useRef(null);
 
   // LOG HELPER
   function addLog(msg) {
@@ -145,40 +146,26 @@ export default function TransportPranim() {
     if (!term) { setClientHits([]); return; }
     setClientSearchBusy(true);
     try {
-      // Prefer transport_clients (name/phone/address/gps); fallback to transport_orders (client_name/client_phone)
-      // NOTE: transport_clients has columns: name, phone (NOT client_name/client_phone).
-      const digits = sanitizePhone(term);
-      const likeName = `%${term}%`;
-      const likeDigits = digits ? `%${digits}%` : '';
+      // Prefer transport_clients table if present; fallback to transport_orders
+      const like = `%${term}%`;
       let hits = [];
-      // 1) transport_clients
-      const orParts1 = [`name.ilike.${likeName}`];
-      if (likeDigits) orParts1.push(`phone.ilike.${likeDigits}`);
       const res1 = await supabase
         .from('transport_clients')
-        .select('id, name, phone, address, gps_lat, gps_lng, notes, updated_at')
-        .or(orParts1.join(','))
+        .select('client_name, client_phone')
+        .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
         .order('updated_at', { ascending: false })
         .limit(20);
-
+      if (res1.error) { addLog(`SEARCH ERR transport_clients: ${res1.error.message || res1.error}`); }
       if (!res1.error && Array.isArray(res1.data) && res1.data.length) {
-        hits = res1.data.map(r => ({
-          id: r.id,
-          name: r.name || '',
-          phone: r.phone || '',
-          address: r.address || '',
-          gps_lat: r.gps_lat ?? null,
-          gps_lng: r.gps_lng ?? null,
-          notes: r.notes || '',
-        }));
+        hits = res1.data.map(r => ({ name: r.client_name || '', phone: r.client_phone || '' }));
       } else {
-        // 2) transport_orders fallback (unique by phone+name)
         const res2 = await supabase
           .from('transport_orders')
           .select('client_name, client_phone, updated_at')
-          .or(`client_name.ilike.%${term}%,client_phone.ilike.%${digits || term}%`)
+          .or(`client_name.ilike.${like},client_phone.ilike.${like}`)
           .order('updated_at', { ascending: false })
           .limit(20);
+        if (res2.error) { addLog(`SEARCH ERR transport_orders: ${res2.error.message || res2.error}`); }
         if (!res2.error && Array.isArray(res2.data)) {
           const seen = new Set();
           hits = [];
@@ -207,9 +194,9 @@ export default function TransportPranim() {
   useEffect(() => {
     const q = String(clientSearch || '').trim();
     if (!q) { setClientHits([]); return; }
-    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-    draftTimerRef.current = setTimeout(() => { searchPastClients(q); }, 180);
-    return () => { if (draftTimerRef.current) clearTimeout(draftTimerRef.current); };
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => { searchPastClients(q); }, 180);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
   }, [clientSearch]);
 
   useEffect(() => {
@@ -243,20 +230,28 @@ export default function TransportPranim() {
   // ✅ LOGJIKA E DRAFTEVE (Të pa plotsuara)
   useEffect(() => {
     if (creating || !oid) return;
-    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
 
     // Ruaj draft automatikisht pas 1 sekonde nëse ka ndonjë të dhënë
-    draftTimerRef.current = setTimeout(() => {
-        const hasData = (name && name.length > 1) || (phone && phone.length > 3) || tepihaRows.length > 0;
-        
-        // Vetëm nëse ka shkru diçka, ruaje në draft
-        if (hasData) {
-            saveDraftLocal();
-        }
+    autosaveTimerRef.current = setTimeout(() => {
+      const hasData =
+        (name && name.length > 1) ||
+        (phone && phone.length > 3) ||
+        (tepihaRows && tepihaRows.length > 0) ||
+        (stazaRows && stazaRows.length > 0) ||
+        (Number(stairsQty) || 0) > 0 ||
+        (address && address.length > 2) ||
+        (clientDesc && clientDesc.length > 2) ||
+        (notes && notes.length > 2);
+
+      // Vetëm nëse ka shkru diçka, ruaje në draft
+      if (hasData) saveDraftLocal();
     }, 1000);
 
-    return () => clearTimeout(draftTimerRef.current);
-  });
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [creating, oid, codeRaw, name, phone, phonePrefix, address, gpsLat, gpsLng, clientDesc, tepihaRows, stazaRows, stairsQty, stairsPer, stairsPhotoUrl, pricePerM2, clientPaid, notes]);
 
   function refreshDrafts() {
     try {
@@ -380,79 +375,128 @@ export default function TransportPranim() {
     if (!validate()) return;
 
     setSaving(true);
-    let orderData = null;
+
+    const codeStr = normalizeTCode(codeRaw);
+    const codeNum = Number(codeStr.replace(/\D+/g, '')) || 0;
+
+    const needsReview =
+      !name.trim() ||
+      sanitizePhone(phonePrefix + phone).length < 6 ||
+      Number(totalM2 || 0) <= 0;
+
+    const dataJson = {
+      scope: 'transport',
+      transport_id: String(me.transport_id),
+      transport_name: me.transport_name || me.transport_id,
+      status: 'pickup',
+      at_base: false,
+      needs_review: needsReview,
+      offloaded_at: null,
+      offloaded_by: null,
+      client: { name: name.trim(), phone: phonePrefix + (phone || ''), code: codeStr, photoUrl: clientPhotoUrl || '' },
+      transport: { address: address || '', lat: gpsLat || '', lng: gpsLng || '', desc: clientDesc || '' },
+      tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
+      staza: stazaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
+      shkallore: { qty: parseNum(stairsQty, 0), per: parseNum(stairsPer, SHKALLORE_M2_PER_STEP_DEFAULT), photoUrl: stairsPhotoUrl || '' },
+      pay: {
+        rate: parseNum(pricePerM2, 0),
+        price: parseNum(pricePerM2, 0),
+        m2: Number(totalM2) || 0,
+        euro: Number(totalEuro) || 0,
+        paid: Number(paidEuro) || 0,
+        debt: Number(debt) || 0,
+        method: 'CASH',
+      },
+      notes: notes || '',
+    };
+
     try {
-      const codeStr = normalizeTCode(codeRaw); 
-      const codeNum = Number(codeStr.replace(/\D+/g, '')) || 0; 
-      
-      const needsReview = !name.trim() || sanitizePhone(phonePrefix + phone).length < 6 || Number(totalM2 || 0) <= 0;
-      
-      orderData = {
-        id: oid, // ✅ Tani kjo është UUID e vlefshme
-        code: codeNum, 
+      addLog("Sending to DB...");
+
+      // ✅ KRITIKE: mos e updat-o kolonen transport_id kur je duke edit-u (Postgres e refuzon).
+      // - Kur eshte porosi e re -> INSERT (me transport_id)
+      // - Kur eshte edit -> UPDATE (pa transport_id)
+      let dbErr = null;
+
+      if (editId) {
+        const { error } = await supabase
+          .from('transport_orders')
+          .update({
+            code_n: codeNum,
+            code_str: codeStr,
+            client_name: name.trim(),
+            client_phone: phonePrefix + (phone || ''),
+            status: 'pickup',
+            data: dataJson,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', oid);
+
+        dbErr = error || null;
+      } else {
+        const { error } = await supabase
+          .from('transport_orders')
+          .insert({
+            id: oid,
+            code_n: codeNum,
+            code_str: codeStr,
+            client_id: null,
+            client_name: name.trim(),
+            client_phone: phonePrefix + (phone || ''),
+            status: 'pickup',
+            data: dataJson,
+            transport_id: String(me.transport_id),
+          });
+
+        dbErr = error || null;
+      }
+
+      if (dbErr) throw dbErr;
+
+      if (!editId) await markTransportCodeUsed(codeStr);
+
+      if (paidEuro > 0) {
+        await recordCashMove({
+          amount: paidEuro,
+          method: 'CASH',
+          type: 'TRANSPORT',
+          status: 'COLLECTED',
+          order_id: oid,
+          order_code: codeStr,
+          client_name: name.trim(),
+          stage: 'PRANIMI',
+          note: `TRANSPORT ${codeStr}`,
+          created_by_pin: String(me.transport_id),
+          created_by_name: me.transport_name || me.transport_id,
+          approved_by_pin: null,
+        });
+      }
+
+      deleteDraft(oid, true);
+      router.push(back);
+    } catch (e) {
+      const msg = e?.message || String(e);
+      addLog(`ERROR: ${msg}`);
+
+      const offlineData = {
+        id: oid,
+        code_str: codeStr,
         code_n: codeNum,
-        scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
         status: 'pickup',
-        created_at: new Date().toISOString(),
-        data: {
-          scope: 'transport', transport_id: String(me.transport_id), transport_name: me.transport_name || me.transport_id,
-          status: 'pickup',
-          at_base: false,
-          needs_review: needsReview,
-          offloaded_at: null,
-          offloaded_by: null,
-          client: { name: name.trim(), phone: phonePrefix + (phone || ''), code: codeStr, photoUrl: clientPhotoUrl || '' },
-          transport: { address: address || '', lat: gpsLat || '', lng: gpsLng || '', desc: clientDesc || '' },
-          tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
-          staza: stazaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
-          shkallore: { qty: parseNum(stairsQty, 0), per: parseNum(stairsPer, SHKALLORE_M2_PER_STEP_DEFAULT), photoUrl: stairsPhotoUrl || '' },
-          // NOTE: Base system uses `pay.rate` (€/m²). Keep `pay.price` only for backward compatibility.
-          pay: {
-            rate: parseNum(pricePerM2, 0),
-            price: parseNum(pricePerM2, 0),
-            m2: Number(totalM2) || 0,
-            euro: Number(totalEuro) || 0,
-            paid: Number(paidEuro) || 0,
-            debt: Number(debt) || 0,
-            method: 'CASH',
-          },
-          notes: notes || '',
-        },
+        transport_id: String(me.transport_id),
+        data: dataJson,
       };
 
-      addLog("Sending to DB...");
-      const res = await insertTransportOrder(orderData);
-      
-      if (!res?.ok) {
-        throw new Error(res?.error || "Insert failed.");
-      }
-
-      await markTransportCodeUsed(codeStr);
-      if (paidEuro > 0) { 
-          await recordCashMove({ amount: paidEuro, method: 'CASH', type: 'TRANSPORT', status: 'COLLECTED', order_id: orderData.id, order_code: codeStr, client_name: name.trim(), stage: 'PRANIMI', note: `TRANSPORT ${codeStr}`, created_by_pin: String(me.transport_id), created_by_name: me.transport_name || me.transport_id, approved_by_pin: null }); 
-      }
-      
-      // ✅ Fshi draftin sepse u ruajt me sukses
-      deleteDraft(oid, true);
-
-      // TRANSPORT flow: keep orders out of BASE until transport does OFFLOAD.
-      // After a full save, send driver to OFFLOAD list to "SHKARKO NË BAZË".
-            router.push(back);
-
-    } catch (e) {
-      addLog(`ERROR: ${e.message}`);
-      
-      // Fallback Offline
-      const savedOffline = orderData ? saveOfflineTransportOrder({ ...orderData, saved_at: Date.now(), is_offline: true }) : false;
+      const savedOffline = saveOfflineTransportOrder({ ...offlineData, saved_at: Date.now(), is_offline: true });
       if (savedOffline) {
         alert("⚠️ S'ka rrjet (Ose DB Error)! U ruajt LOKALISHT.");
         deleteDraft(oid, true);
         router.push(back);
       } else {
-        alert(`❌ DËSHTOI RUAJTJA!\n\n${e.message}`);
+        alert(`❌ DËSHTOI RUAJTJA!\n\n${msg}`);
       }
-    } finally { 
-      setSaving(false); 
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -495,24 +539,8 @@ export default function TransportPranim() {
                   type="button"
                   className="list-row"
                   onClick={() => {
-                    const pickedName = c.name || "";
-                    const pickedPhone = String(c.phone || "");
-                    // Split phone into prefix + digits (default +383)
-                    let pref = PHONE_PREFIX_DEFAULT;
-                    let num = sanitizePhone(pickedPhone);
-                    if (pickedPhone.startsWith('+')) {
-                      const m = pickedPhone.match(/^\+\d{1,4}/);
-                      if (m?.[0]) {
-                        pref = m[0];
-                        num = sanitizePhone(pickedPhone.slice(m[0].length));
-                      }
-                    }
-                    setName(pickedName);
-                    setPhonePrefix(pref);
-                    setPhone(num);
-                    if (c.address) setAddress(c.address);
-                    if (c.gps_lat != null) setGpsLat(String(c.gps_lat));
-                    if (c.gps_lng != null) setGpsLng(String(c.gps_lng));
+                    setName(c.name || "");
+                    setPhone(c.phone || "");
                     setClientHits([]);
                     setClientSearch("");
                   }}
