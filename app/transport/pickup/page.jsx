@@ -1,169 +1,431 @@
-"use client";
+'use client';
 
-import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import { getTransportSession } from "@/lib/transportAuth";
+import React, { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
+import { getTransportSession } from '@/lib/transportAuth';
 
-function normalizeT(code) {
-  if (!code) return "";
-  const s = String(code).trim();
-  if (/^t\d+/i.test(s)) {
-    const n = s.replace(/\D+/g, "").replace(/^0+/, "") || "0";
-    return `T${n}`;
+function safeJson(v) {
+  try {
+    if (!v) return {};
+    if (typeof v === 'string') return JSON.parse(v) || {};
+    return v || {};
+  } catch {
+    return {};
   }
-  const n = s.replace(/\D+/g, "").replace(/^0+/, "");
-  return n ? `T${n}` : "";
 }
 
-function pickCode(row) {
-  return (
-    normalizeT(row?.code_str) ||
-    normalizeT(row?.code) ||
-    (row?.code_n ? `T${Number(row.code_n)}` : "") ||
-    normalizeT(row?.data?.client?.code)
-  );
+function calcFromData(data) {
+  const o = safeJson(data);
+
+  const tepiha =
+    Array.isArray(o.tepiha)
+      ? o.tepiha
+      : (o.tepihaRows || []).map((x) => ({
+          m2: Number(x?.m2) || 0,
+          qty: Number(x?.qty || x?.pieces) || 0,
+        }));
+
+  const staza =
+    Array.isArray(o.staza)
+      ? o.staza
+      : (o.stazaRows || []).map((x) => ({
+          m2: Number(x?.m2) || 0,
+          qty: Number(x?.qty || x?.pieces) || 0,
+        }));
+
+  let m2 = 0;
+  let pieces = 0;
+
+  for (const x of tepiha) {
+    const q = Number(x?.qty) || 0;
+    const a = Number(x?.m2) || 0;
+    m2 += a * q;
+    pieces += q;
+  }
+  for (const x of staza) {
+    const q = Number(x?.qty) || 0;
+    const a = Number(x?.m2) || 0;
+    m2 += a * q;
+    pieces += q;
+  }
+  if (o.shkallore) {
+    const q = Number(o.shkallore?.qty) || 0;
+    const per = Number(o.shkallore?.per) || 0;
+    m2 += q * per;
+    pieces += q;
+  }
+
+  const totalEur = Number(o?.payment?.euro ?? o?.totalEuro ?? o?.total ?? o?.euro ?? 0) || 0;
+  const paidEur = Number(o?.payment?.paid ?? o?.paid ?? 0) || 0;
+
+  return {
+    m2: Number(m2.toFixed(1)),
+    pieces,
+    totalEur: Number(totalEur.toFixed(2)),
+    paidEur: Number(paidEur.toFixed(2)),
+    clientName: o?.client?.name || '',
+    clientPhone: o?.client?.phone || '',
+  };
+}
+
+function fmt(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString('sq-AL', { maximumFractionDigits: 1 });
 }
 
 export default function TransportPickupPage() {
-  const router = useRouter();
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const [err, setErr] = useState('');
   const [rows, setRows] = useState([]);
-
-  useEffect(() => {
-    const s = getTransportSession();
-    if (!s?.transport_id) {
-      router.push("/transport");
-      return;
-    }
-    setMe(s);
-  }, [router]);
+  const [busyId, setBusyId] = useState(null);
 
   async function load() {
-    if (!me?.transport_id) return;
     setLoading(true);
-    setErr("");
+    setErr('');
     try {
-      const tid = String(me.transport_id);
+      const s = getTransportSession();
+      if (!s?.transport_id) {
+        setMe(null);
+        setRows([]);
+        return;
+      }
+      setMe(s);
 
-      // NOTE:
-      // In Supabase we add a generated column `transport_id` on public.transport_orders
-      // (derived from data->>'transport_id') so RLS/policies and filtering work.
       const { data, error } = await supabase
-        .from("transport_orders")
-        // transport_orders: përdor code_str + code_n (s'ka kolonë "code")
-        .select("id, created_at, status, code_str, code_n, data")
-        .eq("transport_id", tid)
-        .in("status", ["pickup", "loaded"])
-        .order("created_at", { ascending: false })
-        .limit(400);
+        .from('transport_orders')
+        .select('id, code_n, code_str, client_name, client_phone, status, data, transport_id, created_at, updated_at')
+        .eq('transport_id', s.transport_id)
+        .in('status', ['pickup', 'loaded'])
+        .order('code_n', { ascending: true })
+        .limit(500);
 
       if (error) throw error;
-
-      // Keep an extra safety filter (legacy rows), but DB-side filter should already do it.
-      const filtered = (data || []).filter((r) => {
-        const d = r?.data || {};
-        const dTid = String(d.transport_id || d.transportId || d?.scope?.transport_id || "");
-        const scope = String(d.scope || d?.scope?.name || "transport");
-        return String(dTid) === tid && String(scope) === "transport";
-      });
-
-      setRows(filtered);
+      setRows(data || []);
     } catch (e) {
-      setErr(e?.message || String(e));
-      setRows([]);
+      setErr(String(e?.message || e));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (!me?.transport_id) return;
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me?.transport_id]);
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, []);
 
-  const pickup = useMemo(() => rows.filter((r) => r.status === "pickup"), [rows]);
-  const loaded = useMemo(() => rows.filter((r) => r.status === "loaded"), [rows]);
+  const pickup = useMemo(() => rows.filter((r) => r.status === 'pickup'), [rows]);
+  const loaded = useMemo(() => rows.filter((r) => r.status === 'loaded'), [rows]);
 
-  async function setStatus(id, status) {
+  const pickupStats = useMemo(() => {
+    let m2 = 0, pieces = 0, eur = 0;
+    for (const r of pickup) {
+      const c = calcFromData(r.data);
+      m2 += c.m2;
+      pieces += c.pieces;
+      eur += c.totalEur;
+    }
+    return { m2: Number(m2.toFixed(1)), pieces, eur: Number(eur.toFixed(2)) };
+  }, [pickup]);
+
+  const loadedStats = useMemo(() => {
+    let m2 = 0, pieces = 0, eur = 0;
+    for (const r of loaded) {
+      const c = calcFromData(r.data);
+      m2 += c.m2;
+      pieces += c.pieces;
+      eur += c.totalEur;
+    }
+    return { m2: Number(m2.toFixed(1)), pieces, eur: Number(eur.toFixed(2)) };
+  }, [loaded]);
+
+  const truckM2 = pickupStats.m2 + loadedStats.m2;
+  const truckPercent = Math.min((truckM2 / 200) * 100, 100);
+  const truckBarColor = truckPercent > 95 ? '#ef4444' : truckPercent > 80 ? '#f59e0b' : '#3b82f6';
+
+  async function markLoaded(id) {
+    setBusyId(id);
+    setErr('');
     try {
       const { error } = await supabase
-        .from("transport_orders")
-        .update({ status, updated_at: new Date().toISOString() })
-        .eq("id", id);
+        .from('transport_orders')
+        .update({ status: 'loaded', updated_at: new Date().toISOString() })
+        .eq('id', id);
       if (error) throw error;
       await load();
     } catch (e) {
-      alert(e?.message || String(e));
+      setErr(String(e?.message || e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function markPickup(id) {
+    setBusyId(id);
+    setErr('');
+    try {
+      const { error } = await supabase
+        .from('transport_orders')
+        .update({ status: 'pickup', updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      await load();
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally {
+      setBusyId(null);
     }
   }
 
   return (
-    <div className="wrap">
-      <header className="header-row" style={{ alignItems: "flex-start" }}>
-        <div>
-          <h1 className="title">TRANSPORT • PICKUP</h1>
-          <div className="subtitle">PICKUP → LOADED → SHKARKO NË BAZË</div>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Link className="btn secondary" href="/transport/menu">MENU</Link>
-        </div>
-      </header>
-
-      <section className="card" style={{ marginTop: 14 }}>
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <button className="btn secondary" onClick={load} disabled={loading}>
-            REFRESH
-          </button>
-          <div style={{ fontWeight: 900, letterSpacing: 0.5 }}>SHKARKO NË BAZË</div>
-        </div>
-
-        {err ? (
-          <div style={{ color: "#ef4444", marginTop: 10, fontWeight: 800 }}>{err}</div>
-        ) : null}
-
-        <div style={{ marginTop: 14, fontWeight: 900, fontSize: 18 }}>PICKUP ({pickup.length})</div>
-        {pickup.length === 0 ? (
-          <div style={{ opacity: 0.75, marginTop: 6 }}>S'ka asnjë porosi në PICKUP.</div>
-        ) : (
-          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
-            {pickup.map((r) => (
-              <div key={r.id} className="row" style={{ justifyContent: "space-between", gap: 10 }}>
-                <div style={{ minWidth: 90, fontWeight: 900 }}>{pickCode(r) || "T?"}</div>
-                <div style={{ flex: 1, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {r?.data?.client?.name || "—"}
-                </div>
-                <button className="btn secondary" onClick={() => setStatus(r.id, "loaded")}>
-                  LOADED
-                </button>
-              </div>
-            ))}
+    <div style={styles.page}>
+      <div style={styles.wrap}>
+        <div style={styles.topbar}>
+          <div>
+            <div style={styles.title}>TRANSPORT • PICKUP</div>
+            <div style={styles.sub}>PICKUP → LOADED → SHKARKO NË BAZË</div>
           </div>
-        )}
-
-        <div style={{ marginTop: 16, fontWeight: 900, fontSize: 18 }}>LOADED ({loaded.length})</div>
-        {loaded.length === 0 ? (
-          <div style={{ opacity: 0.75, marginTop: 6 }}>S'ka asnjë porosi të LOADED.</div>
-        ) : (
-          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
-            {loaded.map((r) => (
-              <div key={r.id} className="row" style={{ justifyContent: "space-between", gap: 10 }}>
-                <div style={{ minWidth: 90, fontWeight: 900 }}>{pickCode(r) || "T?"}</div>
-                <div style={{ flex: 1, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {r?.data?.client?.name || "—"}
-                </div>
-                <Link className="btn primary" href={`/transport/offload?id=${encodeURIComponent(r.id)}`}>
-                  SHKARKO
-                </Link>
-              </div>
-            ))}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <Link href="/transport/menu" style={styles.menuBtn}>MENU</Link>
+            <button onClick={load} style={styles.refreshBtn} disabled={loading}>
+              {loading ? '...' : 'REFRESH'}
+            </button>
           </div>
-        )}
-      </section>
+        </div>
+
+        {err ? <div style={styles.err}>{err}</div> : null}
+
+        <div style={styles.card}>
+          <div style={styles.rowBetween}>
+            <div style={styles.kicker}>KAMIONI IM</div>
+            <div style={styles.kickerRight}>{fmt(truckM2)} m² / 200</div>
+          </div>
+          <div style={styles.barBg}>
+            <div style={{ ...styles.barFill, width: `${truckPercent}%`, backgroundColor: truckBarColor }} />
+          </div>
+
+          <div style={styles.statsGrid}>
+            <div style={styles.stat}>
+              <div style={styles.statLabel}>PICKUP</div>
+              <div style={styles.statValue}>{pickup.length} porosi</div>
+              <div style={styles.statSub}>{fmt(pickupStats.m2)} m² • {pickupStats.pieces} copë</div>
+            </div>
+            <div style={styles.stat}>
+              <div style={styles.statLabel}>LOADED</div>
+              <div style={styles.statValue}>{loaded.length} porosi</div>
+              <div style={styles.statSub}>{fmt(loadedStats.m2)} m² • {loadedStats.pieces} copë</div>
+            </div>
+          </div>
+        </div>
+
+        <Section
+          title={`PICKUP (${pickup.length})`}
+          emptyText="S'KA ASNJË POROSI NË PICKUP."
+          items={pickup}
+          actionLabel="LOADED"
+          onAction={markLoaded}
+          busyId={busyId}
+        />
+
+        <Section
+          title={`LOADED (${loaded.length})`}
+          emptyText="S'KA ASNJË POROSI NË LOADED."
+          items={loaded}
+          actionLabel="KTHE NË PICKUP"
+          onAction={markPickup}
+          busyId={busyId}
+          secondary
+        />
+
+        <div style={{ height: 22 }} />
+
+        <Link href="/transport/offload" style={styles.offloadBtn}>
+          SHKARKO NË BAZË
+        </Link>
+      </div>
     </div>
   );
 }
+
+function Section({ title, emptyText, items, actionLabel, onAction, busyId, secondary }) {
+  return (
+    <div style={styles.section}>
+      <div style={styles.sectionTitle}>{title}</div>
+      {items.length === 0 ? (
+        <div style={styles.empty}>{emptyText}</div>
+      ) : (
+        <div style={styles.list}>
+          {items.map((r) => {
+            const c = calcFromData(r.data);
+            const code = r.code_str || (r.code_n != null ? `T${r.code_n}` : 'T?');
+            const nm = r.client_name || c.clientName || 'PA EMËR';
+            const ph = r.client_phone || c.clientPhone || '';
+            return (
+              <div key={r.id} style={styles.item}>
+                <div style={styles.itemLeft}>
+                  <div style={styles.itemTop}>
+                    <span style={styles.badge}>{code}</span>
+                    <span style={styles.name}>{nm}</span>
+                  </div>
+                  <div style={styles.meta}>
+                    {ph ? <span>{ph}</span> : null}
+                    <span style={{ opacity: 0.35 }}>•</span>
+                    <span>{c.pieces} copë</span>
+                    <span style={{ opacity: 0.35 }}>•</span>
+                    <span>{fmt(c.m2)} m²</span>
+                    <span style={{ opacity: 0.35 }}>•</span>
+                    <span>€{Number(c.totalEur || 0).toFixed(0)}</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => onAction(r.id)}
+                  style={secondary ? styles.btnSecondary : styles.btnPrimary}
+                  disabled={busyId === r.id}
+                >
+                  {busyId === r.id ? '...' : actionLabel}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const styles = {
+  page: {
+    minHeight: '100vh',
+    background: 'radial-gradient(1200px 600px at 20% 10%, rgba(37, 99, 235, 0.18), transparent 55%), linear-gradient(180deg, #070a12, #070a12)',
+    padding: '18px 14px',
+    color: '#e5e7eb',
+    fontFamily: '-apple-system, system-ui, Segoe UI, Roboto, sans-serif',
+  },
+  wrap: { maxWidth: 560, margin: '0 auto' },
+  topbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
+  title: { fontSize: 26, fontWeight: 900, letterSpacing: 1.2 },
+  sub: { fontSize: 12, color: 'rgba(226,232,240,0.75)', marginTop: 4 },
+  menuBtn: {
+    textDecoration: 'none',
+    padding: '10px 12px',
+    borderRadius: 14,
+    border: '1px solid rgba(148,163,184,0.25)',
+    color: '#e5e7eb',
+    background: 'rgba(15, 23, 42, 0.35)',
+    fontWeight: 800,
+    fontSize: 12,
+  },
+  refreshBtn: {
+    padding: '10px 12px',
+    borderRadius: 14,
+    border: '1px solid rgba(148,163,184,0.25)',
+    color: '#e5e7eb',
+    background: 'rgba(15, 23, 42, 0.65)',
+    fontWeight: 800,
+    fontSize: 12,
+  },
+  err: {
+    background: 'rgba(239,68,68,0.12)',
+    border: '1px solid rgba(239,68,68,0.25)',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+    color: '#fecaca',
+    fontWeight: 700,
+    fontSize: 13,
+  },
+  card: {
+    background: 'rgba(2, 6, 23, 0.55)',
+    border: '1px solid rgba(148,163,184,0.14)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 14,
+    boxShadow: '0 12px 30px rgba(0,0,0,0.25)',
+  },
+  rowBetween: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  kicker: { fontSize: 12, fontWeight: 900, letterSpacing: 1.2, color: 'rgba(226,232,240,0.75)' },
+  kickerRight: { fontSize: 12, fontWeight: 800, color: 'rgba(226,232,240,0.85)' },
+  barBg: { height: 10, background: 'rgba(148,163,184,0.15)', borderRadius: 10, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 10, transition: 'width 0.25s ease' },
+  statsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 },
+  stat: {
+    background: 'rgba(15, 23, 42, 0.55)',
+    border: '1px solid rgba(148,163,184,0.12)',
+    borderRadius: 16,
+    padding: 12,
+  },
+  statLabel: { fontSize: 11, letterSpacing: 1.1, fontWeight: 900, color: 'rgba(148,163,184,0.9)' },
+  statValue: { marginTop: 6, fontSize: 18, fontWeight: 900 },
+  statSub: { marginTop: 4, fontSize: 12, color: 'rgba(226,232,240,0.75)' },
+  section: { marginTop: 12 },
+  sectionTitle: { fontSize: 14, fontWeight: 900, letterSpacing: 1.1, margin: '6px 2px 10px 2px' },
+  empty: {
+    background: 'rgba(2, 6, 23, 0.35)',
+    border: '1px solid rgba(148,163,184,0.12)',
+    borderRadius: 16,
+    padding: 14,
+    color: 'rgba(226,232,240,0.7)',
+    fontWeight: 700,
+  },
+  list: { display: 'flex', flexDirection: 'column', gap: 10 },
+  item: {
+    background: 'rgba(2, 6, 23, 0.55)',
+    border: '1px solid rgba(148,163,184,0.14)',
+    borderRadius: 18,
+    padding: 12,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  itemLeft: { minWidth: 0, flex: 1 },
+  itemTop: { display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 },
+  badge: {
+    background: 'rgba(16,185,129,0.18)',
+    border: '1px solid rgba(16,185,129,0.35)',
+    color: '#a7f3d0',
+    borderRadius: 999,
+    padding: '6px 10px',
+    fontWeight: 900,
+    fontSize: 12,
+    flexShrink: 0,
+  },
+  name: { fontWeight: 900, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  meta: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12, color: 'rgba(226,232,240,0.75)' },
+  btnPrimary: {
+    border: 'none',
+    borderRadius: 14,
+    padding: '10px 12px',
+    background: '#2563eb',
+    color: '#fff',
+    fontWeight: 900,
+    fontSize: 12,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  btnSecondary: {
+    border: '1px solid rgba(148,163,184,0.25)',
+    borderRadius: 14,
+    padding: '10px 12px',
+    background: 'rgba(15, 23, 42, 0.6)',
+    color: '#e5e7eb',
+    fontWeight: 900,
+    fontSize: 12,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  offloadBtn: {
+    display: 'block',
+    textAlign: 'center',
+    textDecoration: 'none',
+    padding: '14px 14px',
+    borderRadius: 18,
+    background: 'linear-gradient(90deg, rgba(16,185,129,0.9), rgba(34,197,94,0.9))',
+    color: '#02130a',
+    fontWeight: 950,
+    letterSpacing: 1.2,
+  },
+};
