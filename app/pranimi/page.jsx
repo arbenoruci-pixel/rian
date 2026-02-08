@@ -386,16 +386,39 @@ async function writeSharedPrice(pricePerM2) {
 
 // ---------------- COMPONENT ----------------
 export default function PranimiPage() {
+  // --- PERSISTENT ALERT (for iOS/Safari: capture fast-disappearing errors) ---
+  const [persistAlert, setPersistAlert] = useState("");
+  const persistAlertRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // capture native alerts so the message doesn't disappear
+    const orig = window.alert;
+    persistAlertRef.current = orig;
+    window.alert = (msg) => {
+      try { localStorage.setItem("tepiha_last_alert_v1", String(msg || "")); } catch {}
+      setPersistAlert(String(msg || ""));
+    };
+    // restore on unmount
+    return () => {
+      try { if (persistAlertRef.current) window.alert = persistAlertRef.current; } catch {}
+    };
+  }, []);
+
+  function copyPersistAlert() {
+    try {
+      const t = String(persistAlert || "");
+      if (!t) return;
+      if (navigator?.clipboard?.writeText) navigator.clipboard.writeText(t);
+    } catch {}
+  }
+
   const router = useRouter();
   const phonePrefix = '+383';
 
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [savingContinue, setSavingContinue] = useState(false);
-  // ✅ DEBUG ERROR BOX (persists so you can screenshot/copy)
-  const [debugErr, setDebugErr] = useState(null);
-  const [showDebugErr, setShowDebugErr] = useState(false);
-
 
   const [oid, setOid] = useState('');
   const [codeRaw, setCodeRaw] = useState('');
@@ -1150,34 +1173,6 @@ function saveOfflineQueueItem(order) {
   }
 }
 
-
-function persistAndShowError(err, context = 'UNKNOWN') {
-  try {
-    const msg = (err && (err.message || err.error_description || err.toString()))
-      ? (err.message || err.error_description || err.toString())
-      : 'Gabim i panjohur';
-    const details = (err && (err.details || err.hint))
-      ? `${err.details || ''}${err.hint ? `\n${err.hint}` : ''}`
-      : '';
-    const code = err?.code ? String(err.code) : '';
-    const stack = err?.stack ? String(err.stack) : '';
-    const payload = {
-      at: new Date().toISOString(),
-      context,
-      msg,
-      details,
-      code,
-      raw: (() => { try { return JSON.stringify(err); } catch { return String(err); } })(),
-      stack,
-    };
-    try { localStorage.setItem('tepiha_last_error_v1', JSON.stringify(payload)); } catch {}
-    // return payload so caller can setState
-    return payload;
-  } catch {
-    return { at: new Date().toISOString(), context, msg: 'Gabim i panjohur', details: '', code: '', raw: '', stack: '' };
-  }
-}
-
   async function handleContinue() {
     if (!validateBeforeContinue()) return;
 
@@ -1307,11 +1302,14 @@ if (offlineMode || !conn.ok) {
       router.push('/pastrimi');
     } catch (e) {
       console.error('PRANIMI_SAVE_ERROR', e);
-      const payload = persistAndShowError(e, 'PRANIMI_SAVE');
-      setDebugErr(payload);
-      setShowDebugErr(true);
+      const msg = (e && (e.message || e.error_description || e.toString())) ? (e.message || e.error_description || e.toString()) : 'Gabim i panjohur';
+      // ✅ Build-safe: avoid nested quotes inside template literals
+      const details = (e && (e.details || e.hint))
+        ? `\n${e.details || ''}${e.hint ? `\n${e.hint}` : ''}`
+        : '';
+      alert(`❌ RUJTJA DËSHTOI:
+${msg}${details}`);
       setSavingContinue(false);
-      return;
     }
   }
 
@@ -1442,84 +1440,28 @@ if (offlineMode || !conn.ok) {
 
   if (creating) {
     return (
-      <div className="wrap">
-      {showDebugErr && debugErr ? (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.65)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000,
-            padding: 14,
-          }}
-          onClick={() => setShowDebugErr(false)}
-        >
-          <div
-            style={{
-              width: 'min(520px, 95vw)',
-              background: '#0b1220',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 14,
-              padding: 14,
-              boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ fontWeight: 800, letterSpacing: 1 }}>⚠️ GABIM (MOS U MSHEF)</div>
-              <button className="btn" onClick={() => setShowDebugErr(false)}>MBYLL</button>
-            </div>
-            <div style={{ opacity: 0.85, fontSize: 12, marginTop: 6 }}>
-              {debugErr.context} • {debugErr.at} {debugErr.code ? `• CODE ${debugErr.code}` : ''}
-            </div>
-            <pre
-              style={{
-                marginTop: 10,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.10)',
-                borderRadius: 12,
-                padding: 12,
-                maxHeight: '55vh',
-                overflow: 'auto',
-                fontSize: 12,
-              }}
-            >
-              {`${debugErr.msg}${debugErr.details ? `\n\n${debugErr.details}` : ''}`}
-            </pre>
-            <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-              <button
-                className="btn primary"
-                onClick={async () => {
-                  const text = JSON.stringify(debugErr, null, 2);
-                  try {
-                    await navigator.clipboard.writeText(text);
-                  } catch {
-                    // fallback: show raw in prompt so user can copy
-                    try { window.prompt('COPY ERROR JSON:', text); } catch {}
-                  }
-                }}
-              >
-                COPY ERROR
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  try { localStorage.removeItem('tepiha_last_error_v1'); } catch {}
-                  setDebugErr(null);
-                  setShowDebugErr(false);
-                }}
-              >
-                FSHI
-              </button>
-            </div>
+      
+  <div className="wrap">
+    {persistAlert ? (
+      <div className="modal-backdrop" style={{ zIndex: 9999 }}>
+        <div className="modal-card" style={{ width: "min(520px, 92vw)" }}>
+          <div className="modal-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <span>⚠️ GABIM</span>
+            <button className="btn" onClick={() => setPersistAlert("")} style={{ padding: "8px 12px" }}>MBYLL</button>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            {persistAlert}
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+            <button className="btn" onClick={copyPersistAlert} style={{ flex: 1 }}>COPY ERROR</button>
+            <button className="btn ghost" onClick={() => { try { localStorage.removeItem("tepiha_last_alert_v1"); } catch {} setPersistAlert(""); }} style={{ flex: 1 }}>FSHI</button>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.65 }}>
+            (Ky panel e kap çdo alert që përndryshe zhduket shpejt në iPhone.)
           </div>
         </div>
-      ) : null}
+      </div>
+    ) : null}
 
         <p style={{ textAlign: 'center', paddingTop: 30 }}>Duke u përgatitur PRANIMI...</p>
       </div>
