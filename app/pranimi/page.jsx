@@ -386,33 +386,6 @@ async function writeSharedPrice(pricePerM2) {
 
 // ---------------- COMPONENT ----------------
 export default function PranimiPage() {
-  // --- PERSISTENT ALERT (for iOS/Safari: capture fast-disappearing errors) ---
-  const [persistAlert, setPersistAlert] = useState("");
-  const persistAlertRef = useRef(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    // capture native alerts so the message doesn't disappear
-    const orig = window.alert;
-    persistAlertRef.current = orig;
-    window.alert = (msg) => {
-      try { localStorage.setItem("tepiha_last_alert_v1", String(msg || "")); } catch {}
-      setPersistAlert(String(msg || ""));
-    };
-    // restore on unmount
-    return () => {
-      try { if (persistAlertRef.current) window.alert = persistAlertRef.current; } catch {}
-    };
-  }, []);
-
-  function copyPersistAlert() {
-    try {
-      const t = String(persistAlert || "");
-      if (!t) return;
-      if (navigator?.clipboard?.writeText) navigator.clipboard.writeText(t);
-    } catch {}
-  }
-
   const router = useRouter();
   const phonePrefix = '+383';
 
@@ -849,8 +822,10 @@ useEffect(() => {
           Number(clientPaid) > 0;
 
         if (started) {
-          // ✅ MODIFIKUAR PIKA 4: Në autosave draft (started=true)
-          try { void markCodeUsed(codeRaw, oid); } catch {}
+          // IMPORTANT:
+          // Draft autosave MUST NOT mark the code as USED.
+          // The code-lease system reserves a code per OID; we only mark USED
+          // after a successful DB save.
 
           upsertDraftLocal(draft); // backup offline
           // ✅ shared draft
@@ -1440,29 +1415,7 @@ ${msg}${details}`);
 
   if (creating) {
     return (
-      
-  <div className="wrap">
-    {persistAlert ? (
-      <div className="modal-backdrop" style={{ zIndex: 9999 }}>
-        <div className="modal-card" style={{ width: "min(520px, 92vw)" }}>
-          <div className="modal-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <span>⚠️ GABIM</span>
-            <button className="btn" onClick={() => setPersistAlert("")} style={{ padding: "8px 12px" }}>MBYLL</button>
-          </div>
-          <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-            {persistAlert}
-          </div>
-          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button className="btn" onClick={copyPersistAlert} style={{ flex: 1 }}>COPY ERROR</button>
-            <button className="btn ghost" onClick={() => { try { localStorage.removeItem("tepiha_last_alert_v1"); } catch {} setPersistAlert(""); }} style={{ flex: 1 }}>FSHI</button>
-          </div>
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.65 }}>
-            (Ky panel e kap çdo alert që përndryshe zhduket shpejt në iPhone.)
-          </div>
-        </div>
-      </div>
-    ) : null}
-
+      <div className="wrap">
         <p style={{ textAlign: 'center', paddingTop: 30 }}>Duke u përgatitur PRANIMI...</p>
       </div>
     );
