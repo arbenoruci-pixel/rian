@@ -20,12 +20,22 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-// IMPORTANT: drafts must be a single source per transport_id
-// so PRANIMI and /transport/te-pa-plotsuara are always in sync.
-const DRAFT_KEY_BASE = 'transport_drafts_v1__';
+const DRAFT_KEY = 'transport_drafts_v1'; // NOTE: drafts list page may use a different key; leave as-is here.
 
 // --- HELPERS ---
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
+function splitPhoneFull(raw, fallbackPrefix = PHONE_PREFIX_DEFAULT) {
+  const s = String(raw || '').trim();
+  if (!s) return { prefix: fallbackPrefix, phone: '' };
+  if (s.startsWith('+')) {
+    const m = s.match(/^\+\d{1,4}/);
+    const prefix = m?.[0] || fallbackPrefix;
+    const rest = s.slice(prefix.length);
+    return { prefix, phone: rest.replace(/\s+/g, '') };
+  }
+  // If user stored phone without prefix
+  return { prefix: fallbackPrefix, phone: s.replace(/\s+/g, '') };
+}
 function normalizeTCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
@@ -89,10 +99,6 @@ export default function TransportPranim() {
   const back = sp.get('back') || sp.get('return') || '/transport/offload';
   const openDraftsOnLoad = sp.get('drafts') === '1';
 
-  function draftKeyForTransport(tid) {
-    return `${DRAFT_KEY_BASE}${String(tid || 'unknown')}`;
-  }
-
   const [me, setMe] = useState(null);
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -146,53 +152,45 @@ export default function TransportPranim() {
   }
 
   
-  function splitPhonePrefixAndNumber(raw) {
-    const s = String(raw || '').trim();
-    if (!s) return { prefix: PHONE_PREFIX_DEFAULT, number: '' };
-    if (s.startsWith('+383')) {
-      return { prefix: '+383', number: sanitizePhone(s.slice(4)) };
-    }
-    if (s.startsWith('+')) {
-      // keep a reasonable prefix (up to 4 chars like +355, +389, +381)
-      const m = s.match(/^\+\d{1,3}/);
-      const p = m ? m[0] : PHONE_PREFIX_DEFAULT;
-      return { prefix: p, number: sanitizePhone(s.slice(p.length)) };
-    }
-    return { prefix: PHONE_PREFIX_DEFAULT, number: sanitizePhone(s) };
-  }
-
   async function searchPastClients(q) {
     const term = String(q || '').trim();
     if (!term) { setClientHits([]); return; }
     setClientSearchBusy(true);
     try {
-      const like = `%${term}%`;
+      // ✅ Same master client search as BASE/PASTRIMI
+      // Your DB has `full_name` filled, while `name` might be NULL.
+      const safe = term.replace(/[,%]/g, ' ').trim();
+      const likeName = `%${safe}%`;
+      const onlyDigits = term.replace(/\D+/g, '');
+      const codeN = onlyDigits ? Number(onlyDigits) : NaN;
 
-      // ✅ SOURCE OF TRUTH: clients table (same as PASTRIMI)
-      // NOTE: in DB you have full_name populated, and name may be null.
-      const termNum = Number(String(term).replace(/\D+/g, ''));
-      const orParts = [`full_name.ilike.${like}`, `phone.ilike.${like}`];
-      if (Number.isFinite(termNum) && termNum > 0) orParts.push(`code.eq.${termNum}`);
+      let hits = [];
+      // IMPORTANT: don't build a phone filter from name text (it can break parsing / return nothing)
+      const ors = [`full_name.ilike.${likeName}`];
+      if (onlyDigits) ors.push(`phone.ilike.%${onlyDigits}%`);
+      if (Number.isFinite(codeN)) ors.push(`code.eq.${codeN}`);
 
-      const c = await supabase
+      const resClients = await supabase
         .from('clients')
-        .select('id, code, full_name, phone')
-        .or(orParts.join(','))
+        .select('id, code, full_name, phone, photo_url, updated_at')
+        .or(ors.join(','))
         .order('updated_at', { ascending: false })
         .limit(20);
 
-      if (!c.error && Array.isArray(c.data) && c.data.length) {
-        const hits = c.data.map(r => ({
+      if (!resClients.error && Array.isArray(resClients.data) && resClients.data.length) {
+        hits = resClients.data.map(r => ({
+          source: 'clients',
+          client_id: r.id,
+          code: r.code,
           name: r.full_name || '',
           phone: r.phone || '',
-          code: r.code
+          photo_url: r.photo_url || ''
         }));
         setClientHits(hits);
         return;
       }
 
-      // Fallback: transport tables (older data)
-      let hits = [];
+      // Fallback: transport history (so you can still find transport-only clients)
       const res2 = await supabase
         .from('transport_orders')
         .select('client_name, client_phone, updated_at')
@@ -205,9 +203,10 @@ export default function TransportPranim() {
           const key = `${r.client_phone||''}::${r.client_name||''}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          hits.push({ name: r.client_name || '', phone: r.client_phone || '' });
+          hits.push({ source: 'transport_orders', name: r.client_name || '', phone: r.client_phone || '' });
         }
       }
+
       setClientHits(hits);
     } catch (e) {
       console.error('searchPastClients', e);
@@ -234,21 +233,13 @@ export default function TransportPranim() {
     if (!me?.transport_id) return;
     (async () => {
       try {
-        migrateDraftsIfNeeded();
         refreshDrafts();
         
-        // 1) Nëse vjen nga URL (HAP nga TË PA PLOTSUARAT)
-        if (editId) {
-          const d = findDraftById(editId);
-          if (d) {
-            loadDraftNoConfirm(d);
-            setCreating(false);
-            return;
-          }
-          // fallback: at least set the oid
-          setOid(editId);
-          setCreating(false);
-          return;
+        // 1. Nëse vjen nga URL (edit)
+        if (editId) { 
+            setOid(editId); 
+            setCreating(false); 
+            return; 
         }
 
         // ✅ FIX KRYESOR: Përdor UUID të vërtetë, jo tord_...
@@ -265,50 +256,6 @@ export default function TransportPranim() {
       }
     })();
   }, [me, editId]);
-
-  function getDraftStorageKey() {
-    return draftKeyForTransport(me?.transport_id);
-  }
-
-  function readDraftList() {
-    try {
-      const key = getDraftStorageKey();
-      const raw = localStorage.getItem(key);
-      const list = raw ? JSON.parse(raw) : [];
-      return Array.isArray(list) ? list : [];
-    } catch {
-      return [];
-    }
-  }
-
-  function writeDraftList(list) {
-    const key = getDraftStorageKey();
-    localStorage.setItem(key, JSON.stringify(Array.isArray(list) ? list : []));
-  }
-
-  // one-time migration from old single key -> per-transport key
-  function migrateDraftsIfNeeded() {
-    try {
-      const newKey = getDraftStorageKey();
-      if (!me?.transport_id) return;
-      if (localStorage.getItem(newKey)) return; // already migrated/using
-      const legacyRaw = localStorage.getItem('transport_drafts_v1');
-      if (!legacyRaw) return;
-      const legacy = JSON.parse(legacyRaw);
-      if (!Array.isArray(legacy) || legacy.length === 0) return;
-      const migrated = legacy.map((d) => ({
-        ...(d || {}),
-        scope: 'transport',
-        transport_id: me.transport_id,
-      }));
-      localStorage.setItem(newKey, JSON.stringify(migrated));
-    } catch {}
-  }
-
-  function findDraftById(id) {
-    const list = readDraftList();
-    return list.find((d) => String(d?.id || '') === String(id || '')) || null;
-  }
 
   // ✅ LOGJIKA E DRAFTEVE (Të pa plotsuara)
   useEffect(() => {
@@ -330,9 +277,8 @@ export default function TransportPranim() {
 
   function refreshDrafts() {
     try {
-        let list = readDraftList();
-        // only transport drafts for this transport_id
-        list = list.filter((d) => d?.scope === 'transport');
+        const raw = localStorage.getItem(DRAFT_KEY);
+        const list = raw ? JSON.parse(raw) : [];
         list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
         setDrafts(list);
     } catch {}
@@ -340,75 +286,35 @@ export default function TransportPranim() {
 
   function saveDraftLocal() {
     try {
-        const draft = {
-          scope: 'transport',
-          transport_id: me?.transport_id,
-          id: oid,
-          ts: Date.now(),
-          codeRaw,
-          name,
-          phone,
-          phonePrefix,
-          clientPhotoUrl,
-          address,
-          gpsLat,
-          gpsLng,
-          clientDesc,
-          tepihaRows,
-          stazaRows,
-          stairsQty,
-          stairsPer,
-          stairsPhotoUrl,
-          pricePerM2,
-          clientPaid,
-          notes,
-        };
-
-        let list = readDraftList();
+        const draft = { id: oid, ts: Date.now(), codeRaw, name, phone, phonePrefix, clientPhotoUrl, address, gpsLat, gpsLng, clientDesc, tepihaRows, stazaRows, stairsQty, stairsPer, stairsPhotoUrl, pricePerM2, clientPaid, notes };
+        let list = [];
+        try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
         
         // E zëvendësojmë ekzistuesin me këtë të riun (Update)
         list = list.filter(d => d.id !== oid);
         list.unshift(draft);
         
         if (list.length > 50) list = list.slice(0, 50);
-        writeDraftList(list);
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(list));
         setDrafts(list);
     } catch {}
   }
 
-  function loadDraftNoConfirm(d) {
-    setOid(d.id);
-    setCodeRaw(d.codeRaw || '');
-    setName(d.name || '');
-    setPhone(d.phone || '');
-    setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT);
-    setClientPhotoUrl(d.clientPhotoUrl || '');
-    setAddress(d.address || '');
-    setGpsLat(d.gpsLat || '');
-    setGpsLng(d.gpsLng || '');
-    setClientDesc(d.clientDesc || '');
-    setTepihaRows(d.tepihaRows || []);
-    setStazaRows(d.stazaRows || []);
-    setStairsQty(d.stairsQty || 0);
-    setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
-    setStairsPhotoUrl(d.stairsPhotoUrl || '');
-    setPricePerM2(d.pricePerM2 || PRICE_DEFAULT);
-    setClientPaid(d.clientPaid || 0);
-    setNotes(d.notes || '');
-    setShowDraftsSheet(false);
-  }
-
   function loadDraft(d) {
-    // Manual open from in-page drafts list
-    if (!confirm('A je i sigurt? Fushat aktuale do zëvendësohen.')) return;
-    loadDraftNoConfirm(d);
+      // Kur hap draftin, e marrim fiks ID dhe KODIN që ka pasur
+      if(!confirm("A je i sigurt? Fushat aktuale do zëvendësohen.")) return;
+      setOid(d.id); 
+      setCodeRaw(d.codeRaw); 
+      setName(d.name || ''); setPhone(d.phone || ''); setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT); setClientPhotoUrl(d.clientPhotoUrl || ''); setAddress(d.address || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || ''); setClientDesc(d.clientDesc || ''); setTepihaRows(d.tepihaRows || []); setStazaRows(d.stazaRows || []); setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT); setStairsPhotoUrl(d.stairsPhotoUrl || ''); setPricePerM2(d.pricePerM2 || PRICE_DEFAULT); setClientPaid(d.clientPaid || 0); setNotes(d.notes || '');
+      setShowDraftsSheet(false);
   }
 
   function deleteDraft(id, silent = false) {
       if(!silent) { if(!confirm("Fshi?")) return; }
-      let list = readDraftList();
+      let list = [];
+      try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
       list = list.filter(d => d.id !== id);
-      writeDraftList(list);
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(list));
       setDrafts(list);
   }
 
@@ -607,15 +513,16 @@ export default function TransportPranim() {
                   className="list-row"
                   onClick={() => {
                     setName(c.name || "");
-                    const sp = splitPhonePrefixAndNumber(c.phone || "");
+                    const sp = splitPhoneFull(c.phone || "", PHONE_PREFIX_DEFAULT);
                     setPhonePrefix(sp.prefix);
-                    setPhone(sp.number);
+                    setPhone(sp.phone);
+                    if (c.photo_url) setClientPhotoUrl(c.photo_url);
                     setClientHits([]);
                     setClientSearch("");
                   }}
                 >
                   <span style={{ flex: 1, textAlign: "left" }}>{(c.name || "PA EMËR").toUpperCase()}</span>
-                  <span className="badge">{c.phone || ""}</span>
+                  <span className="badge">{c.code ? `#${c.code}` : (c.phone || "")}</span>
                 </button>
               ))}
             </div>
