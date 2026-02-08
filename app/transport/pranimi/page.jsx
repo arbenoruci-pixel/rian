@@ -20,7 +20,10 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PHONE_PREFIX_DEFAULT = '+383';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-const DRAFT_KEY = 'transport_drafts_v1';
+// DRAFTS are per-transport (per driver) so they don't mix across accounts.
+function draftKeyFor(transportId) {
+  return `transport_drafts_v1__${String(transportId || 'unknown')}`;
+}
 
 // --- HELPERS ---
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
@@ -44,6 +47,18 @@ function parseNum(v, fallback = 0) {
   const s = String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.');
   const n = Number(s);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function splitPhonePrefix(full) {
+  const s = String(full || '').trim();
+  if (!s) return { prefix: PHONE_PREFIX_DEFAULT, phone: '' };
+  if (!s.startsWith('+')) return { prefix: PHONE_PREFIX_DEFAULT, phone: s };
+  // Prefer Kosovo +383, otherwise keep whatever prefix we can detect.
+  if (s.startsWith('+383')) return { prefix: '+383', phone: s.slice(4) };
+  // Generic: take + and up to 3 digits as prefix.
+  const m = s.match(/^\+(\d{1,3})(.*)$/);
+  if (m) return { prefix: `+${m[1]}`, phone: (m[2] || '').trim() };
+  return { prefix: PHONE_PREFIX_DEFAULT, phone: s };
 }
 
 // --- UPLOAD ---
@@ -203,10 +218,12 @@ export default function TransportPranim() {
         refreshDrafts();
         
         // 1. Nëse vjen nga URL (edit)
-        if (editId) { 
-            setOid(editId); 
-            setCreating(false); 
-            return; 
+        if (editId) {
+            // Open draft directly if it exists locally (from /transport/te-pa-plotsuara)
+            setOid(editId);
+            loadDraftById(editId);
+            setCreating(false);
+            return;
         }
 
         // ✅ FIX KRYESOR: Përdor UUID të vërtetë, jo tord_...
@@ -244,7 +261,8 @@ export default function TransportPranim() {
 
   function refreshDrafts() {
     try {
-        const raw = localStorage.getItem(DRAFT_KEY);
+        const key = draftKeyFor(me?.transport_id);
+        const raw = localStorage.getItem(key);
         const list = raw ? JSON.parse(raw) : [];
         list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
         setDrafts(list);
@@ -253,16 +271,39 @@ export default function TransportPranim() {
 
   function saveDraftLocal() {
     try {
-        const draft = { id: oid, ts: Date.now(), codeRaw, name, phone, phonePrefix, clientPhotoUrl, address, gpsLat, gpsLng, clientDesc, tepihaRows, stazaRows, stairsQty, stairsPer, stairsPhotoUrl, pricePerM2, clientPaid, notes };
+        const draft = {
+          scope: 'transport',
+          transport_id: String(me?.transport_id || ''),
+          id: oid,
+          ts: Date.now(),
+          codeRaw,
+          name,
+          phone,
+          phonePrefix,
+          clientPhotoUrl,
+          address,
+          gpsLat,
+          gpsLng,
+          clientDesc,
+          tepihaRows,
+          stazaRows,
+          stairsQty,
+          stairsPer,
+          stairsPhotoUrl,
+          pricePerM2,
+          clientPaid,
+          notes,
+        };
         let list = [];
-        try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
+        const key = draftKeyFor(me?.transport_id);
+        try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
         
         // E zëvendësojmë ekzistuesin me këtë të riun (Update)
         list = list.filter(d => d.id !== oid);
         list.unshift(draft);
         
         if (list.length > 50) list = list.slice(0, 50);
-        localStorage.setItem(DRAFT_KEY, JSON.stringify(list));
+        localStorage.setItem(key, JSON.stringify(list));
         setDrafts(list);
     } catch {}
   }
@@ -276,12 +317,45 @@ export default function TransportPranim() {
       setShowDraftsSheet(false);
   }
 
+  function loadDraftById(id) {
+    try {
+      const key = draftKeyFor(me?.transport_id);
+      const raw = localStorage.getItem(key);
+      const list = raw ? JSON.parse(raw) : [];
+      const d = Array.isArray(list) ? list.find(x => x?.id === id) : null;
+      if (!d) return false;
+      // silent load (no confirm) when opening from the "TË PA PLOTSUARAT" page
+      setOid(d.id);
+      setCodeRaw(d.codeRaw);
+      setName(d.name || '');
+      setPhone(d.phone || '');
+      setPhonePrefix(d.phonePrefix || PHONE_PREFIX_DEFAULT);
+      setClientPhotoUrl(d.clientPhotoUrl || '');
+      setAddress(d.address || '');
+      setGpsLat(d.gpsLat || '');
+      setGpsLng(d.gpsLng || '');
+      setClientDesc(d.clientDesc || '');
+      setTepihaRows(d.tepihaRows || []);
+      setStazaRows(d.stazaRows || []);
+      setStairsQty(d.stairsQty || 0);
+      setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
+      setStairsPhotoUrl(d.stairsPhotoUrl || '');
+      setPricePerM2(d.pricePerM2 || PRICE_DEFAULT);
+      setClientPaid(d.clientPaid || 0);
+      setNotes(d.notes || '');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function deleteDraft(id, silent = false) {
       if(!silent) { if(!confirm("Fshi?")) return; }
       let list = [];
-      try { list = JSON.parse(localStorage.getItem(DRAFT_KEY) || '[]'); } catch {}
+      const key = draftKeyFor(me?.transport_id);
+      try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
       list = list.filter(d => d.id !== id);
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(list));
+      localStorage.setItem(key, JSON.stringify(list));
       setDrafts(list);
   }
 
@@ -480,7 +554,9 @@ export default function TransportPranim() {
                   className="list-row"
                   onClick={() => {
                     setName(c.name || "");
-                    setPhone(c.phone || "");
+                    const sp = splitPhonePrefix(c.phone || "");
+                    setPhonePrefix(sp.prefix);
+                    setPhone(sp.phone);
                     setClientHits([]);
                     setClientSearch("");
                   }}
