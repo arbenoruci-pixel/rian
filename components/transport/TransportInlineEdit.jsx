@@ -95,8 +95,16 @@ export default function TransportInlineEdit({
   const [clientDesc, setClientDesc] = useState(String(base?.transport?.desc || ''));
 
   // Pieces rows
-  const [tepihaRows, setTepihaRows] = useState(Array.isArray(base?.tepiha) ? base.tepiha.map((r, i) => ({ id: `t${i + 1}`, m2: String(r?.m2 ?? ''), qty: String(r?.qty ?? '1'), photoUrl: String(r?.photoUrl || '') })) : []);
-  const [stazaRows, setStazaRows] = useState(Array.isArray(base?.staza) ? base.staza.map((r, i) => ({ id: `s${i + 1}`, m2: String(r?.m2 ?? ''), qty: String(r?.qty ?? '1'), photoUrl: String(r?.photoUrl || '') })) : []);
+  const [tepihaRows, setTepihaRows] = useState(
+    Array.isArray(base?.tepiha) && base.tepiha.length
+      ? base.tepiha.map((r, i) => ({ id: `t${i + 1}`, m2: String(r?.m2 ?? ''), qty: String(r?.qty ?? '1'), photoUrl: String(r?.photoUrl || '') }))
+      : [{ id: 't1', m2: '', qty: '1', photoUrl: '' }]
+  );
+  const [stazaRows, setStazaRows] = useState(
+    Array.isArray(base?.staza) && base.staza.length
+      ? base.staza.map((r, i) => ({ id: `s${i + 1}`, m2: String(r?.m2 ?? ''), qty: String(r?.qty ?? '1'), photoUrl: String(r?.photoUrl || '') }))
+      : [{ id: 's1', m2: '', qty: '1', photoUrl: '' }]
+  );
   const [stairsQty, setStairsQty] = useState(String(base?.shkallore?.qty ?? 0));
   const [stairsPer, setStairsPer] = useState(String(base?.shkallore?.per ?? STAIRS_PER_DEFAULT));
   const [stairsPhotoUrl, setStairsPhotoUrl] = useState(String(base?.shkallore?.photoUrl || ''));
@@ -108,6 +116,10 @@ export default function TransportInlineEdit({
 
   const [notes, setNotes] = useState(String(base?.notes || ''));
 
+  // Pay sheet (same UX as BASE/PASRTIMI)
+  const [showPaySheet, setShowPaySheet] = useState(false);
+  const [payAdd, setPayAdd] = useState(0);
+
   const totalM2 = useMemo(() => {
     const t = tepihaRows.reduce((a, r) => a + (parseNum(r.m2, 0) * parseNum(r.qty, 0)), 0);
     const s = stazaRows.reduce((a, r) => a + (parseNum(r.m2, 0) * parseNum(r.qty, 0)), 0);
@@ -118,6 +130,18 @@ export default function TransportInlineEdit({
   const totalEuro = useMemo(() => Number((totalM2 * parseNum(pricePerM2, 0)).toFixed(2)), [totalM2, pricePerM2]);
   const paidEuro = useMemo(() => Number(parseNum(clientPaid, 0).toFixed(2)), [clientPaid]);
   const debtEuro = useMemo(() => Number(Math.max(0, totalEuro - paidEuro).toFixed(2)), [totalEuro, paidEuro]);
+
+  function openPay() {
+    setPayAdd(0);
+    setShowPaySheet(true);
+  }
+
+  function applyPayAndClose() {
+    const add = parseNum(payAdd, 0);
+    const nextPaid = Number((paidEuro + add).toFixed(2));
+    setClientPaid(String(nextPaid));
+    setShowPaySheet(false);
+  }
 
   function addRow(kind) {
     if (kind === 'tepiha') {
@@ -241,10 +265,6 @@ export default function TransportInlineEdit({
     }
   }
 
-  const goHref = (gpsLat && gpsLng)
-    ? `https://www.google.com/maps?q=${encodeURIComponent(gpsLat)},${encodeURIComponent(gpsLng)}`
-    : '';
-
   return (
     <div className="wrap">
       <header className="header-row" style={{ alignItems: 'flex-start' }}>
@@ -256,35 +276,35 @@ export default function TransportInlineEdit({
       </header>
 
       <section className="card">
-        <h2 className="card-title">Klienti</h2>
+        <h2 className="card-title">KLIENTI</h2>
         <div className="field-group">
           <label className="label">EMRI</label>
-          <div className="row" style={{ alignItems: 'center' }}>
-            <input className="input" value={name} onChange={e => setName(e.target.value)} />
+          <div className="row" style={{ alignItems: 'center', gap: 10 }}>
+            <input className="input" value={name} onChange={e => setName(e.target.value)} style={{ flex: 1 }} />
             {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini" /> : null}
             <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleClientPhotoChange(e.target.files?.[0])} /></label>
           </div>
-          {clientPhotoUrl ? <button className="btn secondary" style={{ display: 'block', fontSize: 11, padding: '6px 10px', marginTop: 8 }} onClick={() => setClientPhotoUrl('')}>🗑️ FSHI FOTO</button> : null}
+          {clientPhotoUrl ? <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 8 }} onClick={() => setClientPhotoUrl('')}>🗑️ FSHI FOTO</button> : null}
         </div>
         <div className="field-group">
           <label className="label">TELEFONI</label>
           <div className="row">
-            <input className="input" style={{ maxWidth: 90 }} value={phonePrefix} onChange={e => setPhonePrefix(e.target.value)} />
+            <input className="input small" value={phonePrefix} readOnly />
             <input className="input" value={phone} onChange={e => setPhone(e.target.value)} />
           </div>
         </div>
       </section>
 
       <section className="card">
-        <h2 className="card-title">TRANSPORT</h2>
+        <h2 className="card-title">ADRESA & GPS</h2>
         <div className="field-group"><label className="label">ADRESA</label><input className="input" value={address} onChange={e => setAddress(e.target.value)} /></div>
         <div className="row">
           <div style={{ flex: 1 }} className="field-group"><label className="label">LAT</label><input className="input" value={gpsLat} onChange={e => setGpsLat(e.target.value)} /></div>
           <div style={{ flex: 1 }} className="field-group"><label className="label">LNG</label><input className="input" value={gpsLng} onChange={e => setGpsLng(e.target.value)} /></div>
         </div>
-        <div className="field-group"><label className="label">PËRSHKRIMI</label><textarea className="input" style={{ minHeight: 90 }} value={clientDesc} onChange={e => setClientDesc(e.target.value)} /></div>
-        {goHref ? (
-          <a className="btn secondary" style={{ display: 'inline-flex', flex: 'unset', width: 'auto', paddingLeft: 14, paddingRight: 14 }} href={goHref} target="_blank" rel="noreferrer">GO ➜</a>
+        <div className="field-group"><label className="label">PËRSHKRIMI</label><textarea className="input" style={{ minHeight: 80 }} value={clientDesc} onChange={e => setClientDesc(e.target.value)} /></div>
+        {(gpsLat && gpsLng) ? (
+          <a className="btn secondary" style={{ display: 'inline-block', marginTop: 6 }} href={`https://www.google.com/maps?q=${encodeURIComponent(gpsLat)},${encodeURIComponent(gpsLng)}`} target="_blank" rel="noreferrer">GO ➜</a>
         ) : null}
       </section>
 
@@ -333,9 +353,9 @@ export default function TransportInlineEdit({
 
       <section className="card">
         <h2 className="card-title">SHKALLORE</h2>
-        <div className="row" style={{ alignItems: 'center' }}>
-          <input className="input" style={{ maxWidth: 110 }} type="number" value={stairsQty} onChange={e => setStairsQty(e.target.value)} placeholder="copë" />
-          <input className="input" style={{ maxWidth: 110 }} type="number" step="0.01" value={stairsPer} onChange={e => setStairsPer(e.target.value)} placeholder="m²/copë" />
+        <div className="row">
+          <input className="input small" type="number" value={stairsQty} onChange={e => setStairsQty(e.target.value)} placeholder="copë" />
+          <input className="input small" type="number" step="0.01" value={stairsPer} onChange={e => setStairsPer(e.target.value)} placeholder="m²/copë" />
           <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleStairsPhotoChange(e.target.files?.[0])} /></label>
         </div>
         {stairsPhotoUrl ? (
@@ -347,16 +367,17 @@ export default function TransportInlineEdit({
       </section>
 
       <section className="card">
-        <h2 className="card-title">PAGESA</h2>
-        <div className="row">
-          <div style={{ flex: 1 }} className="field-group"><label className="label">€/m²</label><input className="input" type="number" step="0.01" value={pricePerM2} onChange={e => setPricePerM2(e.target.value)} /></div>
-          <div style={{ flex: 1 }} className="field-group"><label className="label">PAGUAR</label><input className="input" type="number" step="0.01" value={clientPaid} onChange={e => setClientPaid(e.target.value)} /></div>
+        <div className="row util-row" style={{ gap: '10px' }}>
+          <button className="btn secondary" style={{ flex: 1 }} onClick={openPay}>€ PAGESA</button>
+          <div style={{ flex: 1 }} className="field-group">
+            <label className="label">€/m²</label>
+            <input className="input" type="number" step="0.01" value={pricePerM2} onChange={e => setPricePerM2(e.target.value)} />
+          </div>
         </div>
-        <div className="chip-row">{PAY_CHIPS.map(c => <button key={c} className="chip" onClick={() => setClientPaid(String(Number(paidEuro + c).toFixed(2)))}>{c}€</button>)}</div>
-        <div className="tot-line">M² TOTAL: <strong>{totalM2}</strong></div>
-        <div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div>
-        <div className="tot-line">PAGUAR: <strong style={{ color: '#1bd97b' }}>{paidEuro.toFixed(2)} €</strong></div>
-        {debtEuro > 0 ? <div className="tot-line">BORXH: <strong style={{ color: '#ff4b4b' }}>{debtEuro.toFixed(2)} €</strong></div> : null}
+        <div className="tot-line">M² Total: <strong>{totalM2}</strong></div>
+        <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
+        <div className="tot-line" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 10, paddingTop: 10 }}>Paguar: <strong style={{ color: '#16a34a' }}>{paidEuro.toFixed(2)} €</strong></div>
+        {debtEuro > 0 ? <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{debtEuro.toFixed(2)} €</strong></div> : null}
       </section>
 
       <section className="card">
@@ -369,14 +390,42 @@ export default function TransportInlineEdit({
         <button className="btn primary" onClick={save} disabled={saving || photoUploading}>{saving ? 'RUHET...' : (photoUploading ? 'FOTO...' : 'RUAJ')}</button>
       </footer>
 
+      {showPaySheet && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">PAGESA</div>
+            </div>
+            <button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button>
+          </div>
+          <div className="payfs-body">
+            <div className="card">
+              <div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div>
+              <div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{paidEuro.toFixed(2)} €</strong></div>
+              <div className="field-group" style={{ marginTop: 20 }}>
+                <label className="label">SHTO PAGESË</label>
+                <input className="input" type="number" value={payAdd} onChange={e => setPayAdd(e.target.value)} />
+                <div className="chip-row">{PAY_CHIPS.map(c => <button key={c} className="chip" onClick={() => setPayAdd(c)}>{c}€</button>)}</div>
+              </div>
+            </div>
+          </div>
+          <div className="payfs-footer">
+            <button className="btn primary" onClick={applyPayAndClose}>RUAJ</button>
+          </div>
+        </div>
+      )}
+
+      {/*
+        NOTE: We intentionally keep styling minimal here and rely on global styles (app/globals.css)
+        so TRANSPORT EDIT looks identical to BASE/PRANIMI/PASRTIMI edit screens.
+      */}
       <style jsx>{`
         .client-mini{ width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid rgba(255,255,255,0.18); }
-        .photo-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 12px; border: 1px solid rgba(135, 206, 255, 0.12); }
-        .camera-btn { background: #050b23; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid #243154; cursor: pointer; }
-        .chip-row { display:flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 10px; }
-        .chip { padding: 8px 12px; border-radius: 999px; border: 1px solid #243154; background: #050b23; font-weight: 800; cursor: pointer; }
-        .piece-row { padding: 10px; border-radius: 14px; border: 1px solid rgba(135, 206, 255, 0.10); background: rgba(2, 5, 20, 0.45); margin-top: 8px; }
-        .btn-row { justify-content: space-between; }
+        .payfs { position: fixed; inset: 0; background: #0b0b0b; z-index: 10000; display: flex; flex-direction: column; }
+        .payfs-top { display: flex; justify-content: space-between; align-items: center; padding: 14px; background: #0b0b0b; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .payfs-title { font-weight: 900; letter-spacing: .14em; }
+        .payfs-body { flex: 1; padding: 14px; }
+        .payfs-footer { padding: 14px; border-top: 1px solid rgba(255,255,255,0.08); }
       `}</style>
     </div>
   );

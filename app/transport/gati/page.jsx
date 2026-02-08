@@ -101,7 +101,8 @@ export default function TransportGatiPage() {
   const [payOrder, setPayOrder] = useState(null);
   const [openId, setOpenId] = useState(null);
 
-  // edit (same flow/design as PICKUP/OFFLOAD)
+  // edit modal
+  const [editOpen, setEditOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
 
   useEffect(() => { setMe(readActor()); }, []);
@@ -115,8 +116,29 @@ export default function TransportGatiPage() {
     if (!it?.id) return;
     // it is the "pretty" view item; map back to raw order
     const raw = items.find((x) => x.id === it.id) || null;
-    if (!raw) return;
-    setEditItem(raw);
+    const rawOrder = raw ? (raw.order || raw.data || {}) : {};
+    setEditItem({
+      id: it.id,
+      order: rawOrder,
+      code_str: it.code,
+      client_name: it.name || null,
+      client_phone: it.phone || null,
+    });
+    setEditOpen(true);
+  }
+
+  // ✅ EDIT view should look identical to BASE/PRANIMI/PASRTIMI: render the same inline editor
+  // and avoid carrying over any list-page styles.
+  if (editOpen && editItem) {
+    return (
+      <TransportInlineEdit
+        item={editItem}
+        title="TRANSPORT"
+        subtitle="EDITIMI"
+        onClose={() => { setEditOpen(false); setEditItem(null); }}
+        onSaved={async () => { await load(); }}
+      />
+    );
   }
 
   const prettyItems = useMemo(() => {
@@ -320,26 +342,6 @@ export default function TransportGatiPage() {
     });
   }
 
-  // --- INLINE EDIT (same as PICKUP/OFFLOAD) ---
-  if (editItem) {
-    return (
-      <TransportInlineEdit
-        item={{
-          id: editItem.id,
-          code: editItem.code,
-          order: editItem.order,
-          status: editItem.status,
-          transport_id: editItem.transport_id,
-        }}
-        transportId={String(me?.transport_id || '')}
-        title="GATI (TRANSPORT)"
-        subtitle="EDITIMI"
-        onClose={() => setEditItem(null)}
-        onSaved={load}
-      />
-    );
-  }
-
   return (
     <main className="wrap">
       <header className="header-row">
@@ -540,7 +542,13 @@ export default function TransportGatiPage() {
           />
 
           <style jsx>{`
+            .wrap { padding: 18px; max-width: 980px; margin: 0 auto; }
+            .header-row { display:flex; justify-content:space-between; align-items:flex-start; gap: 12px; margin-bottom: 14px; }
+            .title { margin:0; font-size: 22px; letter-spacing: .5px; }
+            .subtitle { opacity:.8; font-size: 12px; margin-top: 2px; }
+            .card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 14px; }
             .pill { padding: 8px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); text-decoration:none; font-weight:700; font-size: 12px; }
+            .btn { padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.08); color: inherit; font-weight: 800; font-size: 12px; text-decoration:none; }
             .btn.ghost { background: transparent; }
             .btn:disabled { opacity:.4; }
             .muted { opacity:.75; font-size: 12px; }
@@ -569,6 +577,8 @@ export default function TransportGatiPage() {
             .box { padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); font-size: 13px; line-height: 1.35; }
 
             @media (max-width: 520px) {
+              .wrap { padding: 14px; }
+              .header-row { margin-bottom: 10px; }
               .toolbar { gap: 10px; }
               .rowline { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
               .left { width: 100%; }
@@ -579,6 +589,9 @@ export default function TransportGatiPage() {
               .name { font-size: 14px; }
               .sub { font-size: 12px; }
               .routeTools { width: 100%; justify-content: flex-end; margin-left: 0; }
+            }
+.btn { padding: 8px 10px; }
+              .code { padding: 6px 9px; }
             }
           `}</style>
         </>
