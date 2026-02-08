@@ -264,7 +264,7 @@ export default function TransportHome() {
               <Link href="/transport/offload" style={secondaryCardStyle}>
                 <span>🏁 SHKARKO NË BAZË</span>
               </Link>
-              <Link href="/transport/unfilled" style={secondaryCardStyle}>
+              <Link href="/transport/te-pa-plotsuara" style={secondaryCardStyle}>
                 <span>🧾 TË PA PLOTSUARA</span>
               </Link>
               <Link href="/transport/arka" style={secondaryCardStyle}>
