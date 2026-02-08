@@ -94,8 +94,6 @@ export default function TransportPranim() {
   const [codeRaw, setCodeRaw] = useState('');
 
   // Data
-  const [clientId, setClientId] = useState('');
-  const [clientCode, setClientCode] = useState(''); // NR RENDOR (permanent)
   const [name, setName] = useState('');
   const [phonePrefix, setPhonePrefix] = useState(PHONE_PREFIX_DEFAULT);
   const [phone, setPhone] = useState('');
@@ -129,6 +127,7 @@ export default function TransportPranim() {
   const [clientSearch, setClientSearch] = useState('');
   const [clientHits, setClientHits] = useState([]);
   const [clientSearchBusy, setClientSearchBusy] = useState(false);
+  const [pickedClient, setPickedClient] = useState(null); // { id, source, search_code }
 
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
@@ -146,81 +145,45 @@ export default function TransportPranim() {
     const term = String(q || '').trim();
     if (!term) { setClientHits([]); return; }
     setClientSearchBusy(true);
+
     try {
+      // Single source of truth for search:
+      // VIEW: transport_search_clients(id, search_code, name, phone, source)
+      // - source: 'BASE' (clients) or 'TRANSPORT' (transport_clients)
+      // - search_code: permanent numeric client code (BASE) OR NULL (TRANSPORT)
+
       const digits = sanitizePhone(term);
       const likeName = `%${term}%`;
-      const likeDigits = digits ? `%${digits}%` : '';
-      const codeNum = /^‪?‫?‬?‭?‮?\d+$/.test(term) ? Number(term) : NaN;
 
-      // 1) MASTER CLIENTS (NR RENDOR) -> clients.code
-      // Search by: code, full_name/name, phone digits
-      const orParts = [`full_name.ilike.${likeName}`, `name.ilike.${likeName}`];
-      if (likeDigits) orParts.push(`phone.ilike.${likeDigits}`);
-      if (Number.isFinite(codeNum)) orParts.push(`code.eq.${codeNum}`);
+      // allow "t33" or "33" to match BASE client code
+      const codeDigits = String(term).replace(/[^0-9]/g, '');
+      const codeNum = codeDigits ? Number(codeDigits) : null;
 
-      let hits = [];
-      const resM = await supabase
-        .from('clients')
-        .select('id, code, full_name, name, phone, updated_at')
+      const orParts = [`name.ilike.${likeName}`];
+      if (digits) orParts.push(`phone.ilike.%${digits}%`);
+      if (codeNum != null && Number.isFinite(codeNum)) orParts.push(`search_code.eq.${codeNum}`);
+
+      const res = await supabase
+        .from('transport_search_clients')
+        .select('id, search_code, name, phone, source')
         .or(orParts.join(','))
-        .order('updated_at', { ascending: false })
-        .limit(12);
+        .limit(20);
 
-      if (!resM.error && Array.isArray(resM.data) && resM.data.length) {
-        hits = resM.data.map(r => ({
-          id: r.id,
-          code: r.code,
-          name: (r.full_name || r.name || '').trim(),
-          phone: r.phone || '',
-          source: 'clients',
-        }));
-      } else {
-        // 2) TRANSPORT CLIENTS (coords saved here)
-        const orPartsT = [`name.ilike.${likeName}`];
-        if (likeDigits) orPartsT.push(`phone.ilike.${likeDigits}`);
-        const resT = await supabase
-          .from('transport_clients')
-          .select('id, name, phone, address, gps_lat, gps_lng, notes, updated_at')
-          .or(orPartsT.join(','))
-          .order('updated_at', { ascending: false })
-          .limit(12);
+      if (res?.error) throw res.error;
 
-        if (!resT.error && Array.isArray(resT.data) && resT.data.length) {
-          hits = resT.data.map(r => ({
-            id: r.id,
-            code: null,
-            name: (r.name || '').trim(),
-            phone: r.phone || '',
-            address: r.address || '',
-            gps_lat: r.gps_lat ?? null,
-            gps_lng: r.gps_lng ?? null,
-            notes: r.notes || '',
-            source: 'transport_clients',
-          }));
-        } else {
-          // 3) last fallback: transport_orders unique (name+phone)
-          const resO = await supabase
-            .from('transport_orders')
-            .select('client_name, client_phone, updated_at')
-            .or(`client_name.ilike.%${term}%,client_phone.ilike.%${digits || term}%`)
-            .order('updated_at', { ascending: false })
-            .limit(12);
-          if (!resO.error && Array.isArray(resO.data)) {
-            const seen = new Set();
-            hits = [];
-            for (const r of resO.data) {
-              const key = `${r.client_phone||''}::${r.client_name||''}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              hits.push({ id: '', code: null, name: r.client_name || '', phone: r.client_phone || '', source: 'transport_orders' });
-            }
-          }
-        }
-      }
+      const hits = (res.data || []).map(r => ({
+        id: r.id,
+        source: r.source,
+        search_code: r.search_code,
+        name: r.name || '',
+        phone: r.phone || '',
+      }));
 
       setClientHits(hits);
     } catch (e) {
       console.error('searchPastClients', e);
+      // keep UI responsive
+      setClientHits([]);
     } finally {
       setClientSearchBusy(false);
     }
@@ -257,6 +220,7 @@ export default function TransportPranim() {
         // Kjo e zgjidh problemin e screenshot-it
         const id = crypto.randomUUID(); 
         setOid(id);
+        setPickedClient(null);
         
         const tcode = await reserveTransportCode();
         setCodeRaw(tcode);
@@ -430,14 +394,14 @@ export default function TransportPranim() {
           offloaded_at: null,
           offloaded_by: null,
           client: {
-            // ✅ Permanent client identity (NR RENDOR) — reused when picked from search
-            client_id: clientId || null,
-            client_code: clientCode || null,
             name: name.trim(),
             phone: phonePrefix + (phone || ''),
-            // NOTE: this is the ORDER code (Txxx) used in receipts/labels
             code: codeStr,
             photoUrl: clientPhotoUrl || '',
+            // Permanent client link (BASE code or TRANSPORT client id)
+            client_id: pickedClient?.id || null,
+            client_source: pickedClient?.source || null,
+            client_master_code: pickedClient?.search_code || null,
           },
           transport: { address: address || '', lat: gpsLat || '', lng: gpsLng || '', desc: clientDesc || '' },
           tepiha: tepihaRows.map((r) => ({ m2: parseNum(r.m2, 0), qty: parseNum(r.qty, 0), photoUrl: r.photoUrl || '' })),
@@ -532,13 +496,8 @@ export default function TransportPranim() {
                   type="button"
                   className="list-row"
                   onClick={() => {
-                    // ✅ Reuse permanent client (NR RENDOR) when available
-                    setClientId(c.id || '');
-                    setClientCode(c.code ? String(c.code) : '');
-
                     const pickedName = c.name || "";
                     const pickedPhone = String(c.phone || "");
-
                     // Split phone into prefix + digits (default +383)
                     let pref = PHONE_PREFIX_DEFAULT;
                     let num = sanitizePhone(pickedPhone);
@@ -549,23 +508,16 @@ export default function TransportPranim() {
                         num = sanitizePhone(pickedPhone.slice(m[0].length));
                       }
                     }
-
                     setName(pickedName);
                     setPhonePrefix(pref);
                     setPhone(num);
-
-                    if (c.address) setAddress(c.address);
-                    if (c.gps_lat != null) setGpsLat(String(c.gps_lat));
-                    if (c.gps_lng != null) setGpsLng(String(c.gps_lng));
+                    setPickedClient({ id: c.id || null, source: c.source || null, search_code: c.search_code ?? null });
                     setClientHits([]);
                     setClientSearch("");
                   }}
                 >
-                  <span style={{ flex: 1, textAlign: "left" }}>
-                    {(c.name || "PA EMËR").toUpperCase()}
-                    {c.code ? <span style={{ opacity: 0.7, marginLeft: 8, fontSize: 11 }}>#{c.code}</span> : null}
-                  </span>
-                  <span className="badge">{c.phone || ""}</span>
+                  <span style={{ flex: 1, textAlign: "left" }}>{(c.name || "PA EMËR").toUpperCase()}</span>
+                  <span className="badge">{c.source === 'BASE' && c.search_code ? `#${c.search_code} ` : ''}{c.phone || ""}</span>
                 </button>
               ))}
             </div>
