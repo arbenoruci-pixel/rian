@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
+import TransportEditModal from '@/components/transport/TransportEditModal';
 
 function safeJson(v){
   if (!v) return {};
@@ -60,7 +61,26 @@ export default function TransportOffloadPage(){
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState('');
   const [sel, setSel] = useState({}); // id -> true
+  // --- EDIT (same system as /pastrimi) ---
+  const longPressTimer = useRef(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRow, setEditRow] = useState(null);
   const transportId = String(me?.transport_id || '').trim();
+
+  function startLongPress(r) {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      setEditRow({ id: r.id });
+      setEditOpen(true);
+    }, 550);
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
 
   useEffect(() => {
     const s = getTransportSession();
@@ -225,7 +245,16 @@ export default function TransportOffloadPage(){
 
         <div className="list">
           {view.map(it => (
-            <div key={it.id} className={"rowline" + (sel[it.id] ? " selected" : "")}>
+            <div
+              key={it.id}
+              className={"rowline" + (sel[it.id] ? " selected" : "")}
+              onMouseDown={() => startLongPress(it)}
+              onMouseUp={cancelLongPress}
+              onMouseLeave={cancelLongPress}
+              onTouchStart={() => startLongPress(it)}
+              onTouchEnd={cancelLongPress}
+              onTouchCancel={cancelLongPress}
+            >
               <div className="left">
                 <input type="checkbox" checked={!!sel[it.id]} onChange={() => toggleOne(it.id)} style={{ width: 18, height: 18 }} />
                 <span className="code">{it.code}</span>
@@ -237,13 +266,23 @@ export default function TransportOffloadPage(){
               </div>
 
               <div className="actions">
-                <Link className="btn ghost" href={`/transport/pranimi?id=${it.id}`}>EDIT</Link>
+                <button
+                  className="btn ghost"
+                  onClick={() => { setEditRow({ id: it.id }); setEditOpen(true); }}
+                >EDIT</button>
                 <button className="btn" onClick={() => offloadOne(it)}>SHKARKO</button>
               </div>
             </div>
           ))}
         </div>
       </section>
+
+      <TransportEditModal
+        open={editOpen}
+        row={editRow}
+        onClose={() => setEditOpen(false)}
+        onSaved={load}
+      />
 
       <style jsx>{`
         .wrap { padding: 18px; max-width: 980px; margin: 0 auto; }

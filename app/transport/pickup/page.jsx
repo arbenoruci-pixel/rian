@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { getTransportSession } from '@/lib/transportAuth';
+import TransportEditModal from '@/components/transport/TransportEditModal';
 
 function safeJson(v) {
   try {
@@ -80,6 +81,26 @@ export default function TransportPickupPage() {
   const [err, setErr] = useState('');
   const [rows, setRows] = useState([]);
   const [busyId, setBusyId] = useState(null);
+
+  // --- EDIT (same system as /pastrimi: long press on a row) ---
+  const longPressTimer = useRef(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRow, setEditRow] = useState(null);
+
+  function startLongPress(r) {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      setEditRow(r);
+      setEditOpen(true);
+    }, 550);
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -227,6 +248,8 @@ export default function TransportPickupPage() {
           actionLabel="LOADED"
           onAction={markLoaded}
           busyId={busyId}
+          onStartLongPress={startLongPress}
+          onCancelLongPress={cancelLongPress}
         />
 
         <Section
@@ -237,6 +260,8 @@ export default function TransportPickupPage() {
           onAction={markPickup}
           busyId={busyId}
           secondary
+          onStartLongPress={startLongPress}
+          onCancelLongPress={cancelLongPress}
         />
 
         <div style={{ height: 22 }} />
@@ -244,12 +269,19 @@ export default function TransportPickupPage() {
         <Link href="/transport/offload" style={styles.offloadBtn}>
           SHKARKO NË BAZË
         </Link>
+
+        <TransportEditModal
+          open={editOpen}
+          row={editRow}
+          onClose={() => setEditOpen(false)}
+          onSaved={load}
+        />
       </div>
     </div>
   );
 }
 
-function Section({ title, emptyText, items, actionLabel, onAction, busyId, secondary }) {
+function Section({ title, emptyText, items, actionLabel, onAction, busyId, secondary, onStartLongPress, onCancelLongPress }) {
   return (
     <div style={styles.section}>
       <div style={styles.sectionTitle}>{title}</div>
@@ -263,7 +295,16 @@ function Section({ title, emptyText, items, actionLabel, onAction, busyId, secon
             const nm = r.client_name || c.clientName || 'PA EMËR';
             const ph = r.client_phone || c.clientPhone || '';
             return (
-              <div key={r.id} style={styles.item}>
+              <div
+                key={r.id}
+                style={styles.item}
+                onMouseDown={() => onStartLongPress?.(r)}
+                onMouseUp={onCancelLongPress}
+                onMouseLeave={onCancelLongPress}
+                onTouchStart={() => onStartLongPress?.(r)}
+                onTouchEnd={onCancelLongPress}
+                onTouchCancel={onCancelLongPress}
+              >
                 <div style={styles.itemLeft}>
                   <div style={styles.itemTop}>
                     <span style={styles.badge}>{code}</span>

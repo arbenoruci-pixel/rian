@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import PaySheetPortal from '@/components/payments/PaySheetPortal';
 import { getTransportSession } from '@/lib/transportAuth';
+import TransportEditModal from '@/components/transport/TransportEditModal';
+import TransportEditModal from '@/components/transport/TransportEditModal';
 
 function readActor() {
   // Prefer dedicated transport session (or reused TRANSPORT actor session)
@@ -83,6 +85,25 @@ export default function TransportGatiPage() {
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState('');
+
+  // --- EDIT (same system as /pastrimi) ---
+  const longPressTimer = useRef(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRow, setEditRow] = useState(null);
+
+  function startLongPress(r) {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      setEditRow({ id: r.id });
+      setEditOpen(true);
+    }, 550);
+  }
+  function cancelLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
 
   // selection + bulk flow
   const [sel, setSel] = useState(() => ({})); // {id:true}
@@ -356,7 +377,16 @@ export default function TransportGatiPage() {
                 const checked = !!sel[it.id];
                 const isInRoute = routeIds ? routeIds.includes(it.id) : false;
                 return (
-                  <div key={it.id} className={"rowline" + (checked ? " selected" : "")}>
+                  <div
+                    key={it.id}
+                    className={"rowline" + (checked ? " selected" : "")}
+                    onMouseDown={() => startLongPress(it)}
+                    onMouseUp={cancelLongPress}
+                    onMouseLeave={cancelLongPress}
+                    onTouchStart={() => startLongPress(it)}
+                    onTouchEnd={cancelLongPress}
+                    onTouchCancel={cancelLongPress}
+                  >
                     <div className="left">
                       <input
                         type="checkbox"
@@ -384,6 +414,12 @@ export default function TransportGatiPage() {
                       ) : (
                         <button className="btn ghost" disabled title="S’ka GPS">GO</button>
                       )}
+
+                      <button
+                        className="btn ghost"
+                        onClick={() => { setEditRow({ id: it.id }); setEditOpen(true); }}
+                        title="EDIT (tap)"
+                      >EDIT</button>
 
                       <button
                         className="btn ghost"
@@ -478,6 +514,13 @@ export default function TransportGatiPage() {
               </div>
             </div>
           ) : null}
+
+          <TransportEditModal
+            open={editOpen}
+            row={editRow}
+            onClose={() => setEditOpen(false)}
+            onSaved={load}
+          />
 
           <PaySheetPortal
             open={payOpen}
