@@ -227,7 +227,6 @@ export default function TransportInlineEdit({
           client_name: nm,
           client_phone: ph,
           updated_at: nextData.updated_at,
-          transport_id: String(transportId || item?.transport_id || nextData?.transport?.transport_id || ''),
         })
         .eq('id', oid);
 
