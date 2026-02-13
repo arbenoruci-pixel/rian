@@ -4,6 +4,7 @@ const withPWA = require('next-pwa')({
   dest: 'public',
   register: true,
   skipWaiting: true,
+  clientsClaim: true,
   disable: process.env.NODE_ENV === 'development',
   runtimeCaching: [
     // App Router navigations (HTML)
@@ -52,8 +53,18 @@ const withPWA = require('next-pwa')({
 
 const nextConfig = {
   reactStrictMode: true,
+  env: {
+    // Expose a stable build id to the client so we can self-heal stale PWAs.
+    NEXT_PUBLIC_APP_VERSION:
+      process.env.NEXT_PUBLIC_APP_VERSION ||
+      process.env.VERCEL_GIT_COMMIT_SHA ||
+      process.env.VERCEL_DEPLOYMENT_ID ||
+      '',
+  },
   async headers() {
     return [
+      // IMPORTANT: prevent stale shell/manifest on iOS (actual app routes are forced-dynamic in app/layout.jsx)
+      { source: '/', headers: [{ key: 'Cache-Control', value: 'no-store, max-age=0' }] },
       { source: '/manifest.json', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
       // next-pwa generates these in /public (workbox + sw)
       { source: '/sw.js', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
