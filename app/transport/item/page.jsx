@@ -139,7 +139,7 @@ function nextForStatus(st) {
   if (s === "pickup") return { label: "LOADED", to: "loaded" };
   if (s === "loaded") return { label: "NË BAZË", to: "pastrim" };
   // ✅ BAZA (PASTRIM) -> GATI (te shoferi)
-  if (s === "pastrim") return { label: "GATI", to: "gati" };
+  if (s === "pastrim") return null; // BASE e bën GATI (shared PASRTRIM)
   return null;
 }
 

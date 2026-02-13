@@ -420,7 +420,7 @@ export default function PastrimiPage() {
         // Transport: Vetëm statusin 'gati'
         await supabase
           .from('transport_orders')
-          .update({ status: 'gati', data: updatedJson, updated_at: now })
+          .update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now })
           .eq('id', o.id);
         
         alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
