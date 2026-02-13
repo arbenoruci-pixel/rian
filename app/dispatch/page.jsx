@@ -85,18 +85,18 @@ export default function DispatchPage() {
 
 
   const canSend = useMemo(() => {
-    return String(name).trim().length >= 2 && onlyDigits(phone).length >= 6;
-  }, [name, phone]);
+    return String(name).trim().length >= 2 && onlyDigits(phone).length >= 6 && String(driverId||'').trim().length > 0;
+  }, [name, phone, driverId]);
 
   async function send() {
-    if (!canSend) return;
+    if (!canSend) { setErr('ZGJIDH SHOFERIN'); return; }
     setBusy(true);
     setErr("");
     setMsg("");
     try {
       const payload = {
         status: "dispatched",
-        transport_id: driverId || null,
+        transport_id: driverId,
         data: {
           client: { name: String(name).trim(), phone: onlyDigits(phone) },
           address: String(address).trim(),

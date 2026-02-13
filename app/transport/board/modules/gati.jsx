@@ -32,6 +32,34 @@ function toLocalTimeValue(d) {
   }
 }
 
+function getReadyAt(row) {
+  const d = row?.data || row?.order || row || {};
+  return row?.ready_at || d?.ready_at || row?.updated_at || d?.updated_at || null;
+}
+
+function ageDaysSince(d) {
+  try {
+    if (!d) return 0;
+    const dt = new Date(d);
+    if (Number.isNaN(dt.getTime())) return 0;
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const day = 24 * 60 * 60 * 1000;
+    const when = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+    return Math.max(0, Math.floor((start - when) / day));
+  } catch {
+    return 0;
+  }
+}
+
+function rowAgingStyle(row) {
+  const days = ageDaysSince(getReadyAt(row));
+  // Day0 green, Day1 orange, Day2+ red
+  if (days <= 0) return { background: "rgba(0, 200, 0, 0.18)" };
+  if (days === 1) return { background: "rgba(255, 165, 0, 0.22)" };
+  return { background: "rgba(255, 0, 0, 0.18)" };
+}
+
 function getRiplanAt(row) {
   const d = row?.data || row?.order || row || {};
   return (
@@ -52,6 +80,18 @@ function getRiplanNote(row) {
 
 function ReadyView({ items, loading, geo, onOpenModal, onBulkStatus, onGoDorzo }) {
   const [selectionMode, setSelectionMode] = useState(false);
+
+  const sortedItems = useMemo(() => {
+    const list = Array.isArray(items) ? [...items] : [];
+    // newest-ready first? We prefer oldest-ready first to clear backlog
+    list.sort((a, b) => {
+      const da = new Date(getReadyAt(a) || 0).getTime();
+      const db = new Date(getReadyAt(b) || 0).getTime();
+      return da - db;
+    });
+    return list;
+  }, [items]);
+
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [showRoute, setShowRoute] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
@@ -224,11 +264,11 @@ function ReadyView({ items, loading, geo, onOpenModal, onBulkStatus, onGoDorzo }
         {loading && <div style={ui.centerMsg}>Duke ngarkuar...</div>}
         {!loading && (items?.length || 0) === 0 && <div style={ui.centerMsg}>S'ka porosi gati.</div>}
 
-        {(items || []).map((item) => {
+        {(sortedItems || []).map((item) => {
           const t = getTotals(item);
           const isSelected = selectedIds?.has(item.id);
           return (
-            <div key={item.id} style={ui.row} onClick={() => { if (selectionMode) toggleSelection(item.id); else setToolsRow(item); }}>
+            <div key={item.id} style={{ ...ui.row, ...rowAgingStyle(item) }} onClick={() => { if (selectionMode) toggleSelection(item.id); else setToolsRow(item); }}>
               {selectionMode && (
                 <div style={{ marginRight: 12 }}>
                   <div style={isSelected ? ui.checkboxSelected : ui.checkboxEmpty}>{isSelected && '✓'}</div>
