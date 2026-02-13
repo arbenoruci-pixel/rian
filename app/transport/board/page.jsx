@@ -37,6 +37,14 @@ export default function TransportBoardPage() {
   // inbox | loaded | ready
   const [activeTab, setActiveTab] = useState('inbox');
 
+  const TAB_STATUS_MAP = {
+    inbox: ['new','inbox'],
+    loaded: ['loaded'],
+    ready: ['gati','ready'],
+  };
+  const tabStatuses = TAB_STATUS_MAP[activeTab] || [];
+
+
   // loaded tab: in = NGARKIM (loaded) | out = DORËZIM (delivery)
   const [loadedMode, setLoadedMode] = useState('in');
 
@@ -110,7 +118,7 @@ export default function TransportBoardPage() {
           '/rest/v1/transport_orders' +
           `?select=*` +
           `&transport_id=eq.${qTid}` +
-          `&order=created_at.desc`;
+          `&order=created_at.desc` + (tabStatuses.length ? `&status=in.(${tabStatuses.map(s=>encodeURIComponent(s)).join(',')})` : '') + `&limit=200`;
 
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 8000);
@@ -147,7 +155,9 @@ export default function TransportBoardPage() {
           .from('transport_orders')
           .select('*')
           .eq('transport_id', tid)
-          .order('created_at', { ascending: false });
+          .in('status', tabStatuses.length ? tabStatuses : ['new','inbox','loaded','gati','ready'])
+          .order('created_at', { ascending: false })
+          .limit(200));
 
         const timeoutMs = 6000;
         const timeout = new Promise((_, reject) =>
@@ -184,7 +194,7 @@ export default function TransportBoardPage() {
 
   useEffect(() => {
     load();
-  }, [transportId]);
+  }, [transportId, activeTab]);
 
   // allow modules to trigger refresh
   useEffect(() => {
@@ -192,7 +202,7 @@ export default function TransportBoardPage() {
     const h = () => { try { load(); } catch {} };
     window.addEventListener('transport:refresh', h);
     return () => window.removeEventListener('transport:refresh', h);
-  }, [transportId]);
+  }, [transportId, activeTab]);
 
   // handle ?edit=
   useEffect(() => {
