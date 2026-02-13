@@ -1,9 +1,15 @@
 /* public/sw.js - Minimal PWA cache + offline fallback */
-const CACHE_NAME = "tepiha-cache-v1";
+const CACHE_NAME = "tepiha-cache-v2";
 const OFFLINE_URL = "/offline";
 
 const PRECACHE = [
   "/",
+  "/pranimi",
+  "/pastrimi",
+  "/gati",
+  "/marrje-sot",
+  "/transport",
+  "/transport/board",
   OFFLINE_URL,
   "/manifest.json",
 ];

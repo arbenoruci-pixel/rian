@@ -1100,7 +1100,8 @@ function loadOfflineModeInit() {
   }
 }
 
-async function checkConnectivity() {
+
+async function checkConnectivity(timeoutMs = 2500) {
   // 1) quick browser signal
   try {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
@@ -1108,16 +1109,24 @@ async function checkConnectivity() {
     }
   } catch {}
 
-  // 2) real API ping (catches “internet ok but server down”)
+  // 2) real API ping with timeout (prevents iOS hanging requests)
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const t = setTimeout(() => { try { ctrl && ctrl.abort(); } catch {} }, timeoutMs);
+
   try {
-    const r = await fetch('/api/backup/ping', { cache: 'no-store' });
+    const r = await fetch('/api/backup/ping', { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j?.ok) return { ok: false, reason: j?.error || 'PING_FAILED' };
     return { ok: true, reason: '' };
-  } catch {
+  } catch (e) {
+    const msg = String(e?.name || e?.message || '').toLowerCase();
+    if (msg.includes('abort') || msg.includes('timeout')) return { ok: false, reason: 'TIMEOUT' };
     return { ok: false, reason: 'FETCH_FAILED' };
+  } finally {
+    clearTimeout(t);
   }
 }
+
 
 function saveOfflineQueueItem(order) {
   try {
@@ -1183,7 +1192,7 @@ function saveOfflineQueueItem(order) {
 
 
 // ✅ OFFLINE MODE: save locally (no Supabase) so you never lose clients
-const conn = await checkConnectivity();
+const conn = offlineMode ? { ok:false, reason:'OFFLINE_MODE' } : await checkConnectivity(2500);
 if (offlineMode || !conn.ok) {
   const ok = saveOfflineQueueItem(order);
   try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
@@ -1277,6 +1286,33 @@ if (offlineMode || !conn.ok) {
       router.push('/pastrimi');
     } catch (e) {
       console.error('PRANIMI_SAVE_ERROR', e);
+      // Fallback: if network/server is down, save offline instead of losing the client
+      try {
+        const m = String(e?.message || e?.toString?.() || '').toLowerCase();
+        const netish = m.includes('timeout') || m.includes('fetch') || m.includes('network') || m.includes('failed') || m.includes('offline') || m.includes('no_internet');
+        if (netish) {
+          const orderFallback = {
+            id: oid,
+            ts: Date.now(),
+            status: 'pastrim',
+            client: { name: name.trim(), phone: phonePrefix + (phone || ''), code: normalizeCode(codeRaw), photoUrl: clientPhotoUrl || '' },
+            tepiha: tepihaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0, photoUrl: r.photoUrl || '' })),
+            staza: stazaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0, photoUrl: r.photoUrl || '' })),
+            shkallore: { qty: Number(stairsQty) || 0, per: Number(stairsPer) || 0, photoUrl: stairsPhotoUrl || '' },
+            pay: { m2: totalM2, rate: Number(pricePerM2) || PRICE_DEFAULT, euro: totalEuro, paid: Number((Number(clientPaid) || 0).toFixed(2)), debt: currentDebt, method: payMethod, arkaRecordedPaid: Number((Number(arkaRecordedPaid) || 0).toFixed(2)) },
+            notes: notes || '',
+          };
+          const ok = saveOfflineQueueItem(orderFallback);
+          if (ok) {
+            try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+            setOfflineMode(true);
+            alert('✅ U RUAJT OFFLINE (SERVERI/INTERNETI JO STABIL). Do SYNC kur të vijë rrjeti.');
+            setSavingContinue(false);
+            router.push('/pastrimi');
+            return;
+          }
+        }
+      } catch {}
       const msg = (e && (e.message || e.error_description || e.toString())) ? (e.message || e.error_description || e.toString()) : 'Gabim i panjohur';
       // ✅ Build-safe: avoid nested quotes inside template literals
       const details = (e && (e.details || e.hint))
