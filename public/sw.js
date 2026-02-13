@@ -26,11 +26,21 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
 
-  // Navigation requests: network-first, fallback to offline shell
+    // Navigation requests: cache-first for already-cached routes, then network, fallback to offline
   if (req.mode === "navigate") {
-    event.respondWith(
-      fetch(req).catch(async () => (await caches.match("/offline")) || Response.error())
-    );
+    event.respondWith((async () => {
+      const cached = await caches.match(req, { ignoreSearch: true });
+      if (cached) return cached;
+      try {
+        const res = await fetch(req);
+        // cache the HTML for next offline navigation
+        const copy = res.clone();
+        caches.open(CACHE_VER).then((c) => c.put(req, copy)).catch(() => {});
+        return res;
+      } catch (e) {
+        return (await caches.match("/offline")) || Response.error();
+      }
+    })());
     return;
   }
 
