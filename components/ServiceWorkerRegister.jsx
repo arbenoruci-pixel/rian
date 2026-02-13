@@ -1,125 +1,79 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+
+import { useEffect } from 'react';
 
 /**
- * Registers the Service Worker and checks for updates every 30 minutes (while app is open).
- * Shows a small banner when a new version is available.
+ * ServiceWorkerRegister
+ * - Registers /sw.js
+ * - Forces AUTO UPDATE: when a new SW is waiting, we SKIP_WAITING + reload.
+ * Works with next-pwa/workbox (message type: 'SKIP_WAITING').
  */
 export default function ServiceWorkerRegister() {
-  const [updateReady, setUpdateReady] = useState(false);
-  const [busy, setBusy] = useState(false);
-
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     if (!('serviceWorker' in navigator)) return;
 
-    let intervalId = null;
-    let regRef = null;
+    let refreshing = false;
 
-    async function registerSW() {
+    const hardReload = () => {
+      if (refreshing) return;
+      refreshing = true;
+      // Force reload to get newest JS bundle
+      window.location.reload();
+    };
+
+    const onControllerChange = () => {
+      // The new SW took control -> reload
+      hardReload();
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+
+    (async () => {
       try {
-        regRef = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
 
-        // if a SW is already waiting, show banner
-        if (regRef.waiting) setUpdateReady(true);
+        // If there's already a waiting worker (cached old build), activate it now
+        if (reg.waiting) {
+          try {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          } catch {}
+        }
 
-        // watch for updates becoming available
-        regRef.addEventListener('updatefound', () => {
-          const nw = regRef.installing;
-          if (!nw) return;
-          nw.addEventListener('statechange', () => {
-            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-              // new version is ready but waiting
-              setUpdateReady(true);
+        // Listen for updates
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+
+          newWorker.addEventListener('statechange', () => {
+            // When installed AND there is an existing controller, it's an update
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              try {
+                // Activate immediately
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
+              } catch {}
+              // If controllerchange doesn't fire (edge cases), reload anyway
+              setTimeout(hardReload, 600);
             }
           });
         });
+
+        // Also, periodically check for updates (every 30 minutes)
+        const interval = window.setInterval(() => {
+          try { reg.update(); } catch {}
+        }, 30 * 60 * 1000);
+
+        return () => window.clearInterval(interval);
       } catch (e) {
-        // ignore
+        // Silent - app must still run without SW
+        // console.warn('SW register failed', e);
       }
-    }
-
-    async function checkUpdate() {
-      try {
-        if (!regRef) regRef = await navigator.serviceWorker.getRegistration();
-        if (!regRef) return;
-        await regRef.update();
-        if (regRef.waiting) setUpdateReady(true);
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    // When new SW takes control, refresh app shell
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      window.location.reload();
-    });
-
-    registerSW().then(() => {
-      checkUpdate();
-      intervalId = setInterval(checkUpdate, 30 * 60 * 1000);
-    });
+    })();
 
     return () => {
-      if (intervalId) clearInterval(intervalId);
+      try { navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange); } catch {}
     };
   }, []);
 
-  async function applyUpdate() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg?.waiting) {
-        // tell waiting SW to activate
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-      } else if (navigator.serviceWorker.controller) {
-        // fallback: nuke caches and reload
-        navigator.serviceWorker.controller.postMessage({ type: 'NUKE_CACHES' });
-      }
-    } catch (e) {
-      // ignore
-    }
-    setTimeout(() => window.location.reload(), 250);
-  }
-
-  if (!updateReady) return null;
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        left: 12,
-        right: 12,
-        bottom: 12,
-        zIndex: 9999,
-        background: 'rgba(0,0,0,0.92)',
-        border: '1px solid rgba(255,255,255,0.12)',
-        borderRadius: 16,
-        padding: '12px 14px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-      }}
-    >
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 900 }}>KA UPDATE</div>
-        <div style={{ fontSize: 12, opacity: 0.8 }}>Prek REFRESH për me marrë versionin e ri.</div>
-      </div>
-
-      <button
-        onClick={applyUpdate}
-        disabled={busy}
-        style={{
-          padding: '10px 14px',
-          borderRadius: 14,
-          background: '#0A84FF',
-          color: '#fff',
-          fontWeight: 900,
-          border: 'none',
-        }}
-      >
-        {busy ? '...' : 'REFRESH'}
-      </button>
-    </div>
-  );
+  return null;
 }
