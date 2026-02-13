@@ -617,7 +617,13 @@ export default function PastrimiPage() {
       <section className="card" style={{ padding: '10px' }}>
         {loading ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p> : 
           orders
-            .filter(o => o.name?.toLowerCase().includes(search.toLowerCase()) || normalizeCode(o.code).includes(normalizeCode(search)))
+            .filter(o => {
+              const s = String(search || '').toLowerCase();
+              const name = String(o.name || '').toLowerCase();
+              const code = normalizeCode(o.code || '');
+              const scode = normalizeCode(search || '');
+              return name.includes(s) || code.includes(scode);
+            })
             .map(o => (
               <div key={o.id + o.source} className="list-item-compact" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)', opacity: o.isReturn ? 0.92 : 1 }}>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flex: 1 }}>
