@@ -88,14 +88,11 @@ export default function TransportBoardPage() {
   // -----------------------------
   // Load rows
   // -----------------------------
-  async function load(tabOverride, modeOverride) {
+  async function load() {
     setLoading(true);
     setLoadError('');
     try {
       const tid = deriveTid(getTransportSession());
-      const tab = tabOverride || activeTab;
-      const lmode = modeOverride || loadedMode;
-      const cacheKey = `transport_cache_v1_${tid}_${tab}_${lmode}`;
       if (!tid) {
         setItems([]);
         return;
@@ -145,23 +142,12 @@ export default function TransportBoardPage() {
       let error = null;
 
       // 1) Try supabase-js, but cap it hard so it can't hang forever.
-      let statusList = null;
-      if (tab === 'inbox') statusList = ['new','inbox'];
-      else if (tab === 'loaded') {
-        statusList = lmode === 'in' ? ['loaded'] : ['delivery','dorzim','out'];
-      } else if (tab === 'ready') statusList = ['gati','ready'];
-
       try {
-        let req = supabase
+        const req = supabase
           .from('transport_orders')
           .select('*')
-          .eq('transport_id', tid);
-
-        if (statusList && Array.isArray(statusList) && statusList.length) {
-          req = req.in('status', statusList);
-        }
-
-        req = req.order('created_at', { ascending: false }).limit(200);
+          .eq('transport_id', tid)
+          .order('created_at', { ascending: false });
 
         const timeoutMs = 6000;
         const timeout = new Promise((_, reject) =>
@@ -186,26 +172,10 @@ export default function TransportBoardPage() {
         }
       }
 
-            try { if (typeof window !== 'undefined') localStorage.setItem(cacheKey, JSON.stringify(Array.isArray(data)?data:[])); } catch {}
-
-setItems(Array.isArray(data) ? data : []);
+      setItems(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error(e);
-            // Offline fallback: show last cached orders
-      try {
-        if (typeof window !== 'undefined') {
-          const tid = deriveTid(getTransportSession());
-          const tab = activeTab;
-          const lmode = loadedMode;
-          const cacheKey = `transport_cache_v1_${tid}_${tab}_${lmode}`;
-          const cached = localStorage.getItem(cacheKey);
-          if (cached) {
-            const arr = JSON.parse(cached);
-            if (Array.isArray(arr)) setItems(arr);
-          }
-        }
-      } catch {}
-setItems([]);
+      setItems([]);
       setLoadError(String(e?.message || e || 'Load failed'));
     } finally {
       setLoading(false);
@@ -213,13 +183,13 @@ setItems([]);
   }
 
   useEffect(() => {
-    load(activeTab, loadedMode);
-  }, [transportId, activeTab, loadedMode]);
+    load();
+  }, [transportId]);
 
   // allow modules to trigger refresh
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const h = () => { try { load(activeTab, loadedMode); } catch {} };
+    const h = () => { try { load(); } catch {} };
     window.addEventListener('transport:refresh', h);
     return () => window.removeEventListener('transport:refresh', h);
   }, [transportId]);
