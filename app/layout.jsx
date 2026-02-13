@@ -3,9 +3,10 @@ import AuthGate from '../components/AuthGate';
 import ServiceWorkerRegister from '../components/ServiceWorkerRegister';
 
 export const metadata = {
+  manifest: '/manifest.json',
+  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'TEPIHA' },
   title: 'TEPIHA',
   description: 'Carpet cleaning workflow app (Next.js + Supabase).',
-  manifest: '/manifest.json',
 };
 
 export default function RootLayout({ children }) {

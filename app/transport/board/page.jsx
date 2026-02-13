@@ -37,14 +37,6 @@ export default function TransportBoardPage() {
   // inbox | loaded | ready
   const [activeTab, setActiveTab] = useState('inbox');
 
-  const TAB_STATUS_MAP = {
-    inbox: ['new','inbox'],
-    loaded: ['loaded'],
-    ready: ['gati','ready'],
-  };
-  const tabStatuses = TAB_STATUS_MAP[activeTab] || [];
-
-
   // loaded tab: in = NGARKIM (loaded) | out = DORËZIM (delivery)
   const [loadedMode, setLoadedMode] = useState('in');
 
@@ -96,11 +88,14 @@ export default function TransportBoardPage() {
   // -----------------------------
   // Load rows
   // -----------------------------
-  async function load() {
+  async function load(tabOverride, modeOverride) {
     setLoading(true);
     setLoadError('');
     try {
       const tid = deriveTid(getTransportSession());
+      const tab = tabOverride || activeTab;
+      const lmode = modeOverride || loadedMode;
+      const cacheKey = `transport_cache_v1_${tid}_${tab}_${lmode}`;
       if (!tid) {
         setItems([]);
         return;
@@ -118,7 +113,7 @@ export default function TransportBoardPage() {
           '/rest/v1/transport_orders' +
           `?select=*` +
           `&transport_id=eq.${qTid}` +
-          `&order=created_at.desc` + (tabStatuses.length ? `&status=in.(${tabStatuses.map(s=>encodeURIComponent(s)).join(',')})` : '') + `&limit=200`;
+          `&order=created_at.desc`;
 
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 8000);
@@ -150,14 +145,23 @@ export default function TransportBoardPage() {
       let error = null;
 
       // 1) Try supabase-js, but cap it hard so it can't hang forever.
+      let statusList = null;
+      if (tab === 'inbox') statusList = ['new','inbox'];
+      else if (tab === 'loaded') {
+        statusList = lmode === 'in' ? ['loaded'] : ['delivery','dorzim','out'];
+      } else if (tab === 'ready') statusList = ['gati','ready'];
+
       try {
-        const req = supabase
+        let req = supabase
           .from('transport_orders')
           .select('*')
-          .eq('transport_id', tid)
-          .in('status', tabStatuses.length ? tabStatuses : ['new','inbox','loaded','gati','ready'])
-          .order('created_at', { ascending: false })
-          .limit(200));
+          .eq('transport_id', tid);
+
+        if (statusList && Array.isArray(statusList) && statusList.length) {
+          req = req.in('status', statusList);
+        }
+
+        req = req.order('created_at', { ascending: false }).limit(200);
 
         const timeoutMs = 6000;
         const timeout = new Promise((_, reject) =>
@@ -182,10 +186,26 @@ export default function TransportBoardPage() {
         }
       }
 
-      setItems(Array.isArray(data) ? data : []);
+            try { if (typeof window !== 'undefined') localStorage.setItem(cacheKey, JSON.stringify(Array.isArray(data)?data:[])); } catch {}
+
+setItems(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error(e);
-      setItems([]);
+            // Offline fallback: show last cached orders
+      try {
+        if (typeof window !== 'undefined') {
+          const tid = deriveTid(getTransportSession());
+          const tab = activeTab;
+          const lmode = loadedMode;
+          const cacheKey = `transport_cache_v1_${tid}_${tab}_${lmode}`;
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            const arr = JSON.parse(cached);
+            if (Array.isArray(arr)) setItems(arr);
+          }
+        }
+      } catch {}
+setItems([]);
       setLoadError(String(e?.message || e || 'Load failed'));
     } finally {
       setLoading(false);
@@ -193,16 +213,16 @@ export default function TransportBoardPage() {
   }
 
   useEffect(() => {
-    load();
-  }, [transportId, activeTab]);
+    load(activeTab, loadedMode);
+  }, [transportId, activeTab, loadedMode]);
 
   // allow modules to trigger refresh
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const h = () => { try { load(); } catch {} };
+    const h = () => { try { load(activeTab, loadedMode); } catch {} };
     window.addEventListener('transport:refresh', h);
     return () => window.removeEventListener('transport:refresh', h);
-  }, [transportId, activeTab]);
+  }, [transportId]);
 
   // handle ?edit=
   useEffect(() => {
