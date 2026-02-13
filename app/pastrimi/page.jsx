@@ -148,7 +148,7 @@ export default function PastrimiPage() {
   const [streamPastrimM2, setStreamPastrimM2] = useState(0);
 
   useEffect(() => {
-    await refreshOrders();
+    refreshOrders();
     return () => {
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
     };
@@ -383,7 +383,7 @@ export default function PastrimiPage() {
       if (dbErr) throw dbErr;
 
       setEditMode(false);
-      await await refreshOrders();
+      await refreshOrders();
     } catch (e) {
       alert('❌ Gabim ruajtja: ' + e.message);
     } finally {
@@ -418,20 +418,18 @@ export default function PastrimiPage() {
       // 1. UPDATE DB
       if (table === 'transport_orders') {
         // Transport: Vetëm statusin 'gati'
-        const { error: e1 } = await supabase
+        await supabase
           .from('transport_orders')
           .update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now })
           .eq('id', o.id);
-        if (e1) throw e1;
         
         alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
       } else {
         // Lokal: Update + SMS
-        const { error: e2 } = await supabase
+        await supabase
           .from('orders')
           .update({ status: 'gati', ready_at: now, data: updatedJson })
           .eq('id', o.id);
-        if (e2) throw e2;
 
         const msg = `Pershendetje ${o.name}, porosia (kodi ${o.code}) eshte GATI. Keni ${o.cope} cope • ${o.m2} m². Ju lutem ejani sot ose neser. Faleminderit!`;
         const url = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
@@ -440,7 +438,7 @@ export default function PastrimiPage() {
         link.click();
       }
       
-      await refreshOrders();
+      refreshOrders();
 
     } catch (e) {
       console.error("Error:", e);
