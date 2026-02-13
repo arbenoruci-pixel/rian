@@ -1,11 +1,9 @@
 import './globals.css';
 import AuthGate from '../components/AuthGate';
-import PwaWarmup from '@/components/PwaWarmup';
+import ServiceWorkerRegister from '@/components/ServiceWorkerRegister';
+import HiddenDebug from '@/components/HiddenDebug';
 
 export const metadata = {
-  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'TEPIHA' },
-  themeColor: '#000000',
-  manifest: '/manifest.json',
   title: 'TEPIHA',
   description: 'Carpet cleaning workflow app (Next.js + Supabase).',
 };
@@ -14,8 +12,8 @@ export default function RootLayout({ children }) {
   return (
     <html lang="sq">
       <body>
-        <PwaWarmup />
-        
+        <HiddenDebug />
+        <ServiceWorkerRegister />
         <AuthGate>{children}</AuthGate>
       </body>
     </html>
