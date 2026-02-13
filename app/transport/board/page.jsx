@@ -98,6 +98,28 @@ export default function TransportBoardPage() {
         return;
       }
 
+
+      const tab = String(activeTab || 'inbox');
+      const mode = String(loadedMode || 'in');
+      const cacheKey = `transport_cache_${tid}_${tab}_${mode}`;
+
+      // show cached instantly (if any) to avoid blank/lag
+      try {
+        const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+        if (Array.isArray(cached) && cached.length) setItems(cached);
+      } catch {}
+
+      function tabStatuses() {
+        // inbox: newly accepted/created for driver (NEW/INBOX)
+        // loaded: NGARKIM/DORËZIM depending on mode
+        // ready: GATI
+        if (tab === 'ready') return ['gati'];
+        if (tab === 'loaded') return mode === 'out' ? ['delivery','dorzim','dorëzim'] : ['loaded','ngarkim','ngarkuar'];
+        return ['new','inbox','pickup','pranim']; // tolerate drift
+      }
+      const statuses = tabStatuses();
+
+
       // --- REST fallback (Safari/thenable hang guard) ---
       async function fetchRest() {
         // PostgREST endpoint: /rest/v1/<table>
@@ -108,9 +130,7 @@ export default function TransportBoardPage() {
         const url =
           base +
           '/rest/v1/transport_orders' +
-          `?select=*` +
-          `&transport_id=eq.${qTid}` +
-          `&order=created_at.desc`;
+          `?select=select=id,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id` + `&transport_id=eq.${qTid}` + `&status=in.(${encodeURIComponent(statuses.join(','))})` + `&order=created_at.desc` + `&limit=180`;
 
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 8000);
@@ -145,9 +165,12 @@ export default function TransportBoardPage() {
       try {
         const req = supabase
           .from('transport_orders')
-          .select('*')
+          .select('id,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id')
           .eq('transport_id', tid)
-          .order('created_at', { ascending: false });
+          .in('status', statuses)
+          .order('updated_at', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(180);
 
         const timeoutMs = 6000;
         const timeout = new Promise((_, reject) =>
@@ -172,7 +195,10 @@ export default function TransportBoardPage() {
         }
       }
 
-      setItems(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setItems(list);
+      try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch {}
+
     } catch (e) {
       console.error(e);
       setItems([]);
@@ -184,7 +210,7 @@ export default function TransportBoardPage() {
 
   useEffect(() => {
     load();
-  }, [transportId]);
+  }, [transportId, activeTab, loadedMode]);
 
   // allow modules to trigger refresh
   useEffect(() => {

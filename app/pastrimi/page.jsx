@@ -418,20 +418,18 @@ export default function PastrimiPage() {
       // 1. UPDATE DB
       if (table === 'transport_orders') {
         // Transport: Vetëm statusin 'gati'
-        const { error: e1 } = await supabase
+        await supabase
           .from('transport_orders')
           .update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now })
           .eq('id', o.id);
-        if (e1) throw e1;
         
         alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
       } else {
         // Lokal: Update + SMS
-        const { error: e2 } = await supabase
+        await supabase
           .from('orders')
           .update({ status: 'gati', ready_at: now, data: updatedJson })
           .eq('id', o.id);
-        if (e2) throw e2;
 
         const msg = `Pershendetje ${o.name}, porosia (kodi ${o.code}) eshte GATI. Keni ${o.cope} cope • ${o.m2} m². Ju lutem ejani sot ose neser. Faleminderit!`;
         const url = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
@@ -440,13 +438,11 @@ export default function PastrimiPage() {
         link.click();
       }
       
-      await refreshOrders();
-      // instant UI remove
-      setOrders(prev => (Array.isArray(prev) ? prev.filter(x => String(x.id) !== String(o.id)) : prev));
+      refreshOrders();
 
     } catch (e) {
       console.error("Error:", e);
-      alert('❌ GABIM: ' + (e?.message || JSON.stringify(e)));
+      alert("❌ Diçka shkoi keq. Provo prapë.");
       if(btn) { btn.disabled = false; btn.innerText = o.source === 'transport_orders' ? 'NJOFTO SHOFERIN' : 'SMS KLIENTIT'; }
     }
   }
