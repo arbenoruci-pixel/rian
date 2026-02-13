@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { updateTransportOrderById } from '@/lib/transportOrdersDb';
@@ -62,7 +62,33 @@ function rowAgingStyle(row) {
 
 function getRiplanAt(row) {
   const d = row?.data || row?.order || row || {};
-  return (
+  
+  const routeTotals = useMemo(() => {
+    const list = Array.isArray(routeItems) ? routeItems : [];
+    return list.reduce((acc, it) => {
+      const t = getTotals(it);
+      acc.count += 1;
+      acc.pieces += Number(t.pieces || 0);
+      acc.m2 += Number(t.m2 || 0);
+      acc.total += Number(t.total || 0);
+      return acc;
+    }, { count: 0, pieces: 0, m2: 0, total: 0 });
+  }, [routeItems]);
+
+  const zoneSummary = useMemo(() => {
+    const list = Array.isArray(routeItems) ? routeItems : [];
+    const map = {};
+    for (const it of list) {
+      const z = parseZone(getAddress(it));
+      const t = getTotals(it);
+      if (!map[z]) map[z] = { count: 0, m2: 0 };
+      map[z].count += 1;
+      map[z].m2 += Number(t.m2 || 0);
+    }
+    return Object.entries(map).sort((a, b) => b[1].count - a[1].count);
+  }, [routeItems]);
+
+return (
     row?.riplan_at ||
     row?.reschedule_at ||
     d?.riplan_at ||
@@ -94,6 +120,9 @@ function ReadyView({ items, loading, geo, onOpenModal, onBulkStatus, onGoDorzo }
 
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [showRoute, setShowRoute] = useState(false);
+  const [gpsOrigin, setGpsOrigin] = useState(null);
+  const [capM2, setCapM2] = useState(35); // default capacity
+
   const [showBulk, setShowBulk] = useState(false);
   const [routeItems, setRouteItems] = useState([]);
   const [toolsRow, setToolsRow] = useState(null);
@@ -172,7 +201,56 @@ function ReadyView({ items, loading, geo, onOpenModal, onBulkStatus, onGoDorzo }
     setRouteItems(target);
   }
 
-  function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
+    async function askGpsOrigin() {
+    if (!navigator?.geolocation) {
+      alert('GPS nuk eshte i disponueshem ne kete pajisje.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setGpsOrigin({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => alert("S'u lejua GPS. Hap Settings > Location."),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }
+
+  function parseZone(addr) {
+    const s = String(addr || '').trim();
+    if (!s) return 'PA ADRESË';
+    const parts = s.split(',').map(x => x.trim()).filter(Boolean);
+    if (parts.length >= 2) return (parts[parts.length - 2] || parts[parts.length - 1] || 'PA ADRESË').toUpperCase();
+    return (parts[0] || 'PA ADRESË').toUpperCase();
+  }
+
+  function autoSortRoute() {
+    // Nearest-neighbor from gpsOrigin (or first item)
+    const list = Array.isArray(routeItems) ? [...routeItems] : [];
+    if (list.length <= 2) return;
+    const start = gpsOrigin || pickLatLng(list[0]) || null;
+    if (!start) return;
+
+    const remaining = [...list];
+    const ordered = [];
+    let cur = start;
+
+    while (remaining.length) {
+      let bestIdx = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const ll = pickLatLng(remaining[i]);
+        if (!ll) continue;
+        const d = haversine(cur, ll);
+        if (d < bestD) { bestD = d; bestIdx = i; }
+      }
+      const next = remaining.splice(bestIdx, 1)[0];
+      ordered.push(next);
+      const ll = pickLatLng(next);
+      if (ll) cur = ll;
+    }
+
+    setRouteItems(ordered);
+  }
+
+function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
   function openBulkMsg() { prepareActionItems(); setShowBulk(true); }
 
   function openRiplanModal(row) {
@@ -499,8 +577,60 @@ function ReadyView({ items, loading, geo, onOpenModal, onBulkStatus, onGoDorzo }
           <div style={ui.modalShell}>
             <div style={ui.modalTop}>
               <button style={ui.btnCloseModal} onClick={() => setShowRoute(false)}>✕ Mbylle</button>
-              <div style={{ textAlign: 'center', fontWeight: 800 }}>Renditja (GPS)</div>
+              <div style={{ textAlign: 'center', fontWeight: 800 }}>SMART LOADING</div>
               <div style={{ width: 60 }} />
+            </div>
+            <div style={{ padding: 12, background: '#000', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:10 }}>
+                <button style={ui.miniBtnMid} onClick={askGpsOrigin}>📍 MERRE GPS</button>
+                <button style={ui.miniBtnMid} onClick={autoSortRoute}>⚡ AUTO SORT</button>
+                <button style={ui.miniBtnMid} onClick={() => setGpsOrigin(null)}>↩︎ RESET GPS</button>
+              </div>
+
+              <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+                <div style={{ fontSize:12, opacity:.85 }}>KAPACITETI (m²)</div>
+                <input
+                  value={capM2}
+                  onChange={(e) => setCapM2(Number(e.target.value) || 0)}
+                  inputMode="numeric"
+                  style={{ width: 110, padding:'10px 10px', borderRadius:12, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontWeight:900 }}
+                />
+                <div style={{ fontSize:12, opacity:.9 }}>
+                  TOTAL: <span style={{ fontWeight:900 }}>{routeTotals.count}</span> klientë • <span style={{ fontWeight:900 }}>{Math.round(routeTotals.m2 || 0)}</span> m² • <span style={{ fontWeight:900 }}>{routeTotals.pieces}</span> copë
+                </div>
+              </div>
+
+              {capM2 > 0 && routeTotals.m2 > capM2 && (
+                <div style={{ marginTop:10, padding:10, borderRadius:12, background:'rgba(255,0,0,0.12)', border:'1px solid rgba(255,0,0,0.25)', fontWeight:900 }}>
+                  ⚠️ TEJKALON KAPACITETIN: {Math.round(routeTotals.m2 || 0)} m² &gt; {capM2} m²
+                </div>
+              )}
+
+              {zoneSummary.length > 0 && (
+                <div style={{ marginTop:10, display:'flex', gap:8, flexWrap:'wrap' }}>
+                  {zoneSummary.slice(0, 6).map(([z, v]) => (
+                    <div key={z} style={{ padding:'6px 10px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.10)', fontSize:11, fontWeight:900 }}>
+                      {z} • {v.count}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ marginTop:12, display:'flex', gap:10 }}>
+                <button
+                  style={{ ...ui.bulkBtn, background: '#0A84FF', flex: 1, fontWeight: 900 }}
+                  onClick={async () => {
+                    const ids = (routeItems || []).map(x => x.id).filter(Boolean);
+                    if (!ids.length) return;
+                    // set NGARKIM (loaded)
+                    if (onBulkStatus) await onBulkStatus(ids, 'loaded');
+                    setShowRoute(false);
+                  }}
+                >
+                  ✅ SET NGARKIM
+                </button>
+                <button style={{ ...ui.bulkBtn, flex: 1 }} onClick={() => setShowRoute(false)}>✕ MBYLL</button>
+              </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: 16, background: '#000' }}>
               {(routeItems || []).map((item, idx) => (
