@@ -14,13 +14,14 @@
     "react-dom": "18.2.0",
     "@supabase/supabase-js": "^2.48.0",
     "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.2"
+    "jspdf": "^2.5.2",
+    "next-pwa": "^5.6.0"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.3"
   },
-  "description": "Kjo README është “source of truth” për rregullat e aplikacionit. Qëllimi: kur bëjmë ndryshime, i targetojmë saktë pjesët në source pa i prishur pjesët tjera.",
+  "description": "Kjo README \u00ebsht\u00eb \u201csource of truth\u201d p\u00ebr rregullat e aplikacionit. Q\u00ebllimi: kur b\u00ebjm\u00eb ndryshime, i targetojm\u00eb sakt\u00eb pjes\u00ebt n\u00eb source pa i prishur pjes\u00ebt tjera.",
   "main": "arkaCashSync.js",
   "directories": {
     "doc": "docs",
