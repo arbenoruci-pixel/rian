@@ -369,8 +369,14 @@ export default function PranimiPage() {
               ? crypto.randomUUID()
               : `ord_${Date.now()}`;
             setOid(id);
-            const c = await getOrReserveTransportCode(s.transport_id);
-            setCodeRaw(c);
+            try {
+              const c = await getOrReserveTransportCode(s.transport_id);
+              setCodeRaw(c);
+            } catch (e) {
+              setCodeRaw('');
+              try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+              alert('⚠️ S’MUND TË MERRET KODI (TRANSPORT). Do të ruhet si DRAFT/OFFLINE deri sa të kthehet lidhja.');
+            }
         }
         setCreating(false);
     })();
@@ -509,7 +515,27 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       const phoneFull = sanitizePhone(phonePrefix + phone);
       const phoneDigits = normalizePhoneDigits(phoneFull);
       const clientCodeN = getOrAssignTransportClientCode(tid, phoneDigits);
-      const tcodeForClient = String((clientTcode || normalizeCode(codeRaw)) || '').toUpperCase().trim();
+      let tcodeForClient = String((clientTcode || normalizeCode(codeRaw)) || '').toUpperCase().trim();
+
+      // Nëse nuk kemi T-KOD (p.sh. lease/pool ra), provoj edhe 1 herë me e rezervu.
+      if (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0') {
+        try {
+          const fresh = await getOrReserveTransportCode(tid);
+          if (fresh) {
+            setCodeRaw(fresh);
+            tcodeForClient = String(fresh).toUpperCase().trim();
+          }
+        } catch {}
+      }
+
+      if (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0') {
+        // S’ka kod => ruaje si draft dhe mos e humb klientin
+        try { upsertDraftLocal({ id: oid, ts: Date.now(), codeRaw, name, phone, tepihaRows, stazaRows, clientPaid, pricePerM2 }); } catch {}
+        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+        alert('⚠️ S’MORI T-KOD. U RUAJT SI DRAFT. Provo prap kur të ketë lidhje.');
+        setSavingContinue(false);
+        return;
+      }
 
       let clientId = null;
       try {
@@ -593,7 +619,25 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
         if(autoMsgAfterSave) { setMsgKind('start'); setShowMsgSheet(true); } // ✅ HAP MESAZHIN
         else router.push('/transport/board');
       } catch (e) {
-          alert("Gabim gjatë ruajtjes: " + e.message);
+          // Nëse DB bie/RLS/rrjeti, mos e humb porosinë — ruaje si DRAFT.
+          try {
+            upsertDraftLocal({
+              id: oid,
+              ts: Date.now(),
+              codeRaw,
+              name,
+              phone,
+              tepihaRows,
+              stazaRows,
+              stairsQty,
+              stairsPer,
+              clientPaid,
+              pricePerM2,
+              notes,
+            });
+          } catch {}
+          try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+          alert("⚠️ RUJTJA NË SERVER DËSHTOI. U RUAJT SI DRAFT/OFFLINE.\n" + (e?.message || ''));
           setSavingContinue(false);
       }
   }

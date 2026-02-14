@@ -471,10 +471,20 @@ const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
       setOid(id);
 
       // menjëherë thirr reserveSharedCode(oid)
-      const c = await reserveSharedCode(id);
-      
-      // vendose rezultatin në codeRaw
-      setCodeRaw(c);
+      try {
+        const c = await reserveSharedCode(id);
+
+        // vendose rezultatin në codeRaw
+        setCodeRaw(c);
+      } catch (e) {
+        // Nëse s’po arrijmë me marrë KOD (RPC/Pool/Permision), mos e blloko formën.
+        // Lejo punë OFFLINE (ruajtje lokale) dhe jep opsion "PROVO PRAP".
+        setCodeRaw('');
+        setNetState({ ok: false, reason: 'CODE_RESERVE_FAILED' });
+        setShowOfflinePrompt(true);
+        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+        setOfflineMode(true);
+      }
 
       // reset form fields (minimal)
       setName('');
@@ -1180,6 +1190,43 @@ function saveOfflineQueueItem(order) {
         },
         notes: notes || '',
       };
+
+
+      // ✅ Nëse s’kemi KOD (p.sh. pool/RPC ra), mos e blloko — ruaje OFFLINE si draft/queue.
+      const normCodeNow = normalizeCode(codeRaw);
+      if (!normCodeNow || normCodeNow === '0') {
+        const ok = saveOfflineQueueItem(order);
+        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+        setOfflineMode(true);
+        if (!ok) {
+          alert('❌ S’KEMI KOD + OFFLINE: nuk u ruajt lokalisht!');
+          setSavingContinue(false);
+          return;
+        }
+        alert('⚠️ S’MORI KOD NGA SERVERI. U RUAJT OFFLINE. Provo prap kur të ketë lidhje.');
+        // keep draft for extra safety
+        try {
+          localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({
+            id: oid,
+            codeRaw,
+            name,
+            phone,
+            clientPhotoUrl,
+            tepihaRows,
+            stazaRows,
+            stairsQty,
+            stairsPer,
+            stairsPhotoUrl,
+            pricePerM2,
+            clientPaid,
+            arkaRecordedPaid,
+            payMethod,
+            notes,
+          }));
+        } catch {}
+        setSavingContinue(false);
+        return;
+      }
 
 
 // ✅ OFFLINE MODE: save locally (no Supabase) so you never lose clients
