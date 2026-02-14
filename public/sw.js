@@ -1,66 +1,112 @@
-/* TEPIHA PRO OFFLINE SW */
-const CACHE_VER = "tepiha-v202602132111";
+/* TEPIHA OFFLINE SW
+ *
+ * Safari sometimes keeps stale HTML when navigations are cache-first.
+ * We therefore do NETWORK-FIRST for navigations (documents), with cache fallback.
+ *
+ * Static assets: cache-first.
+ */
+
+const CACHE_VER = 'tepiha-runtime-v1';
 const PRECACHE = [
-  "/", "/offline",
-  "/pranimi", "/pastrimi", "/gati", "/marrje-sot",
-  "/transport", "/transport/board",
-  "/manifest.json"
+  '/',
+  '/offline',
+  '/pranimi',
+  '/pastrimi',
+  '/gati',
+  '/marrje-sot',
+  '/transport',
+  '/transport/board',
+  '/manifest.json',
+  '/version.json'
 ];
 
-self.addEventListener("install", (event) => {
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_VER)
-      .then((c) => c.addAll(PRECACHE))
-      .then(() => self.skipWaiting())
+    (async () => {
+      const cache = await caches.open(CACHE_VER);
+      await cache.addAll(PRECACHE);
+      await self.skipWaiting();
+    })()
   );
 });
 
-self.addEventListener("activate", (event) => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.map(k => (k !== CACHE_VER ? caches.delete(k) : null)))
-    ).then(() => self.clients.claim())
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => (k !== CACHE_VER ? caches.delete(k) : Promise.resolve())));
+      await self.clients.claim();
+    })()
   );
 });
 
-self.addEventListener("fetch", (event) => {
+async function networkFirst(request) {
+  const cache = await caches.open(CACHE_VER);
+  try {
+    const res = await fetch(request);
+    // Cache only successful GET responses
+    if (res && res.ok && request.method === 'GET') {
+      cache.put(request, res.clone()).catch(() => {});
+    }
+    return res;
+  } catch {
+    const cached = await cache.match(request, { ignoreSearch: true });
+    return cached || (await cache.match('/offline'));
+  }
+}
+
+async function cacheFirst(request) {
+  const cache = await caches.open(CACHE_VER);
+  const cached = await cache.match(request, { ignoreSearch: true });
+  if (cached) return cached;
+  try {
+    const res = await fetch(request);
+    if (res && res.ok && request.method === 'GET') {
+      cache.put(request, res.clone()).catch(() => {});
+    }
+    return res;
+  } catch {
+    return (await cache.match('/offline')) || new Response('', { status: 503 });
+  }
+}
+
+self.addEventListener('fetch', (event) => {
   const req = event.request;
+  if (req.method !== 'GET') return;
 
-    // Navigation requests: cache-first for already-cached routes, then network, fallback to offline
-  if (req.mode === "navigate") {
-    event.respondWith((async () => {
-      const cached = await caches.match(req, { ignoreSearch: true });
-      if (cached) return cached;
-      try {
-        const res = await fetch(req);
-        // cache the HTML for next offline navigation
-        const copy = res.clone();
-        caches.open(CACHE_VER).then((c) => c.put(req, copy)).catch(() => {});
-        return res;
-      } catch (e) {
-        return (await caches.match("/offline")) || Response.error();
-      }
-    })());
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+
+  // Always fetch version.json fresh when online (but still allow cache fallback offline)
+  if (url.pathname === '/version.json') {
+    event.respondWith(networkFirst(req));
     return;
   }
 
-  // Static/cache-first for everything else
-  event.respondWith(
-    caches.match(req).then((hit) => {
-      if (hit) return hit;
-      return fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_VER).then((c) => c.put(req, copy)).catch(() => {});
-        return res;
-      }).catch(() => hit || Response.error());
-    })
-  );
-});
-
-self.addEventListener("message", (event) => {
-  const data = event.data || {};
-  if (data.type === 'SKIP_WAITING') { self.skipWaiting(); return; }
-  if (data.type === "NUKE_CACHES") {
-    event.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))));
+  // Navigations / documents: NETWORK-FIRST (fixes Safari stale)
+  if (req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html')) {
+    event.respondWith(networkFirst(req));
+    return;
   }
+
+  // Static assets: CACHE-FIRST
+  if (
+    url.pathname.startsWith('/_next/') ||
+    url.pathname.startsWith('/assets/') ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.png') ||
+    url.pathname.endsWith('.jpg') ||
+    url.pathname.endsWith('.jpeg') ||
+    url.pathname.endsWith('.svg') ||
+    url.pathname.endsWith('.webp') ||
+    url.pathname.endsWith('.ico') ||
+    url.pathname.endsWith('.json')
+  ) {
+    event.respondWith(cacheFirst(req));
+    return;
+  }
+
+  // Default: network-first
+  event.respondWith(networkFirst(req));
 });

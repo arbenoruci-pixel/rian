@@ -1,30 +1,20 @@
-'use client';
+'use client'
 
 import { useEffect } from 'react';
 
-/**
- * VersionGuard
- * Fixes the classic iOS Safari / Home Screen mismatch where a PWA gets stuck on an old build.
- *
- * - Detects deploy changes via NEXT_PUBLIC_APP_VERSION (set by Vercel)
- * - If version changed: clears ONLY Service Worker caches + unregisters SW + reloads
- * - DOES NOT touch business localStorage (orders, offline queue, reserved codes)
- */
+const LS_KEY = '__tepiha_build_id__';
 
-const LS_KEY = 'TEPIHA__APP_VERSION_SEEN';
-
-async function softResetPwaCaches() {
-  // Delete Cache Storage (SW caches) ONLY.
+async function nukeCachesSoft() {
+  // Keep localStorage business data; only clear SW caches + old SW.
   try {
-    if ('caches' in window) {
+    if (typeof caches !== 'undefined') {
       const keys = await caches.keys();
       await Promise.all(keys.map((k) => caches.delete(k)));
     }
   } catch {}
 
-  // Unregister SW so the new one can re-install cleanly.
   try {
-    if ('serviceWorker' in navigator) {
+    if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
       const regs = await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map((r) => r.unregister()));
     }
@@ -33,47 +23,56 @@ async function softResetPwaCaches() {
 
 export default function VersionGuard() {
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    let cancelled = false;
 
-    // Prefer a stable deploy id injected by Vercel.
-    const current =
-      process.env.NEXT_PUBLIC_APP_VERSION ||
-      process.env.NEXT_PUBLIC_VERCEL_DEPLOYMENT_ID ||
-      'dev';
+    async function check() {
+      try {
+        const r = await fetch('/_next/static/BUILD_ID?ts=' + Date.now(), {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-store' },
+        });
+        if (!r.ok) return;
+        const buildId = (await r.text()).trim();
+        if (!buildId) return;
 
-    let prev = null;
+        const prev = (() => {
+          try { return localStorage.getItem(LS_KEY) || ''; } catch { return ''; }
+        })();
+
+        // First run: store and exit.
+        if (!prev) {
+          try { localStorage.setItem(LS_KEY, buildId); } catch {}
+          return;
+        }
+
+        if (prev !== buildId) {
+          try { localStorage.setItem(LS_KEY, buildId); } catch {}
+          await nukeCachesSoft();
+          if (cancelled) return;
+          // Hard reload to get fresh JS/CSS/HTML.
+          window.location.reload();
+        }
+      } catch {
+        // Offline or Safari fetch blocked — do nothing.
+      }
+    }
+
+    // Run now and periodically (helps iOS home-screen mode)
+    check();
+    const t = setInterval(check, 30 * 60 * 1000);
+
+    // Expose a manual escape hatch for admins/debug.
     try {
-      prev = localStorage.getItem(LS_KEY);
+      window.__TEPIHA_FORCE_UPDATE__ = async () => {
+        await nukeCachesSoft();
+        window.location.reload();
+      };
     } catch {}
 
-    // First run: store version and continue.
-    if (!prev) {
-      try {
-        localStorage.setItem(LS_KEY, current);
-      } catch {}
-      return;
-    }
-
-    // Deploy changed: self-heal.
-    if (prev !== current) {
-      (async () => {
-        try {
-          localStorage.setItem(LS_KEY, current);
-        } catch {}
-
-        await softResetPwaCaches();
-
-        // Hard reload to fetch latest HTML/JS.
-        try {
-          window.location.reload();
-        } catch {
-          // last resort
-          try {
-            window.location.href = window.location.href;
-          } catch {}
-        }
-      })();
-    }
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, []);
 
   return null;
