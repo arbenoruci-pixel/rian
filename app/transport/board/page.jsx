@@ -52,7 +52,21 @@ export default function TransportBoardPage() {
   // -----------------------------
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try { setSession(getTransportSession()); } catch {}
+    try {
+      let main = null;
+      try { main = JSON.parse(localStorage.getItem('tepiha_session_v1') || 'null'); } catch {}
+      const role = String(main?.user?.role || '').toUpperCase();
+      const pin = String(main?.user?.pin || '').trim();
+
+      if (role === 'TRANSPORT') {
+        setSession(getTransportSession());
+      } else {
+        // ADMIN/DISPATCH: do NOT bind board to stale transport session.
+        // Use a dedicated namespace so admin-created transport orders don't leak to drivers.
+        const adminTid = pin ? `ADMIN_${pin}` : 'ADMIN';
+        setSession({ transport_id: adminTid, role, pin });
+      }
+    } catch {}
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -92,7 +106,7 @@ export default function TransportBoardPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const tid = deriveTid(getTransportSession());
+      const tid = deriveTid(session);
       if (!tid) {
         setItems([]);
         return;

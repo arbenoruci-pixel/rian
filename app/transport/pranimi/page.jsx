@@ -324,6 +324,12 @@ export default function PranimiPage() {
   const [offlineMode, setOfflineMode] = useState(false);
   const [netState, setNetState] = useState({ ok: true, reason: '' });
 
+  // ADMIN/DISPATCH can create transport orders without being a transport actor.
+  // Prevent leaking orders to a driver just because a stale transport session exists.
+  const [actor, setActor] = useState(null); // { role, pin }
+  const [assignTid, setAssignTid] = useState(''); // transport_id to write into order.data.transport_id
+  const [transportUsers, setTransportUsers] = useState([]); // [{pin,name}]
+
   const draftTimer = useRef(null);
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
@@ -331,9 +337,46 @@ export default function PranimiPage() {
   // --- INIT ---
   useEffect(() => {
     (async () => {
-        const s = getTransportSession();
-        if (!s?.transport_id) { router.push('/transport/menu'); return; }
-        setMe(s);
+        // Read main session (role/pin) first.
+        let main = null;
+        try { main = JSON.parse(localStorage.getItem('tepiha_session_v1') || 'null'); } catch {}
+        const role = String(main?.user?.role || '').toUpperCase();
+        const pin = String(main?.user?.pin || '').trim();
+        const actorObj = { role: role || 'UNKNOWN', pin };
+        setActor(actorObj);
+
+        // Transport actor (driver) must have a transport session.
+        // Admin/Dispatch should NOT depend on transport session (it can be stale).
+        let s = null;
+        let adminTidLocal = null;
+        if (role === 'TRANSPORT') {
+          s = getTransportSession();
+          if (!s?.transport_id) { router.push('/transport/menu'); return; }
+          setMe(s);
+          setAssignTid(String(s.transport_id)); // locked for driver
+        } else {
+          // Admin/Dispatch: use a dedicated ADMIN transport_id namespace.
+          // This prevents mixing between admin-created orders and driver boards.
+          const adminTid = pin ? `ADMIN_${pin}` : 'ADMIN';
+          adminTidLocal = adminTid;
+          setMe({ transport_id: null, role, pin });
+          setAssignTid(adminTid);
+
+          // Load transport users for assignment dropdown.
+          try {
+            const { data } = await supabase
+              .from('users')
+              .select('name,pin,role')
+              .eq('role', 'TRANSPORT')
+              .order('name', { ascending: true })
+              .limit(200);
+            const rows = Array.isArray(data) ? data : [];
+            setTransportUsers(rows
+              .filter(r => r?.pin)
+              .map(r => ({ pin: String(r.pin), name: String(r.name || r.pin) }))
+            );
+          } catch {}
+        }
         
         try { setDrafts(readAllDraftsLocal()); } catch {}
 
@@ -370,7 +413,11 @@ export default function PranimiPage() {
               : `ord_${Date.now()}`;
             setOid(id);
             try {
-              const c = await getOrReserveTransportCode(s.transport_id);
+              // Reserve code under the ASSIGNED transport_id (driver) or ADMIN namespace.
+              const tidForCode = (role === 'TRANSPORT')
+                ? String(s?.transport_id || '')
+                : String(adminTidLocal || assignTid || '');
+              const c = await getOrReserveTransportCode(tidForCode);
               setCodeRaw(c);
             } catch (e) {
               setCodeRaw('');
@@ -397,9 +444,12 @@ export default function PranimiPage() {
       if (!should) { setClientHits([]); return; }
 
       setClientsLoading(true);
-      const tid = me?.transport_id;
+      // Search should follow the current assignment scope.
+      // Transport drivers search within their own transport_id.
+      // Admin/Dispatch search within the currently selected transport user OR admin namespace.
+      const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
       searchClientsLive(tid, q).then(r => { setClientHits(r); setClientsLoading(false); });
-  }, [clientQuery, me?.transport_id]);
+  }, [clientQuery, me?.transport_id, assignTid, actor?.role]);
 
   // Autosave Draft
   useEffect(() => {
@@ -506,7 +556,10 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
   // ✅ FIX: RUAJTJA -> KAMION -> MESAZH
   async function handleContinue() {
       if(!name) return alert("Shkruaj emrin!");
-      const tid = me?.transport_id;
+      // transport_id written to DB = assignment scope
+      // - TRANSPORT user: own tid
+      // - ADMIN/DISPATCH: selected driver tid OR ADMIN_<pin>
+      const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
       if(!tid) return alert("S'je i kyçur (PIN)!");
 
       setSavingContinue(true);
@@ -593,7 +646,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
           // Pra NUK guxojmë me e fut në INSERT/UPDATE (kthen error "cannot insert a non-DEFAULT value...").
           // Board e lexon transport_id nga kolona e gjeneruar, sepse ne e ruajmë gjithmonë te data.transport_id.
           status: isEdit ? editRowStatus : 'loaded', // ✅ FORCE KAMION (LOADED)
-          data: { ...order, transport_id: tid }
+          data: { ...order, transport_id: tid, created_by_pin: actor?.pin || null, created_by_role: actor?.role || null }
       };
 
       // In edit mode, keep original client_tcode/visit_nr (don't overwrite)
@@ -726,6 +779,42 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
             <div className="code-badge"><span className="badge">KODI: {normalizeCode(codeRaw)}</span></div>
         </header>
 
+        {/* ADMIN/DISPATCH: choose which transport driver this order belongs to (or keep ADMIN-only) */}
+        {actor?.role !== 'TRANSPORT' && (
+          <section style={{marginTop: 10}}>
+            <div className="card" style={{padding:'12px 14px', borderRadius:18}}>
+              <div style={{fontSize:12, opacity:.75, marginBottom:8}}>KUJT ME IA QIT?</div>
+              <select
+                value={assignTid}
+                onChange={async (e) => {
+                  const v = String(e.target.value || '').trim();
+                  setAssignTid(v);
+                  // When changing assignment, reserve code in the new pool (only for new orders).
+                  if (!isEdit) {
+                    try {
+                      const c = await getOrReserveTransportCode(v);
+                      setCodeRaw(c);
+                    } catch {}
+                  }
+                }}
+                style={{width:'100%', padding:'10px 12px', borderRadius:12, background:'#0f172a', color:'#fff', border:'1px solid rgba(255,255,255,0.12)'}}
+              >
+                <option value={assignTid}>{assignTid.startsWith('ADMIN_') || assignTid==='ADMIN' ? 'VETEM ADMIN' : assignTid}</option>
+                {/* Ensure ADMIN option always exists */}
+                {actor?.pin && (
+                  <option value={`ADMIN_${actor.pin}`}>VETEM ADMIN</option>
+                )}
+                {transportUsers.map(u => (
+                  <option key={u.pin} value={u.pin}>{u.name} ({u.pin})</option>
+                ))}
+              </select>
+              <div style={{fontSize:12, opacity:.7, marginTop:8}}>
+                • TRANSPORTUSI sheh vetem porositë me transport_id të tij. • ADMIN sheh vetem ADMIN_{actor?.pin || ''}.
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* --- DRAFTS BUTTON --- */}
         <section style={{marginTop: 10}}>
             <button className="btn secondary" style={{width:'100%', padding:'12px 14px', borderRadius:18}} onClick={openDrafts}>
@@ -763,7 +852,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
                                 setClientId(c.id || null);
                                 const tc = String(c.tcode || '').trim();
                                 if (tc) { setClientTcode(tc); setCodeRaw(tc); }
-                                setClientCode(getOrAssignTransportClientCode(me?.transport_id, digits));
+                                setClientCode(getOrAssignTransportClientCode((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid, digits));
                                 if (c.address) setAddressDesc(c.address);
                                 if (c.gps_lat) setGpsLat(c.gps_lat);
                                 if (c.gps_lng) setGpsLng(c.gps_lng);
@@ -775,8 +864,8 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
                                     ? `${String(c.tcode).toUpperCase()} `
                                     : (c.code_n
                                       ? `#${c.code_n} `
-                                      : (getOrAssignTransportClientCode(me?.transport_id, normalizePhoneDigits(c.phone_digits || c.phone))
-                                        ? `#${getOrAssignTransportClientCode(me?.transport_id, normalizePhoneDigits(c.phone_digits || c.phone))} `
+                                      : (getOrAssignTransportClientCode((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid, normalizePhoneDigits(c.phone_digits || c.phone))
+                                        ? `#${getOrAssignTransportClientCode((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid, normalizePhoneDigits(c.phone_digits || c.phone))} `
                                         : '')))}
                                 </b>
                                 {c.name} • {c.phone}
