@@ -5,7 +5,7 @@ import { ui } from '@/lib/transport/board/ui';
 import { getName, getCode, getAddress, getTotals, formatTime, money, pickLatLng, haversine, openMap, callClient, sendMsg } from '@/lib/transport/board/shared';
 
 // MODULE: NGARKIM (status: loaded)
-function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, setGpsSort, onBulkStatus }) {
+function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, setGpsSort, onBulkStatus, onGoRiplan }) {
   const [toolsRow, setToolsRow] = useState(null);
   const selectedCount = selectedIds?.size || 0;
 
@@ -139,6 +139,17 @@ function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, s
               <button style={ui.toolBtnBig} onClick={() => callClient(toolsRow)}><span style={{ fontSize: 24 }}>📞</span><span style={{ fontSize: 14 }}>THIRR</span></button>
               <button style={ui.toolBtnBig} onClick={() => { setToolsRow(null); sendMsg(toolsRow, 'delivery'); }}><span style={{ fontSize: 24 }}>💬</span><span style={{ fontSize: 14 }}>SMS</span></button>
               <button
+                style={ui.toolBtnBig}
+                onClick={() => {
+                  setToolsRow(null);
+                  onBulkStatus([toolsRow.id], 'riplan');
+                  onGoRiplan && onGoRiplan();
+                }}
+              >
+                <span style={{ fontSize: 24 }}>⏰</span>
+                <span style={{ fontSize: 14 }}>RIPLANIFIKO</span>
+              </button>
+              <button
                 style={{ ...ui.toolBtnBig, background: '#0A84FF' }}
                 onClick={() => {
                   setToolsRow(null);
@@ -147,17 +158,6 @@ function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, s
               >
                 <span style={{ fontSize: 24 }}>⬇️</span>
                 <span style={{ fontSize: 14 }}>{actionLabel}</span>
-              </button>
-
-              <button
-                style={{ ...ui.toolBtnBig, background: 'rgba(255, 165, 0, 0.22)', border: '1px solid rgba(255, 165, 0, 0.35)' }}
-                onClick={() => {
-                  setToolsRow(null);
-                  onBulkStatus([toolsRow.id], 'riplan');
-                }}
-              >
-                <span style={{ fontSize: 24 }}>🔁</span>
-                <span style={{ fontSize: 14 }}>RIPLANIFIKO</span>
               </button>
             </div>
           </div>

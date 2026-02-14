@@ -114,6 +114,7 @@ export default function TransportBoardPage() {
         // loaded: NGARKIM/DORËZIM depending on mode
         // ready: GATI
         if (tab === 'ready') return ['gati'];
+        if (tab === 'riplan') return ['riplan','riplanifikim','replan','riplanifiko'];
         if (tab === 'loaded') return mode === 'out' ? ['delivery','dorzim','dorëzim'] : ['loaded','ngarkim','ngarkuar'];
         return ['new','inbox','pickup','pranim']; // tolerate drift
       }
@@ -257,22 +258,23 @@ export default function TransportBoardPage() {
   // Counts (header dots)
   // -----------------------------
   const counts = useMemo(() => {
-    let inbox = 0, loaded = 0, ready = 0;
+    let inbox = 0, loaded = 0, ready = 0, riplan = 0;
     (items || []).forEach((x) => {
       const st = String(x?.status || '').toLowerCase();
-      if (st === 'dispatched' || st === 'pickup' || st === 'riplan') inbox++;
-      else if (st === 'loaded' || st === 'delivery') loaded++;
+      if (['new','inbox','dispatched','pickup','pranim'].includes(st)) inbox++;
+      else if (['loaded','ngarkim','ngarkuar','delivery','dorzim','dorëzim'].includes(st)) loaded++;
+      else if (['riplan','riplanifikim','replan','riplanifiko'].includes(st)) riplan++;
       else if (st === 'gati') ready++;
     });
-    return { inbox, loaded, ready };
+    return { inbox, loaded, ready, riplan };
   }, [items]);
 
   const subCounts = useMemo(() => {
     let inCount = 0, outCount = 0;
     (items || []).forEach((x) => {
       const st = String(x?.status || '').toLowerCase();
-      if (st === 'loaded') inCount++;
-      else if (st === 'delivery') outCount++;
+      if (['loaded','ngarkim','ngarkuar'].includes(st)) inCount++;
+      else if (['delivery','dorzim','dorëzim'].includes(st)) outCount++;
     });
     return { in: inCount, out: outCount };
   }, [items]);
@@ -283,8 +285,11 @@ export default function TransportBoardPage() {
   const viewItems = useMemo(() => {
     return (items || []).filter((r) => {
       const st = String(r?.status || '').toLowerCase();
-      if (activeTab === 'inbox') return st === 'dispatched' || st === 'pickup' || st === 'riplan';
-      if (activeTab === 'loaded') return loadedMode === 'in' ? st === 'loaded' : st === 'delivery';
+      if (activeTab === 'riplan') return ['riplan','riplanifikim','replan','riplanifiko'].includes(st);
+      if (activeTab === 'inbox') return ['new','inbox','dispatched','pickup','pranim'].includes(st);
+      if (activeTab === 'loaded') return loadedMode === 'in'
+        ? ['loaded','ngarkim','ngarkuar'].includes(st)
+        : ['delivery','dorzim','dorëzim'].includes(st);
       if (activeTab === 'ready') return st === 'gati';
       return false;
     });
@@ -295,7 +300,18 @@ export default function TransportBoardPage() {
       {/* HEADER */}
       <div style={ui.header}>
         <div style={ui.headerTop}>
-          <div style={ui.avatarProfile} title="Transport" aria-hidden="true">🚚</div>
+          <div style={{ position:'relative' }}>
+            <div style={ui.avatarProfile} title="Transport" aria-hidden="true">🚚</div>
+            {counts.riplan > 0 && (
+              <button
+                style={{ position:'absolute', right:-4, top:-4, width:22, height:22, borderRadius:99, border:'0', background:'#FF9F0A', color:'#000', fontWeight:'900', display:'flex', alignItems:'center', justifyContent:'center' }}
+                onClick={() => setActiveTab('riplan')}
+                title="RIPLANIFIKIM"
+              >
+                ⏰
+              </button>
+            )}
+          </div>
           {activeTab !== 'ready' && (
             <button
               style={ui.btnCompose}
@@ -307,7 +323,7 @@ export default function TransportBoardPage() {
         </div>
 
         <h1 style={ui.title}>
-          {activeTab === 'ready' ? 'Dërgesat' : (activeTab === 'loaded' ? 'Pikapi' : 'Inbox')}
+          {activeTab === 'ready' ? 'Dërgesat' : (activeTab === 'loaded' ? 'Pikapi' : (activeTab === 'riplan' ? 'Riplanifikim' : 'Inbox'))}
         </h1>
 
         <div style={ui.tabsContainer}>
@@ -316,6 +332,9 @@ export default function TransportBoardPage() {
           </button>
           <button style={activeTab === 'loaded' ? ui.tabActive : ui.tab} onClick={() => setActiveTab('loaded')}>
             Pikapi 🚐 {counts.loaded > 0 && <span style={ui.dot} />}
+          </button>
+          <button style={activeTab === 'riplan' ? ui.tabActive : ui.tab} onClick={() => setActiveTab('riplan')}>
+            ⏰ Riplan {counts.riplan > 0 && <span style={ui.dot} />}
           </button>
           <button style={activeTab === 'ready' ? ui.tabActive : ui.tab} onClick={() => setActiveTab('ready')}>
             Gati {counts.ready > 0 && <span style={ui.dot} />}
@@ -384,6 +403,14 @@ export default function TransportBoardPage() {
         />
       )}
 
+      {activeTab === 'riplan' && (
+        <InboxModule
+          items={viewItems}
+          loading={loading}
+          onOpenModal={(url) => setModal({ open: true, url })}
+        />
+      )}
+
       {activeTab === 'loaded' && loadedMode === 'in' && (
         <NgarkimModule
           items={viewItems}
@@ -393,6 +420,15 @@ export default function TransportBoardPage() {
           gpsSort={gpsSort}
           setGpsSort={setGpsSort}
           onBulkStatus={updateTransportStatus}
+          onGoRiplan={() => setActiveTab('riplan')}
+        />
+      )}
+
+      {activeTab === 'riplan' && (
+        <InboxModule
+          items={viewItems}
+          loading={loading}
+          onOpenModal={(url) => setModal({ open: true, url })}
         />
       )}
 
