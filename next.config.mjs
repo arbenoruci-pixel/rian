@@ -12,10 +12,7 @@ const withPWA = require('next-pwa')({
       handler: 'NetworkFirst',
       options: {
         cacheName: 'pages',
-        // Safari iOS (especially Home Screen/PWA) can get stuck on cached HTML.
-        // Keep this cache very short so users always get the latest build.
-        networkTimeoutSeconds: 12,
-        expiration: { maxEntries: 30, maxAgeSeconds: 60 },
+        expiration: { maxEntries: 80, maxAgeSeconds: 24 * 60 * 60 },
       },
     },
 
@@ -42,13 +39,10 @@ const withPWA = require('next-pwa')({
     // Supabase API (prevents iOS "hanging forever")
     {
       urlPattern: ({ url }) => url.hostname.includes('supabase.co'),
-      // Never cache Supabase responses in the Service Worker.
-      // We handle offline via local queue/cache in app code.
-      handler: 'NetworkOnly',
+      handler: 'NetworkFirst',
       options: {
         cacheName: 'api',
-        networkTimeoutSeconds: 12,
-        expiration: { maxEntries: 1, maxAgeSeconds: 1 },
+        expiration: { maxEntries: 300, maxAgeSeconds: 5 * 60 },
       },
     },
   ],
