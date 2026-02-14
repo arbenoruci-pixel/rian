@@ -8,6 +8,9 @@ export const metadata = {
   title: 'TEPIHA',
   description: 'Carpet cleaning workflow app (Next.js + Supabase).',
 };
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 
 export default function RootLayout({ children }) {
   return (
