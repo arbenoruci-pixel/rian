@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { recordOrderCashPayment } from '@/components/payments/payService';
 import { saveOrderToDb, updateOrderInDb } from '@/lib/ordersDb';
+import { saveOrderLocal, getAllOrdersLocal } from '@/lib/offlineStore';
+import { queueOp } from '@/lib/offlineSyncClient';
 
 function readActor() {
   try {
@@ -174,7 +176,41 @@ export default function GatiPage() {
         .limit(500);
 
       if (error || !data) {
-        setOrders([]);
+        // OFFLINE fallback
+        try {
+          const local = await getAllOrdersLocal().catch(() => []);
+          const list = Array.isArray(local) ? local : [];
+          const rows = list
+            .filter((o) => String(o?.status || '').toLowerCase() === 'gati')
+            .map((o) => {
+              const order = o || {};
+              const m2 = computeM2(order);
+              const total = Number(order.pay?.euro || computeTotalEuro(order));
+              const paid = Number(order.pay?.paid || 0);
+              const cope = computePieces(order);
+              const readyTs =
+                Number(order.ready_at || order.readyAt || order.ts || 0) || Date.now();
+              return {
+                id: String(order.id),
+                ts: Number(order.ts || 0),
+                readyTs,
+                name: order.client?.name || '',
+                phone: order.client?.phone || '',
+                code: order.client?.code || order.code || '',
+                m2,
+                cope,
+                total,
+                paid,
+                paidUpfront: !!order.pay?.paidUpfront,
+                isReturn: !!order.returnInfo?.active,
+              };
+            })
+            .filter((r) => !/^T\d+$/i.test(String(r.code || '').trim()))
+            .sort((a, b) => (b.readyTs || 0) - (a.readyTs || 0));
+          setOrders(rows);
+        } catch {
+          setOrders([]);
+        }
         return;
       }
 
@@ -211,6 +247,9 @@ export default function GatiPage() {
           const existing = localStorage.getItem(k);
           if (!existing) localStorage.setItem(k, JSON.stringify(order));
         } catch {}
+
+        // IndexedDB mirror for offline
+        try { saveOrderLocal({ ...order, id: String(row.id), status: 'gati', ready_at: row.ready_at || null }); } catch {}
 
         const m2 = computeM2(order);
         const total = Number(order.pay?.euro || computeTotalEuro(order));
@@ -455,6 +494,7 @@ export default function GatiPage() {
     // save to localStorage + storage json (best-effort)
     try {
       localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
+      try { saveOrderLocal(updated); } catch {}
       const blob =
         typeof Blob !== 'undefined'
           ? new Blob([JSON.stringify(updated)], { type: 'application/json' })
@@ -483,6 +523,16 @@ export default function GatiPage() {
         .eq('id', payOrder.id);
     } catch (e) {
       console.log('DB delivery update EX:', e);
+      // OFFLINE: queue status sync
+      try {
+        await queueOp('set_status', {
+          id: payOrder.id,
+          status: 'dorzim',
+          picked_up_at: nowIso,
+          delivered_at: nowIso,
+          data: { ...updated, status: 'dorzim' },
+        });
+      } catch {}
     }
 
     // Record CASH payment (EXACT delta only). When ARKA is closed, it is stored as WAITING.

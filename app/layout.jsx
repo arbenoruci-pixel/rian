@@ -3,6 +3,7 @@ import AuthGate from '../components/AuthGate';
 import ServiceWorkerRegister from '@/components/ServiceWorkerRegister';
 import HiddenDebug from '@/components/HiddenDebug';
 import VersionGuard from '@/components/VersionGuard';
+import OfflineSyncRunner from '@/components/OfflineSyncRunner';
 
 export const metadata = {
   title: 'TEPIHA',
@@ -19,6 +20,7 @@ export default function RootLayout({ children }) {
         <VersionGuard />
         <HiddenDebug />
         <ServiceWorkerRegister />
+        <OfflineSyncRunner />
         <AuthGate>{children}</AuthGate>
       </body>
     </html>

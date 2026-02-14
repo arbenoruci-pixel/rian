@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { getAllOrdersLocal } from '@/lib/offlineStore';
 
 const BUCKET = 'tepiha-photos';
 
@@ -89,7 +90,31 @@ export default function MarrjeSotPage() {
 
       const { data } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
       if (!data) {
-        setRows([]);
+        // OFFLINE fallback
+        const local = await getAllOrdersLocal().catch(() => []);
+        const list = Array.isArray(local) ? local : [];
+        const offlineRows = list
+          .filter((o) => String(o?.status || '').toLowerCase() === 'dorzim')
+          .map((order) => {
+            const id = String(order?.id || '');
+            const picked = order?.picked_up_at || order?.delivered_at;
+            const key = picked ? dayKeyFromIso(picked) : dayKeyFromMs(order?.pickedUpAt || order?.deliveredAt);
+            return {
+              id,
+              name: order?.client?.name || '',
+              phone: order?.client?.phone || '',
+              code: normalizeCode(order?.client?.code || order?.code),
+              m2: computeM2(order),
+              cope: computePieces(order),
+              total: Number(order?.pay?.euro || 0),
+              paid: Number(order?.pay?.paid || 0),
+              dayKey: key,
+              order,
+            };
+          })
+          .filter((r) => r.dayKey === todayKey)
+          .sort((a, b) => String(b.code || '').localeCompare(String(a.code || '')));
+        setRows(offlineRows);
         return;
       }
 
@@ -174,6 +199,36 @@ export default function MarrjeSotPage() {
       });
 
       setRows(list);
+    } catch (e) {
+      // OFFLINE fallback
+      try {
+        const todayKey = dayKeyLocal(new Date());
+        const local = await getAllOrdersLocal().catch(() => []);
+        const list = Array.isArray(local) ? local : [];
+        const offlineRows = list
+          .filter((o) => String(o?.status || '').toLowerCase() === 'dorzim')
+          .map((order) => {
+            const id = String(order?.id || '');
+            const picked = order?.picked_up_at || order?.delivered_at;
+            const key = picked ? dayKeyFromIso(picked) : dayKeyFromMs(order?.pickedUpAt || order?.deliveredAt);
+            return {
+              id,
+              name: order?.client?.name || '',
+              phone: order?.client?.phone || '',
+              code: normalizeCode(order?.client?.code || order?.code),
+              m2: computeM2(order),
+              cope: computePieces(order),
+              total: Number(order?.pay?.euro || 0),
+              paid: Number(order?.pay?.paid || 0),
+              dayKey: key,
+              order,
+            };
+          })
+          .filter((r) => r.dayKey === todayKey);
+        setRows(offlineRows);
+      } catch {
+        setRows([]);
+      }
     } finally {
       setLoading(false);
     }
