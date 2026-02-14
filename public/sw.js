@@ -17,7 +17,8 @@ const PRECACHE = [
   '/transport',
   '/transport/board',
   '/manifest.json',
-  '/version.json'
+  // NOTE: do not precache a non-existent file.
+  // Versioning is handled via /api/version + VersionGuard.
 ];
 
 self.addEventListener('install', (event) => {
@@ -76,12 +77,6 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-
-  // Always fetch version.json fresh when online (but still allow cache fallback offline)
-  if (url.pathname === '/version.json') {
-    event.respondWith(networkFirst(req));
-    return;
-  }
 
   // Navigations / documents: NETWORK-FIRST (fixes Safari stale)
   if (req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html')) {
