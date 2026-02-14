@@ -693,40 +693,8 @@ useEffect(() => {
 
     let alive = true;
 
-    (async () => {
+        (async () => {
       try {
-        const hits = await searchClientsLive(q);
-        if (!alive) return;
-        setClientHits(Array.isArray(hits) ? hits.slice(0, 15) : []);
-      } catch (e) {
-        // fallback: old local filter if live search fails
-        try {
-          const qLow = q.toLowerCase();
-          const matches = (clientsIndex || [])
-            .filter((c) => {
-              return (
-                String(c.code).includes(qLow) ||
-                String(c.name).toLowerCase().includes(qLow) ||
-                String(c.phone).includes(qLow)
-              );
-            })
-            .slice(0, 15);
-          if (!alive) return;
-          setClientHits(matches);
-        } catch {
-          if (!alive) return;
-          setClientHits([]);
-        }
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [clientQuery]);
-
-useEffect(() => {
-    (async () => {
       try {
         await refreshDrafts();
       } catch {}
@@ -757,8 +725,25 @@ useEffect(() => {
           : `ord_${Date.now()}`;
       setOid(id);
 
-      const c = await reserveSharedCode(id);
-      setCodeRaw(c);
+try {
+  const c = await reserveSharedCode(id);
+  setCodeRaw(c);
+} catch (e) {
+  // IMPORTANT: Never leave PRANIMI stuck on "creating".
+  // In iOS Home Screen mode navigator.onLine can be unreliable; also pool can be empty.
+  const msg = String(e?.message || e || '');
+  console.error('reserveSharedCode failed:', e);
+  try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+  setOfflineMode(true);
+
+  // If pool is empty and we are truly offline, tell the user to go online once to refill.
+  if (msg.includes('NO_POOL_OFFLINE')) {
+    alert('OFFLINE: S’KA CODE POOL. HAPE APP-IN 10-20 SEKONDA ONLINE QË ME U MBUSH POOL, PASTAJ PUNO OFFLINE.');
+  } else {
+    // show the standard offline prompt (server down / no connectivity / RLS)
+    setShowOfflinePrompt(true);
+  }
+}
 
       try {
         const cached = Number(localStorage.getItem('capacity_today_pastrim_m2') || '0');
@@ -766,8 +751,9 @@ useEffect(() => {
         setTodayPastrimM2(Number.isFinite(cached) ? cached : 0);
         setEtaText(text || (cached > DAILY_CAPACITY_M2 ? 'GATI DITËN E 3-TË (MBASNESËR)' : 'GATI DITËN E 2-TË (NESËR)'));
       } catch {}
-
-      setCreating(false);
+      } finally {
+        setCreating(false);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
