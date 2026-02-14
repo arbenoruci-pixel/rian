@@ -7,8 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabaseClient';
-import { getTransportContext, getTransportSession } from '@/lib/transportAuth';
-import { listUsers as listUsersDb } from '@/lib/usersDb';
+import { getTransportSession } from '@/lib/transportAuth';
 
 // ✅ SINGLE SOURCE OF TRUTH FOR BOARD UI + HELPERS
 // (prevents “options/modules disappear” when one copy gets edited and another copy gets loaded)
@@ -30,8 +29,6 @@ export default function TransportBoardPage() {
   const debug = sp?.get('debug') === '1';
 
   const [session, setSession] = useState(null);
-  const [actorRole, setActorRole] = useState(null);
-  const [transportUsers, setTransportUsers] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -50,18 +47,16 @@ export default function TransportBoardPage() {
 
   const [modal, setModal] = useState({ open: false, url: '' });
 
+  // RIPLAN panel (clock on truck icon)
+  const [showRiplan, setShowRiplan] = useState(false);
+  const [riplanPick, setRiplanPick] = useState({ id: '', whenLocal: '', note: '' });
+
   // -----------------------------
   // Init session + GPS
   // -----------------------------
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try {
-      const ctx = getTransportContext();
-      setSession(ctx || getTransportSession());
-      setActorRole(ctx?.role || null);
-    } catch {
-      try { setSession(getTransportSession()); } catch {}
-    }
+    try { setSession(getTransportSession()); } catch {}
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -70,27 +65,6 @@ export default function TransportBoardPage() {
       );
     }
   }, []);
-
-  // ADMIN/DISPATCH: load transport workers list for assignment dropdown (UI shows names only)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const role = String(actorRole || '').toUpperCase();
-    if (role !== 'ADMIN' && role !== 'DISPATCH') return;
-    let alive = true;
-    (async () => {
-      try {
-        const res = await listUsersDb();
-        const items = (res?.ok ? res.items : []) || [];
-        const onlyTransport = items
-          .filter((u) => String(u?.role || '').toUpperCase() === 'TRANSPORT')
-          .filter((u) => (u?.is_active ?? true) !== false);
-        if (alive) setTransportUsers(onlyTransport);
-      } catch {
-        if (alive) setTransportUsers([]);
-      }
-    })();
-    return () => { alive = false; };
-  }, [actorRole]);
 
   function deriveTid(sess) {
     const s = sess || {};
@@ -107,11 +81,6 @@ export default function TransportBoardPage() {
 
   const transportId = useMemo(() => deriveTid(session), [session]);
 
-  const effectiveRole = useMemo(() => {
-    const r = String(session?.role || actorRole || '').toUpperCase();
-    return r || 'TRANSPORT';
-  }, [session, actorRole]);
-
   // keep selection stable: clear only when switching tab/mode
   useEffect(() => {
     setSelectedIds(new Set());
@@ -127,10 +96,8 @@ export default function TransportBoardPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const ctx = getTransportContext() || getTransportSession();
-      const tid = deriveTid(ctx);
-      const roleNow = String(ctx?.role || effectiveRole || '').toUpperCase() || 'TRANSPORT';
-      if (roleNow === 'TRANSPORT' && !tid) {
+      const tid = deriveTid(getTransportSession());
+      if (!tid) {
         setItems([]);
         return;
       }
@@ -138,7 +105,7 @@ export default function TransportBoardPage() {
 
       const tab = String(activeTab || 'inbox');
       const mode = String(loadedMode || 'in');
-      const cacheKey = `transport_cache_${roleNow}_${tid || 'ALL'}_${tab}_${mode}`;
+      const cacheKey = `transport_cache_${tid}_${tab}_${mode}`;
 
       // show cached instantly (if any) to avoid blank/lag
       try {
@@ -150,9 +117,12 @@ export default function TransportBoardPage() {
         // inbox: newly accepted/created for driver (NEW/INBOX)
         // loaded: NGARKIM/DORËZIM depending on mode
         // ready: GATI
-        if (tab === 'ready') return ['gati'];
-        if (tab === 'loaded') return mode === 'out' ? ['delivery','dorzim','dorëzim'] : ['loaded','ngarkim','ngarkuar'];
-        return ['new','inbox','pickup','pranim']; // tolerate drift
+        // Always include riplan so the clock badge can be accurate on every tab.
+        if (tab === 'ready') return ['gati', 'riplan'];
+        if (tab === 'loaded') return mode === 'out'
+          ? ['delivery','dorzim','dorëzim','riplan']
+          : ['loaded','ngarkim','ngarkuar','riplan'];
+        return ['new','inbox','pickup','pranim','riplan']; // tolerate drift
       }
       const statuses = tabStatuses();
 
@@ -163,14 +133,11 @@ export default function TransportBoardPage() {
         // Keep URL building simple (no new URL()) to avoid Safari “pattern” errors.
         const base = String(SUPABASE_URL || '').replace(/\/$/, '');
         if (!base) throw new Error('Missing SUPABASE_URL');
+        const qTid = encodeURIComponent(tid);
         const url =
           base +
           '/rest/v1/transport_orders' +
-          `?select=id,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id` +
-          (roleNow === 'TRANSPORT' ? `&transport_id=eq.${encodeURIComponent(tid)}` : '') +
-          `&status=in.(${encodeURIComponent(statuses.join(','))})` +
-          `&order=updated_at.desc` +
-          `&limit=200`;
+          `?select=select=id,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id` + `&transport_id=eq.${qTid}` + `&status=in.(${encodeURIComponent(statuses.join(','))})` + `&order=created_at.desc` + `&limit=180`;
 
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 8000);
@@ -203,17 +170,14 @@ export default function TransportBoardPage() {
 
       // 1) Try supabase-js, but cap it hard so it can't hang forever.
       try {
-        let req = supabase
+        const req = supabase
           .from('transport_orders')
           .select('id,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id')
+          .eq('transport_id', tid)
           .in('status', statuses)
           .order('updated_at', { ascending: false })
           .order('created_at', { ascending: false })
-          .limit(200);
-
-        if (roleNow === 'TRANSPORT') {
-          req = req.eq('transport_id', tid);
-        }
+          .limit(180);
 
         const timeoutMs = 6000;
         const timeout = new Promise((_, reject) =>
@@ -239,15 +203,8 @@ export default function TransportBoardPage() {
       }
 
       const list = Array.isArray(data) ? data : [];
-      // de-dupe by id (prevents “hup/duplikim” when cache fights fresh data)
-      const uniq = new Map();
-      for (const r of list) {
-        if (!r?.id) continue;
-        if (!uniq.has(r.id)) uniq.set(r.id, r);
-      }
-      const finalList = Array.from(uniq.values());
-      setItems(finalList);
-      try { localStorage.setItem(cacheKey, JSON.stringify(finalList)); } catch {}
+      setItems(list);
+      try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch {}
 
     } catch (e) {
       console.error(e);
@@ -303,28 +260,29 @@ export default function TransportBoardPage() {
       : prev));
   }
 
-  // ADMIN/DISPATCH: assign an order to a specific transport worker (PIN stays hidden in UI)
-  async function assignToTransport(order, user) {
-    try {
-      const pin = String(user?.pin || '').trim();
-      const nm = String(user?.name || '').trim();
-      if (!pin) throw new Error('TRANSPORT PIN MUNGON');
-      const curr = order?.data && typeof order.data === 'object' ? order.data : {};
-      const next = {
-        ...curr,
-        transport_id: pin, // source for generated column transport_id
-        transport_name: nm || curr.transport_name || 'TRANSPORT',
-        assigned_at: Date.now(),
-      };
-      const { error } = await supabase
-        .from('transport_orders')
-        .update({ data: next, updated_at: new Date().toISOString() })
-        .eq('id', order.id);
-      if (error) throw error;
-      try { window.dispatchEvent(new Event('transport:refresh')); } catch {}
-    } catch (e) {
-      alert(String(e?.message || e || 'Gabim'));
+  async function updateRiplanMeta(orderId, whenIsoOrNull, note) {
+    if (!orderId) return;
+    const patch = {
+      updated_at: new Date().toISOString(),
+    };
+    // columns exist in your DB (reschedule_at, reschedule_note)
+    if (whenIsoOrNull === null) patch.reschedule_at = null;
+    else if (whenIsoOrNull) patch.reschedule_at = whenIsoOrNull;
+    if (typeof note === 'string') patch.reschedule_note = note;
+
+    const { error } = await supabase
+      .from('transport_orders')
+      .update(patch)
+      .eq('id', orderId);
+
+    if (error) {
+      alert('Gabim: ' + error.message);
+      return;
     }
+
+    setItems((prev) => (Array.isArray(prev)
+      ? prev.map((it) => (it.id === orderId ? { ...it, ...patch } : it))
+      : prev));
   }
 
   // -----------------------------
@@ -364,12 +322,95 @@ export default function TransportBoardPage() {
     });
   }, [items, activeTab, loadedMode]);
 
+  const isAdmin = useMemo(() => {
+    const role = String(session?.role || session?.user_role || '').toUpperCase();
+    return role === 'ADMIN' || role === 'DISPATCH';
+  }, [session]);
+
+  const riplanItems = useMemo(() => {
+    const tid = String(transportId || '').trim();
+    return (items || []).filter((r) => {
+      const st = String(r?.status || '').toLowerCase();
+      if (st !== 'riplan') return false;
+      if (isAdmin) return true;
+      return String(r?.transport_id || '').trim() === tid;
+    });
+  }, [items, transportId, isAdmin]);
+
+  const riplanCount = riplanItems.length;
+
+  function toLocalInputValue(dateIsoOrNull) {
+    if (!dateIsoOrNull) return '';
+    const d = new Date(dateIsoOrNull);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function addMinutesToNow(mins) {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + mins);
+    return toLocalInputValue(d.toISOString());
+  }
+
+  function setTodayAt(h, m) {
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return toLocalInputValue(d.toISOString());
+  }
+
+  function setTomorrowAt(h, m) {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(h, m, 0, 0);
+    return toLocalInputValue(d.toISOString());
+  }
+
+  async function saveRiplan() {
+    const { id, whenLocal, note } = riplanPick;
+    if (!id) return;
+    const whenIso = whenLocal ? new Date(whenLocal).toISOString() : null;
+    await updateRiplanMeta(id, whenIso, note || '');
+    try { load(); } catch {}
+  }
+
   return (
     <div style={ui.page}>
       {/* HEADER */}
       <div style={ui.header}>
         <div style={ui.headerTop}>
-          <div style={ui.avatarProfile} title="Transport" aria-hidden="true">🚚</div>
+          <button
+            type="button"
+            onClick={() => setShowRiplan(true)}
+            title="RIPLAN"
+            style={{
+              ...ui.avatarProfile,
+              border: '0',
+              cursor: 'pointer',
+              position: 'relative',
+              background: 'transparent',
+            }}
+          >
+            🚚
+            {riplanCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -6,
+                  left: -6,
+                  background: 'rgba(255, 180, 0, 0.95)',
+                  color: '#111',
+                  borderRadius: 999,
+                  padding: '2px 6px',
+                  fontSize: 12,
+                  fontWeight: 900,
+                  boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+                }}
+              >
+                ⏰
+              </span>
+            )}
+          </button>
           {activeTab !== 'ready' && (
             <button
               style={ui.btnCompose}
@@ -455,9 +496,6 @@ export default function TransportBoardPage() {
           items={viewItems}
           loading={loading}
           onOpenModal={(url) => setModal({ open: true, url })}
-          actorRole={effectiveRole}
-          transportUsers={transportUsers}
-          onAssign={assignToTransport}
         />
       )}
 
@@ -512,6 +550,258 @@ export default function TransportBoardPage() {
               <div style={{ width: 60 }} />
             </div>
             <iframe src={modal.url} style={ui.iframe} title="Order Details" />
+          </div>
+        </div>
+      )}
+
+      {/* RIPLAN PANEL (from truck icon) */}
+      {showRiplan && (
+        <div style={ui.modalOverlay}>
+          <style jsx>{`
+            @keyframes slideUpRiplan { from { transform: translateY(100%); } to { transform: translateY(0); } }
+          `}</style>
+          <div style={{
+            ...ui.modalShell,
+            animation: 'slideUpRiplan .22s ease-out',
+          }}>
+            <div style={ui.modalTop}>
+              <button
+                style={ui.btnCloseModal}
+                onClick={() => {
+                  setShowRiplan(false);
+                  setRiplanPick({ id: '', whenLocal: '', note: '' });
+                }}
+              >
+                ✕ Mbylle
+              </button>
+              <span style={{ fontWeight: 900, letterSpacing: 0.5 }}>RIPLANIFIKIM</span>
+              <div style={{ width: 60 }} />
+            </div>
+
+            <div style={{ padding: 14, overflow: 'auto' }}>
+              {riplanItems.length === 0 ? (
+                <div style={{
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: 12,
+                  padding: 14,
+                  color: 'rgba(255,255,255,0.85)',
+                  fontWeight: 700,
+                }}>
+                  S’ka asnjë porosi në RIPLAN.
+                </div>
+              ) : (
+                <>
+                  <div style={{
+                    display: 'flex',
+                    gap: 8,
+                    flexWrap: 'wrap',
+                    marginBottom: 10,
+                  }}>
+                    <span style={{
+                      padding: '6px 10px',
+                      borderRadius: 999,
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      color: 'rgba(255,255,255,0.9)',
+                    }}>TOTAL: {riplanItems.length}</span>
+                    {!isAdmin && (
+                      <span style={{
+                        padding: '6px 10px',
+                        borderRadius: 999,
+                        background: 'rgba(0,200,255,0.08)',
+                        border: '1px solid rgba(0,200,255,0.18)',
+                        fontSize: 12,
+                        fontWeight: 800,
+                        color: 'rgba(220,250,255,0.95)',
+                      }}>VETËM TË MIAT</span>
+                    )}
+                  </div>
+
+                  {riplanItems.map((it) => {
+                    const picked = riplanPick.id === it.id;
+                    const clientName = String(it?.client_name || it?.data?.client?.name || '').trim() || '—';
+                    const code = String(it?.code_str || it?.client_tcode || '').trim();
+                    const phone = String(it?.client_phone || it?.data?.client?.phone || '').trim();
+                    const addr = String(it?.data?.client?.address || '').trim();
+                    const whenLocal = picked ? riplanPick.whenLocal : toLocalInputValue(it?.reschedule_at || it?.data?.reschedule_at);
+                    const note = picked ? riplanPick.note : String(it?.reschedule_note || it?.data?.reschedule_note || '').trim();
+
+                    return (
+                      <div key={it.id} style={{
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 14,
+                        padding: 12,
+                        marginBottom: 10,
+                        background: 'rgba(0,0,0,0.18)',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <div style={{ fontWeight: 1000, letterSpacing: 0.4 }}>{code} • {clientName}</div>
+                            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>{phone}{addr ? ` • ${addr}` : ''}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setRiplanPick({
+                              id: it.id,
+                              whenLocal: whenLocal || '',
+                              note: note || '',
+                            })}
+                            style={{
+                              border: '1px solid rgba(255,255,255,0.16)',
+                              background: picked ? 'rgba(255,180,0,0.18)' : 'rgba(255,255,255,0.06)',
+                              color: 'rgba(255,255,255,0.95)',
+                              borderRadius: 12,
+                              padding: '8px 10px',
+                              fontWeight: 900,
+                              cursor: 'pointer',
+                              minWidth: 90,
+                            }}
+                          >
+                            {picked ? 'ZGJEDHUR' : 'ZGJIDH'}
+                          </button>
+                        </div>
+
+                        {picked && (
+                          <div style={{ marginTop: 10 }}>
+                            <div style={{
+                              display: 'flex',
+                              gap: 8,
+                              flexWrap: 'wrap',
+                              marginBottom: 8,
+                            }}>
+                              {[
+                                { label: '+30m', val: addMinutesToNow(30) },
+                                { label: '+1h', val: addMinutesToNow(60) },
+                                { label: 'SOT 18:00', val: setTodayAt(18, 0) },
+                                { label: 'NESËR 09:00', val: setTomorrowAt(9, 0) },
+                              ].map((c) => (
+                                <button
+                                  key={c.label}
+                                  type="button"
+                                  onClick={() => setRiplanPick((p) => ({ ...p, whenLocal: c.val }))}
+                                  style={{
+                                    border: '1px solid rgba(255,255,255,0.14)',
+                                    background: 'rgba(255,255,255,0.06)',
+                                    color: 'rgba(255,255,255,0.95)',
+                                    borderRadius: 999,
+                                    padding: '8px 12px',
+                                    fontWeight: 900,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {c.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <div style={{ flex: '1 1 220px', minWidth: 220 }}>
+                                <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: 'rgba(255,255,255,0.8)' }}>
+                                  KOHA / DATA
+                                </div>
+                                <input
+                                  type="datetime-local"
+                                  value={riplanPick.whenLocal}
+                                  onChange={(e) => setRiplanPick((p) => ({ ...p, whenLocal: e.target.value }))}
+                                  style={{
+                                    width: '100%',
+                                    background: 'rgba(0,0,0,0.25)',
+                                    border: '1px solid rgba(255,255,255,0.16)',
+                                    borderRadius: 12,
+                                    padding: '10px 12px',
+                                    color: 'rgba(255,255,255,0.95)',
+                                    fontWeight: 800,
+                                  }}
+                                />
+                              </div>
+
+                              <div style={{ flex: '1 1 220px', minWidth: 220 }}>
+                                <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: 'rgba(255,255,255,0.8)' }}>
+                                  SHËNIM
+                                </div>
+                                <input
+                                  type="text"
+                                  value={riplanPick.note}
+                                  onChange={(e) => setRiplanPick((p) => ({ ...p, note: e.target.value }))}
+                                  placeholder="p.sh. klienti s’ishte n’shpi"
+                                  style={{
+                                    width: '100%',
+                                    background: 'rgba(0,0,0,0.25)',
+                                    border: '1px solid rgba(255,255,255,0.16)',
+                                    borderRadius: 12,
+                                    padding: '10px 12px',
+                                    color: 'rgba(255,255,255,0.95)',
+                                    fontWeight: 800,
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+                              <button
+                                type="button"
+                                onClick={saveRiplan}
+                                style={{
+                                  border: '1px solid rgba(0,200,255,0.25)',
+                                  background: 'rgba(0,200,255,0.12)',
+                                  color: 'rgba(235,250,255,0.98)',
+                                  borderRadius: 12,
+                                  padding: '10px 12px',
+                                  fontWeight: 1000,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                RUAJ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await updateRiplanMeta(it.id, null, riplanPick.note || '');
+                                  await updateTransportStatus([it.id], 'loaded');
+                                  try { load(); } catch {}
+                                }}
+                                style={{
+                                  border: '1px solid rgba(255,255,255,0.16)',
+                                  background: 'rgba(255,255,255,0.06)',
+                                  color: 'rgba(255,255,255,0.95)',
+                                  borderRadius: 12,
+                                  padding: '10px 12px',
+                                  fontWeight: 1000,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                KTHE NË NGARKUAR
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await updateRiplanMeta(it.id, null, riplanPick.note || '');
+                                  await updateTransportStatus([it.id], 'delivery');
+                                  try { load(); } catch {}
+                                }}
+                                style={{
+                                  border: '1px solid rgba(255,255,255,0.16)',
+                                  background: 'rgba(255,255,255,0.06)',
+                                  color: 'rgba(255,255,255,0.95)',
+                                  borderRadius: 12,
+                                  padding: '10px 12px',
+                                  fontWeight: 1000,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                KTHE NË DORËZIM
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
