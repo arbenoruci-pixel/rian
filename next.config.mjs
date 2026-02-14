@@ -12,8 +12,10 @@ const withPWA = require('next-pwa')({
       handler: 'NetworkFirst',
       options: {
         cacheName: 'pages',
-        networkTimeoutSeconds: 4,
-        expiration: { maxEntries: 80, maxAgeSeconds: 24 * 60 * 60 },
+        // Safari iOS (especially Home Screen/PWA) can get stuck on cached HTML.
+        // Keep this cache very short so users always get the latest build.
+        networkTimeoutSeconds: 12,
+        expiration: { maxEntries: 30, maxAgeSeconds: 60 },
       },
     },
 
@@ -40,11 +42,13 @@ const withPWA = require('next-pwa')({
     // Supabase API (prevents iOS "hanging forever")
     {
       urlPattern: ({ url }) => url.hostname.includes('supabase.co'),
-      handler: 'NetworkFirst',
+      // Never cache Supabase responses in the Service Worker.
+      // We handle offline via local queue/cache in app code.
+      handler: 'NetworkOnly',
       options: {
         cacheName: 'api',
-        networkTimeoutSeconds: 4,
-        expiration: { maxEntries: 300, maxAgeSeconds: 5 * 60 },
+        networkTimeoutSeconds: 12,
+        expiration: { maxEntries: 1, maxAgeSeconds: 1 },
       },
     },
   ],
@@ -58,8 +62,6 @@ const nextConfig = {
       // next-pwa generates these in /public (workbox + sw)
       { source: '/sw.js', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
       { source: '/workbox-:path*', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
-      // Critical: used by VersionGuard to detect new deploys (avoid Safari stale)
-      { source: '/_next/static/BUILD_ID', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
     ];
   },
 };
