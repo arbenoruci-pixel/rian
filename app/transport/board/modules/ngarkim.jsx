@@ -148,6 +148,17 @@ function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, s
                 <span style={{ fontSize: 24 }}>⬇️</span>
                 <span style={{ fontSize: 14 }}>{actionLabel}</span>
               </button>
+
+              <button
+                style={{ ...ui.toolBtnBig, background: 'rgba(255, 165, 0, 0.22)', border: '1px solid rgba(255, 165, 0, 0.35)' }}
+                onClick={() => {
+                  setToolsRow(null);
+                  onBulkStatus([toolsRow.id], 'riplan');
+                }}
+              >
+                <span style={{ fontSize: 24 }}>🔁</span>
+                <span style={{ fontSize: 14 }}>RIPLANIFIKO</span>
+              </button>
             </div>
           </div>
         </div>

@@ -52,21 +52,7 @@ export default function TransportBoardPage() {
   // -----------------------------
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try {
-      let main = null;
-      try { main = JSON.parse(localStorage.getItem('tepiha_session_v1') || 'null'); } catch {}
-      const role = String(main?.user?.role || '').toUpperCase();
-      const pin = String(main?.user?.pin || '').trim();
-
-      if (role === 'TRANSPORT') {
-        setSession(getTransportSession());
-      } else {
-        // ADMIN/DISPATCH: do NOT bind board to stale transport session.
-        // Use a dedicated namespace so admin-created transport orders don't leak to drivers.
-        const adminTid = pin ? `ADMIN_${pin}` : 'ADMIN';
-        setSession({ transport_id: adminTid, role, pin });
-      }
-    } catch {}
+    try { setSession(getTransportSession()); } catch {}
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -106,7 +92,7 @@ export default function TransportBoardPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const tid = deriveTid(session);
+      const tid = deriveTid(getTransportSession());
       if (!tid) {
         setItems([]);
         return;
@@ -274,7 +260,7 @@ export default function TransportBoardPage() {
     let inbox = 0, loaded = 0, ready = 0;
     (items || []).forEach((x) => {
       const st = String(x?.status || '').toLowerCase();
-      if (st === 'dispatched' || st === 'pickup') inbox++;
+      if (st === 'dispatched' || st === 'pickup' || st === 'riplan') inbox++;
       else if (st === 'loaded' || st === 'delivery') loaded++;
       else if (st === 'gati') ready++;
     });
@@ -297,7 +283,7 @@ export default function TransportBoardPage() {
   const viewItems = useMemo(() => {
     return (items || []).filter((r) => {
       const st = String(r?.status || '').toLowerCase();
-      if (activeTab === 'inbox') return st === 'dispatched' || st === 'pickup';
+      if (activeTab === 'inbox') return st === 'dispatched' || st === 'pickup' || st === 'riplan';
       if (activeTab === 'loaded') return loadedMode === 'in' ? st === 'loaded' : st === 'delivery';
       if (activeTab === 'ready') return st === 'gati';
       return false;
