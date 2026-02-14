@@ -7,7 +7,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabaseClient';
-import { getTransportSession } from '@/lib/transportAuth';
+import { getTransportContext, getTransportSession } from '@/lib/transportAuth';
+import { listUsers as listUsersDb } from '@/lib/usersDb';
 
 // ✅ SINGLE SOURCE OF TRUTH FOR BOARD UI + HELPERS
 // (prevents “options/modules disappear” when one copy gets edited and another copy gets loaded)
@@ -29,6 +30,8 @@ export default function TransportBoardPage() {
   const debug = sp?.get('debug') === '1';
 
   const [session, setSession] = useState(null);
+  const [actorRole, setActorRole] = useState(null);
+  const [transportUsers, setTransportUsers] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -52,7 +55,13 @@ export default function TransportBoardPage() {
   // -----------------------------
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try { setSession(getTransportSession()); } catch {}
+    try {
+      const ctx = getTransportContext();
+      setSession(ctx || getTransportSession());
+      setActorRole(ctx?.role || null);
+    } catch {
+      try { setSession(getTransportSession()); } catch {}
+    }
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -61,6 +70,27 @@ export default function TransportBoardPage() {
       );
     }
   }, []);
+
+  // ADMIN/DISPATCH: load transport workers list for assignment dropdown (UI shows names only)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const role = String(actorRole || '').toUpperCase();
+    if (role !== 'ADMIN' && role !== 'DISPATCH') return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await listUsersDb();
+        const items = (res?.ok ? res.items : []) || [];
+        const onlyTransport = items
+          .filter((u) => String(u?.role || '').toUpperCase() === 'TRANSPORT')
+          .filter((u) => (u?.is_active ?? true) !== false);
+        if (alive) setTransportUsers(onlyTransport);
+      } catch {
+        if (alive) setTransportUsers([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [actorRole]);
 
   function deriveTid(sess) {
     const s = sess || {};
@@ -77,6 +107,11 @@ export default function TransportBoardPage() {
 
   const transportId = useMemo(() => deriveTid(session), [session]);
 
+  const effectiveRole = useMemo(() => {
+    const r = String(session?.role || actorRole || '').toUpperCase();
+    return r || 'TRANSPORT';
+  }, [session, actorRole]);
+
   // keep selection stable: clear only when switching tab/mode
   useEffect(() => {
     setSelectedIds(new Set());
@@ -92,8 +127,10 @@ export default function TransportBoardPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const tid = deriveTid(getTransportSession());
-      if (!tid) {
+      const ctx = getTransportContext() || getTransportSession();
+      const tid = deriveTid(ctx);
+      const roleNow = String(ctx?.role || effectiveRole || '').toUpperCase() || 'TRANSPORT';
+      if (roleNow === 'TRANSPORT' && !tid) {
         setItems([]);
         return;
       }
@@ -101,7 +138,7 @@ export default function TransportBoardPage() {
 
       const tab = String(activeTab || 'inbox');
       const mode = String(loadedMode || 'in');
-      const cacheKey = `transport_cache_${tid}_${tab}_${mode}`;
+      const cacheKey = `transport_cache_${roleNow}_${tid || 'ALL'}_${tab}_${mode}`;
 
       // show cached instantly (if any) to avoid blank/lag
       try {
@@ -114,7 +151,6 @@ export default function TransportBoardPage() {
         // loaded: NGARKIM/DORËZIM depending on mode
         // ready: GATI
         if (tab === 'ready') return ['gati'];
-        if (tab === 'riplan') return ['riplan','riplanifikim','replan','riplanifiko'];
         if (tab === 'loaded') return mode === 'out' ? ['delivery','dorzim','dorëzim'] : ['loaded','ngarkim','ngarkuar'];
         return ['new','inbox','pickup','pranim']; // tolerate drift
       }
@@ -127,11 +163,14 @@ export default function TransportBoardPage() {
         // Keep URL building simple (no new URL()) to avoid Safari “pattern” errors.
         const base = String(SUPABASE_URL || '').replace(/\/$/, '');
         if (!base) throw new Error('Missing SUPABASE_URL');
-        const qTid = encodeURIComponent(tid);
         const url =
           base +
           '/rest/v1/transport_orders' +
-          `?select=select=id,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id` + `&transport_id=eq.${qTid}` + `&status=in.(${encodeURIComponent(statuses.join(','))})` + `&order=created_at.desc` + `&limit=180`;
+          `?select=id,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id` +
+          (roleNow === 'TRANSPORT' ? `&transport_id=eq.${encodeURIComponent(tid)}` : '') +
+          `&status=in.(${encodeURIComponent(statuses.join(','))})` +
+          `&order=updated_at.desc` +
+          `&limit=200`;
 
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 8000);
@@ -164,14 +203,17 @@ export default function TransportBoardPage() {
 
       // 1) Try supabase-js, but cap it hard so it can't hang forever.
       try {
-        const req = supabase
+        let req = supabase
           .from('transport_orders')
           .select('id,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id')
-          .eq('transport_id', tid)
           .in('status', statuses)
           .order('updated_at', { ascending: false })
           .order('created_at', { ascending: false })
-          .limit(180);
+          .limit(200);
+
+        if (roleNow === 'TRANSPORT') {
+          req = req.eq('transport_id', tid);
+        }
 
         const timeoutMs = 6000;
         const timeout = new Promise((_, reject) =>
@@ -197,8 +239,15 @@ export default function TransportBoardPage() {
       }
 
       const list = Array.isArray(data) ? data : [];
-      setItems(list);
-      try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch {}
+      // de-dupe by id (prevents “hup/duplikim” when cache fights fresh data)
+      const uniq = new Map();
+      for (const r of list) {
+        if (!r?.id) continue;
+        if (!uniq.has(r.id)) uniq.set(r.id, r);
+      }
+      const finalList = Array.from(uniq.values());
+      setItems(finalList);
+      try { localStorage.setItem(cacheKey, JSON.stringify(finalList)); } catch {}
 
     } catch (e) {
       console.error(e);
@@ -254,27 +303,50 @@ export default function TransportBoardPage() {
       : prev));
   }
 
+  // ADMIN/DISPATCH: assign an order to a specific transport worker (PIN stays hidden in UI)
+  async function assignToTransport(order, user) {
+    try {
+      const pin = String(user?.pin || '').trim();
+      const nm = String(user?.name || '').trim();
+      if (!pin) throw new Error('TRANSPORT PIN MUNGON');
+      const curr = order?.data && typeof order.data === 'object' ? order.data : {};
+      const next = {
+        ...curr,
+        transport_id: pin, // source for generated column transport_id
+        transport_name: nm || curr.transport_name || 'TRANSPORT',
+        assigned_at: Date.now(),
+      };
+      const { error } = await supabase
+        .from('transport_orders')
+        .update({ data: next, updated_at: new Date().toISOString() })
+        .eq('id', order.id);
+      if (error) throw error;
+      try { window.dispatchEvent(new Event('transport:refresh')); } catch {}
+    } catch (e) {
+      alert(String(e?.message || e || 'Gabim'));
+    }
+  }
+
   // -----------------------------
   // Counts (header dots)
   // -----------------------------
   const counts = useMemo(() => {
-    let inbox = 0, loaded = 0, ready = 0, riplan = 0;
+    let inbox = 0, loaded = 0, ready = 0;
     (items || []).forEach((x) => {
       const st = String(x?.status || '').toLowerCase();
-      if (['new','inbox','dispatched','pickup','pranim'].includes(st)) inbox++;
-      else if (['loaded','ngarkim','ngarkuar','delivery','dorzim','dorëzim'].includes(st)) loaded++;
-      else if (['riplan','riplanifikim','replan','riplanifiko'].includes(st)) riplan++;
+      if (st === 'dispatched' || st === 'pickup') inbox++;
+      else if (st === 'loaded' || st === 'delivery') loaded++;
       else if (st === 'gati') ready++;
     });
-    return { inbox, loaded, ready, riplan };
+    return { inbox, loaded, ready };
   }, [items]);
 
   const subCounts = useMemo(() => {
     let inCount = 0, outCount = 0;
     (items || []).forEach((x) => {
       const st = String(x?.status || '').toLowerCase();
-      if (['loaded','ngarkim','ngarkuar'].includes(st)) inCount++;
-      else if (['delivery','dorzim','dorëzim'].includes(st)) outCount++;
+      if (st === 'loaded') inCount++;
+      else if (st === 'delivery') outCount++;
     });
     return { in: inCount, out: outCount };
   }, [items]);
@@ -285,11 +357,8 @@ export default function TransportBoardPage() {
   const viewItems = useMemo(() => {
     return (items || []).filter((r) => {
       const st = String(r?.status || '').toLowerCase();
-      if (activeTab === 'riplan') return ['riplan','riplanifikim','replan','riplanifiko'].includes(st);
-      if (activeTab === 'inbox') return ['new','inbox','dispatched','pickup','pranim'].includes(st);
-      if (activeTab === 'loaded') return loadedMode === 'in'
-        ? ['loaded','ngarkim','ngarkuar'].includes(st)
-        : ['delivery','dorzim','dorëzim'].includes(st);
+      if (activeTab === 'inbox') return st === 'dispatched' || st === 'pickup';
+      if (activeTab === 'loaded') return loadedMode === 'in' ? st === 'loaded' : st === 'delivery';
       if (activeTab === 'ready') return st === 'gati';
       return false;
     });
@@ -300,18 +369,7 @@ export default function TransportBoardPage() {
       {/* HEADER */}
       <div style={ui.header}>
         <div style={ui.headerTop}>
-          <div style={{ position:'relative' }}>
-            <div style={ui.avatarProfile} title="Transport" aria-hidden="true">🚚</div>
-            {counts.riplan > 0 && (
-              <button
-                style={{ position:'absolute', right:-4, top:-4, width:22, height:22, borderRadius:99, border:'0', background:'#FF9F0A', color:'#000', fontWeight:'900', display:'flex', alignItems:'center', justifyContent:'center' }}
-                onClick={() => setActiveTab('riplan')}
-                title="RIPLANIFIKIM"
-              >
-                ⏰
-              </button>
-            )}
-          </div>
+          <div style={ui.avatarProfile} title="Transport" aria-hidden="true">🚚</div>
           {activeTab !== 'ready' && (
             <button
               style={ui.btnCompose}
@@ -323,7 +381,7 @@ export default function TransportBoardPage() {
         </div>
 
         <h1 style={ui.title}>
-          {activeTab === 'ready' ? 'Dërgesat' : (activeTab === 'loaded' ? 'Pikapi' : (activeTab === 'riplan' ? 'Riplanifikim' : 'Inbox'))}
+          {activeTab === 'ready' ? 'Dërgesat' : (activeTab === 'loaded' ? 'Pikapi' : 'Inbox')}
         </h1>
 
         <div style={ui.tabsContainer}>
@@ -332,9 +390,6 @@ export default function TransportBoardPage() {
           </button>
           <button style={activeTab === 'loaded' ? ui.tabActive : ui.tab} onClick={() => setActiveTab('loaded')}>
             Pikapi 🚐 {counts.loaded > 0 && <span style={ui.dot} />}
-          </button>
-          <button style={activeTab === 'riplan' ? ui.tabActive : ui.tab} onClick={() => setActiveTab('riplan')}>
-            ⏰ Riplan {counts.riplan > 0 && <span style={ui.dot} />}
           </button>
           <button style={activeTab === 'ready' ? ui.tabActive : ui.tab} onClick={() => setActiveTab('ready')}>
             Gati {counts.ready > 0 && <span style={ui.dot} />}
@@ -400,14 +455,9 @@ export default function TransportBoardPage() {
           items={viewItems}
           loading={loading}
           onOpenModal={(url) => setModal({ open: true, url })}
-        />
-      )}
-
-      {activeTab === 'riplan' && (
-        <InboxModule
-          items={viewItems}
-          loading={loading}
-          onOpenModal={(url) => setModal({ open: true, url })}
+          actorRole={effectiveRole}
+          transportUsers={transportUsers}
+          onAssign={assignToTransport}
         />
       )}
 
@@ -420,15 +470,6 @@ export default function TransportBoardPage() {
           gpsSort={gpsSort}
           setGpsSort={setGpsSort}
           onBulkStatus={updateTransportStatus}
-          onGoRiplan={() => setActiveTab('riplan')}
-        />
-      )}
-
-      {activeTab === 'riplan' && (
-        <InboxModule
-          items={viewItems}
-          loading={loading}
-          onOpenModal={(url) => setModal({ open: true, url })}
         />
       )}
 

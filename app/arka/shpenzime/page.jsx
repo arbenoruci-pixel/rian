@@ -163,7 +163,7 @@ export default function ShpenzimePage() {
           <option value="">KUSH PO E APROVON?</option>
           {approvers.map((a) => (
             <option key={a.id} value={a.pin}>
-              {String(a.name || "").toUpperCase()} • {String(a.role || "").toUpperCase()} • PIN {a.pin}
+              {String(a.name || "").toUpperCase()} • {String(a.role || "").toUpperCase()}
             </option>
           ))}
         </select>

@@ -345,7 +345,8 @@ export default function CashClient() {
         if (!pin) throw new Error('PIN MUNGON (PERSONAL).');
       }
 
-      const noteExtra = `${counterparty}${counterparty === 'PERSONAL' ? ` • PIN:${pin}` : ''}`;
+      // PIN stays hidden: do not embed it in any human-visible note.
+      const noteExtra = `${counterparty}`;
       const note = `${String(moveNote || '')}${String(moveNote || '').trim() ? ' • ' : ''}${noteExtra}`.trim();
 
       await dbAddCycleMove({
