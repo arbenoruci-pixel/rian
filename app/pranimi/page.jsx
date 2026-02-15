@@ -461,27 +461,6 @@ const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
   const RESET_ON_SHOW_KEY = 'tepiha_pranimi_reset_on_show_v1';
 
   // 3) Kur hapet PRANIMI dhe kur thirret resetForNewOrder() (MODIFIKUAR)
-
-// --- SAFE CODE RESERVATION (no hang on iOS/PWA) ---
-async function reserveCodeSafe(id) {
-  const TIMEOUT_MS = 3500;
-  try {
-    const p = reserveSharedCode(id);
-    const c = await Promise.race([
-      p,
-      new Promise((_, rej) => setTimeout(() => rej(new Error('CODE_TIMEOUT')), TIMEOUT_MS)),
-    ]);
-    if (c) return c;
-    throw new Error('NO_CODE');
-  } catch (e) {
-    try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-    setOfflineMode(true);
-    setNetState({ ok: false, reason: (e && e.message) ? e.message : 'NO_CODE' });
-    setShowOfflinePrompt(true);
-    return '';
-  }
-}
-
   async function resetForNewOrder() {
     try {
       // gjenero oid
@@ -492,10 +471,20 @@ async function reserveCodeSafe(id) {
       setOid(id);
 
       // menjëherë thirr reserveSharedCode(oid)
-      const c = await reserveCodeSafe(id);
-      
-      // vendose rezultatin në codeRaw
-      setCodeRaw(c);
+      try {
+        const c = await reserveSharedCode(id);
+
+        // vendose rezultatin në codeRaw
+        setCodeRaw(c);
+      } catch (e) {
+        // Nëse s’po arrijmë me marrë KOD (RPC/Pool/Permision), mos e blloko formën.
+        // Lejo punë OFFLINE (ruajtje lokale) dhe jep opsion "PROVO PRAP".
+        setCodeRaw('');
+        setNetState({ ok: false, reason: 'CODE_RESERVE_FAILED' });
+        setShowOfflinePrompt(true);
+        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+        setOfflineMode(true);
+      }
 
       // reset form fields (minimal)
       setName('');
@@ -739,6 +728,7 @@ useEffect(() => {
 useEffect(() => {
     (async () => {
       try {
+      try {
         await refreshDrafts();
       } catch {}
 
@@ -768,8 +758,22 @@ useEffect(() => {
           : `ord_${Date.now()}`;
       setOid(id);
 
-      const c = await reserveCodeSafe(id);
-      setCodeRaw(c);
+let c = '';
+try {
+  const TIMEOUT_MS = 3500;
+  c = await Promise.race([
+    reserveSharedCode(id),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('CODE_TIMEOUT')), TIMEOUT_MS)),
+  ]);
+} catch (e) {
+  // go offline-safe (do not block PRANIMI)
+  try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+  setOfflineMode(true);
+  setNetState({ ok: false, reason: (e && e.message) ? e.message : 'NO_CODE' });
+  setShowOfflinePrompt(true);
+  c = '';
+}
+setCodeRaw(c || '');
 
       try {
         const cached = Number(localStorage.getItem('capacity_today_pastrim_m2') || '0');
@@ -1178,11 +1182,8 @@ function saveOfflineQueueItem(order) {
     if (savingContinue) return;
     setSavingContinue(true);
 
-    // keep order visible to catch block (offline fallback)
-    let order = null;
-
     try {
-      order = {
+      const order = {
         id: oid,
         ts: Date.now(),
         status: 'pastrim',
@@ -1206,6 +1207,43 @@ function saveOfflineQueueItem(order) {
         },
         notes: notes || '',
       };
+
+
+      // ✅ Nëse s’kemi KOD (p.sh. pool/RPC ra), mos e blloko — ruaje OFFLINE si draft/queue.
+      const normCodeNow = normalizeCode(codeRaw);
+      if (!normCodeNow || normCodeNow === '0') {
+        const ok = saveOfflineQueueItem(order);
+        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+        setOfflineMode(true);
+        if (!ok) {
+          alert('❌ S’KEMI KOD + OFFLINE: nuk u ruajt lokalisht!');
+          setSavingContinue(false);
+          return;
+        }
+        alert('⚠️ S’MORI KOD NGA SERVERI. U RUAJT OFFLINE. Provo prap kur të ketë lidhje.');
+        // keep draft for extra safety
+        try {
+          localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({
+            id: oid,
+            codeRaw,
+            name,
+            phone,
+            clientPhotoUrl,
+            tepihaRows,
+            stazaRows,
+            stairsQty,
+            stairsPer,
+            stairsPhotoUrl,
+            pricePerM2,
+            clientPaid,
+            arkaRecordedPaid,
+            payMethod,
+            notes,
+          }));
+        } catch {}
+        setSavingContinue(false);
+        return;
+      }
 
 
 // ✅ OFFLINE MODE: save locally (no Supabase) so you never lose clients
@@ -1245,7 +1283,6 @@ if (offlineMode || !conn.ok) {
 }
 
       // ✅ CRITICAL PATH: save to DB first so the client appears in PASTRIMI immediately.
-      // If DB save fails (network/RLS/server), we fallback to OFFLINE queue in catch.
       const db = await saveOrderToDb(order);
       if (db && db.order_id) {
         order.db_id = db.order_id;
@@ -1304,26 +1341,6 @@ if (offlineMode || !conn.ok) {
       router.push('/pastrimi');
     } catch (e) {
       console.error('PRANIMI_SAVE_ERROR', e);
-
-      // ✅ PRO OFFLINE FALLBACK:
-      // If Supabase/DB fails for any reason, save locally so the user can continue working.
-      // This covers cases where navigator.onLine is true but Supabase is down / RLS blocks / network flakes.
-      try {
-        const rawMsg = String(e?.message || e?.error_description || (e?.toString ? e.toString() : '') || '');
-        const looksNetwork = /failed to fetch|fetch failed|networkerror|load failed|timeout|offline|econn|503|502|504/i.test(rawMsg);
-        const looksDbDenied = /permission denied|rls|row level|not allowed|401|403|42501/i.test(rawMsg);
-        if (order && (looksNetwork || looksDbDenied || offlineMode)) {
-          const ok = saveOfflineQueueItem(order);
-          if (ok) {
-            try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-            setOfflineMode(true);
-            alert('✅ U RUAJT OFFLINE (DB dështoi). Kur të kthehet rrjeti/DB, mund ta bëni SYNC më vonë.');
-            setSavingContinue(false);
-            return;
-          }
-        }
-      } catch {}
-
       const msg = (e && (e.message || e.error_description || e.toString())) ? (e.message || e.error_description || e.toString()) : 'Gabim i panjohur';
       // ✅ Build-safe: avoid nested quotes inside template literals
       const details = (e && (e.details || e.hint))
