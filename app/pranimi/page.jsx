@@ -67,6 +67,24 @@ function normDigits(s) {
   return String(s || '').replace(/\D+/g, '');
 }
 
+
+function getLocalTempCode() {
+  // TEMP numeric code for OFFLINE (avoids blank code + allows submit).
+  // Starts at 900000 to avoid collisions with normal codes.
+  try {
+    const KEY = 'tepiha_temp_code_counter_v1';
+    const raw = localStorage.getItem(KEY);
+    let n = raw ? parseInt(raw, 10) : 900000;
+    if (!Number.isFinite(n) || n < 900000) n = 900000;
+    n += 1;
+    localStorage.setItem(KEY, String(n));
+    return n;
+  } catch {
+    // last resort: time-based numeric code
+    return Math.floor(Date.now() / 1000);
+  }
+}
+
 async function searchClientsLive(q) {
   const qq = String(q || '').trim();
   if (!qq) return [];
@@ -479,7 +497,7 @@ const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
       } catch (e) {
         // Nëse s’po arrijmë me marrë KOD (RPC/Pool/Permision), mos e blloko formën.
         // Lejo punë OFFLINE (ruajtje lokale) dhe jep opsion "PROVO PRAP".
-        setCodeRaw('');
+        setCodeRaw(String(getLocalTempCode()));
         setNetState({ ok: false, reason: 'CODE_RESERVE_FAILED' });
         setShowOfflinePrompt(true);
         try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
@@ -728,7 +746,6 @@ useEffect(() => {
 useEffect(() => {
     (async () => {
       try {
-      try {
         await refreshDrafts();
       } catch {}
 
@@ -757,22 +774,9 @@ useEffect(() => {
           ? crypto.randomUUID()
           : `ord_${Date.now()}`;
       setOid(id);
-      // Reserve a numeric code. NEVER block UI if it fails (iOS PWA offline/unstable net).
-      try {
-        const c = await Promise.race([
-          reserveSharedCode(id),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('CODE_RESERVE_TIMEOUT')), 6500)),
-        ]);
-        setCodeRaw(c);
-      } catch (e) {
-        // Fallback: allow PRANIMI to open and work in offline draft mode.
-        setCodeRaw('');
-        setNetState({ ok: false, reason: 'CODE_RESERVE_FAILED' });
-        setShowOfflinePrompt(true);
-        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-        setOfflineMode(true);
-        try { console.error('CODE_RESERVE_FAILED', e); } catch {}
-      }
+
+      const c = await reserveSharedCode(id);
+      setCodeRaw(c);
 
       try {
         const cached = Number(localStorage.getItem('capacity_today_pastrim_m2') || '0');
@@ -781,12 +785,7 @@ useEffect(() => {
         setEtaText(text || (cached > DAILY_CAPACITY_M2 ? 'GATI DITËN E 3-TË (MBASNESËR)' : 'GATI DITËN E 2-TË (NESËR)'));
       } catch {}
 
-      } catch (e) {
-        // Never block PRANIMI render; log for debugging.
-        try { console.error('PRANIMI_INIT_ERROR', e); } catch {}
-      } finally {
-        setCreating(false);
-      }
+      setCreating(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1209,6 +1208,45 @@ function saveOfflineQueueItem(order) {
         },
         notes: notes || '',
       };
+
+
+
+// ✅ OFFLINE / NET FAIL: mos provo DB. Ruaje lokalisht dhe dil.
+const netOkNow = !!(netState && netState.ok);
+if (offlineMode || !netOkNow) {
+  const ok = saveOfflineQueueItem(order);
+  try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+  setOfflineMode(true);
+  if (!ok) {
+    alert('❌ OFFLINE: nuk u ruajt lokalisht!');
+    setSavingContinue(false);
+    return;
+  }
+  alert(`✅ U RUAJT OFFLINE  (#${normalizeCode(codeRaw) || order?.client?.code || ''}). Kur të kthehet lidhja, provo prap për SYNC.`);
+  // keep draft for extra safety
+  try {
+    localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({
+      id: oid,
+      codeRaw,
+      name,
+      phone,
+      clientPhotoUrl,
+      tepihaRows,
+      stazaRows,
+      stairsQty,
+      stairsPer,
+      stairsPhotoUrl,
+      pricePerM2,
+      clientPaid,
+      arkaRecordedPaid,
+      payMethod,
+      notes,
+    }));
+  } catch {}
+  setSavingContinue(false);
+  return;
+}
+
 
 
       // ✅ Nëse s’kemi KOD (p.sh. pool/RPC ra), mos e blloko — ruaje OFFLINE si draft/queue.
