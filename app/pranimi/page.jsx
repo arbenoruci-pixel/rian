@@ -461,6 +461,27 @@ const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
   const RESET_ON_SHOW_KEY = 'tepiha_pranimi_reset_on_show_v1';
 
   // 3) Kur hapet PRANIMI dhe kur thirret resetForNewOrder() (MODIFIKUAR)
+
+// --- SAFE CODE RESERVATION (no hang on iOS/PWA) ---
+async function reserveCodeSafe(id) {
+  const TIMEOUT_MS = 3500;
+  try {
+    const p = reserveSharedCode(id);
+    const c = await Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('CODE_TIMEOUT')), TIMEOUT_MS)),
+    ]);
+    if (c) return c;
+    throw new Error('NO_CODE');
+  } catch (e) {
+    try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+    setOfflineMode(true);
+    setNetState({ ok: false, reason: (e && e.message) ? e.message : 'NO_CODE' });
+    setShowOfflinePrompt(true);
+    return '';
+  }
+}
+
   async function resetForNewOrder() {
     try {
       // gjenero oid
@@ -471,7 +492,7 @@ const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
       setOid(id);
 
       // menjëherë thirr reserveSharedCode(oid)
-      const c = await reserveSharedCode(id);
+      const c = await reserveCodeSafe(id);
       
       // vendose rezultatin në codeRaw
       setCodeRaw(c);
@@ -683,7 +704,7 @@ useEffect(() => {
 
     let alive = true;
 
-    (async () => {
+    (async () => { try {
       try {
         const hits = await searchClientsLive(q);
         if (!alive) return;
@@ -747,7 +768,7 @@ useEffect(() => {
           : `ord_${Date.now()}`;
       setOid(id);
 
-      const c = await reserveSharedCode(id);
+      const c = await reserveCodeSafe(id);
       setCodeRaw(c);
 
       try {
@@ -757,7 +778,9 @@ useEffect(() => {
         setEtaText(text || (cached > DAILY_CAPACITY_M2 ? 'GATI DITËN E 3-TË (MBASNESËR)' : 'GATI DITËN E 2-TË (NESËR)'));
       } catch {}
 
+    } finally {
       setCreating(false);
+    }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
