@@ -704,7 +704,7 @@ useEffect(() => {
 
     let alive = true;
 
-    (async () => { try {
+    (async () => {
       try {
         const hits = await searchClientsLive(q);
         if (!alive) return;
@@ -778,9 +778,9 @@ useEffect(() => {
         setEtaText(text || (cached > DAILY_CAPACITY_M2 ? 'GATI DITËN E 3-TË (MBASNESËR)' : 'GATI DITËN E 2-TË (NESËR)'));
       } catch {}
 
-    } finally {
-      setCreating(false);
-    }
+      } finally {
+        setCreating(false);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
