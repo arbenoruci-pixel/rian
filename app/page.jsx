@@ -1,8 +1,18 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
+import { ensureBasePool, getActorPin } from '@/lib/baseCodes';
 
 export default function HomePage() {
+  // Keep the per-user code pool topped up in the background.
+  useEffect(() => {
+    try {
+      const pin = getActorPin();
+      void ensureBasePool(pin, 20);
+    } catch {}
+  }, []);
+
   return (
     <div className="wrap">
       <header className="header-row">

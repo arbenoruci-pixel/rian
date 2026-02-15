@@ -8,6 +8,7 @@ import {
   findUserByPin as findUserByPinDb,
   upsertUser as upsertUserDb,
 } from '@/lib/usersDb';
+import { ensureBasePool } from '@/lib/baseCodes';
 
 const LS_USERS = 'arka_workers_v1'; // local fallback only
 const LS_USER = 'CURRENT_USER_DATA';
@@ -145,6 +146,10 @@ export default function LoginPage() {
 
     // Backwards compat
     localStorage.setItem(LS_USER, JSON.stringify(u));
+
+    // ✅ Ensure this user has a reserved code pool for OFFLINE work.
+    // Never block login flow.
+    try { void ensureBasePool(u.pin, 20); } catch {}
 
     // Default redirect by role.
     if (u.role === 'TRANSPORT') {
