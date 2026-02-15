@@ -4,11 +4,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { recordCashMove } from '@/lib/arkaCashSync';
-import { saveOrderLocal, getAllOrdersLocal, getOrderLocal } from '@/lib/offlineStore';
-import { queueOp } from '@/lib/offlineSyncClient';
 
 // --- CONFIG ---
 const BUCKET = 'tepiha-photos';
+const LOCAL_ORDERS_KEY = 'tepiha_local_orders_v1';
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
@@ -45,6 +44,24 @@ function unwrapOrderData(raw) {
     }
   }
   return (o && typeof o === 'object') ? o : {};
+}
+
+function readLocalOrdersByStatus(status) {
+  try {
+    const raw = localStorage.getItem(LOCAL_ORDERS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return (Array.isArray(list) ? list : [])
+      .filter((x) => x && ((x.status || x.data?.status) === status))
+      .map((x) => ({
+        id: x.id,
+        source: 'local',
+        ts: Number(x.ts || x.data?.ts || Date.now()),
+        fullOrder: x.data || {},
+        synced: !!x.synced,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 function sanitizePhone(phone) {
@@ -160,6 +177,38 @@ export default function PastrimiPage() {
   async function refreshOrders() {
     setLoading(true);
     try {
+      // OFFLINE fallback: show locally saved orders (from PRANIMI offline)
+      try {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          const locals = readLocalOrdersByStatus('pastrim').map((x) => {
+            const order = unwrapOrderData(x.fullOrder);
+            const total = Number(order.pay?.euro || 0);
+            const paid = Number(order.pay?.paid || 0);
+            const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) +
+                         (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) +
+                         (Number(order.shkallore?.qty)>0?1:0);
+            return {
+              id: x.id,
+              source: 'LOCAL',
+              ts: Number(order.ts || x.ts || Date.now()),
+              name: order.client?.name || '',
+              phone: order.client?.phone || '',
+              code: normalizeCode(order.client?.code || order.code || ''),
+              m2: computeM2(order),
+              cope,
+              total,
+              paid,
+              isPaid: paid >= total && total > 0,
+              isReturn: !!order?.returnInfo?.active,
+              fullOrder: order,
+              localOnly: true,
+            };
+          });
+          setOrders(locals);
+          setLoading(false);
+          return;
+        }
+      } catch {}
       // 1. Fetch from NORMAL orders
       const { data: normalData, error: normalError } = await supabase
         .from('orders')
@@ -180,17 +229,11 @@ export default function PastrimiPage() {
 
       if (transError) console.error("Transport orders error", transError);
 
-      // If both reads fail, use offline fallback.
-      if (normalError && transError) throw new Error('OFFLINE_READ_FAILED');
-
       const allOrders = [];
 
       // Process Normal Orders
       (normalData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
-
-        // strong local mirror for offline usage
-        try { saveOrderLocal({ ...order, id: row.id, status: 'pastrim' }); } catch {}
         
         // Normalize rows
         if (!Array.isArray(order.tepiha) && Array.isArray(order.tepihaRows)) {
@@ -227,8 +270,6 @@ export default function PastrimiPage() {
       (transportData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
 
-        try { saveOrderLocal({ ...order, id: row.id, status: 'pastrim' }); } catch {}
-
         const total = Number(order.pay?.euro || 0);
         const paid = Number(order.pay?.paid || 0);
         const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + 
@@ -254,6 +295,36 @@ export default function PastrimiPage() {
 
       // Sort combined list by date desc
       allOrders.sort((a, b) => b.ts - a.ts);
+      // Merge local unsynced (offline-created) so they remain visible until synced
+      try {
+        const locals = readLocalOrdersByStatus('pastrim');
+        for (const x of locals) {
+          const order = unwrapOrderData(x.fullOrder);
+          const id = x.id;
+          if (allOrders.some((o) => o.id === id)) continue;
+          const total = Number(order.pay?.euro || 0);
+          const paid = Number(order.pay?.paid || 0);
+          const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) +
+                       (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) +
+                       (Number(order.shkallore?.qty)>0?1:0);
+          allOrders.unshift({
+            id,
+            source: 'LOCAL',
+            ts: Number(order.ts || x.ts || Date.now()),
+            name: order.client?.name || '',
+            phone: order.client?.phone || '',
+            code: normalizeCode(order.client?.code || order.code || ''),
+            m2: computeM2(order),
+            cope,
+            total,
+            paid,
+            isPaid: paid >= total && total > 0,
+            isReturn: !!order?.returnInfo?.active,
+            fullOrder: order,
+            localOnly: true,
+          });
+        }
+      } catch {}
       setOrders(allOrders);
 
       // Calc Totals
@@ -265,42 +336,6 @@ export default function PastrimiPage() {
       const todayLoad = allOrders.filter(o => dayKey(o.ts) === today).reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
       setTodayPastrimM2(Number(todayLoad.toFixed(2)));
 
-    } catch (e) {
-      console.error('refreshOrders offline fallback', e);
-      try {
-        const local = await getAllOrdersLocal().catch(() => []);
-        const list = Array.isArray(local) ? local : [];
-
-        const rows = list
-          .filter((o) => String(o?.status || '').toLowerCase() === 'pastrim')
-          .map((order) => {
-            const total = Number(order?.pay?.euro || 0);
-            const paid = Number(order?.pay?.paid || 0);
-            const cope = (order?.tepiha?.reduce((a,b)=>a+(Number(b?.qty)||0),0)||0) +
-              (order?.staza?.reduce((a,b)=>a+(Number(b?.qty)||0),0)||0) +
-              (Number(order?.shkallore?.qty)>0?1:0);
-            return {
-              id: order?.id,
-              source: 'orders',
-              ts: Number(order?.ts || 0) || 0,
-              name: order?.client?.name || order?.client_name || '',
-              phone: order?.client?.phone || order?.client_phone || '',
-              code: normalizeCode(order?.client?.code || order?.code),
-              m2: computeM2(order),
-              cope,
-              total,
-              paid,
-              isPaid: paid >= total && total > 0,
-              isReturn: !!order?.returnInfo?.active,
-              fullOrder: order,
-            };
-          })
-          .sort((a,b) => (b.ts||0) - (a.ts||0));
-
-        setOrders(rows);
-      } catch {
-        setOrders([]);
-      }
     } finally {
       setLoading(false);
     }
@@ -384,13 +419,12 @@ export default function PastrimiPage() {
   // --- SAVE ---
   async function handleSave() {
     setSaving(true);
-    let order = null;
     try {
       const currentPaidAmount = Number((Number(clientPaid) || 0).toFixed(2));
       let finalArka = Number(arkaRecordedPaid) || 0;
 
       // Reconstruct Object
-      order = {
+      const order = {
         id: oid,
         ts: origTs,
         status: 'pastrim',
@@ -432,33 +466,7 @@ export default function PastrimiPage() {
       setEditMode(false);
       await refreshOrders();
     } catch (e) {
-      // OFFLINE SAFE: keep working even if Supabase is down
-      try {
-        await saveOrderLocal(order);
-        try { localStorage.setItem(`order_${oid}`, JSON.stringify(order)); } catch {}
-
-        // queue sync only for normal orders table
-        if (orderSource === 'orders') {
-          await queueOp('save_order', {
-            id: oid,
-            code: Number(order?.client?.code) || null,
-            code_n: Number(order?.client?.code) || null,
-            status: 'pastrim',
-            client_name: order?.client?.name || null,
-            client_phone: order?.client?.phone || null,
-            data: order,
-            total: Number(order?.pay?.euro || 0),
-            paid: Number(order?.pay?.paid || 0),
-          });
-        }
-
-        setEditMode(false);
-        await refreshOrders();
-        alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, sync bëhet automatik.');
-        return;
-      } catch {}
-
-      alert('❌ Gabim ruajtja: ' + (e?.message || e));
+      alert('❌ Gabim ruajtja: ' + e.message);
     } finally {
       setSaving(false);
     }
@@ -474,62 +482,41 @@ export default function PastrimiPage() {
       const table = o.source; // 'orders' ose 'transport_orders'
       const now = new Date().toISOString();
 
-      // If offline, use local copy (IndexedDB/local mirror)
-      let base = null;
-      try {
-        const { data: currentRow, error: fetchErr } = await supabase
-          .from(table)
-          .select('data')
-          .eq('id', o.id)
-          .single();
-        if (fetchErr) throw fetchErr;
-        base = currentRow?.data || null;
-      } catch {
-        base = (await getOrderLocal(o.id).catch(() => null)) || o?.fullOrder || null;
-      }
+      const { data: currentRow, error: fetchErr } = await supabase
+        .from(table)
+        .select('data')
+        .eq('id', o.id)
+        .single();
+
+      if (fetchErr) throw fetchErr;
 
       const updatedJson = {
-        ...(base || {}),
+        ...(currentRow.data || {}),
         status: 'gati',
-        ready_at: now,
+        ready_at: now
       };
 
       // 1. UPDATE DB
       if (table === 'transport_orders') {
         // Transport: Vetëm statusin 'gati'
-        try {
-          await supabase
-            .from('transport_orders')
-            .update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now })
-            .eq('id', o.id);
-        } catch {
-          await saveOrderLocal({ ...updatedJson, id: o.id, status: 'gati' });
-        }
+        await supabase
+          .from('transport_orders')
+          .update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now })
+          .eq('id', o.id);
         
         alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
       } else {
         // Lokal: Update + SMS
-        let didOnline = true;
-        try {
-          await supabase
-            .from('orders')
-            .update({ status: 'gati', ready_at: now, data: updatedJson })
-            .eq('id', o.id);
-        } catch {
-          didOnline = false;
-          await saveOrderLocal({ ...updatedJson, id: o.id, status: 'gati' });
-          try { localStorage.setItem(`order_${o.id}`, JSON.stringify({ ...updatedJson, id: o.id, status: 'gati' })); } catch {}
-          await queueOp('set_status', { id: o.id, status: 'gati', ready_at: now, data: updatedJson });
-        }
+        await supabase
+          .from('orders')
+          .update({ status: 'gati', ready_at: now, data: updatedJson })
+          .eq('id', o.id);
 
-        // SMS only when online
-        if (didOnline) {
-          const msg = `Pershendetje ${o.name}, porosia (kodi ${o.code}) eshte GATI. Keni ${o.cope} cope • ${o.m2} m². Ju lutem ejani sot ose neser. Faleminderit!`;
-          const url = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
-          const link = document.createElement('a');
-          link.href = url;
-          link.click();
-        }
+        const msg = `Pershendetje ${o.name}, porosia (kodi ${o.code}) eshte GATI. Keni ${o.cope} cope • ${o.m2} m². Ju lutem ejani sot ose neser. Faleminderit!`;
+        const url = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
+        const link = document.createElement('a');
+        link.href = url;
+        link.click();
       }
       
       refreshOrders();
