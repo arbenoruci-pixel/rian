@@ -36,16 +36,20 @@ const withPWA = require('next-pwa')({
       },
     },
 
-    // Supabase API (prevents iOS "hanging forever")
-    {
-      urlPattern: ({ url }) => url.hostname.includes('supabase.co'),
-      handler: 'NetworkFirst',
-      options: {
-        cacheName: 'api',
-        expiration: { maxEntries: 300, maxAgeSeconds: 5 * 60 },
-      },
-    },
-  ],
+      // Supabase API (NEVER cache; avoids "online but acts offline")
+  {
+    urlPattern: ({ url }) => url.hostname.includes('supabase.co'),
+    handler: 'NetworkOnly',
+    method: 'POST',
+    options: { cacheName: 'supabase-post' },
+  },
+  {
+    urlPattern: ({ url }) => url.hostname.includes('supabase.co'),
+    handler: 'NetworkOnly',
+    method: 'GET',
+    options: { cacheName: 'supabase-get' },
+  },
+],
 });
 
 const nextConfig = {
