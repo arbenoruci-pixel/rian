@@ -48,7 +48,6 @@ const PRICE_KEY = 'pranimi_price_per_m2';
 // OFFLINE safety (Pranimi)
 const OFFLINE_MODE_KEY = 'tepiha_offline_mode_v1';
 const OFFLINE_QUEUE_KEY = 'tepiha_offline_queue_v1';
-const LOCAL_ORDERS_KEY = 'tepiha_local_orders_v1';
 
 // ✅ remote folders (shared between workers)
 const DRAFTS_FOLDER = 'drafts';
@@ -472,20 +471,10 @@ const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
       setOid(id);
 
       // menjëherë thirr reserveSharedCode(oid)
-      try {
-        const c = await reserveSharedCode(id);
-
-        // vendose rezultatin në codeRaw
-        setCodeRaw(c);
-      } catch (e) {
-        // Nëse s’po arrijmë me marrë KOD (RPC/Pool/Permision), mos e blloko formën.
-        // Lejo punë OFFLINE (ruajtje lokale) dhe jep opsion "PROVO PRAP".
-        setCodeRaw('');
-        setNetState({ ok: false, reason: 'CODE_RESERVE_FAILED' });
-        setShowOfflinePrompt(true);
-        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-        setOfflineMode(true);
-      }
+      const c = await reserveSharedCode(id);
+      
+      // vendose rezultatin në codeRaw
+      setCodeRaw(c);
 
       // reset form fields (minimal)
       setName('');
@@ -729,7 +718,6 @@ useEffect(() => {
 useEffect(() => {
     (async () => {
       try {
-      try {
         await refreshDrafts();
       } catch {}
 
@@ -756,19 +744,11 @@ useEffect(() => {
       const id =
         (typeof crypto !== "undefined" && crypto.randomUUID)
           ? crypto.randomUUID()
-          : ("ord_" + Date.now());
+          : `ord_${Date.now()}`;
       setOid(id);
 
-      try {
-        const c = await reserveSharedCode(id);
-        setCodeRaw(c);
-      } catch (e) {
-        setCodeRaw("");
-        setNetState({ ok: false, reason: "CODE_RESERVE_FAILED" });
-        setShowOfflinePrompt(true);
-        try { localStorage.setItem(OFFLINE_MODE_KEY, "1"); } catch {}
-        setOfflineMode(true);
-      }
+      const c = await reserveSharedCode(id);
+      setCodeRaw(c);
 
       try {
         const cached = Number(localStorage.getItem('capacity_today_pastrim_m2') || '0');
@@ -776,9 +756,8 @@ useEffect(() => {
         setTodayPastrimM2(Number.isFinite(cached) ? cached : 0);
         setEtaText(text || (cached > DAILY_CAPACITY_M2 ? 'GATI DITËN E 3-TË (MBASNESËR)' : 'GATI DITËN E 2-TË (NESËR)'));
       } catch {}
-      } finally {
-        setCreating(false);
-      }
+
+      setCreating(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1169,30 +1148,6 @@ function saveOfflineQueueItem(order) {
   }
 }
 
-function saveLocalOrderMirror(order) {
-  try {
-    const raw = localStorage.getItem(LOCAL_ORDERS_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    const id = order?.id || ("local_" + Date.now());
-    const idx = list.findIndex((x) => x && x.id === id);
-    const item = {
-      id,
-      status: order?.status || "pastrim",
-      ts: Number(order?.ts || Date.now()),
-      code: (order?.client && order.client.code) ? String(order.client.code) : "",
-      data: order,
-      synced: false,
-      updated_at: Date.now(),
-    };
-    if (idx >= 0) list[idx] = item; else list.unshift(item);
-    localStorage.setItem(LOCAL_ORDERS_KEY, JSON.stringify(list.slice(0, 5000)));
-    try { localStorage.setItem("order_" + id, JSON.stringify(order)); } catch {}
-    return true;
-  } catch {
-    return false;
-  }
-}
-
   async function handleContinue() {
     if (!validateBeforeContinue()) return;
 
@@ -1200,8 +1155,11 @@ function saveLocalOrderMirror(order) {
     if (savingContinue) return;
     setSavingContinue(true);
 
+    // keep order visible to catch block (offline fallback)
+    let order = null;
+
     try {
-      const order = {
+      order = {
         id: oid,
         ts: Date.now(),
         status: 'pastrim',
@@ -1227,55 +1185,13 @@ function saveLocalOrderMirror(order) {
       };
 
 
-      // ✅ Nëse s’kemi KOD (p.sh. pool/RPC ra), mos e blloko — ruaje OFFLINE si draft/queue.
-      const normCodeNow = normalizeCode(codeRaw);
-      if (!normCodeNow || normCodeNow === '0') {
-        const ok = saveOfflineQueueItem(order);
-        const ok2 = saveLocalOrderMirror(order);
-        const ok2 = saveLocalOrderMirror(order);
-        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-        setOfflineMode(true);
-        if (!ok && !ok2) {
-          alert('❌ S’KEMI KOD + OFFLINE: nuk u ruajt lokalisht!');
-          setSavingContinue(false);
-          return;
-        }
-        alert('⚠️ U RUAJT OFFLINE (PA KOD).');
-        // keep draft for extra safety
-        try {
-          localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({
-            id: oid,
-            codeRaw,
-            name,
-            phone,
-            clientPhotoUrl,
-            tepihaRows,
-            stazaRows,
-            stairsQty,
-            stairsPer,
-            stairsPhotoUrl,
-            pricePerM2,
-            clientPaid,
-            arkaRecordedPaid,
-            payMethod,
-            notes,
-          }));
-        } catch {}
-        setSavingContinue(false);
-        try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
-        router.push('/pastrimi');
-        return;
-      }
-
-
 // ✅ OFFLINE MODE: save locally (no Supabase) so you never lose clients
 const conn = await checkConnectivity();
 if (offlineMode || !conn.ok) {
   const ok = saveOfflineQueueItem(order);
-        const ok2 = saveLocalOrderMirror(order);
   try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
   setOfflineMode(true);
-  if (!ok && !ok2) {
+  if (!ok) {
     alert('❌ OFFLINE: nuk u ruajt lokalisht!');
     setSavingContinue(false);
     return;
@@ -1306,6 +1222,7 @@ if (offlineMode || !conn.ok) {
 }
 
       // ✅ CRITICAL PATH: save to DB first so the client appears in PASTRIMI immediately.
+      // If DB save fails (network/RLS/server), we fallback to OFFLINE queue in catch.
       const db = await saveOrderToDb(order);
       if (db && db.order_id) {
         order.db_id = db.order_id;
@@ -1364,6 +1281,26 @@ if (offlineMode || !conn.ok) {
       router.push('/pastrimi');
     } catch (e) {
       console.error('PRANIMI_SAVE_ERROR', e);
+
+      // ✅ PRO OFFLINE FALLBACK:
+      // If Supabase/DB fails for any reason, save locally so the user can continue working.
+      // This covers cases where navigator.onLine is true but Supabase is down / RLS blocks / network flakes.
+      try {
+        const rawMsg = String(e?.message || e?.error_description || (e?.toString ? e.toString() : '') || '');
+        const looksNetwork = /failed to fetch|fetch failed|networkerror|load failed|timeout|offline|econn|503|502|504/i.test(rawMsg);
+        const looksDbDenied = /permission denied|rls|row level|not allowed|401|403|42501/i.test(rawMsg);
+        if (order && (looksNetwork || looksDbDenied || offlineMode)) {
+          const ok = saveOfflineQueueItem(order);
+          if (ok) {
+            try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+            setOfflineMode(true);
+            alert('✅ U RUAJT OFFLINE (DB dështoi). Kur të kthehet rrjeti/DB, mund ta bëni SYNC më vonë.');
+            setSavingContinue(false);
+            return;
+          }
+        }
+      } catch {}
+
       const msg = (e && (e.message || e.error_description || e.toString())) ? (e.message || e.error_description || e.toString()) : 'Gabim i panjohur';
       // ✅ Build-safe: avoid nested quotes inside template literals
       const details = (e && (e.details || e.hint))
