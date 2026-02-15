@@ -8,6 +8,8 @@ import { recordCashMove } from '@/lib/arkaCashSync';
 // --- CONFIG ---
 const BUCKET = 'tepiha-photos';
 const LOCAL_ORDERS_KEY = 'tepiha_local_orders_v1';
+// PRANIMI stores offline-created orders here before sync
+const OFFLINE_QUEUE_KEY = 'tepiha_offline_queue_v1';
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
@@ -47,21 +49,49 @@ function unwrapOrderData(raw) {
 }
 
 function readLocalOrdersByStatus(status) {
+  const out = [];
+
+  const pushRow = (id, fullOrder, ts, source, synced) => {
+    if (!id || !fullOrder) return;
+    const st = fullOrder.status;
+    if (st !== status) return;
+    out.push({
+      id,
+      source,
+      ts: Number(ts || fullOrder.ts || Date.now()),
+      fullOrder,
+      synced: !!synced,
+    });
+  };
+
+  // 1) Local mirror store (optional)
   try {
     const raw = localStorage.getItem(LOCAL_ORDERS_KEY);
     const list = raw ? JSON.parse(raw) : [];
-    return (Array.isArray(list) ? list : [])
-      .filter((x) => x && ((x.status || x.data?.status) === status))
-      .map((x) => ({
-        id: x.id,
-        source: 'local',
-        ts: Number(x.ts || x.data?.ts || Date.now()),
-        fullOrder: x.data || {},
-        synced: !!x.synced,
-      }));
-  } catch {
-    return [];
+    (Array.isArray(list) ? list : []).forEach((x) => {
+      const d = x?.data || x;
+      pushRow(x?.id || d?.id, d || {}, x?.ts || d?.ts, 'local', x?.synced);
+    });
+  } catch {}
+
+  // 2) Offline queue created by PRANIMI (main offline path)
+  try {
+    const rawQ = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    const q = rawQ ? JSON.parse(rawQ) : [];
+    (Array.isArray(q) ? q : []).forEach((it) => {
+      const d = it?.order;
+      if (!d) return;
+      pushRow(d.id, d, d.ts, 'offline_queue', false);
+    });
+  } catch {}
+
+  // De-dupe by id: keep newest ts
+  const byId = new Map();
+  for (const row of out) {
+    const prev = byId.get(row.id);
+    if (!prev || (Number(row.ts) >= Number(prev.ts))) byId.set(row.id, row);
   }
+  return Array.from(byId.values());
 }
 
 function sanitizePhone(phone) {
