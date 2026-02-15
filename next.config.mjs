@@ -5,6 +5,12 @@ const withPWA = require('next-pwa')({
   register: true,
   skipWaiting: true,
   disable: process.env.NODE_ENV === 'development',
+  // iOS/PWA: cache the start URL + provide a document fallback so Home Screen
+  // can open the app even when the network is down.
+  cacheStartUrl: true,
+  fallbacks: {
+    document: '/offline',
+  },
   runtimeCaching: [
     // App Router navigations (HTML)
     {
@@ -12,6 +18,9 @@ const withPWA = require('next-pwa')({
       handler: 'NetworkFirst',
       options: {
         cacheName: 'pages',
+        // If the device reports "online" but can't actually reach the server,
+        // fall back to cache quickly instead of hanging.
+        networkTimeoutSeconds: 3,
         expiration: { maxEntries: 80, maxAgeSeconds: 24 * 60 * 60 },
       },
     },
