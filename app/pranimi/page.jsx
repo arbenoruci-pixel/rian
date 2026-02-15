@@ -728,7 +728,6 @@ useEffect(() => {
 useEffect(() => {
     (async () => {
       try {
-      try {
         await refreshDrafts();
       } catch {}
 
@@ -758,22 +757,23 @@ useEffect(() => {
           : `ord_${Date.now()}`;
       setOid(id);
 
+      // CODE: try server reservation, but never block PRANIMI
 let c = '';
 try {
-  const TIMEOUT_MS = 3500;
+  const TIMEOUT_MS = 2500;
   c = await Promise.race([
     reserveSharedCode(id),
     new Promise((_, rej) => setTimeout(() => rej(new Error('CODE_TIMEOUT')), TIMEOUT_MS)),
   ]);
 } catch (e) {
-  // go offline-safe (do not block PRANIMI)
+  c = '';
   try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
   setOfflineMode(true);
-  setNetState({ ok: false, reason: (e && e.message) ? e.message : 'NO_CODE' });
+  setNetState({ ok: false, reason: (e && e.message) ? e.message : 'CODE_FAIL' });
   setShowOfflinePrompt(true);
-  c = '';
 }
 setCodeRaw(c || '');
+
 
       try {
         const cached = Number(localStorage.getItem('capacity_today_pastrim_m2') || '0');
@@ -782,9 +782,7 @@ setCodeRaw(c || '');
         setEtaText(text || (cached > DAILY_CAPACITY_M2 ? 'GATI DITËN E 3-TË (MBASNESËR)' : 'GATI DITËN E 2-TË (NESËR)'));
       } catch {}
 
-      } finally {
-        setCreating(false);
-      }
+      setCreating(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1221,7 +1219,13 @@ function saveOfflineQueueItem(order) {
           return;
         }
         alert('⚠️ S’MORI KOD NGA SERVERI. U RUAJT OFFLINE. Provo prap kur të ketë lidhje.');
-        // keep draft for extra safety
+// go forward anyway so workflow continues
+try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
+setSavingContinue(false);
+router.push('/pastrimi');
+return;
+// keep draft for extra safety
+
         try {
           localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({
             id: oid,
@@ -1258,7 +1262,13 @@ if (offlineMode || !conn.ok) {
     return;
   }
   alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, mund t’i integroni/sync më vonë.');
-  // keep draft for extra safety
+// go forward anyway so workflow continues
+try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
+setSavingContinue(false);
+router.push('/pastrimi');
+return;
+// keep draft for extra safety
+
   try {
     localStorage.setItem(`${DRAFT_ITEM_PREFIX}${oid}`, JSON.stringify({
       id: oid,
