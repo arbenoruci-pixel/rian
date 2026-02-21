@@ -1,0 +1,32 @@
+.arka-shell{min-height:100vh;background:#000;color:#e5e7eb;}
+.arka-container{max-width:980px;margin:0 auto;padding:16px;}
+
+.arka-top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:4px 0 12px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:14px;}
+.arka-title{font-size:14px;font-weight:900;letter-spacing:0.06em;text-transform:uppercase;}
+.arka-sub{font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(229,231,235,.55);}
+
+.arka-back{font-size:10px;font-weight:900;letter-spacing:0.18em;text-transform:uppercase;padding:8px 10px;border:1px solid rgba(255,255,255,.10);border-radius:10px;background:rgba(0,0,0,.4);}
+.arka-back:hover{background:rgba(255,255,255,.06);}
+
+.arka-card{background:rgba(11,15,20,.92);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:14px;box-shadow:0 0 0 1px rgba(59,130,246,.06), 0 10px 24px rgba(0,0,0,.55);}
+.arka-card-title{font-size:10px;font-weight:900;letter-spacing:0.18em;text-transform:uppercase;color:rgba(229,231,235,.65);margin-bottom:10px;}
+
+.arka-grid{display:grid;grid-template-columns:1fr;gap:12px;}
+@media(min-width:640px){.arka-grid{grid-template-columns:repeat(2,1fr);}}
+@media(min-width:900px){.arka-grid{grid-template-columns:repeat(3,1fr);}}
+
+.arka-tile{display:flex;flex-direction:column;gap:8px;min-height:92px;justify-content:space-between;}
+.arka-tile-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.arka-icon{width:34px;height:34px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.16);border:1px solid rgba(59,130,246,.25);font-size:16px;}
+.arka-tile-name{font-size:12px;font-weight:950;letter-spacing:0.14em;text-transform:uppercase;}
+.arka-tile-desc{font-size:10px;letter-spacing:0.10em;text-transform:uppercase;color:rgba(229,231,235,.55);line-height:1.4;}
+
+.arka-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);font-size:10px;font-weight:950;letter-spacing:0.18em;text-transform:uppercase;}
+.arka-btn:hover{background:rgba(255,255,255,.06);}
+.arka-btn-primary{border-color:rgba(59,130,246,.35);background:rgba(59,130,246,.18);}
+.arka-btn-primary:hover{background:rgba(59,130,246,.26);}
+.arka-btn-danger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.14);}
+.arka-btn-danger:hover{background:rgba(239,68,68,.22);}
+
+.arka-input{width:100%;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;color:#fff;font-size:12px;}
+.arka-input:focus{outline:none;border-color:rgba(59,130,246,.45);box-shadow:0 0 0 3px rgba(59,130,246,.12);}

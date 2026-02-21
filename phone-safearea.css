@@ -1,0 +1,31 @@
+/* iOS SAFE AREA FIX FOR PHONE INPUT */
+.phone-input-cont {
+  display: grid !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  padding-right: env(safe-area-inset-right);
+}
+
+.phone-input-cont .prefix {
+  position: static !important;
+  margin-left: 8px;
+  margin-right: 6px;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.phone-input-cont .input {
+  padding-left: 12px !important;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Prevent any horizontal scroll */
+.wrap, body {
+  overflow-x: hidden;
+}
