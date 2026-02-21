@@ -32,45 +32,55 @@ export default function AuthGate({ children }) {
   const [offlineNoUser, setOfflineNoUser] = useState(false);
 
   useEffect(() => {
-    const isLogin = pathname === "/login" || pathname?.startsWith("/login/");
-    if (isLogin) {
-      setOfflineNoUser(false);
-      setReady(true);
-      return;
-    }
+    // ULTRA STABLE FIX:
+    // wait one tick so localStorage/session hydrate before redirect
+    const t = setTimeout(() => {
 
-    // allow doctor page always (debug/diagnostics)
-    const isDoctor = pathname === "/doctor" || pathname?.startsWith("/doctor/");
-    if (isDoctor) {
-      setOfflineNoUser(false);
-      setReady(true);
-      return;
-    }
-
-    const u = readStoredUser();
-    if (u) {
-      setOfflineNoUser(false);
-      setReady(true);
-      return;
-    }
-
-    // If offline, DO NOT block rendering (returning null looks like "blank app").
-    // Show the cached shell and let the user login when internet is back.
-    try {
-      const isOffline = typeof navigator !== "undefined" && navigator && navigator.onLine === false;
-      if (isOffline) {
-        setOfflineNoUser(true);
+      const isLogin = pathname === "/login" || pathname?.startsWith("/login/");
+      if (isLogin) {
+        setOfflineNoUser(false);
         setReady(true);
         return;
       }
-    } catch {}
 
-    try {
-      const next = pathname ? `?next=${encodeURIComponent(pathname)}` : "";
-      router.replace(`/login${next}`);
-    } catch {}
-    setOfflineNoUser(false);
-    setReady(false);
+      const isDoctor = pathname === "/doctor" || pathname?.startsWith("/doctor/");
+      if (isDoctor) {
+        setOfflineNoUser(false);
+        setReady(true);
+        return;
+      }
+
+      const u = readStoredUser();
+      if (u) {
+        setOfflineNoUser(false);
+        setReady(true);
+        return;
+      }
+
+      try {
+        const isOffline =
+          typeof navigator !== "undefined" &&
+          navigator &&
+          navigator.onLine === false;
+
+        if (isOffline) {
+          setOfflineNoUser(true);
+          setReady(true);
+          return;
+        }
+      } catch {}
+
+      try {
+        const next = pathname ? `?next=${encodeURIComponent(pathname)}` : "";
+        router.replace(`/login${next}`);
+      } catch {}
+
+      setOfflineNoUser(false);
+      setReady(false);
+
+    }, 0);
+
+    return () => clearTimeout(t);
   }, [pathname, router]);
 
   if (!ready) return null;
@@ -78,7 +88,18 @@ export default function AuthGate({ children }) {
   return (
     <>
       {offlineNoUser ? (
-        <div style={{ padding: 10, margin: 10, borderRadius: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,180,0,0.10)", color: "#ffd28a", fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", fontSize: 12 }}>
+        <div style={{
+          padding: 10,
+          margin: 10,
+          borderRadius: 12,
+          border: "1px solid rgba(255,255,255,0.12)",
+          background: "rgba(255,180,0,0.10)",
+          color: "#ffd28a",
+          fontWeight: 800,
+          letterSpacing: 1,
+          textTransform: "uppercase",
+          fontSize: 12
+        }}>
           OFFLINE • S'KA SESSION — KTHEHU ONLINE ME HY
         </div>
       ) : null}
