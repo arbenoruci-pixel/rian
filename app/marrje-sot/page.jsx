@@ -127,8 +127,8 @@ export default function MarrjeSotPage() {
             dayKey: key,
             _src: 'LOCAL',
           };
-        })
-        .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
+        
+          .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
 
       if (error || !data) {
         // OFFLINE: show local-only
@@ -168,8 +168,8 @@ export default function MarrjeSotPage() {
             dayKey: dayKeyFromIso(row.picked_up_at || order.picked_up_at || order.delivered_at),
             _src: 'DB',
           };
-        })
-        .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
+        
+          .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
 
       // DEDUPE by CODE with DB precedence
       const map = new Map();
@@ -207,7 +207,7 @@ export default function MarrjeSotPage() {
               dayKey: key,
               _src: 'LOCAL',
             };
-          })
+          
           .filter((r) => r.dayKey === today && !/^T\d+$/i.test(String(r.code || '').trim()));
         setRows(offlineRows);
       } catch {
@@ -326,7 +326,7 @@ export default function MarrjeSotPage() {
               dayKey: key,
               order,
             };
-          })
+          
           .filter((r) => r.dayKey === todayKey);
         setRows(offlineRows);
       } catch {

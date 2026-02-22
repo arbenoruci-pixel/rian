@@ -687,7 +687,7 @@ export default function GatiPage() {
   }
 
   // ✅ FIXED: removes from GATI + writes picked_up_at to DB for MARRJE SOT (ONLY picked_up_at!)
-  async function confirmDelivery() {
+  async async function confirmDelivery() {
     if (!payOrder) return;
     const o = payOrder.order;
 
