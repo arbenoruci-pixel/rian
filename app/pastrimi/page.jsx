@@ -110,14 +110,43 @@ async function readLocalOrdersByStatus(status) {
     });
   } catch {}
 
-  // De-dupe by id: keep newest ts
-  const byId = new Map();
+  
+  // De-dupe by CODE (not id): keep best row
+  const byCode = new Map();
+
+  const piecesCount = (fullOrder) => {
+    try{
+      let p = 0;
+      if (Array.isArray(fullOrder?.tepiha)) for (const r of fullOrder.tepiha) p += (Number(r.qty)||0);
+      if (Array.isArray(fullOrder?.staza)) for (const r of fullOrder.staza) p += (Number(r.qty)||0);
+      if (fullOrder?.shkallore?.qty) p += (Number(fullOrder.shkallore.qty)||0);
+      return p;
+    }catch{return 0;}
+  };
+
+  const scoreRow = (row) => {
+    const m2 = computeM2(row.fullOrder) || 0;
+    const pcs = piecesCount(row.fullOrder) || 0;
+    // Prefer synced/DB-backed info, then richer content (m2/pieces), then newest ts
+    return (row.synced ? 1000000 : 0) + (row.source === 'idb' ? 10000 : 0) + (m2 * 100) + (pcs * 10);
+  };
+
   for (const row of out) {
-    const prev = byId.get(row.id);
-    if (!prev || (Number(row.ts) >= Number(prev.ts))) byId.set(row.id, row);
+    const codeKey = normalizeCode(row?.fullOrder?.code || row?.fullOrder?.code_n || row?.fullOrder?.client?.code || row?.fullOrder?.client_code || row?.id);
+    const prev = byCode.get(codeKey);
+    if (!prev) {
+      byCode.set(codeKey, row);
+      continue;
+    }
+    const s1 = scoreRow(row);
+    const s0 = scoreRow(prev);
+    if (s1 > s0) byCode.set(codeKey, row);
+    else if (s1 === s0 && Number(row.ts) >= Number(prev.ts)) byCode.set(codeKey, row);
   }
-  return Array.from(byId.values());
+
+  return Array.from(byCode.values());
 }
+
 
 function sanitizePhone(phone) {
   return String(phone || '').replace(/\D+/g, '');
@@ -322,7 +351,7 @@ export default function PastrimiPage() {
               ts: Number(order.ts || x.ts || Date.now()),
               name: order.client?.name || '',
               phone: order.client?.phone || '',
-              code: normalizeCode(order.client?.code || order.code || ''),
+              code: codeKey,
               m2: computeM2(order),
               cope,
               total,
@@ -430,7 +459,8 @@ export default function PastrimiPage() {
         for (const x of locals) {
           const order = unwrapOrderData(x.fullOrder);
           const id = x.id;
-          if (allOrders.some((o) => o.id === id)) continue;
+          const codeKey = normalizeCode(order.client?.code || order.code || '');
+          if (allOrders.some((o) => String(o.code) === String(codeKey))) continue;
           const total = Number(order.pay?.euro || 0);
           const paid = Number(order.pay?.paid || 0);
           const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) +
@@ -442,7 +472,7 @@ export default function PastrimiPage() {
             ts: Number(order.ts || x.ts || Date.now()),
             name: order.client?.name || '',
             phone: order.client?.phone || '',
-            code: normalizeCode(order.client?.code || order.code || ''),
+            code: codeKey,
             m2: computeM2(order),
             cope,
             total,
