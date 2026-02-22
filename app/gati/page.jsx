@@ -753,7 +753,7 @@ export default function GatiPage() {
 
     // ✅ IMMEDIATE UI REMOVE (string/number safe)
     const uid = String(updated.id);
-    setOrders((prev) => prev.filter((x) => String(x.id) !== uid));
+    setOrders((prev) => (prev || []).filter((x) => normalizeCode(x.code) !== normalizeCode(updated.code) && String(x.id) !== uid));
 
     // save to localStorage + storage json (best-effort)
     try {
@@ -786,18 +786,25 @@ export default function GatiPage() {
         .update({ data: { ...updated, status: 'dorzim' }, picked_up_at: nowIso })
         .eq('id', payOrder.id);
     } catch (e) {
-      console.log('DB delivery update EX:', e);
-      // OFFLINE: queue status sync
+            console.log('DB delivery update EX:', e);
+      // OFFLINE/FAILSAFE: queue full snapshot as insert_order (single op_type supported)
       try {
-        await queueOp('set_status', {
-          id: payOrder.id,
+        await queueOp('insert_order', {
+          ...updated,
           status: 'dorzim',
           picked_up_at: nowIso,
           delivered_at: nowIso,
-          data: { ...updated, status: 'dorzim' },
+          // keep columns top-level too (route will normalize)
+          code: updated.code ?? updated.code_n ?? updated.client?.code ?? updated.client_code ?? null,
+          code_n: updated.code_n ?? updated.code ?? null,
+          client_code: updated.client_code ?? updated.client?.code ?? null,
+          client_name: updated.client_name ?? updated.client?.name ?? null,
+          client_phone: updated.client_phone ?? updated.client?.phone ?? null,
+          total,
+          paid: paidAfter,
         });
       } catch {}
-    }
+    }}
 
     // Record CASH payment (EXACT delta only). When ARKA is closed, it is stored as WAITING.
     if (willRecordCash && safeDelta > 0) {

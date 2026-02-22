@@ -86,31 +86,136 @@ export default function MarrjeSotPage() {
   async function refresh() {
     setLoading(true);
     try {
-      const todayKey = dayKeyLocal(new Date());
+      // today range (local day -> ISO)
+      const d0 = new Date();
+      d0.setHours(0, 0, 0, 0);
+      const d1 = new Date(d0);
+      d1.setDate(d1.getDate() + 1);
 
-      const { data } = await supabase.storage.from(BUCKET).list('orders', { limit: 1000 });
-      if (!data) {
-        // OFFLINE fallback
+      const startIso = d0.toISOString();
+      const endIso = d1.toISOString();
+
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id,code,code_n,client_name,client_phone,status,total,paid,picked_up_at,created_at,data')
+        .eq('status', 'dorzim')
+        .gte('picked_up_at', startIso)
+        .lt('picked_up_at', endIso)
+        .order('picked_up_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      // Prepare local fallback rows (today only)
+      const local = await getAllOrdersLocal().catch(() => []);
+      const localList = Array.isArray(local) ? local : [];
+      const localRows = localList
+        .filter((o) => String(o?.status || '').toLowerCase() === 'dorzim')
+        .map((order) => {
+          const picked = order?.picked_up_at || order?.delivered_at;
+          const key = picked ? dayKeyFromIso(picked) : dayKeyFromMs(order?.pickedUpAt || order?.deliveredAt);
+          return {
+            id: String(order?.id || ''),
+            code: normalizeCode(order?.client?.code || order?.client_code || order?.code || ''),
+            name: String(order?.client?.name || order?.client_name || ''),
+            phone: sanitizePhone(order?.client?.phone || order?.client_phone || ''),
+            cope: computePieces(order),
+            m2: computeM2(order),
+            total: Number(order?.pay?.euro || order?.total || 0) || 0,
+            paid: Number(order?.pay?.paid || order?.paid || 0) || 0,
+            picked_at: picked || order?.picked_up_at || order?.delivered_at || null,
+            dayKey: key,
+            _src: 'LOCAL',
+          };
+        })
+        .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
+
+      if (error || !data) {
+        // OFFLINE: show local-only
+        setRows(localRows);
+        return;
+      }
+
+      const dbRows = (data || [])
+        .map((row) => {
+          let raw = row.data;
+          if (typeof raw === 'string') {
+            try { raw = JSON.parse(raw); } catch { raw = {}; }
+          }
+          const order = { ...(raw || {}) };
+
+          // back-compat keys
+          if (!Array.isArray(order.tepiha) && Array.isArray(order.tepihaRows)) order.tepiha = order.tepihaRows;
+          if (!Array.isArray(order.staza) && Array.isArray(order.stazaRows)) order.staza = order.stazaRows;
+
+          const code = normalizeCode(row.code ?? row.code_n ?? order.code ?? order.code_n ?? order.client?.code ?? row.client_code ?? '');
+          const name = String(row.client_name ?? order.client_name ?? order.client?.name ?? '');
+          const phone = sanitizePhone(row.client_phone ?? order.client_phone ?? order.client?.phone ?? '');
+
+          const total = Number(row.total ?? order?.pay?.euro ?? order.total ?? 0) || 0;
+          const paid = Number(row.paid ?? order?.pay?.paid ?? order.paid ?? 0) || 0;
+
+          return {
+            id: String(row.id),
+            code,
+            name,
+            phone,
+            cope: computePieces(order),
+            m2: computeM2(order),
+            total,
+            paid,
+            picked_at: row.picked_up_at || order.picked_up_at || order.delivered_at || null,
+            dayKey: dayKeyFromIso(row.picked_up_at || order.picked_up_at || order.delivered_at),
+            _src: 'DB',
+          };
+        })
+        .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
+
+      // DEDUPE by CODE with DB precedence
+      const map = new Map();
+      for (const r of localRows) map.set(String(r.code), r);
+      for (const r of dbRows) map.set(String(r.code), r); // DB overwrites
+      const merged = Array.from(map.values()).sort((a, b) => {
+        const ta = new Date(a.picked_at || 0).getTime() || 0;
+        const tb = new Date(b.picked_at || 0).getTime() || 0;
+        return tb - ta;
+      });
+
+      setRows(merged);
+    } catch (e) {
+      console.error(e);
+      // last resort: local-only
+      try {
         const local = await getAllOrdersLocal().catch(() => []);
         const list = Array.isArray(local) ? local : [];
+        const today = dayKeyLocal(new Date());
         const offlineRows = list
           .filter((o) => String(o?.status || '').toLowerCase() === 'dorzim')
           .map((order) => {
-            const id = String(order?.id || '');
             const picked = order?.picked_up_at || order?.delivered_at;
             const key = picked ? dayKeyFromIso(picked) : dayKeyFromMs(order?.pickedUpAt || order?.deliveredAt);
             return {
-              id,
-              name: order?.client?.name || '',
-              phone: order?.client?.phone || '',
-              code: normalizeCode(order?.client?.code || order?.code),
-              m2: computeM2(order),
+              id: String(order?.id || ''),
+              code: normalizeCode(order?.client?.code || order?.client_code || order?.code || ''),
+              name: String(order?.client?.name || order?.client_name || ''),
+              phone: sanitizePhone(order?.client?.phone || order?.client_phone || ''),
               cope: computePieces(order),
-              total: Number(order?.pay?.euro || 0),
-              paid: Number(order?.pay?.paid || 0),
+              m2: computeM2(order),
+              total: Number(order?.pay?.euro || order?.total || 0) || 0,
+              paid: Number(order?.pay?.paid || order?.paid || 0) || 0,
+              picked_at: picked || null,
               dayKey: key,
-              order,
+              _src: 'LOCAL',
             };
+          })
+          .filter((r) => r.dayKey === today && !/^T\d+$/i.test(String(r.code || '').trim()));
+        setRows(offlineRows);
+      } catch {
+        setRows([]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
           })
           .filter((r) => r.dayKey === todayKey)
           .sort((a, b) => String(b.code || '').localeCompare(String(a.code || '')));

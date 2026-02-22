@@ -4,56 +4,10 @@ import { NextResponse } from "next/server";
 // Uses service role key if present; falls back to anon key (so your RLS must allow it).
 import { createAdminClientOrNull } from "@/lib/supabaseAdminClient";
 
-// BASE RULE: Client/order codes are permanent identity.
-// The server must NOT reassign codes coming from offline/online clients.
-
-
-function unwrapOrder(payload) {
-  // payload may be nested (data->data->data) depending on client build.
-  const p = payload || {};
-  const o =
-    (p.data && p.data.data && p.data.data.data) ||
-    (p.data && p.data.data) ||
-    (p.data) ||
-    p;
-
-  const oData = (o && o.data) ? o.data : {};
-  const pay = o.pay || oData.pay || {};
-  const client = o.client || oData.client || {};
-
-  const total = Number(
-    o.total ??
-    oData.total ??
-    pay.euro ??
-    pay.total ??
-    0
-  ) || 0;
-
-  const paid = Number(
-    o.paid ??
-    oData.paid ??
-    pay.paid ??
-    0
-  ) || 0;
-
-  const code = Number(o.code ?? p.code ?? 0) || null;
-  const code_n = Number(o.code_n ?? p.code_n ?? code ?? 0) || null;
-
-  return {
-    code,
-    code_n,
-    status: o.status || oData.status || 'pastrim',
-    client_code: Number(o.client_code ?? oData.client_code ?? client.code ?? p.client_code ?? 0) || null,
-    client_name: String(o.client_name ?? oData.client_name ?? client.name ?? p.client_name ?? '').trim() || null,
-    client_phone: String(o.client_phone ?? oData.client_phone ?? client.phone ?? p.client_phone ?? '').trim() || null,
-    client_photo_url: o.client_photo_url ?? oData.client_photo_url ?? client.photoUrl ?? null,
-    notes: o.notes ?? oData.notes ?? null,
-    is_offline: false,
-    total,
-    paid,
-    data: p
-  };
-}
+// Base numeric codes were migrated to a high range to avoid collisions with
+// legacy/local counters (e.g., 1..999999). Any incoming code below this floor
+// is treated as a *local* placeholder and will be reassigned server-side.
+const BASE_CODE_FLOOR = 1;
 
 function getLocalIdFromData(data) {
   try {
@@ -212,7 +166,7 @@ export async function POST(req){
 
       let error = null;
       if (hasCode) {
-        const r1 = await sb.from("orders").upsert(row, { onConflict: "code" });
+        const r1 = await sb.from("orders").upsert(row, { onConflict: "code_n" });
         error = r1.error;
       } else {
         const r2 = await sb.from("orders").insert(row);
@@ -233,8 +187,8 @@ export async function POST(req){
     }
 
     if(type === "insert_order"){
-      // Normalize nested payloads, keep code permanent, and ensure totals are stored in columns.
-      const row = unwrapOrder(payload);
+      // Some builds queued ops with non-UUID ids. Use `code` as idempotency key when possible.
+      const row = { ...(payload || {}) };
 
       // Idempotency for offline replays: if we have a local client id inside data.id,
       // and it already exists in DB, acknowledge (client can delete op safely).
@@ -250,8 +204,9 @@ export async function POST(req){
         }
       }
 
-      // Keep code/code_n stable. If code_n is missing, mirror it from code.
-      if (row.code != null && row.code_n == null) row.code_n = row.code;
+      // Critical: NEVER trust client-provided code_n (it may collide with existing rows).
+      // Let the DB trigger assign a safe code_n.
+      if (row.code_n != null) delete row.code_n;
 
       // If id is not a UUID, strip it so DB can generate one.
       if (typeof row.id === 'string' && row.id && !row.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)) {
@@ -259,10 +214,43 @@ export async function POST(req){
       }
 
       const hasCode = row.code != null;
+      const incomingCode = hasCode ? Number(row.code) : null;
+      const legacyLocalCode = Number.isFinite(incomingCode) && incomingCode < BASE_CODE_FLOOR;
+
+      // If legacy local code, insert with a temporary unique negative code,
+      // then promote code/code_n to DB-assigned code_n.
+      if (legacyLocalCode) {
+        row.code = -Date.now();
+        const { data: ins, error: insErr } = await sb
+          .from("orders")
+          .insert(row)
+          .select("id, code, code_n, data")
+          .single();
+        if (insErr) return NextResponse.json({ ok:false, error: insErr.message }, { status: 200 });
+
+        const newCode = ins.code_n;
+        const newData = (ins.data && typeof ins.data === 'object') ? { ...ins.data } : (row.data && typeof row.data === 'object' ? { ...row.data } : {});
+        newData.code = newCode;
+        newData.code_n = newCode;
+
+        const { error: updErr } = await sb
+          .from("orders")
+          .update({ code: newCode, code_n: newCode, data: newData })
+          .eq("id", ins.id);
+        if (updErr) return NextResponse.json({ ok:false, error: updErr.message }, { status: 200 });
+
+        return NextResponse.json({ ok:true, localId: localId || null, code: newCode, reassigned: true });
+      }
+
       let error = null;
       if (hasCode) {
-        const r1 = await sb.from("orders").upsert(row, { onConflict: "code" });
+        const r1 = await sb.from("orders").upsert(row, { onConflict: "code_n" });
         error = r1.error;
+        // If there's no unique constraint on `code`, fallback to insert.
+        if (error) {
+          const r2 = await sb.from("orders").insert(row);
+          error = r2.error;
+        }
       } else {
         const r3 = await sb.from("orders").insert(row);
         error = r3.error;
@@ -321,7 +309,7 @@ export async function POST(req){
 
       const { data: ins, error: oErr } = await sb
         .from("orders")
-        .upsert(orderRow, { onConflict: "code" })
+        .upsert(orderRow, { onConflict: "code_n" })
         .select("id, code")
         .single();
 
@@ -404,7 +392,7 @@ export async function POST(req){
         updated_at: now,
         created_at: now,
       };
-      const { error } = await sb.from("orders").upsert(orderRow, { onConflict: "code" });
+      const { error } = await sb.from("orders").upsert(orderRow, { onConflict: "code_n" });
       if(error) return NextResponse.json({ ok:false, error: error.message }, { status: 200 });
       return NextResponse.json({ ok:true });
     }
