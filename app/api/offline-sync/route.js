@@ -403,9 +403,11 @@ export async function POST(req){
       return NextResponse.json({ ok:true });
     }
 
-
     if(type === "patch_order_data"){
-      const { id, patch } = payload || {};
+      const id = payload?.id;
+      // RREGULLIMI: Pranojmë si 'patch' ashtu edhe 'data_patch' nga frontend-i
+      const patch = payload?.patch || payload?.data_patch; 
+
       if(!id || !patch || typeof patch !== "object"){
         return NextResponse.json({ ok:false, error:"MISSING_ID_OR_PATCH" }, { status: 200 });
       }
