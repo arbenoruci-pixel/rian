@@ -143,8 +143,8 @@ export async function POST(req){
     }
 
     const op = await req.json();
-    const type = op?.type;
-    const payload = op?.payload || {};
+    const type = op?.type || op?.op_type || op?.opType;
+    const payload = op?.payload || op?.data || {};
 
     // Helpers: some older pages used UPSERT_ORDER without op_id.
     // Here we accept and route it safely.
