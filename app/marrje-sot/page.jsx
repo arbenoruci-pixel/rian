@@ -65,15 +65,6 @@ function dayKeyFromMs(ms) {
   return dayKeyLocal(d);
 }
 
-// ✅ IMPORTANT: download JSON no-cache
-async function downloadJsonNoCache(path) {
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
-  if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
-  const res = await fetch(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Fetch failed');
-  return await res.json();
-}
-
 export default function MarrjeSotPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -109,7 +100,6 @@ export default function MarrjeSotPage() {
       // Prepare local fallback rows (today only)
       const local = await getAllOrdersLocal().catch(() => []);
       const localList = Array.isArray(local) ? local : [];
-      // Local fallback rows (today only). Keep it as ONE expression (no leading-dot after line breaks).
       const localRows = localList
         .filter((o) => String(o?.status || '').toLowerCase() === 'dorzim')
         .map((order) => {
@@ -126,7 +116,7 @@ export default function MarrjeSotPage() {
             m2: computeM2(order),
             total: Number(order?.pay?.euro || order?.total || 0) || 0,
             paid: Number(order?.pay?.paid || order?.paid || 0) || 0,
-            picked_at: picked || order?.picked_up_at || order?.delivered_at || null,
+            pickedAt: picked || order?.picked_up_at || order?.delivered_at || null,
             dayKey: key,
             _src: 'LOCAL',
           };
@@ -171,7 +161,7 @@ export default function MarrjeSotPage() {
             m2: computeM2(order),
             total,
             paid,
-            picked_at: row.picked_up_at || order.picked_up_at || order.delivered_at || null,
+            pickedAt: row.picked_up_at || order.picked_up_at || order.delivered_at || null,
             dayKey: dayKeyFromIso(row.picked_up_at || order.picked_up_at || order.delivered_at),
             _src: 'DB',
           };
@@ -183,8 +173,8 @@ export default function MarrjeSotPage() {
       for (const r of localRows) map.set(String(r.code), r);
       for (const r of dbRows) map.set(String(r.code), r); // DB overwrites
       const merged = Array.from(map.values()).sort((a, b) => {
-        const ta = new Date(a.picked_at || 0).getTime() || 0;
-        const tb = new Date(b.picked_at || 0).getTime() || 0;
+        const ta = new Date(a.pickedAt || 0).getTime() || 0;
+        const tb = new Date(b.pickedAt || 0).getTime() || 0;
         return tb - ta;
       });
 
@@ -210,131 +200,12 @@ export default function MarrjeSotPage() {
               m2: computeM2(order),
               total: Number(order?.pay?.euro || order?.total || 0) || 0,
               paid: Number(order?.pay?.paid || order?.paid || 0) || 0,
-              picked_at: picked || null,
+              pickedAt: picked || null,
               dayKey: key,
               _src: 'LOCAL',
             };
           })
           .filter((r) => r.dayKey === today && !/^T\d+$/i.test(String(r.code || '').trim()));
-        setRows(offlineRows);
-      } catch {
-        setRows([]);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-        setRows(offlineRows);
-        return;
-      }
-
-      const items = (data || []).filter((x) => (x.name || '').endsWith('.json'));
-
-      const promises = items.map(async (item) => {
-        try {
-          const ord = await downloadJsonNoCache(`orders/${item.name}`);
-          if (!ord?.id) return null;
-
-          // Prefer local copy if exists (same as GATI)
-          let order = ord;
-          if (typeof window !== 'undefined') {
-            try {
-              const localRaw = localStorage.getItem(`order_${ord.id}`);
-              if (localRaw) {
-                const localOrd = JSON.parse(localRaw);
-                if (localOrd && String(localOrd.id) === String(ord.id)) order = localOrd;
-              }
-            } catch {}
-          }
-
-          // Mirror if missing local
-          if (typeof window !== 'undefined') {
-            try {
-              const existing = localStorage.getItem(`order_${ord.id}`);
-              if (!existing) localStorage.setItem(`order_${ord.id}`, JSON.stringify(ord));
-            } catch {}
-          }
-
-          // ✅ Delivery timestamp: prefer picked_up_at (ISO). fallback to ms fields.
-          const pickedIso =
-            order.picked_up_at ||
-            order.pickedUpAtIso ||
-            order.delivered_at ||
-            order.deliveredAtIso ||
-            '';
-          const pickedMs =
-            Number(order.pickedUpAt) ||
-            Number(order.picked_up_ms) ||
-            Number(order.deliveredAt) ||
-            Number(order.delivered_at_ms) ||
-            0;
-
-          const kIso = pickedIso ? dayKeyFromIso(pickedIso) : '';
-          const kMs = pickedMs ? dayKeyFromMs(pickedMs) : '';
-
-          const isToday = (kIso && kIso === todayKey) || (kMs && kMs === todayKey);
-          if (!isToday) return null;
-
-          const m2 = computeM2(order);
-          const cope = computePieces(order);
-          const total = Number(order.pay?.euro || 0);
-          const paid = Number(order.pay?.paid || 0);
-
-          return {
-            id: String(order.id),
-            code: normalizeCode(order.client?.code || order.code || ''),
-            name: order.client?.name || '',
-            phone: order.client?.phone || '',
-            m2,
-            cope,
-            total,
-            paid,
-            pickedAt:
-              pickedIso ||
-              (pickedMs ? new Date(pickedMs).toISOString() : ''),
-          };
-        } catch {
-          return null;
-        }
-      });
-
-      const res = await Promise.all(promises);
-      const list = res.filter(Boolean);
-
-      // sort newest first
-      list.sort((a, b) => {
-        const ta = new Date(a.pickedAt || 0).getTime() || 0;
-        const tb = new Date(b.pickedAt || 0).getTime() || 0;
-        return tb - ta;
-      });
-
-      setRows(list);
-    } catch (e) {
-      // OFFLINE fallback
-      try {
-        const todayKey = dayKeyLocal(new Date());
-        const local = await getAllOrdersLocal().catch(() => []);
-        const list = Array.isArray(local) ? local : [];
-        const offlineRows = list
-          .filter((o) => String(o?.status || '').toLowerCase() === 'dorzim')
-          .map((order) => {
-            const id = String(order?.id || '');
-            const picked = order?.picked_up_at || order?.delivered_at;
-            const key = picked ? dayKeyFromIso(picked) : dayKeyFromMs(order?.pickedUpAt || order?.deliveredAt);
-            return {
-              id,
-              name: order?.client?.name || '',
-              phone: order?.client?.phone || '',
-              code: normalizeCode(order?.client?.code || order?.code),
-              m2: computeM2(order),
-              cope: computePieces(order),
-              total: Number(order?.pay?.euro || 0),
-              paid: Number(order?.pay?.paid || 0),
-              dayKey: key,
-              order,
-            };
-          })
-          .filter((r) => r.dayKey === todayKey);
         setRows(offlineRows);
       } catch {
         setRows([]);
