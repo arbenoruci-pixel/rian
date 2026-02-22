@@ -1,5 +1,6 @@
-// app/arka/cash/CashClient.jsx
 "use client";
+
+// app/arka/cash/CashClient.jsx
 
 import React, { useEffect, useMemo, useState } from "react";
 import {

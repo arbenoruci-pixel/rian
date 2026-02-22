@@ -109,14 +109,11 @@ export default function MarrjeSotPage() {
       // Prepare local fallback rows (today only)
       const local = await getAllOrdersLocal().catch(() => []);
       const localList = Array.isArray(local) ? local : [];
-      // Local fallback rows (today only). Keep it as ONE expression (no leading-dot after line breaks).
       const localRows = localList
         .filter((o) => String(o?.status || '').toLowerCase() === 'dorzim')
         .map((order) => {
           const picked = order?.picked_up_at || order?.delivered_at;
-          const key = picked
-            ? dayKeyFromIso(picked)
-            : dayKeyFromMs(order?.pickedUpAt || order?.deliveredAt);
+          const key = picked ? dayKeyFromIso(picked) : dayKeyFromMs(order?.pickedUpAt || order?.deliveredAt);
           return {
             id: String(order?.id || ''),
             code: normalizeCode(order?.client?.code || order?.client_code || order?.code || ''),
@@ -131,11 +128,7 @@ export default function MarrjeSotPage() {
             _src: 'LOCAL',
           };
         })
-        .filter(
-          (r) =>
-            r.dayKey === dayKeyLocal(new Date()) &&
-            !/^T\d+$/i.test(String(r.code || '').trim())
-        );
+        .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
 
       if (error || !data) {
         // OFFLINE: show local-only
@@ -224,6 +217,9 @@ export default function MarrjeSotPage() {
       setLoading(false);
     }
   };
+          })
+          .filter((r) => r.dayKey === todayKey)
+          .sort((a, b) => String(b.code || '').localeCompare(String(a.code || '')));
         setRows(offlineRows);
         return;
       }
