@@ -1,21 +1,23 @@
 import { NextResponse } from "next/server";
-
-// Server-side offline sync endpoint.
 import { createAdminClientOrNull } from "@/lib/supabaseAdminClient";
 
+// Any incoming code below this floor is treated as a local placeholder and can be reassigned.
 const BASE_CODE_FLOOR = 1;
 
+// ----------------- utils -----------------
+function safeObj(v) {
+  return v && typeof v === "object" ? v : {};
+}
+
 function isUuid(v) {
-  return (
-    typeof v === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
-  );
+  if (typeof v !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
 function getLocalIdFromData(data) {
   try {
-    if (!data || typeof data !== "object") return null;
-    const v = data.id;
+    const o = safeObj(data);
+    const v = o.id;
     if (!v) return null;
     return String(v);
   } catch {
@@ -39,8 +41,8 @@ function normCode(raw) {
 }
 
 function extractOrder(o) {
-  const order = o && typeof o === "object" ? o : {};
-  const client = order.client && typeof order.client === "object" ? order.client : {};
+  const order = safeObj(o);
+  const client = safeObj(order.client);
 
   const code = normCode(client.code ?? order.code ?? order.code_n);
   const phone = normPhone(client.phone ?? order.client_phone);
@@ -52,13 +54,23 @@ function extractOrder(o) {
   const total = Number(order?.pay?.euro ?? order?.total ?? 0) || 0;
   const paid = Number(order?.pay?.paid ?? order?.paid ?? 0) || 0;
 
-  return { code, phone, name, status, data, total, paid, client_photo_url: client.photoUrl || null };
+  return {
+    code,
+    phone,
+    name,
+    status,
+    data,
+    total,
+    paid,
+    client_photo_url: client.photoUrl || null,
+  };
 }
 
 function extractTransportOrder(o) {
-  const order = o && typeof o === "object" ? o : {};
+  const order = safeObj(o);
   const tcodeRaw = String(order.tcode ?? order.code ?? order.client_tcode ?? order.code_str ?? "").trim();
   const tcode = tcodeRaw.toUpperCase();
+
   const visit_nr = order.visit_nr ?? order.visitNr ?? order.visit ?? null;
   const status = String(order.status || "pastrim").toLowerCase();
 
@@ -80,10 +92,13 @@ function extractTransportOrder(o) {
   };
 }
 
+function looksLikeTransport(p) {
+  const s = String(p?.tcode ?? p?.client_tcode ?? p?.code_str ?? p?.code ?? "").trim().toUpperCase();
+  return s.startsWith("T");
+}
+
 async function upsertClientByPhone(sb, { code, phone, name, photo_url }) {
-  if (!phone) {
-    return { id: null, code: code ?? null };
-  }
+  if (!phone) return { id: null, code: code ?? null };
 
   const { data: found, error: fErr } = await sb
     .from("clients")
@@ -103,7 +118,7 @@ async function upsertClientByPhone(sb, { code, phone, name, photo_url }) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", found.id);
-    } catch {}
+    } catch (_e) {}
     return { id: found.id, code: found.code ?? code ?? null };
   }
 
@@ -121,45 +136,44 @@ async function upsertClientByPhone(sb, { code, phone, name, photo_url }) {
   const { data: ins, error: iErr } = await sb.from("clients").insert(insertRow).select("id, code").single();
 
   if (iErr) {
-    const { data: found2 } = await sb.from("clients").select("id, code").eq("phone", phone).maybeSingle();
+    const { data: found2 } = await sb
+      .from("clients")
+      .select("id, code")
+      .eq("phone", phone)
+      .maybeSingle();
     return { id: found2?.id || null, code: found2?.code ?? code ?? null };
   }
 
   return { id: ins?.id || null, code: ins?.code ?? code ?? null };
 }
 
-function normalizeType(t) {
-  const s = String(t || "").trim();
-  if (!s) return "";
-  return s.toLowerCase();
-}
+// ----------------- core handler per op -----------------
+async function handleOneOp(sb, opRaw) {
+  const op = safeObj(opRaw);
 
-function looksLikeTransport(p) {
-  const s = String(p?.tcode ?? p?.client_tcode ?? p?.code_str ?? p?.code ?? "").trim().toUpperCase();
-  return s.startsWith("T");
-}
+  const typeRaw =
+    op?.type ||
+    op?.op_type ||
+    op?.opType ||
+    op?.meta?.op_type ||
+    op?.meta?.type ||
+    op?.meta?.opType;
 
-// ✅ Accept: single op, array, or {ops:[...]}
-function normalizeIncomingOps(body) {
-  if (Array.isArray(body)) return body;
-  if (body && typeof body === "object" && Array.isArray(body.ops)) return body.ops;
-  if (body && typeof body === "object") return [body];
-  return [];
-}
+  const type = String(typeRaw || "").trim().toLowerCase();
+  const payload = op?.payload || op?.data || op?.body || {};
 
-async function handleOneOp(sb, rawOp) {
-  // Accept many shapes
-  const typeRaw = rawOp?.type ?? rawOp?.op_type ?? rawOp?.opType ?? rawOp?.meta?.op_type ?? rawOp?.meta?.type;
-  const type = normalizeType(typeRaw);
+  if (!type) {
+    return { ok: false, error: "MISSING_OP_TYPE" };
+  }
 
-  const payload = rawOp?.payload ?? rawOp?.data ?? rawOp?.body ?? rawOp?.op ?? {};
-
-  // --- Legacy ---
+  // --- Legacy compatibility ---
   if (type === "save_order") {
     const row = { ...(payload || {}) };
     const hasCode = row.code != null;
 
-    if (typeof row.id === "string" && row.id && !isUuid(row.id)) delete row.id;
+    if (typeof row.id === "string" && row.id && !isUuid(row.id)) {
+      delete row.id;
+    }
 
     let error = null;
     if (hasCode) {
@@ -169,16 +183,18 @@ async function handleOneOp(sb, rawOp) {
       const r2 = await sb.from("orders").insert(row);
       error = r2.error;
     }
+
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   }
 
-  // --- Unified ---
+  // --- Unified types from offline ops queue ---
   if (type === "upsert_client") {
     const phone = normPhone(payload.phone);
     const name = normName(payload.full_name || payload.name);
     const code = normCode(payload.code);
     const photo_url = payload.photo_url || null;
+
     const c = await upsertClientByPhone(sb, { code, phone, name, photo_url });
     return { ok: true, client_id: c?.id || null, code: c?.code ?? code ?? null };
   }
@@ -186,6 +202,7 @@ async function handleOneOp(sb, rawOp) {
   if (type === "insert_order") {
     const row = { ...(payload || {}) };
 
+    // idempotency by local data.id if present
     const localId = getLocalIdFromData(row.data);
     if (localId) {
       const { data: existing, error: exErr } = await sb
@@ -194,67 +211,90 @@ async function handleOneOp(sb, rawOp) {
         .eq("data->>id", localId)
         .limit(1);
       if (!exErr && existing && existing.length) {
-        return { ok: true, localId, code: existing[0].code ?? existing[0].code_n, existed: true };
+        return {
+          ok: true,
+          localId,
+          code: existing[0].code ?? existing[0].code_n,
+          existed: true,
+        };
       }
     }
 
-    // If id is not UUID, strip it
-    if (typeof row.id === "string" && row.id && !isUuid(row.id)) delete row.id;
-
-    // If client sent code_n, we don't trust it (may collide)
+    // never trust client code_n
     if (row.code_n != null) delete row.code_n;
 
-    // ✅ If we have code numeric, restore code_n = code so upsert is idempotent
-    const codeNum = normCode(row.code ?? row.code_n ?? row.client_code ?? row?.data?.code ?? row?.data?.code_n);
-    if (codeNum != null) {
-      row.code = codeNum;
-      row.code_n = codeNum;
+    // strip non-uuid id
+    if (typeof row.id === "string" && row.id && !isUuid(row.id)) {
+      delete row.id;
     }
 
-    const incomingCode = Number(row.code);
-    const legacyLocalCode = Number.isFinite(incomingCode) && incomingCode < BASE_CODE_FLOOR;
+    const hasCode = row.code != null;
+    const incomingCode = hasCode ? Number(row.code) : null;
+    const legacyLocalCode = Number.isFinite(incomingCode) && incomingCode > 0 && incomingCode < BASE_CODE_FLOOR;
 
+    // legacy local code => temporary negative + then promote to db-assigned code_n
     if (legacyLocalCode) {
       row.code = -Date.now();
-      row.code_n = row.code;
 
-      const { data: ins, error: insErr } = await sb.from("orders").insert(row).select("id, code_n, data").single();
+      const { data: ins, error: insErr } = await sb
+        .from("orders")
+        .insert(row)
+        .select("id, code, code_n, data")
+        .single();
+
       if (insErr) return { ok: false, error: insErr.message };
 
       const newCode = ins.code_n;
       const newData =
-        ins.data && typeof ins.data === "object"
-          ? { ...ins.data, code: newCode, code_n: newCode }
-          : { ...(row.data && typeof row.data === "object" ? row.data : {}), code: newCode, code_n: newCode };
+        ins?.data && typeof ins.data === "object"
+          ? { ...ins.data }
+          : row?.data && typeof row.data === "object"
+            ? { ...row.data }
+            : {};
 
-      const { error: updErr } = await sb.from("orders").update({ code: newCode, code_n: newCode, data: newData }).eq("id", ins.id);
+      newData.code = newCode;
+      newData.code_n = newCode;
+
+      const { error: updErr } = await sb
+        .from("orders")
+        .update({ code: newCode, code_n: newCode, data: newData, updated_at: new Date().toISOString() })
+        .eq("id", ins.id);
+
       if (updErr) return { ok: false, error: updErr.message };
 
       return { ok: true, localId: localId || null, code: newCode, reassigned: true };
     }
 
-    // Normal upsert by code_n if available, else insert
-    if (row.code_n != null) {
-      const r1 = await sb.from("orders").upsert(row, { onConflict: "code_n" });
-      if (!r1.error) return { ok: true, localId: localId || null, code: row.code ?? null };
+    // normal insert/upsert
+    let error = null;
 
-      // fallback insert
-      const r2 = await sb.from("orders").insert(row);
-      if (r2.error) return { ok: false, error: r2.error.message };
-      return { ok: true, localId: localId || null, code: row.code ?? null };
+    if (hasCode) {
+      const r1 = await sb.from("orders").upsert(row, { onConflict: "code_n" });
+      error = r1.error;
+
+      // fallback to insert if conflict config / constraint mismatch
+      if (error) {
+        const r2 = await sb.from("orders").insert(row);
+        error = r2.error;
+      }
     } else {
       const r3 = await sb.from("orders").insert(row);
-      if (r3.error) return { ok: false, error: r3.error.message };
-      return { ok: true, localId: localId || null, code: row.code ?? null };
+      error = r3.error;
     }
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, localId: localId || null, code: row.code ?? null };
   }
 
   if (type === "set_status") {
     const { id, status, ...rest } = payload || {};
     if (!id) return { ok: false, error: "MISSING_ID" };
 
-    if (looksLikeTransport(payload)) {
-      const tcode = String(payload.tcode ?? payload.client_tcode ?? payload.code_str ?? payload.code ?? id).trim().toUpperCase();
+    const isT = looksLikeTransport(payload);
+    if (isT) {
+      const tcode = String(payload.tcode ?? payload.client_tcode ?? payload.code_str ?? payload.code ?? id)
+        .trim()
+        .toUpperCase();
       const visit_nr = payload.visit_nr ?? payload.visitNr ?? null;
 
       let q = sb
@@ -273,6 +313,7 @@ async function handleOneOp(sb, rawOp) {
       .from("orders")
       .update({ status, updated_at: new Date().toISOString(), ...rest })
       .eq("id", id);
+
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   }
@@ -299,9 +340,14 @@ async function handleOneOp(sb, rawOp) {
       updated_at: now,
     };
 
-    const { data: ins, error: oErr } = await sb.from("orders").upsert(orderRow, { onConflict: "code_n" }).select("id, code").single();
+    const { data: ins, error: oErr } = await sb
+      .from("orders")
+      .upsert(orderRow, { onConflict: "code_n" })
+      .select("id, code, code_n")
+      .single();
+
     if (oErr) return { ok: false, error: oErr.message };
-    return { ok: true, order_id: ins?.id || null, code: ins?.code || code };
+    return { ok: true, order_id: ins?.id || null, code: ins?.code ?? ins?.code_n ?? code };
   }
 
   if (type === "offline_transport_pranimi") {
@@ -310,6 +356,7 @@ async function handleOneOp(sb, rawOp) {
     if (!ex.tcode) return { ok: false, error: "MISSING_TCODE" };
 
     const now = new Date().toISOString();
+
     const row = {
       client_tcode: ex.tcode,
       visit_nr: ex.visit_nr,
@@ -328,7 +375,7 @@ async function handleOneOp(sb, rawOp) {
     return { ok: true };
   }
 
-  // Older builds: UPSERT_ORDER
+  // accept both UPSERT_ORDER / upsert_order / upsertOrder
   if (type === "upsert_order") {
     const p = payload?.order || payload;
 
@@ -388,9 +435,8 @@ async function handleOneOp(sb, rawOp) {
   }
 
   if (type === "patch_order_data") {
-    // ✅ accept both payload.patch and payload.data_patch
     const id = payload?.id;
-    const patch = payload?.patch ?? payload?.data_patch;
+    const patch = payload?.patch || payload?.data_patch;
 
     if (!id || !patch || typeof patch !== "object") {
       return { ok: false, error: "MISSING_ID_OR_PATCH" };
@@ -399,7 +445,7 @@ async function handleOneOp(sb, rawOp) {
     const { data: row, error: rErr } = await sb.from("orders").select("id,data").eq("id", id).maybeSingle();
     if (rErr) return { ok: false, error: rErr.message };
 
-    const current = row && row.data && typeof row.data === "object" ? row.data : {};
+    const current = row?.data && typeof row.data === "object" ? row.data : {};
     const merged = { ...current, ...patch };
 
     const { error: uErr } = await sb
@@ -411,9 +457,10 @@ async function handleOneOp(sb, rawOp) {
     return { ok: true };
   }
 
-  return { ok: false, error: "UNKNOWN_OP_TYPE", type: typeRaw };
+  return { ok: false, error: "UNKNOWN_OP_TYPE", meta: { received_type: typeRaw ?? null, normalized: type } };
 }
 
+// ----------------- route -----------------
 export async function POST(req) {
   try {
     const sb = createAdminClientOrNull();
@@ -421,23 +468,30 @@ export async function POST(req) {
       return NextResponse.json({ ok: false, error: "SUPABASE_ADMIN_NOT_AVAILABLE" }, { status: 200 });
     }
 
-    const body = await req.json().catch(() => null);
-    const ops = normalizeIncomingOps(body);
-    if (!ops.length) return NextResponse.json({ ok: false, error: "NO_OPS" }, { status: 200 });
+    const body = await req.json();
+
+    // Accept:
+    // 1) single op: {type, payload}
+    // 2) array of ops: [{...},{...}]
+    // 3) wrapped: { ops: [...] }
+    const ops = Array.isArray(body) ? body : Array.isArray(body?.ops) ? body.ops : [body];
 
     const results = [];
     for (const op of ops) {
-      try {
-        const r = await handleOneOp(sb, op);
-        results.push(r);
-      } catch (e) {
-        results.push({ ok: false, error: String(e?.message || e) });
-      }
+      // If a client sends {op:{...}} or {item:{...}}, unwrap best-effort
+      const candidate = op?.op ? op.op : op?.item ? op.item : op;
+      const r = await handleOneOp(sb, candidate);
+      results.push(r);
     }
 
-    // ✅ Return ok=true only if all ok
-    const allOk = results.every((r) => r && r.ok === true);
-    return NextResponse.json({ ok: allOk, results }, { status: 200 });
+    const ok = results.every((r) => r && r.ok === true);
+
+    // Keep backward compatibility: if it was a single op, return single shape.
+    if (ops.length === 1) {
+      return NextResponse.json(results[0], { status: 200 });
+    }
+
+    return NextResponse.json({ ok, results }, { status: 200 });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 200 });
   }
