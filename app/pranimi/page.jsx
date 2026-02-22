@@ -6,6 +6,7 @@ import {
   reserveSharedCode,
   markCodeUsed,
   releaseLocksForCode,
+  syncBasePool,
 } from '@/lib/baseCodes';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -390,6 +391,15 @@ export default function PranimiPage() {
   const router = useRouter();
   const phonePrefix = '+383';
 
+  // Pin is the reservation key for DB + local code pool.
+  const actorPin = useMemo(() => {
+    try {
+      return String(getActor()?.pin || '').trim();
+    } catch {
+      return '';
+    }
+  }, []);
+
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [savingContinue, setSavingContinue] = useState(false);
@@ -473,7 +483,7 @@ const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
 
       // menjëherë thirr reserveSharedCode(oid)
       try {
-        const c = await reserveSharedCode(id);
+        const c = await reserveSharedCode(actorPin);
 
         // vendose rezultatin në codeRaw
         setCodeRaw(c);
@@ -554,8 +564,7 @@ useEffect(() => {
     const s = await checkConnectivity();
     if (!alive) return;
     setNetState(s);
-      if (s?.ok) setShowOfflinePrompt(false);
-      if (!s.ok && !offlineMode) setShowOfflinePrompt(true);
+    if (!s.ok && !offlineMode) setShowOfflinePrompt(true);
   }
 
   run();
@@ -836,7 +845,7 @@ let c = '';
 try {
   const TIMEOUT_MS = 2500;
   c = await Promise.race([
-    reserveSharedCode(id),
+    reserveSharedCode(actorPin),
     new Promise((_, rej) => setTimeout(() => rej(new Error('CODE_TIMEOUT')), TIMEOUT_MS)),
   ]);
 } catch (e) {
@@ -860,6 +869,38 @@ setCodeRaw(c || '');
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+	// ✅ Online regain: flush queued USED marks + refill local pool.
+	// This prevents "stagnim" after you go offline and then internet comes back.
+	useEffect(() => {
+		let alive = true;
+		async function handleOnline() {
+			try {
+				if (!actorPin) return;
+				await syncBasePool(actorPin, { min: 5, target: 20 });
+				if (!alive) return;
+				// If we were missing a code (or got stuck), grab one now.
+				if (!codeRaw) {
+					const fresh = await reserveSharedCode(actorPin);
+					if (alive) setCodeRaw(fresh || '');
+				}
+				if (alive) {
+					setShowOfflinePrompt(false);
+					setNetState({ ok: true, reason: '' });
+				}
+			} catch {
+				// ignore
+			}
+		}
+
+		window.addEventListener('online', handleOnline);
+		// also attempt once (best-effort)
+		handleOnline();
+		return () => {
+			alive = false;
+			window.removeEventListener('online', handleOnline);
+		};
+	}, [actorPin, codeRaw]);
 
   // Prefetch next step (perceived speed)
   useEffect(() => {
@@ -948,10 +989,10 @@ setCodeRaw(c || '');
       const n = Number(normalizeCode(codeRaw));
       if (Number.isFinite(n) && n > 0) {
         try {
-          await markCodeUsed(n, oid);
+          await markCodeUsed(actorPin, n);
         } catch {}
         try {
-          await releaseLocksForCode(String(n));
+          await releaseLocksForCode(actorPin, n);
         } catch {}
       }
     } catch {}
@@ -1439,7 +1480,7 @@ if (offlineMode || (browserOffline && !conn.ok)) {
 
   // ✅ IMPORTANT: even OFFLINE we must mark the code as USED so the lease is cleared
   // (otherwise the next order will re-use the same code)
-  try { await markCodeUsed(Number(normCodeNow), oid); } catch {}
+  try { await markCodeUsed(actorPin, Number(normCodeNow)); } catch {}
 
   alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, mund t’i integroni/sync më vonë.');
 // go forward anyway so workflow continues
@@ -1481,7 +1522,7 @@ return;
         try { await saveOrderToDb({ ...order, is_offline: true }, 'PRANIMI_FAILOVER'); } catch {}
         try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
         setOfflineMode(true);
-        try { await markCodeUsed(codeRaw, oid); } catch {}
+        try { await markCodeUsed(actorPin, codeRaw); } catch {}
         alert('⚠️ SERVERI DËSHTOI. U RUAJT LOKALISHT (SYNC MË VONË).');
         try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
         setSavingContinue(false);
@@ -1498,7 +1539,7 @@ return;
       try { localStorage.setItem(`order_${oid}`, JSON.stringify(order)); } catch {}
       
       // ✅ MODIFIKUAR PIKA 5: PAS saveOrderToDb(order)
-      try { await markCodeUsed(codeRaw, oid); } catch {}
+      try { await markCodeUsed(actorPin, codeRaw); } catch {}
 
       // ✅ NON-BLOCKING: do backups + cleanup in background
       void (async () => {
@@ -1520,7 +1561,7 @@ return;
         try {
           const codeToFinalize = order?.client?.code;
           if (codeToFinalize !== null && codeToFinalize !== undefined && String(codeToFinalize).trim() !== '') {
-            await releaseLocksForCode(codeToFinalize);
+            await releaseLocksForCode(actorPin, codeToFinalize);
           }
         } catch {}
       })();
@@ -1692,7 +1733,7 @@ ${msg}${details}`);
 
 return (
   <div className="wrap">
-    {showOfflinePrompt && !offlineMode && !netState?.ok ? (
+    {showOfflinePrompt ? (
       <div
         style={{
           position: 'fixed',
