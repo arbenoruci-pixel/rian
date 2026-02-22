@@ -6,7 +6,6 @@ import {
   reserveSharedCode,
   markCodeUsed,
   releaseLocksForCode,
-  syncBasePool,
 } from '@/lib/baseCodes';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -391,15 +390,6 @@ export default function PranimiPage() {
   const router = useRouter();
   const phonePrefix = '+383';
 
-  // Pin is the reservation key for DB + local code pool.
-  const actorPin = useMemo(() => {
-    try {
-      return String(getActor()?.pin || '').trim();
-    } catch {
-      return '';
-    }
-  }, []);
-
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [savingContinue, setSavingContinue] = useState(false);
@@ -483,23 +473,15 @@ const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
 
       // menjëherë thirr reserveSharedCode(oid)
       try {
-        const c = await reserveSharedCode(actorPin);
+        const c = await reserveSharedCode(id);
 
         // vendose rezultatin në codeRaw
         setCodeRaw(c);
       } catch (e) {
-        
-      // ULTRA GUARANTEE CATCH: never lose the order
-      // Save locally + queue a proper offline op (with op_id) so it will sync to Supabase when online.
-      try { await saveOrderLocal(order); } catch {}
-      try {
-        const opId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : `op_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-        await pushOp({ op_id: opId, type: 'offline_pranimi', payload: order, created_at: Date.now() });
-      } catch {}
-// Nëse s’po arrijmë me marrë KOD (RPC/Pool/Permision), mos e blloko formën.
+        // Nëse s’po arrijmë me marrë KOD (RPC/Pool/Permision), mos e blloko formën.
         // Lejo punë OFFLINE (ruajtje lokale) dhe jep opsion "PROVO PRAP".
+        // (Mos krijo/ruaj "order" këtu — nuk ekziston ende dhe kjo e prish PRANIMI-n.)
+        try { console.warn('[PRANIMI] reserveSharedCode failed', e); } catch {}
         setCodeRaw('');
         setNetState({ ok: false, reason: 'CODE_RESERVE_FAILED' });
         setShowOfflinePrompt(true);
@@ -845,7 +827,7 @@ let c = '';
 try {
   const TIMEOUT_MS = 2500;
   c = await Promise.race([
-    reserveSharedCode(actorPin),
+    reserveSharedCode(id),
     new Promise((_, rej) => setTimeout(() => rej(new Error('CODE_TIMEOUT')), TIMEOUT_MS)),
   ]);
 } catch (e) {
@@ -869,38 +851,6 @@ setCodeRaw(c || '');
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-	// ✅ Online regain: flush queued USED marks + refill local pool.
-	// This prevents "stagnim" after you go offline and then internet comes back.
-	useEffect(() => {
-		let alive = true;
-		async function handleOnline() {
-			try {
-				if (!actorPin) return;
-				await syncBasePool(actorPin, { min: 5, target: 20 });
-				if (!alive) return;
-				// If we were missing a code (or got stuck), grab one now.
-				if (!codeRaw) {
-					const fresh = await reserveSharedCode(actorPin);
-					if (alive) setCodeRaw(fresh || '');
-				}
-				if (alive) {
-					setShowOfflinePrompt(false);
-					setNetState({ ok: true, reason: '' });
-				}
-			} catch {
-				// ignore
-			}
-		}
-
-		window.addEventListener('online', handleOnline);
-		// also attempt once (best-effort)
-		handleOnline();
-		return () => {
-			alive = false;
-			window.removeEventListener('online', handleOnline);
-		};
-	}, [actorPin, codeRaw]);
 
   // Prefetch next step (perceived speed)
   useEffect(() => {
@@ -989,10 +939,10 @@ setCodeRaw(c || '');
       const n = Number(normalizeCode(codeRaw));
       if (Number.isFinite(n) && n > 0) {
         try {
-          await markCodeUsed(actorPin, n);
+          await markCodeUsed(n, oid);
         } catch {}
         try {
-          await releaseLocksForCode(actorPin, n);
+          await releaseLocksForCode(String(n));
         } catch {}
       }
     } catch {}
@@ -1480,7 +1430,7 @@ if (offlineMode || (browserOffline && !conn.ok)) {
 
   // ✅ IMPORTANT: even OFFLINE we must mark the code as USED so the lease is cleared
   // (otherwise the next order will re-use the same code)
-  try { await markCodeUsed(actorPin, Number(normCodeNow)); } catch {}
+  try { await markCodeUsed(Number(normCodeNow), oid); } catch {}
 
   alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, mund t’i integroni/sync më vonë.');
 // go forward anyway so workflow continues
@@ -1522,7 +1472,7 @@ return;
         try { await saveOrderToDb({ ...order, is_offline: true }, 'PRANIMI_FAILOVER'); } catch {}
         try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
         setOfflineMode(true);
-        try { await markCodeUsed(actorPin, codeRaw); } catch {}
+        try { await markCodeUsed(codeRaw, oid); } catch {}
         alert('⚠️ SERVERI DËSHTOI. U RUAJT LOKALISHT (SYNC MË VONË).');
         try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
         setSavingContinue(false);
@@ -1539,7 +1489,7 @@ return;
       try { localStorage.setItem(`order_${oid}`, JSON.stringify(order)); } catch {}
       
       // ✅ MODIFIKUAR PIKA 5: PAS saveOrderToDb(order)
-      try { await markCodeUsed(actorPin, codeRaw); } catch {}
+      try { await markCodeUsed(codeRaw, oid); } catch {}
 
       // ✅ NON-BLOCKING: do backups + cleanup in background
       void (async () => {
@@ -1561,7 +1511,7 @@ return;
         try {
           const codeToFinalize = order?.client?.code;
           if (codeToFinalize !== null && codeToFinalize !== undefined && String(codeToFinalize).trim() !== '') {
-            await releaseLocksForCode(actorPin, codeToFinalize);
+            await releaseLocksForCode(codeToFinalize);
           }
         } catch {}
       })();
