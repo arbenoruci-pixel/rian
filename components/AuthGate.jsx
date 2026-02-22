@@ -60,6 +60,17 @@ export default function AuthGate({ children }) {
       return;
     }
 
+
+    // ✅ Bypass gate when explicitly requested (used by SEARCH deep-links)
+    try {
+      const sp = typeof window !== "undefined" ? new URLSearchParams(window.location.search || "") : null;
+      if (sp && (sp.get("nogate") === "1" || sp.get("public") === "1")) {
+        setOfflineNoUser(false);
+        setReady(true);
+        return;
+      }
+    } catch {}
+
     // ✅ Allow TRANSPORT pages to work with dedicated transport session (offline-safe)
     if (pathname?.startsWith("/transport")) {
       if (hasTransportSession()) {

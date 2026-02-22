@@ -190,7 +190,7 @@ export default function HomePage() {
                 : (`${routeForStatus(r.status)}?q=${encodeURIComponent(String(r.code||''))}`);
 
               return (
-                <Link key={r.id || idx} href={href} className="order-row">
+                <Link key={r.id || idx} href={href + (href.includes('?') ? '&' : '?') + 'nogate=1&from=search'} className="order-row">
                   <div className="order-left">
                     <div className="order-code">{String(r.code||'')}</div>
                     <div className="order-sub">
@@ -199,6 +199,9 @@ export default function HomePage() {
                     </div>
                     <div className="order-name">{String(r.name||'')}</div>
                     {r.phone ? <div className="order-phone">{String(r.phone||'')}</div> : null}
+                    {(r?._audit?.created_by_name || r?.created_by_name || r?.created_by || r?.created_by_pin) ? (
+                      <div className="order-phone">SJELL: {String(r._audit?.created_by_name || r.created_by_name || r.created_by || r.created_by_pin)}</div>
+                    ) : null}
                   </div>
                   <div className="order-go">HAP</div>
                 </Link>
