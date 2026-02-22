@@ -554,7 +554,8 @@ useEffect(() => {
     const s = await checkConnectivity();
     if (!alive) return;
     setNetState(s);
-    if (!s.ok && !offlineMode) setShowOfflinePrompt(true);
+      if (s?.ok) setShowOfflinePrompt(false);
+      if (!s.ok && !offlineMode) setShowOfflinePrompt(true);
   }
 
   run();
@@ -1691,7 +1692,7 @@ ${msg}${details}`);
 
 return (
   <div className="wrap">
-    {showOfflinePrompt ? (
+    {showOfflinePrompt && !offlineMode && !netState?.ok ? (
       <div
         style={{
           position: 'fixed',
