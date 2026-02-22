@@ -636,7 +636,6 @@ export default function GatiPage() {
   async function applyPayOnly() {
     if (!payOrder) return;
     const actor = readActor();
-    const payDue = Number(payOrder.total || 0) - Number(payOrder.paid || 0); // <-- Fixed ReferenceError
     const amountExact = Math.max(0, round2(Number(payDue) || 0));
     const cashGiven = Math.max(0, round2(Number(payAdd) || 0));
 
@@ -788,7 +787,7 @@ export default function GatiPage() {
         .update({ data: { ...updated, status: 'dorzim' }, picked_up_at: nowIso })
         .eq('id', payOrder.id);
     } catch (e) {
-      console.log('DB delivery update EX:', e);
+            console.log('DB delivery update EX:', e);
       // OFFLINE/FAILSAFE: queue full snapshot as insert_order (single op_type supported)
       try {
         await queueOp('insert_order', {
@@ -806,7 +805,7 @@ export default function GatiPage() {
           paid: paidAfter,
         });
       } catch {}
-    } // <--- KËTU ISHTE PROBLEMI. Hoqa kllapën ekstra që mbyllte funksionin.
+    }}
 
     // Record CASH payment (EXACT delta only). When ARKA is closed, it is stored as WAITING.
     if (willRecordCash && safeDelta > 0) {

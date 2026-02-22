@@ -65,6 +65,15 @@ function dayKeyFromMs(ms) {
   return dayKeyLocal(d);
 }
 
+// ✅ IMPORTANT: download JSON no-cache
+async function downloadJsonNoCache(path) {
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
+  if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
+  const res = await fetch(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Fetch failed');
+  return await res.json();
+}
+
 export default function MarrjeSotPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -114,7 +123,7 @@ export default function MarrjeSotPage() {
             m2: computeM2(order),
             total: Number(order?.pay?.euro || order?.total || 0) || 0,
             paid: Number(order?.pay?.paid || order?.paid || 0) || 0,
-            pickedAt: picked || order?.picked_up_at || order?.delivered_at || null,
+            picked_at: picked || order?.picked_up_at || order?.delivered_at || null,
             dayKey: key,
             _src: 'LOCAL',
           };
@@ -155,7 +164,7 @@ export default function MarrjeSotPage() {
             m2: computeM2(order),
             total,
             paid,
-            pickedAt: row.picked_up_at || order.picked_up_at || order.delivered_at || null,
+            picked_at: row.picked_up_at || order.picked_up_at || order.delivered_at || null,
             dayKey: dayKeyFromIso(row.picked_up_at || order.picked_up_at || order.delivered_at),
             _src: 'DB',
           };
@@ -167,8 +176,8 @@ export default function MarrjeSotPage() {
       for (const r of localRows) map.set(String(r.code), r);
       for (const r of dbRows) map.set(String(r.code), r); // DB overwrites
       const merged = Array.from(map.values()).sort((a, b) => {
-        const ta = new Date(a.pickedAt || 0).getTime() || 0;
-        const tb = new Date(b.pickedAt || 0).getTime() || 0;
+        const ta = new Date(a.picked_at || 0).getTime() || 0;
+        const tb = new Date(b.picked_at || 0).getTime() || 0;
         return tb - ta;
       });
 
@@ -194,7 +203,7 @@ export default function MarrjeSotPage() {
               m2: computeM2(order),
               total: Number(order?.pay?.euro || order?.total || 0) || 0,
               paid: Number(order?.pay?.paid || order?.paid || 0) || 0,
-              pickedAt: picked || null,
+              picked_at: picked || null,
               dayKey: key,
               _src: 'LOCAL',
             };
