@@ -1,6 +1,6 @@
 "use client";
 
-import { computeM2FromRows, normalizeCode } from '@/lib/baseCodes';
+import { computeM2FromRows } from '@/lib/baseCodes';
 import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
 import { getOrAssignTransportClientCode, normalizePhoneDigits } from '@/lib/transport/clientCodes';
 import { upsertTransportClient } from '@/lib/transport/transportDb';
@@ -38,6 +38,17 @@ const COMPANY_PHONE_DISPLAY = '+383 44 735 312';
 const AUTO_MSG_KEY = 'transport_pranimi_auto_msg_after_save';
 const PRICE_KEY = 'transport_pranimi_price_per_m2';
 const OFFLINE_MODE_KEY = 'transport_offline_mode_v1';
+
+function normalizeTcode(raw) {
+  if (!raw) return 'T0';
+  const s = String(raw).trim();
+  if (/^t\d+/i.test(s)) {
+    const n = s.replace(/\D+/g, '').replace(/^0+/, '');
+    return `T${n || '0'}`;
+  }
+  const n = s.replace(/\D+/g, '').replace(/^0+/, '');
+  return `T${n || '0'}`;
+}
 const ACTIVE_CODE_KEY = 'transport_pranimi_active_code_v1';
 const CODE_LEASE_KEY = 'transport_code_lease_v1';
 const DRAFTS_FOLDER = 'transport_drafts';
@@ -635,7 +646,7 @@ setCodeRaw('');
   function buildStartMessage() {
       return `Përshëndetje ${name},
 Porosia u pranua.
-KODI: ${normalizeCode(codeRaw)}
+KODI: ${normalizeTcode(codeRaw)}
 TOTAL: ${totalEuro} €
 Ju njoftojmë kur të bëhet gati.
 Tel: ${COMPANY_PHONE_DISPLAY}`;
@@ -646,7 +657,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       const debt = Math.max(0, Number(totalEuro || 0) - paid);
       return [
         `TEPIHA - RECITË`,
-        `KODI: ${normalizeCode(codeRaw)}`,
+        `KODI: ${normalizeTcode(codeRaw)}`,
         `KLIENTI: ${name || ''}`,
         `TOTAL: ${Number(totalEuro || 0).toFixed(2)} €`,
         `PAGUAR: ${paid.toFixed(2)} €`,
@@ -674,7 +685,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       const phoneFull = sanitizePhone(phonePrefix + phone);
       const phoneDigits = normalizePhoneDigits(phoneFull);
       const clientCodeN = getOrAssignTransportClientCode(tid, phoneDigits);
-      let tcodeForClient = String((clientTcode || normalizeCode(codeRaw)) || '').toUpperCase().trim();
+      let tcodeForClient = String((clientTcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim();
 
       // Nëse nuk kemi T-KOD (p.sh. lease/pool ra), provoj edhe 1 herë me e rezervu.
       if (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0') {
@@ -831,7 +842,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
                   amount: paid,
                   note: `PAGESA ${paid}€ - ${name}`,
                   type: 'TRANSPORT',
-                  order_code: normalizeCode(codeRaw),
+                  order_code: normalizeTcode(codeRaw),
                   source: 'ORDER_PAY',
                   createdBy: 'Transport'
               });
@@ -842,7 +853,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       const debtAfter = Math.max(0, Number((totalEuro - (clientPaid + paid)).toFixed(2)));
       const receipt = [
           `TEPIHA - RECITË`,
-          `KODI: ${normalizeCode(codeRaw)}`,
+          `KODI: ${normalizeTcode(codeRaw)}`,
           `KLIENTI: ${name}`,
           `TOTAL: ${Number(totalEuro).toFixed(2)}€`,
           `BORXH PARA: ${Number(remainingDue).toFixed(2)}€`,
@@ -887,7 +898,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
     <div className="wrap">
         <header className="header-row">
             <div><h1 className="title">PRANIMI</h1><div className="subtitle">KRIJO POROSI</div></div>
-            <div className="code-badge"><span className="badge">KODI: {normalizeCode(codeRaw)}</span></div>
+            <div className="code-badge"><span className="badge">KODI: {normalizeTcode(codeRaw)}</span></div>
         </header>
 
         {/* ADMIN/DISPATCH: choose which transport driver this order belongs to (or keep ADMIN-only) */}
@@ -1117,7 +1128,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       {showPaySheet && (
         <div className="payfs">
           <div className="payfs-top">
-            <div><div className="payfs-title">PAGESA</div><div className="payfs-sub">KODI: {normalizeCode(codeRaw)}</div></div>
+            <div><div className="payfs-title">PAGESA</div><div className="payfs-sub">KODI: {normalizeTcode(codeRaw)}</div></div>
             <button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button>
           </div>
           <div className="payfs-body">
