@@ -109,11 +109,14 @@ export default function MarrjeSotPage() {
       // Prepare local fallback rows (today only)
       const local = await getAllOrdersLocal().catch(() => []);
       const localList = Array.isArray(local) ? local : [];
+      // Local fallback rows (today only). Keep it as ONE expression (no leading-dot after line breaks).
       const localRows = localList
         .filter((o) => String(o?.status || '').toLowerCase() === 'dorzim')
         .map((order) => {
           const picked = order?.picked_up_at || order?.delivered_at;
-          const key = picked ? dayKeyFromIso(picked) : dayKeyFromMs(order?.pickedUpAt || order?.deliveredAt);
+          const key = picked
+            ? dayKeyFromIso(picked)
+            : dayKeyFromMs(order?.pickedUpAt || order?.deliveredAt);
           return {
             id: String(order?.id || ''),
             code: normalizeCode(order?.client?.code || order?.client_code || order?.code || ''),
@@ -127,8 +130,12 @@ export default function MarrjeSotPage() {
             dayKey: key,
             _src: 'LOCAL',
           };
-        
-          .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
+        })
+        .filter(
+          (r) =>
+            r.dayKey === dayKeyLocal(new Date()) &&
+            !/^T\d+$/i.test(String(r.code || '').trim())
+        );
 
       if (error || !data) {
         // OFFLINE: show local-only
@@ -168,8 +175,8 @@ export default function MarrjeSotPage() {
             dayKey: dayKeyFromIso(row.picked_up_at || order.picked_up_at || order.delivered_at),
             _src: 'DB',
           };
-        
-          .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
+        })
+        .filter((r) => r.dayKey === dayKeyLocal(new Date()) && !/^T\d+$/i.test(String(r.code || '').trim()));
 
       // DEDUPE by CODE with DB precedence
       const map = new Map();
@@ -207,7 +214,7 @@ export default function MarrjeSotPage() {
               dayKey: key,
               _src: 'LOCAL',
             };
-          
+          })
           .filter((r) => r.dayKey === today && !/^T\d+$/i.test(String(r.code || '').trim()));
         setRows(offlineRows);
       } catch {
@@ -326,7 +333,7 @@ export default function MarrjeSotPage() {
               dayKey: key,
               order,
             };
-          
+          })
           .filter((r) => r.dayKey === todayKey);
         setRows(offlineRows);
       } catch {
