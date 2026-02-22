@@ -1,5 +1,6 @@
-// app/marrje-sot/page.jsx
 'use client';
+
+// app/marrje-sot/page.jsx
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -216,9 +217,6 @@ export default function MarrjeSotPage() {
       setLoading(false);
     }
   };
-          })
-          .filter((r) => r.dayKey === todayKey)
-          .sort((a, b) => String(b.code || '').localeCompare(String(a.code || '')));
         setRows(offlineRows);
         return;
       }
