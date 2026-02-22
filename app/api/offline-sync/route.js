@@ -7,6 +7,54 @@ import { createAdminClientOrNull } from "@/lib/supabaseAdminClient";
 // BASE RULE: Client/order codes are permanent identity.
 // The server must NOT reassign codes coming from offline/online clients.
 
+
+function unwrapOrder(payload) {
+  // payload may be nested (data->data->data) depending on client build.
+  const p = payload || {};
+  const o =
+    (p.data && p.data.data && p.data.data.data) ||
+    (p.data && p.data.data) ||
+    (p.data) ||
+    p;
+
+  const oData = (o && o.data) ? o.data : {};
+  const pay = o.pay || oData.pay || {};
+  const client = o.client || oData.client || {};
+
+  const total = Number(
+    o.total ??
+    oData.total ??
+    pay.euro ??
+    pay.total ??
+    0
+  ) || 0;
+
+  const paid = Number(
+    o.paid ??
+    oData.paid ??
+    pay.paid ??
+    0
+  ) || 0;
+
+  const code = Number(o.code ?? p.code ?? 0) || null;
+  const code_n = Number(o.code_n ?? p.code_n ?? code ?? 0) || null;
+
+  return {
+    code,
+    code_n,
+    status: o.status || oData.status || 'pastrim',
+    client_code: Number(o.client_code ?? oData.client_code ?? client.code ?? p.client_code ?? 0) || null,
+    client_name: String(o.client_name ?? oData.client_name ?? client.name ?? p.client_name ?? '').trim() || null,
+    client_phone: String(o.client_phone ?? oData.client_phone ?? client.phone ?? p.client_phone ?? '').trim() || null,
+    client_photo_url: o.client_photo_url ?? oData.client_photo_url ?? client.photoUrl ?? null,
+    notes: o.notes ?? oData.notes ?? null,
+    is_offline: false,
+    total,
+    paid,
+    data: p
+  };
+}
+
 function getLocalIdFromData(data) {
   try {
     if (!data || typeof data !== "object") return null;
@@ -185,8 +233,8 @@ export async function POST(req){
     }
 
     if(type === "insert_order"){
-      // Some builds queued ops with non-UUID ids. Use `code` as idempotency key when possible.
-      const row = { ...(payload || {}) };
+      // Normalize nested payloads, keep code permanent, and ensure totals are stored in columns.
+      const row = unwrapOrder(payload);
 
       // Idempotency for offline replays: if we have a local client id inside data.id,
       // and it already exists in DB, acknowledge (client can delete op safely).
