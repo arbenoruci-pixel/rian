@@ -5,6 +5,7 @@ import SessionDock from "@/components/SessionDock";
 import SyncStarter from "@/components/SyncStarter";
 import SyncBoot from '@/components/SyncBoot';
 import SyncFab from "@/components/SyncFab";
+import GlobalErrorBoundary from "@/components/GlobalErrorBoundary";
 import '@/lib/offlineSync';
 
 export const metadata = {
@@ -33,7 +34,9 @@ export default function RootLayout({ children }) {
         <AuthGate>
           <SyncBoot />
           <SyncFab />
-        {children}
+          <GlobalErrorBoundary>
+            {children}
+          </GlobalErrorBoundary>
           <SessionDock />
         </AuthGate>
       </body>

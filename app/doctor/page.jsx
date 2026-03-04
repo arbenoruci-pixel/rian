@@ -8,6 +8,7 @@ import { runSync } from '@/lib/syncEngine';
 import { readOfflineSyncLast, readQueueMirror, syncOfflineNow } from '@/lib/offlineQueueSync';
 import { getActor } from '@/lib/actorSession';
 import { getDeviceId } from '@/lib/deviceId';
+import { readGlobalErrors, clearGlobalErrors, exportGlobalErrorsText } from '@/lib/globalErrors';
 
 const LS_DOC_EVENTS = 'tepiha_doc_events_v1';
 const LS_DEBUG_LOG = 'tepiha_debug_log_v1';
@@ -60,6 +61,7 @@ export default function DoctorPage() {
   const [deviceId, setDeviceId] = useState('...');
   const [isBase, setIsBase] = useState(false);
   const [smartWarnings, setSmartWarnings] = useState([]);
+  const [globalErrors, setGlobalErrors] = useState([]);
 
   const lastDbError = useMemo(() => lsJsonGet(LS_LAST_DB_ERROR, null), [report]);
 
@@ -131,9 +133,32 @@ export default function DoctorPage() {
       const evB = lsJsonGet(LS_DEBUG_LOG, []);
       const merged = [...evA, ...evB].sort((x, y) => String(y?.ts || '').localeCompare(String(x?.ts || '')));
       setEvents(merged.slice(0, 30));
+
+      try {
+        const ge = readGlobalErrors();
+        setGlobalErrors(Array.isArray(ge) ? ge.slice(0, 50) : []);
+      } catch {}
     }, 2000);
     return () => clearInterval(t);
   }, []);
+
+  function clearAllSensors() {
+    if (!confirm('Me i fshi krejt Sensorët (Gabimet globale)?')) return;
+    try {
+      clearGlobalErrors();
+      setGlobalErrors([]);
+    } catch {}
+  }
+
+  function copyGlobalErrors() {
+    try {
+      const text = exportGlobalErrorsText();
+      navigator.clipboard.writeText(text);
+      alert('✅ U kopjua logu i gabimeve (Global Errors).');
+    } catch {
+      alert('Smu munda me kopju. Hap DOCTOR në PC ose përdor manual copy.');
+    }
+  }
 
   async function hardReset() {
     if (!confirm('Kujdes: Kjo do fshijë memorien offline. A jeni të sigurt?')) return;
@@ -268,6 +293,49 @@ export default function DoctorPage() {
           <pre className="pre" style={{ color: '#fca5a5' }}>{JSON.stringify(lastDbError, null, 2)}</pre>
         </div>
       )}
+
+      {/* 🧯 GLOBAL SENSORS */}
+      <div className="card" style={{ borderColor: globalErrors.length ? 'rgba(239,68,68,0.5)' : 'rgba(34,197,94,0.4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div className="card-title" style={{ marginBottom: 0, color: globalErrors.length ? '#fca5a5' : '#86efac' }}>
+            GABIME KRITIKE TË SISTEMIT ({globalErrors.length})
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn blue" style={{ padding: '10px 10px', fontSize: 11 }} onClick={copyGlobalErrors} disabled={!globalErrors.length}>COPY</button>
+            <button className="btn red" style={{ padding: '10px 10px', fontSize: 11, gridColumn: 'auto' }} onClick={clearAllSensors} disabled={!globalErrors.length}>PASTRO</button>
+          </div>
+        </div>
+
+        {!globalErrors.length ? (
+          <div style={{ marginTop: 10, fontWeight: 800, opacity: 0.8, fontSize: 12 }}>
+            ✅ Ska gabime kritike të regjistruara.
+          </div>
+        ) : (
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {globalErrors.map((g, idx) => (
+              <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 12, border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ fontWeight: 900, letterSpacing: 1, color: '#fca5a5', fontSize: 12 }}>
+                    {g.where || 'unknown'}
+                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.7, fontFamily: 'monospace' }}>{String(g.ts || '')}</div>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800, wordBreak: 'break-word' }}>
+                  {g.message || 'UNKNOWN'}
+                </div>
+                {(g.code || g.details) ? (
+                  <div style={{ marginTop: 6, fontSize: 11, opacity: 0.75, wordBreak: 'break-word' }}>
+                    {g.code ? `code: ${g.code}` : ''}{g.details ? ` · ${g.details}` : ''}
+                  </div>
+                ) : null}
+                {g.href ? (
+                  <div style={{ marginTop: 6, fontSize: 10, opacity: 0.6, wordBreak: 'break-word' }}>{g.href}</div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <style jsx>{`
         .doc-wrap { min-height: 100vh; background: #070b14; color: #fff; padding: 18px 14px 140px; }

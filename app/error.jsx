@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import { pushGlobalError } from '@/lib/globalErrors';
 
 // Global error boundary for the App Router.
 // Shows the real runtime error instead of the generic Safari/Next "client-side exception" page.
@@ -8,6 +9,9 @@ export default function GlobalError({ error, reset }) {
   useEffect(() => {
     // eslint-disable-next-line no-console
     console.error('GLOBAL APP ERROR:', error);
+    try {
+      pushGlobalError('ui/app_error_jsx', error);
+    } catch {}
   }, [error]);
 
   const msg = (error && (error.message || String(error))) || 'UNKNOWN ERROR';
