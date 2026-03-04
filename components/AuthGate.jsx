@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -8,6 +8,7 @@ const LS_USER = "CURRENT_USER_DATA";
 const LS_SESSION = "tepiha_session_v1";
 const LS_TRANSPORT = "tepiha_transport_session_v1";
 const LS_DEVICE_ID = "tepiha_device_id_v1";
+const LS_DEVICE_APPROVED_CACHE = "tepiha_device_approved_cache_v1"; // Mban mend aprovimin kur s'ka internet
 
 function readStoredUser() {
   try {
@@ -61,55 +62,63 @@ export default function AuthGate({ children }) {
   const [offlineNoUser, setOfflineNoUser] = useState(false);
 
   // States për aprovimin e pajisjes
-  const [checkingDevice, setCheckingDevice] = useState(true);
+  const [checkingDevice, setCheckingDevice] = useState(false);
   const [deviceApproved, setDeviceApproved] = useState(null);
   const [deviceId, setDeviceId] = useState(null);
 
   const mountedRef = useRef(false);
   const lastApprovedRef = useRef(null);
 
-  const isLogin = pathname === "/login" || pathname?.startsWith("/login/") || pathname === "/transport/login" || pathname?.startsWith("/transport/login");
-
   useEffect(() => {
     mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
-    // 1. BYPASS për Login
+  useEffect(() => {
+    // 1. BYPASS për Login & Doctor
+    const isLogin = pathname === "/login" || pathname?.startsWith("/login/") || pathname === "/transport/login" || pathname?.startsWith("/transport/login");
     if (isLogin) {
-      setCheckingDevice(false);
       setOfflineNoUser(false);
       setReady(true);
       return;
     }
 
-    // 2. BYPASS për faqe specifike
     const isDoctor = pathname === "/doctor" || pathname?.startsWith("/doctor/");
-    let isNogate = false;
+    if (isDoctor) {
+      setOfflineNoUser(false);
+      setReady(true);
+      return;
+    }
+
     try {
       const sp = typeof window !== "undefined" ? new URLSearchParams(window.location.search || "") : null;
       if (sp && (sp.get("nogate") === "1" || sp.get("public") === "1")) {
-        isNogate = true;
+        setOfflineNoUser(false);
+        setReady(true);
+        return;
       }
     } catch {}
 
-    if (isDoctor || isNogate) {
-      setCheckingDevice(false);
-      setOfflineNoUser(false);
-      setReady(true);
-      return;
+    // 2. KONTROLLI I SESIONIT (Kodi yt ekzistues)
+    let hasAuth = false;
+    let userRole = null;
+
+    const u = readStoredUser();
+    if (u) {
+      hasAuth = true;
+      userRole = String(u.role || "").toUpperCase();
     }
 
-    // 3. KONTROLLI I SESIONIT (Kodi yt ekzistues)
-    const u = readStoredUser();
-    const role = u ? String(u.role || "").toUpperCase() : null;
-    const hasTrans = hasTransportSession();
-    const isTransRoute = pathname?.startsWith("/transport");
+    if (pathname?.startsWith("/transport") && hasTransportSession()) {
+       hasAuth = true;
+       if (!userRole) userRole = "TRANSPORT";
+    }
 
-    if (!u && !(isTransRoute && hasTrans)) {
+    if (!hasAuth) {
       try {
         const isOffline = typeof navigator !== "undefined" && navigator && navigator.onLine === false;
         if (isOffline) {
           setOfflineNoUser(true);
-          setCheckingDevice(false);
           setReady(true);
           return;
         }
@@ -120,32 +129,28 @@ export default function AuthGate({ children }) {
         router.replace(`/login${next}`);
       } catch {}
       setOfflineNoUser(false);
-      setCheckingDevice(false);
       setReady(false);
       return;
     }
 
-    // 4. KONTROLLI I APROVIMIT TË PAJISJES (Supabase)
+    // 3. KONTROLLI I APROVIMIT TË PAJISJES
     const currentDeviceId = safeGetDeviceId();
     setDeviceId(currentDeviceId);
 
+    // ADMIN kalon direkt
+    if (userRole === "ADMIN") {
+       setOfflineNoUser(false);
+       setCheckingDevice(false);
+       setDeviceApproved(true);
+       setReady(true);
+       return;
+    }
+
+    setCheckingDevice(true);
     let cancelled = false;
 
     async function checkDbApproval() {
       try {
-        // ADMIN kalon direkt pa aprovim
-        if (role === "ADMIN") {
-          if (!mountedRef.current || cancelled) return;
-          if (lastApprovedRef.current !== true) {
-            lastApprovedRef.current = true;
-            setDeviceApproved(true);
-          }
-          setCheckingDevice(false);
-          setOfflineNoUser(false);
-          setReady(true);
-          return;
-        }
-
         if (!currentDeviceId) {
           if (!mountedRef.current || cancelled) return;
           setDeviceApproved(false);
@@ -154,6 +159,22 @@ export default function AuthGate({ children }) {
           return;
         }
 
+        // Shpëtimi Offline: Nëse s'ka internet, por ka qenë aprovuar më parë, lëre të futet
+        const isOffline = typeof navigator !== "undefined" && navigator && navigator.onLine === false;
+        if (isOffline) {
+           try {
+              const cached = localStorage.getItem(LS_DEVICE_APPROVED_CACHE);
+              if (cached === "1") {
+                 if (!mountedRef.current || cancelled) return;
+                 setDeviceApproved(true);
+                 setCheckingDevice(false);
+                 setReady(true);
+                 return;
+              }
+           } catch {}
+        }
+
+        // Kontrollo në Supabase
         const { data, error } = await supabase
           .from("device_approvals")
           .select("approved")
@@ -166,6 +187,13 @@ export default function AuthGate({ children }) {
         }
 
         const ok = !!data?.approved;
+        
+        // Ruaj/Fshi Cache-in e aprovimit
+        if (ok) {
+           try { localStorage.setItem(LS_DEVICE_APPROVED_CACHE, "1"); } catch {}
+        } else {
+           try { localStorage.removeItem(LS_DEVICE_APPROVED_CACHE); } catch {}
+        }
 
         if (!mountedRef.current || cancelled) return;
 
@@ -177,10 +205,14 @@ export default function AuthGate({ children }) {
         setOfflineNoUser(false);
         setReady(true);
       } catch {
+        // Gabim interneti/DB -> Provo cache-in prap
         if (!mountedRef.current || cancelled) return;
-        if (lastApprovedRef.current !== false) {
-          lastApprovedRef.current = false;
-          setDeviceApproved(false);
+        let cachedOk = false;
+        try { cachedOk = localStorage.getItem(LS_DEVICE_APPROVED_CACHE) === "1"; } catch {}
+
+        if (lastApprovedRef.current !== cachedOk) {
+          lastApprovedRef.current = cachedOk;
+          setDeviceApproved(cachedOk);
         }
         setCheckingDevice(false);
         setReady(true);
@@ -189,23 +221,20 @@ export default function AuthGate({ children }) {
 
     checkDbApproval();
 
-    // Rifresko statusin çdo 5 sekonda
+    // Rifresko çdo 5 sekonda (vetëm nëse s'është aprovuar ende)
     const intervalId = window.setInterval(() => {
       if (!mountedRef.current) return;
-      checkDbApproval();
+      if (lastApprovedRef.current !== true) {
+         checkDbApproval();
+      }
     }, 5000);
 
     return () => {
       cancelled = true;
-      mountedRef.current = false;
       window.clearInterval(intervalId);
     };
-  }, [pathname, router]);
 
-  // RENDERS
-  if (isLogin) {
-    return <>{children}</>;
-  }
+  }, [pathname, router]);
 
   if (!ready) return null;
 
@@ -269,7 +298,6 @@ export default function AuthGate({ children }) {
     );
   }
 
-  // UI Kur kalon me sukses (Aprovuar)
   return (
     <>
       {offlineNoUser ? (
