@@ -1,18 +1,18 @@
 "use client";
 
 import { computeM2FromRows } from '@/lib/baseCodes';
-import { reserveTransportCode, markTransportCodeUsed } from '@/lib/transportCodes';
+import { reserveTransportCode } from '@/lib/transportCodes';
 import { getOrAssignTransportClientCode, normalizePhoneDigits } from '@/lib/transport/clientCodes';
 import { upsertTransportClient } from '@/lib/transport/transportDb';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { saveOrderToDb } from '@/lib/ordersDb';
 import { saveOrderLocal, pushOp } from '@/lib/offlineStore';
 import { getTransportSession } from '@/lib/transportAuth';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import { getActor } from '@/lib/actorSession';
+import { enqueueTransportOrder, syncNow } from '@/lib/syncManager';
 
 const BUCKET = 'tepiha-photos';
 
@@ -774,22 +774,15 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       }
 
       try {
-        // ✅ Universal adapter: online/offline + queued sync via /api/offline-sync
-        // NOTE: payload already matches transport_orders schema.
-        const res = await saveOrderToDb({ ...payload, table: 'transport_orders' }, { table: 'transport_orders', onConflict: 'id', source: 'TRANSPORT_PRANIMI' });
-
-        // Mark code used only when server write succeeded
-        if (!isEdit && !res?._offline) {
-          try { await markTransportCodeUsed(tcodeForClient, tid); } catch {}
-        }
-
-        // If it was saved to server, we can drop draft.
-        if (!res?._offline) {
-          try { removeDraftLocal(oid); } catch {}
-        }
-
+        // ✅ Robust Outbox: persist PENDING first, then attempt immediate sync.
+        // DB triggers will auto-mark pool codes as USED only when INSERT/UPSERT succeeds.
+        try { enqueueTransportOrder(payload); } catch {}
+        try { await syncNow(); } catch {}
+        
+        removeDraftLocal(oid);
         setSavingContinue(false);
-        if(autoMsgAfterSave) { setMsgKind('start'); setShowMsgSheet(true); }
+        
+        if(autoMsgAfterSave) { setMsgKind('start'); setShowMsgSheet(true); } // ✅ HAP MESAZHIN
         else router.push('/transport/board');
       } catch (e) {
           // Nëse DB bie/RLS/rrjeti, mos e humb porosinë — ruaje si DRAFT.

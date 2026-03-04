@@ -13,7 +13,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { saveOrderLocal, pushOp } from '@/lib/offlineStore';
-import { fetchOrdersFromDb, fetchClientsFromDb, saveOrderToDb } from '@/lib/ordersDb';
+import { fetchOrdersFromDb, fetchClientsFromDb } from '@/lib/ordersDb';
+import { enqueueBaseOrder, syncNow } from '@/lib/syncManager';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import { getActor } from '@/lib/actorSession';
 
@@ -1393,6 +1394,19 @@ function saveOfflineQueueItem(order) {
 
       // ✅ Nëse s’kemi KOD (p.sh. pool/RPC ra), mos e blloko — ruaje OFFLINE si draft/queue.
       const normCodeNow = formatKod(normalizeCode(codeRaw), __isOnlineUI);
+
+      // ✅ Outbox row payload (same shape as ordersDb.saveOrderToDb insertRow)
+      const outboxRow = {
+        code: Number(normCodeNow || 0) || null,
+        local_oid: String(oid),
+        status: 'pastrim',
+        client_name: name || null,
+        client_phone: String(phone || ''),
+        total: Number(totalEuro || 0),
+        paid: Number(clientPaid || 0),
+        data: order,
+        updated_at: new Date().toISOString(),
+      };
       if (!normCodeNow || normCodeNow === '0') {
         // If we are ONLINE and DB is reachable, DO NOT allow saving without a numeric code.
         // This prevents “…../blank code” rows in PASTRIMI and avoids duplicate/ghost flows.
@@ -1457,25 +1471,8 @@ if (offlineMode || (browserOffline && !conn.ok)) {
   const ok = saveOfflineQueueItem(order);
   // 2) Local orders mirror for immediate UI lists
   try { saveOrderLocal(order); } catch {}
-  // 3) ✅ Primary offline sync path (offline_store_v1 via ordersDb)
-  //    This is what SyncStarter/syncEngine will flush to Supabase when online.
-  try {
-    const dbOrder = {
-      id: oid,
-      code: String(normCodeNow),
-      status: 'pastrim',
-      is_offline: true,
-      notes: notes || null,
-      client_name: name || null,
-      client_phone: phone || '',
-      total: Number(totalEuro || 0),
-      // paid = "Klienti dha" (cash) so totals/debt stay consistent offline
-      paid: Number(clientPaid || 0),
-      client_photo_url: clientPhotoUrl || null,
-      data: order,
-    };
-    await saveOrderToDb(ensureCodePair(dbOrder));
-  } catch {}
+  // 3) ✅ New Outbox (PENDING)
+  try { enqueueBaseOrder(outboxRow); } catch {}
   try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
   setOfflineMode(true);
   if (!ok) {
@@ -1484,11 +1481,7 @@ if (offlineMode || (browserOffline && !conn.ok)) {
     return;
   }
 
-  // ✅ IMPORTANT: even OFFLINE we must mark the code as USED so the lease is cleared
-  // (otherwise the next order will re-use the same code)
-  try { await markCodeUsed(Number(normCodeNow), oid); } catch {}
-
-  alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, mund t’i integroni/sync më vonë.');
+  alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, do të sinkronizohet automatikisht.');
 // go forward anyway so workflow continues
 try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
 setSavingContinue(false);
@@ -1522,13 +1515,15 @@ return;
       // ✅ CRITICAL PATH: save to DB first so the client appears in PASTRIMI immediately.
       let db = null;
       try {
-        db = await saveOrderToDb(order);
+        // Always enqueue first (PENDING), then attempt immediate sync.
+        enqueueBaseOrder(outboxRow);
+        await syncNow();
+        db = { ok: true };
       } catch (e) {
         // Fallback: keep it locally + sync later (do NOT block workflow)
-        try { await saveOrderToDb({ ...order, is_offline: true }, 'PRANIMI_FAILOVER'); } catch {}
+        try { enqueueBaseOrder(outboxRow); } catch {}
         try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
         setOfflineMode(true);
-        try { await markCodeUsed(codeRaw, oid); } catch {}
         alert('⚠️ SERVERI DËSHTOI. U RUAJT LOKALISHT (SYNC MË VONË).');
         try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
         setSavingContinue(false);
@@ -1544,8 +1539,7 @@ return;
       // local mirror (fast)
       try { localStorage.setItem(`order_${oid}`, JSON.stringify(order)); } catch {}
       
-      // ✅ MODIFIKUAR PIKA 5: PAS saveOrderToDb(order)
-      try { await markCodeUsed(codeRaw, oid); } catch {}
+      // ✅ Code will be auto-marked USED in DB only when sync succeeds (DB trigger).
 
       // ✅ NON-BLOCKING: do backups + cleanup in background
       void (async () => {
