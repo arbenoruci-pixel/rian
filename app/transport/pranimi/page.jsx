@@ -8,6 +8,7 @@ import { upsertTransportClient } from '@/lib/transport/transportDb';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { saveOrderToDb } from '@/lib/ordersDb';
 import { saveOrderLocal, pushOp } from '@/lib/offlineStore';
 import { getTransportSession } from '@/lib/transportAuth';
 import { recordCashMove } from '@/lib/arkaCashSync';
@@ -773,25 +774,22 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       }
 
       try {
-        if(isEdit) {
-          const { error } = await supabase.from('transport_orders').update(payload).eq('id', oid);
-          if (error) throw error;
+        // ✅ Universal adapter: online/offline + queued sync via /api/offline-sync
+        // NOTE: payload already matches transport_orders schema.
+        const res = await saveOrderToDb({ ...payload, table: 'transport_orders' }, { table: 'transport_orders', onConflict: 'id', source: 'TRANSPORT_PRANIMI' });
+
+        // Mark code used only when server write succeeded
+        if (!isEdit && !res?._offline) {
+          try { await markTransportCodeUsed(tcodeForClient, tid); } catch {}
         }
-        else {
-            // Draft/Offline flow can create the same order id multiple times.
-            // Use UPSERT to avoid "duplicate key" on transport_orders_pkey.
-            const { error } = await supabase
-              .from('transport_orders')
-              .upsert(payload, { onConflict: 'id' });
-            if (error) throw error;
-            // Mark code used (idempotent on DB side).
-            await markTransportCodeUsed(tcodeForClient, tid);
+
+        // If it was saved to server, we can drop draft.
+        if (!res?._offline) {
+          try { removeDraftLocal(oid); } catch {}
         }
-        
-        removeDraftLocal(oid);
+
         setSavingContinue(false);
-        
-        if(autoMsgAfterSave) { setMsgKind('start'); setShowMsgSheet(true); } // ✅ HAP MESAZHIN
+        if(autoMsgAfterSave) { setMsgKind('start'); setShowMsgSheet(true); }
         else router.push('/transport/board');
       } catch (e) {
           // Nëse DB bie/RLS/rrjeti, mos e humb porosinë — ruaje si DRAFT.

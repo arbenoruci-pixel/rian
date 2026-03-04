@@ -17,15 +17,31 @@ const supabase = createClient(
 
 const PG_DUPLICATE = "23505";
 
+function pickTable(body) {
+  const t = String(
+    body?.table ||
+      body?.data?.table ||
+      body?.payload?.table ||
+      body?.payload?.data?.table ||
+      body?.payload?.insertRow?.table ||
+      ""
+  ).trim();
+  return t === "transport_orders" ? "transport_orders" : "orders";
+}
+
 export async function POST(req) {
   try {
     const body = await req.json();
     const { type, data, id, localId, payload } = body || {};
 
+    const table = pickTable(body || {});
+
     const stripNonSchemaCols = (row) => {
       if (!row || typeof row !== "object") return row;
       const out = { ...row };
       if ("code_n" in out) delete out.code_n;
+      if ("client" in out) delete out.client; // legacy field that breaks schema cache
+      if ("table" in out) delete out.table;
       return out;
     };
 
@@ -39,6 +55,27 @@ export async function POST(req) {
     if (type === "insert_order") {
       const raw = data || payload?.insertRow || payload?.data || payload;
       const row = { ...(raw || {}) };
+
+      // ------------------------------------------
+      // TRANSPORT: upsert straight into transport_orders
+      // ------------------------------------------
+      if (table === "transport_orders") {
+        // Ensure we have a stable id
+        const oid = String(row.id || row.local_oid || localId || "").trim();
+        if (oid) row.id = oid;
+        if (!row.local_oid && row.id) row.local_oid = String(row.id);
+        if (!row.data) row.data = row;
+        if (!row.status) row.status = "pickup";
+
+        const insertRow = stripNonSchemaCols(row);
+
+        const { error } = await supabase
+          .from("transport_orders")
+          .upsert(insertRow, { onConflict: "id" });
+
+        if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
+        return NextResponse.json({ ok: true, localId: row.local_oid || row.id, table }, { status: 200 });
+      }
 
       // Normalizimi i ID-ve
       if (row.id && !row.local_oid) row.local_oid = String(row.id);
@@ -130,10 +167,10 @@ export async function POST(req) {
         updated_at: new Date().toISOString(),
       });
 
-      const q = supabase.from("orders").update(patch);
-      const { error } = await (isUuid(String(id || ""))
-        ? q.eq("local_oid", String(id))
-        : q.eq("id", id));
+      const target = table === "transport_orders" ? "transport_orders" : "orders";
+      const q = supabase.from(target).update(patch);
+      const useLocalOid = target === "orders" && isUuid(String(id || ""));
+      const { error } = await (useLocalOid ? q.eq("local_oid", String(id)) : q.eq("id", id));
 
       if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
       return NextResponse.json({ ok: true }, { status: 200 });
@@ -143,13 +180,13 @@ export async function POST(req) {
     // 3. SET STATUS (Ndryshim statusi)
     // ==========================================
     if (type === "set_status") {
+      const target = table === "transport_orders" ? "transport_orders" : "orders";
       const q = supabase
-        .from("orders")
+        .from(target)
         .update({ status: data?.status, updated_at: new Date().toISOString() });
 
-      const { error } = await (isUuid(String(id || ""))
-        ? q.eq("local_oid", String(id))
-        : q.eq("id", id));
+      const useLocalOid = target === "orders" && isUuid(String(id || ""));
+      const { error } = await (useLocalOid ? q.eq("local_oid", String(id)) : q.eq("id", id));
 
       if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
       return NextResponse.json({ ok: true }, { status: 200 });
