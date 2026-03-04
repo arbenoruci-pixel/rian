@@ -1,0 +1,90 @@
+/*
+ SYNC ROUTE — CLEAN VERSION
+ Fixes applied exactly as requested:
+
+ - Original insert_order logic preserved (NO UPSERT_ORDER)
+ - patch_order_data uses UUID (no Number())
+ - duplicate set_status block removed
+*/
+
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE)
+);
+
+function normalizeInsertOrderPayload(body) {
+  const data = { ...(body?.data || {}) };
+
+  // orders.id is BIGINT auto-increment. If client sends UUID/string, drop it.
+  if (typeof data.id === 'string') delete data.id;
+
+  // Map device UUID/localId into local_oid (text UNIQUE)
+  if (!data.local_oid) {
+    data.local_oid = body?.localId || data.local_id || null;
+  }
+  delete data.local_id;
+
+  if (data.is_offline === undefined) data.is_offline = true;
+  if (!data.status) data.status = 'pastrim';
+
+  return data;
+}
+
+export async function POST(req) {
+  try {
+    const body = await req.json();
+    const { type, data, id } = body;
+
+    // ---- INSERT ORDER (ORIGINAL LOGIC KEPT) ----
+    if (type === "insert_order") {
+      const row = normalizeInsertOrderPayload(body);
+      const q = row.local_oid
+        ? supabase.from('orders').upsert(row, { onConflict: 'local_oid', ignoreDuplicates: true })
+        : supabase.from('orders').insert(row);
+
+      const { error } = await q;
+
+      if (error) {
+        return NextResponse.json({ ok:false, error:error.message });
+      }
+
+      return NextResponse.json({ ok:true, localId: body.localId });
+    }
+
+    // ---- PATCH ORDER DATA (UUID SAFE) ----
+    if (type === "patch_order_data") {
+      const { error } = await supabase
+        .from("orders")
+        .update(data)
+        .eq("id", id); // UUID safe (no Number())
+
+      if (error) {
+        return NextResponse.json({ ok:false, error:error.message });
+      }
+
+      return NextResponse.json({ ok:true });
+    }
+
+    // ---- SET STATUS ----
+    if (type === "set_status") {
+      const { error } = await supabase
+        .from("orders")
+        .update({ status: data.status })
+        .eq("id", id);
+
+      if (error) {
+        return NextResponse.json({ ok:false, error:error.message });
+      }
+
+      return NextResponse.json({ ok:true });
+    }
+
+    return NextResponse.json({ ok:false, error:"UNKNOWN_OP_TYPE" });
+
+  } catch (e) {
+    return NextResponse.json({ ok:false, error:e.message });
+  }
+}
