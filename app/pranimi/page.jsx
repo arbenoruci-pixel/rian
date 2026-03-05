@@ -1663,16 +1663,16 @@ ${msg}${details}`);
 
   return `Përshëndetje ${name || 'klient'},
   
-Procesi i pastrimit për porosinë tuaj ka filluar.
+Porosia juaj u pranua dhe procesi i pastrimit ka filluar.
 
 KODI: ${kod}
 SASIA: ${copeCount} copë (${m2} m²)
 TOTALI: ${euro} €
 BORXHI: ${debt} €
 
-⚠️ JU LUTEMI: Tërhiqni tepihat tuaj brenda 24-48 orëve. Për shkak të fluksit të madh të punës dhe mungesës së hapësirës në depo, nuk kemi mundësi t'i ruajmë më gjatë dhe nuk mbajmë përgjegjësi pas këtij afati.
+Sapo të jenë gati për t'u tërhequr, do t'ju njoftojmë me një mesazh tjetër.
 
-Faleminderit për mirëkuptimin,
+Faleminderit që zgjodhët shërbimet tona,
 KOMPANIA JONI`;
 }
 
