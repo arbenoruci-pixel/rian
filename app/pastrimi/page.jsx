@@ -3,12 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import supabase from '@/lib/supabaseClient';
+import supabase from '@/lib/supabaseClient'; // FIX: Default import
 import { getAllOrdersLocal, saveOrderLocal } from '@/lib/offlineStore';
 import { recordCashMove } from '@/lib/arkaCashSync';
-
-// 🔥 IMPORTUAR KËRKUESI I PIN-IT
 import { requirePaymentPin } from '@/lib/paymentPin';
+import { getOutboxSnapshot } from '@/lib/syncManager'; // SHTUAR: Për leximin e porosive Offline
 
 // --- CONFIG ---
 const BUCKET = 'tepiha-photos';
@@ -24,8 +23,7 @@ const PAY_CHIPS = [5, 10, 20, 30, 50];
 const DAILY_CAPACITY_M2 = 400;
 const STREAM_MAX_M2 = 450;
 
-// Safari shpesh jep “Load failed” kur request-i varet gjatë.
-// Ky helper e këput request-in pas 7 sekondash (si te baseCodes).
+// FIX: Timeout 7s për mbrojtjen e Safari
 function withTimeout(promise, ms = 7000) {
   let t;
   const timeout = new Promise((_, reject) => {
@@ -43,11 +41,7 @@ function withTimeout(promise, ms = 7000) {
 
 function getGhostBlacklist() {
   if (typeof window === 'undefined') return [];
-  try {
-    return JSON.parse(window.localStorage.getItem('tepiha_ghost_blacklist') || '[]');
-  } catch {
-    return [];
-  }
+  try { return JSON.parse(window.localStorage.getItem('tepiha_ghost_blacklist') || '[]'); } catch { return []; }
 }
 
 function normalizeCode(raw) {
@@ -83,9 +77,7 @@ function unwrapOrderData(raw) {
   if (o && o.data) {
     let d = o.data;
     if (typeof d === 'string') { try { d = JSON.parse(d); } catch { d = null; } }
-    if (d && (d.client || d.tepiha || d.pay || d.transport)) {
-      o = d;
-    }
+    if (d && (d.client || d.tepiha || d.pay || d.transport)) { o = d; }
   }
   return (o && typeof o === 'object') ? o : {};
 }
@@ -97,16 +89,9 @@ async function readLocalOrdersByStatus(status) {
   const pushRow = (id, fullOrder, ts, source, synced) => {
     if (!id || !fullOrder) return;
     if (blacklist.includes(String(id))) return;
-    
     const st = String(fullOrder.status || '').toLowerCase();
     if (normalizeStatus(st) !== normalizeStatus(status)) return;
-    out.push({
-      id,
-      source,
-      ts: Number(ts || fullOrder.ts || Date.now()),
-      fullOrder,
-      synced: !!synced,
-    });
+    out.push({ id, source, ts: Number(ts || fullOrder.ts || Date.now()), fullOrder, synced: !!synced });
   };
 
   try {
@@ -118,20 +103,6 @@ async function readLocalOrdersByStatus(status) {
       const id = x?.id || full.id || full.oid || '';
       const ts = x?.updated_at || x?.created_at || full.created_at || full.updated_at || Date.now();
       pushRow(id, full, ts, 'idb', !!x?._synced);
-    });
-  } catch {}
-
-  try {
-    const rawQ = localStorage.getItem(OFFLINE_QUEUE_KEY);
-    const q = rawQ ? JSON.parse(rawQ) : [];
-    (Array.isArray(q) ? q : []).forEach((it) => {
-      const raw = it?.order || it?.payload || it;
-      if (!raw) return;
-      const full = normalizeOrder(raw?.data ? raw.data : raw);
-      full.status = String(raw?.status || full.status || 'pastrim').toLowerCase();
-      const id = raw?.id || raw?.order_id || full.id || '';
-      const ts = raw?.updated_at || raw?.created_at || Date.now();
-      pushRow(id, full, ts, 'lsq', false);
     });
   } catch {}
 
@@ -156,10 +127,7 @@ async function readLocalOrdersByStatus(status) {
     const order = row.fullOrder;
     const codeKey = normalizeCode(order?.code || order?.code_n || order?.client?.code || order?.client_code || row?.id);
     const prev = byCode.get(codeKey);
-    if (!prev) {
-      byCode.set(codeKey, row);
-      continue;
-    }
+    if (!prev) { byCode.set(codeKey, row); continue; }
     const s1 = scoreRow(row);
     const s0 = scoreRow(prev);
     if (s1 > s0) byCode.set(codeKey, row);
@@ -169,19 +137,13 @@ async function readLocalOrdersByStatus(status) {
   return Array.from(byCode.values());
 }
 
-function sanitizePhone(phone) {
-  return String(phone || '').replace(/\D+/g, '');
-}
+function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
 
 function computeM2(order) {
   if (!order) return 0;
   let total = 0;
-  if (Array.isArray(order.tepiha)) {
-    for (const r of order.tepiha) total += (Number(r.m2) || 0) * (Number(r.qty) || 0);
-  }
-  if (Array.isArray(order.staza)) {
-    for (const r of order.staza) total += (Number(r.m2) || 0) * (Number(r.qty) || 0);
-  }
+  if (Array.isArray(order.tepiha)) { for (const r of order.tepiha) total += (Number(r.m2) || 0) * (Number(r.qty) || 0); }
+  if (Array.isArray(order.staza)) { for (const r of order.staza) total += (Number(r.m2) || 0) * (Number(r.qty) || 0); }
   if (order.shkallore) total += (Number(order.shkallore.qty) || 0) * (Number(order.shkallore.per) || 0);
   return Number(total.toFixed(2));
 }
@@ -217,14 +179,6 @@ async function uploadPhoto(file, oid, key) {
   if (error) throw error;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
-}
-
-function codeLabel(o){
-  const s = String(o?.code ?? "").trim();
-  if (s) return s;
-  const n = o?.code_n ?? null;
-  if (Number.isFinite(Number(n)) && Number(n) > 0) return String(Number(n));
-  return "";
 }
 
 // ---------------- COMPONENT ----------------
@@ -286,7 +240,6 @@ export default function PastrimiPage() {
   const [showStairsSheet, setShowStairsSheet] = useState(false);
   const [payAdd, setPayAdd] = useState(0);
 
-  const [todayPastrimM2, setTodayPastrimM2] = useState(0);
   const [streamPastrimM2, setStreamPastrimM2] = useState(0);
 
   useEffect(() => {
@@ -296,46 +249,37 @@ export default function PastrimiPage() {
     };
   }, []);
 
+  // FIX: Realtime me mbrojtje nga crash
   useEffect(() => {
     if (!supabase || typeof supabase.channel !== 'function') return;
-    const ch1 = supabase.channel('pastrim-live-orders')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' },
-        async (payload) => {
-          try {
-            const row = payload?.new || payload?.old;
-            if (row?.id) {
-              await saveOrderLocal({
-                id: row.id, status: normalizeStatus(row.status), data: row.data ?? null,
-                updated_at: row.updated_at || row.ready_at || new Date().toISOString(), _synced: true, _table: 'orders',
-              });
-            }
-          } catch {}
-          refreshOrders();
-        }
-      ).subscribe();
 
-    const ch2 = supabase.channel('pastrim-live-transport')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_orders' },
-        async (payload) => {
-          try {
+    let ch1, ch2;
+    try {
+      ch1 = supabase.channel('pastrim-live-orders')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, async (payload) => {
             const row = payload?.new || payload?.old;
             if (row?.id) {
-              await saveOrderLocal({
-                id: row.id, status: normalizeStatus(row.status), data: row.data ?? null,
-                updated_at: row.updated_at || row.ready_at || new Date().toISOString(), _synced: true, _table: 'transport_orders',
-              });
+              await saveOrderLocal({ id: row.id, status: normalizeStatus(row.status), data: row.data ?? null, updated_at: row.updated_at || new Date().toISOString(), _synced: true, _table: 'orders' });
             }
-          } catch {}
-          refreshOrders();
-        }
-      ).subscribe();
+            refreshOrders();
+        }).subscribe();
+
+      ch2 = supabase.channel('pastrim-live-transport')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_orders' }, async (payload) => {
+            const row = payload?.new || payload?.old;
+            if (row?.id) {
+              await saveOrderLocal({ id: row.id, status: normalizeStatus(row.status), data: row.data ?? null, updated_at: row.updated_at || new Date().toISOString(), _synced: true, _table: 'transport_orders' });
+            }
+            refreshOrders();
+        }).subscribe();
+    } catch(e) {}
 
     const onFocus = () => refreshOrders();
     if (typeof window !== 'undefined') window.addEventListener('focus', onFocus);
 
     return () => {
-      try { supabase.removeChannel(ch1); } catch {}
-      try { supabase.removeChannel(ch2); } catch {}
+      try { if (ch1) supabase.removeChannel(ch1); } catch {}
+      try { if (ch2) supabase.removeChannel(ch2); } catch {}
       if (typeof window !== 'undefined') window.removeEventListener('focus', onFocus);
     };
   }, []);
@@ -343,67 +287,85 @@ export default function PastrimiPage() {
   async function refreshOrders() {
     setLoading(true);
     try {
-      try {
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-          const locals = (await readLocalOrdersByStatus('pastrim')).map((x) => {
-            const order = unwrapOrderData(x.fullOrder);
-            const total = Number(order.pay?.euro || 0);
-            const paid = Number(order.pay?.paid || 0);
-            const codeKey = normalizeCode(order.client?.code || order.code || order.code_n || order.client_code || x.id);
-            const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) +
-              (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) +
-              (Number(order.shkallore?.qty)||0);
+      // 1. Lexojmë Outbox-in për porositë që janë ruajtur offline por s'kanë shkuar në DB
+      const outboxSnap = typeof getOutboxSnapshot === 'function' ? getOutboxSnapshot() : [];
+      const pendingOutbox = Array.isArray(outboxSnap)
+        ? outboxSnap.filter((it) => it?.status === 'pending' && (it?.table === 'orders' || it?.table === 'transport_orders')).map((it) => {
+            const p = it.payload || {};
+            const isTrans = it.table === 'transport_orders';
+            const codeKey = p.code ?? p.code_n ?? p.order_code ?? null;
+            const m2 = computeM2(p);
+            const cope = (p.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (p.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(p.shkallore?.qty) || 0);
             return {
-              id: x.id, source: 'LOCAL', ts: Number(order.ts || x.ts || Date.now()),
-              name: order.client?.name || '', phone: order.client?.phone || '', code: codeKey,
-              m2: computeM2(order), cope, total, paid, isPaid: paid >= total && total > 0,
-              isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
+              id: it.id, source: 'OUTBOX', ts: Number(it.createdAt ? Date.parse(it.createdAt) : Date.now()),
+              name: p.client?.name || p.client_name || '', phone: p.client?.phone || '', code: normalizeCode(codeKey),
+              m2, cope, total: Number(p.pay?.euro || 0), paid: Number(p.pay?.paid || 0),
+              isPaid: Number(p.pay?.paid||0) >= Number(p.pay?.euro||0) && Number(p.pay?.euro||0) > 0,
+              isReturn: false, fullOrder: p, _outboxPending: true
             };
-          });
+        }) : [];
 
-          const cleanLocals = locals.filter(o => o.cope > 0 || o.m2 > 0 || (o.name && o.name.trim() !== ''));
-          
-          setOrders(cleanLocals);
-          setDebugInfo({ source: 'LOCAL_OFFLINE', dbCount: 0, localCount: cleanLocals.length, online: false, lastError: null, ts: Date.now() });
-          setLoading(false);
-          return;
-        }
-      } catch {}
+      const mergeUnique = (baseArr, extraArr) => {
+        const seen = new Set((baseArr || []).map((o) => String(o?.id || o?.oid)));
+        (extraArr || []).forEach((o) => {
+          const k = String(o?.id || o?.oid);
+          if (seen.has(k)) return;
+          baseArr.push(o);
+          seen.add(k);
+        });
+        return baseArr;
+      };
 
-      const { data: normalData, error: normalError } = await withTimeout(
-        supabase
-          .from('orders').select('id,status,created_at,data,code')
-          .in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
+      // OFFLINE MODE
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        const locals = (await readLocalOrdersByStatus('pastrim')).map((x) => {
+          const order = unwrapOrderData(x.fullOrder);
+          const total = Number(order.pay?.euro || 0);
+          const paid = Number(order.pay?.paid || 0);
+          return {
+            id: x.id, source: 'LOCAL', ts: Number(order.ts || x.ts || Date.now()),
+            name: order.client?.name || '', phone: order.client?.phone || '', code: normalizeCode(order.client?.code || order.code || x.id),
+            m2: computeM2(order), cope: (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty) || 0),
+            total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
+          };
+        });
+
+        const cleanLocals = locals.filter(o => o.cope > 0 || o.m2 > 0 || (o.name && o.name.trim() !== ''));
+        mergeUnique(cleanLocals, pendingOutbox); // Shton Outbox-in
+
+        // FINAL DEDUPE: vetëm me id/oid (jo me code)
+        const byId = new Map();
+        (cleanLocals || []).forEach((o) => {
+          const k = String(o?.id || o?.oid);
+          if (!k) return;
+          const prev = byId.get(k);
+          if (!prev) { byId.set(k, o); return; }
+          if (Number(o.ts || 0) >= Number(prev.ts || 0)) byId.set(k, o);
+        });
+        const dedupedLocals = Array.from(byId.values());
+
+        dedupedLocals.sort((a, b) => b.ts - a.ts);
+
+        setOrders(dedupedLocals);
+        setDebugInfo({ source: 'LOCAL_OFFLINE', dbCount: 0, localCount: dedupedLocals.length, online: false, lastError: null, ts: Date.now() });
+        setLoading(false);
+        return;
+      }
+
+      // ONLINE MODE
+      const { data: normalData } = await withTimeout(
+        supabase.from('orders').select('id,status,created_at,data,code').in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
       );
-      
-      const { data: transportData, error: transError } = await withTimeout(
-        supabase
-          .from('transport_orders').select('id,status,created_at,data,code_str')
-          .in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
+      const { data: transportData } = await withTimeout(
+        supabase.from('transport_orders').select('id,status,created_at,data,code_str').in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
       );
 
       const allOrders = [];
-
-      if (typeof window !== 'undefined') {
-        setTimeout(async () => {
-          for (const row of (normalData || [])) {
-            await saveOrderLocal({ ...row, _synced: true, _local: false, _table: 'orders' });
-          }
-          for (const row of (transportData || [])) {
-            await saveOrderLocal({ ...row, _synced: true, _local: false, _table: 'transport_orders' });
-          }
-        }, 500);
-      }
-
       (normalData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
-        if (!Array.isArray(order.tepiha) && Array.isArray(order.tepihaRows)) order.tepiha = order.tepihaRows.map(r => ({ m2: Number(r?.m2)||0, qty: Number(r?.qty||r?.pieces)||0, photoUrl: r?.photoUrl||'' }));
-        if (!Array.isArray(order.staza) && Array.isArray(order.stazaRows)) order.staza = order.stazaRows.map(r => ({ m2: Number(r?.m2)||0, qty: Number(r?.qty||r?.pieces)||0, photoUrl: r?.photoUrl||'' }));
-
         const total = Number(order.pay?.euro || 0);
         const paid = Number(order.pay?.paid || 0);
-        const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty)>0?1:0);
-
+        const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty) || 0);
         allOrders.push({
           id: row.id, source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
           name: order.client?.name || order.client_name || '', phone: order.client?.phone || order.client_phone || '',
@@ -416,8 +378,7 @@ export default function PastrimiPage() {
         const order = unwrapOrderData(row.data);
         const total = Number(order.pay?.euro || 0);
         const paid = Number(order.pay?.paid || 0);
-        const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty)>0?1:0);
-
+        const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty) || 0);
         allOrders.push({
           id: row.id, source: 'transport_orders', ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
           name: order.client?.name || '', phone: order.client?.phone || '',
@@ -426,43 +387,26 @@ export default function PastrimiPage() {
         });
       });
 
-      allOrders.sort((a, b) => b.ts - a.ts);
-      
-      try {
-        const locals = await readLocalOrdersByStatus('pastrim');
-        const blacklist = getGhostBlacklist(); 
-        
-        for (const x of locals) {
-          if (blacklist.includes(String(x.id))) continue; 
-          
-          const order = unwrapOrderData(x.fullOrder);
-          const id = x.id;
-          const codeKey = normalizeCode(order.client?.code || order.code || '');
-          if (allOrders.some((o) => String(o.code) === String(codeKey))) continue;
-          
-          const total = Number(order.pay?.euro || 0);
-          const paid = Number(order.pay?.paid || 0);
-          const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty)>0?1:0);
-          allOrders.unshift({
-            id, source: 'LOCAL', ts: Number(order.ts || x.ts || Date.now()),
-            name: order.client?.name || '', phone: order.client?.phone || '', code: codeKey,
-            m2: computeM2(order), cope, total, paid, isPaid: paid >= total && total > 0,
-            isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
-          });
-        }
-      } catch {}
-      
-      const cleanOrders = allOrders.filter(o => o.cope > 0 || o.m2 > 0 || (o.name && o.name.trim() !== ''));
+      mergeUnique(allOrders, pendingOutbox); // Shton Outbox-in
 
+      // FINAL DEDUPE: vetëm me id/oid (jo me code)
+      const byId = new Map();
+      (allOrders || []).forEach((o) => {
+        const k = String(o?.id || o?.oid);
+        if (!k) return;
+        const prev = byId.get(k);
+        if (!prev) { byId.set(k, o); return; }
+        if (Number(o.ts || 0) >= Number(prev.ts || 0)) byId.set(k, o);
+      });
+      const dedupedOrders = Array.from(byId.values());
+
+      dedupedOrders.sort((a, b) => b.ts - a.ts);
+
+      const cleanOrders = dedupedOrders.filter(o => o.cope > 0 || o.m2 > 0 || (o.name && o.name.trim() !== ''));
       setOrders(cleanOrders);
-      setDebugInfo({ source: 'DB', dbCount: (normalData||[]).length + (transportData||[]).length, localCount: cleanOrders.filter(o=>o.source==='LOCAL').length, online: true, lastError: null, ts: Date.now() });
 
       const streamTotal = cleanOrders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
       setStreamPastrimM2(Number(streamTotal.toFixed(2)));
-
-      const today = dayKey(Date.now());
-      const todayLoad = cleanOrders.filter(o => dayKey(o.ts) === today).reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
-      setTodayPastrimM2(Number(todayLoad.toFixed(2)));
 
     } finally {
       setLoading(false);
@@ -470,26 +414,16 @@ export default function PastrimiPage() {
   }
 
   async function openEdit(item) {
+    if (item._outboxPending) {
+       alert("⏳ Kjo porosi është në pritje për internet. Nuk mund ta editosh derisa të dërgohet në server.");
+       return;
+    }
     try {
       let ord = item.fullOrder;
-      if (!ord) {
-        if (item.source === 'orders' && item.raw_data) {
-          ord = item.raw_data;
-        } else {
-          const { data, error } = await withTimeout(
-            supabase.from(item.source).select('data').eq('id', item.id).single()
-          );
-          if (error || !data) throw new Error('Not found');
-          ord = data.data;
-          if (typeof ord === 'string') ord = JSON.parse(ord);
-        }
-      }
-
       setOid(String(item.id));
       setOrderSource(item.source);
       setOrigTs(ord.ts || Date.now());
       setCodeRaw(normalizeCode(item.code));
-
       setName(ord.client?.name || '');
       const p = String(ord.client?.phone || '');
       setPhone(p.startsWith(phonePrefix) ? p.slice(phonePrefix.length) : p.replace(/\D+/g, ''));
@@ -509,7 +443,7 @@ export default function PastrimiPage() {
       setPaidUpfront(!!ord.pay?.paidUpfront);
       setPayMethod(method);
       setArkaRecordedPaid(Number(ord.pay?.arkaRecordedPaid ?? (method==='CASH'?paid:0)));
-      
+
       setNotes(ord.notes || '');
 
       const ri = ord?.returnInfo;
@@ -566,19 +500,20 @@ export default function PastrimiPage() {
     }
   }
 
-  // 🔥 SHTUAR MESAZHI I RI KËTU
   async function handleMarkReady(o) {
+    if (o._outboxPending) {
+       alert("⏳ Kjo porosi është në pritje për internet. Prit sa të sinkronizohet lart.");
+       return;
+    }
     const btnId = `btn-${o.id}`;
     const btn = document.getElementById(btnId);
     if(btn) { btn.disabled = true; btn.innerText = "⏳..."; }
 
     try {
-      const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
       const now = new Date().toISOString();
-
       setOrders(prev => prev.filter(x => x.id !== o.id));
 
-      if (isOffline || o.source === 'LOCAL') {
+      if (o.source === 'LOCAL') {
         const { updateOrderStatus } = await import('@/lib/ordersDb');
         await updateOrderStatus(o.id, 'gati');
       } else {
@@ -589,7 +524,6 @@ export default function PastrimiPage() {
         if (fetchErr) throw fetchErr;
 
         const updatedJson = { ...(currentRow.data || {}), status: 'gati', ready_at: now };
-
         if (table === 'transport_orders') {
           await supabase.from('transport_orders').update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now }).eq('id', o.id);
           alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
@@ -598,29 +532,18 @@ export default function PastrimiPage() {
         }
       }
 
-      // Krijimi dhe hapja e SMS-it (Online dhe Offline)
       if (o.source !== 'transport_orders') {
         const totalAmount = Number(o.total || 0);
         const paidAmount = Number(o.paid || 0);
         const debt = Math.max(0, Number((totalAmount - paidAmount).toFixed(2)));
-        
-        let pagesaTxt = '';
-        if (o.paidUpfront || (totalAmount > 0 && debt <= 0) || o.isPaid) {
-          pagesaTxt = 'E PAGUAR ✅';
-        } else {
-          pagesaTxt = `${debt.toFixed(2)} €`;
-        }
-
-        const msg = `Përshëndetje ${o.name || 'klient'},\n\nPorosia juaj (KODI: ${normalizeCode(o.code)}) është GATI për marrje.\n\n📦 Sasia: ${o.cope || 0} copë\n💶 Për të paguar: ${pagesaTxt}\n\n⚠️ JU LUTEMI: Tërhiqni tepihat tuaj brenda 24-48 orëve. Për shkak të fluksit të madh të punës dhe mungesës së hapësirës në depo, nuk kemi mundësi t'i ruajmë më gjatë dhe nuk mbajmë përgjegjësi pas këtij afati.\n\nFaleminderit për mirëkuptimin,\nKOMPANIA JONI`;
-        
+        let pagesaTxt = (o.paidUpfront || (totalAmount > 0 && debt <= 0) || o.isPaid) ? 'E PAGUAR ✅' : `${debt.toFixed(2)} €`;
+        const msg = `Përshëndetje ${o.name || 'klient'},\n\nPorosia juaj (KODI: ${normalizeCode(o.code)}) është GATI për marrje.\n\n📦 Sasia: ${o.cope || 0} copë\n💶 Për të paguar: ${pagesaTxt}\n\n⚠️ JU LUTEMI: Tërhiqni tepihat tuaj brenda 24-48 orëve.\n\nFaleminderit,\nKOMPANIA JONI`;
         const url = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
         const link = document.createElement('a');
         link.href = url;
         link.click();
       }
-
     } catch (e) {
-      console.error("Error:", e);
       alert("❌ Diçka shkoi keq. Provo prapë.");
       refreshOrders(); 
     }
@@ -671,19 +594,16 @@ export default function PastrimiPage() {
     setShowPaySheet(true);
   }
 
-  // 🔥 SHTUAR SISTEMI POS I ARKËS DHE PIN-I
   async function applyPayAndClose() {
     const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
     const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
-    
     if (due <= 0) { alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.'); return; }
     if (cashGiven < due) { alert('KLIENTI DHA MË PAK SE BORXHI! JU LUTEM PLOTËSONI SHUMËN OSE ANULONI.'); return; }
 
     const applied = due; 
     const kusuri = Math.max(0, cashGiven - due);
-
     const pinLabel = `PAGESË: ${applied.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI (RESTO): ${kusuri.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
-    
+
     const pinData = await requirePaymentPin({ label: pinLabel });
     if (!pinData) return;
 
@@ -702,6 +622,7 @@ export default function PastrimiPage() {
     setShowPaySheet(false);
   }
 
+  // ==== UI EDIT MODE ====
   if (editMode) {
     return (
       <div className="wrap">
@@ -716,10 +637,7 @@ export default function PastrimiPage() {
             <label className="label">EMRI</label>
             <div className="row" style={{ alignItems: 'center', gap: 10 }}>
               <input className="input" value={name} onChange={e => setName(e.target.value)} style={{ flex: 1 }} />
-              {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini" /> : null}
-              <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleClientPhotoChange(e.target.files?.[0])} /></label>
             </div>
-            {clientPhotoUrl && <button className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 8 }} onClick={() => setClientPhotoUrl('')}>🗑️ FSHI FOTO</button>}
           </div>
           <div className="field-group"><label className="label">TELEFONI</label><div className="row"><input className="input small" value={phonePrefix} readOnly /><input className="input" value={phone} onChange={e => setPhone(e.target.value)} /></div></div>
         </section>
@@ -753,7 +671,7 @@ export default function PastrimiPage() {
         ))}
 
         <section className="card">
-          <div className="row util-row" style={{ gap: '10px' }}><button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowStairsSheet(true)}>🪜 SHKALLORE</button><button className="btn secondary" style={{ flex: 1 }} onClick={openPay}>€ PAGESA</button></div>
+          <div className="row util-row" style={{ gap: '10px' }}><button className="btn secondary" style={{ flex: 1 }} onClick={openPay}>€ PAGESA</button></div>
           <div className="tot-line">M² Total: <strong>{totalM2}</strong></div>
           <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
           <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div>
@@ -761,8 +679,8 @@ export default function PastrimiPage() {
         </section>
 
         <footer className="footer-bar"><button className="btn secondary" onClick={() => setEditMode(false)}>← ANULO</button><button className="btn primary" onClick={handleSave} disabled={saving}>{saving ? 'RUHET...' : 'RUAJ'}</button></footer>
-        
-        {/* 🔥 DIZAJNI I RI I ARKËS (POS) PËR EDIT MODE */}
+
+        {/* MODALI I ARKËS POS */}
         {showPaySheet && (() => {
           const dueNow = Math.max(0, Number((totalEuro - clientPaid).toFixed(2)));
           const cashGiven = Number(payAdd || 0);
@@ -793,31 +711,17 @@ export default function PastrimiPage() {
                   <div className="card" style={{ marginTop: 15, padding: '20px 15px' }}>
                     <div className="field-group">
                       <label className="label" style={{ fontSize: 14, color: '#60a5fa', textAlign: 'center', marginBottom: 10 }}>SA PARA PO JEP KLIENTI?</label>
-                      <input 
-                        type="number" 
-                        inputMode="decimal" 
-                        className="input" 
-                        style={{ fontSize: 32, fontWeight: 900, textAlign: 'center', height: 60, color: '#fff' }} 
-                        value={payAdd || ''} 
-                        onChange={(e) => setPayAdd(Number(e.target.value))} 
-                        placeholder="0.00"
-                      />
+                      <input type="number" inputMode="decimal" className="input" style={{ fontSize: 32, fontWeight: 900, textAlign: 'center', height: 60, color: '#fff' }} value={payAdd || ''} onChange={(e) => setPayAdd(Number(e.target.value))} placeholder="0.00" />
                       <div className="chip-row" style={{ marginTop: 15, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                         <button className="chip" style={{ background: '#3b82f6', color: '#fff', border: 'none', fontWeight: 900, fontSize: 16, padding: '12px 0' }} type="button" onClick={() => setPayAdd(dueNow)}>E SAKTË</button>
                         {PAY_CHIPS.map((v) => <button key={v} className="chip" style={{ fontSize: 16, fontWeight: 900, padding: '12px 0' }} type="button" onClick={() => setPayAdd(v)}>{v}€</button>)}
                         <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.7, gridColumn: 'span 2', padding: '12px 0' }}>FSHI SHUMËN</button>
                       </div>
                     </div>
-
                     {cashGiven >= dueNow && dueNow > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 22, fontWeight: 900, color: '#10b981', marginTop: 20, padding: 15, background: 'rgba(16, 185, 129, 0.15)', borderRadius: 12, border: '1px solid rgba(16, 185, 129, 0.3)' }}>
                         <span>KUSURI (RESTO):</span> <strong>{resto.toFixed(2)} €</strong>
                       </div>
-                    )}
-                    {cashGiven > 0 && cashGiven < dueNow && (
-                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 900, color: '#ef4444', marginTop: 20, padding: 15, background: 'rgba(239, 68, 68, 0.15)', borderRadius: 12, border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                         <span>MUNGON EDHE:</span> <strong>{(dueNow - cashGiven).toFixed(2)} €</strong>
-                       </div>
                     )}
                   </div>
                 )}
@@ -829,7 +733,7 @@ export default function PastrimiPage() {
             </div>
           );
         })()}
-        
+
         <style jsx>{`
           .client-mini{ width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid rgba(255,255,255,0.18); }
           .photo-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; }
@@ -845,60 +749,23 @@ export default function PastrimiPage() {
     );
   }
 
+  // ==== UI LIST (MAIN) ====
   const streamPct = Math.min(100, (Number(streamPastrimM2 || 0) / STREAM_MAX_M2) * 100);
 
   return (
     <div className="wrap">
       <header className="header-row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <div>
-          <h1 className="title" style={{ margin: 0 }}>PASTRIMI</h1>
-        </div>
-        
+        <div><h1 className="title" style={{ margin: 0 }}>PASTRIMI</h1></div>
         <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto' }}>
           <button
-            onClick={async () => {
-              const ok = window.confirm("A jeni të sigurt që doni të fshini Cache?");
-              if (ok) {
-                try {
-                  const blacklist = getGhostBlacklist();
-                  const localIds = orders.filter(o => o.source === 'LOCAL' || o.localOnly).map(o => String(o.id));
-                  const newBlacklist = Array.from(new Set([...blacklist, ...localIds]));
-                  localStorage.setItem('tepiha_ghost_blacklist', JSON.stringify(newBlacklist));
-                  
-                  localStorage.removeItem('tepiha_offline_queue_v1');
-                  localStorage.removeItem('tepiha_offline_queue_mirror_v1');
-                  localStorage.removeItem('offline_queue_mirror_v1');
-                  localStorage.removeItem('tepiha_local_orders_v1');
-                  
-                  try {
-                    const commonDBs = ['keyval-store', 'localforage', 'tepiha_offline_db', 'offlineStore', 'tepiha-store', 'workbox-expiration'];
-                    for (const name of commonDBs) { window.indexedDB.deleteDatabase(name); }
-                  } catch(e) {}
-                  
-                  alert("✅ Cache u pastrua me sukses!");
-                  window.location.reload(true);
-                } catch (e) {
-                  alert("❌ Gabim gjatë pastrimit!");
-                }
+            onClick={() => {
+              if (window.confirm("A jeni të sigurt që doni të fshini Cache?")) {
+                localStorage.removeItem('tepiha_offline_queue_v1');
+                localStorage.removeItem('tepiha_local_orders_v1');
+                window.location.reload();
               }
             }}
-            style={{
-              background: 'rgba(239, 68, 68, 0.2)',
-              border: '1px solid rgba(239, 68, 68, 0.5)',
-              color: '#fca5a5',
-              padding: '6px 10px',
-              borderRadius: '8px',
-              fontWeight: '900',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            🧹 FSHI CACHE
-          </button>
+            style={{ background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.5)', color: '#fca5a5', padding: '6px 10px', borderRadius: '8px', fontWeight: '900', fontSize: '11px' }}>🧹 FSHI CACHE</button>
         </div>
       </header>
 
@@ -911,10 +778,6 @@ export default function PastrimiPage() {
 
       <input className="input" placeholder="🔎 Kërko emrin ose kodin..." value={search} onChange={e => setSearch(e.target.value)} />
 
-      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', padding: '6px 2px' }}>
-        SRC: <b>{debugInfo.source}</b> • ONLINE: <b>{String(debugInfo.online)}</b> • DB: <b>{debugInfo.dbCount}</b> • LOCAL: <b>{debugInfo.localCount}</b>
-      </div>
-
       <section className="card" style={{ padding: '10px' }}>
         {loading ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p> : 
           orders
@@ -925,7 +788,11 @@ export default function PastrimiPage() {
               const scode = normalizeCode(search || '');
               return name.includes(s) || code.includes(scode);
             })
-            .map(o => (
+            .map(o => {
+              // SHTUAR: Përmirësimi i Kodit
+              const codeLabel = o?.code != null ? String(o.code).trim() : '—';
+
+              return (
               <div key={o.id + o.source} className="list-item-compact" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)', opacity: o.isReturn ? 0.92 : 1 }}>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flex: 1 }}>
                   <div
@@ -933,33 +800,28 @@ export default function PastrimiPage() {
                     onTouchStart={() => startLongPress(o)}
                     onMouseUp={cancelLongPress}
                     onTouchEnd={cancelLongPress}
-                    style={{
-                      background: badgeColorByAge(o.ts),
-                      color: '#fff', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      borderRadius: 8, fontWeight: 800, fontSize: 14, flexShrink: 0
-                    }}>
-                    {normalizeCode(o.code)}
+                    style={{ background: badgeColorByAge(o.ts), color: '#fff', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, fontWeight: 800, fontSize: 14, flexShrink: 0 }}>
+                    {codeLabel}
                   </div>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{o.name} {o.isReturn && <span style={{color:'#f59e0b'}}>• KTHIM</span>}</div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>
+                      {o.name} 
+                      {/* SHTUAR: Etiketa NË PRITJE për Offline */}
+                      {o._outboxPending && <span style={{ color: '#f59e0b', fontWeight: 800, marginLeft: 6 }}>⏳ PRITJE</span>}
+                      {o.isReturn && <span style={{color:'#f59e0b'}}>• KTHIM</span>}
+                    </div>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{o.cope} copë • {o.m2} m²</div>
                     {o.total > o.paid && <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 'bold' }}>Borxh: {(Number(o.total)-Number(o.paid)).toFixed(2)}€</div>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {o.isPaid && <span>✅</span>}
-                  <button 
-                    id={`btn-${o.id}`}
-                    className="btn primary" 
-                    style={{ padding: '6px 10px', fontSize: 12, backgroundColor: o.source === 'transport_orders' ? '#2563eb' : '#16a34a' }} 
-                    onClick={() => handleMarkReady(o)}
-                  >
-                    {o.source === 'transport_orders' ? 'NJOFTO SHOFERIN' : 'SMS KLIENTIT'}
+                  <button id={`btn-${o.id}`} className="btn primary" style={{ padding: '6px 10px', fontSize: 12, backgroundColor: o.source === 'transport_orders' ? '#2563eb' : '#16a34a' }} onClick={() => handleMarkReady(o)}>
+                    {o.source === 'transport_orders' ? 'GATI (SHOPFER)' : 'SMS KLIENTIT'}
                   </button>
                 </div>
               </div>
-            ))
-        }
+            )})}
       </section>
 
       <footer className="dock"><Link href="/" className="btn secondary" style={{ width: '100%' }}>🏠 HOME</Link></footer>
