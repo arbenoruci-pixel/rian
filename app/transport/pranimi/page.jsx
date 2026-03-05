@@ -13,6 +13,7 @@ import { getTransportSession } from '@/lib/transportAuth';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import { getActor } from '@/lib/actorSession';
 import { enqueueTransportOrder, syncNow } from '@/lib/syncManager';
+import CloudSyncIcon from '@/components/CloudSyncIcon';
 
 const BUCKET = 'tepiha-photos';
 
@@ -889,7 +890,10 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
     <div className="wrap">
         <header className="header-row">
             <div><h1 className="title">PRANIMI</h1><div className="subtitle">KRIJO POROSI</div></div>
-            <div className="code-badge"><span className="badge">KODI: {normalizeTcode(codeRaw)}</span></div>
+            <div style={{display:'flex', alignItems:'center', gap:10}}>
+              <CloudSyncIcon />
+              <div className="code-badge"><span className="badge">KODI: {normalizeTcode(codeRaw)}</span></div>
+            </div>
         </header>
 
         {/* ADMIN/DISPATCH: choose which transport driver this order belongs to (or keep ADMIN-only) */}

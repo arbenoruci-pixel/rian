@@ -17,6 +17,7 @@ import { fetchOrdersFromDb, fetchClientsFromDb } from '@/lib/ordersDb';
 import { enqueueBaseOrder, syncNow } from '@/lib/syncManager';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import { getActor } from '@/lib/actorSession';
+import CloudSyncIcon from '@/components/CloudSyncIcon';
 
 const BUCKET = 'tepiha-photos';
 
@@ -153,14 +154,32 @@ async function searchClientsLive(q) {
  
 async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
+  // PHOTO SAFETY: never block PRANIMI if photo upload fails (offline, timeout, etc.)
+  try {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+  } catch {}
+
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
 
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
-  if (error) throw error;
+  // Add a small timeout so a bad connection doesn't "freeze" the worker.
+  const timeoutMs = 8000;
+  const withTimeout = (p) =>
+    Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('PHOTO_UPLOAD_TIMEOUT')), timeoutMs)),
+    ]);
 
-  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
-  return pub?.publicUrl || null;
+  try {
+    const { data, error } = await withTimeout(
+      supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' })
+    );
+    if (error) return null;
+    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+    return pub?.publicUrl || null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------- Code reserve (migrimi) ----------
@@ -1807,6 +1826,8 @@ return (
         </div>
         
 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+  <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'flex-end' }}>
+    <CloudSyncIcon />
   <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
     <input
       type="checkbox"
@@ -1819,6 +1840,7 @@ return (
     />
     <span style={{ fontWeight: 900, letterSpacing: 0.5 }}>OFFLINE MODE</span>
   </label>
+  </div>
   <div style={{ fontSize: 12, opacity: 0.75 }}>
     {netState.ok ? 'ONLINE' : `LIDHJA: ${netState.reason}`}
   </div>
