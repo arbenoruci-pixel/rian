@@ -1,8 +1,6 @@
 'use client';
 import PosModal from '@/components/PosModal';
 
-import PosModal from '@/components/PosModal';
-
 // app/gati/page.jsx
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -60,7 +58,7 @@ function releaseSlotsOwnedBy(map, orderId) {
   const next = { ...(map || {}) };
   for (const k of Object.keys(next)) {
     next[k] = (next[k] || []).filter((x) => String(x.orderId) !== oid);
-    if (next[k].length === 0) delete next[k]; 
+    if (next[k].length === 0) delete next[k];
   }
   return next;
 }
@@ -145,9 +143,9 @@ function daysSince(ts) {
 
 function badgeColorByAge(ts) {
   const d = daysSince(ts);
-  if (d <= 0) return '#16a34a'; 
-  if (d === 1) return '#f59e0b'; 
-  return '#dc2626'; 
+  if (d <= 0) return '#16a34a';
+  if (d === 1) return '#f59e0b';
+  return '#dc2626';
 }
 
 async function downloadJsonNoCache(path) {
@@ -189,7 +187,7 @@ export default function GatiPage() {
   const [slotMap, setSlotMap] = useState({});
 
   const [showPaySheet, setShowPaySheet] = useState(false);
-  const [payOrder, setPayOrder] = useState(null); 
+  const [payOrder, setPayOrder] = useState(null);
   const [payAdd, setPayAdd] = useState(0);
   const [payMethod, setPayMethod] = useState('CASH');
   const [payBusy, setPayBusy] = useState(false);
@@ -258,29 +256,56 @@ export default function GatiPage() {
               const cope = computePieces(order);
               const readyTs = Number(order.ready_at || order.readyAt || order.ts || 0) || Date.now();
               return {
-                id: String(order.id), ts: Number(order.ts || 0), readyTs,
-                name: order.client?.name || '', phone: order.client?.phone || '', code: order.client?.code || order.code || '',
-                m2, cope, total, paid, paidUpfront: !!order.pay?.paidUpfront, isReturn: !!order.returnInfo?.active,
+                id: String(order.id),
+                ts: Number(order.ts || 0),
+                readyTs,
+                name: order.client?.name || '',
+                phone: order.client?.phone || '',
+                code: order.client?.code || order.code || '',
+                m2,
+                cope,
+                total,
+                paid,
+                paidUpfront: !!order.pay?.paidUpfront,
+                isReturn: !!order.returnInfo?.active,
                 readyNote: String(order.ready_note || order.ready_location || ''),
               };
             });
-        } catch { finalRows = []; }
+        } catch {
+          finalRows = [];
+        }
       } else {
         finalRows = (data || []).map((row) => {
           let raw = row.data;
-          if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = {}; } }
+          if (typeof raw === 'string') {
+            try {
+              raw = JSON.parse(raw);
+            } catch {
+              raw = {};
+            }
+          }
           const order = { ...(raw || {}) };
 
           if (!Array.isArray(order.tepiha) && Array.isArray(order.tepihaRows)) {
-            order.tepiha = order.tepihaRows.map((r) => ({ m2: Number(r?.m2) || 0, qty: Number(r?.qty ?? r?.pieces ?? 0) || 0, photoUrl: r?.photoUrl || '' }));
+            order.tepiha = order.tepihaRows.map((r) => ({
+              m2: Number(r?.m2) || 0,
+              qty: Number(r?.qty ?? r?.pieces ?? 0) || 0,
+              photoUrl: r?.photoUrl || '',
+            }));
           }
           if (!Array.isArray(order.staza) && Array.isArray(order.stazaRows)) {
-            order.staza = order.stazaRows.map((r) => ({ m2: Number(r?.m2) || 0, qty: Number(r?.qty ?? r?.pieces ?? 0) || 0, photoUrl: r?.photoUrl || '' }));
+            order.staza = order.stazaRows.map((r) => ({
+              m2: Number(r?.m2) || 0,
+              qty: Number(r?.qty ?? r?.pieces ?? 0) || 0,
+              photoUrl: r?.photoUrl || '',
+            }));
           }
           order.id = String(row.id);
           order.status = row.status;
 
-          try { saveOrderLocal({ ...order, id: String(row.id), status: 'gati', ready_at: row.ready_at || null }); } catch {}
+          try {
+            saveOrderLocal({ ...order, id: String(row.id), status: 'gati', ready_at: row.ready_at || null });
+          } catch {}
 
           const m2 = computeM2(order);
           const total = Number(order.pay?.euro || computeTotalEuro(order));
@@ -289,9 +314,18 @@ export default function GatiPage() {
           const readyTs = (row.ready_at ? Date.parse(row.ready_at) : 0) || Number(order.ready_at) || Number(order.ts) || Date.now();
 
           return {
-            id: String(order.id), ts: Number(order.ts || 0), readyTs,
-            name: order.client?.name || '', phone: order.client?.phone || '', code: order.client?.code || order.code || '',
-            m2, cope, total, paid, paidUpfront: !!order.pay?.paidUpfront, isReturn: !!order.returnInfo?.active,
+            id: String(order.id),
+            ts: Number(order.ts || 0),
+            readyTs,
+            name: order.client?.name || '',
+            phone: order.client?.phone || '',
+            code: order.client?.code || order.code || '',
+            m2,
+            cope,
+            total,
+            paid,
+            paidUpfront: !!order.pay?.paidUpfront,
+            isReturn: !!order.returnInfo?.active,
             readyNote: String(order.ready_note || order.ready_location || ''),
           };
         });
@@ -314,10 +348,9 @@ export default function GatiPage() {
               if (map[key].length === 0) delete map[key];
             }
             if (changed) saveSlotMap(map);
-          } catch(e) {}
+          } catch (e) {}
         }, 1000);
       }
-
     } finally {
       setLoading(false);
     }
@@ -354,12 +387,14 @@ export default function GatiPage() {
       setPlaceOrderId(String(row?.id || ''));
 
       let map = {};
-      try { map = loadSlotMap(); } catch {}
+      try {
+        map = loadSlotMap();
+      } catch {}
       setSlotMap(map);
 
       const { order } = await dbFetchOrderById(row?.id);
       setPlaceOrder(order);
-      
+
       setSelectedSlots(Array.isArray(order?.ready_slots) ? order.ready_slots : []);
       setPlaceText(order?.ready_note_text || '');
     } catch (e) {
@@ -382,12 +417,12 @@ export default function GatiPage() {
   }
 
   function toggleSlot(s) {
-    setSelectedSlots(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+    setSelectedSlots((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   }
 
   async function savePlaceCard() {
     if (!placeOrderId) return;
-    
+
     const txt = String(placeText || '').trim();
     const actor = readActor();
     const meta = {
@@ -398,8 +433,8 @@ export default function GatiPage() {
     const finalNoteString = selectedSlots.length > 0 ? `📍 [${selectedSlots.join(', ')}] ${txt}`.trim() : txt;
 
     const patch = {
-      ready_note: finalNoteString, 
-      ready_note_text: txt,        
+      ready_note: finalNoteString,
+      ready_note_text: txt,
       ready_note_at: new Date().toISOString(),
       ready_note_by: actor?.name || actor?.role || 'UNKNOWN',
       ready_slots: selectedSlots,
@@ -418,13 +453,18 @@ export default function GatiPage() {
         setSlotMap(reserved);
       } catch {}
 
-      try { await saveOrderLocal(merged); } catch {}
-      try { localStorage.setItem(`order_${placeOrderId}`, JSON.stringify(merged)); } catch {}
+      try {
+        await saveOrderLocal(merged);
+      } catch {}
+      try {
+        localStorage.setItem(`order_${placeOrderId}`, JSON.stringify(merged));
+      } catch {}
 
       let online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
-      
+
       if (online) {
-        const { error: dbErr } = await supabase.from('orders')
+        const { error: dbErr } = await supabase
+          .from('orders')
           .update({ data: merged, updated_at: new Date().toISOString() })
           .eq('id', placeOrderId);
         if (dbErr) throw dbErr;
@@ -433,11 +473,17 @@ export default function GatiPage() {
       }
 
       setOrders((prev) =>
-        (prev || []).map((x) => String(x.id) === String(placeOrderId) ? { ...x, readyNote: finalNoteString, readySlots: selectedSlots } : x)
+        (prev || []).map((x) =>
+          String(x.id) === String(placeOrderId)
+            ? { ...x, readyNote: finalNoteString, readySlots: selectedSlots }
+            : x
+        )
       );
       closePlaceCard();
     } catch (e) {
-      try { await queueOp('patch_order_data', { id: placeOrderId, data_patch: patch }); } catch {}
+      try {
+        await queueOp('patch_order_data', { id: placeOrderId, data_patch: patch });
+      } catch {}
       setPlaceErr("S'u ruajt online, por u ruajt lokalisht.");
     } finally {
       setPlaceBusy(false);
@@ -448,7 +494,12 @@ export default function GatiPage() {
   async function openPay(row) {
     try {
       let order = null;
-      try { const raw = localStorage.getItem(`order_${row.id}`); if (raw) order = JSON.parse(raw); } catch { order = null; }
+      try {
+        const raw = localStorage.getItem(`order_${row.id}`);
+        if (raw) order = JSON.parse(raw);
+      } catch {
+        order = null;
+      }
       if (!order) {
         const res = await dbFetchOrderById(row.id);
         order = res.order;
@@ -460,18 +511,31 @@ export default function GatiPage() {
       const paid = Number(order.pay?.paid || 0) || 0;
 
       setPayOrder({
-        id: String(row.id), order, code: normalizeCode(order.client?.code), name: order.client?.name || '', phone: order.client?.phone || '',
-        total, paid, arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0, paidUpfront: !!order.pay?.paidUpfront, m2: computeM2(order),
+        id: String(row.id),
+        order,
+        code: normalizeCode(order.client?.code),
+        name: order.client?.name || '',
+        phone: order.client?.phone || '',
+        total,
+        paid,
+        arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0,
+        paidUpfront: !!order.pay?.paidUpfront,
+        m2: computeM2(order),
       });
       const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
-      setPayAdd(dueNow); 
+      setPayAdd(dueNow);
       setPayMethod('CASH');
       setShowPaySheet(true);
-    } catch { alert('❌ Gabim gjatë hapjes së pagesës.'); }
+    } catch {
+      alert('❌ Gabim gjatë hapjes së pagesës.');
+    }
   }
 
   function closePay() {
-    setShowPaySheet(false); setPayOrder(null); setPayAdd(0); setPayMethod('CASH');
+    setShowPaySheet(false);
+    setPayOrder(null);
+    setPayAdd(0);
+    setPayMethod('CASH');
   }
 
   // PAGESA PA DORËZUAR
@@ -481,9 +545,18 @@ export default function GatiPage() {
     const due = Math.max(0, Number((Number(payOrder.total || 0) - Number(payOrder.paid || 0)).toFixed(2)));
     const payNow = Number((Number(payAdd) || 0).toFixed(2));
 
-    if (due <= 0) { alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.'); return; }
-    if (payNow <= 0) { alert('SHKRUANI SHUMËN!'); return; }
-    if (payNow > due) { alert('SHUMA ËSHTË MË E MADHE SE BORXHI!'); return; }
+    if (due <= 0) {
+      alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.');
+      return;
+    }
+    if (payNow <= 0) {
+      alert('SHKRUANI SHUMËN!');
+      return;
+    }
+    if (payNow > due) {
+      alert('SHUMA ËSHTË MË E MADHE SE BORXHI!');
+      return;
+    }
 
     const pinLabel = `PAGESË: ${payNow.toFixed(2)}€\nBORXHI: ${due.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
     const pinData = await requirePaymentPin({ label: pinLabel });
@@ -493,7 +566,11 @@ export default function GatiPage() {
     const newPaid = Number((Number(payOrder.paid || 0) + payNow).toFixed(2));
     const newDebt = Math.max(0, Number((Number(payOrder.total || 0) - newPaid).toFixed(2)));
     setPayOrder({ ...payOrder, paid: newPaid, debt: newDebt, isPaid: newDebt <= 0 });
-    setOrders((prev) => (prev || []).map((o) => (o.id === payOrder.id ? { ...o, paid: newPaid, debt: newDebt, isPaid: newDebt <= 0 } : o)));
+    setOrders((prev) =>
+      (prev || []).map((o) =>
+        o.id === payOrder.id ? { ...o, paid: newPaid, debt: newDebt, isPaid: newDebt <= 0 } : o
+      )
+    );
 
     closePay();
 
@@ -520,8 +597,14 @@ export default function GatiPage() {
     // 1) Validate payment (if any)
     const due = Math.max(0, Number((Number(payOrder.total || 0) - Number(payOrder.paid || 0)).toFixed(2)));
     const payNow = Number((Number(payAdd) || 0).toFixed(2));
-    if (payNow < 0) { alert('SHUMA E PAVLEFSHME!'); return; }
-    if (payNow > due) { alert('SHUMA ËSHTË MË E MADHE SE BORXHI!'); return; }
+    if (payNow < 0) {
+      alert('SHUMA E PAVLEFSHME!');
+      return;
+    }
+    if (payNow > due) {
+      alert('SHUMA ËSHTË MË E MADHE SE BORXHI!');
+      return;
+    }
 
     const newPaid = Number((Number(payOrder.paid || 0) + (payNow || 0)).toFixed(2));
     const newDebt = Math.max(0, Number((Number(payOrder.total || 0) - newPaid).toFixed(2)));
@@ -561,7 +644,14 @@ export default function GatiPage() {
         // Save local mirror (mos blloko UI edhe nëse dështon)
         try {
           localStorage.setItem(`tepiha_delivered_${snapOrder.id}`, JSON.stringify(payload));
-          await saveOrderLocal({ id: snapOrder.id, status: 'dorzim', data: payload, updated_at: payload.delivered_at, _synced: false, _table: 'orders' });
+          await saveOrderLocal({
+            id: snapOrder.id,
+            status: 'dorzim',
+            data: payload,
+            updated_at: payload.delivered_at,
+            _synced: false,
+            _table: 'orders',
+          });
         } catch (e) {}
 
         // Record payment if any
@@ -579,18 +669,18 @@ export default function GatiPage() {
             .eq('id', snapOrder.id);
           if (upErr2) throw upErr2;
         } catch (e) {
-          // fallback queue - NDREQUR PËR TË MOS DHËNË UNKNOWN_OP_TYPE
+          // fallback queue
           try {
-            await queueOp('patch_order_data', { 
-              id: snapOrder.id, 
-              data_patch: { 
-                status: 'dorzim', 
+            await queueOp('patch_order_data', {
+              id: snapOrder.id,
+              data_patch: {
+                status: 'dorzim',
                 delivered_at: payload.delivered_at,
                 delivered_by: payload.delivered_by,
                 paid: payload.paid,
                 debt: payload.debt,
-                isPaid: payload.isPaid
-              } 
+                isPaid: payload.isPaid,
+              },
             });
           } catch (e2) {}
         }
@@ -609,23 +699,50 @@ export default function GatiPage() {
   async function openReturn(row) {
     try {
       let order = null;
-      try { const raw = localStorage.getItem(`order_${row.id}`); if (raw) order = JSON.parse(raw); } catch { order = null; }
-      if (!order) { order = await downloadJsonNoCache(`orders/${row.id}.json`); localStorage.setItem(`order_${row.id}`, JSON.stringify(order)); }
+      try {
+        const raw = localStorage.getItem(`order_${row.id}`);
+        if (raw) order = JSON.parse(raw);
+      } catch {
+        order = null;
+      }
+      if (!order) {
+        order = await downloadJsonNoCache(`orders/${row.id}.json`);
+        localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
+      }
       if (!order) return alert('Nuk u gjet porosia.');
       if (!order.db_id && row?.id) order.db_id = row.id;
       if (!order.id && row?.id) order.id = row.id;
       if (!order.data) order.data = { ...order };
-      setRetOrder(order); setRetReason(''); setRetNote(''); setRetPhotoUrl(''); setShowReturnSheet(true);
-    } catch { alert('❌ Gabim gjatë hapjes së kthimit.'); }
+      setRetOrder(order);
+      setRetReason('');
+      setRetNote('');
+      setRetPhotoUrl('');
+      setShowReturnSheet(true);
+    } catch {
+      alert('❌ Gabim gjatë hapjes së kthimit.');
+    }
   }
 
-  function closeReturn() { setShowReturnSheet(false); setRetOrder(null); setRetReason(''); setRetNote(''); setRetPhotoUrl(''); }
+  function closeReturn() {
+    setShowReturnSheet(false);
+    setRetOrder(null);
+    setRetReason('');
+    setRetNote('');
+    setRetPhotoUrl('');
+  }
 
   async function handleReturnPhoto(file) {
     const oid = retOrder?.id || retOrder?.db_id;
     if (!file || !oid) return;
     setPhotoUploading(true);
-    try { const url = await uploadPhoto(file, oid, 'return'); if (url) setRetPhotoUrl(url); } catch { alert('❌ Gabim foto!'); } finally { setPhotoUploading(false); }
+    try {
+      const url = await uploadPhoto(file, oid, 'return');
+      if (url) setRetPhotoUrl(url);
+    } catch {
+      alert('❌ Gabim foto!');
+    } finally {
+      setPhotoUploading(false);
+    }
   }
 
   async function confirmReturn() {
@@ -636,10 +753,27 @@ export default function GatiPage() {
     if (!reason && !note) return alert('Shkruaj së paku një arsye ose shënim për kthimin.');
     if (!confirm('Kjo porosi do të kthehet në PASTRIM si KTHIM.\nJeni i sigurt?')) return;
 
-    const entry = { id: `ret_${oid}_${Date.now()}`, ts: Date.now(), from: 'gati', reason: reason || '', note: note || '', photoUrl: retPhotoUrl || '' };
+    const entry = {
+      id: `ret_${oid}_${Date.now()}`,
+      ts: Date.now(),
+      from: 'gati',
+      reason: reason || '',
+      note: note || '',
+      photoUrl: retPhotoUrl || '',
+    };
     const updated = {
-      ...retOrder, id: retOrder?.id || oid, status: 'pastrim',
-      returnInfo: { active: true, at: Date.now(), from: 'gati', reason: entry.reason, note: entry.note, photoUrl: entry.photoUrl, logId: entry.id },
+      ...retOrder,
+      id: retOrder?.id || oid,
+      status: 'pastrim',
+      returnInfo: {
+        active: true,
+        at: Date.now(),
+        from: 'gati',
+        reason: entry.reason,
+        note: entry.note,
+        photoUrl: entry.photoUrl,
+        logId: entry.id,
+      },
       returnLog: Array.isArray(retOrder.returnLog) ? [entry, ...retOrder.returnLog] : [entry],
     };
     updated.db_id = retOrder?.db_id || retOrder?.data?.db_id || oid;
@@ -647,17 +781,40 @@ export default function GatiPage() {
     try {
       localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
       const blob = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(updated)], { type: 'application/json' }) : null;
-      if (blob) await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, { upsert: true, cacheControl: '0', contentType: 'application/json' });
+      if (blob)
+        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
       const blob2 = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(entry)], { type: 'application/json' }) : null;
-      if (blob2) await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, { upsert: true, cacheControl: '0', contentType: 'application/json' });
+      if (blob2)
+        await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
       try {
-        const nextData = { ...updated.data, status: 'pastrim', returnInfo: updated.returnInfo, returnLog: updated.returnLog, ready_at: null, picked_up_at: null, delivered_at: null };
+        const nextData = {
+          ...updated.data,
+          status: 'pastrim',
+          returnInfo: updated.returnInfo,
+          returnLog: updated.returnLog,
+          ready_at: null,
+          picked_up_at: null,
+          delivered_at: null,
+        };
         if (updated.db_id) {
-           const { error: dbErr } = await supabase.from('orders').update({ status: 'pastrim', ready_at: null, picked_up_at: null, data: nextData, updated_at: new Date().toISOString() }).eq('id', updated.db_id);
-           if (dbErr) throw dbErr;
+          const { error: dbErr } = await supabase
+            .from('orders')
+            .update({ status: 'pastrim', ready_at: null, picked_up_at: null, data: nextData, updated_at: new Date().toISOString() })
+            .eq('id', updated.db_id);
+          if (dbErr) throw dbErr;
         }
       } catch (e) {}
-    } catch (e) { return alert('❌ Gabim gjatë ruajtjes së kthimit.'); }
+    } catch (e) {
+      return alert('❌ Gabim gjatë ruajtjes së kthimit.');
+    }
 
     alert('✅ U kthye në PASTRIM (KTHIM).');
     closeReturn();
@@ -667,10 +824,16 @@ export default function GatiPage() {
   function onPayPressStart(row) {
     holdFired.current = false;
     if (holdTimer.current) clearTimeout(holdTimer.current);
-    holdTimer.current = setTimeout(() => { holdFired.current = true; openReturn(row); }, 3000);
+    holdTimer.current = setTimeout(() => {
+      holdFired.current = true;
+      openReturn(row);
+    }, 3000);
   }
   function onPayPressEnd(row) {
-    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
     if (holdFired.current) return;
     openPay(row);
   }
@@ -678,14 +841,30 @@ export default function GatiPage() {
   return (
     <div className="wrap">
       <header className="header-row">
-        <div><h1 className="title">GATI</h1><div className="subtitle">Porositë e gatshme për marrje</div></div>
-        <div style={{ textAlign: 'right', fontSize: 12 }}><div>TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong></div></div>
+        <div>
+          <h1 className="title">GATI</h1>
+          <div className="subtitle">Porositë e gatshme për marrje</div>
+        </div>
+        <div style={{ textAlign: 'right', fontSize: 12 }}>
+          <div>
+            TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong>
+          </div>
+        </div>
       </header>
 
-      <input className="input" placeholder="🔎 Kërko emrin / telefonin / kodin..." value={search} onChange={(e) => setSearch(e.target.value)} />
+      <input
+        className="input"
+        placeholder="🔎 Kërko emrin / telefonin / kodin..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
 
       <section className="card" style={{ padding: '10px' }}>
-        {loading ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p> : filtered.length === 0 ? <p style={{ textAlign: 'center' }}>Nuk ka porosi GATI.</p> : (
+        {loading ? (
+          <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p>
+        ) : filtered.length === 0 ? (
+          <p style={{ textAlign: 'center' }}>Nuk ka porosi GATI.</p>
+        ) : (
           filtered.map((o) => {
             const total = Number(o.total || 0);
             const paid = Number(o.paid || 0);
@@ -693,26 +872,92 @@ export default function GatiPage() {
             const debt = Math.max(0, Number((total - paid).toFixed(2)));
 
             return (
-              <div key={o.id} className="list-item-compact" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)', opacity: o.isReturn ? 0.92 : 1 }}>
+              <div
+                key={o.id}
+                className="list-item-compact"
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 4px',
+                  borderBottom: '1px solid rgba(255,255,255,0.08)',
+                  opacity: o.isReturn ? 0.92 : 1,
+                }}
+              >
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                  <div style={{ background: badgeColorByAge(o.readyTs || o.ts), color: '#fff', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, fontWeight: 900, fontSize: 14, flexShrink: 0, cursor: 'pointer' }} onClick={() => openPlaceCard(o)}>
+                  <div
+                    style={{
+                      background: badgeColorByAge(o.readyTs || o.ts),
+                      color: '#fff',
+                      width: 40,
+                      height: 40,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 8,
+                      fontWeight: 900,
+                      fontSize: 14,
+                      flexShrink: 0,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => openPlaceCard(o)}
+                  >
                     {normalizeCode(o.code)}
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.name || 'Pa emër'}</div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{o.cope} copë • {Number(o.m2 || 0).toFixed(2)} m²</div>
-                    {o.paidUpfront && <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>}
-                    {paid > 0 && !o.paidUpfront && <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>Paguar: {paid.toFixed(2)}€</div>}
-                    {debt > 0 && !o.paidUpfront && <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 900 }}>Borxh: {debt.toFixed(2)}€</div>}
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 14,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {o.name || 'Pa emër'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
+                      {o.cope} copë • {Number(o.m2 || 0).toFixed(2)} m²
+                    </div>
+                    {o.paidUpfront && (
+                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>
+                    )}
+                    {paid > 0 && !o.paidUpfront && (
+                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>Paguar: {paid.toFixed(2)}€</div>
+                    )}
+                    {debt > 0 && !o.paidUpfront && (
+                      <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 900 }}>Borxh: {debt.toFixed(2)}€</div>
+                    )}
                     <div style={{ fontSize: 11, color: o.readyNote ? '#4ade80' : '#f59e0b', fontWeight: 800 }}>
-                       {o.readyNote ? String(o.readyNote).split('\n')[0].slice(0, 42) : '📍 PA VEND'}
+                      {o.readyNote ? String(o.readyNote).split('\n')[0].slice(0, 42) : '📍 PA VEND'}
                     </div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {isPaid && <span style={{ fontSize: 14 }}>✅</span>}
-                  <button className="btn secondary" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => sendPickupSms(o)}>SMS</button>
-                  <button className="btn primary" style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }} onPointerDown={(e) => { e.preventDefault(); onPayPressStart(o); }} onPointerUp={(e) => { e.preventDefault(); onPayPressEnd(o); }} onPointerCancel={() => { if (holdTimer.current) clearTimeout(holdTimer.current); }} onPointerLeave={() => { if (holdTimer.current) clearTimeout(holdTimer.current); }}>💶 PAGUAJ</button>
+                  <button className="btn secondary" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => sendPickupSms(o)}>
+                    SMS
+                  </button>
+                  <button
+                    className="btn primary"
+                    style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      onPayPressStart(o);
+                    }}
+                    onPointerUp={(e) => {
+                      e.preventDefault();
+                      onPayPressEnd(o);
+                    }}
+                    onPointerCancel={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
+                    onPointerLeave={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
+                  >
+                    💶 PAGUAJ
+                  </button>
                 </div>
               </div>
             );
@@ -720,7 +965,11 @@ export default function GatiPage() {
         )}
       </section>
 
-      <footer className="dock"><Link href="/" className="btn secondary" style={{ width: '100%' }}>🏠 HOME</Link></footer>
+      <footer className="dock">
+        <Link href="/" className="btn secondary" style={{ width: '100%' }}>
+          🏠 HOME
+        </Link>
+      </footer>
 
       {/* ============ PAGESA ME DIZAJN TE RI ARKË (POS) ============ */}
       {showPaySheet && payOrder && (
@@ -739,11 +988,19 @@ export default function GatiPage() {
           disabled={payBusy}
           onConfirm={confirmDelivery}
           footerNote={
-            <button 
-              className="btn secondary" 
-              onClick={applyPayOnly} 
+            <button
+              className="btn secondary"
+              onClick={applyPayOnly}
               disabled={payBusy}
-              style={{ width: '100%', padding: '12px', marginTop: '10px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)', fontWeight: 'bold' }}
+              style={{
+                width: '100%',
+                padding: '12px',
+                marginTop: '10px',
+                background: 'rgba(59,130,246,0.15)',
+                color: '#60a5fa',
+                border: '1px solid rgba(59,130,246,0.3)',
+                fontWeight: 'bold',
+              }}
             >
               PAGUAJ PA DORËZU
             </button>
@@ -754,30 +1011,69 @@ export default function GatiPage() {
       {/* ============ KTHIMI FSHEHTE ============ */}
       {showReturnSheet && retOrder && (
         <div className="payfs">
-          <div className="payfs-top"><div><div className="payfs-title">KTHIM (HIDDEN)</div></div><button className="btn secondary" onClick={closeReturn}>✕</button></div>
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">KTHIM (HIDDEN)</div>
+            </div>
+            <button className="btn secondary" onClick={closeReturn}>
+              ✕
+            </button>
+          </div>
           <div className="payfs-body">
             <div className="card" style={{ marginTop: 0 }}>
-              <div className="field-group"><label className="label">PSE PO KTHEHET?</label><select className="input" value={retReason} onChange={(e) => setRetReason(e.target.value)}><option value="">— ZGJIDH —</option><option value="GABIM">GABIM</option></select></div>
+              <div className="field-group">
+                <label className="label">PSE PO KTHEHET?</label>
+                <select className="input" value={retReason} onChange={(e) => setRetReason(e.target.value)}>
+                  <option value="">— ZGJIDH —</option>
+                  <option value="GABIM">GABIM</option>
+                </select>
+              </div>
             </div>
           </div>
-          <div className="payfs-footer"><button className="btn secondary" onClick={closeReturn}>ANULO</button><button className="btn primary" onClick={confirmReturn}>KONFIRMO KTHIMIN</button></div>
+          <div className="payfs-footer">
+            <button className="btn secondary" onClick={closeReturn}>
+              ANULO
+            </button>
+            <button className="btn primary" onClick={confirmReturn}>
+              KONFIRMO KTHIMIN
+            </button>
+          </div>
         </div>
       )}
 
       {/* ============ KARTELA E VENDOSJES (MULTIPLE ORDERS PER SPOT) ============ */}
       {showPlace && (
-        <div style={{ position: 'fixed', inset: 0, background: '#0b0b0b', zIndex: 10001, display: 'flex', flexDirection: 'column' }}>
-          
-          <div style={{ padding: 14, borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: '#0b0b0b',
+            zIndex: 10001,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div
+            style={{
+              padding: 14,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
             <div>
-              <div style={{ fontWeight: 900, fontSize: 18 }}>POZICIONI (KODI: {normalizeCode(placeOrder?.code || placeOrder?.client?.code)})</div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>
+                POZICIONI (KODI: {normalizeCode(placeOrder?.code || placeOrder?.client?.code)})
+              </div>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Zgjidh një ose më shumë vende</div>
             </div>
-            <button className="btn secondary" onClick={closePlaceCard} disabled={placeBusy}>✕</button>
+            <button className="btn secondary" onClick={closePlaceCard} disabled={placeBusy}>
+              ✕
+            </button>
           </div>
 
           <div style={{ padding: '16px 14px', overflow: 'auto', flex: 1 }}>
-            
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 20 }}>
               {SPOTS.map((s) => {
                 const owners = slotMap[s] || [];
@@ -795,14 +1091,35 @@ export default function GatiPage() {
                     disabled={placeBusy}
                     onClick={() => toggleSlot(s)}
                     style={{
-                      padding: '8px 2px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      borderRadius: 10, fontWeight: 900, fontSize: 15, border: `1px solid ${border}`, background: bg, color: color, cursor: 'pointer', transition: 'all 0.1s', minHeight: '54px'
+                      padding: '8px 2px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 10,
+                      fontWeight: 900,
+                      fontSize: 15,
+                      border: `1px solid ${border}`,
+                      background: bg,
+                      color: color,
+                      cursor: 'pointer',
+                      transition: 'all 0.1s',
+                      minHeight: '54px',
                     }}
                   >
                     {s}
                     {hasOthers && !isMine && (
-                      <span style={{ fontSize: 9, marginTop: 2, fontWeight: 700, opacity: 0.9, textAlign: 'center', lineHeight: 1.1 }}>
-                        {otherOwners.map(x => normalizeCode(x.code)).join(', ')}
+                      <span
+                        style={{
+                          fontSize: 9,
+                          marginTop: 2,
+                          fontWeight: 700,
+                          opacity: 0.9,
+                          textAlign: 'center',
+                          lineHeight: 1.1,
+                        }}
+                      >
+                        {otherOwners.map((x) => normalizeCode(x.code)).join(', ')}
                       </span>
                     )}
                   </button>
@@ -812,22 +1129,63 @@ export default function GatiPage() {
 
             <div className="field-group">
               <label className="label">SHËNIM SHTESË (OPSIONALE)</label>
-              <textarea value={placeText} onChange={(e) => setPlaceText(e.target.value)} placeholder="Psh: Të paketuara dy e nga dy..." className="input" rows={3} style={{ resize: 'none' }} />
+              <textarea
+                value={placeText}
+                onChange={(e) => setPlaceText(e.target.value)}
+                placeholder="Psh: Të paketuara dy e nga dy..."
+                className="input"
+                rows={3}
+                style={{ resize: 'none' }}
+              />
             </div>
-            {placeErr && <div style={{ marginTop: 10, color: '#ef4444', fontWeight: 800, fontSize: 13, background: 'rgba(239, 68, 68, 0.1)', padding: 8, borderRadius: 8 }}>{placeErr}</div>}
+            {placeErr && (
+              <div
+                style={{
+                  marginTop: 10,
+                  color: '#ef4444',
+                  fontWeight: 800,
+                  fontSize: 13,
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  padding: 8,
+                  borderRadius: 8,
+                }}
+              >
+                {placeErr}
+              </div>
+            )}
           </div>
 
           <div style={{ padding: 14, borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 10 }}>
-            <button className="btn secondary" onClick={() => { setSelectedSlots([]); setPlaceText(''); }} disabled={placeBusy} style={{ flex: 1, fontWeight: 900 }}>PASTRO</button>
-            <button className="btn primary" onClick={savePlaceCard} disabled={placeBusy} style={{ flex: 2, fontWeight: 900 }}>{placeBusy ? 'DUKE RUAJTUR...' : 'RUAJ POZICIONIN'}</button>
+            <button
+              className="btn secondary"
+              onClick={() => {
+                setSelectedSlots([]);
+                setPlaceText('');
+              }}
+              disabled={placeBusy}
+              style={{ flex: 1, fontWeight: 900 }}
+            >
+              PASTRO
+            </button>
+            <button className="btn primary" onClick={savePlaceCard} disabled={placeBusy} style={{ flex: 2, fontWeight: 900 }}>
+              {placeBusy ? 'DUKE RUAJTUR...' : 'RUAJ POZICIONIN'}
+            </button>
           </div>
-
         </div>
       )}
 
       <style jsx>{`
-        .dock { position: sticky; bottom: 0; padding: 10px 0 6px 0; background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0)); margin-top: 10px; }
-        .payfs-footer .btn { flex: 1; padding: 16px 0; }
+        .dock {
+          position: sticky;
+          bottom: 0;
+          padding: 10px 0 6px 0;
+          background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0));
+          margin-top: 10px;
+        }
+        .payfs-footer .btn {
+          flex: 1;
+          padding: 16px 0;
+        }
       `}</style>
     </div>
   );
