@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ensureDefaultAdminIfEmpty, listUsers, setUserActive, setUserPin, upsertUser } from "@/lib/usersDb";
+import { supabase } from "@/lib/supabaseClient";
 
 const ROLES = ["OWNER", "ADMIN", "DISPATCH", "PUNTOR", "TRANSPORT"];
 
@@ -47,7 +47,11 @@ export default function ArkaStaffPage() {
     (async () => {
       setLoading(true);
       try {
-        await ensureDefaultAdminIfEmpty({ defaultName: "ADMIN", defaultPin: "0000" });
+        // NOTE:
+        // - `tepiha_users` te ti është VIEW (lexim), ndërsa shkrimet duhen bërë në TABLE `public.users`.
+        // - Kjo faqe bën shkrime direkt në `users` për të shmangur placeholder-in e vjetër (VENDOS_EMRIN_KËTU)
+        //   dhe për të mos thyer view-in.
+        await ensureDefaultAdminIfEmptyViaUsersTable();
       } catch {}
 
       await reload();
@@ -56,13 +60,18 @@ export default function ArkaStaffPage() {
   }, [router]);
 
   async function reload() {
-    const res = await listUsers();
-    if (!res.ok) {
-      alert("ERROR: " + String(res?.error?.message || res?.error));
+    // Read nga VIEW (safe)
+    const { data, error } = await supabase
+      .from("tepiha_users")
+      .select("id,name,role,is_active,created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      alert("ERROR: " + String(error?.message || error));
       setItems([]);
       return;
     }
-    setItems(res.items || []);
+    setItems(data || []);
   }
 
   function resetForm() {
@@ -79,15 +88,24 @@ export default function ArkaStaffPage() {
     if (!editingId && pin.length < 4) return alert("PIN DUHET TË KETË MINIMUM 4 SHIFRA");
     if (editingId && form.pin && pin.length < 4) return alert("PIN DUHET TË KETË MINIMUM 4 SHIFRA");
 
-    const res = await upsertUser({
-      id: editingId || undefined,
+    const payload = {
       name,
       role: form.role,
-      pin: form.pin ? pin : "", 
       is_active: form.is_active !== false,
-    });
+      ...(form.pin ? { pin } : {}),
+    };
 
-    if (!res.ok) return alert("ERROR: " + String(res?.error?.message || res?.error));
+    // IMPORTANT: Write direkt në TABLE `users` (jo tepiha_users view)
+    let err = null;
+    if (editingId) {
+      const { error } = await supabase.from("users").update(payload).eq("id", editingId);
+      err = error;
+    } else {
+      const { error } = await supabase.from("users").insert([{ ...payload, pin }]);
+      err = error;
+    }
+
+    if (err) return alert("ERROR: " + String(err?.message || err));
     await reload();
     resetForm();
   }
@@ -112,8 +130,11 @@ export default function ArkaStaffPage() {
   async function toggleActive(row) {
     if (!canManage) return;
     const nextActive = row.is_active === false;
-    const res = await setUserActive(row.id, nextActive);
-    if (!res.ok) return alert("ERROR");
+    const { error } = await supabase
+      .from("users")
+      .update({ is_active: nextActive })
+      .eq("id", row.id);
+    if (error) return alert("ERROR: " + String(error?.message || error));
     await reload();
   }
 
@@ -122,10 +143,27 @@ export default function ArkaStaffPage() {
     const p = onlyDigits(prompt(`PIN I RI për ${row.name}? (4 shifra):`, ""));
     if (!p) return;
     if (p.length < 4) return alert("PIN PREJ 4 SHIFRAVE OBLIGATIV");
-    const res = await setUserPin(row.id, p);
-    if (!res.ok) return alert("ERROR");
+    const { error } = await supabase.from("users").update({ pin: p }).eq("id", row.id);
+    if (error) return alert("ERROR: " + String(error?.message || error));
     await reload();
     alert("✅ PIN U NDRYSHUA");
+  }
+
+  // --- Helpers (local to this page) ---
+  async function ensureDefaultAdminIfEmptyViaUsersTable() {
+    // Nëse DB është bosh, krijo një admin minimal që të mos mbetesh pa akses.
+    // Leximi: view; shkrimi: users.
+    const { count, error } = await supabase
+      .from("tepiha_users")
+      .select("id", { count: "exact", head: true });
+    if (error) return;
+    if ((count || 0) > 0) return;
+
+    // Create default admin if empty.
+    // (Nëse RLS nuk e lejon, kjo thjesht dështon pa prishur flow-n.)
+    await supabase.from("users").insert([
+      { name: "ADMIN", role: "admin", pin: "0000", is_active: true, is_master: true },
+    ]);
   }
 
   if (!user) return null;
