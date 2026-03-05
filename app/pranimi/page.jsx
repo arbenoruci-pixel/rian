@@ -16,8 +16,8 @@ import { saveOrderLocal, pushOp } from '@/lib/offlineStore';
 import { fetchOrdersFromDb, fetchClientsFromDb } from '@/lib/ordersDb';
 import { enqueueBaseOrder, syncNow } from '@/lib/syncManager';
 import { recordCashMove } from '@/lib/arkaCashSync';
+import PosModal from '@/components/PosModal';
 import { getActor } from '@/lib/actorSession';
-import CloudSyncIcon from '@/components/CloudSyncIcon';
 
 const BUCKET = 'tepiha-photos';
 
@@ -154,32 +154,14 @@ async function searchClientsLive(q) {
  
 async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
-  // PHOTO SAFETY: never block PRANIMI if photo upload fails (offline, timeout, etc.)
-  try {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
-  } catch {}
-
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
 
-  // Add a small timeout so a bad connection doesn't "freeze" the worker.
-  const timeoutMs = 8000;
-  const withTimeout = (p) =>
-    Promise.race([
-      p,
-      new Promise((_, rej) => setTimeout(() => rej(new Error('PHOTO_UPLOAD_TIMEOUT')), timeoutMs)),
-    ]);
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
+  if (error) throw error;
 
-  try {
-    const { data, error } = await withTimeout(
-      supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' })
-    );
-    if (error) return null;
-    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
-    return pub?.publicUrl || null;
-  } catch {
-    return null;
-  }
+  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+  return pub?.publicUrl || null;
 }
 
 // ---------- Code reserve (migrimi) ----------
@@ -1256,53 +1238,52 @@ setCodeRaw(c || '');
 
   async function applyPayAndClose() {
     const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
-    if (cashGiven <= 0) {
-      alert('SHUMA NUK VLEN (0 €).');
-      return;
-    }
-
     const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
-    const applied = Number(Math.min(cashGiven, due).toFixed(2));
-    if (applied <= 0) {
-      alert(due <= 0 ? "KJO POROSI ESHTE PAGUAR (S'KA BORXH)." : 'SHUMA NUK VLEN (0 €).');
+    if (due <= 0) {
+      alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.');
+      return;
+    }
+    if (cashGiven < due) {
+      alert('KLIENTI DHA MË PAK SE BORXHI! JU LUTEM PLOTËSONI SHUMËN OSE ANULONI.');
       return;
     }
 
+    const applied = due;
+    const kusuri = Math.max(0, cashGiven - due);
+    const pinLabel = `PAGESË: ${applied.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI (RESTO): ${kusuri.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
+
+    const pinData = await requirePaymentPin({ label: pinLabel });
+    if (!pinData) return;
+
+    // OPTIMISTIC UI
     const newPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
     setClientPaid(newPaid);
 
-    // ✅ ARKA delta only if CASH (local cache + Supabase arka_moves if day open)
     if (payMethod === 'CASH') {
-      const actor = (() => {
-        try {
-          const raw = localStorage.getItem('CURRENT_USER_DATA');
-          return raw ? JSON.parse(raw) : null;
-        } catch {
-          return null;
-        }
-      })();
-
-      const extId = `pay_${oid}_${Date.now()}`;
-      await recordCashMove({
-        externalId: extId,
-        orderId: oid,
-        code: formatKod(normalizeCode(codeRaw), __isOnlineUI),
-        name: name.trim(),
-        amount: applied,
-        note: `PAGESA ${applied}€ • #${formatKod(normalizeCode(codeRaw), __isOnlineUI)} • ${name.trim()}`,
-        source: 'ORDER_PAY',
-        method: 'cash_pay',
-        type: 'IN',
-        // Fallback te session-i (actorSession) nëse prop `actor` nuk vjen
-        createdByPin: (actor?.pin ? String(actor.pin) : (getActor()?.pin ? String(getActor().pin) : null)),
-        createdBy: (actor?.name ? String(actor.name) : (getActor()?.name ? String(getActor().name) : null)),
-      });
-
-      const finalArka = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
-      setArkaRecordedPaid(finalArka);
+      setArkaRecordedPaid(Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2)));
     }
 
     setShowPaySheet(false);
+
+    // Background network work
+    void (async () => {
+      try {
+        if (payMethod === 'CASH') {
+          const extId = `pay_${orderId}_${Date.now()}`;
+          await recordCashMove({
+            externalId: extId,
+            orderId: orderId,
+            code: normalizeCode(codeRaw),
+            name: name.trim(),
+            amount: applied,
+            note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()}`,
+            source: 'ORDER_PAY',
+            method: 'cash_pay',
+            type: 'IN',
+          });
+        }
+      } catch (e) {}
+    })();
   }
 
   function validateBeforeContinue() {
@@ -1826,8 +1807,6 @@ return (
         </div>
         
 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-  <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'flex-end' }}>
-    <CloudSyncIcon />
   <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
     <input
       type="checkbox"
@@ -1840,7 +1819,6 @@ return (
     />
     <span style={{ fontWeight: 900, letterSpacing: 0.5 }}>OFFLINE MODE</span>
   </label>
-  </div>
   <div style={{ fontSize: 12, opacity: 0.75 }}>
     {netState.ok ? 'ONLINE' : `LIDHJA: ${netState.reason}`}
   </div>
@@ -2316,104 +2294,22 @@ return (
 
       {/* FULL SCREEN PAGESA */}
       {showPaySheet && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div>
-              <div className="payfs-title">PAGESA</div>
-              <div className="payfs-sub">
-                KODI: {formatKod(normalizeCode(codeRaw), __isOnlineUI)} • {name || '—'}
-              </div>
-            </div>
-            <button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button>
-          </div>
-
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div>
-              <div className="tot-line">
-                PAGUAR DERI TANI: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong>
-              </div>
-              <div className="tot-line" style={{ fontSize: 12, color: '#666' }}>
-                REGJISTRU N&apos;ARKË DERI TANI: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong>
-              </div>
-
-              <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>
-                SOT PAGUAN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong>
-              </div>
-
-              {(() => {
-                  const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
-                  const dueSafe = dueNow > 0 ? dueNow : 0;
-                  const given = Number((Number(payAdd || 0)).toFixed(2));
-                  const applied = Number((Math.min(given, dueSafe)).toFixed(2));
-                  const paidAfter = Number((Number(clientPaid || 0) + applied).toFixed(2));
-                  const debtNow = Number((totalEuro - paidAfter).toFixed(2));
-                  const debtSafe = debtNow > 0 ? debtNow : 0;
-                  const changeNow = given > dueSafe ? Number((given - dueSafe).toFixed(2)) : 0;
-
-                  return (
-                    <>
-                      <div className="tot-line">
-                        NË SISTEM REGJISTROHET: <strong>{applied.toFixed(2)} €</strong>
-                      </div>
-                      <div className="tot-line">
-                        PAGUAR PAS KËSAJ: <strong style={{ color: '#16a34a' }}>{paidAfter.toFixed(2)} €</strong>
-                      </div>
-                      {debtSafe > 0 && (
-                        <div className="tot-line">
-                          BORXH: <strong style={{ color: '#dc2626' }}>{debtSafe.toFixed(2)} €</strong>
-                        </div>
-                      )}
-                      {changeNow > 0 && (
-                        <div className="tot-line">
-                          KTHIM: <strong style={{ color: '#2563eb' }}>{changeNow.toFixed(2)} €</strong>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-            </div>
-
-            <div className="card">
-              <div className="field-group">
-                <label className="label">KLIENTI DHA (€)</label>
-
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  pattern="[0-9]*"
-                  className="input"
-                  value={Number(payAdd || 0) === 0 ? '' : payAdd}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setPayAdd(v === '' ? 0 : Number(v));
-                  }}
-                  placeholder=""
-                />
-
-                <div className="chip-row" style={{ marginTop: 10 }}>
-                  {PAY_CHIPS.map((v) => (
-                    <button key={v} className="chip" type="button" onClick={() => setPayAdd(v)}>
-                      {v}€
-                    </button>
-                  ))}
-                  <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>
-                    FSHI
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>* CASH VETËM — pagesa regjistrohet në ARKË (ose WAITING kur ARKA është e mbyllur).</div>
-            </div>
-          </div>
-
-          <div className="payfs-footer">
-            <button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button>
-            <button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button>
-          </div>
-        </div>
+        <PosModal
+          open={showPaySheet}
+          onClose={() => setShowPaySheet(false)}
+          title="PAGESA (ARKË)"
+          subtitle={`KODI: ${formatKod(codeRaw)} • ${name}`}
+          total={totalEuro}
+          alreadyPaid={Number(clientPaid || 0)}
+          amount={payAdd}
+          setAmount={setPayAdd}
+          payChips={PAY_CHIPS}
+          confirmText="KRYEJ PAGESËN"
+          cancelText="ANULO"
+          disabled={saving}
+          onConfirm={applyPayAndClose}
+        />
       )}
-
       {/* SHKALLORE */}
       {showStairsSheet && (
         <div className="modal-overlay" onClick={() => setShowStairsSheet(false)}>
@@ -2866,49 +2762,6 @@ return (
           color: #fff;
           border: 1px solid rgba(255, 255, 255, 0.1);
         }
-
-        .payfs {
-          position: fixed;
-          inset: 0;
-          background: #0b0b0b;
-          z-index: 10000;
-          display: flex;
-          flex-direction: column;
-        }
-        .payfs-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 14px 14px;
-          background: #0b0b0b;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
-        .payfs-title {
-          color: #fff;
-          font-weight: 900;
-          font-size: 18px;
-        }
-        .payfs-sub {
-          color: rgba(255, 255, 255, 0.7);
-          font-size: 12px;
-          margin-top: 2px;
-        }
-        .payfs-body {
-          flex: 1;
-          overflow: auto;
-          padding: 14px;
-        }
-        .payfs-footer {
-          display: flex;
-          gap: 10px;
-          padding: 12px 14px;
-          border-top: 1px solid rgba(255, 255, 255, 0.08);
-          background: #0b0b0b;
-        }
-        .payfs-footer .btn {
-          flex: 1;
-        }
-      
 /* WIZARD */
 .wiz-backdrop{
   position:fixed; inset:0;

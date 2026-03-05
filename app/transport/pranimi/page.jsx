@@ -11,9 +11,9 @@ import { supabase } from '@/lib/supabaseClient';
 import { saveOrderLocal, pushOp } from '@/lib/offlineStore';
 import { getTransportSession } from '@/lib/transportAuth';
 import { recordCashMove } from '@/lib/arkaCashSync';
+import PosModal from '@/components/PosModal';
 import { getActor } from '@/lib/actorSession';
 import { enqueueTransportOrder, syncNow } from '@/lib/syncManager';
-import CloudSyncIcon from '@/components/CloudSyncIcon';
 
 const BUCKET = 'tepiha-photos';
 
@@ -821,23 +821,14 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
           return;
       }
 
-      // Update local totals
+      // OPTIMISTIC UI: përditëso menjëherë totals
       if (paid > 0) {
           const newVal = Number((clientPaid + paid).toFixed(2));
           setClientPaid(newVal);
 
-          // Cash move = money collected (paid today)
           if (payMethod === 'CASH') {
               const newArka = Number((arkaRecordedPaid + paid).toFixed(2));
               setArkaRecordedPaid(newArka);
-              await recordCashMove({
-                  amount: paid,
-                  note: `PAGESA ${paid}€ - ${name}`,
-                  type: 'TRANSPORT',
-                  order_code: normalizeTcode(codeRaw),
-                  source: 'ORDER_PAY',
-                  createdBy: 'Transport'
-              });
           }
       }
 
@@ -858,10 +849,26 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       setReceiptText(receipt);
       setShowReceiptSheet(true);
 
-      // Close payment sheet
+      // Close payment sheet immediately
       setShowPaySheet(false);
       setPayAdd(0);
       setClientGive(0);
+
+      // Background network work (mos blloko UI)
+      void (async () => {
+        try {
+          if (paid > 0 && payMethod === 'CASH') {
+              await recordCashMove({
+                  amount: paid,
+                  note: `PAGESA ${paid}€ - ${name}`,
+                  type: 'TRANSPORT',
+                  order_code: normalizeTcode(codeRaw),
+                  source: 'ORDER_PAY',
+                  createdBy: 'Transport'
+              });
+          }
+        } catch(e) {}
+      })();
   }
 
   // --- DRAFTS ---
@@ -890,10 +897,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
     <div className="wrap">
         <header className="header-row">
             <div><h1 className="title">PRANIMI</h1><div className="subtitle">KRIJO POROSI</div></div>
-            <div style={{display:'flex', alignItems:'center', gap:10}}>
-              <CloudSyncIcon />
-              <div className="code-badge"><span className="badge">KODI: {normalizeTcode(codeRaw)}</span></div>
-            </div>
+            <div className="code-badge"><span className="badge">KODI: {normalizeTcode(codeRaw)}</span></div>
         </header>
 
         {/* ADMIN/DISPATCH: choose which transport driver this order belongs to (or keep ADMIN-only) */}
@@ -1121,62 +1125,25 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
 
       {/* PAY SHEET */}
       {showPaySheet && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div><div className="payfs-title">PAGESA</div><div className="payfs-sub">KODI: {normalizeTcode(codeRaw)}</div></div>
-            <button className="btn secondary" onClick={() => setShowPaySheet(false)}>✕</button>
-          </div>
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="tot-line">TOTAL: <strong>{totalEuro.toFixed(2)} €</strong></div>
-              <div className="tot-line">PAGUAR: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div>
-              <div className="tot-line">BORXH: <strong>{Number(remainingDue || 0).toFixed(2)} €</strong></div>
-              <div className="tot-line">SOT PAGUAN: <strong>{Number(payNow || 0).toFixed(2)} €</strong></div>
-              <div className="tot-line">KLIENTI DHA: <strong>{Number(giveNow || 0).toFixed(2)} €</strong></div>
-              <div className="tot-line">KTHIM: <strong style={{ color: '#f59e0b' }}>{Number(changeDue || 0).toFixed(2)} €</strong></div>
-            </div>
-            <div className="card">
-              <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>KLIENTI DHA (CASH)</div>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="input"
-                value={clientGive || ''}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  setClientGive(raw);
-                  const num = Number(String(raw).replace(',', '.'));
-                  if (Number.isFinite(num)) {
-                    setPayAdd(Math.min(Math.max(0, num), Number(remainingDue || 0)));
-                  } else {
-                    setPayAdd(0);
-                  }
-                }}
-                placeholder="0 €"
-              />
-              <div className="chip-row" style={{ marginTop: 10 }}>
-                {PAY_CHIPS.map((v) => (
-                  <button
-                    key={v}
-                    className="chip"
-                    type="button"
-                    onClick={() => {
-                      setClientGive(v);
-                      setPayAdd(Math.min(Number(v), Number(remainingDue || 0)));
-                    }}
-                  >
-                    {v}€
-                  </button>
-                ))}
-                <button className="chip" type="button" onClick={() => { setClientGive(0); setPayAdd(0); }}>FSHI</button>
-              </div>
-            </div>
-          </div>
-          <div className="payfs-footer">
-            <button className="btn secondary" onClick={() => setShowPaySheet(false)}>ANULO</button>
-            <button className="btn primary" onClick={applyPayAndClose}>RUJ PAGESËN</button>
-          </div>
-        </div>
+        <PosModal
+          open={showPaySheet}
+          onClose={() => setShowPaySheet(false)}
+          title="PAGESA (ARKË)"
+          subtitle={`KODI: ${normalizeTcode(codeRaw)} • ${name}`}
+          total={totalEuro}
+          alreadyPaid={Number(clientPaid || 0)}
+          amount={giveNow}
+          setAmount={(v) => {
+            const n = Number(v || 0);
+            setGiveNow(n);
+          }}
+          payChips={PAY_CHIPS}
+          confirmText="KRYEJ PAGESËN"
+          cancelText="ANULO"
+          disabled={saving}
+          onConfirm={applyPayAndClose}
+          footerNote={`SOT PAGUAN: ${Number(payNow || 0).toFixed(2)}€ • KTHIM: ${Number(changeDue || 0).toFixed(2)}€`}
+        />
       )}
 
       {/* SHKALLORE SHEET */}
@@ -1348,12 +1315,6 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
         .piece-row { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #222; }
         .tot-line { font-size: 14px; display: flex; justify-content: space-between; margin-bottom: 6px; }
         .camera-btn { width: 44px; height: 44px; background: #222; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; border: 1px solid #333; }
-        
-        .payfs { position: fixed; inset: 0; background: #000; z-index: 9999; display: flex; flex-direction: column; }
-        .payfs-top { padding: 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; }
-        .payfs-title { font-weight: 900; font-size: 20px; }
-        .payfs-body { padding: 20px; flex: 1; overflow: auto; }
-        .payfs-footer { padding: 20px; display: flex; gap: 10px; border-top: 1px solid #222; }
         .modalCenterOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center; }
         .modalCenter { width: 300px; background: #111; padding: 20px; border-radius: 20px; border: 1px solid #333; }
         .prefixOpt { padding: 12px; border-bottom: 1px solid #222; display: flex; justify-content: space-between; font-weight: 700; }

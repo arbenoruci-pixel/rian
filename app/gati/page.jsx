@@ -1,3 +1,4 @@
+import PosModal from '@/components/PosModal';
 'use client';
 
 // app/gati/page.jsx
@@ -483,125 +484,147 @@ export default function GatiPage() {
   // PAGESA PA DORËZUAR
   async function applyPayOnly() {
     if (!payOrder) return;
-    const amountExact = Math.max(0, round2(Number(payOrder.total - payOrder.paid) || 0));
-    const cashGiven = Math.max(0, round2(Number(payAdd) || 0));
 
-    if (amountExact <= 0) { setShowPaySheet(false); return; }
-    if (cashGiven < amountExact) return alert('KLIENTI DHA MË PAK SE BORXHI! JU LUTEM PLOTËSONI SHUMËN OSE ANULONI.');
+    const due = Math.max(0, Number((Number(payOrder.total || 0) - Number(payOrder.paid || 0)).toFixed(2)));
+    const payNow = Number((Number(payAdd) || 0).toFixed(2));
 
-    const kusuri = cashGiven - amountExact;
-    
-    // 🔥 TEKSTI I QARTË PËR TË KËRKUAR PIN-IN!
-    const pinLabel = `PAGESË: ${amountExact.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI (RESTO): ${kusuri.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
-    
+    if (due <= 0) { alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.'); return; }
+    if (payNow <= 0) { alert('SHKRUANI SHUMËN!'); return; }
+    if (payNow > due) { alert('SHUMA ËSHTË MË E MADHE SE BORXHI!'); return; }
+
+    const pinLabel = `PAGESË: ${payNow.toFixed(2)}€\nBORXHI: ${due.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
     const pinData = await requirePaymentPin({ label: pinLabel });
     if (!pinData) return;
 
-    setPayErr(''); setPayBusy(true);
-    try {
-      await recordOrderCashPayment({
-        supabase, orderId: payOrder.id, amount: amountExact, method: 'CASH', pin: pinData.pin, meta: { source: 'GATI', mode: 'PAY_ONLY' },
-      });
-      const newPaidTotal = round2((Number(payOrder.paid || 0)) + amountExact);
-      
-      const { data: curData, error: fetchErr } = await supabase.from('orders').select('data').eq('id', payOrder.id).single();
-      if (fetchErr) throw fetchErr;
-      
-      const updatedJson = { ...curData.data, pay: { ...curData.data.pay, paid: newPaidTotal, debt: 0, paidUpfront: false } };
-      const { error: dbErr } = await supabase.from('orders').update({ data: updatedJson, updated_at: new Date().toISOString() }).eq('id', payOrder.id);
-      if (dbErr) throw dbErr;
+    // OPTIMISTIC UI
+    const newPaid = Number((Number(payOrder.paid || 0) + payNow).toFixed(2));
+    const newDebt = Math.max(0, Number((Number(payOrder.total || 0) - newPaid).toFixed(2)));
+    setPayOrder({ ...payOrder, paid: newPaid, debt: newDebt, isPaid: newDebt <= 0 });
+    setOrders((prev) => (prev || []).map((o) => (o.id === payOrder.id ? { ...o, paid: newPaid, debt: newDebt, isPaid: newDebt <= 0 } : o)));
 
-      await refreshOrders();
-      setShowPaySheet(false);
-    } catch (e) {
-      setPayErr(e?.message || 'GABIM'); alert(e?.message || 'GABIM');
-    } finally { setPayBusy(false); }
+    closePay();
+
+    // Background network work
+    const snap = { ...payOrder, paid: newPaid, debt: newDebt, isPaid: newDebt <= 0 };
+    void (async () => {
+      try {
+        setPayBusy(true);
+        setPayErr(null);
+        await recordOrderCashPayment(snap, payNow, pinData, payMethod);
+        await refreshOrders();
+      } catch (e) {
+        setPayErr(e?.message || 'Gabim pagesë');
+      } finally {
+        setPayBusy(false);
+      }
+    })();
   }
 
   // DORËZIMI FINAL DHE PAGESA
   async function confirmDelivery() {
     if (!payOrder) return;
-    const o = payOrder.order;
-    const total = Number(payOrder.total || 0);
-    const paidBefore = Number(payOrder.paid || 0);
-    const cashGiven = Number((Number(payAdd || 0)).toFixed(2));
-    const paidUpfront = !!payOrder.paidUpfront;
-    const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
-    const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
-    const alreadyPaidFull = due <= 0;
 
-    if (!paidUpfront && !alreadyPaidFull && applied <= 0) return alert('SHTYP SA PARA TË DHA KLIENTI.');
-    if (!paidUpfront && !alreadyPaidFull && cashGiven < due) return alert('KLIENTI DHA MË PAK SE BORXHI!');
+    // 1) Validate payment (if any)
+    const due = Math.max(0, Number((Number(payOrder.total || 0) - Number(payOrder.paid || 0)).toFixed(2)));
+    const payNow = Number((Number(payAdd) || 0).toFixed(2));
+    if (payNow < 0) { alert('SHUMA E PAVLEFSHME!'); return; }
+    if (payNow > due) { alert('SHUMA ËSHTË MË E MADHE SE BORXHI!'); return; }
 
-    const change = paidUpfront ? 0 : Math.max(0, Number((cashGiven - applied).toFixed(2)));
+    const newPaid = Number((Number(payOrder.paid || 0) + (payNow || 0)).toFixed(2));
+    const newDebt = Math.max(0, Number((Number(payOrder.total || 0) - newPaid).toFixed(2)));
 
-    // 🔥 TEKSTI I QARTË PËR TË KËRKUAR PIN-IN!
-    const pinLabel = due > 0 
-      ? `DORËZIM DHE PAGESË: ${due.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI: ${change.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`
-      : `DORËZIM POROSIE\nPorosia është paguar më herët.\n\n👉 SHKRUAJ PIN-IN TËND PËR TË DORËZUAR:`;
-
+    // 2) Require PIN
+    const pinLabel = `DORËZIM POROSIE\nKODI: ${payOrder.code}\n\nPAGESË SOT: ${payNow.toFixed(2)}€\nBORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFIRMUAR:`;
     const pinData = await requirePaymentPin({ label: pinLabel });
     if (!pinData) return;
 
-    const paidAfter = paidUpfront ? Math.max(paidBefore, total) : Number((paidBefore + applied).toFixed(2));
-    const debt = Math.max(0, Number((total - paidAfter).toFixed(2)));
-    const prevArka = Number(o.pay?.arkaRecordedPaid || 0);
-    const willRecordCash = payMethod === 'CASH';
-    const targetCashRecorded = willRecordCash ? paidAfter : prevArka;
-    const delta = willRecordCash ? Number((targetCashRecorded - prevArka).toFixed(2)) : 0;
-    const safeDelta = Math.max(0, delta);
-    const finalArka = willRecordCash ? Number((prevArka + safeDelta).toFixed(2)) : prevArka;
-    const nowIso = new Date().toISOString();
-    const nowMs = Date.now();
-
-    const updated = {
-      ...o, status: 'dorzim', deliveredAt: nowMs, delivered_at: nowIso, pickedUpAt: nowMs, picked_up_at: nowIso,
-      returnInfo: { ...(o.returnInfo || {}), active: false },
-      pay: { ...(o.pay || {}), m2: payOrder.m2, euro: total, paid: paidAfter, debt, change, method: payMethod, arkaRecordedPaid: finalArka },
+    // OPTIMISTIC UI: hiqe nga lista dhe mbyll modalin menjëherë
+    const snapOrder = {
+      ...payOrder,
+      paid: newPaid,
+      debt: newDebt,
+      isPaid: newDebt <= 0,
+      status: 'dorzim',
+      delivered_at: new Date().toISOString(),
+      delivered_by: pinData?.pin || null,
     };
 
-    try {
-      const cur = loadSlotMap();
-      const next = releaseSlotsOwnedBy(cur, updated.id);
-      saveSlotMap(next);
-      setSlotMap(next);
-    } catch {}
-
-    const uid = String(updated.id);
-    setOrders((prev) => (prev || []).filter((x) => normalizeCode(x.code) !== normalizeCode(updated.code) && String(x.id) !== uid));
-
-    try {
-      localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
-      try { saveOrderLocal(updated); } catch {}
-      const blob = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(updated)], { type: 'application/json' }) : null;
-      if (blob) await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, { upsert: true, cacheControl: '0', contentType: 'application/json' });
-    } catch (e) {}
-
-    try {
-      await fetch('/api/orders/set-status', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: payOrder.id, status: 'dorzim' }) });
-      await supabase.from('orders').update({ data: { ...updated, status: 'dorzim' }, picked_up_at: nowIso }).eq('id', payOrder.id);
-    } catch (e) {
-      try {
-        await queueOp('insert_order', {
-          ...updated, status: 'dorzim', picked_up_at: nowIso, delivered_at: nowIso,
-          code: updated.code ?? updated.client?.code ?? null, total, paid: paidAfter,
-        });
-      } catch {}
-    }
-
-    if (willRecordCash && safeDelta > 0) {
-      try {
-        const codeNum = normalizeCode(updated.code ?? updated.client?.code ?? null);
-        const clientName = (updated.client_name ?? updated.client?.name ?? '').trim();
-        const mode = paidUpfront ? 'paid_upfront_delta' : 'delivery_cash_delta';
-        await recordOrderCashPayment({
-          supabase, orderId: updated.id, code: codeNum, clientName, amount: safeDelta, method: 'CASH', pin: pinData.pin,
-          externalId: `${mode}:${updated.id}`, meta: { page: 'GATI', mode, code: codeNum, name: clientName },
-        });
-      } catch (e) {}
-    }
-
+    setOrders((prev) => (prev || []).filter((o) => o.id !== payOrder.id));
     closePay();
+
+    // Background: DB + arka + foto nënshkrimi + refresh
+    void (async () => {
+      try {
+        setPayBusy(true);
+        setPayErr(null);
+
+        const payload = {
+          ...snapOrder,
+          status: 'dorzim',
+          delivered_at: snapOrder.delivered_at,
+          delivered_by: snapOrder.delivered_by,
+        };
+
+        // Save local mirror (mos blloko UI edhe nëse dështon)
+        try {
+          localStorage.setItem(`tepiha_delivered_${snapOrder.id}`, JSON.stringify(payload));
+          await saveOrderLocal({ id: snapOrder.id, status: 'dorzim', data: payload, updated_at: payload.delivered_at, _synced: false, _table: 'orders' });
+        } catch (e) {}
+
+        // Upload signature (optional)
+        let signatureUrl = '';
+        try {
+          if (signatureDataUrl && typeof signatureDataUrl === 'string' && signatureDataUrl.startsWith('data:image/')) {
+            const blob = await (await fetch(signatureDataUrl)).blob();
+            const ext = 'png';
+            const filePath = `signatures/${snapOrder.id}_${Date.now()}.${ext}`;
+            const { data: upData, error: upErr } = await supabase.storage.from(BUCKET).upload(filePath, blob, { upsert: true, contentType: blob.type || 'image/png' });
+            if (!upErr && upData?.path) {
+              const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(upData.path);
+              signatureUrl = pub?.publicUrl || '';
+            }
+          }
+        } catch (e) {}
+
+        // Save signature url into json if we have
+        if (signatureUrl) {
+          try { payload.signatureUrl = signatureUrl; } catch (e) {}
+        }
+
+        // Record payment if any
+        if (payNow > 0) {
+          try {
+            await recordOrderCashPayment(payload, payNow, pinData, payMethod);
+          } catch (e) {}
+        }
+
+        // Update server (orders table)
+        try {
+          const { error: upErr2 } = await supabase
+            .from('orders')
+            .update({ status: 'dorzim', delivered_at: payload.delivered_at, data: payload, updated_at: payload.delivered_at })
+            .eq('id', snapOrder.id);
+          if (upErr2) throw upErr2;
+        } catch (e) {
+          // fallback queue
+          try {
+            await queueOp({
+              table: 'orders',
+              action: 'update',
+              match: { id: snapOrder.id },
+              data: { status: 'dorzim', delivered_at: payload.delivered_at, data: payload, updated_at: payload.delivered_at },
+            });
+          } catch (e2) {}
+        }
+
+        await refreshOrders();
+      } catch (e) {
+        setPayErr(e?.message || 'Gabim dorëzim');
+        await refreshOrders();
+      } finally {
+        setPayBusy(false);
+      }
+    })();
   }
 
   // ---------------- HIDDEN RETURN ----------------
@@ -722,73 +745,23 @@ export default function GatiPage() {
       <footer className="dock"><Link href="/" className="btn secondary" style={{ width: '100%' }}>🏠 HOME</Link></footer>
 
       {/* ============ PAGESA ME DIZAJN TE RI ARKË (POS) ============ */}
-      {showPaySheet && payOrder && (() => {
-        const dueNow = Math.max(0, Number((payOrder.total - payOrder.paid).toFixed(2)));
-        const cashGiven = Number(payAdd || 0);
-        const resto = Math.max(0, Number((cashGiven - dueNow).toFixed(2)));
-
-        return (
-          <div className="payfs">
-            <div className="payfs-top">
-              <div><div className="payfs-title">DORËZIMI & PAGESA</div><div className="payfs-sub">KODI: {codeLabel(payOrder)} • {payOrder.name}</div></div>
-              <button className="btn secondary" onClick={closePay} style={{fontSize: 20}}>✕</button>
-            </div>
-            <div className="payfs-body">
-              <div className="card" style={{ marginTop: 0, padding: 18 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, opacity: 0.9 }}>
-                  <span>TOTALI I POROSISË:</span> <strong>{Number(payOrder.total || 0).toFixed(2)} €</strong>
-                </div>
-                {payOrder.paid > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, color: '#10b981', marginTop: 10 }}>
-                    <span>PAGUAR MË HERËT:</span> <strong>{Number(payOrder.paid || 0).toFixed(2)} €</strong>
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 24, fontWeight: 900, color: dueNow > 0 ? '#ef4444' : '#10b981', marginTop: 15, paddingTop: 15, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                  <span>{dueNow > 0 ? 'BORXHI PËR SOT:' : 'E PAGUAR PLOTËSISHT'}</span> <strong>{dueNow.toFixed(2)} €</strong>
-                </div>
-              </div>
-
-              {!payOrder.paidUpfront && dueNow > 0 && (
-                <div className="card" style={{ marginTop: 15, padding: '20px 15px' }}>
-                  <div className="field-group">
-                    <label className="label" style={{ fontSize: 14, color: '#60a5fa', textAlign: 'center', marginBottom: 10 }}>SA PARA PO JEP KLIENTI?</label>
-                    <input 
-                      type="number" 
-                      inputMode="decimal" 
-                      className="input" 
-                      style={{ fontSize: 32, fontWeight: 900, textAlign: 'center', height: 60, color: '#fff' }} 
-                      value={payAdd || ''} 
-                      onChange={(e) => setPayAdd(Number(e.target.value))} 
-                      placeholder="0.00"
-                    />
-                    <div className="chip-row" style={{ marginTop: 15, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                      <button className="chip" style={{ background: '#3b82f6', color: '#fff', border: 'none', fontWeight: 900, fontSize: 16, padding: '12px 0' }} type="button" onClick={() => setPayAdd(dueNow)}>E SAKTË</button>
-                      {PAY_CHIPS.map((v) => <button key={v} className="chip" style={{ fontSize: 16, fontWeight: 900, padding: '12px 0' }} type="button" onClick={() => setPayAdd(v)}>{v}€</button>)}
-                      <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.7, gridColumn: 'span 2', padding: '12px 0' }}>FSHI SHUMËN</button>
-                    </div>
-                  </div>
-
-                  {cashGiven >= dueNow && dueNow > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 22, fontWeight: 900, color: '#10b981', marginTop: 20, padding: 15, background: 'rgba(16, 185, 129, 0.15)', borderRadius: 12, border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                      <span>KUSURI (RESTO):</span> <strong>{resto.toFixed(2)} €</strong>
-                    </div>
-                  )}
-                  {cashGiven > 0 && cashGiven < dueNow && (
-                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 900, color: '#ef4444', marginTop: 20, padding: 15, background: 'rgba(239, 68, 68, 0.15)', borderRadius: 12, border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                       <span>MUNGON EDHE:</span> <strong>{(dueNow - cashGiven).toFixed(2)} €</strong>
-                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="payfs-footer">
-              <button className="btn secondary" onClick={closePay} style={{ fontWeight: 900 }}>ANULO</button>
-              <button className="btn secondary" onClick={applyPayOnly} style={{ fontWeight: 900, background: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa' }} disabled={payBusy}>PAGUAJ PA DORËZU</button>
-              <button className="btn primary" onClick={confirmDelivery} style={{ fontWeight: 900, background: '#10b981', color: '#000' }} disabled={payBusy}>KONFIRMO DORËZIMIN</button>
-            </div>
-          </div>
-        );
-      })()}
+      {showPaySheet && payOrder && (
+        <PosModal
+          open={showPaySheet}
+          onClose={() => setShowPaySheet(false)}
+          title="PAGESA (ARKË)"
+          subtitle={`KODI: ${formatKod(payOrder.code)} • ${payOrder.name || ''}`}
+          total={Number(payOrder.total || 0)}
+          alreadyPaid={Number(payOrder.paid || 0)}
+          amount={payAdd}
+          setAmount={setPayAdd}
+          payChips={PAY_CHIPS}
+          confirmText="KRYEJ PAGESËN"
+          cancelText="ANULO"
+          disabled={savingPay}
+          onConfirm={applyPayAndClose}
+        />
+      )}
 
       {/* ============ KTHIMI FSHEHTE ============ */}
       {showReturnSheet && retOrder && (
@@ -866,12 +839,6 @@ export default function GatiPage() {
 
       <style jsx>{`
         .dock { position: sticky; bottom: 0; padding: 10px 0 6px 0; background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0)); margin-top: 10px; }
-        .payfs { position: fixed; inset: 0; background: #0b0b0b; z-index: 10000; display: flex; flex-direction: column; }
-        .payfs-top { display: flex; justify-content: space-between; align-items: center; padding: 14px; background: #0b0b0b; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-        .payfs-title { color: #fff; font-weight: 900; font-size: 18px; }
-        .payfs-sub { color: rgba(255, 255, 255, 0.7); font-size: 12px; margin-top: 2px; }
-        .payfs-body { flex: 1; overflow: auto; padding: 14px; }
-        .payfs-footer { display: flex; gap: 10px; padding: 12px 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); background: #0b0b0b; }
         .payfs-footer .btn { flex: 1; padding: 16px 0; }
       `}</style>
     </div>
