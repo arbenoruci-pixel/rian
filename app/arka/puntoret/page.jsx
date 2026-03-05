@@ -1,706 +1,446 @@
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
-const ROLES = ['OWNER', 'ADMIN', 'DISPATCH', 'PUNTOR', 'TRANSPORT'];
-
+// Helpers
 function jparse(s, fallback) {
-  try {
-    const v = JSON.parse(s);
-    return v ?? fallback;
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(s) ?? fallback; } catch { return fallback; }
 }
+function onlyDigits(v) { return String(v || "").replace(/\D/g, ""); }
+function safeUpper(v, fallback = "") { return String(v || "").trim().toUpperCase() || fallback; }
+function shortDevice(did) { return String(did || "").split("-")[0] + "..."; }
 
-function onlyDigits(v) {
-  return String(v || '').replace(/\D/g, '');
-}
-
-function safeUpper(v, fallback = '') {
-  const s = String(v || '').trim();
-  return s ? s.toUpperCase() : fallback;
-}
-
-function fmtDt(v) {
-  try {
-    const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return String(v || '');
-    return d.toLocaleString();
-  } catch {
-    return String(v || '');
-  }
-}
-
-async function postAdminDevices(payload) {
-  const res = await fetch('/api/admin/devices', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload || {}),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json?.ok) {
-    const msg = json?.error || `HTTP_${res.status}`;
-    throw new Error(String(msg));
-  }
-  return json;
-}
-
-export default function PuntoretDashboardPage() {
+export default function StaffAndDevicesDashboard() {
   const router = useRouter();
-  const topRef = useRef(null);
-
   const [actor, setActor] = useState(null);
+  const [masterPin, setMasterPin] = useState("");
 
-  // Master PIN for device approval actions
-  const [masterPin, setMasterPin] = useState('');
-  const [masterHint, setMasterHint] = useState('');
-
-  // Pending devices
+  // States
   const [pending, setPending] = useState([]);
-  const [pendingLoading, setPendingLoading] = useState(true);
-  const [pendingErr, setPendingErr] = useState('');
-  const [pendingSelected, setPendingSelected] = useState(null);
-  const [createForm, setCreateForm] = useState({ name: '', role: 'PUNTOR', pin: '', label: '' });
-  const [approveBusy, setApproveBusy] = useState(false);
-
-  // Staff list
   const [staff, setStaff] = useState([]);
-  const [staffLoading, setStaffLoading] = useState(true);
-  const [staffErr, setStaffErr] = useState('');
+  const [loading, setLoading] = useState(true);
+  
+  // Create / Approve Form
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [createForm, setCreateForm] = useState({ name: "", role: "PUNTOR", pin: "", label: "" });
+  const [actionBusy, setActionBusy] = useState(false);
+
+  // Edit Staff Form
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', role: 'PUNTOR', pin: '', is_active: true });
-  const [saveBusy, setSaveBusy] = useState(false);
-
-  const canManageStaff = useMemo(() => {
-    const r = safeUpper(actor?.role);
-    return r === 'OWNER' || r === 'ADMIN' || r === 'DISPATCH';
-  }, [actor]);
-
-  const canApproveDevices = useMemo(() => {
-    const r = safeUpper(actor?.role);
-    return r === 'ADMIN' || r === 'OWNER';
-  }, [actor]);
+  const [editForm, setEditForm] = useState({ name: "", role: "PUNTOR", pin: "", is_active: true });
 
   useEffect(() => {
-    const a = jparse(localStorage.getItem('CURRENT_USER_DATA'), null);
-    if (!a) {
-      router.push('/login');
-      return;
-    }
+    const a = jparse(localStorage.getItem("CURRENT_USER_DATA"), null);
+    if (!a) return router.push("/login");
     setActor(a);
-
-    try {
-      const p = localStorage.getItem('MASTER_ADMIN_PIN') || '';
-      if (p && !masterPin) setMasterPin(onlyDigits(p));
-    } catch {}
-
-    void reloadAll();
+    
+    const savedPin = localStorage.getItem("MASTER_ADMIN_PIN") || "";
+    if (savedPin) setMasterPin(savedPin);
+    
+    reloadAll(savedPin);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
+  }, []);
 
-  async function reloadAll() {
-    await Promise.all([reloadPending(), reloadStaff()]);
+  async function api(action, payload = {}) {
+    const pinToUse = payload.master_pin || masterPin;
+    if (!pinToUse) {
+      alert("Ju lutem vendosni Master PIN-in e Adminit lart!");
+      return null;
+    }
+    try {
+      const res = await fetch("/api/admin/devices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, master_pin: pinToUse, ...payload }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "GABIM NË SERVER");
+      return json;
+    } catch (e) {
+      alert("ERROR: " + String(e?.message || e));
+      return null;
+    }
   }
 
-  async function reloadPending() {
-    setPendingLoading(true);
-    setPendingErr('');
+  async function reloadAll(pinOverride = null) {
+    setLoading(true);
     try {
-      const pin = onlyDigits(masterPin);
-      if (!pin) {
-        setPending([]);
-        setMasterHint('Shkruaj MASTER PIN për me i pa “Pajisjet në pritje”.');
-        return;
+      // 1. Lexo Stafin
+      const { data: st } = await supabase.from("tepiha_users").select("*").order("created_at", { ascending: false });
+      setStaff(st || []);
+
+      // 2. Lexo Pajisjet
+      const p = pinOverride !== null ? pinOverride : masterPin;
+      if (p) {
+        const json = await api("list", { master_pin: p });
+        if (json?.items) setPending(json.items.filter(x => !x.is_approved));
       }
-      setMasterHint('');
-      const json = await postAdminDevices({ action: 'list', master_pin: pin });
-      const items = Array.isArray(json?.items) ? json.items : [];
-      const pendingOnly = items.filter((d) => d?.is_approved !== true);
-      setPending(pendingOnly);
-    } catch (e) {
-      setPendingErr(String(e?.message || e));
-      setPending([]);
     } finally {
-      setPendingLoading(false);
+      setLoading(false);
     }
   }
 
-  async function reloadStaff() {
-    setStaffLoading(true);
-    setStaffErr('');
-    try {
-      // ✅ Read from VIEW
-      const { data, error } = await supabase
-        .from('tepiha_users')
-        .select('id, name, role, pin, is_active, is_master, created_at')
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      setStaff(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setStaffErr(String(e?.message || e));
-      setStaff([]);
-    } finally {
-      setStaffLoading(false);
+  // --- ACTIONS: APROVIMI ---
+  async function handleCreateAndApprove() {
+    if (!selectedDevice) return alert("Zgjidh një pajisje!");
+    if (!createForm.name) return alert("Shkruaj emrin e punëtorit!");
+    if (createForm.pin.length < 4) return alert("PIN duhet të ketë së paku 4 shifra!");
+
+    setActionBusy(true);
+    const r = await api("create_user_and_approve", {
+      device_id: selectedDevice.device_id,
+      name: createForm.name,
+      role: createForm.role,
+      pin: createForm.pin,
+      label: createForm.label
+    });
+    if (r) {
+      alert("✅ Punëtori u krijua dhe pajisja u aprovua!");
+      cancelCreate();
+      reloadAll();
     }
+    setActionBusy(false);
+  }
+
+  async function handleLinkAndApprove() {
+    if (!selectedDevice) return alert("Zgjidh një pajisje!");
+    if (createForm.pin.length < 4) return alert("Shkruaj PIN-in e punëtorit ekzistues!");
+
+    setActionBusy(true);
+    const r = await api("link_user_and_approve", {
+      device_id: selectedDevice.device_id,
+      pin: createForm.pin,
+      label: createForm.label
+    });
+    if (r) {
+      alert("✅ Pajisja u lidh me sukses!");
+      cancelCreate();
+      reloadAll();
+    }
+    setActionBusy(false);
   }
 
   function pickPending(d) {
-    setPendingSelected(d);
+    setSelectedDevice(d);
     setCreateForm({
-      name: '',
-      role: safeUpper(d?.requested_role, 'PUNTOR') || 'PUNTOR',
-      pin: onlyDigits(d?.requested_pin || ''),
-      label: String(d?.label || ''),
+      name: d?.tepiha_users?.name || "",
+      role: safeUpper(d?.requested_role, "PUNTOR"),
+      pin: onlyDigits(d?.requested_pin || ""),
+      label: d?.label || ""
     });
-    try {
-      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } catch {}
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function clearPendingSelection() {
-    setPendingSelected(null);
-    setCreateForm({ name: '', role: 'PUNTOR', pin: '', label: '' });
+  function cancelCreate() {
+    setSelectedDevice(null);
+    setCreateForm({ name: "", role: "PUNTOR", pin: "", label: "" });
   }
 
-  async function createUserAndApprove() {
-    const pin = onlyDigits(masterPin);
-    if (!pin) return alert('SHKRUJ MASTER PIN');
-    if (!pendingSelected?.device_id) return;
-
-    const name = String(createForm.name || '').trim();
-    const role = safeUpper(createForm.role || 'PUNTOR', 'PUNTOR');
-    const userPin = onlyDigits(createForm.pin);
-    const label = String(createForm.label || '').trim() || null;
-
-    if (!name) return alert('SHKRUAJ EMRIN');
-    if (userPin.length < 4) return alert('PIN DUHET 4+ SHIFRA');
-
-    setApproveBusy(true);
-    try {
-      try {
-        localStorage.setItem('MASTER_ADMIN_PIN', pin);
-      } catch {}
-      await postAdminDevices({
-        action: 'create_user_and_approve',
-        master_pin: pin,
-        name,
-        role,
-        pin: userPin,
-        device_id: String(pendingSelected.device_id),
-        label,
-      });
-      clearPendingSelection();
-      await reloadAll();
-      alert('✅ U KRIJUA USER + U APROVUA PAJISJA');
-    } catch (e) {
-      alert('ERROR: ' + String(e?.message || e));
-    } finally {
-      setApproveBusy(false);
-    }
-  }
-
-  async function linkExistingPinAndApprove() {
-    const pin = onlyDigits(masterPin);
-    if (!pin) return alert('SHKRUJ MASTER PIN');
-    if (!pendingSelected?.device_id) return;
-
-    const userPin = onlyDigits(createForm.pin);
-    const label = String(createForm.label || '').trim() || null;
-    if (userPin.length < 4) return alert('SHKRUJ PIN-IN E PUNTORIT (4+ SHIFRA)');
-
-    setApproveBusy(true);
-    try {
-      try {
-        localStorage.setItem('MASTER_ADMIN_PIN', pin);
-      } catch {}
-      await postAdminDevices({
-        action: 'link_user_and_approve',
-        master_pin: pin,
-        pin: userPin,
-        device_id: String(pendingSelected.device_id),
-        label,
-      });
-      clearPendingSelection();
-      await reloadAll();
-      alert('✅ U LIDH USERI + U APROVUA PAJISJA');
-    } catch (e) {
-      alert('ERROR: ' + String(e?.message || e));
-    } finally {
-      setApproveBusy(false);
-    }
-  }
-
-  function startEdit(row) {
-    if (!canManageStaff) return;
-    setEditingId(row.id);
-    setEditForm({
-      name: row.name || '',
-      role: safeUpper(row.role, 'PUNTOR') || 'PUNTOR',
-      pin: '',
-      is_active: row.is_active !== false,
-    });
-    try {
-      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } catch {}
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setEditForm({ name: '', role: 'PUNTOR', pin: '', is_active: true });
+  // --- ACTIONS: STAFI ---
+  function startEdit(u) {
+    setEditingId(u.id);
+    setEditForm({ name: u.name || "", role: safeUpper(u.role), pin: "", is_active: u.is_active !== false });
   }
 
   async function saveStaffEdit() {
-    if (!canManageStaff) return;
-    if (!editingId) return;
+    setActionBusy(true);
+    const payload = {
+      name: editForm.name,
+      role: editForm.role,
+      is_active: editForm.is_active
+    };
+    if (editForm.pin.length >= 4) payload.pin = editForm.pin;
 
-    const name = String(editForm.name || '').trim();
-    const role = safeUpper(editForm.role || 'PUNTOR', 'PUNTOR');
-    const pin = onlyDigits(editForm.pin);
-    const is_active = editForm.is_active !== false;
-
-    if (!name) return alert('SHKRUAJ EMRIN');
-    if (editForm.pin && pin.length < 4) return alert('PIN DUHET 4+ SHIFRA');
-
-    setSaveBusy(true);
-    try {
-      // ✅ Update TABLE
-      const payload = { name, role, is_active };
-      if (editForm.pin) payload.pin = pin;
-      const { error } = await supabase.from('users').update(payload).eq('id', editingId);
-      if (error) throw error;
-      cancelEdit();
-      await reloadStaff();
-      alert('✅ U RUAJT');
-    } catch (e) {
-      alert('ERROR: ' + String(e?.message || e));
-    } finally {
-      setSaveBusy(false);
+    const { error } = await supabase.from("tepiha_users").update(payload).eq("id", editingId);
+    if (error) alert("GABIM: " + error.message);
+    else {
+      setEditingId(null);
+      reloadAll();
     }
+    setActionBusy(false);
   }
 
-  async function toggleActive(row) {
-    if (!canManageStaff) return;
-    const next = row.is_active === false;
-    setSaveBusy(true);
-    try {
-      const { error } = await supabase.from('users').update({ is_active: next }).eq('id', row.id);
-      if (error) throw error;
-      await reloadStaff();
-    } catch (e) {
-      alert('ERROR: ' + String(e?.message || e));
-    } finally {
-      setSaveBusy(false);
-    }
+  async function toggleBlock(u) {
+    const { error } = await supabase.from("tepiha_users").update({ is_active: !u.is_active }).eq("id", u.id);
+    if (!error) reloadAll();
   }
-
-  const pendingCount = pending.length;
-  const staffCount = staff.length;
 
   return (
-    <div className="pageContainer">
-      <div className="maxWidth" ref={topRef}>
-        <div className="topHeader">
-          <div>
-            <h1 className="h1">ARKA • PUNËTORËT</h1>
-            <p className="meta">LOGGED: {actor?.name} ({safeUpper(actor?.role)})</p>
+    <div className="proDashboard">
+      <div className="container">
+        
+        {/* HEADER & MASTER PIN */}
+        <div className="headerArea">
+          <div className="flex-between">
+            <div>
+              <h1 className="title">MENAXHIMI I STAFIT</h1>
+              <p className="subtitle">Mirësevini, {actor?.name} ({actor?.role})</p>
+            </div>
+            <Link href="/arka" className="btn-outline">KTHEHU NË ARKË</Link>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <Link href="/arka" className="backBtn">
-              KTHEHU
-            </Link>
-          </div>
-        </div>
 
-        <div className="panel" style={{ marginBottom: 12 }}>
-          <div className="panelHead">
-            <span className="panelTitle">MASTER PIN (PËR APROVIM)</span>
-            <button
-              className="cancelBtn"
-              onClick={() => {
-                setMasterPin('');
-                try {
-                  localStorage.removeItem('MASTER_ADMIN_PIN');
-                } catch {}
-              }}
-            >
-              FSHIJ
-            </button>
-          </div>
-          <div className="panelBody">
-            <div className="formStack" style={{ gap: 10 }}>
-              <div className="field">
-                <label className="label">MASTER PIN</label>
-                <input
-                  className="input"
-                  inputMode="numeric"
-                  placeholder="p.sh. 2380"
-                  value={masterPin}
-                  onChange={(e) => setMasterPin(onlyDigits(e.target.value))}
-                />
+          <div className="masterPinBox">
+            <div className="pinInfo">
+              <span className="icon">🔒</span>
+              <div>
+                <strong>Master PIN i Mjeshtrit</strong>
+                <p>E domosdoshme për të aprovuar pajisje.</p>
               </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  className="primaryBtn"
-                  onClick={() => reloadPending()}
-                  disabled={pendingLoading || approveBusy}
-                  style={{ flex: 1 }}
-                >
-                  {pendingLoading ? 'DUKE LEXUAR...' : 'REFRESH PAJISJET'}
-                </button>
-                <button
-                  className="primaryBtn"
-                  onClick={() => reloadAll()}
-                  disabled={staffLoading || pendingLoading || approveBusy}
-                  style={{
-                    flex: 1,
-                    background: 'rgba(59,130,246,0.15)',
-                    border: '1px solid rgba(59,130,246,0.35)',
-                  }}
-                >
-                  REFRESH KREJT
-                </button>
-              </div>
-              {!!masterHint && <div className="warnBox">{masterHint}</div>}
-              {!!pendingErr && (
-                <div
-                  className="warnBox"
-                  style={{ borderColor: 'rgba(239,68,68,0.35)', color: '#fecaca' }}
-                >
-                  {pendingErr}
-                </div>
-              )}
-              {!canApproveDevices && (
-                <div className="warnBox">
-                  KJO FAQE ËSHTË VETËM PËR ADMIN/OWNER. (Aprovimi kontrollohet nga serveri.)
-                </div>
-              )}
+            </div>
+            <div className="pinInputGroup">
+              <input
+                type="password"
+                className="input shadow-sm"
+                placeholder="****"
+                value={masterPin}
+                onChange={(e) => {
+                  const val = onlyDigits(e.target.value);
+                  setMasterPin(val);
+                  localStorage.setItem("MASTER_ADMIN_PIN", val);
+                }}
+              />
+              <button className="btn-primary" onClick={() => reloadAll()}>REFRESH</button>
             </div>
           </div>
         </div>
 
-        <div className="mainGrid">
-          {/* SEKSIONI 1 */}
-          <div className="formSection">
-            <div className={`panel ${pendingSelected ? 'panelActive' : ''}`}>
-              <div className="panelHead">
-                <span className="panelTitle">PAJISJET NË PRITJE</span>
-                <span className="badge">{pendingCount} PENDING</span>
-              </div>
-              <div className="panelBody">
-                {pendingLoading ? (
-                  <div className="emptyState">DUKE LEXUAR...</div>
-                ) : pendingCount === 0 ? (
-                  <div className="emptyState">NUK KA PAJISJE NË PRITJE</div>
-                ) : (
-                  <div className="listBody" style={{ padding: 0 }}>
-                    {(pending || []).map((d) => {
-                      const selected = String(pendingSelected?.id || '') === String(d?.id || '');
-                      return (
-                        <button
-                          key={d.id}
-                          onClick={() => pickPending(d)}
-                          className="userRow"
-                          style={{
-                            width: '100%',
-                            textAlign: 'left',
-                            cursor: 'pointer',
-                            background: selected ? 'rgba(59,130,246,0.12)' : 'transparent',
-                            border: selected
-                              ? '1px solid rgba(59,130,246,0.35)'
-                              : '1px solid rgba(255,255,255,0.06)',
-                            borderRadius: 12,
-                            marginBottom: 10,
-                          }}
-                        >
-                          <div className="userInfo">
-                            <div className="userHeader">
-                              <span className={`statusDot dotRed`}></span>
-                              <span className="userName">{d.label || 'PA LABEL'}</span>
-                            </div>
-                            <div className="userMeta">
-                              <span className="roleTag">{String(d.device_id || '').slice(0, 10)}…</span>
-                              {d.requested_role && (
-                                <span className="roleTag">REQ: {safeUpper(d.requested_role)}</span>
-                              )}
-                              {d.requested_pin && <span className="pinTag">REQ PIN: {String(d.requested_pin)}</span>}
-                            </div>
-                            <div className="meta" style={{ marginTop: 6, opacity: 0.8 }}>
-                              {d.created_at ? `CREATED: ${fmtDt(d.created_at)}` : ''}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
+        <div className="grid-layout">
+          
+          {/* KOLONA E MAJTË: PAJISJET NË PRITJE & KRIJIMI */}
+          <div className="col">
+            
+            {/* FORMULARI I APROVIMIT (Shfaqet vetëm kur klikon një pajisje) */}
+            {selectedDevice && (
+              <div className="card highlightCard mb-4">
+                <div className="card-header flex-between">
+                  <h3 className="card-title text-blue">Aprovo: {shortDevice(selectedDevice.device_id)}</h3>
+                  <button className="btn-close" onClick={cancelCreate}>✕</button>
+                </div>
+                <div className="card-body form-stack">
+                  <div className="field">
+                    <label>Emri Mbiemri</label>
+                    <input className="input" value={createForm.name} onChange={e => setCreateForm({...createForm, name: e.target.value})} placeholder="Emri..." />
                   </div>
-                )}
-
-                {pendingSelected && (
-                  <div style={{ marginTop: 12 }}>
-                    <div className="panel" style={{ border: '1px solid rgba(255,255,255,0.12)' }}>
-                      <div className="panelHead">
-                        <span className="panelTitle">KRIJO PUNTOR + APROVO</span>
-                        <button className="cancelBtn" onClick={clearPendingSelection} disabled={approveBusy}>
-                          ANULO
-                        </button>
-                      </div>
-                      <div className="panelBody">
-                        <div className="formStack">
-                          <div className="field">
-                            <label className="label">PAJISJA</label>
-                            <div
-                              className="input"
-                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                            >
-                              <span style={{ fontWeight: 800, opacity: 0.9 }}>{String(pendingSelected?.device_id || '')}</span>
-                              <span style={{ fontSize: 12, opacity: 0.65 }}>{pendingSelected?.label || ''}</span>
-                            </div>
-                          </div>
-
-                          <div className="field">
-                            <label className="label">EMRI</label>
-                            <input
-                              className="input"
-                              placeholder="Emri mbiemri..."
-                              value={createForm.name}
-                              onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
-                            />
-                          </div>
-
-                          <div className="field">
-                            <label className="label">ROLI</label>
-                            <select
-                              className="input"
-                              value={createForm.role}
-                              onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value }))}
-                            >
-                              {ROLES.map((r) => (
-                                <option key={r} value={r}>
-                                  {r}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="field">
-                            <label className="label">PIN (4+ SHIFRA)</label>
-                            <input
-                              className="input"
-                              inputMode="numeric"
-                              placeholder="p.sh. 1111"
-                              value={createForm.pin}
-                              onChange={(e) => setCreateForm((f) => ({ ...f, pin: onlyDigits(e.target.value) }))}
-                            />
-                          </div>
-
-                          <div className="field">
-                            <label className="label">LABEL (OPSIONALE)</label>
-                            <input
-                              className="input"
-                              placeholder="p.sh. IPHONE 14 • PUNTOR 1"
-                              value={createForm.label}
-                              onChange={(e) => setCreateForm((f) => ({ ...f, label: e.target.value }))}
-                            />
-                          </div>
-
-                          <button className="primaryBtn" disabled={approveBusy} onClick={createUserAndApprove}>
-                            {approveBusy ? 'DUKE APROVUAR...' : '✅ KRIJO USER + APROVO PAJISJEN'}
-                          </button>
-
-                          <button
-                            className="primaryBtn"
-                            disabled={approveBusy}
-                            onClick={linkExistingPinAndApprove}
-                            style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.35)' }}
-                          >
-                            🔗 LIDH PIN EKZISTUES + APROVO
-                          </button>
-                        </div>
-                      </div>
+                  <div className="grid-2">
+                    <div className="field">
+                      <label>Roli</label>
+                      <select className="input" value={createForm.role} onChange={e => setCreateForm({...createForm, role: e.target.value})}>
+                        {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>PIN (4+ numra)</label>
+                      <input className="input" value={createForm.pin} onChange={e => setCreateForm({...createForm, pin: onlyDigits(e.target.value)})} placeholder="****" />
                     </div>
                   </div>
+                  <div className="field">
+                    <label>Emri i Telefonit (Opsionale)</label>
+                    <input className="input" value={createForm.label} onChange={e => setCreateForm({...createForm, label: e.target.value})} placeholder="p.sh. iPhone Bujari" />
+                  </div>
+                  <div className="grid-2 mt-2">
+                    <button className="btn-success" onClick={handleCreateAndApprove} disabled={actionBusy}>
+                      KRIJO TË RI
+                    </button>
+                    <button className="btn-outline" onClick={handleLinkAndApprove} disabled={actionBusy}>
+                      LIDH EKZISTUES
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* LISTA E PAJISJEVE NË PRITJE */}
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title text-orange">Pajisjet në Pritje ({pending.length})</h3>
+              </div>
+              <div className="card-body p-0">
+                {pending.length === 0 ? (
+                  <div className="empty-state">Nuk ka asnjë pajisje të re që pret aprovim.</div>
+                ) : (
+                  pending.map(d => (
+                    <div key={d.id} className={`list-item ${selectedDevice?.id === d.id ? 'selected' : ''}`} onClick={() => pickPending(d)}>
+                      <div className="item-info">
+                        <span className="badge badge-orange">E RE</span>
+                        <div>
+                          <strong>{d.label || "Telefon i Panjohur"}</strong>
+                          <p className="text-muted text-sm mono">{shortDevice(d.device_id)}</p>
+                        </div>
+                      </div>
+                      <div className="item-meta text-right">
+                        <span className="text-xs text-muted">PIN i kërkuar:</span>
+                        <br/><strong>{d.requested_pin || "S'ka"}</strong>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
           </div>
 
-          {/* SEKSIONI 2 */}
-          <div className="listSection">
-            <div className="panel">
-              <div className="panelHead">
-                <span className="panelTitle">LISTA E STAFIT</span>
-                <span className="badge">{staffCount} TOTAL</span>
-              </div>
-              <div className="panelBody">
-                {!!staffErr && (
-                  <div className="warnBox" style={{ borderColor: 'rgba(239,68,68,0.35)', color: '#fecaca' }}>
-                    {staffErr}
+          {/* KOLONA E DJATHTË: LISTA E STAFIT DHE EDITIMI */}
+          <div className="col">
+            
+            {/* FORMULARI I EDITIMIT TË STAFIT */}
+            {editingId && (
+              <div className="card mb-4 border-blue">
+                <div className="card-header flex-between">
+                  <h3 className="card-title text-blue">Edito Punëtorin</h3>
+                  <button className="btn-close" onClick={() => setEditingId(null)}>✕</button>
+                </div>
+                <div className="card-body form-stack">
+                  <div className="grid-2">
+                    <div className="field">
+                      <label>Emri</label>
+                      <input className="input" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
+                    </div>
+                    <div className="field">
+                      <label>Roli</label>
+                      <select className="input" value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})}>
+                        {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
                   </div>
-                )}
-                {!canManageStaff && <div className="warnBox">S'KE AKSES PËR MENAXHIM (duhet ADMIN/OWNER/DISPATCH)</div>}
+                  <div className="grid-2 align-center">
+                    <div className="field">
+                      <label>Ndrysho PIN (Opsionale)</label>
+                      <input className="input" placeholder="Lëre bosh për të mos ndryshuar" value={editForm.pin} onChange={e => setEditForm({...editForm, pin: onlyDigits(e.target.value)})} />
+                    </div>
+                    <label className="checkbox-wrap mt-4">
+                      <input type="checkbox" checked={editForm.is_active} onChange={e => setEditForm({...editForm, is_active: e.target.checked})} />
+                      <span>Punëtor Aktiv</span>
+                    </label>
+                  </div>
+                  <button className="btn-primary w-full mt-2" onClick={saveStaffEdit} disabled={actionBusy}>RUAJ NDRYSHIMET</button>
+                </div>
+              </div>
+            )}
 
-                {editingId && (
-                  <div className="panel" style={{ marginBottom: 12, border: '1px solid rgba(255,255,255,0.12)' }}>
-                    <div className="panelHead">
-                      <span className="panelTitle">EDIT PUNTORIN</span>
-                      <button className="cancelBtn" onClick={cancelEdit} disabled={saveBusy}>
-                        ANULO
+            {/* LISTA E STAFIT */}
+            <div className="card">
+              <div className="card-header flex-between">
+                <h3 className="card-title">Lista e Stafit</h3>
+                <span className="badge badge-gray">{staff.length} TOTAL</span>
+              </div>
+              <div className="card-body p-0">
+                {loading ? <div className="empty-state">Po ngarkohet...</div> : staff.map(u => (
+                  <div key={u.id} className="list-item staff-item">
+                    <div className="item-info">
+                      <div className={`status-dot ${u.is_active ? 'active' : 'blocked'}`}></div>
+                      <div>
+                        <strong>{u.name}</strong>
+                        <p className="text-muted text-xs mt-1">{u.role} • PIN: ****</p>
+                      </div>
+                    </div>
+                    <div className="item-actions">
+                      <button className="btn-small btn-light" onClick={() => startEdit(u)}>✏️ EDIT</button>
+                      <button className={`btn-small ${u.is_active ? 'btn-danger-light' : 'btn-success-light'}`} onClick={() => toggleBlock(u)}>
+                        {u.is_active ? '⛔ BLLOKO' : '✅ HAP'}
                       </button>
                     </div>
-                    <div className="panelBody">
-                      <div className="formStack">
-                        <div className="field">
-                          <label className="label">EMRI</label>
-                          <input
-                            className="input"
-                            value={editForm.name}
-                            onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
-                          />
-                        </div>
-                        <div className="field">
-                          <label className="label">ROLI</label>
-                          <select
-                            className="input"
-                            value={editForm.role}
-                            onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
-                          >
-                            {ROLES.map((r) => (
-                              <option key={r} value={r}>
-                                {r}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="field">
-                          <label className="label">NDRYSHO PIN (OPSIONALE)</label>
-                          <input
-                            className="input"
-                            inputMode="numeric"
-                            placeholder="lëre bosh nëse s'do me ndërru"
-                            value={editForm.pin}
-                            onChange={(e) => setEditForm((f) => ({ ...f, pin: onlyDigits(e.target.value) }))}
-                          />
-                        </div>
-
-                        <label className="switchRow">
-                          <div className={`switchTrack ${editForm.is_active ? 'trackActive' : ''}`}>
-                            <input
-                              type="checkbox"
-                              className="hidden"
-                              checked={!!editForm.is_active}
-                              onChange={(e) => setEditForm((f) => ({ ...f, is_active: e.target.checked }))}
-                            />
-                            <div className="switchThumb" />
-                          </div>
-                          <span className={`switchLabel ${editForm.is_active ? 'textGreen' : 'textGray'}`}>
-                            {editForm.is_active ? 'USER AKTIV' : 'JO-AKTIV (I BLLOKUAR)'}
-                          </span>
-                        </label>
-
-                        <button className="primaryBtn" disabled={saveBusy} onClick={saveStaffEdit}>
-                          {saveBusy ? 'DUKE RUAJTUR...' : 'RUAJ NDRYSHIMET'}
-                        </button>
-                      </div>
-                    </div>
                   </div>
-                )}
-
-                {staffLoading ? (
-                  <div className="emptyState">DUKE LEXUAR STAFIN...</div>
-                ) : staff.length === 0 ? (
-                  <div className="emptyState">NUK KA USER NË SISTEM</div>
-                ) : (
-                  <div className="listBody" style={{ padding: 0 }}>
-                    {staff.map((r) => {
-                      const active = r.is_active !== false;
-                      const isEditing = String(editingId || '') === String(r.id || '');
-                      return (
-                        <div
-                          key={r.id}
-                          className={`userRow ${isEditing ? 'rowEditing' : ''}`}
-                          style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, marginBottom: 10 }}
-                        >
-                          <div className="userInfo">
-                            <div className="userHeader">
-                              <span className={`statusDot ${active ? 'dotGreen' : 'dotRed'}`} />
-                              <span className="userName">{r.name || 'PA EMËR'}</span>
-                              {r.is_master && (
-                                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 900, color: '#f59e0b' }}>MASTER</span>
-                              )}
-                            </div>
-                            <div className="userMeta">
-                              <span className="roleTag">{safeUpper(r.role) || 'PUNTOR'}</span>
-                              <span className="pinTag">PIN: ****</span>
-                            </div>
-                          </div>
-
-                          {canManageStaff && (
-                            <div
-                              className="userActions"
-                              style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
-                            >
-                              <button className="btnKartela" onClick={() => startEdit(r)}>
-                                ✏️ EDIT
-                              </button>
-                              <button className="btnKartela" onClick={() => toggleActive(r)} disabled={saveBusy}>
-                                {active ? '⛔ BLOKO' : '✅ AKTIVIZO'}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                ))}
               </div>
             </div>
+
           </div>
         </div>
-
-        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-          <button className="backBtn" onClick={() => router.push('/')} style={{ flex: 1, textAlign: 'center' }}>
-            🏠 HOME
-          </button>
-          <button className="backBtn" onClick={() => reloadAll()} style={{ flex: 1, textAlign: 'center' }}>
-            ↻ REFRESH
-          </button>
-        </div>
-
-        <style jsx>{`
-          .badge {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 2px 10px;
-            border-radius: 999px;
-            font-weight: 900;
-            font-size: 12px;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-          }
-          .rowEditing {
-            border-color: rgba(59, 130, 246, 0.35) !important;
-            background: rgba(59, 130, 246, 0.08) !important;
-          }
-          .btnKartela {
-            padding: 10px 12px;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            background: rgba(255, 255, 255, 0.06);
-            color: rgba(255, 255, 255, 0.92);
-            font-weight: 900;
-            font-size: 12px;
-            text-transform: uppercase;
-          }
-          .btnKartela:active {
-            transform: scale(0.98);
-          }
-        `}</style>
       </div>
+
+      <style jsx>{`
+        /* TEMË E NDRITSHME DHE MODERNE */
+        .proDashboard { background-color: #F8FAFC; min-height: 100vh; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0F172A; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        .headerArea { margin-bottom: 32px; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .title { font-size: 24px; font-weight: 800; color: #1E293B; margin: 0; letter-spacing: -0.5px; }
+        .subtitle { font-size: 14px; color: #64748B; margin-top: 4px; font-weight: 500; }
+        
+        .masterPinBox { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; margin-top: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); flex-wrap: wrap; gap: 16px; }
+        .pinInfo { display: flex; align-items: center; gap: 12px; }
+        .pinInfo .icon { font-size: 24px; background: #F1F5F9; padding: 10px; border-radius: 10px; }
+        .pinInfo strong { font-size: 15px; color: #0F172A; }
+        .pinInfo p { font-size: 13px; color: #64748B; margin: 2px 0 0 0; }
+        .pinInputGroup { display: flex; gap: 12px; flex: 1; max-width: 300px; }
+
+        .grid-layout { display: grid; grid-template-columns: 1fr; gap: 24px; }
+        @media(min-width: 900px) { .grid-layout { grid-template-columns: 1fr 1.2fr; } }
+        
+        .card { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .card-header { padding: 16px 20px; border-bottom: 1px solid #F1F5F9; background: #FAFAF9; }
+        .card-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; color: #334155; }
+        .card-body { padding: 20px; }
+        .p-0 { padding: 0 !important; }
+        .mb-4 { margin-bottom: 24px; }
+        .mt-2 { margin-top: 12px; }
+        .mt-4 { margin-top: 24px; }
+        .w-full { width: 100%; }
+
+        .text-blue { color: #2563EB; }
+        .text-orange { color: #EA580C; }
+        .text-muted { color: #64748B; }
+        .text-sm { font-size: 13px; }
+        .text-xs { font-size: 11px; }
+        .text-right { text-align: right; }
+        .mono { font-family: monospace; }
+        
+        .highlightCard { border: 2px solid #BFDBFE; background: #EFF6FF; }
+        .highlightCard .card-header { background: #DBEAFE; border-bottom-color: #BFDBFE; }
+        .border-blue { border-color: #BFDBFE; }
+
+        .form-stack { display: flex; flex-direction: column; gap: 16px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .align-center { align-items: center; }
+        
+        .field label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+        .input { width: 100%; padding: 12px 14px; border: 1px solid #CBD5E1; border-radius: 8px; font-size: 14px; color: #0F172A; background: #FFFFFF; transition: 0.2s; box-sizing: border-box; }
+        .input:focus { outline: none; border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+        .shadow-sm { box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); }
+
+        .btn-primary { background: #2563EB; color: white; border: none; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; }
+        .btn-primary:hover { background: #1D4ED8; }
+        .btn-success { background: #10B981; color: white; border: none; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; }
+        .btn-success:hover { background: #059669; }
+        .btn-outline { background: #FFFFFF; border: 1px solid #CBD5E1; color: #334155; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; text-decoration: none; }
+        .btn-outline:hover { background: #F8FAFC; border-color: #94A3B8; }
+        .btn-close { background: none; border: none; font-size: 16px; color: #64748B; cursor: pointer; }
+        .btn-close:hover { color: #0F172A; }
+
+        .btn-small { padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
+        .btn-light { background: #F1F5F9; color: #475569; border-color: #E2E8F0; }
+        .btn-light:hover { background: #E2E8F0; color: #0F172A; }
+        .btn-danger-light { background: #FEF2F2; color: #EF4444; border-color: #FEE2E2; }
+        .btn-danger-light:hover { background: #FEE2E2; }
+        .btn-success-light { background: #F0FDF4; color: #10B981; border-color: #DCFCE7; }
+        .btn-success-light:hover { background: #DCFCE7; }
+
+        .list-item { padding: 16px 20px; border-bottom: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; cursor: pointer; }
+        .list-item:hover { background: #F8FAFC; }
+        .list-item:last-child { border-bottom: none; }
+        .list-item.selected { background: #EFF6FF; border-left: 3px solid #3B82F6; }
+        .staff-item { cursor: default; }
+
+        .item-info { display: flex; align-items: center; gap: 14px; }
+        .item-info strong { font-size: 15px; color: #0F172A; }
+        .item-actions { display: flex; gap: 8px; }
+
+        .badge { padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; }
+        .badge-orange { background: #FFF7ED; color: #EA580C; border: 1px solid #FFEDD5; }
+        .badge-gray { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
+
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .status-dot.active { background: #10B981; box-shadow: 0 0 0 3px #D1FAE5; }
+        .status-dot.blocked { background: #EF4444; box-shadow: 0 0 0 3px #FEE2E2; }
+
+        .empty-state { padding: 40px; text-align: center; color: #94A3B8; font-size: 14px; font-weight: 500; }
+        
+        .checkbox-wrap { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; font-weight: 600; color: #334155; }
+        .checkbox-wrap input { width: 18px; height: 18px; cursor: pointer; accent-color: #2563EB; }
+      `}</style>
     </div>
   );
 }
