@@ -89,6 +89,96 @@ export async function POST(req) {
       return NextResponse.json({ ok: true });
     }
 
+    // 3b. Krijo user + aprovo pajisjen (Single Dashboard)
+    // - Krijimi bëhet në TABLE `users`
+    // - Pajisja aprovohet në `tepiha_user_devices` dhe lidhet me user_id
+    if (action === 'create_user_and_approve') {
+      const deviceRowId = String(body?.device_row_id || body?.id || '').trim();
+      const name = String(body?.name || '').trim();
+      const role = String(body?.role || 'WORKER').trim();
+      const pin = String(body?.pin || '').trim();
+      const label = body?.label == null ? null : String(body.label);
+
+      if (!deviceRowId) return NextResponse.json({ ok: false, error: 'MISSING_DEVICE_ROW_ID' }, { status: 400 });
+      if (!name) return NextResponse.json({ ok: false, error: 'MISSING_NAME' }, { status: 400 });
+      if (!pin) return NextResponse.json({ ok: false, error: 'MISSING_PIN' }, { status: 400 });
+
+      // 1) Sigurohu që PIN s’është i zënë (lexim nga VIEW)
+      const { data: existing, error: exErr } = await supabase
+        .from('tepiha_users')
+        .select('id, pin')
+        .eq('pin', pin)
+        .maybeSingle();
+      if (exErr) return NextResponse.json({ ok: false, error: exErr.message }, { status: 500 });
+      if (existing?.id) return NextResponse.json({ ok: false, error: 'PIN_ALREADY_EXISTS' }, { status: 409 });
+
+      // 2) Krijo user-in në TABLE reale `users`
+      const { data: created, error: cErr } = await supabase
+        .from('users')
+        .insert({
+          name,
+          role: role.toUpperCase(),
+          pin,
+          is_active: true,
+          is_master: false,
+        })
+        .select('id')
+        .single();
+      if (cErr) return NextResponse.json({ ok: false, error: cErr.message }, { status: 500 });
+      const newUserId = created?.id;
+      if (!newUserId) return NextResponse.json({ ok: false, error: 'USER_CREATE_FAILED' }, { status: 500 });
+
+      // 3) Aprovimi + lidhja e pajisjes
+      const { error: aErr } = await supabase
+        .from('tepiha_user_devices')
+        .update({
+          user_id: newUserId,
+          is_approved: true,
+          approved_at: new Date().toISOString(),
+          approved_by: adminId,
+          label,
+        })
+        .eq('id', deviceRowId);
+      if (aErr) return NextResponse.json({ ok: false, error: aErr.message }, { status: 500 });
+
+      return NextResponse.json({ ok: true, user_id: newUserId });
+    }
+
+    // 3c. Lidhu me user ekzistues (me PIN) + aprovo pajisjen
+    // - User lookup bëhet nga VIEW `tepiha_users`
+    // - Update pajisja në `tepiha_user_devices`
+    if (action === 'link_user_and_approve') {
+      const deviceRowId = String(body?.device_row_id || body?.id || '').trim();
+      const pin = String(body?.pin || '').trim();
+      const label = body?.label == null ? null : String(body.label);
+
+      if (!deviceRowId) return NextResponse.json({ ok: false, error: 'MISSING_DEVICE_ROW_ID' }, { status: 400 });
+      if (!pin) return NextResponse.json({ ok: false, error: 'MISSING_PIN' }, { status: 400 });
+
+      const { data: u, error: uErr } = await supabase
+        .from('tepiha_users')
+        .select('id, pin, is_active, role')
+        .eq('pin', pin)
+        .maybeSingle();
+      if (uErr) return NextResponse.json({ ok: false, error: uErr.message }, { status: 500 });
+      if (!u?.id) return NextResponse.json({ ok: false, error: 'USER_NOT_FOUND' }, { status: 404 });
+      if (u.is_active === false) return NextResponse.json({ ok: false, error: 'USER_INACTIVE' }, { status: 403 });
+
+      const { error: aErr } = await supabase
+        .from('tepiha_user_devices')
+        .update({
+          user_id: u.id,
+          is_approved: true,
+          approved_at: new Date().toISOString(),
+          approved_by: adminId,
+          label,
+        })
+        .eq('id', deviceRowId);
+      if (aErr) return NextResponse.json({ ok: false, error: aErr.message }, { status: 500 });
+
+      return NextResponse.json({ ok: true, user_id: u.id });
+    }
+
     // 4. Heqja e aprovimit (Bllokimi)
     if (action === 'revoke') {
       const id = String(body?.id || '').trim();
