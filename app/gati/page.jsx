@@ -1,4 +1,5 @@
 'use client';
+import PosModal from '@/components/PosModal';
 
 import PosModal from '@/components/PosModal';
 
@@ -165,14 +166,6 @@ async function uploadPhoto(file, oid, key) {
   if (error) throw error;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
-}
-
-function codeLabel(o){
-  const s = String(o?.code ?? "").trim();
-  if (s) return s;
-  const n = o?.code_n ?? null;
-  if (Number.isFinite(Number(n)) && Number(n) > 0) return String(Number(n));
-  return "";
 }
 
 // ---------------- COMPONENT ----------------
@@ -571,26 +564,6 @@ export default function GatiPage() {
           await saveOrderLocal({ id: snapOrder.id, status: 'dorzim', data: payload, updated_at: payload.delivered_at, _synced: false, _table: 'orders' });
         } catch (e) {}
 
-        // Upload signature (optional)
-        let signatureUrl = '';
-        try {
-          if (signatureDataUrl && typeof signatureDataUrl === 'string' && signatureDataUrl.startsWith('data:image/')) {
-            const blob = await (await fetch(signatureDataUrl)).blob();
-            const ext = 'png';
-            const filePath = `signatures/${snapOrder.id}_${Date.now()}.${ext}`;
-            const { data: upData, error: upErr } = await supabase.storage.from(BUCKET).upload(filePath, blob, { upsert: true, contentType: blob.type || 'image/png' });
-            if (!upErr && upData?.path) {
-              const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(upData.path);
-              signatureUrl = pub?.publicUrl || '';
-            }
-          }
-        } catch (e) {}
-
-        // Save signature url into json if we have
-        if (signatureUrl) {
-          try { payload.signatureUrl = signatureUrl; } catch (e) {}
-        }
-
         // Record payment if any
         if (payNow > 0) {
           try {
@@ -602,17 +575,22 @@ export default function GatiPage() {
         try {
           const { error: upErr2 } = await supabase
             .from('orders')
-            .update({ status: 'dorzim', delivered_at: payload.delivered_at, data: payload, updated_at: payload.delivered_at })
+            .update({ status: 'dorzim', data: payload, updated_at: payload.delivered_at })
             .eq('id', snapOrder.id);
           if (upErr2) throw upErr2;
         } catch (e) {
-          // fallback queue
+          // fallback queue - NDREQUR PËR TË MOS DHËNË UNKNOWN_OP_TYPE
           try {
-            await queueOp({
-              table: 'orders',
-              action: 'update',
-              match: { id: snapOrder.id },
-              data: { status: 'dorzim', delivered_at: payload.delivered_at, data: payload, updated_at: payload.delivered_at },
+            await queueOp('patch_order_data', { 
+              id: snapOrder.id, 
+              data_patch: { 
+                status: 'dorzim', 
+                delivered_at: payload.delivered_at,
+                delivered_by: payload.delivered_by,
+                paid: payload.paid,
+                debt: payload.debt,
+                isPaid: payload.isPaid
+              } 
             });
           } catch (e2) {}
         }
@@ -749,17 +727,27 @@ export default function GatiPage() {
         <PosModal
           open={showPaySheet}
           onClose={() => setShowPaySheet(false)}
-          title="PAGESA (ARKË)"
-          subtitle={`KODI: ${formatKod(payOrder.code)} • ${payOrder.name || ''}`}
+          title="DORËZIMI & PAGESA"
+          subtitle={`KODI: ${normalizeCode(payOrder.code)} • ${payOrder.name || ''}`}
           total={Number(payOrder.total || 0)}
           alreadyPaid={Number(payOrder.paid || 0)}
           amount={payAdd}
           setAmount={setPayAdd}
           payChips={PAY_CHIPS}
-          confirmText="KRYEJ PAGESËN"
+          confirmText="KONFIRMO DORËZIMIN"
           cancelText="ANULO"
-          disabled={savingPay}
-          onConfirm={applyPayAndClose}
+          disabled={payBusy}
+          onConfirm={confirmDelivery}
+          footerNote={
+            <button 
+              className="btn secondary" 
+              onClick={applyPayOnly} 
+              disabled={payBusy}
+              style={{ width: '100%', padding: '12px', marginTop: '10px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)', fontWeight: 'bold' }}
+            >
+              PAGUAJ PA DORËZU
+            </button>
+          }
         />
       )}
 
