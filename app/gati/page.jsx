@@ -1,8 +1,7 @@
-import PosModal from '@/components/PosModal';
 'use client';
+import PosModal from '@/components/PosModal';
 
 // app/gati/page.jsx
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -165,14 +164,6 @@ async function uploadPhoto(file, oid, key) {
   if (error) throw error;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
-}
-
-function codeLabel(o){
-  const s = String(o?.code ?? "").trim();
-  if (s) return s;
-  const n = o?.code_n ?? null;
-  if (Number.isFinite(Number(n)) && Number(n) > 0) return String(Number(n));
-  return "";
 }
 
 // ---------------- COMPONENT ----------------
@@ -573,6 +564,7 @@ export default function GatiPage() {
 
         // Upload signature (optional)
         let signatureUrl = '';
+        let signatureDataUrl = null; // Parandalon Crash nese mungon signature data (pasi nuk përdoret më)
         try {
           if (signatureDataUrl && typeof signatureDataUrl === 'string' && signatureDataUrl.startsWith('data:image/')) {
             const blob = await (await fetch(signatureDataUrl)).blob();
@@ -749,17 +741,27 @@ export default function GatiPage() {
         <PosModal
           open={showPaySheet}
           onClose={() => setShowPaySheet(false)}
-          title="PAGESA (ARKË)"
-          subtitle={`KODI: ${formatKod(payOrder.code)} • ${payOrder.name || ''}`}
+          title="DORËZIMI & PAGESA"
+          subtitle={`KODI: ${normalizeCode(payOrder.code)} • ${payOrder.name || ''}`}
           total={Number(payOrder.total || 0)}
           alreadyPaid={Number(payOrder.paid || 0)}
           amount={payAdd}
           setAmount={setPayAdd}
           payChips={PAY_CHIPS}
-          confirmText="KRYEJ PAGESËN"
+          confirmText="KONFIRMO DORËZIMIN"
           cancelText="ANULO"
-          disabled={savingPay}
-          onConfirm={applyPayAndClose}
+          disabled={payBusy}
+          onConfirm={confirmDelivery}
+          footerNote={
+            <button 
+              className="btn secondary" 
+              onClick={applyPayOnly} 
+              disabled={payBusy}
+              style={{ width: '100%', padding: '12px', marginTop: '10px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)', fontWeight: 'bold' }}
+            >
+              PAGUAJ PA DORËZU
+            </button>
+          }
         />
       )}
 
