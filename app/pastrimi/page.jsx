@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
+import supabase from '@/lib/supabaseClient';
 import { getAllOrdersLocal, saveOrderLocal } from '@/lib/offlineStore';
 import { recordCashMove } from '@/lib/arkaCashSync';
 
@@ -23,6 +23,21 @@ const PRICE_DEFAULT = 3.0;
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 const DAILY_CAPACITY_M2 = 400;
 const STREAM_MAX_M2 = 450;
+
+// Safari shpesh jep “Load failed” kur request-i varet gjatë.
+// Ky helper e këput request-in pas 7 sekondash (si te baseCodes).
+function withTimeout(promise, ms = 7000) {
+  let t;
+  const timeout = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error('TIMEOUT')), ms);
+  });
+  return Promise.race([
+    Promise.resolve(promise).finally(() => {
+      try { clearTimeout(t); } catch (e) {}
+    }),
+    timeout,
+  ]);
+}
 
 // ---------------- HELPERS ----------------
 
@@ -282,6 +297,7 @@ export default function PastrimiPage() {
   }, []);
 
   useEffect(() => {
+    if (!supabase || typeof supabase.channel !== 'function') return;
     const ch1 = supabase.channel('pastrim-live-orders')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' },
         async (payload) => {
@@ -354,13 +370,17 @@ export default function PastrimiPage() {
         }
       } catch {}
 
-      const { data: normalData, error: normalError } = await supabase
-        .from('orders').select('id,status,created_at,data,code')
-        .in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300);
+      const { data: normalData, error: normalError } = await withTimeout(
+        supabase
+          .from('orders').select('id,status,created_at,data,code')
+          .in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
+      );
       
-      const { data: transportData, error: transError } = await supabase
-        .from('transport_orders').select('id,status,created_at,data,code_str')
-        .in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300);
+      const { data: transportData, error: transError } = await withTimeout(
+        supabase
+          .from('transport_orders').select('id,status,created_at,data,code_str')
+          .in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
+      );
 
       const allOrders = [];
 
@@ -456,7 +476,9 @@ export default function PastrimiPage() {
         if (item.source === 'orders' && item.raw_data) {
           ord = item.raw_data;
         } else {
-          const { data, error } = await supabase.from(item.source).select('data').eq('id', item.id).single();
+          const { data, error } = await withTimeout(
+            supabase.from(item.source).select('data').eq('id', item.id).single()
+          );
           if (error || !data) throw new Error('Not found');
           ord = data.data;
           if (typeof ord === 'string') ord = JSON.parse(ord);
@@ -561,7 +583,9 @@ export default function PastrimiPage() {
         await updateOrderStatus(o.id, 'gati');
       } else {
         const table = o.source;
-        const { data: currentRow, error: fetchErr } = await supabase.from(table).select('data').eq('id', o.id).single();
+        const { data: currentRow, error: fetchErr } = await withTimeout(
+          supabase.from(table).select('data').eq('id', o.id).single()
+        );
         if (fetchErr) throw fetchErr;
 
         const updatedJson = { ...(currentRow.data || {}), status: 'gati', ready_at: now };
