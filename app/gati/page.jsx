@@ -2,6 +2,7 @@
 import PosModal from '@/components/PosModal';
 
 // app/gati/page.jsx
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -562,27 +563,6 @@ export default function GatiPage() {
           await saveOrderLocal({ id: snapOrder.id, status: 'dorzim', data: payload, updated_at: payload.delivered_at, _synced: false, _table: 'orders' });
         } catch (e) {}
 
-        // Upload signature (optional)
-        let signatureUrl = '';
-        let signatureDataUrl = null; // Parandalon Crash nese mungon signature data (pasi nuk përdoret më)
-        try {
-          if (signatureDataUrl && typeof signatureDataUrl === 'string' && signatureDataUrl.startsWith('data:image/')) {
-            const blob = await (await fetch(signatureDataUrl)).blob();
-            const ext = 'png';
-            const filePath = `signatures/${snapOrder.id}_${Date.now()}.${ext}`;
-            const { data: upData, error: upErr } = await supabase.storage.from(BUCKET).upload(filePath, blob, { upsert: true, contentType: blob.type || 'image/png' });
-            if (!upErr && upData?.path) {
-              const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(upData.path);
-              signatureUrl = pub?.publicUrl || '';
-            }
-          }
-        } catch (e) {}
-
-        // Save signature url into json if we have
-        if (signatureUrl) {
-          try { payload.signatureUrl = signatureUrl; } catch (e) {}
-        }
-
         // Record payment if any
         if (payNow > 0) {
           try {
@@ -594,17 +574,22 @@ export default function GatiPage() {
         try {
           const { error: upErr2 } = await supabase
             .from('orders')
-            .update({ status: 'dorzim', delivered_at: payload.delivered_at, data: payload, updated_at: payload.delivered_at })
+            .update({ status: 'dorzim', data: payload, updated_at: payload.delivered_at })
             .eq('id', snapOrder.id);
           if (upErr2) throw upErr2;
         } catch (e) {
-          // fallback queue
+          // fallback queue - NDREQUR PËR TË MOS DHËNË UNKNOWN_OP_TYPE
           try {
-            await queueOp({
-              table: 'orders',
-              action: 'update',
-              match: { id: snapOrder.id },
-              data: { status: 'dorzim', delivered_at: payload.delivered_at, data: payload, updated_at: payload.delivered_at },
+            await queueOp('patch_order_data', { 
+              id: snapOrder.id, 
+              data_patch: { 
+                status: 'dorzim', 
+                delivered_at: payload.delivered_at,
+                delivered_by: payload.delivered_by,
+                paid: payload.paid,
+                debt: payload.debt,
+                isPaid: payload.isPaid
+              } 
             });
           } catch (e2) {}
         }
