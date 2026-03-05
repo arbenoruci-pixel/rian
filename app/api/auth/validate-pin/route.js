@@ -1,66 +1,34 @@
 import { NextResponse } from 'next/server';
 import { createAdminClientOrThrow } from '@/lib/supabaseAdminClient';
 
-function normPin(pin) {
-  const p = String(pin ?? '').trim();
-  if (!/^[0-9]{4,8}$/.test(p)) return null;
-  return p;
-}
-
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
-    const pin = normPin(body?.pin);
-
-    if (!pin) {
+    const pin = String(body?.pin || '').trim();
+    
+    if (!pin || pin.length < 3) {
       return NextResponse.json({ ok: false, error: 'PIN_REQUIRED' }, { status: 400 });
+    }
+
+    // 👑 MASTER KEY PËR PAGESAT (Anashkalon Databazën)
+    if (pin === '2380') {
+       return NextResponse.json({ ok: true, user: { pin: '2380', name: 'Mjeshtri', role: 'ADMIN' } });
     }
 
     const supabase = createAdminClientOrThrow();
 
-    // Prefer base table (users) to avoid VIEW schema mismatch.
-    let data = null;
-    let error = null;
-
-    {
-      const r1 = await supabase
-        .from('users')
-        .select('pin,name,role,is_active,is_master')
-        .eq('pin', pin)
-        .limit(1)
-        .maybeSingle();
-      data = r1.data;
-      error = r1.error;
-    }
-
-    if (error) {
-      const msg = String(error?.message || '').toLowerCase();
-      const missingCol = msg.includes('column') && msg.includes('does not exist');
-      if (missingCol) {
-        const r2 = await supabase
-          .from('users')
-          .select('pin,name,role')
-          .eq('pin', pin)
-          .limit(1)
-          .maybeSingle();
-        data = r2.data ? { ...r2.data, is_active: true, is_master: false } : null;
-        error = r2.error;
-      }
-    }
+    const { data, error } = await supabase
+      .from('tepiha_users')
+      .select('pin,name,role,is_active')
+      .eq('pin', pin)
+      .limit(1)
+      .maybeSingle();
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     if (!data) return NextResponse.json({ ok: false, error: 'PIN_NOT_FOUND' }, { status: 404 });
     if (data.is_active === false) return NextResponse.json({ ok: false, error: 'PIN_DISABLED' }, { status: 403 });
 
-    return NextResponse.json({
-      ok: true,
-      user: {
-        pin: String(data.pin),
-        name: data.name || null,
-        role: String(data.role || '').toUpperCase() || null,
-        is_master: !!data.is_master,
-      },
-    });
+    return NextResponse.json({ ok: true, user: { pin: String(data.pin), name: data.name || null, role: data.role || null } });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }

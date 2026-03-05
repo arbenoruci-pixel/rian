@@ -3,10 +3,12 @@ import { createAdminClientOrThrow } from '@/lib/supabaseAdminClient';
 
 // PIN AUTH (Server-side)
 // - Uses service role key (SUPABASE_SERVICE_ROLE_KEY) on the server
+// - Does NOT expose the full users list
 // - Returns only the matched user's role/name for the provided PIN
 
 function normPin(pin) {
   const p = String(pin ?? '').trim();
+  // allow digits only (4-8)
   if (!/^[0-9]{4,8}$/.test(p)) return null;
   return p;
 }
@@ -19,52 +21,20 @@ export async function POST(req) {
 
     const supabase = createAdminClientOrThrow();
 
-    // Prefer base table (users) to avoid VIEW schema mismatch.
-    let data = null;
-    let error = null;
-
-    {
-      const r1 = await supabase
-        .from('users')
-        .select('pin, role, name, is_active, is_master')
-        .eq('pin', pin)
-        .limit(1)
-        .maybeSingle();
-      data = r1.data;
-      error = r1.error;
-    }
-
-    if (error) {
-      const msg = String(error?.message || '').toLowerCase();
-      const missingCol = msg.includes('column') && msg.includes('does not exist');
-      if (missingCol) {
-        const r2 = await supabase
-          .from('users')
-          .select('pin, role, name')
-          .eq('pin', pin)
-          .limit(1)
-          .maybeSingle();
-        data = r2.data ? { ...r2.data, is_active: true, is_master: false } : null;
-        error = r2.error;
-      }
-    }
+    const { data, error } = await supabase
+      .from('tepiha_users')
+      .select('pin, role, name')
+      .eq('pin', pin)
+      .limit(1);
 
     if (error) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
-    if (!data) return NextResponse.json({ ok: false, error: 'PIN_NOT_FOUND' }, { status: 404 });
-    if (data.is_active === false) return NextResponse.json({ ok: false, error: 'PIN_DISABLED' }, { status: 403 });
+    const user = Array.isArray(data) && data.length ? data[0] : null;
+    if (!user) return NextResponse.json({ ok: false, error: 'PIN_NOT_FOUND' }, { status: 404 });
 
-    return NextResponse.json({
-      ok: true,
-      user: {
-        pin: String(data.pin),
-        role: String(data.role || '').toUpperCase(),
-        name: data.name || null,
-        is_master: !!data.is_master,
-      },
-    });
+    return NextResponse.json({ ok: true, user: { pin: user.pin, role: String(user.role || '').toUpperCase(), name: user.name } });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
   }
