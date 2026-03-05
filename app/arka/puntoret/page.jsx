@@ -28,7 +28,7 @@ export default function StaffAndDevicesDashboard() {
   const [createForm, setCreateForm] = useState({ name: "", role: "PUNTOR", pin: "", label: "" });
   const [actionBusy, setActionBusy] = useState(false);
 
-  // Edit Staff Form
+  // Edit/Create Staff Form
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ name: "", role: "PUNTOR", pin: "", is_active: true });
 
@@ -83,7 +83,7 @@ export default function StaffAndDevicesDashboard() {
     }
   }
 
-  // --- ACTIONS: APROVIMI ---
+  // --- ACTIONS: APROVIMI PAJISJES ---
   async function handleCreateAndApprove() {
     if (!selectedDevice) return alert("Zgjidh një pajisje!");
     if (!createForm.name) return alert("Shkruaj emrin e punëtorit!");
@@ -139,26 +139,56 @@ export default function StaffAndDevicesDashboard() {
     setCreateForm({ name: "", role: "PUNTOR", pin: "", label: "" });
   }
 
-  // --- ACTIONS: STAFI ---
+  // --- ACTIONS: KRIJIMI/EDITIMI MANUAL I STAFIT ---
+  function startCreateStaff() {
+    setEditingId('NEW');
+    setEditForm({ name: "", role: "PUNTOR", pin: "", is_active: true });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   function startEdit(u) {
     setEditingId(u.id);
     setEditForm({ name: u.name || "", role: safeUpper(u.role), pin: "", is_active: u.is_active !== false });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function saveStaffEdit() {
+    if (!editForm.name) return alert("Shkruaj emrin e punëtorit!");
+
     setActionBusy(true);
     const payload = {
       name: editForm.name,
       role: editForm.role,
       is_active: editForm.is_active
     };
-    if (editForm.pin.length >= 4) payload.pin = editForm.pin;
 
-    const { error } = await supabase.from("tepiha_users").update(payload).eq("id", editingId);
-    if (error) alert("GABIM: " + error.message);
-    else {
-      setEditingId(null);
-      reloadAll();
+    if (editingId === 'NEW') {
+      // Krijo të ri manualisht
+      if (editForm.pin.length < 4) {
+        alert("Për punëtor të ri, PIN duhet të ketë të paktën 4 shifra!");
+        setActionBusy(false);
+        return;
+      }
+      payload.pin = editForm.pin;
+      
+      const { error } = await supabase.from("tepiha_users").insert([payload]);
+      if (error) {
+        alert("GABIM: " + error.message);
+      } else {
+        setEditingId(null);
+        reloadAll();
+      }
+    } else {
+      // Përditëso ekzistuesin
+      if (editForm.pin.length >= 4) payload.pin = editForm.pin;
+      
+      const { error } = await supabase.from("tepiha_users").update(payload).eq("id", editingId);
+      if (error) {
+        alert("GABIM: " + error.message);
+      } else {
+        setEditingId(null);
+        reloadAll();
+      }
     }
     setActionBusy(false);
   }
@@ -209,7 +239,7 @@ export default function StaffAndDevicesDashboard() {
 
         <div className="grid-layout">
           
-          {/* KOLONA E MAJTË: PAJISJET NË PRITJE & KRIJIMI */}
+          {/* KOLONA E MAJTË: PAJISJET NË PRITJE & KRIJIMI NGA PAJISJA */}
           <div className="col">
             
             {/* FORMULARI I APROVIMIT (Shfaqet vetëm kur klikon një pajisje) */}
@@ -281,21 +311,23 @@ export default function StaffAndDevicesDashboard() {
             </div>
           </div>
 
-          {/* KOLONA E DJATHTË: LISTA E STAFIT DHE EDITIMI */}
+          {/* KOLONA E DJATHTË: LISTA E STAFIT DHE EDITIMI/KRIJIMI MANUAL */}
           <div className="col">
             
-            {/* FORMULARI I EDITIMIT TË STAFIT */}
+            {/* FORMULARI I EDITIMIT OSE KRIJIMIT MANUAL */}
             {editingId && (
               <div className="card mb-4 border-blue">
                 <div className="card-header flex-between">
-                  <h3 className="card-title text-blue">Edito Punëtorin</h3>
+                  <h3 className="card-title text-blue">
+                    {editingId === 'NEW' ? 'Shto Punëtor të Ri' : 'Edito Punëtorin'}
+                  </h3>
                   <button className="btn-close" onClick={() => setEditingId(null)}>✕</button>
                 </div>
                 <div className="card-body form-stack">
                   <div className="grid-2">
                     <div className="field">
                       <label>Emri</label>
-                      <input className="input" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
+                      <input className="input" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} placeholder="Emri Mbiemri" />
                     </div>
                     <div className="field">
                       <label>Roli</label>
@@ -306,15 +338,22 @@ export default function StaffAndDevicesDashboard() {
                   </div>
                   <div className="grid-2 align-center">
                     <div className="field">
-                      <label>Ndrysho PIN (Opsionale)</label>
-                      <input className="input" placeholder="Lëre bosh për të mos ndryshuar" value={editForm.pin} onChange={e => setEditForm({...editForm, pin: onlyDigits(e.target.value)})} />
+                      <label>{editingId === 'NEW' ? 'PIN (Obligative, 4+ numra)' : 'Ndrysho PIN (Opsionale)'}</label>
+                      <input 
+                        className="input" 
+                        placeholder={editingId === 'NEW' ? "****" : "Lëre bosh për të mos ndryshuar"} 
+                        value={editForm.pin} 
+                        onChange={e => setEditForm({...editForm, pin: onlyDigits(e.target.value)})} 
+                      />
                     </div>
                     <label className="checkbox-wrap mt-4">
                       <input type="checkbox" checked={editForm.is_active} onChange={e => setEditForm({...editForm, is_active: e.target.checked})} />
                       <span>Punëtor Aktiv</span>
                     </label>
                   </div>
-                  <button className="btn-primary w-full mt-2" onClick={saveStaffEdit} disabled={actionBusy}>RUAJ NDRYSHIMET</button>
+                  <button className="btn-primary w-full mt-2" onClick={saveStaffEdit} disabled={actionBusy}>
+                    {editingId === 'NEW' ? 'SHTO PUNËTORIN' : 'RUAJ NDRYSHIMET'}
+                  </button>
                 </div>
               </div>
             )}
@@ -323,7 +362,10 @@ export default function StaffAndDevicesDashboard() {
             <div className="card">
               <div className="card-header flex-between">
                 <h3 className="card-title">Lista e Stafit</h3>
-                <span className="badge badge-gray">{staff.length} TOTAL</span>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button className="btn-success btn-small" onClick={startCreateStaff}>➕ SHTO</button>
+                  <span className="badge badge-gray">{staff.length} TOTAL</span>
+                </div>
               </div>
               <div className="card-body p-0">
                 {loading ? <div className="empty-state">Po ngarkohet...</div> : staff.map(u => (
@@ -357,9 +399,7 @@ export default function StaffAndDevicesDashboard() {
           min-height: 100vh; 
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
           color: #0F172A; 
-          padding: 24px 16px 120px 16px; /* 120px poshte qe te mos mbulohet nga docku */
-          
-          /* Full Screen Hack për të dalë jashtë layout të zi */
+          padding: 24px 16px 120px 16px;
           width: 100vw;
           position: relative;
           left: 50%;
@@ -427,7 +467,7 @@ export default function StaffAndDevicesDashboard() {
         .btn-close:hover { color: #0F172A; }
 
         .btn-small { padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
-        .btn-light { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
+        .btn-light { background: #F1F5F9; color: #475569; border-color: #E2E8F0; }
         .btn-light:hover { background: #E2E8F0; color: #0F172A; }
         .btn-danger-light { background: #FEF2F2; color: #EF4444; border-color: #FEE2E2; }
         .btn-danger-light:hover { background: #FEE2E2; }
