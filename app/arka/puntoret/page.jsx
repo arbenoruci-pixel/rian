@@ -351,8 +351,24 @@ export default function StaffAndDevicesDashboard() {
       </div>
 
       <style jsx>{`
-        /* TEMË E NDRITSHME DHE MODERNE */
-        .proDashboard { background-color: #F8FAFC; min-height: 100vh; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0F172A; }
+        /* TEMË E NDRITSHME DHE FULL SCREEN */
+        .proDashboard { 
+          background-color: #F8FAFC; 
+          min-height: 100vh; 
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+          color: #0F172A; 
+          padding: 24px 16px 120px 16px; /* 120px poshte qe te mos mbulohet nga docku */
+          
+          /* Full Screen Hack për të dalë jashtë layout të zi */
+          width: 100vw;
+          position: relative;
+          left: 50%;
+          right: 50%;
+          margin-left: -50vw;
+          margin-right: -50vw;
+          box-sizing: border-box;
+        }
+        
         .container { max-width: 1200px; margin: 0 auto; }
         
         .headerArea { margin-bottom: 32px; }
@@ -411,7 +427,7 @@ export default function StaffAndDevicesDashboard() {
         .btn-close:hover { color: #0F172A; }
 
         .btn-small { padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
-        .btn-light { background: #F1F5F9; color: #475569; border-color: #E2E8F0; }
+        .btn-light { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
         .btn-light:hover { background: #E2E8F0; color: #0F172A; }
         .btn-danger-light { background: #FEF2F2; color: #EF4444; border-color: #FEE2E2; }
         .btn-danger-light:hover { background: #FEE2E2; }
