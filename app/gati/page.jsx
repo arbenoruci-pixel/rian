@@ -1,5 +1,6 @@
-import PosModal from '@/components/PosModal';
 'use client';
+
+import PosModal from '@/components/PosModal';
 
 // app/gati/page.jsx
 
@@ -8,7 +9,6 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { recordOrderCashPayment } from '@/components/payments/payService';
-import { saveOrderToDb } from '@/lib/ordersDb'; 
 import { saveOrderLocal, getAllOrdersLocal } from '@/lib/offlineStore';
 import { queueOp } from '@/lib/offlineSyncClient';
 import { requirePaymentPin } from '@/lib/paymentPin';
