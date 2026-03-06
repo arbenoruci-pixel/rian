@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { getPendingOps } from "@/lib/offlineStore";
 import { runSync, attachAutoSync } from "@/lib/syncEngine";
 
@@ -9,6 +10,7 @@ import { runSync, attachAutoSync } from "@/lib/syncEngine";
 // - YELLOW: syncing or pending ops
 // - RED: last sync failed
 export default function SyncFab() {
+  const pathname = usePathname();
   const [state, setState] = useState("green"); // green|yellow|red
   const [busy, setBusy] = useState(false);
 
@@ -44,6 +46,8 @@ export default function SyncFab() {
       refresh();
     }
   }
+
+  if (pathname === "/") return null;
 
   const color =
     state === "green" ? "#16a34a" :

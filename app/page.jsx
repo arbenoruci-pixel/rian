@@ -25,13 +25,12 @@ function routeForStatus(status){
 
 function getStatusStyle(status) {
   const s = String(status||'').toLowerCase();
-  if (s === 'gati') return { background: 'rgba(16, 185, 129, 0.15)', color: '#4ade80', border: '1px solid rgba(16, 185, 129, 0.3)' };
-  if (s === 'pastrim') return { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' };
-  if (s === 'dorzim' || s === 'dorzuar') return { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' };
-  return { background: 'rgba(255,255,255,0.05)', color: '#aaa', border: '1px solid rgba(255,255,255,0.1)' };
+  if (s === 'gati') return { background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' };
+  if (s === 'pastrim') return { background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' };
+  if (s === 'dorzim' || s === 'dorzuar') return { background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' };
+  return { background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' };
 }
 
-// Llogarit sa tepihë ka brenda porosisë
 function computePieces(orderData) {
   if (!orderData) return 0;
   const t = Array.isArray(orderData.tepiha) ? orderData.tepiha : (Array.isArray(orderData.tepihaRows) ? orderData.tepihaRows : []);
@@ -40,6 +39,12 @@ function computePieces(orderData) {
   const sCope = s.reduce((a, b) => a + (Number(b.qty ?? b.pieces) || 0), 0);
   const shk = Number(orderData.shkallore?.qty) > 0 ? 1 : 0;
   return tCope + sCope + shk;
+}
+
+function initials(name){
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'U';
+  return parts.slice(0,2).map(x => x[0]).join('').toUpperCase();
 }
 
 async function fetchTransporterNameByPin(pin){
@@ -87,7 +92,7 @@ export default function HomePage() {
 
     const qRaw = String(q || '').trim();
     const qLower = qRaw.toLowerCase();
-    
+
     if (qLower === 'doctor' || qLower === '/doctor') {
       router.push('/doctor');
       return;
@@ -101,7 +106,7 @@ export default function HomePage() {
     const raw = parsed.raw;
 
     if(!raw){
-      setErr('SHKRUAJ KODIN (p.sh. 3 ose T3)');
+      setErr('SHKRUAJ KODIN');
       return;
     }
 
@@ -142,7 +147,7 @@ export default function HomePage() {
 
       const n = Number(raw) || 0;
       if(!(n>0)){
-        setErr('KOD I PAVLEFSHËM.');
+        setErr('KOD I PAVLEFSHËM');
         return;
       }
 
@@ -161,7 +166,7 @@ export default function HomePage() {
         const transport_id = r?.data?.transport_id ?? r?.data?.transportId ?? null;
         const transporter = transport_id ? await fetchTransporterNameByPin(transport_id) : '';
         const createdBy = r?.data?._audit?.created_by_name || r?.data?.created_by_name || r?.data?.created_by || null;
-        
+
         out.push({
           kind:'B',
           code: String(r?.code ?? n),
@@ -177,49 +182,59 @@ export default function HomePage() {
       setResults(out);
 
     }catch(ex){
-      setErr(String(ex?.message || ex || 'GABIM NE SEARCH'));
+      setErr(String(ex?.message || ex || 'GABIM NË KËRKIM'));
     }finally{
       setLoading(false);
     }
   }
 
+  function openProfile(){
+    const id = actor?.id ? String(actor.id) : '';
+    if (id) {
+      router.push(`/arka/puntoret/${encodeURIComponent(id)}`);
+      return;
+    }
+    router.push('/arka/staff');
+  }
+
   return (
     <div className="home-wrap">
-      {/* HEADER */}
       <header className="header-pro">
-        <div className="header-text">
-          <h1 className="title">TEPIHA <span style={{color: '#3b82f6'}}>PRO</span></h1>
-          <p className="subtitle">Sistemi i Menaxhimit</p>
+        <div className="brand-block">
+          <h1 className="title">TEPIHA</h1>
         </div>
-        {actor?.role === 'ADMIN' ? (
-          <button className="device-btn" onClick={()=>router.push('/admin/devices')}>
-            📱 PAJISJET
+
+        <div className="header-actions">
+          {actor?.role === 'ADMIN' ? (
+            <button className="device-btn" onClick={()=>router.push('/admin/devices')}>
+              PAJISJET
+            </button>
+          ) : null}
+
+          <button className="avatar-btn" type="button" onClick={openProfile} aria-label="KARTELA E PUNËTORIT">
+            <span className="avatar-circle">{initials(actor?.name || actor?.role || 'U')}</span>
           </button>
-        ) : (
-          <div className="user-badge">👤 {actor?.name || 'Punëtor'}</div>
-        )}
+        </div>
       </header>
 
-      {/* SEARCH SECTION */}
       <section className="search-section">
-        <h2 className="section-title">🔍 KËRKO POROSINË</h2>
+        <div className="section-head">KËRKO</div>
         <form className="search-box" onSubmit={runSearch}>
           <input
             className="search-input"
             value={q}
             onChange={(e)=>setQ(e.target.value)}
-            placeholder="Shkruaj Kodin (Psh: 3 ose T3)"
+            placeholder="KODI"
             inputMode="text"
             autoComplete="off"
           />
           <button className="search-btn" type="submit" disabled={loading}>
-            {loading ? '...' : 'KËRKO'}
+            {loading ? '...' : 'HAP'}
           </button>
         </form>
 
         {err && <div className="error-msg">{err}</div>}
 
-        {/* REZULTATET E KËRKIMIT */}
         {results?.length ? (
           <div className="results-container">
             {results.map((r, idx) => {
@@ -230,28 +245,26 @@ export default function HomePage() {
               return (
                 <Link key={r.id || idx} href={href + (href.includes('?') ? '&' : '?') + 'nogate=1&from=search'} className="result-card">
                   <div className="result-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {/* KODI JESHIL PA # */}
+                    <div className="result-top-left">
                       <span className="code-badge">{String(r.code||'')}</span>
                       <span className="status-badge" style={getStatusStyle(r.status)}>
                         {String(r.status||'PA STATUS').toUpperCase()}
                       </span>
                     </div>
-                    {/* SA TEPIHA */}
-                    <div className="pieces-badge">📦 {r.pieces} Copë</div>
+                    <div className="pieces-badge">{r.pieces} COPË</div>
                   </div>
 
                   <div className="result-body">
-                    <div className="client-name">{String(r.name||'Klient i panjohur')}</div>
-                    {r.phone && <div className="client-phone">📞 {String(r.phone||'')}</div>}
+                    <div className="client-name">{String(r.name||'KLIENT')}</div>
+                    {r.phone && <div className="client-phone">{String(r.phone||'')}</div>}
                   </div>
 
                   <div className="result-footer">
                     <div className="workers-info">
-                      {r.createdBy && <div>👤 <span>SJELLË NGA:</span> {String(r.createdBy)}</div>}
-                      {r.transporter && <div style={{color: '#f59e0b'}}>🚚 <span>PRU NGA:</span> {String(r.transporter).toUpperCase()}</div>}
+                      {r.createdBy && <div>{String(r.createdBy)}</div>}
+                      {r.transporter && <div>{String(r.transporter).toUpperCase()}</div>}
                     </div>
-                    <div className="go-btn">HAP ➔</div>
+                    <div className="go-btn">➔</div>
                   </div>
                 </Link>
               );
@@ -260,113 +273,90 @@ export default function HomePage() {
         ) : null}
       </section>
 
-      {/* NAVIGATION GRID */}
       <section className="modules-section">
-        <h2 className="section-title">⚙️ ZGJEDH MODULIN</h2>
-        
+        <div className="section-head">MODULET</div>
+
         <div className="modules-grid">
           <Link href="/pranimi" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa'}}>🧾</div>
-            <div className="mod-info">
-              <div className="mod-title">PRANIMI</div>
-              <div className="mod-sub">Regjistro klientin</div>
-            </div>
+            <div className="mod-icon mod-blue">🧾</div>
+            <div className="mod-title">PRANIMI</div>
           </Link>
 
           <Link href="/pastrimi" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(16, 185, 129, 0.15)', color: '#34d399'}}>🧼</div>
-            <div className="mod-info">
-              <div className="mod-title">PASTRIMI</div>
-              <div className="mod-sub">Lista e larjes</div>
-            </div>
+            <div className="mod-icon mod-green">🧼</div>
+            <div className="mod-title">PASTRIMI</div>
           </Link>
 
           <Link href="/gati" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24'}}>✅</div>
-            <div className="mod-info">
-              <div className="mod-title">GATI</div>
-              <div className="mod-sub">Gati për dorëzim</div>
-            </div>
+            <div className="mod-icon mod-amber">✅</div>
+            <div className="mod-title">GATI</div>
           </Link>
 
           <Link href="/marrje-sot" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(239, 68, 68, 0.15)', color: '#f87171'}}>📦</div>
-            <div className="mod-info">
-              <div className="mod-title">MARRJE SOT</div>
-              <div className="mod-sub">Porositë e sotme</div>
-            </div>
+            <div className="mod-icon mod-red">📦</div>
+            <div className="mod-title">MARRJE SOT</div>
           </Link>
 
           <Link href="/transport" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa'}}>🚚</div>
-            <div className="mod-info">
-              <div className="mod-title">TRANSPORT</div>
-              <div className="mod-sub">Porositë (T-kode)</div>
-            </div>
+            <div className="mod-icon mod-purple">🚚</div>
+            <div className="mod-title">TRANSPORT</div>
           </Link>
 
           <Link href="/arka" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6'}}>💰</div>
-            <div className="mod-info">
-              <div className="mod-title">ARKA</div>
-              <div className="mod-sub">Mbyllja e ditës</div>
-            </div>
+            <div className="mod-icon mod-pink">💰</div>
+            <div className="mod-title">ARKA</div>
           </Link>
 
-          <Link href="/fletore" className="mod-card" style={{ gridColumn: '1 / -1' }}>
-            <div className="mod-icon" style={{background: 'rgba(255, 255, 255, 0.1)', color: '#e2e8f0'}}>📒</div>
-            <div className="mod-info">
-              <div className="mod-title">FLETORJA</div>
-              <div className="mod-sub">Arkiva e plotë e porosive dhe detajet</div>
-            </div>
+          <Link href="/fletore" className="mod-card mod-wide">
+            <div className="mod-icon mod-slate">📒</div>
+            <div className="mod-title">FLETORJA</div>
           </Link>
         </div>
       </section>
 
-      {/* STYLES */}
-      <style jsx>{`
-        .home-wrap { padding: 16px 14px 40px; background: #070b14; min-height: 100vh; color: #fff; font-family: system-ui, -apple-system, sans-serif; }
-        
-        .header-pro { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-        .header-text .title { font-size: 26px; font-weight: 1000; letter-spacing: -0.5px; margin: 0; line-height: 1.1; }
-        .header-text .subtitle { font-size: 13px; color: rgba(255,255,255,0.6); font-weight: 600; margin-top: 2px; }
-        .device-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 8px 14px; border-radius: 99px; font-weight: 800; font-size: 12px; cursor: pointer; }
-        .user-badge { background: rgba(59,130,246,0.15); color: #60a5fa; padding: 6px 12px; border-radius: 99px; font-weight: 800; font-size: 12px; border: 1px solid rgba(59,130,246,0.3); }
-
-        .section-title { font-size: 13px; font-weight: 900; letter-spacing: 1px; color: rgba(255,255,255,0.5); margin-bottom: 12px; margin-left: 4px; }
-        
+      <style jsx>{`        .home-wrap { padding: 18px 14px 40px; background: #f8fafc; min-height: 100vh; color: #0f172a; font-family: system-ui, -apple-system, sans-serif; }
+        .header-pro { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; gap: 12px; }
+        .brand-block { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .title { font-size: 28px; font-weight: 1000; letter-spacing: -0.7px; margin: 0; line-height: 1; }
+        .header-actions { display: flex; align-items: center; gap: 10px; }
+        .device-btn { background: #ffffff; border: 1px solid #e2e8f0; color: #0f172a; padding: 10px 14px; border-radius: 999px; font-weight: 900; font-size: 12px; cursor: pointer; box-shadow: 0 8px 24px rgba(15,23,42,0.06); }
+        .avatar-btn { background: transparent; border: 0; padding: 0; cursor: pointer; }
+        .avatar-circle { width: 44px; height: 44px; border-radius: 999px; display: grid; place-items: center; background: linear-gradient(135deg, #111827 0%, #334155 100%); color: #fff; font-size: 13px; font-weight: 900; letter-spacing: 0.5px; box-shadow: 0 10px 28px rgba(15,23,42,0.18); }
+        .section-head { font-size: 12px; font-weight: 900; letter-spacing: 1px; color: #64748b; margin: 0 0 10px 4px; }
         .search-section { margin-bottom: 28px; }
         .search-box { display: flex; gap: 8px; }
-        .search-input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 14px 16px; color: #fff; font-size: 16px; font-weight: 700; outline: none; transition: 0.2s; }
-        .search-input:focus { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
-        .search-btn { background: #3b82f6; color: #fff; border: none; border-radius: 14px; padding: 0 20px; font-weight: 900; font-size: 14px; letter-spacing: 0.5px; cursor: pointer; }
-        .error-msg { margin-top: 10px; color: #fca5a5; background: rgba(239,68,68,0.15); padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 800; border: 1px solid rgba(239,68,68,0.3); }
-
+        .search-input { flex: 1; background: #fff; border: 1px solid #dbe2ea; border-radius: 16px; padding: 14px 16px; color: #0f172a; font-size: 16px; font-weight: 700; outline: none; transition: 0.2s; box-shadow: 0 8px 24px rgba(15,23,42,0.05); }
+        .search-input:focus { border-color: #93c5fd; box-shadow: 0 0 0 4px rgba(59,130,246,0.12); }
+        .search-btn { background: #0f172a; color: #fff; border: none; border-radius: 16px; padding: 0 18px; font-weight: 900; font-size: 13px; letter-spacing: 0.5px; cursor: pointer; }
+        .error-msg { margin-top: 10px; color: #b91c1c; background: #fef2f2; padding: 10px 12px; border-radius: 12px; font-size: 13px; font-weight: 800; border: 1px solid #fecaca; }
         .results-container { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
-        .result-card { background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 16px; text-decoration: none; color: #fff; display: flex; flex-direction: column; gap: 12px; transition: transform 0.1s; }
-        .result-card:active { transform: scale(0.98); background: rgba(255,255,255,0.08); }
-        .result-header { display: flex; justify-content: space-between; align-items: center; }
-        .code-badge { background: #10b981; color: #000; font-size: 18px; font-weight: 900; padding: 4px 12px; border-radius: 8px; letter-spacing: 0.5px; }
-        .status-badge { font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 6px; letter-spacing: 0.5px; }
-        .pieces-badge { font-size: 13px; font-weight: 800; color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 8px; }
-        
+        .result-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; padding: 16px; text-decoration: none; color: #0f172a; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 10px 28px rgba(15,23,42,0.05); }
+        .result-card:active { transform: scale(0.985); }
+        .result-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .result-top-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .code-badge { background: #10b981; color: #03291e; font-size: 18px; font-weight: 900; padding: 4px 12px; border-radius: 10px; letter-spacing: 0.5px; }
+        .status-badge { font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.5px; }
+        .pieces-badge { font-size: 12px; font-weight: 900; color: #475569; background: #f8fafc; padding: 6px 10px; border-radius: 999px; border: 1px solid #e2e8f0; }
         .result-body { display: flex; flex-direction: column; gap: 4px; }
         .client-name { font-size: 17px; font-weight: 800; }
-        .client-phone { font-size: 14px; color: rgba(255,255,255,0.6); font-weight: 600; }
-        
-        .result-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; }
-        .workers-info { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: #60a5fa; }
-        .workers-info span { opacity: 0.6; color: #fff; margin-right: 2px; }
-        .go-btn { background: #3b82f6; color: #fff; font-weight: 900; padding: 8px 16px; border-radius: 10px; font-size: 13px; }
-
+        .client-phone { font-size: 14px; color: #64748b; font-weight: 700; }
+        .result-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 2px; border-top: 1px solid #f1f5f9; padding-top: 12px; gap: 10px; }
+        .workers-info { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 800; color: #475569; }
+        .go-btn { background: #f8fafc; color: #0f172a; font-weight: 900; padding: 8px 14px; border-radius: 12px; font-size: 13px; border: 1px solid #e2e8f0; }
         .modules-section { margin-top: 10px; }
         .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .mod-card { background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 16px; text-decoration: none; color: #fff; display: flex; flex-direction: column; gap: 14px; transition: transform 0.1s, border-color 0.2s; }
-        .mod-card:active { transform: scale(0.96); border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
+        .mod-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; padding: 16px; text-decoration: none; color: #0f172a; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 10px 28px rgba(15,23,42,0.05); }
+        .mod-card:active { transform: scale(0.97); }
         .mod-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
-        .mod-info { display: flex; flex-direction: column; gap: 4px; }
-        .mod-title { font-weight: 900; font-size: 14px; letter-spacing: 0.5px; }
-        .mod-sub { font-size: 11px; font-weight: 600; opacity: 0.5; line-height: 1.3; }
+        .mod-title { font-weight: 900; font-size: 14px; letter-spacing: 0.4px; }
+        .mod-wide { grid-column: 1 / -1; }
+        .mod-blue { background: #eff6ff; color: #2563eb; }
+        .mod-green { background: #ecfdf5; color: #059669; }
+        .mod-amber { background: #fff7ed; color: #d97706; }
+        .mod-red { background: #fef2f2; color: #dc2626; }
+        .mod-purple { background: #f5f3ff; color: #7c3aed; }
+        .mod-pink { background: #fdf2f8; color: #db2777; }
+        .mod-slate { background: #f8fafc; color: #334155; }
       `}</style>
     </div>
   );

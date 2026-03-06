@@ -120,23 +120,6 @@ export default function SessionDock() {
         </div>
 
         <div style={{ display: 'flex', gap: 8, flex: '0 0 auto' }}>
-          <Link
-            href="/doctor"
-            style={{
-              padding: '8px 10px',
-              borderRadius: 999,
-              background: 'rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.95)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              fontWeight: 900,
-              fontSize: 10,
-              letterSpacing: 1,
-              textTransform: 'uppercase',
-              textDecoration: 'none',
-            }}
-          >
-            DOC
-          </Link>
           {!user ? (
             <Link
               href="/login"

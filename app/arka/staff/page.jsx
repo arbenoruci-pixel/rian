@@ -176,7 +176,6 @@ export default function ArkaStaffPage() {
         <div className="topHeader">
           <div>
             <h1 className="h1">ARKA • STAFF</h1>
-            <p className="meta">LOGGED: {user.name} ({user.role})</p>
           </div>
           <Link href="/arka" className="backBtn">
             KTHEHU
@@ -190,7 +189,7 @@ export default function ArkaStaffPage() {
             <div className={`panel ${editingId ? 'panelActive' : ''}`}>
               <div className="panelHead">
                 <span className="panelTitle">
-                    {editingId ? "PO EDITON PUNTORIN..." : "SHTO PUNTOR TË RI"}
+                    {editingId ? "EDITO PUNTORIN" : "SHTO PUNTOR"}
                 </span>
                 {editingId && (
                      <button onClick={resetForm} className="cancelBtn">ANULO</button>
@@ -207,7 +206,6 @@ export default function ArkaStaffPage() {
                         <label className="label">EMRI MBIEMRI</label>
                         <input
                             className="input"
-                            placeholder="Emri..."
                             value={form.name}
                             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                         />
@@ -228,12 +226,13 @@ export default function ArkaStaffPage() {
 
                     <div className="field">
                         <label className="label">
-                            {editingId ? "NDRYSHO PIN (OPSIONALE)" : "PIN (KODI HYRJES)"}
+                            PIN
                         </label>
                         <input
                             className="input"
+                            type="password"
                             inputMode="numeric"
-                            placeholder={editingId ? "**** (Lëre bosh nëse s'do me ndrru)" : "4 shifra min."}
+                            placeholder="****"
                             value={form.pin}
                             onChange={(e) => setForm((f) => ({ ...f, pin: onlyDigits(e.target.value) }))}
                         />

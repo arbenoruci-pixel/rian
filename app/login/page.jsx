@@ -42,6 +42,10 @@ export default function LoginPage() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
+  function onlyDigits(v) {
+    return String(v || "").replace(/\D/g, "");
+  }
+
   const deviceId = useMemo(() => getDeviceId(), []);
 
   useEffect(() => {
@@ -77,7 +81,7 @@ export default function LoginPage() {
         return;
       }
 
-      const actor = ok.actor || { pin: p, role: r, name: `PIN-${p}`, device_id: deviceId };
+      const actor = ok.actor || { pin: p, role: r, name: r, device_id: deviceId };
       const session = { actor, ts: Date.now() };
       safeSet(LS_SESSION, JSON.stringify(session));
       safeSet(LS_USER, JSON.stringify(actor));
@@ -158,9 +162,10 @@ export default function LoginPage() {
           <label className="label">PIN</label>
           <input
             className="input"
+            type="password"
             value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            placeholder="P.SH. 2380"
+            onChange={(e) => setPin(onlyDigits(e.target.value))}
+            placeholder="****"
             inputMode="numeric"
             autoComplete="one-time-code"
           />
@@ -198,15 +203,6 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="card">
-        <h2 className="card-title">SHENIM</h2>
-        <p style={{ margin: 0, fontSize: 12, opacity: 0.75, lineHeight: 1.4 }}>
-          ONLINE: PIN + PAJISJA duhet me u APROVU prej MASTER. OFFLINE: hyn vetëm nese kjo pajisje ka qenë e aprovuar ma herët për atë PIN.
-        </p>
-        <p style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
-          DEVICE ID: <span className="mono">{deviceId}</span>
-        </p>
-      </div>
     </div>
   );
 }
