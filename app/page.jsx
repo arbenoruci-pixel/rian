@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { ensureBasePool, getActorPin } from '@/lib/baseCodes';
+import SessionDock from '@/components/SessionDock';
 
 function onlyDigits(v){ return String(v ?? '').replace(/\D+/g,''); }
 function normCode(v){
@@ -60,7 +61,6 @@ async function fetchTransporterNameByPin(pin){
 
 export default function HomePage() {
   const router = useRouter();
-
 
   useEffect(() => {
     try {
@@ -310,6 +310,9 @@ export default function HomePage() {
           </Link>
         </div>
       </section>
+
+      {/* KËTU U SHTUA IKONA E PROFILIT: */}
+      <SessionDock />
 
       {/* STYLES */}
       <style jsx>{`
