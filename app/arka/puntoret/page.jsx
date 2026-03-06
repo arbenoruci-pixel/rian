@@ -1,585 +1,502 @@
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
-const ROLES = ['OWNER', 'ADMIN', 'DISPATCH', 'PUNTOR', 'TRANSPORT'];
-
+// Helpers
 function jparse(s, fallback) {
-  try {
-    const v = JSON.parse(s);
-    return v ?? fallback;
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(s) ?? fallback; } catch { return fallback; }
 }
+function onlyDigits(v) { return String(v || "").replace(/\D/g, ""); }
+function safeUpper(v, fallback = "") { return String(v || "").trim().toUpperCase() || fallback; }
+function shortDevice(did) { return String(did || "").split("-")[0] + "..."; }
 
-function onlyDigits(v) {
-  return String(v || '').replace(/\D/g, '');
-}
-
-function normalizeDeviceId(v) {
-  return String(v || '').trim();
-}
-
-export default function PuntoretDashboardPage() {
+export default function StaffAndDevicesDashboard() {
   const router = useRouter();
   const [actor, setActor] = useState(null);
+  const [masterPin, setMasterPin] = useState("");
 
-  // --- MASTER PIN (used for /api/admin/devices) ---
-  const [masterPin, setMasterPin] = useState('');
-
-  // --- DEVICES ---
-  const [devicesLoading, setDevicesLoading] = useState(false);
-  const [devicesErr, setDevicesErr] = useState('');
-  const [devices, setDevices] = useState([]);
-  const pendingDevices = useMemo(() => (devices || []).filter((d) => d?.is_approved !== true), [devices]);
-
-  const [selectedDeviceId, setSelectedDeviceId] = useState('');
-  const selectedDevice = useMemo(
-    () => pendingDevices.find((d) => String(d.device_id) === String(selectedDeviceId)) || null,
-    [pendingDevices, selectedDeviceId]
-  );
-
-  // Create+Approve form
-  const [newName, setNewName] = useState('');
-  const [newRole, setNewRole] = useState('PUNTOR');
-  const [newPin, setNewPin] = useState('');
-  const [deviceLabel, setDeviceLabel] = useState('');
-  const [approveBusy, setApproveBusy] = useState(false);
-  const [approveErr, setApproveErr] = useState('');
-
-  // Link existing + approve
-  const [linkPin, setLinkPin] = useState('');
-
-  // --- STAFF ---
-  const [staffLoading, setStaffLoading] = useState(false);
-  const [staffErr, setStaffErr] = useState('');
+  // States
+  const [pending, setPending] = useState([]);
   const [staff, setStaff] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Create / Approve Form
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [createForm, setCreateForm] = useState({ name: "", role: "PUNTOR", pin: "", label: "" });
+  const [actionBusy, setActionBusy] = useState(false);
 
+  // Edit/Create Staff Form
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', role: 'PUNTOR', pin: '', is_active: true });
-  const editRef = useRef(null);
-
-  const canManage = useMemo(() => {
-    const r = String(actor?.role || '').toUpperCase();
-    return r === 'OWNER' || r === 'ADMIN' || r === 'DISPATCH';
-  }, [actor]);
+  const [editForm, setEditForm] = useState({ name: "", role: "PUNTOR", pin: "", is_active: true });
 
   useEffect(() => {
-    const u = jparse(localStorage.getItem('CURRENT_USER_DATA'), null);
-    if (!u) {
-      router.push('/login');
-      return;
-    }
-    setActor(u);
-  }, [router]);
-
-  useEffect(() => {
-    // initial loads (staff only; devices load needs master pin)
-    void reloadStaff();
+    const a = jparse(localStorage.getItem("CURRENT_USER_DATA"), null);
+    if (!a) return router.push("/login");
+    setActor(a);
+    
+    const savedPin = localStorage.getItem("MASTER_ADMIN_PIN") || "";
+    if (savedPin) setMasterPin(savedPin);
+    
+    reloadAll(savedPin);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function reloadStaff() {
-    setStaffLoading(true);
-    setStaffErr('');
+  async function api(action, payload = {}) {
+    const pinToUse = payload.master_pin || masterPin;
+    if (!pinToUse) {
+      alert("Ju lutem vendosni Master PIN-in e Adminit lart!");
+      return null;
+    }
     try {
-      const { data, error } = await supabase
-        .from('tepiha_users')
-        .select('id,name,role,pin,is_active,created_at')
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      setStaff(Array.isArray(data) ? data : []);
+      const res = await fetch("/api/admin/devices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, master_pin: pinToUse, ...payload }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "GABIM NË SERVER");
+      return json;
     } catch (e) {
-      setStaff([]);
-      setStaffErr(String(e?.message || e));
-    } finally {
-      setStaffLoading(false);
+      alert("ERROR: " + String(e?.message || e));
+      return null;
     }
   }
 
-  async function reloadDevices() {
-    const mp = onlyDigits(masterPin);
-    if (!mp) {
-      setDevicesErr('SHKRUAJ MASTER PIN');
-      return;
-    }
-    setDevicesLoading(true);
-    setDevicesErr('');
+  async function reloadAll(pinOverride = null) {
+    setLoading(true);
     try {
-      const res = await fetch('/api/admin/devices', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'list', master_pin: mp }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'FAILED');
-      setDevices(Array.isArray(json.items) ? json.items : []);
-      // keep selection valid
-      if (selectedDeviceId && !(json.items || []).some((d) => String(d.device_id) === String(selectedDeviceId))) {
-        setSelectedDeviceId('');
+      // 1. Lexo Stafin
+      const { data: st } = await supabase.from("tepiha_users").select("*").order("created_at", { ascending: false });
+      setStaff(st || []);
+
+      // 2. Lexo Pajisjet
+      const p = pinOverride !== null ? pinOverride : masterPin;
+      if (p) {
+        const json = await api("list", { master_pin: p });
+        if (json?.items) setPending(json.items.filter(x => !x.is_approved));
       }
-    } catch (e) {
-      setDevices([]);
-      setDevicesErr(String(e?.message || e));
     } finally {
-      setDevicesLoading(false);
+      setLoading(false);
     }
   }
 
-  function resetApproveForms() {
-    setNewName('');
-    setNewRole('PUNTOR');
-    setNewPin('');
-    setDeviceLabel('');
-    setLinkPin('');
-    setApproveErr('');
-  }
+  // --- ACTIONS: APROVIMI PAJISJES ---
+  async function handleCreateAndApprove() {
+    if (!selectedDevice) return alert("Zgjidh një pajisje!");
+    if (!createForm.name) return alert("Shkruaj emrin e punëtorit!");
+    if (createForm.pin.length < 4) return alert("PIN duhet të ketë së paku 4 shifra!");
 
-  async function createUserAndApprove() {
-    if (!canManage) return;
-    const mp = onlyDigits(masterPin);
-    const device_id = normalizeDeviceId(selectedDevice?.device_id || selectedDeviceId);
-    const name = String(newName || '').trim();
-    const role = String(newRole || 'PUNTOR').trim();
-    const pin = onlyDigits(newPin);
-    const label = String(deviceLabel || '').trim();
-
-    if (!mp) return setApproveErr('SHKRUAJ MASTER PIN');
-    if (!device_id) return setApproveErr('ZGJIDH PAJISJEN');
-    if (!name) return setApproveErr('SHKRUAJ EMRIN');
-    if (pin.length < 4) return setApproveErr('PIN DUHET MIN 4 SHIFRA');
-
-    setApproveBusy(true);
-    setApproveErr('');
-    try {
-      const res = await fetch('/api/admin/devices', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create_user_and_approve',
-          master_pin: mp,
-          device_id,
-          name,
-          role,
-          pin,
-          label,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'FAILED');
-      await reloadDevices();
-      await reloadStaff();
-      setSelectedDeviceId('');
-      resetApproveForms();
-      alert('✅ U KRIJUA USERI & U APROVUA PAJISJA');
-    } catch (e) {
-      setApproveErr(String(e?.message || e));
-    } finally {
-      setApproveBusy(false);
-    }
-  }
-
-  async function linkUserAndApprove() {
-    if (!canManage) return;
-    const mp = onlyDigits(masterPin);
-    const device_id = normalizeDeviceId(selectedDevice?.device_id || selectedDeviceId);
-    const pin = onlyDigits(linkPin);
-    const label = String(deviceLabel || '').trim();
-
-    if (!mp) return setApproveErr('SHKRUAJ MASTER PIN');
-    if (!device_id) return setApproveErr('ZGJIDH PAJISJEN');
-    if (pin.length < 4) return setApproveErr('PIN DUHET MIN 4 SHIFRA');
-
-    setApproveBusy(true);
-    setApproveErr('');
-    try {
-      const res = await fetch('/api/admin/devices', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          action: 'link_user_and_approve',
-          master_pin: mp,
-          device_id,
-          pin,
-          label,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'FAILED');
-      await reloadDevices();
-      setSelectedDeviceId('');
-      resetApproveForms();
-      alert('✅ U LIDH USERI & U APROVUA PAJISJA');
-    } catch (e) {
-      setApproveErr(String(e?.message || e));
-    } finally {
-      setApproveBusy(false);
-    }
-  }
-
-  function startEdit(row) {
-    if (!canManage) return;
-    setEditingId(row.id);
-    setEditForm({
-      name: row.name || '',
-      role: row.role || 'PUNTOR',
-      pin: '', // pin change optional
-      is_active: row.is_active !== false,
+    setActionBusy(true);
+    const r = await api("create_user_and_approve", {
+      device_id: selectedDevice.device_id, // Dergon saktë device_id
+      name: createForm.name,
+      role: createForm.role,
+      pin: createForm.pin,
+      label: createForm.label
     });
-    setTimeout(() => {
-      try {
-        editRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      } catch {}
-    }, 50);
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setEditForm({ name: '', role: 'PUNTOR', pin: '', is_active: true });
-  }
-
-  async function saveEdit() {
-    if (!canManage) return;
-    const id = editingId;
-    const name = String(editForm.name || '').trim();
-    const role = String(editForm.role || 'PUNTOR').trim();
-    const pin = onlyDigits(editForm.pin);
-    const is_active = editForm.is_active !== false;
-    if (!id) return;
-    if (!name) return alert('SHKRUAJ EMRIN');
-    if (editForm.pin && pin.length < 4) return alert('PIN DUHET MIN 4 SHIFRA');
-
-    setStaffErr('');
-    setStaffLoading(true);
-    try {
-      const payload = { name, role, is_active };
-      if (editForm.pin) payload.pin = pin;
-
-      const { error } = await supabase.from('users').update(payload).eq('id', id);
-      if (error) throw error;
-
-      await reloadStaff();
-      cancelEdit();
-      alert('✅ U RUAJT');
-    } catch (e) {
-      setStaffErr(String(e?.message || e));
-    } finally {
-      setStaffLoading(false);
+    if (r) {
+      alert("✅ Punëtori u krijua dhe pajisja u aprovua!");
+      cancelCreate();
+      reloadAll();
     }
+    setActionBusy(false);
   }
 
-  async function toggleActive(row) {
-    if (!canManage) return;
-    setStaffErr('');
-    try {
-      const nextActive = row.is_active === false;
-      const { error } = await supabase.from('users').update({ is_active: nextActive }).eq('id', row.id);
-      if (error) throw error;
-      await reloadStaff();
-    } catch (e) {
-      setStaffErr(String(e?.message || e));
+  async function handleLinkAndApprove() {
+    if (!selectedDevice) return alert("Zgjidh një pajisje!");
+    if (createForm.pin.length < 4) return alert("Shkruaj PIN-in e punëtorit ekzistues!");
+
+    setActionBusy(true);
+    const r = await api("link_user_and_approve", {
+      device_id: selectedDevice.device_id, // Dergon saktë device_id
+      pin: createForm.pin,
+      label: createForm.label
+    });
+    if (r) {
+      alert("✅ Pajisja u lidh me sukses!");
+      cancelCreate();
+      reloadAll();
     }
+    setActionBusy(false);
   }
 
-  if (!actor) return null;
+  function pickPending(d) {
+    setSelectedDevice(d);
+    setCreateForm({
+      name: d?.tepiha_users?.name || "",
+      role: safeUpper(d?.requested_role, "PUNTOR"),
+      pin: onlyDigits(d?.requested_pin || ""),
+      label: d?.label || ""
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelCreate() {
+    setSelectedDevice(null);
+    setCreateForm({ name: "", role: "PUNTOR", pin: "", label: "" });
+  }
+
+  // --- ACTIONS: KRIJIMI/EDITIMI MANUAL I STAFIT ---
+  function startCreateStaff() {
+    setEditingId('NEW');
+    setEditForm({ name: "", role: "PUNTOR", pin: "", is_active: true });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function startEdit(u) {
+    setEditingId(u.id);
+    setEditForm({ name: u.name || "", role: safeUpper(u.role), pin: "", is_active: u.is_active !== false });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function saveStaffEdit() {
+    if (!editForm.name) return alert("Shkruaj emrin e punëtorit!");
+
+    setActionBusy(true);
+    const payload = {
+      name: editForm.name,
+      role: editForm.role,
+      is_active: editForm.is_active
+    };
+
+    if (editingId === 'NEW') {
+      // Krijo të ri manualisht (Shkruan te 'users')
+      if (editForm.pin.length < 4) {
+        alert("Për punëtor të ri, PIN duhet të ketë të paktën 4 shifra!");
+        setActionBusy(false);
+        return;
+      }
+      payload.pin = editForm.pin;
+      
+      const { error } = await supabase.from("users").insert([payload]);
+      if (error) {
+        alert("GABIM: " + error.message);
+      } else {
+        setEditingId(null);
+        reloadAll();
+      }
+    } else {
+      // Përditëso ekzistuesin (Shkruan te 'users')
+      if (editForm.pin.length >= 4) payload.pin = editForm.pin;
+      
+      const { error } = await supabase.from("users").update(payload).eq("id", editingId);
+      if (error) {
+        alert("GABIM: " + error.message);
+      } else {
+        setEditingId(null);
+        reloadAll();
+      }
+    }
+    setActionBusy(false);
+  }
+
+  async function toggleBlock(u) {
+    const { error } = await supabase.from("users").update({ is_active: !u.is_active }).eq("id", u.id);
+    if (!error) reloadAll();
+  }
 
   return (
-    <div className="pageContainer">
-      <div className="maxWidth">
-        <div className="topHeader">
-          <div>
-            <h1 className="h1">ARKA • PUNËTORËT</h1>
-            <p className="meta">
-              LOGGED: {actor.name} ({String(actor.role || '').toUpperCase()})
-            </p>
+    <div className="proDashboard">
+      <div className="container">
+        
+        {/* HEADER & MASTER PIN */}
+        <div className="headerArea">
+          <div className="flex-between">
+            <div>
+              <h1 className="title">MENAXHIMI I STAFIT</h1>
+              <p className="subtitle">Mirësevini, {actor?.name} ({actor?.role})</p>
+            </div>
+            <Link href="/arka" className="btn-outline">KTHEHU NË ARKË</Link>
           </div>
-          <Link href="/arka" className="backBtn">
-            KTHEHU
-          </Link>
-        </div>
 
-        {!canManage && (
-          <div className="warnBox" style={{ marginBottom: 12 }}>
-            S&apos;KE AKSES PËR MENAXHIM (DUHET ADMIN/OWNER/DISPATCH)
-          </div>
-        )}
-
-        {/* MASTER PIN BAR */}
-        <div className="panel" style={{ marginBottom: 12 }}>
-          <div className="panelHead">
-            <span className="panelTitle">MASTER PIN (PËR APROVIME)</span>
-          </div>
-          <div className="panelBody" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              className="input"
-              style={{ maxWidth: 220 }}
-              inputMode="numeric"
-              placeholder="2380..."
-              value={masterPin}
-              onChange={(e) => setMasterPin(onlyDigits(e.target.value))}
-            />
-            <button className="primaryBtn" disabled={devicesLoading || !canManage} onClick={reloadDevices}>
-              {devicesLoading ? 'DUKE NGARKUAR...' : 'REFRESH PAJISJET'}
-            </button>
-            {devicesErr && (
-              <span style={{ color: '#ef4444', fontWeight: 800, fontSize: 12 }}>{String(devicesErr)}</span>
-            )}
-          </div>
-        </div>
-
-        <div className="mainGrid">
-          {/* SECTION 1: Pending Devices */}
-          <div className="formSection" ref={editRef}>
-            <div className="panel">
-              <div className="panelHead">
-                <span className="panelTitle">PAJISJET NË PRITJE</span>
-                <span className="badge">{pendingDevices.length} PENDING</span>
-              </div>
-              <div className="panelBody">
-                {devicesLoading ? (
-                  <div className="emptyState">DUKE LEXUAR PAJISJET...</div>
-                ) : pendingDevices.length === 0 ? (
-                  <div className="emptyState">NUK KA PAJISJE NË PRITJE</div>
-                ) : (
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {pendingDevices.map((d) => (
-                      <button
-                        key={String(d.device_id)}
-                        className="btnKartela"
-                        onClick={() => {
-                          setSelectedDeviceId(String(d.device_id));
-                          setDeviceLabel(String(d.label || ''));
-                          setApproveErr('');
-                        }}
-                        style={{
-                          justifyContent: 'space-between',
-                          borderColor:
-                            String(d.device_id) === String(selectedDeviceId)
-                              ? 'rgba(34,197,94,0.6)'
-                              : undefined,
-                        }}
-                      >
-                        <span style={{ fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {String(d.label || 'PAJISJE')} • {String(d.device_id).slice(0, 10)}...
-                        </span>
-                        <span style={{ opacity: 0.7, fontSize: 12 }}>{d.created_at ? new Date(d.created_at).toLocaleString() : ''}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                <div style={{ height: 12 }} />
-
-                <div className="panel" style={{ background: 'rgba(255,255,255,0.02)' }}>
-                  <div className="panelHead">
-                    <span className="panelTitle">APROVIMI</span>
-                    {selectedDevice ? (
-                      <span className="badge" style={{ background: 'rgba(245,158,11,0.15)', borderColor: 'rgba(245,158,11,0.4)' }}>
-                        {String(selectedDevice.device_id).slice(0, 16)}...
-                      </span>
-                    ) : (
-                      <span className="badge">ZGJIDH PAJISJEN</span>
-                    )}
-                  </div>
-                  <div className="panelBody">
-                    <div className="field">
-                      <label className="label">LABEL (OPSIONALE)</label>
-                      <input
-                        className="input"
-                        placeholder="p.sh. IPHONE ARBEN"
-                        value={deviceLabel}
-                        onChange={(e) => setDeviceLabel(e.target.value)}
-                      />
-                    </div>
-
-                    <div style={{ height: 10 }} />
-
-                    <div className="panel" style={{ background: 'rgba(34,197,94,0.06)' }}>
-                      <div className="panelHead">
-                        <span className="panelTitle">KRIJO USER TË RI + APROVO</span>
-                      </div>
-                      <div className="panelBody" style={{ display: 'grid', gap: 10 }}>
-                        <div className="field">
-                          <label className="label">EMRI</label>
-                          <input className="input" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Emri..." />
-                        </div>
-                        <div className="field">
-                          <label className="label">ROLI</label>
-                          <select className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-                            {ROLES.map((r) => (
-                              <option key={r} value={r}>
-                                {r}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="field">
-                          <label className="label">PIN (4+ SHIFRA)</label>
-                          <input
-                            className="input"
-                            inputMode="numeric"
-                            value={newPin}
-                            onChange={(e) => setNewPin(onlyDigits(e.target.value))}
-                            placeholder="p.sh. 1234"
-                          />
-                        </div>
-                        <button className="primaryBtn" disabled={!canManage || approveBusy} onClick={createUserAndApprove}>
-                          {approveBusy ? 'DUKE APROVUAR...' : 'KRIJO & APROVO'}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ height: 10 }} />
-
-                    <div className="panel" style={{ background: 'rgba(59,130,246,0.06)' }}>
-                      <div className="panelHead">
-                        <span className="panelTitle">LIDH USER EKZISTUES (PIN) + APROVO</span>
-                      </div>
-                      <div className="panelBody" style={{ display: 'grid', gap: 10 }}>
-                        <div className="field">
-                          <label className="label">PIN EKZISTUES</label>
-                          <input
-                            className="input"
-                            inputMode="numeric"
-                            value={linkPin}
-                            onChange={(e) => setLinkPin(onlyDigits(e.target.value))}
-                            placeholder="p.sh. 1111"
-                          />
-                        </div>
-                        <button className="primaryBtn" disabled={!canManage || approveBusy} onClick={linkUserAndApprove}>
-                          {approveBusy ? 'DUKE APROVUAR...' : 'LIDH & APROVO'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {approveErr && (
-                      <div style={{ marginTop: 10, color: '#ef4444', fontWeight: 900, fontSize: 12 }}>{String(approveErr)}</div>
-                    )}
-                  </div>
-                </div>
+          <div className="masterPinBox">
+            <div className="pinInfo">
+              <span className="icon">🔒</span>
+              <div>
+                <strong>Master PIN i Mjeshtrit</strong>
+                <p>E domosdoshme për të aprovuar pajisje.</p>
               </div>
             </div>
+            <div className="pinInputGroup">
+              <input
+                type="password"
+                className="input shadow-sm"
+                placeholder="****"
+                value={masterPin}
+                onChange={(e) => {
+                  const val = onlyDigits(e.target.value);
+                  setMasterPin(val);
+                  localStorage.setItem("MASTER_ADMIN_PIN", val);
+                }}
+              />
+              <button className="btn-primary" onClick={() => reloadAll()}>REFRESH</button>
+            </div>
           </div>
+        </div>
 
-          {/* SECTION 2: Staff List */}
-          <div className="listSection">
-            <div className="panel">
-              <div className="panelHead">
-                <span className="panelTitle">LISTA E STAFIT</span>
-                <span className="badge">{staff.length} TOTAL</span>
-              </div>
-              <div className="listBody">
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-                  <button className="primaryBtn" disabled={staffLoading} onClick={reloadStaff}>
-                    {staffLoading ? 'DUKE NGARKUAR...' : 'REFRESH STAFI'}
-                  </button>
-                  {editingId && (
-                    <button className="cancelBtn" onClick={cancelEdit}>
-                      ANULO EDIT
-                    </button>
-                  )}
+        <div className="grid-layout">
+          
+          {/* KOLONA E MAJTË: PAJISJET NË PRITJE & KRIJIMI NGA PAJISJA */}
+          <div className="col">
+            
+            {/* FORMULARI I APROVIMIT (Shfaqet vetëm kur klikon një pajisje) */}
+            {selectedDevice && (
+              <div className="card highlightCard mb-4">
+                <div className="card-header flex-between">
+                  <h3 className="card-title text-blue">Aprovo: {shortDevice(selectedDevice.device_id)}</h3>
+                  <button className="btn-close" onClick={cancelCreate}>✕</button>
                 </div>
-
-                {staffErr && (
-                  <div className="warnBox" style={{ marginBottom: 10 }}>
-                    {String(staffErr)}
+                <div className="card-body form-stack">
+                  <div className="field">
+                    <label>Emri Mbiemri</label>
+                    <input className="input" value={createForm.name} onChange={e => setCreateForm({...createForm, name: e.target.value})} placeholder="Emri..." />
                   </div>
-                )}
-
-                {editingId && (
-                  <div className="panel" style={{ marginBottom: 12 }}>
-                    <div className="panelHead">
-                      <span className="panelTitle">EDIT USER</span>
-                      <span className="badge">{editingId.slice(0, 6)}...</span>
+                  <div className="grid-2">
+                    <div className="field">
+                      <label>Roli</label>
+                      <select className="input" value={createForm.role} onChange={e => setCreateForm({...createForm, role: e.target.value})}>
+                        {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
                     </div>
-                    <div className="panelBody" style={{ display: 'grid', gap: 10 }}>
-                      <div className="field">
-                        <label className="label">EMRI</label>
-                        <input className="input" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} />
-                      </div>
-                      <div className="field">
-                        <label className="label">ROLI</label>
-                        <select className="input" value={editForm.role} onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}>
-                          {ROLES.map((r) => (
-                            <option key={r} value={r}>
-                              {r}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="field">
-                        <label className="label">NDRYSHO PIN (OPSIONALE)</label>
-                        <input
-                          className="input"
-                          inputMode="numeric"
-                          placeholder="lëre bosh nëse s'do me ndrru"
-                          value={editForm.pin}
-                          onChange={(e) => setEditForm((f) => ({ ...f, pin: onlyDigits(e.target.value) }))}
-                        />
-                      </div>
-                      <label className="switchRow">
-                        <div className={`switchTrack ${editForm.is_active ? 'trackActive' : ''}`}>
-                          <input
-                            type="checkbox"
-                            className="hidden"
-                            checked={!!editForm.is_active}
-                            onChange={(e) => setEditForm((f) => ({ ...f, is_active: e.target.checked }))}
-                          />
-                          <div className="switchThumb"></div>
-                        </div>
-                        <span className={`switchLabel ${editForm.is_active ? 'textGreen' : 'textGray'}`}>
-                          {editForm.is_active ? 'USER AKTIV' : 'JO-AKTIV (I BLLOKUAR)'}
-                        </span>
-                      </label>
-                      <button className="primaryBtn" disabled={staffLoading} onClick={saveEdit}>
-                        RUAJ
-                      </button>
+                    <div className="field">
+                      <label>PIN (4+ numra)</label>
+                      <input className="input" value={createForm.pin} onChange={e => setCreateForm({...createForm, pin: onlyDigits(e.target.value)})} placeholder="****" />
                     </div>
                   </div>
-                )}
+                  <div className="field">
+                    <label>Emri i Telefonit (Opsionale)</label>
+                    <input className="input" value={createForm.label} onChange={e => setCreateForm({...createForm, label: e.target.value})} placeholder="p.sh. iPhone Bujari" />
+                  </div>
+                  <div className="grid-2 mt-2">
+                    <button className="btn-success" onClick={handleCreateAndApprove} disabled={actionBusy}>
+                      KRIJO TË RI
+                    </button>
+                    <button className="btn-outline" onClick={handleLinkAndApprove} disabled={actionBusy}>
+                      LIDH EKZISTUES
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
-                {staffLoading ? (
-                  <div className="emptyState">DUKE LEXUAR STAFIN...</div>
-                ) : staff.length === 0 ? (
-                  <div className="emptyState">NUK KA PUNËTORË</div>
+            {/* LISTA E PAJISJEVE NË PRITJE */}
+            <div className="card">
+              <div className="card-header flex-between">
+                <h3 className="card-title text-orange">Pajisjet në Pritje ({pending.length})</h3>
+              </div>
+              <div className="card-body p-0">
+                {pending.length === 0 ? (
+                  <div className="empty-state">Nuk ka asnjë pajisje të re që pret aprovim.</div>
                 ) : (
-                  staff.map((r) => (
-                    <div key={r.id} className={`userRow ${editingId === r.id ? 'rowEditing' : ''}`}>
-                      <div className="userInfo" style={{ minWidth: 0 }}>
-                        <div className="userHeader">
-                          <span className={`statusDot ${r.is_active === false ? 'dotRed' : 'dotGreen'}`}></span>
-                          <span className="userName" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {r.name || 'PA EMËR'}
-                          </span>
-                        </div>
-                        <div className="userMeta">
-                          <span className="roleTag">{String(r.role || 'PUNTOR').toUpperCase()}</span>
-                          <span className="pinTag">PIN: ****</span>
+                  pending.map(d => (
+                    <div key={d.id} className={`list-item ${selectedDevice?.id === d.id ? 'selected' : ''}`} onClick={() => pickPending(d)}>
+                      <div className="item-info">
+                        <span className="badge badge-orange">E RE</span>
+                        <div>
+                          <strong>{d.label || "Telefon i Panjohur"}</strong>
+                          <p className="text-muted text-sm mono">{shortDevice(d.device_id)}</p>
                         </div>
                       </div>
-
-                      {canManage && (
-                        <div className="userActions">
-                          <button className="btnKartela" onClick={() => startEdit(r)}>
-                            EDIT
-                          </button>
-                          <button className="btnKartela" onClick={() => toggleActive(r)}>
-                            {r.is_active === false ? 'AKTIVIZO' : 'BLOKO'}
-                          </button>
-                        </div>
-                      )}
+                      <div className="item-meta text-right">
+                        <span className="text-xs text-muted">PIN i kërkuar:</span>
+                        <br/><strong>{d.requested_pin || "S'ka"}</strong>
+                      </div>
                     </div>
                   ))
                 )}
               </div>
             </div>
           </div>
+
+          {/* KOLONA E DJATHTË: LISTA E STAFIT DHE EDITIMI/KRIJIMI MANUAL */}
+          <div className="col">
+            
+            {/* FORMULARI I EDITIMIT OSE KRIJIMIT MANUAL */}
+            {editingId && (
+              <div className="card mb-4 border-blue">
+                <div className="card-header flex-between">
+                  <h3 className="card-title text-blue">
+                    {editingId === 'NEW' ? 'Shto Punëtor të Ri' : 'Edito Punëtorin'}
+                  </h3>
+                  <button className="btn-close" onClick={() => setEditingId(null)}>✕</button>
+                </div>
+                <div className="card-body form-stack">
+                  <div className="grid-2">
+                    <div className="field">
+                      <label>Emri</label>
+                      <input className="input" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} placeholder="Emri Mbiemri" />
+                    </div>
+                    <div className="field">
+                      <label>Roli</label>
+                      <select className="input" value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})}>
+                        {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid-2 align-center">
+                    <div className="field">
+                      <label>{editingId === 'NEW' ? 'PIN (Obligative, 4+ numra)' : 'Ndrysho PIN (Opsionale)'}</label>
+                      <input 
+                        className="input" 
+                        placeholder={editingId === 'NEW' ? "****" : "Lëre bosh për të mos ndryshuar"} 
+                        value={editForm.pin} 
+                        onChange={e => setEditForm({...editForm, pin: onlyDigits(e.target.value)})} 
+                      />
+                    </div>
+                    <label className="checkbox-wrap mt-4">
+                      <input type="checkbox" checked={editForm.is_active} onChange={e => setEditForm({...editForm, is_active: e.target.checked})} />
+                      <span>Punëtor Aktiv</span>
+                    </label>
+                  </div>
+                  <button className="btn-primary w-full mt-2" onClick={saveStaffEdit} disabled={actionBusy}>
+                    {editingId === 'NEW' ? 'SHTO PUNËTORIN' : 'RUAJ NDRYSHIMET'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* LISTA E STAFIT */}
+            <div className="card">
+              <div className="card-header flex-between">
+                <h3 className="card-title">Lista e Stafit</h3>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button className="btn-success btn-small" onClick={startCreateStaff}>➕ SHTO MANUALISHT</button>
+                  <span className="badge badge-gray">{staff.length} TOTAL</span>
+                </div>
+              </div>
+              <div className="card-body p-0">
+                {loading ? <div className="empty-state">Po ngarkohet...</div> : staff.map(u => (
+                  <div key={u.id} className="list-item staff-item">
+                    <div className="item-info">
+                      <div className={`status-dot ${u.is_active ? 'active' : 'blocked'}`}></div>
+                      <div>
+                        <strong>{u.name}</strong>
+                        <p className="text-muted text-xs mt-1">{u.role} • PIN: ****</p>
+                      </div>
+                    </div>
+                    <div className="item-actions">
+                      <button className="btn-small btn-light" onClick={() => startEdit(u)}>✏️ EDIT</button>
+                      <button className={`btn-small ${u.is_active ? 'btn-danger-light' : 'btn-success-light'}`} onClick={() => toggleBlock(u)}>
+                        {u.is_active ? '⛔ BLLOKO' : '✅ HAP'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
         </div>
       </div>
+
+      <style jsx>{`
+        /* TEMË E NDRITSHME DHE FULL SCREEN */
+        .proDashboard { 
+          background-color: #F8FAFC; 
+          min-height: 100vh; 
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+          color: #0F172A; 
+          padding: 24px 16px 120px 16px;
+          width: 100vw;
+          position: relative;
+          left: 50%;
+          right: 50%;
+          margin-left: -50vw;
+          margin-right: -50vw;
+          box-sizing: border-box;
+        }
+        
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        .headerArea { margin-bottom: 32px; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .title { font-size: 24px; font-weight: 800; color: #1E293B; margin: 0; letter-spacing: -0.5px; }
+        .subtitle { font-size: 14px; color: #64748B; margin-top: 4px; font-weight: 500; }
+        
+        .masterPinBox { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; margin-top: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); flex-wrap: wrap; gap: 16px; }
+        .pinInfo { display: flex; align-items: center; gap: 12px; }
+        .pinInfo .icon { font-size: 24px; background: #F1F5F9; padding: 10px; border-radius: 10px; }
+        .pinInfo strong { font-size: 15px; color: #0F172A; }
+        .pinInfo p { font-size: 13px; color: #64748B; margin: 2px 0 0 0; }
+        .pinInputGroup { display: flex; gap: 12px; flex: 1; max-width: 300px; }
+
+        .grid-layout { display: grid; grid-template-columns: 1fr; gap: 24px; }
+        @media(min-width: 900px) { .grid-layout { grid-template-columns: 1fr 1.2fr; } }
+        
+        .card { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .card-header { padding: 16px 20px; border-bottom: 1px solid #F1F5F9; background: #FAFAF9; }
+        .card-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; color: #334155; }
+        .card-body { padding: 20px; }
+        .p-0 { padding: 0 !important; }
+        .mb-4 { margin-bottom: 24px; }
+        .mt-2 { margin-top: 12px; }
+        .mt-4 { margin-top: 24px; }
+        .w-full { width: 100%; }
+
+        .text-blue { color: #2563EB; }
+        .text-orange { color: #EA580C; }
+        .text-muted { color: #64748B; }
+        .text-sm { font-size: 13px; }
+        .text-xs { font-size: 11px; }
+        .text-right { text-align: right; }
+        .mono { font-family: monospace; }
+        
+        .highlightCard { border: 2px solid #BFDBFE; background: #EFF6FF; }
+        .highlightCard .card-header { background: #DBEAFE; border-bottom-color: #BFDBFE; }
+        .border-blue { border-color: #BFDBFE; }
+
+        .form-stack { display: flex; flex-direction: column; gap: 16px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .align-center { align-items: center; }
+        
+        .field label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+        .input { width: 100%; padding: 12px 14px; border: 1px solid #CBD5E1; border-radius: 8px; font-size: 14px; color: #0F172A; background: #FFFFFF; transition: 0.2s; box-sizing: border-box; }
+        .input:focus { outline: none; border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+        .shadow-sm { box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); }
+
+        .btn-primary { background: #2563EB; color: white; border: none; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; }
+        .btn-primary:hover { background: #1D4ED8; }
+        .btn-success { background: #10B981; color: white; border: none; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; }
+        .btn-success:hover { background: #059669; }
+        .btn-outline { background: #FFFFFF; border: 1px solid #CBD5E1; color: #334155; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; text-decoration: none; }
+        .btn-outline:hover { background: #F8FAFC; border-color: #94A3B8; }
+        .btn-close { background: none; border: none; font-size: 16px; color: #64748B; cursor: pointer; }
+        .btn-close:hover { color: #0F172A; }
+
+        .btn-small { padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
+        .btn-light { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
+        .btn-light:hover { background: #E2E8F0; color: #0F172A; }
+        .btn-danger-light { background: #FEF2F2; color: #EF4444; border-color: #FEE2E2; }
+        .btn-danger-light:hover { background: #FEE2E2; }
+        .btn-success-light { background: #F0FDF4; color: #10B981; border-color: #DCFCE7; }
+        .btn-success-light:hover { background: #DCFCE7; }
+
+        .list-item { padding: 16px 20px; border-bottom: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; cursor: pointer; }
+        .list-item:hover { background: #F8FAFC; }
+        .list-item:last-child { border-bottom: none; }
+        .list-item.selected { background: #EFF6FF; border-left: 3px solid #3B82F6; }
+        .staff-item { cursor: default; }
+
+        .item-info { display: flex; align-items: center; gap: 14px; }
+        .item-info strong { font-size: 15px; color: #0F172A; }
+        .item-actions { display: flex; gap: 8px; }
+
+        .badge { padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; }
+        .badge-orange { background: #FFF7ED; color: #EA580C; border: 1px solid #FFEDD5; }
+        .badge-gray { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
+
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .status-dot.active { background: #10B981; box-shadow: 0 0 0 3px #D1FAE5; }
+        .status-dot.blocked { background: #EF4444; box-shadow: 0 0 0 3px #FEE2E2; }
+
+        .empty-state { padding: 40px; text-align: center; color: #94A3B8; font-size: 14px; font-weight: 500; }
+        
+        .checkbox-wrap { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; font-weight: 600; color: #334155; }
+        .checkbox-wrap input { width: 18px; height: 18px; cursor: pointer; accent-color: #2563EB; }
+      `}</style>
     </div>
   );
 }
