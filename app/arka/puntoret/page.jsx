@@ -22,10 +22,6 @@ export default function StaffAndDevicesDashboard() {
   const [pending, setPending] = useState([]);
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // Create / Approve Form
-  const [selectedDevice, setSelectedDevice] = useState(null);
-  const [createForm, setCreateForm] = useState({ name: "", role: "PUNTOR", pin: "", label: "" });
   const [actionBusy, setActionBusy] = useState(false);
 
   // Edit/Create Staff Form
@@ -83,60 +79,37 @@ export default function StaffAndDevicesDashboard() {
     }
   }
 
-  // --- ACTIONS: APROVIMI PAJISJES ---
-  async function handleCreateAndApprove() {
-    if (!selectedDevice) return alert("Zgjidh një pajisje!");
-    if (!createForm.name) return alert("Shkruaj emrin e punëtorit!");
-    if (createForm.pin.length < 4) return alert("PIN duhet të ketë së paku 4 shifra!");
+  // --- ACTIONS: 1-CLICK APPROVE ---
+  async function handleOneClickApprove(device) {
+    if (!masterPin) return alert("Shkruaj Master PIN lart!");
+    
+    // Nëse pajisja nuk ka emër (Unknown Device), i tregojmë çfarë të bëjë
+    if (!device.tepiha_users?.name) {
+        alert("Ky telefon nuk është i lidhur me asnjë punëtor!\n\nZGJIDHJA: Krijo punëtorin poshtë te 'SHTO MANUALISHT', pastaj thuaji punëtorit të shtypë PIN-in e tij në telefon. Telefoni i tij do dalë këtu me Emër gati për tu aprovuar!");
+        return;
+    }
+
+    const conf = confirm(`A jeni i sigurt që doni të aprovoni pajisjen për: ${device.tepiha_users.name}?`);
+    if (!conf) return;
 
     setActionBusy(true);
-    const r = await api("create_user_and_approve", {
-      device_id: selectedDevice.device_id, // Dergon saktë device_id
-      name: createForm.name,
-      role: createForm.role,
-      pin: createForm.pin,
-      label: createForm.label
-    });
+    const r = await api("approve", { device_id: device.device_id });
     if (r) {
-      alert("✅ Punëtori u krijua dhe pajisja u aprovua!");
-      cancelCreate();
+      alert("✅ Pajisja u aprovua me sukses!");
       reloadAll();
     }
     setActionBusy(false);
   }
 
-  async function handleLinkAndApprove() {
-    if (!selectedDevice) return alert("Zgjidh një pajisje!");
-    if (createForm.pin.length < 4) return alert("Shkruaj PIN-in e punëtorit ekzistues!");
-
+  // Fshij pajisjet mbeturina (të panjohura)
+  async function handleReject(device) {
+    const conf = confirm("A jeni i sigurt që doni ta fshini këtë kërkesë?");
+    if (!conf) return;
+    
     setActionBusy(true);
-    const r = await api("link_user_and_approve", {
-      device_id: selectedDevice.device_id, // Dergon saktë device_id
-      pin: createForm.pin,
-      label: createForm.label
-    });
-    if (r) {
-      alert("✅ Pajisja u lidh me sukses!");
-      cancelCreate();
-      reloadAll();
-    }
+    await api("revoke", { device_id: device.device_id });
+    reloadAll();
     setActionBusy(false);
-  }
-
-  function pickPending(d) {
-    setSelectedDevice(d);
-    setCreateForm({
-      name: d?.tepiha_users?.name || "",
-      role: safeUpper(d?.requested_role, "PUNTOR"),
-      pin: onlyDigits(d?.requested_pin || ""),
-      label: d?.label || ""
-    });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function cancelCreate() {
-    setSelectedDevice(null);
-    setCreateForm({ name: "", role: "PUNTOR", pin: "", label: "" });
   }
 
   // --- ACTIONS: KRIJIMI/EDITIMI MANUAL I STAFIT ---
@@ -163,7 +136,6 @@ export default function StaffAndDevicesDashboard() {
     };
 
     if (editingId === 'NEW') {
-      // Krijo të ri manualisht (Shkruan te 'users')
       if (editForm.pin.length < 4) {
         alert("Për punëtor të ri, PIN duhet të ketë të paktën 4 shifra!");
         setActionBusy(false);
@@ -179,7 +151,6 @@ export default function StaffAndDevicesDashboard() {
         reloadAll();
       }
     } else {
-      // Përditëso ekzistuesin (Shkruan te 'users')
       if (editForm.pin.length >= 4) payload.pin = editForm.pin;
       
       const { error } = await supabase.from("users").update(payload).eq("id", editingId);
@@ -239,73 +210,56 @@ export default function StaffAndDevicesDashboard() {
 
         <div className="grid-layout">
           
-          {/* KOLONA E MAJTË: PAJISJET NË PRITJE & KRIJIMI NGA PAJISJA */}
+          {/* KOLONA E MAJTË: PAJISJET NË PRITJE (1-CLICK APPROVE) */}
           <div className="col">
-            
-            {/* FORMULARI I APROVIMIT (Shfaqet vetëm kur klikon një pajisje) */}
-            {selectedDevice && (
-              <div className="card highlightCard mb-4">
-                <div className="card-header flex-between">
-                  <h3 className="card-title text-blue">Aprovo: {shortDevice(selectedDevice.device_id)}</h3>
-                  <button className="btn-close" onClick={cancelCreate}>✕</button>
-                </div>
-                <div className="card-body form-stack">
-                  <div className="field">
-                    <label>Emri Mbiemri</label>
-                    <input className="input" value={createForm.name} onChange={e => setCreateForm({...createForm, name: e.target.value})} placeholder="Emri..." />
-                  </div>
-                  <div className="grid-2">
-                    <div className="field">
-                      <label>Roli</label>
-                      <select className="input" value={createForm.role} onChange={e => setCreateForm({...createForm, role: e.target.value})}>
-                        {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map(r => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label>PIN (4+ numra)</label>
-                      <input className="input" value={createForm.pin} onChange={e => setCreateForm({...createForm, pin: onlyDigits(e.target.value)})} placeholder="****" />
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label>Emri i Telefonit (Opsionale)</label>
-                    <input className="input" value={createForm.label} onChange={e => setCreateForm({...createForm, label: e.target.value})} placeholder="p.sh. iPhone Bujari" />
-                  </div>
-                  <div className="grid-2 mt-2">
-                    <button className="btn-success" onClick={handleCreateAndApprove} disabled={actionBusy}>
-                      KRIJO TË RI
-                    </button>
-                    <button className="btn-outline" onClick={handleLinkAndApprove} disabled={actionBusy}>
-                      LIDH EKZISTUES
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* LISTA E PAJISJEVE NË PRITJE */}
             <div className="card">
               <div className="card-header flex-between">
-                <h3 className="card-title text-orange">Pajisjet në Pritje ({pending.length})</h3>
+                <h3 className="card-title text-orange">Pajisjet në Pritje</h3>
+                <span className="badge badge-orange">{pending.length} PENDING</span>
               </div>
               <div className="card-body p-0">
                 {pending.length === 0 ? (
                   <div className="empty-state">Nuk ka asnjë pajisje të re që pret aprovim.</div>
                 ) : (
-                  pending.map(d => (
-                    <div key={d.id} className={`list-item ${selectedDevice?.id === d.id ? 'selected' : ''}`} onClick={() => pickPending(d)}>
-                      <div className="item-info">
-                        <span className="badge badge-orange">E RE</span>
-                        <div>
-                          <strong>{d.label || "Telefon i Panjohur"}</strong>
-                          <p className="text-muted text-sm mono">{shortDevice(d.device_id)}</p>
+                  pending.map(d => {
+                    const isKnown = !!d.tepiha_users?.name;
+                    return (
+                      <div key={d.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
+                        <div className="item-info" style={{ width: '100%' }}>
+                          <span className="badge badge-orange">E RE</span>
+                          <div style={{ flex: 1 }}>
+                            <strong style={{ fontSize: '16px' }}>{d.tepiha_users?.name || "❓ PAJISJE E PANJOHUR"}</strong>
+                            <p className="text-muted text-sm mono" style={{ marginTop: '4px' }}>
+                              ID: {shortDevice(d.device_id)}
+                            </p>
+                            {!isKnown && (
+                                <p style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '600' }}>
+                                    *Kjo pajisje nuk e ka shkruar ende PIN-in e saktë.
+                                </p>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                          <button 
+                             className="btn-danger-light" 
+                             style={{ flex: 1, padding: '12px', fontWeight: '900', borderRadius: '8px' }}
+                             onClick={() => handleReject(d)}
+                             disabled={actionBusy}
+                          >
+                             FSHIJ KËRKESËN
+                          </button>
+                          <button 
+                             className="btn-success" 
+                             style={{ flex: 2, padding: '12px', fontSize: '14px', fontWeight: '900', borderRadius: '8px' }}
+                             onClick={() => handleOneClickApprove(d)}
+                             disabled={actionBusy}
+                          >
+                             ✅ APROVO PAJISJEN
+                          </button>
                         </div>
                       </div>
-                      <div className="item-meta text-right">
-                        <span className="text-xs text-muted">PIN i kërkuar:</span>
-                        <br/><strong>{d.requested_pin || "S'ka"}</strong>
-                      </div>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </div>
