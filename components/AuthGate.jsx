@@ -1,14 +1,13 @@
-"use client";
+use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { getDeviceId } from "@/lib/deviceId";
+import { canLoginOffline, cacheApprovedLogin } from "@/lib/deviceApprovalsCache";
 
 const LS_USER = "CURRENT_USER_DATA";
 const LS_SESSION = "tepiha_session_v1";
 const LS_TRANSPORT = "tepiha_transport_session_v1";
-const LS_DEVICE_ID = "tepiha_device_id_v1";
-const LS_DEVICE_APPROVED_CACHE = "tepiha_device_approved_cache_v1"; // Mban mend aprovimin kur s'ka internet
 
 function readStoredUser() {
   try {
@@ -22,7 +21,7 @@ function readStoredUser() {
     const raw = localStorage.getItem(LS_SESSION);
     if (raw) {
       const s = JSON.parse(raw);
-      const u = s?.user;
+      const u = s?.actor || s?.user;
       if (u && typeof u === "object") return u;
     }
   } catch {}
@@ -40,42 +39,27 @@ function hasTransportSession() {
   }
 }
 
-function safeGetDeviceId() {
-  try {
-    if (typeof window === "undefined") return null;
-    let id = window.localStorage.getItem(LS_DEVICE_ID);
-    if (!id) {
-      id = "dev_" + Math.random().toString(36).slice(2) + "_" + Date.now().toString(36);
-      window.localStorage.setItem(LS_DEVICE_ID, id);
-    }
-    return id;
-  } catch {
-    return null;
-  }
-}
-
 export default function AuthGate({ children }) {
   const router = useRouter();
   const pathname = usePathname() || "/";
-  
+
   const [ready, setReady] = useState(false);
   const [offlineNoUser, setOfflineNoUser] = useState(false);
-
-  // States për aprovimin e pajisjes
   const [checkingDevice, setCheckingDevice] = useState(false);
   const [deviceApproved, setDeviceApproved] = useState(null);
   const [deviceId, setDeviceId] = useState(null);
 
   const mountedRef = useRef(false);
-  const lastApprovedRef = useRef(null);
+  const approvedRef = useRef(null);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
-    // 1. BYPASS për Login & Doctor
     const isLogin = pathname === "/login" || pathname?.startsWith("/login/") || pathname === "/transport/login" || pathname?.startsWith("/transport/login");
     if (isLogin) {
       setOfflineNoUser(false);
@@ -99,19 +83,15 @@ export default function AuthGate({ children }) {
       }
     } catch {}
 
-    // 2. KONTROLLI I SESIONIT (Kodi yt ekzistues)
     let hasAuth = false;
-    let userRole = null;
+    let actor = readStoredUser();
+    let userRole = actor?.role ? String(actor.role || "").toUpperCase() : null;
 
-    const u = readStoredUser();
-    if (u) {
-      hasAuth = true;
-      userRole = String(u.role || "").toUpperCase();
-    }
+    if (actor) hasAuth = true;
 
     if (pathname?.startsWith("/transport") && hasTransportSession()) {
-       hasAuth = true;
-       if (!userRole) userRole = "TRANSPORT";
+      hasAuth = true;
+      if (!userRole) userRole = "TRANSPORT";
     }
 
     if (!hasAuth) {
@@ -133,25 +113,28 @@ export default function AuthGate({ children }) {
       return;
     }
 
-    // 3. KONTROLLI I APROVIMIT TË PAJISJES
-    const currentDeviceId = safeGetDeviceId();
+    const currentDeviceId = getDeviceId();
     setDeviceId(currentDeviceId);
 
-    // ADMIN kalon direkt
     if (userRole === "ADMIN") {
-       setOfflineNoUser(false);
-       setCheckingDevice(false);
-       setDeviceApproved(true);
-       setReady(true);
-       return;
+      setOfflineNoUser(false);
+      setCheckingDevice(false);
+      setDeviceApproved(true);
+      setReady(true);
+      return;
     }
 
-    setCheckingDevice(true);
     let cancelled = false;
 
-    async function checkDbApproval() {
+    async function verifyUnifiedApproval() {
+      setCheckingDevice(true);
       try {
-        if (!currentDeviceId) {
+        const currentActor = readStoredUser() || actor || {};
+        const pin = String(currentActor?.pin || "").trim();
+        const role = String(currentActor?.role || userRole || "").trim().toUpperCase();
+        const isOffline = typeof navigator !== "undefined" && navigator && navigator.onLine === false;
+
+        if (!pin || !currentDeviceId) {
           if (!mountedRef.current || cancelled) return;
           setDeviceApproved(false);
           setCheckingDevice(false);
@@ -159,86 +142,64 @@ export default function AuthGate({ children }) {
           return;
         }
 
-        // Shpëtimi Offline: Nëse s'ka internet, por ka qenë aprovuar më parë, lëre të futet
-        const isOffline = typeof navigator !== "undefined" && navigator && navigator.onLine === false;
         if (isOffline) {
-           try {
-              const cached = localStorage.getItem(LS_DEVICE_APPROVED_CACHE);
-              if (cached === "1") {
-                 if (!mountedRef.current || cancelled) return;
-                 setDeviceApproved(true);
-                 setCheckingDevice(false);
-                 setReady(true);
-                 return;
-              }
-           } catch {}
+          const offline = canLoginOffline({ pin, role, deviceId: currentDeviceId });
+          if (!mountedRef.current || cancelled) return;
+          approvedRef.current = !!offline.ok;
+        approvedRef.current = !!offline.ok;
+        setDeviceApproved(!!offline.ok);
+          setCheckingDevice(false);
+          setOfflineNoUser(false);
+          setReady(true);
+          return;
         }
 
-        // Kontrollo në Supabase
-        const { data, error } = await supabase
-          .from("device_approvals")
-          .select("approved")
-          .eq("device_id", currentDeviceId)
-          .maybeSingle();
+        const res = await fetch('/api/auth/device-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin, role, deviceId: currentDeviceId }),
+          cache: 'no-store',
+        });
+        const json = await res.json().catch(() => ({}));
+        const ok = !!json?.ok && !!json?.approved;
 
-        // Krijo pajisjen si 'Në pritje' nëse s'ekziston
-        if (!data && !error) {
-           await supabase.from("device_approvals").upsert({ device_id: currentDeviceId, approved: false }, { onConflict: "device_id" });
-        }
-
-        const ok = !!data?.approved;
-        
-        // Ruaj/Fshi Cache-in e aprovimit
         if (ok) {
-           try { localStorage.setItem(LS_DEVICE_APPROVED_CACHE, "1"); } catch {}
-        } else {
-           try { localStorage.removeItem(LS_DEVICE_APPROVED_CACHE); } catch {}
+          cacheApprovedLogin({ pin, role, deviceId: currentDeviceId, actor: json?.actor || currentActor });
         }
 
         if (!mountedRef.current || cancelled) return;
-
-        if (lastApprovedRef.current !== ok) {
-          lastApprovedRef.current = ok;
-          setDeviceApproved(ok);
-        }
+        approvedRef.current = ok;
+        setDeviceApproved(ok);
         setCheckingDevice(false);
         setOfflineNoUser(false);
         setReady(true);
       } catch {
-        // Gabim interneti/DB -> Provo cache-in prap
+        const currentActor = readStoredUser() || actor || {};
+        const pin = String(currentActor?.pin || "").trim();
+        const role = String(currentActor?.role || userRole || "").trim().toUpperCase();
+        const offline = canLoginOffline({ pin, role, deviceId: currentDeviceId });
         if (!mountedRef.current || cancelled) return;
-        let cachedOk = false;
-        try { cachedOk = localStorage.getItem(LS_DEVICE_APPROVED_CACHE) === "1"; } catch {}
-
-        if (lastApprovedRef.current !== cachedOk) {
-          lastApprovedRef.current = cachedOk;
-          setDeviceApproved(cachedOk);
-        }
+        setDeviceApproved(!!offline.ok);
         setCheckingDevice(false);
         setReady(true);
       }
     }
 
-    checkDbApproval();
+    verifyUnifiedApproval();
 
-    // Rifresko çdo 5 sekonda (vetëm nëse s'është aprovuar ende)
     const intervalId = window.setInterval(() => {
-      if (!mountedRef.current) return;
-      if (lastApprovedRef.current !== true) {
-         checkDbApproval();
-      }
+      if (!mountedRef.current || cancelled) return;
+      if (approvedRef.current !== true) verifyUnifiedApproval();
     }, 5000);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-
   }, [pathname, router]);
 
   if (!ready) return null;
 
-  // Stilet Inline (SWC Safe)
   const wrapStyle = { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, background: "#0b0f14", color: "#e8eef6" };
   const cardStyle = { width: "100%", maxWidth: 560, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", borderRadius: 14, padding: 18 };
   const titleStyle = { fontWeight: 900, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 14 };
@@ -250,35 +211,33 @@ export default function AuthGate({ children }) {
   const btnRowStyle = { display: "flex", gap: 10, marginTop: 16 };
   const btnStyle = { flex: 1, padding: "12px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.06)", color: "#fff", fontWeight: 900, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontSize: 12 };
 
-  // UI Gjatë Kontrollit
   if (checkingDevice) {
     return (
       <div style={wrapStyle}>
         <div style={{ ...cardStyle, maxWidth: 520 }}>
           <div style={titleStyle}>DUKE KONTROLLUAR…</div>
-          <div style={subStyle}>Po verifikojmë pajisjen. Ju lutem prisni.</div>
+          <div style={subStyle}>Po verifikojmë pajisjen nga i njëjti sistem i login-it. Ju lutem prisni.</div>
         </div>
       </div>
     );
   }
 
-  // UI Nëse Pajisja nuk është aprovuar
   if (deviceApproved === false) {
     return (
       <div style={wrapStyle}>
         <div style={cardStyle}>
           <div style={titleStyle}>PAJISJA NUK ËSHTË APROVUAR</div>
-          <div style={subStyle}>Kjo pajisje duhet të aprovohet nga ADMIN para se të vazhdoni.</div>
+          <div style={subStyle}>Kjo pajisje po kontrollohet me të njëjtin DEVICE ID si login-i. Aprovoheni te /ARKA/PUNTORET dhe pastaj bëni hyrje prapë.</div>
 
           <div style={metaStyle}>
             <div style={kStyle}>DEVICE ID</div>
             <div style={vStyle}>{deviceId || "—"}</div>
           </div>
 
-          <div style={hintStyle}>Hapni menynë e profilit te ADMIN → “APROVO PAJISJET”, dhe aprovojeni këtë Device ID.</div>
+          <div style={hintStyle}>Ky ekran nuk krijon më ID tjetër dhe nuk shkruan më në tabelën e vjetër device_approvals.</div>
 
           <div style={btnRowStyle}>
-            <button 
+            <button
               style={btnStyle}
               onClick={() => {
                 try { navigator.clipboard.writeText(deviceId || ""); alert("U kopjua!"); } catch {}
@@ -286,7 +245,7 @@ export default function AuthGate({ children }) {
             >
               KOPJO ID
             </button>
-            <button 
+            <button
               style={btnStyle}
               onClick={() => { window.location.href = '/login'; }}
             >
