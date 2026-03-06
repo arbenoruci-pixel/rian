@@ -40,9 +40,7 @@ export default function SessionDock() {
 
   const label = useMemo(() => {
     const name = String(user?.name || '').trim();
-    const role = String(user?.role || '').trim();
-    if (!user) return 'PA USER';
-    return (name || 'USER') + (role ? ` • ${role}` : '');
+    return name || 'MJESHTRI';
   }, [user]);
 
   async function doLogout() {
@@ -75,76 +73,93 @@ export default function SessionDock() {
         right: 0,
         bottom: 0,
         zIndex: 9999,
+        display: 'flex',
+        justifyContent: 'center',
         padding: '10px 12px calc(10px + env(safe-area-inset-bottom))',
         pointerEvents: 'none',
       }}
     >
       <div
         style={{
-          maxWidth: 520,
-          margin: '0 auto',
-          borderRadius: 14,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+          maxWidth: 'calc(100vw - 24px)',
+          borderRadius: 999,
           border: '1px solid rgba(255,255,255,0.10)',
           background: 'rgba(10,14,20,0.92)',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+          boxShadow: '0 12px 34px rgba(0,0,0,0.40)',
           padding: '8px 10px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 10,
           pointerEvents: 'auto',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
         }}
       >
         <button
           type="button"
           onClick={openDoctor}
           style={{
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
-            gap: 10,
+            gap: 8,
             minWidth: 0,
-            background: 'transparent',
             border: 'none',
-            padding: 0,
-            color: 'inherit',
+            background: 'transparent',
+            color: '#fff',
+            padding: '2px 4px',
             cursor: 'pointer',
           }}
         >
-          <div
+          <span
             aria-hidden
             style={{
-              width: 34,
-              height: 34,
-              borderRadius: 10,
+              width: 30,
+              height: 30,
+              borderRadius: 999,
               background: 'rgba(255,255,255,0.08)',
               display: 'grid',
               placeItems: 'center',
-              fontSize: 18,
+              fontSize: 16,
               flex: '0 0 auto',
             }}
           >
             👤
-          </div>
-          <div style={{ minWidth: 0, textAlign: 'left' }}>
-            <div style={{ fontWeight: 800, letterSpacing: 1, fontSize: 12, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {label}
-            </div>
-            <div style={{ fontSize: 10, opacity: 0.75, letterSpacing: 1, textTransform: 'uppercase' }}>
-              {navigator.onLine === false ? 'OFFLINE' : 'ONLINE'}
-            </div>
-          </div>
+          </span>
+          <span
+            style={{
+              maxWidth: '42vw',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontWeight: 800,
+              fontSize: 12,
+              letterSpacing: 0.6,
+              textTransform: 'uppercase',
+            }}
+          >
+            {label}
+          </span>
         </button>
+
+        <div
+          style={{
+            width: 1,
+            height: 18,
+            background: 'rgba(255,255,255,0.10)',
+            flex: '0 0 auto',
+          }}
+        />
 
         {!user ? (
           <button
             type="button"
             onClick={() => router.push('/login')}
             style={{
-              padding: '8px 10px',
-              borderRadius: 999,
+              border: 'none',
               background: 'rgba(255,255,255,0.95)',
               color: '#000',
-              border: 'none',
+              borderRadius: 999,
+              padding: '8px 12px',
               fontWeight: 900,
               fontSize: 10,
               letterSpacing: 1,
@@ -159,11 +174,11 @@ export default function SessionDock() {
             type="button"
             onClick={doLogout}
             style={{
-              padding: '8px 10px',
               borderRadius: 999,
               background: 'rgba(255,70,70,0.14)',
               color: '#ffb3b3',
               border: '1px solid rgba(255,70,70,0.25)',
+              padding: '8px 12px',
               fontWeight: 900,
               fontSize: 10,
               letterSpacing: 1,

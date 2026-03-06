@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { ensureBasePool, getActorPin } from '@/lib/baseCodes';
-import { getActor } from '@/lib/actorSession';
 
 function onlyDigits(v){ return String(v ?? '').replace(/\D+/g,''); }
 function normCode(v){
@@ -62,9 +61,6 @@ async function fetchTransporterNameByPin(pin){
 export default function HomePage() {
   const router = useRouter();
 
-  const actor = useMemo(() => {
-    try { return getActor(); } catch { return null; }
-  }, []);
 
   useEffect(() => {
     try {
@@ -189,15 +185,7 @@ export default function HomePage() {
       <header className="header-pro">
         <div className="header-text">
           <h1 className="title">TEPIHA <span style={{color: '#3b82f6'}}>PRO</span></h1>
-          <p className="subtitle">Sistemi i Menaxhimit</p>
         </div>
-        {actor?.role === 'ADMIN' ? (
-          <button className="device-btn" onClick={()=>router.push('/admin/devices')}>
-            📱 PAJISJET
-          </button>
-        ) : (
-          <div className="user-badge">👤 {actor?.name || 'Punëtor'}</div>
-        )}
       </header>
 
       {/* SEARCH SECTION */}
@@ -327,11 +315,8 @@ export default function HomePage() {
       <style jsx>{`
         .home-wrap { padding: 16px 14px 40px; background: #070b14; min-height: 100vh; color: #fff; font-family: system-ui, -apple-system, sans-serif; }
         
-        .header-pro { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .header-pro { display: flex; justify-content: flex-start; align-items: center; margin-bottom: 24px; }
         .header-text .title { font-size: 26px; font-weight: 1000; letter-spacing: -0.5px; margin: 0; line-height: 1.1; }
-        .header-text .subtitle { font-size: 13px; color: rgba(255,255,255,0.6); font-weight: 600; margin-top: 2px; }
-        .device-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 8px 14px; border-radius: 99px; font-weight: 800; font-size: 12px; cursor: pointer; }
-        .user-badge { background: rgba(59,130,246,0.15); color: #60a5fa; padding: 6px 12px; border-radius: 99px; font-weight: 800; font-size: 12px; border: 1px solid rgba(59,130,246,0.3); }
 
         .section-title { font-size: 13px; font-weight: 900; letter-spacing: 1px; color: rgba(255,255,255,0.5); margin-bottom: 12px; margin-left: 4px; }
         
