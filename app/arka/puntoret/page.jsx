@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -13,6 +13,8 @@ function onlyDigits(v) { return String(v || "").replace(/\D/g, ""); }
 function safeUpper(v, fallback = "") { return String(v || "").trim().toUpperCase() || fallback; }
 function shortDevice(did) { return String(did || "").split("-")[0] + "..."; }
 
+const ALLOWED_DEVICE_ACTIONS = new Set(["approve", "revoke", "list", "create_user_and_approve"]);
+
 export default function StaffAndDevicesDashboard() {
   const router = useRouter();
   const [actor, setActor] = useState(null);
@@ -23,6 +25,15 @@ export default function StaffAndDevicesDashboard() {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
+
+  const pendingSorted = useMemo(() => {
+    return [...pending].sort((a, b) => {
+      const aKnown = a?.tepiha_users?.name ? 1 : 0;
+      const bKnown = b?.tepiha_users?.name ? 1 : 0;
+      if (aKnown !== bKnown) return bKnown - aKnown;
+      return String(b?.created_at || "").localeCompare(String(a?.created_at || ""));
+    });
+  }, [pending]);
 
   // Edit/Create Staff Form
   const [editingId, setEditingId] = useState(null);
@@ -41,6 +52,10 @@ export default function StaffAndDevicesDashboard() {
   }, []);
 
   async function api(action, payload = {}) {
+    if (!ALLOWED_DEVICE_ACTIONS.has(action)) {
+      alert("ACTION NUK LEJOHET: " + String(action || ""));
+      return null;
+    }
     const pinToUse = payload.master_pin || masterPin;
     if (!pinToUse) {
       alert("Ju lutem vendosni Master PIN-in e Adminit lart!");
@@ -221,10 +236,10 @@ export default function StaffAndDevicesDashboard() {
                 {pending.length === 0 ? (
                   <div className="empty-state">Nuk ka asnjë pajisje të re që pret aprovim.</div>
                 ) : (
-                  pending.map(d => {
+                  pendingSorted.map(d => {
                     const isKnown = !!d.tepiha_users?.name;
                     return (
-                      <div key={d.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
+                      <div key={d.device_id || d.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
                         <div className="item-info" style={{ width: '100%' }}>
                           <span className="badge badge-orange">E RE</span>
                           <div style={{ flex: 1 }}>

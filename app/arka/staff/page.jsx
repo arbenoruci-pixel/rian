@@ -35,6 +35,7 @@ export default function ArkaStaffPage() {
 
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ name: "", role: "PUNTOR", pin: "", is_active: true });
+  const [pinModal, setPinModal] = useState({ open: false, row: null, pin: "" });
 
   useEffect(() => {
     const u = jparse(localStorage.getItem("CURRENT_USER_DATA"), null);
@@ -138,14 +139,19 @@ export default function ArkaStaffPage() {
     await reload();
   }
 
-  async function changePin(row) {
+  function changePin(row) {
     if (!canManage) return;
-    const p = onlyDigits(prompt(`PIN I RI për ${row.name}? (4 shifra):`, ""));
-    if (!p) return;
+    setPinModal({ open: true, row, pin: "" });
+  }
+
+  async function savePinChange() {
+    if (!canManage || !pinModal?.row?.id) return;
+    const p = onlyDigits(pinModal.pin);
     if (p.length < 4) return alert("PIN PREJ 4 SHIFRAVE OBLIGATIV");
-    const { error } = await supabase.from("users").update({ pin: p }).eq("id", row.id);
+    const { error } = await supabase.from("users").update({ pin: p }).eq("id", pinModal.row.id);
     if (error) return alert("ERROR: " + String(error?.message || error));
     await reload();
+    setPinModal({ open: false, row: null, pin: "" });
     alert("✅ PIN U NDRYSHUA");
   }
 
@@ -320,7 +326,31 @@ export default function ArkaStaffPage() {
           </div>
 
         </div>
-      </div>
+      {pinModal.open ? (
+        <div className="pinModalBackdrop">
+          <div className="pinModal">
+            <div className="panelHead">
+              <span className="panelTitle">NDRYSHO PIN</span>
+              <button onClick={() => setPinModal({ open: false, row: null, pin: "" })} className="cancelBtn">ANULO</button>
+            </div>
+            <div className="panelBody">
+              <div className="field">
+                <label className="label">PIN I RI PËR {String(pinModal?.row?.name || '').toUpperCase()}</label>
+                <input
+                  className="input"
+                  type="password"
+                  value={pinModal.pin}
+                  onChange={(e) => setPinModal((s) => ({ ...s, pin: onlyDigits(e.target.value) }))}
+                  placeholder="****"
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                />
+              </div>
+              <button onClick={savePinChange} className="saveBtn">RUAJ PIN-IN</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <style jsx>{`
         .pageContainer { min-height:100vh; background:#000; color:#eee; padding:20px; font-family:sans-serif; text-transform:uppercase; }
@@ -393,6 +423,8 @@ export default function ArkaStaffPage() {
         .userMeta { display:flex; gap:6px; }
         .roleTag { background:#222; color:#888; font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700; }
         .pinTag { border:1px solid #222; color:#555; font-size:9px; padding:1px 6px; border-radius:4px; font-weight:700; }
+        .pinModalBackdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 80; }
+        .pinModal { width: min(420px, 100%); background: #fff; border: 1px solid #e5e7eb; border-radius: 18px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,0.28); }
 
         /* BUTTONS ACTIONS */
         .userActions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }

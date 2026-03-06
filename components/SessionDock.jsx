@@ -23,39 +23,24 @@ export default function SessionDock() {
   React.useEffect(() => {
     setUser(readUser());
 
-    const onStorage = () => setUser(readUser());
-    window.addEventListener('storage', onStorage);
-
-    const onFocus = () => setUser(readUser());
-    window.addEventListener('focus', onFocus);
-
+    const refresh = () => setUser(readUser());
+    window.addEventListener('storage', refresh);
+    window.addEventListener('focus', refresh);
     return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('focus', refresh);
     };
   }, []);
 
   if (pathname !== '/') return null;
-  if (!user) return null;
 
-  const displayName =
-    String(user?.name || user?.username || user?.full_name || 'PËRDORUES')
-      .trim()
-      .split(' ')[0]
-      .toUpperCase();
+  const displayName = String(user?.name || user?.username || 'DOC')
+    .trim()
+    .split(' ')[0]
+    .toUpperCase();
 
   function openDoctor() {
     router.push('/doctor');
-  }
-
-  function logout() {
-    try {
-      localStorage.removeItem('CURRENT_USER_DATA');
-      localStorage.removeItem('tepiha_user');
-      localStorage.removeItem('user');
-      localStorage.removeItem('session');
-    } catch {}
-    router.push('/login');
   }
 
   return (
@@ -63,98 +48,71 @@ export default function SessionDock() {
       style={{
         position: 'fixed',
         left: '50%',
-        bottom: 10,
+        bottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
         transform: 'translateX(-50%)',
         zIndex: 9999,
-        pointerEvents: 'none',
       }}
     >
-      <div
+      <button
+        type="button"
+        onClick={openDoctor}
+        aria-label="Open doctor"
         style={{
-          pointerEvents: 'auto',
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 4,
-          background: 'rgba(15,15,15,0.96)',
+          gap: 6,
           border: '1px solid rgba(255,255,255,0.12)',
           borderRadius: 999,
-          padding: '4px 6px',
-          boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
+          background: 'rgba(12,12,14,0.92)',
+          color: '#fff',
+          padding: '7px 10px',
+          boxShadow: '0 10px 24px rgba(0,0,0,0.32)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          cursor: 'pointer',
         }}
       >
-        <button
-          type="button"
-          onClick={openDoctor}
-          aria-label="Profili"
+        <span
           style={{
-            width: 22,
-            height: 22,
-            minWidth: 22,
-            borderRadius: '999px',
-            border: '1px solid rgba(255,255,255,0.12)',
-            background: '#1c1c1e',
-            color: '#fff',
+            width: 18,
+            height: 18,
+            minWidth: 18,
+            borderRadius: 999,
             display: 'grid',
             placeItems: 'center',
-            fontSize: 11,
+            background: 'rgba(255,255,255,0.08)',
+            fontSize: 10,
             lineHeight: 1,
-            cursor: 'pointer',
-            padding: 0,
           }}
         >
           👤
-        </button>
-
-        <button
-          type="button"
-          onClick={openDoctor}
+        </span>
+        <span
           style={{
-            border: 0,
-            background: 'transparent',
-            color: '#f5f5f5',
             fontSize: 10,
-            fontWeight: 600,
-            letterSpacing: '0.04em',
-            lineHeight: 1,
-            padding: '0 2px',
-            cursor: 'pointer',
+            fontWeight: 800,
+            letterSpacing: '0.08em',
             textTransform: 'uppercase',
             whiteSpace: 'nowrap',
+            maxWidth: 92,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
           }}
         >
           {displayName}
-        </button>
-
-        <div
+        </span>
+        <span
           style={{
-            width: 1,
-            height: 12,
-            background: 'rgba(255,255,255,0.12)',
-            margin: '0 1px',
-          }}
-        />
-
-        <button
-          type="button"
-          onClick={logout}
-          style={{
-            border: '1px solid rgba(255,255,255,0.12)',
-            background: '#111',
-            color: '#fff',
-            borderRadius: 999,
-            fontSize: 10,
-            fontWeight: 700,
-            lineHeight: 1,
-            padding: '4px 7px',
-            cursor: 'pointer',
+            fontSize: 9,
+            fontWeight: 900,
+            letterSpacing: '0.1em',
             textTransform: 'uppercase',
+            color: '#93c5fd',
           }}
         >
-          DIL
-        </button>
-      </div>
+          DOC
+        </span>
+      </button>
     </div>
   );
 }
