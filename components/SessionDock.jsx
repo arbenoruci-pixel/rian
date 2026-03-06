@@ -65,23 +65,48 @@ export default function SessionDock() {
       ref={menuRef}
       style={{
         position: 'fixed',
-        left: '50%',
-        bottom: 'calc(15px + env(safe-area-inset-bottom, 0px))',
-        transform: 'translateX(-50%)',
+        top: 'calc(20px + env(safe-area-inset-top, 0px))',
+        right: '16px',
         zIndex: 9999,
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'center',
+        alignItems: 'flex-end', // E mban rrethin dhe menunë të ngjitura në të djathtë
       }}
     >
-      {/* KARTELA QE HAPET SIPËR */}
+      {/* RRETHI (PULLA) LART DJATHTAS */}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        style={{
+          width: '44px',
+          height: '44px',
+          borderRadius: '50%',
+          background: isOpen ? '#2563eb' : 'rgba(255,255,255,0.08)',
+          border: isOpen ? '2px solid #60a5fa' : '1px solid rgba(255,255,255,0.15)',
+          color: '#fff',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          fontSize: '20px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          transform: isOpen ? 'scale(1.05)' : 'scale(1)'
+        }}
+      >
+        👤
+      </button>
+
+      {/* KARTELA QE HAPET POSHTË RRETHIT */}
       {isOpen && (
         <div style={{
+          marginTop: '12px',
           background: 'rgba(15, 23, 42, 0.95)',
           border: '1px solid rgba(255,255,255,0.1)',
           borderRadius: '16px',
           padding: '16px',
-          marginBottom: '12px',
           width: '220px',
           boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
           backdropFilter: 'blur(10px)',
@@ -89,7 +114,8 @@ export default function SessionDock() {
           display: 'flex',
           flexDirection: 'column',
           gap: '12px',
-          animation: 'fadeIn 0.2s ease-out'
+          animation: 'fadeInMenu 0.2s ease-out',
+          transformOrigin: 'top right'
         }}>
           <div style={{ textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
             <div style={{ fontSize: '14px', fontWeight: '900', color: '#fff', letterSpacing: '0.05em' }}>{fullName}</div>
@@ -137,36 +163,10 @@ export default function SessionDock() {
           </button>
         </div>
       )}
-
-      {/* RRETHI (PULLA) POSHTË */}
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        style={{
-          width: '48px',
-          height: '48px',
-          borderRadius: '50%',
-          background: isOpen ? '#2563eb' : 'rgba(12,12,14,0.92)',
-          border: isOpen ? '2px solid #60a5fa' : '1px solid rgba(255,255,255,0.15)',
-          color: '#fff',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          fontSize: '22px',
-          boxShadow: '0 10px 24px rgba(0,0,0,0.32)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          transform: isOpen ? 'scale(1.05)' : 'scale(1)'
-        }}
-      >
-        👤
-      </button>
       
       <style dangerouslySetInnerHTML={{__html: `
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px) scale(0.95); }
+        @keyframes fadeInMenu {
+          from { opacity: 0; transform: translateY(-10px) scale(0.95); }
           to { opacity: 1; transform: translateY(0) scale(1); }
         }
       `}} />
