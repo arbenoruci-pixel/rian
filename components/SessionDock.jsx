@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
@@ -13,8 +12,7 @@ function readSession() {
     if (raw) {
       const s = JSON.parse(raw);
       const u = s?.user || null;
-      const exp = Number(s?.expiresAt || 0);
-      if (u) return u; // no expiry
+      if (u) return u;
     }
   } catch {}
   try {
@@ -30,7 +28,6 @@ export default function SessionDock() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    // Keep it fresh when user logs in/out in another tab.
     const tick = () => setUser(readSession());
     tick();
     const id = setInterval(tick, 1000);
@@ -58,12 +55,17 @@ export default function SessionDock() {
     } catch {}
     setUser(null);
     try {
-      if (pathname !== '/login') router.replace('/login');
+      router.replace('/login');
     } catch {}
   }
 
-  // Do not show inside /login.
-  if (pathname === '/login' || pathname === '/transport/login') return null;
+  function openDoctor() {
+    try {
+      router.push('/doctor');
+    } catch {}
+  }
+
+  if (pathname !== '/') return null;
 
   return (
     <div
@@ -93,7 +95,21 @@ export default function SessionDock() {
           pointerEvents: 'auto',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <button
+          type="button"
+          onClick={openDoctor}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            minWidth: 0,
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            color: 'inherit',
+            cursor: 'pointer',
+          }}
+        >
           <div
             aria-hidden
             style={{
@@ -109,7 +125,7 @@ export default function SessionDock() {
           >
             👤
           </div>
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, textAlign: 'left' }}>
             <div style={{ fontWeight: 800, letterSpacing: 1, fontSize: 12, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {label}
             </div>
@@ -117,45 +133,47 @@ export default function SessionDock() {
               {navigator.onLine === false ? 'OFFLINE' : 'ONLINE'}
             </div>
           </div>
-        </div>
+        </button>
 
-        <div style={{ display: 'flex', gap: 8, flex: '0 0 auto' }}>
-          {!user ? (
-            <Link
-              href="/login"
-              style={{
-                padding: '8px 10px',
-                borderRadius: 999,
-                background: 'rgba(255,255,255,0.95)',
-                color: '#000',
-                fontWeight: 900,
-                fontSize: 10,
-                letterSpacing: 1,
-                textTransform: 'uppercase',
-              }}
-            >
-              HYJ
-            </Link>
-          ) : (
-            <button
-              type="button"
-              onClick={doLogout}
-              style={{
-                padding: '8px 10px',
-                borderRadius: 999,
-                background: 'rgba(255,70,70,0.14)',
-                color: '#ffb3b3',
-                border: '1px solid rgba(255,70,70,0.25)',
-                fontWeight: 900,
-                fontSize: 10,
-                letterSpacing: 1,
-                textTransform: 'uppercase',
-              }}
-            >
-              DIL
-            </button>
-          )}
-        </div>
+        {!user ? (
+          <button
+            type="button"
+            onClick={() => router.push('/login')}
+            style={{
+              padding: '8px 10px',
+              borderRadius: 999,
+              background: 'rgba(255,255,255,0.95)',
+              color: '#000',
+              border: 'none',
+              fontWeight: 900,
+              fontSize: 10,
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+            }}
+          >
+            HYJ
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={doLogout}
+            style={{
+              padding: '8px 10px',
+              borderRadius: 999,
+              background: 'rgba(255,70,70,0.14)',
+              color: '#ffb3b3',
+              border: '1px solid rgba(255,70,70,0.25)',
+              fontWeight: 900,
+              fontSize: 10,
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+            }}
+          >
+            DIL
+          </button>
+        )}
       </div>
     </div>
   );

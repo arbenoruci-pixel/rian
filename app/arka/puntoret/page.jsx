@@ -178,6 +178,7 @@ export default function StaffAndDevicesDashboard() {
           <div className="flex-between">
             <div>
               <h1 className="title">MENAXHIMI I STAFIT</h1>
+              <p className="subtitle">Mirësevini, {actor?.name} ({actor?.role})</p>
             </div>
             <Link href="/arka" className="btn-outline">KTHEHU NË ARKË</Link>
           </div>
@@ -186,7 +187,8 @@ export default function StaffAndDevicesDashboard() {
             <div className="pinInfo">
               <span className="icon">🔒</span>
               <div>
-                <strong>MASTER PIN</strong>
+                <strong>Master PIN i Mjeshtrit</strong>
+                <p>E domosdoshme për të aprovuar pajisje.</p>
               </div>
             </div>
             <div className="pinInputGroup">
@@ -232,6 +234,7 @@ export default function StaffAndDevicesDashboard() {
                             </p>
                             {!isKnown && (
                                 <p style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '600' }}>
+                                    *Kjo pajisje nuk e ka shkruar ende PIN-in e saktë.
                                 </p>
                             )}
                           </div>
@@ -278,7 +281,7 @@ export default function StaffAndDevicesDashboard() {
                   <div className="grid-2">
                     <div className="field">
                       <label>Emri</label>
-                      <input className="input" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
+                      <input className="input" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} placeholder="Emri Mbiemri" />
                     </div>
                     <div className="field">
                       <label>Roli</label>
@@ -289,11 +292,10 @@ export default function StaffAndDevicesDashboard() {
                   </div>
                   <div className="grid-2 align-center">
                     <div className="field">
-                      <label>PIN</label>
+                      <label>{editingId === 'NEW' ? 'PIN (Obligative, 4+ numra)' : 'Ndrysho PIN (Opsionale)'}</label>
                       <input 
                         className="input" 
-                        type="password"
-                        placeholder="****" 
+                        placeholder={editingId === 'NEW' ? "****" : "Lëre bosh për të mos ndryshuar"} 
                         value={editForm.pin} 
                         onChange={e => setEditForm({...editForm, pin: onlyDigits(e.target.value)})} 
                       />
