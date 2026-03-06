@@ -137,13 +137,13 @@ export default function CashClient() {
   const [cashCounted, setCashCounted] = useState("");
   const [closeReason, setCloseReason] = useState("");
 
-  // Pending cash payments (non-blocking)
+  // Pending cash payments
   const [pendingPays, setPendingPays] = useState([]);
   const [pendingModal, setPendingModal] = useState(false);
   const [pendingBusy, setPendingBusy] = useState(false);
   const [pendingRejectNote, setPendingRejectNote] = useState("");
 
-  // Worker OWED (when ARKA closed and DISPATCH marked BORXH)
+  // Worker OWED
   const [owedPays, setOwedPays] = useState([]);
   const [owedModal, setOwedModal] = useState(false);
   const [owedBusy, setOwedBusy] = useState(false);
@@ -209,7 +209,6 @@ export default function CashClient() {
         setPendingPays([]);
       }
 
-      // If a worker has OWED items (DISPATCH marked BORXH), show worker confirmation popup
       if (user?.name) {
         try {
           const ow = await listWorkerOwedPayments(user.name, 80);
@@ -306,9 +305,7 @@ export default function CashClient() {
             external_id: opened?.id ? `arka_open_${opened.id}` : null,
           });
         }
-      } catch {
-        // non-blocking
-      }
+      } catch {}
 
       setOpenModal(false);
       await refresh();
@@ -369,9 +366,7 @@ export default function CashClient() {
             ref_type: 'ARKA_CYCLE',
             external_id: `arka_manual_${cycle?.id || 'x'}_${Date.now()}`,
           });
-        } catch {
-          // non-blocking
-        }
+        } catch {}
       }
       setMoveAmount("");
       setMoveNote("");
@@ -536,7 +531,6 @@ export default function CashClient() {
     }
   }
 
-
   return (
     <div style={{ padding: 16 }}>
       {/* Tabs */}
@@ -594,9 +588,6 @@ export default function CashClient() {
                   <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>CARRYOVER</div>
                   <div style={{ marginTop: 6, fontWeight: 950 }}>
                     {euro(carry.carry_cash)} · {String(carry.carry_source || "COMPANY").toUpperCase()}
-                    {String(carry.carry_source || "").toUpperCase() === "PERSONAL" && carry.carry_person_pin ? (
-                      <></>
-                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -659,9 +650,6 @@ export default function CashClient() {
                 <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>STATUS: {cycle.handoff_status}</div>
                 <div style={{ marginTop: 6, fontWeight: 950, letterSpacing: 1.5 }}>
                   FILLIMI: {euro(cycle.opening_cash)} · {String(cycle.opening_source || "").toUpperCase()}
-                  {String(cycle.opening_source || "").toUpperCase() === "PERSONAL" && cycle.opening_person_pin ? (
-                    <></>
-                  ) : null}
                 </div>
               </div>
 
@@ -724,39 +712,70 @@ export default function CashClient() {
                 </button>
               </div>
 
+              {/* KËTU FILLON DIZAJNI I RI I KARTELAVE TË LËVIZJEVE */}
               <div style={{ border: "1px solid rgba(255,255,255,0.15)", borderRadius: 14, padding: 12 }}>
-                <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>LËVIZJET</div>
+                <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>LËVIZJET E ARKËS</div>
                 {moves?.length ? (
-                  <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                    {moves.map((m) => (
-                      <div
-                        key={m.id}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          border: "1px solid rgba(255,255,255,0.10)",
-                          borderRadius: 12,
-                          padding: 10,
-                        }}
-                      >
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={{ fontWeight: 950, letterSpacing: 1 }}>
-                            {String(m.type || "").toUpperCase()}
-                            {m.note ? <span style={{ opacity: 0.8, letterSpacing: 0.5 }}> · {m.note}</span> : null}
-                          </div>
-                          {/* KETU SHTUAM EMRIN E PUNTORIT NË ARKË */}
-                          {(m.created_by_name || m.created_by) ? (
-                            <div style={{ fontSize: 11, color: '#60a5fa', fontWeight: 900, letterSpacing: 1 }}>
-                              👤 NGA: {String(m.created_by_name || m.created_by).toUpperCase()}
+                  <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                    {moves.map((m) => {
+                      const isIN = m.type === 'IN';
+                      const executorName = String(m.created_by_name || m.created_by || "SISTEMI / I PANJOHUR").toUpperCase();
+                      
+                      return (
+                        <div
+                          key={m.id}
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 8,
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            background: "rgba(255,255,255,0.03)",
+                            borderRadius: 12,
+                            padding: 12,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{
+                                background: isIN ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                color: isIN ? '#34d399' : '#f87171',
+                                padding: '4px 8px',
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 900,
+                                letterSpacing: 1
+                              }}>
+                                {String(m.type || "").toUpperCase()}
+                              </span>
+                              <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.8, letterSpacing: 0.5 }}>
+                                {m.source === 'ORDER_PAY' ? 'PAGESË POROSIE' : 'LËVIZJE MANUALE'}
+                              </span>
                             </div>
-                          ) : null}
+                            <div style={{ fontWeight: 900, fontSize: 16, color: isIN ? '#34d399' : '#f87171' }}>
+                              {isIN ? '+' : '-'}{euro(m.amount)}
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: 13, opacity: 0.9, lineHeight: 1.4, fontWeight: 600 }}>
+                            📝 {m.note || 'Pa shënim'}
+                          </div>
+
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, paddingTop: 8, borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
+                            <div style={{ fontSize: 11, color: '#60a5fa', fontWeight: 900, letterSpacing: 0.5 }}>
+                              👤 NGA: {executorName}
+                            </div>
+                            {m.created_at && (
+                              <div style={{ fontSize: 10, opacity: 0.5, fontWeight: 700 }}>
+                                {new Date(m.created_at).toLocaleTimeString('sq-AL', { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ fontWeight: 950, fontSize: 16 }}>{euro(m.amount)}</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
-                  <div style={{ opacity: 0.75, marginTop: 8 }}>S’KA LËVIZJE.</div>
+                  <div style={{ opacity: 0.75, marginTop: 12, fontWeight: 600, fontSize: 13 }}>S’KA ASNJË LËVIZJE SOT.</div>
                 )}
               </div>
 
