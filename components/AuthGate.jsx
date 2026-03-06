@@ -1,4 +1,4 @@
-use client";
+"use client";
 
 import React, { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -127,33 +127,41 @@ export default function AuthGate({ children }) {
     let cancelled = false;
 
     async function verifyUnifiedApproval() {
-      setCheckingDevice(true);
+      const currentActor = readStoredUser() || actor || {};
+      const pin = String(currentActor?.pin || "").trim();
+      const role = String(currentActor?.role || userRole || "").trim().toUpperCase();
+      const isOffline = typeof navigator !== "undefined" && navigator && navigator.onLine === false;
+
+      if (!pin || !currentDeviceId) {
+        if (!mountedRef.current || cancelled) return;
+        setDeviceApproved(false);
+        setCheckingDevice(false);
+        setReady(true);
+        return;
+      }
+
+      // KONTROLLI LOKAL (Eviton Flash-in)
+      const localCheck = canLoginOffline({ pin, role, deviceId: currentDeviceId });
+      if (localCheck.ok) {
+        approvedRef.current = true;
+        setDeviceApproved(true);
+        setReady(true);
+        setCheckingDevice(false); // E kalon direkt pa ekran te zi
+      } else if (!isOffline) {
+        setCheckingDevice(true); // Vetem nese s'e njohim fare e shfaqim
+      }
+
+      if (isOffline) {
+        if (!mountedRef.current || cancelled) return;
+        approvedRef.current = !!localCheck.ok;
+        setDeviceApproved(!!localCheck.ok);
+        setCheckingDevice(false);
+        setOfflineNoUser(false);
+        setReady(true);
+        return;
+      }
+
       try {
-        const currentActor = readStoredUser() || actor || {};
-        const pin = String(currentActor?.pin || "").trim();
-        const role = String(currentActor?.role || userRole || "").trim().toUpperCase();
-        const isOffline = typeof navigator !== "undefined" && navigator && navigator.onLine === false;
-
-        if (!pin || !currentDeviceId) {
-          if (!mountedRef.current || cancelled) return;
-          setDeviceApproved(false);
-          setCheckingDevice(false);
-          setReady(true);
-          return;
-        }
-
-        if (isOffline) {
-          const offline = canLoginOffline({ pin, role, deviceId: currentDeviceId });
-          if (!mountedRef.current || cancelled) return;
-          approvedRef.current = !!offline.ok;
-        approvedRef.current = !!offline.ok;
-        setDeviceApproved(!!offline.ok);
-          setCheckingDevice(false);
-          setOfflineNoUser(false);
-          setReady(true);
-          return;
-        }
-
         const res = await fetch('/api/auth/device-status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -174,18 +182,19 @@ export default function AuthGate({ children }) {
         setOfflineNoUser(false);
         setReady(true);
       } catch {
-        const currentActor = readStoredUser() || actor || {};
-        const pin = String(currentActor?.pin || "").trim();
-        const role = String(currentActor?.role || userRole || "").trim().toUpperCase();
-        const offline = canLoginOffline({ pin, role, deviceId: currentDeviceId });
         if (!mountedRef.current || cancelled) return;
-        setDeviceApproved(!!offline.ok);
+        setDeviceApproved(!!localCheck.ok);
         setCheckingDevice(false);
         setReady(true);
       }
     }
 
-    verifyUnifiedApproval();
+    // Mos e bej flash nese tashme jemi te aprovuar
+    if (approvedRef.current !== true) {
+      verifyUnifiedApproval();
+    } else {
+      setReady(true);
+    }
 
     const intervalId = window.setInterval(() => {
       if (!mountedRef.current || cancelled) return;
