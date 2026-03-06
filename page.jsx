@@ -1,1188 +1,358 @@
-// app/gati/page.jsx
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { recordOrderCashPayment } from '@/components/payments/payService';
-import { saveOrderToDb, updateOrderInDb } from '@/lib/ordersDb';
+import { ensureBasePool, getActorPin } from '@/lib/baseCodes';
 
-function readActor() {
-  try {
-    const raw = localStorage.getItem('CURRENT_USER_DATA');
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+function onlyDigits(v){ return String(v ?? '').replace(/\D+/g,''); }
+function normCode(v){
+  const s = String(v ?? '').trim();
+  if (!s) return { kind:'', raw:'' };
+  if (/^t\d+/i.test(s)) return { kind:'T', raw:'T'+onlyDigits(s) };
+  return { kind:'B', raw: onlyDigits(s) };
 }
 
-const BUCKET = 'tepiha-photos';
-
-// PAGESA CHIPS
-const PAY_CHIPS = [5, 10, 20, 30, 50];
-
-// ---------------- HELPERS ----------------
-function normalizeCode(raw) {
-  if (!raw) return '';
-  const s = String(raw).trim();
-  // Preserve TRANSPORT codes (T123)
-  if (/^t\d+/i.test(s)) {
-    const n = s.replace(/\D+/g, '').replace(/^0+/, '');
-    return `T${n || '0'}`;
-  }
-  const n = s.replace(/\D+/g, '').replace(/^0+/, '');
-  return n || '0';
+function routeForStatus(status){
+  const s = String(status||'').toLowerCase();
+  if (s === 'pastrim') return '/pastrimi';
+  if (s === 'gati') return '/gati';
+  if (s === 'dorzim' || s === 'dorzuar') return '/marrje-sot';
+  return '/pastrimi';
 }
 
-function codeToNumber(raw) {
-  const s = String(raw ?? '').trim();
-  const n = Number(s.replace(/\D+/g, '').replace(/^0+/, '') || 0);
-  return Number.isFinite(n) ? n : NaN;
+function getStatusStyle(status) {
+  const s = String(status||'').toLowerCase();
+  if (s === 'gati') return { background: 'rgba(16, 185, 129, 0.15)', color: '#4ade80', border: '1px solid rgba(16, 185, 129, 0.3)' };
+  if (s === 'pastrim') return { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' };
+  if (s === 'dorzim' || s === 'dorzuar') return { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' };
+  return { background: 'rgba(255,255,255,0.05)', color: '#aaa', border: '1px solid rgba(255,255,255,0.1)' };
 }
 
-function sanitizePhone(phone) {
-  return String(phone || '').replace(/[^\d+]+/g, '');
-}
-
-function computeM2(order) {
-  if (!order) return 0;
-  let total = 0;
-  if (Array.isArray(order.tepiha)) {
-    for (const r of order.tepiha) total += (Number(r.m2) || 0) * (Number(r.qty) || 0);
-  }
-  if (Array.isArray(order.staza)) {
-    for (const r of order.staza) total += (Number(r.m2) || 0) * (Number(r.qty) || 0);
-  }
-  if (order.shkallore) total += (Number(order.shkallore.qty) || 0) * (Number(order.shkallore.per) || 0);
-  return Number(total.toFixed(2));
-}
-
-function computeTotalEuro(order) {
-  if (!order) return 0;
-  if (order.pay && typeof order.pay.euro === 'number') return Number(order.pay.euro) || 0;
-  const m2 = computeM2(order);
-  const rate = Number(order.pay?.rate || 0);
-  return Number((m2 * rate).toFixed(2));
-}
-
-const round2 = (n) => {
-  const num = Number(n || 0);
-  return Math.round((num + Number.EPSILON) * 100) / 100;
-};
-
-
-function computePieces(order) {
-  const tCope = order?.tepiha?.reduce((a, b) => a + (Number(b.qty) || 0), 0) || 0;
-  const sCope = order?.staza?.reduce((a, b) => a + (Number(b.qty) || 0), 0) || 0;
-  const shk = Number(order?.shkallore?.qty) > 0 ? 1 : 0;
+// Llogarit sa tepihë ka brenda porosisë
+function computePieces(orderData) {
+  if (!orderData) return 0;
+  const t = Array.isArray(orderData.tepiha) ? orderData.tepiha : (Array.isArray(orderData.tepihaRows) ? orderData.tepihaRows : []);
+  const s = Array.isArray(orderData.staza) ? orderData.staza : (Array.isArray(orderData.stazaRows) ? orderData.stazaRows : []);
+  const tCope = t.reduce((a, b) => a + (Number(b.qty ?? b.pieces) || 0), 0);
+  const sCope = s.reduce((a, b) => a + (Number(b.qty ?? b.pieces) || 0), 0);
+  const shk = Number(orderData.shkallore?.qty) > 0 ? 1 : 0;
   return tCope + sCope + shk;
 }
 
-function daysSince(ts) {
-  const a = new Date(ts || Date.now());
-  const b = new Date();
-  const startA = new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime();
-  const startB = new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime();
-  return Math.floor((startB - startA) / (24 * 60 * 60 * 1000));
+async function fetchTransporterNameByPin(pin){
+  try{
+    const p = onlyDigits(pin);
+    if(!p) return '';
+    const { data, error } = await supabase
+      .from('tepiha_users')
+      .select('name,pin')
+      .eq('pin', p)
+      .limit(1);
+    if(error) return '';
+    const row = Array.isArray(data) ? data[0] : (data || null);
+    return String(row?.name || row?.pin || '');
+  }catch{
+    return '';
+  }
 }
 
-function badgeColorByAge(ts) {
-  const d = daysSince(ts);
-  if (d <= 0) return '#16a34a'; // green (today)
-  if (d === 1) return '#f59e0b'; // orange (day 1)
-  return '#dc2626'; // red (day 2+)
-}
-
-/**
- * ✅ IMPORTANT: download JSON no-cache (prevents stale reads)
- */
-async function downloadJsonNoCache(path) {
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
-  if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
-  const res = await fetch(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Fetch failed');
-  return await res.json();
-}
-
-async function uploadPhoto(file, oid, key) {
-  if (!file || !oid) return null;
-  const ext = file.name.split('.').pop() || 'jpg';
-  const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
-  if (error) throw error;
-  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
-  return pub?.publicUrl || null;
-}
-
-// ---------------- COMPONENT ----------------
-export default function GatiPage() {
-  const holdTimer = useRef(null);
-  const holdFired = useRef(false);
-
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-
-  // payment sheet
-  const [showPaySheet, setShowPaySheet] = useState(false);
-  const [payOrder, setPayOrder] = useState(null); // { id, order, code, name, phone, total, paid, arkaRecordedPaid, paidUpfront, m2 }
-  const [payAdd, setPayAdd] = useState(0);
-  const [payMethod, setPayMethod] = useState('CASH');
-  const [payBusy, setPayBusy] = useState(false);
-  const [payErr, setPayErr] = useState('');
-
-  // return hidden sheet
-  const [showReturnSheet, setShowReturnSheet] = useState(false);
-  const [retOrder, setRetOrder] = useState(null);
-  const [retReason, setRetReason] = useState('');
-  const [retNote, setRetNote] = useState('');
-  const [retPhotoUrl, setRetPhotoUrl] = useState('');
-  const [photoUploading, setPhotoUploading] = useState(false);
+export default function HomePage() {
+  const router = useRouter();
 
   useEffect(() => {
-    refreshOrders();
-    return () => {
-      if (holdTimer.current) clearTimeout(holdTimer.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    try {
+      const pin = getActorPin();
+      void ensureBasePool(pin, 20);
+    } catch {}
   }, []);
 
-  async function dbFetchOrderById(idNum) {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('id,status,ready_at,picked_up_at,created_at,data')
-      .eq('id', Number(idNum))
-      .single();
-    if (error || !data) throw error || new Error('ORDER_NOT_FOUND');
+  const [q, setQ] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+  const [results, setResults] = useState([]);
 
-    const order = { ...(data.data || {}) };
-    order.id = String(data.id);
-    order.status = data.status;
+  const parsed = useMemo(() => normCode(q), [q]);
 
-    return { row: data, order };
-  }
+  async function runSearch(e){
+    e?.preventDefault?.();
+    setErr('');
+    setResults([]);
 
-  async function refreshOrders() {
+    const qRaw = String(q || '').trim();
+    const qLower = qRaw.toLowerCase();
+    
+    if (qLower === 'doctor' || qLower === '/doctor') {
+      router.push('/doctor');
+      return;
+    }
+    if (qLower === 'offline' || qLower === '/offline' || qLower === 'offline.html' || qLower === '/offline.html') {
+      router.push('/offline.html');
+      return;
+    }
+
+    const kind = parsed.kind;
+    const raw = parsed.raw;
+
+    if(!raw){
+      setErr('SHKRUAJ KODIN (p.sh. 3 ose T3)');
+      return;
+    }
+
     setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('id,status,ready_at,picked_up_at,created_at,data')
-        .eq('status', 'gati')
-        .order('ready_at', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(500);
+    try{
+      if(kind === 'T'){
+        const tcode = String(raw || '').toUpperCase();
+        const { data, error } = await supabase
+          .from('transport_orders')
+          .select('id,client_tcode,status,transport_id,data,updated_at,created_at')
+          .eq('client_tcode', tcode)
+          .order('updated_at', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(10);
 
-      if (error || !data) {
-        setOrders([]);
+        if(error) throw new Error(error.message);
+
+        const rows = Array.isArray(data) ? data : [];
+        const out = [];
+        for(const r of rows){
+          const transport_id = r?.transport_id ?? r?.data?.transport_id ?? r?.data?.transportId ?? null;
+          const transporter = transport_id ? await fetchTransporterNameByPin(transport_id) : '';
+          const client = r?.data?.client || r?.data?.klienti || {};
+          out.push({
+            kind:'T',
+            code: String(r?.client_tcode || tcode),
+            status: r?.status || '',
+            name: r?.data?.client_name || client?.name || r?.data?.name || '',
+            phone: r?.data?.client_phone || client?.phone || r?.data?.phone || '',
+            transporter,
+            pieces: computePieces(r?.data),
+            id: r?.id || null,
+          });
+        }
+        setResults(out);
         return;
       }
 
-      const list = (data || []).map((row) => {
-        // Supabase JSONB can come back as object OR string (older rows / RPC)
-        let raw = row.data;
-        if (typeof raw === 'string') {
-          try { raw = JSON.parse(raw); } catch { raw = {}; }
-        }
+      const n = Number(raw) || 0;
+      if(!(n>0)){
+        setErr('KOD I PAVLEFSHËM.');
+        return;
+      }
 
-        const order = { ...(raw || {}) };
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id,code,status,client_name,client_phone,data,updated_at')
+        .eq('code', n)
+        .order('updated_at', { ascending: false })
+        .limit(10);
 
-        // Backward-compat: some rows may still use tepihaRows/stazaRows keys
-        if (!Array.isArray(order.tepiha) && Array.isArray(order.tepihaRows)) {
-          order.tepiha = order.tepihaRows.map((r) => ({
-            m2: Number(r?.m2) || 0,
-            qty: Number(r?.qty ?? r?.count ?? r?.copa ?? r?.pieces ?? 0) || 0,
-            photoUrl: r?.photoUrl || r?.photo_url || ''
-          }));
-        }
-        if (!Array.isArray(order.staza) && Array.isArray(order.stazaRows)) {
-          order.staza = order.stazaRows.map((r) => ({
-            m2: Number(r?.m2) || 0,
-            qty: Number(r?.qty ?? r?.count ?? r?.copa ?? r?.pieces ?? 0) || 0,
-            photoUrl: r?.photoUrl || r?.photo_url || ''
-          }));
-        }
-        order.id = String(row.id);
-        order.status = row.status;
+      if(error) throw new Error(error.message);
 
-        // mirror local cache
-        try {
-          const k = `order_${order.id}`;
-          const existing = localStorage.getItem(k);
-          if (!existing) localStorage.setItem(k, JSON.stringify(order));
-        } catch {}
+      const rows = Array.isArray(data) ? data : [];
+      const out = [];
+      for(const r of rows){
+        const transport_id = r?.data?.transport_id ?? r?.data?.transportId ?? null;
+        const transporter = transport_id ? await fetchTransporterNameByPin(transport_id) : '';
+        const createdBy = r?.data?._audit?.created_by_name || r?.data?.created_by_name || r?.data?.created_by || null;
+        
+        out.push({
+          kind:'B',
+          code: String(r?.code ?? n),
+          status: r?.status || '',
+          name: r?.client_name || '',
+          phone: r?.client_phone || '',
+          transporter,
+          createdBy,
+          pieces: computePieces(r?.data),
+          id: r?.id || null,
+        });
+      }
+      setResults(out);
 
-        const m2 = computeM2(order);
-        const total = Number(order.pay?.euro || computeTotalEuro(order));
-        const paid = Number(order.pay?.paid || 0);
-        const cope = computePieces(order);
-
-        const readyTs =
-          (row.ready_at ? Date.parse(row.ready_at) : 0) ||
-          Number(order.ready_at) ||
-          Number(order.readyAt) ||
-          Number(order.ts) ||
-          (row.created_at ? Date.parse(row.created_at) : Date.now());
-
-        return {
-          id: String(order.id),
-          ts: Number(order.ts || 0),
-          readyTs,
-          name: order.client?.name || '',
-          phone: order.client?.phone || '',
-          code: order.client?.code || order.code || '',
-          m2,
-          cope,
-          total,
-          paid,
-          paidUpfront: !!order.pay?.paidUpfront,
-          isReturn: !!order.returnInfo?.active,
-        };
-      });
-
-      // ✅ BASE GATI: mos i shfaq porositë e TRANSPORTIT (kodet T...)
-      const baseOnly = (list || []).filter((r) => {
-        const c = String(r.code || '').trim();
-        return !/^T\d+$/i.test(c);
-      });
-
-      setOrders(baseOnly);
-    } finally {
+    }catch(ex){
+      setErr(String(ex?.message || ex || 'GABIM NE SEARCH'));
+    }finally{
       setLoading(false);
     }
   }
 
-  const totalM2 = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0), [orders]);
-
-  const filtered = useMemo(() => {
-    const q = (search || '').trim().toLowerCase();
-    if (!q) return orders;
-    return orders.filter((o) => {
-      const name = (o.name || '').toLowerCase();
-      const phone = (o.phone || '').toLowerCase();
-      const code = normalizeCode(o.code).toLowerCase();
-      return name.includes(q) || phone.includes(q) || code.includes(q);
-    });
-  }, [orders, search]);
-
-  // ---------------- SMS ----------------
-  function sendPickupSms(row) {
-    const phone = sanitizePhone(row.phone || '');
-    if (!phone) {
-      alert('Nuk ka numër telefoni.');
-      return;
-    }
-
-    const code = normalizeCode(row.code);
-    const paidTxt = row.paidUpfront ? '\n✅ KJO POROSI ËSHTË PAGUAR NË FILLIM.' : '';
-
-    const msg =
-      `Përshëndetje ${row.name || 'klient'}, ` +
-      `porosia juaj${code ? ` (kodi ${code})` : ''} është GATI.\n` +
-      `Keni ${row.cope || 0} copë • ${(Number(row.m2) || 0).toFixed(2)} m².` +
-      `${paidTxt}\n\n` +
-      `Ju lutem ejani sot ose nesër me i marrë tepihat, sepse kemi mungesë të vendit në depo.\nFaleminderit!`;
-
-    window.location.href = `sms:${phone}?&body=${encodeURIComponent(msg)}`;
-  }
-
-  // ---------------- PAY FULLSCREEN ----------------
-  async function openPay(row) {
-    try {
-      // NOTE: On iOS/Safari we often end up with stale localStorage snapshots.
-      // When online, always prefer fresh DB data and overwrite the local cache.
-      let order = null;
-      const isOnline = typeof navigator !== 'undefined' ? !!navigator.onLine : true;
-
-      if (!isOnline) {
-        try {
-          const raw = localStorage.getItem(`order_${row.id}`);
-          if (raw) order = JSON.parse(raw);
-        } catch {
-          order = null;
-        }
-      }
-
-      if (!order) {
-        const res = await dbFetchOrderById(row.id);
-        order = res?.order || null;
-        try {
-          if (order) localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
-        } catch {}
-      }
-      if (!order) {
-        alert('Nuk u gjet porosia.');
-        return;
-      }
-
-      // total can be stored in different places depending on old versions
-      const total =
-        Number(
-          order?.pay?.euro ??
-            order?.pay?.total ??
-            order?.total ??
-            order?.total_eur ??
-            order?.data?.pay?.euro ??
-            order?.data?.total ??
-            computeTotalEuro(order)
-        ) ||
-        Number(row?.total || 0) ||
-        0;
-      const paid = Number(order.pay?.paid || 0) || 0;
-
-      setPayOrder({
-        id: String(row.id),
-        order,
-        // Prefer row fields for display (they are already normalized), fallback to order snapshot
-        code: normalizeCode(row?.code ?? order?.code ?? order?.client?.code ?? order?.client?.code_n ?? null),
-        name: (row?.name ?? order?.client?.name ?? order?.client_name ?? '').trim(),
-        phone: (row?.phone ?? order?.client?.phone ?? order?.client_phone ?? '').trim(),
-        total,
-        paid,
-        arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0,
-        paidUpfront: !!order.pay?.paidUpfront,
-        m2: computeM2(order),
-      });
-      const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
-      setPayAdd(dueNow);
-      setPayMethod('CASH');
-      setShowPaySheet(true);
-    } catch {
-      alert('❌ Gabim gjatë hapjes së pagesës.');
-    }
-  }
-
-  function closePay() {
-    setShowPaySheet(false);
-    setPayOrder(null);
-    setPayAdd(0);
-    setPayMethod('CASH');
-  }
-
-  async function applyPayOnly() {
-    if (!payOrder) return;
-    const actor = readActor();
-    const amountExact = Math.max(0, round2(Number(payDue) || 0));
-    const cashGiven = Math.max(0, round2(Number(payAdd) || 0));
-
-    if (amountExact <= 0) {
-      setShowPaySheet(false);
-      return;
-    }
-    if (cashGiven < amountExact) {
-      alert('KLIENTI DHA MË PAK SE SHUMA. JU LUTEM FUTNI SHUMËN E PLOTË.');
-      return;
-    }
-
-    setPayErr('');
-    setPayBusy(true);
-    try {
-      // Record ONLY the exact remaining amount in system/ARKË
-      await recordOrderCashPayment({
-        supabase,
-        orderId: payOrder.id,
-        amount: amountExact,
-        method: 'CASH',
-        pin: actor?.pin || '2380',
-        meta: { source: 'GATI', mode: 'PAY_ONLY' },
-      });
-
-      // Update order totals
-      const newPaidTotal = round2((Number(payOrder.paid || 0)) + amountExact);
-      await updateOrderInDb({
-        supabase,
-        id: payOrder.id,
-        patch: {
-          paid_total: newPaidTotal,
-          debt: 0,
-          paid_upfront: false,
-          updated_by_pin: actor?.pin || '2380',
-        },
-      });
-
-      // Refresh UI
-      await refreshOrders();
-      setShowPaySheet(false);
-    } catch (e) {
-      console.error(e);
-      setPayErr(e?.message || 'GABIM');
-      alert(e?.message || 'GABIM');
-    } finally {
-      setPayBusy(false);
-    }
-  }
-
-  // ✅ FIXED: removes from GATI + writes picked_up_at to DB for MARRJE SOT (ONLY picked_up_at!)
-  async function confirmDelivery() {
-    if (!payOrder) return;
-    const o = payOrder.order;
-
-    const total = Number(payOrder.total || 0);
-    const paidBefore = Number(payOrder.paid || 0);
-    const cashGiven = Number((Number(payAdd || 0)).toFixed(2));
-    const paidUpfront = !!payOrder.paidUpfront;
-
-    const due = Math.max(0, Number((total - paidBefore).toFixed(2)));
-    const applied = paidUpfront ? due : Number(Math.min(cashGiven, due).toFixed(2));
-
-    const alreadyPaidFull = due <= 0;
-    if (!paidUpfront && !alreadyPaidFull && applied <= 0) {
-      alert('SHUMA NUK VLEN (0 €).');
-      return;
-    }
-
-    const paidAfter = paidUpfront ? Math.max(paidBefore, total) : Number((paidBefore + applied).toFixed(2));
-    const debt = Math.max(0, Number((total - paidAfter).toFixed(2)));
-    const change = paidUpfront ? 0 : Math.max(0, Number((cashGiven - applied).toFixed(2)));
-
-    const prevArka = Number(o.pay?.arkaRecordedPaid || 0);
-    const willRecordCash = payMethod === 'CASH';
-
-    const targetCashRecorded = willRecordCash ? paidAfter : prevArka;
-    const delta = willRecordCash ? Number((targetCashRecorded - prevArka).toFixed(2)) : 0;
-    const safeDelta = Math.max(0, delta);
-    const finalArka = willRecordCash ? Number((prevArka + safeDelta).toFixed(2)) : prevArka;
-
-    // iOS/Safari confirm dialogs are disruptive ("Suppress dialogs").
-    // Keep the flow fast: no confirm popup here.
-
-    const nowIso = new Date().toISOString();
-    const nowMs = Date.now();
-
-    // local snapshot (legacy / storage)
-    const updated = {
-      ...o,
-      status: 'dorzim', // UI + storage flow
-      deliveredAt: nowMs,
-      delivered_at: nowIso,
-      pickedUpAt: nowMs,
-      picked_up_at: nowIso,
-      returnInfo: { ...(o.returnInfo || {}), active: false },
-      pay: {
-        ...(o.pay || {}),
-        m2: payOrder.m2,
-        euro: total,
-        paid: paidAfter,
-        debt,
-        change,
-        method: payMethod,
-        arkaRecordedPaid: finalArka,
-      },
-    };
-
-    // ✅ IMMEDIATE UI REMOVE (string/number safe)
-    const uid = String(updated.id);
-    setOrders((prev) => prev.filter((x) => String(x.id) !== uid));
-
-    // save to localStorage + storage json (best-effort)
-    try {
-      localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
-      const blob =
-        typeof Blob !== 'undefined'
-          ? new Blob([JSON.stringify(updated)], { type: 'application/json' })
-          : null;
-      if (blob) {
-        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
-          upsert: true,
-          cacheControl: '0',
-          contentType: 'application/json',
-        });
-      }
-    } catch (e) {
-      console.log('save storage/local fail', e);
-    }
-
-    // ✅ DB: set status + timestamps via single endpoint, then persist payment snapshot in data
-    try {
-      await fetch('/api/orders/set-status', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: payOrder.id, status: 'dorzim' }),
-      });
-      await supabase
-        .from('orders')
-        .update({ data: { ...updated, status: 'dorzim' }, picked_up_at: nowIso })
-        .eq('id', payOrder.id);
-    } catch (e) {
-      console.log('DB delivery update EX:', e);
-    }
-
-    // Record CASH payment (EXACT delta only). When ARKA is closed, it is stored as WAITING.
-    if (willRecordCash && safeDelta > 0) {
-      try {
-        const actor = readActor();
-
-        // Ensure ARKA pending entries always have CODE + NAME (avoid "# ." rows)
-        const codeNum = normalizeCode(
-          updated.code ?? updated.code_n ?? updated.client?.code ?? updated.client?.code_n ?? null
-        );
-        const clientName = (
-          updated.client_name ?? updated.client?.name ?? updated.client?.client_name ?? ''
-        ).trim();
-        const mode = paidUpfront ? 'paid_upfront_delta' : 'delivery_cash_delta';
-
-        await recordOrderCashPayment({
-          supabase,
-          orderId: updated.id,
-          code: codeNum,
-          clientName,
-          amount: safeDelta,
-          method: 'CASH',
-          pin: actor?.pin ? String(actor.pin) : null,
-          // deterministic id => prevents double-tap duplicates
-          externalId: `${mode}:${updated.id}`,
-          meta: {
-            page: 'GATI',
-            mode,
-            code: codeNum,
-            name: clientName,
-          },
-        });
-      } catch (e) {
-        console.log('PAYMENT record error', e);
-      }
-    }
-
-    // No blocking alerts here; the order will disappear/move automatically.
-
-    closePay();
-
-    try {
-      await refreshOrders();
-    } catch {}
-  }
-
-  // ---------------- HIDDEN RETURN (HOLD 3s ON PAY) ----------------
-  async function openReturn(row) {
-    try {
-      let order = null;
-      try {
-        const raw = localStorage.getItem(`order_${row.id}`);
-        if (raw) order = JSON.parse(raw);
-      } catch {
-        order = null;
-      }
-      if (!order) {
-        order = await downloadJsonNoCache(`orders/${row.id}.json`);
-        localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
-      }
-      if (!order) {
-        alert('Nuk u gjet porosia.');
-        return;
-      }
-
-      // Ensure DB id is available for return sync
-      // NOTE: row.id is the Supabase UUID. Some legacy/local orders may not store it on `id`.
-      // The hidden return flow expects `order.id` to be the DB uuid.
-      if (!order.db_id && row?.id) order.db_id = row.id;
-      if (!order.id && row?.id) order.id = row.id;
-      if (!order.data) order.data = { ...order };
-
-      setRetOrder(order);
-      setRetReason('');
-      setRetNote('');
-      setRetPhotoUrl('');
-      setShowReturnSheet(true);
-    } catch {
-      alert('❌ Gabim gjatë hapjes së kthimit.');
-    }
-  }
-
-  function closeReturn() {
-    setShowReturnSheet(false);
-    setRetOrder(null);
-    setRetReason('');
-    setRetNote('');
-    setRetPhotoUrl('');
-  }
-
-  async function handleReturnPhoto(file) {
-    const oid = retOrder?.id || retOrder?.db_id;
-    if (!file || !oid) return;
-    setPhotoUploading(true);
-    try {
-      const url = await uploadPhoto(file, oid, 'return');
-      if (url) setRetPhotoUrl(url);
-    } catch {
-      alert('❌ Gabim foto!');
-    } finally {
-      setPhotoUploading(false);
-    }
-  }
-
-  async function confirmReturn() {
-    const oid = retOrder?.id || retOrder?.db_id || retOrder?.data?.db_id || null;
-    if (!oid) return;
-
-    const reason = (retReason || '').trim();
-    const note = (retNote || '').trim();
-
-    if (!reason && !note) {
-      alert('Shkruaj së paku një arsye ose shënim për kthimin.');
-      return;
-    }
-
-    if (!confirm('Kjo porosi do të kthehet në PASTRIM si KTHIM.\nJeni i sigurt?')) return;
-
-    const entry = {
-      id: `ret_${oid}_${Date.now()}`,
-      ts: Date.now(),
-      from: 'gati',
-      reason: reason || '',
-      note: note || '',
-      photoUrl: retPhotoUrl || '',
-    };
-
-    const updated = {
-      ...retOrder,
-      // Ensure we have a stable local id for localStorage keys and bucket paths
-      id: retOrder?.id || oid,
-      status: 'pastrim',
-      returnInfo: {
-        active: true,
-        at: Date.now(),
-        from: 'gati',
-        reason: entry.reason,
-        note: entry.note,
-        photoUrl: entry.photoUrl,
-        logId: entry.id,
-      },
-      returnLog: Array.isArray(retOrder.returnLog) ? [entry, ...retOrder.returnLog] : [entry],
-    };
-
-    // Ensure we have the Supabase UUID for DB operations.
-    // Some local orders don't persist it on `id`, so we store it on `db_id`.
-    updated.db_id = retOrder?.db_id || retOrder?.data?.db_id || oid;
-
-    try {
-      localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
-
-      const blob =
-        typeof Blob !== 'undefined'
-          ? new Blob([JSON.stringify(updated)], { type: 'application/json' })
-          : null;
-      if (blob) {
-        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
-          upsert: true,
-          cacheControl: '0',
-          contentType: 'application/json',
-        });
-      }
-
-      const blob2 =
-        typeof Blob !== 'undefined'
-          ? new Blob([JSON.stringify(entry)], { type: 'application/json' })
-          : null;
-      if (blob2) {
-        await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
-          upsert: true,
-          cacheControl: '0',
-          contentType: 'application/json',
-        });
-      }
-
-      try {
-        const list = JSON.parse(localStorage.getItem('return_list_v1') || '[]');
-        const next = Array.isArray(list) ? [entry, ...list].slice(0, 300) : [entry];
-        localStorage.setItem('return_list_v1', JSON.stringify(next));
-      } catch {
-        localStorage.setItem('return_list_v1', JSON.stringify([entry]));
-      }
-
-      // 7) Sync to DB so it shows up in PASTRIMI (DB-driven list)
-      try {
-        const dbId = updated.db_id || updated.data?.db_id || null;
-
-        // Keep DB JSON as full, consistent payload (so EDIT in PASTRIMI can show return note/photo)
-        const nextData = {
-          ...(updated.data || updated || {}),
-          status: 'pastrim',
-          returnInfo: updated.returnInfo || {
-            active: true,
-            at: Date.now(),
-            from: 'gati',
-            reason: entry.reason || '',
-            note: entry.note || '',
-            photoUrl: entry.photoUrl || '',
-            logId: entry.id,
-          },
-          returnLog: Array.isArray(updated.returnLog) ? updated.returnLog : [entry],
-          ready_at: null,
-          picked_up_at: null,
-          delivered_at: null,
-        };
-
-        if (dbId) {
-          await updateOrderInDb(dbId, {
-            status: 'pastrim',
-            ready_at: null,
-            picked_up_at: null,
-            data: nextData,
-          });
-        } else {
-          // Fallback for legacy orders that never had db_id
-          const res = await saveOrderToDb({ ...updated, data: nextData });
-          if (res?.db_id) {
-            updated.db_id = res.db_id;
-            if (updated.data) updated.data.db_id = res.db_id;
-          }
-        }
-      } catch (e) {
-        console.warn('DB sync (return) failed:', e);
-        // Don't block the flow; local storage + bucket already updated.
-      }
-    } catch (e) {
-      console.error('return save fail', e);
-      alert('❌ Gabim gjatë ruajtjes së kthimit.');
-      return;
-    }
-
-    alert('✅ U kthye në PASTRIM (KTHIM).');
-    closeReturn();
-    setOrders((prev) => prev.filter((x) => String(x.id) !== String(updated.id)));
-  }
-
-  // Hold logic on PAY button
-  function onPayPressStart(row) {
-    holdFired.current = false;
-    if (holdTimer.current) clearTimeout(holdTimer.current);
-    holdTimer.current = setTimeout(() => {
-      holdFired.current = true;
-      openReturn(row);
-    }, 3000);
-  }
-
-  function onPayPressEnd(row) {
-    if (holdTimer.current) {
-      clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-    }
-    if (holdFired.current) return;
-    openPay(row);
-  }
-
-  // ---------------- RENDER ----------------
   return (
-    <div className="wrap">
-      <header className="header-row">
-        <div>
-          <h1 className="title">GATI</h1>
-          <div className="subtitle">Porositë e gatshme për marrje</div>
-        </div>
-        <div style={{ textAlign: 'right', fontSize: 12 }}>
-          <div>
-            TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong>
-          </div>
+    <div className="home-wrap">
+      {/* HEADER */}
+      <header className="header-pro">
+        <div className="header-text">
+          <h1 className="title">TEPIHA <span style={{color: '#3b82f6'}}>PRO</span></h1>
+          <p className="subtitle">Sistemi i Menaxhimit</p>
         </div>
       </header>
 
-      <input
-        className="input"
-        placeholder="🔎 Kërko emrin / telefonin / kodin..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      {/* SEARCH SECTION */}
+      <section className="search-section">
+        <h2 className="section-title">🔍 KËRKO POROSINË</h2>
+        <form className="search-box" onSubmit={runSearch}>
+          <input
+            className="search-input"
+            value={q}
+            onChange={(e)=>setQ(e.target.value)}
+            placeholder="Shkruaj Kodin (Psh: 3 ose T3)"
+            inputMode="text"
+            autoComplete="off"
+          />
+          <button className="search-btn" type="submit" disabled={loading}>
+            {loading ? '...' : 'KËRKO'}
+          </button>
+        </form>
 
-      <section className="card" style={{ padding: '10px' }}>
-        {loading ? (
-          <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p>
-        ) : filtered.length === 0 ? (
-          <p style={{ textAlign: 'center' }}>Nuk ka porosi GATI.</p>
-        ) : (
-          filtered.map((o) => {
-            const total = Number(o.total || 0);
-            const paid = Number(o.paid || 0);
-            const isPaid = total > 0 && paid >= total;
-            const debt = Math.max(0, Number((total - paid).toFixed(2)));
+        {err && <div className="error-msg">{err}</div>}
 
-            return (
-              <div
-                key={o.id}
-                className="list-item-compact"
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '8px 4px',
-                  borderBottom: '1px solid rgba(255,255,255,0.08)',
-                  opacity: o.isReturn ? 0.92 : 1,
-                }}
-              >
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      background: badgeColorByAge(o.readyTs || o.ts),
-                      color: '#fff',
-                      width: 40,
-                      height: 40,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: 8,
-                      fontWeight: 900,
-                      fontSize: 14,
-                      flexShrink: 0,
-                    }}
-                    title="RAGING COLORS"
-                  >
-                    {normalizeCode(o.code)}
+        {/* REZULTATET E KËRKIMIT */}
+        {results?.length ? (
+          <div className="results-container">
+            {results.map((r, idx) => {
+              const href = (r.kind === 'T')
+                ? (`${r.id ? `/transport/item?id=${encodeURIComponent(String(r.id||''))}` : `/transport/menu`}`)
+                : (`${routeForStatus(r.status)}?q=${encodeURIComponent(String(r.code||''))}`);
+
+              return (
+                <Link key={r.id || idx} href={href + (href.includes('?') ? '&' : '?') + 'nogate=1&from=search'} className="result-card">
+                  <div className="result-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {/* KODI JESHIL PA # */}
+                      <span className="code-badge">{String(r.code||'')}</span>
+                      <span className="status-badge" style={getStatusStyle(r.status)}>
+                        {String(r.status||'PA STATUS').toUpperCase()}
+                      </span>
+                    </div>
+                    {/* SA TEPIHA */}
+                    <div className="pieces-badge">📦 {r.pieces} Copë</div>
                   </div>
 
-                  <div style={{ minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontWeight: 700,
-                        fontSize: 14,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {o.name || 'Pa emër'}
-                    </div>
-
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
-                      {o.cope} copë • {Number(o.m2 || 0).toFixed(2)} m²
-                    </div>
-
-                    {o.paidUpfront && (
-                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>
-                        ✅ E PAGUAR (NË FILLIM)
-                      </div>
-                    )}
-
-                    {paid > 0 && !o.paidUpfront && (
-                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>
-                        Paguar: {paid.toFixed(2)}€
-                      </div>
-                    )}
-
-                    {debt > 0 && !o.paidUpfront && (
-                      <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 900 }}>
-                        Borxh: {debt.toFixed(2)}€
-                      </div>
-                    )}
+                  <div className="result-body">
+                    <div className="client-name">{String(r.name||'Klient i panjohur')}</div>
+                    {r.phone && <div className="client-phone">📞 {String(r.phone||'')}</div>}
                   </div>
-                </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {isPaid && <span style={{ fontSize: 14 }}>✅</span>}
-
-                  <button
-                    className="btn secondary"
-                    style={{ padding: '6px 10px', fontSize: 12 }}
-                    onClick={() => sendPickupSms(o)}
-                  >
-                    SMS
-                  </button>
-
-                  <button
-                    className="btn primary"
-                    style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      onPayPressStart(o);
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      onPayPressEnd(o);
-                    }}
-                    onPointerCancel={() => {
-                      if (holdTimer.current) clearTimeout(holdTimer.current);
-                    }}
-                    onPointerLeave={() => {
-                      if (holdTimer.current) clearTimeout(holdTimer.current);
-                    }}
-                  >
-                    💶 PAGUAJ
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        )}
+                  <div className="result-footer">
+                    <div className="workers-info">
+                      {r.createdBy && <div>👤 <span>SJELLË NGA:</span> {String(r.createdBy)}</div>}
+                      {r.transporter && <div style={{color: '#f59e0b'}}>🚚 <span>PRU NGA:</span> {String(r.transporter).toUpperCase()}</div>}
+                    </div>
+                    <div className="go-btn">HAP ➔</div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        ) : null}
       </section>
 
-      <footer className="dock">
-        <Link href="/" className="btn secondary" style={{ width: '100%' }}>
-          🏠 HOME
-        </Link>
-      </footer>
-
-      {/* ============ FULL SCREEN PAGESA ============ */}
-      {showPaySheet && payOrder && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div>
-              <div className="payfs-title">PAGESA</div>
-              <div className="payfs-sub">
-                KODI: {payOrder.code} • {payOrder.name}
-              </div>
-              {payOrder.paidUpfront && (
-                <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 900, marginTop: 4 }}>
-                  ✅ E PAGUAR NË FILLIM
-                </div>
-              )}
+      {/* NAVIGATION GRID */}
+      <section className="modules-section">
+        <h2 className="section-title">⚙️ ZGJEDH MODULIN</h2>
+        
+        <div className="modules-grid">
+          <Link href="/pranimi" className="mod-card">
+            <div className="mod-icon" style={{background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa'}}>🧾</div>
+            <div className="mod-info">
+              <div className="mod-title">PRANIMI</div>
+              <div className="mod-sub">Regjistro klientin</div>
             </div>
-            <button className="btn secondary" onClick={closePay}>
-              ✕
-            </button>
-          </div>
+          </Link>
 
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="tot-line">
-                TOTAL: <strong>{Number(payOrder.total || 0).toFixed(2)} €</strong>
-              </div>
-              <div className="tot-line">
-                PAGUAR DERI TANI:{' '}
-                <strong style={{ color: '#16a34a' }}>{Number(payOrder.paid || 0).toFixed(2)} €</strong>
-              </div>
-              <div className="tot-line" style={{ fontSize: 12, color: '#666' }}>
-                REGJISTRU N&apos;ARKË DERI TANI:{' '}
-                <strong>{Number(payOrder.arkaRecordedPaid || 0).toFixed(2)} €</strong>
-              </div>
-
-              <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>
-                SOT PAGUAN: <strong>{Number(payAdd || 0).toFixed(2)} €</strong>
-              </div>
-
-	              {(() => {
-	                  // Paid so far (from DB). Keep it local to avoid runtime ReferenceError.
-	                  const paidToDate = Number(payOrder?.paid || 0);
-	                  const totalEuro = Number(payOrder.total || 0);
-                  const dueNow = Number((totalEuro - paidToDate).toFixed(2));
-                  const dueSafe = dueNow > 0 ? dueNow : 0;
-                  const given = Number((Number(payAdd || 0)).toFixed(2));
-                  const applied = Number((Math.min(given, dueSafe)).toFixed(2));
-                  const paidAfter = Number((paidToDate + applied).toFixed(2));
-                  const debtNow = Number((totalEuro - paidAfter).toFixed(2));
-                  const debtSafe = debtNow > 0 ? debtNow : 0;
-                  const changeNow = given > dueSafe ? Number((given - dueSafe).toFixed(2)) : 0;
-
-                  return (
-                    <>
-                      <div className="tot-line">
-                        NË SISTEM REGJISTROHET: <strong>{applied.toFixed(2)} €</strong>
-                      </div>
-                      <div className="tot-line">
-                        PAGUAR PAS KËSAJ: <strong style={{ color: '#16a34a' }}>{paidAfter.toFixed(2)} €</strong>
-                      </div>
-                      {debtSafe > 0 && (
-                        <div className="tot-line">
-                          BORXH: <strong style={{ color: '#dc2626' }}>{debtSafe.toFixed(2)} €</strong>
-                        </div>
-                      )}
-                      {changeNow > 0 && (
-                        <div className="tot-line">
-                          KTHIM: <strong style={{ color: '#2563eb' }}>{changeNow.toFixed(2)} €</strong>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
+          <Link href="/pastrimi" className="mod-card">
+            <div className="mod-icon" style={{background: 'rgba(16, 185, 129, 0.15)', color: '#34d399'}}>🧼</div>
+            <div className="mod-info">
+              <div className="mod-title">PASTRIMI</div>
+              <div className="mod-sub">Lista e larjes</div>
             </div>
+          </Link>
 
-            {!payOrder.paidUpfront && (
-              <div className="card">
-                <div className="field-group">
-                  <label className="label">KLIENTI DHA (€)</label>
+          <Link href="/gati" className="mod-card">
+            <div className="mod-icon" style={{background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24'}}>✅</div>
+            <div className="mod-info">
+              <div className="mod-title">GATI</div>
+              <div className="mod-sub">Gati për dorëzim</div>
+            </div>
+          </Link>
 
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    pattern="[0-9]*"
-                    className="input"
-                    value={Number(payAdd || 0) === 0 ? '' : payAdd}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setPayAdd(v === '' ? 0 : Number(v));
-                    }}
-                  />
+          <Link href="/marrje-sot" className="mod-card">
+            <div className="mod-icon" style={{background: 'rgba(239, 68, 68, 0.15)', color: '#f87171'}}>📦</div>
+            <div className="mod-info">
+              <div className="mod-title">MARRJE SOT</div>
+              <div className="mod-sub">Porositë e sotme</div>
+            </div>
+          </Link>
 
-                  <div className="chip-row" style={{ marginTop: 10 }}>
-                    {PAY_CHIPS.map((v) => (
-                      <button
-                        key={v}
-                        className="chip"
-                        type="button"
-                        onClick={() => setPayAdd(v)}
-                      >
-                        {v}€
-                      </button>
-                    ))}
-                    <button className="chip" type="button" onClick={() => setPayAdd(0)} style={{ opacity: 0.9 }}>
-                      FSHI
-                    </button>
-                  </div>
-                </div>
+          <Link href="/transport" className="mod-card">
+            <div className="mod-icon" style={{background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa'}}>🚚</div>
+            <div className="mod-info">
+              <div className="mod-title">TRANSPORT</div>
+              <div className="mod-sub">Porositë (T-kode)</div>
+            </div>
+          </Link>
 
-                <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>* CASH VETËM — pagesa regjistrohet në ARKË (ose WAITING kur ARKA është e mbyllur).</div>
-              </div>
-            )}
+          <Link href="/arka" className="mod-card">
+            <div className="mod-icon" style={{background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6'}}>💰</div>
+            <div className="mod-info">
+              <div className="mod-title">ARKA</div>
+              <div className="mod-sub">Mbyllja e ditës</div>
+            </div>
+          </Link>
 
-            {payOrder.paidUpfront && (
-              <div className="card">
-                <div style={{ fontSize: 12, color: '#666' }}>
-                  * Kjo porosi është e paguar në fillim. Shtyp “KONFIRMO DORËZIMIN”.
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="payfs-footer">
-            <button className="btn secondary" onClick={closePay}>
-              ANULO
-            </button>
-            <button className="btn secondary" onClick={applyPayOnly}>
-              RUJ (PA DORËZU)
-            </button>
-            <button className="btn primary" onClick={confirmDelivery}>
-              KONFIRMO DORËZIMIN
-            </button>
-          </div>
+          <Link href="/fletore" className="mod-card" style={{ gridColumn: '1 / -1' }}>
+            <div className="mod-icon" style={{background: 'rgba(255, 255, 255, 0.1)', color: '#e2e8f0'}}>📒</div>
+            <div className="mod-info">
+              <div className="mod-title">FLETORJA</div>
+              <div className="mod-sub">Arkiva e plotë e porosive dhe detajet</div>
+            </div>
+          </Link>
         </div>
-      )}
+      </section>
 
-      {/* ============ HIDDEN RETURN FULLSCREEN (HOLD 3s) ============ */}
-      {showReturnSheet && retOrder && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div>
-              <div className="payfs-title">KTHIM (HIDDEN)</div>
-              <div className="payfs-sub">
-                KODI: {normalizeCode(retOrder.client?.code)} • {retOrder.client?.name || ''}
-              </div>
-            </div>
-            <button className="btn secondary" onClick={closeReturn} disabled={photoUploading}>
-              ✕
-            </button>
-          </div>
-
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="field-group">
-                <label className="label">PSE PO KTHEHET?</label>
-                <select className="input" value={retReason} onChange={(e) => setRetReason(e.target.value)}>
-                  <option value="">— ZGJIDH —</option>
-                  <option value="SHTESË LARJE / NJOLLA">SHTESË LARJE / NJOLLA</option>
-                  <option value="ANKESË KLIENTI">ANKESË KLIENTI</option>
-                  <option value="GABIM NË POROSI">GABIM NË POROSI</option>
-                  <option value="TJETER">TJETER</option>
-                </select>
-              </div>
-
-              <div className="field-group">
-                <label className="label">SHËNIM / DOKUMENTIM</label>
-                <textarea
-                  className="input"
-                  rows={4}
-                  value={retNote}
-                  onChange={(e) => setRetNote(e.target.value)}
-                  placeholder="P.sh. klienti kërkoi larje shtesë, u lanë edhe njëherë, etj..."
-                />
-              </div>
-
-              <div className="field-group">
-                <label className="label">FOTO (OPSIONALE)</label>
-                <label className="camera-btn" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-                  📷 SHTO FOTO
-                  <input
-                    type="file"
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    onChange={(e) => handleReturnPhoto(e.target.files?.[0])}
-                  />
-                </label>
-
-                {retPhotoUrl && (
-                  <div style={{ marginTop: 10 }}>
-                    <img src={retPhotoUrl} className="photo-thumb" alt="" />
-                    <button
-                      className="btn secondary"
-                      style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 6 }}
-                      onClick={() => setRetPhotoUrl('')}
-                      disabled={photoUploading}
-                    >
-                      🗑️ FSHI FOTO
-                    </button>
-                  </div>
-                )}
-
-                {photoUploading && <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>Duke ngarkuar foton…</div>}
-              </div>
-            </div>
-
-            <div className="card">
-              <div style={{ fontSize: 12, color: '#666' }}>
-                * Kjo screen nuk shfaqet në UI normal. Hapet vetëm me HOLD 3 SEK te “PAGUAJ”.
-              </div>
-            </div>
-          </div>
-
-          <div className="payfs-footer" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <button className="btn secondary" onClick={closeReturn} disabled={photoUploading}>
-              ANULO
-            </button>
-            <button className="btn primary" onClick={confirmReturn} disabled={photoUploading}>
-              KONFIRMO KTHIMIN
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Styles: dock + payfs */}
+      {/* STYLES */}
       <style jsx>{`
-        .dock {
-          position: sticky;
-          bottom: 0;
-          padding: 10px 0 6px 0;
-          background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0));
-          margin-top: 10px;
-        }
+        .home-wrap { padding: 16px 14px 40px; background: #070b14; min-height: 100vh; color: #fff; font-family: system-ui, -apple-system, sans-serif; }
+        
+        .header-pro { display: flex; justify-content: flex-start; align-items: center; margin-bottom: 24px; }
+        .header-text .title { font-size: 26px; font-weight: 1000; letter-spacing: -0.5px; margin: 0; line-height: 1.1; }
+        .header-text .subtitle { font-size: 13px; color: rgba(255,255,255,0.6); font-weight: 600; margin-top: 2px; }
 
-        .payfs {
-          position: fixed;
-          inset: 0;
-          background: #0b0b0b;
-          z-index: 10000;
-          display: flex;
-          flex-direction: column;
-        }
-        .payfs-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 14px 14px;
-          background: #0b0b0b;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
-        .payfs-title {
-          color: #fff;
-          font-weight: 900;
-          font-size: 18px;
-        }
-        .payfs-sub {
-          color: rgba(255, 255, 255, 0.7);
-          font-size: 12px;
-          margin-top: 2px;
-        }
-        .payfs-body {
-          flex: 1;
-          overflow: auto;
-          padding: 14px;
-        }
-        .payfs-footer {
-          display: grid;
-          grid-template-columns: 1fr 1fr 1fr;
-          gap: 10px;
-          padding: 12px 14px;
-          border-top: 1px solid rgba(255, 255, 255, 0.08);
-          background: #0b0b0b;
-        }
-        .payfs-footer .btn {
-          width: 100%;
-        }
+        .section-title { font-size: 13px; font-weight: 900; letter-spacing: 1px; color: rgba(255,255,255,0.5); margin-bottom: 12px; margin-left: 4px; }
+        
+        .search-section { margin-bottom: 28px; }
+        .search-box { display: flex; gap: 8px; }
+        .search-input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 14px 16px; color: #fff; font-size: 16px; font-weight: 700; outline: none; transition: 0.2s; }
+        .search-input:focus { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
+        .search-btn { background: #3b82f6; color: #fff; border: none; border-radius: 14px; padding: 0 20px; font-weight: 900; font-size: 14px; letter-spacing: 0.5px; cursor: pointer; }
+        .error-msg { margin-top: 10px; color: #fca5a5; background: rgba(239,68,68,0.15); padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 800; border: 1px solid rgba(239,68,68,0.3); }
+
+        .results-container { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .result-card { background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 16px; text-decoration: none; color: #fff; display: flex; flex-direction: column; gap: 12px; transition: transform 0.1s; }
+        .result-card:active { transform: scale(0.98); background: rgba(255,255,255,0.08); }
+        .result-header { display: flex; justify-content: space-between; align-items: center; }
+        .code-badge { background: #10b981; color: #000; font-size: 18px; font-weight: 900; padding: 4px 12px; border-radius: 8px; letter-spacing: 0.5px; }
+        .status-badge { font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 6px; letter-spacing: 0.5px; }
+        .pieces-badge { font-size: 13px; font-weight: 800; color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 8px; }
+        
+        .result-body { display: flex; flex-direction: column; gap: 4px; }
+        .client-name { font-size: 17px; font-weight: 800; }
+        .client-phone { font-size: 14px; color: rgba(255,255,255,0.6); font-weight: 600; }
+        
+        .result-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; }
+        .workers-info { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: #60a5fa; }
+        .workers-info span { opacity: 0.6; color: #fff; margin-right: 2px; }
+        .go-btn { background: #3b82f6; color: #fff; font-weight: 900; padding: 8px 16px; border-radius: 10px; font-size: 13px; }
+
+        .modules-section { margin-top: 10px; }
+        .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .mod-card { background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 16px; text-decoration: none; color: #fff; display: flex; flex-direction: column; gap: 14px; transition: transform 0.1s, border-color 0.2s; }
+        .mod-card:active { transform: scale(0.96); border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
+        .mod-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .mod-info { display: flex; flex-direction: column; gap: 4px; }
+        .mod-title { font-weight: 900; font-size: 14px; letter-spacing: 0.5px; }
+        .mod-sub { font-size: 11px; font-weight: 600; opacity: 0.5; line-height: 1.3; }
       `}</style>
     </div>
   );
