@@ -74,97 +74,69 @@ export async function POST(req) {
       return NextResponse.json({ ok: true, items });
     }
 
-    // 3. Aprovimi i pajisjes
-    if (action === 'approve') {
-      const id = String(body?.id || '').trim();
-      const label = body?.label == null ? null : String(body.label);
-      if (!id) return NextResponse.json({ ok: false, error: 'MISSING_ID' }, { status: 400 });
-
-      const { error } = await supabase
-        .from('tepiha_user_devices')
-        .update({ is_approved: true, approved_at: new Date().toISOString(), approved_by: adminId, label })
-        .eq('id', id);
-
-      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-      return NextResponse.json({ ok: true });
-    }
-
-    // 3b. Krijo user + aprovo pajisjen (Single Dashboard)
-    // - Krijimi bëhet në TABLE `users`
-    // - Pajisja aprovohet në `tepiha_user_devices` dhe lidhet me user_id
+    // ------------------------------------------------------------
+    // ✅ 3) Krijo user të ri + aprovo pajisjen (frontend dërgon device_id)
+    //    - INSERT në TABLE `users`
+    //    - UPDATE `tepiha_user_devices` me eq('device_id', device_id)
+    // ------------------------------------------------------------
     if (action === 'create_user_and_approve') {
-      const deviceRowId = String(body?.device_row_id || body?.id || '').trim();
+      const device_id = String(body?.device_id || '').trim();
       const name = String(body?.name || '').trim();
-      const role = String(body?.role || 'WORKER').trim();
-      const pin = String(body?.pin || '').trim();
+      const role = String(body?.role || 'PUNTOR').trim();
+      const pin = String(body?.pin || '').replace(/\D/g, '').trim();
       const label = body?.label == null ? null : String(body.label);
-
-      if (!deviceRowId) return NextResponse.json({ ok: false, error: 'MISSING_DEVICE_ROW_ID' }, { status: 400 });
+      if (!device_id) return NextResponse.json({ ok: false, error: 'MISSING_DEVICE_ID' }, { status: 400 });
       if (!name) return NextResponse.json({ ok: false, error: 'MISSING_NAME' }, { status: 400 });
-      if (!pin) return NextResponse.json({ ok: false, error: 'MISSING_PIN' }, { status: 400 });
+      if (!pin || pin.length < 4) return NextResponse.json({ ok: false, error: 'PIN_MIN_4' }, { status: 400 });
 
-      // 1) Sigurohu që PIN s’është i zënë (lexim nga VIEW)
-      const { data: existing, error: exErr } = await supabase
-        .from('tepiha_users')
-        .select('id, pin')
-        .eq('pin', pin)
-        .maybeSingle();
-      if (exErr) return NextResponse.json({ ok: false, error: exErr.message }, { status: 500 });
-      if (existing?.id) return NextResponse.json({ ok: false, error: 'PIN_ALREADY_EXISTS' }, { status: 409 });
-
-      // 2) Krijo user-in në TABLE reale `users`
-      const { data: created, error: cErr } = await supabase
+      // 1) Create user in real table `users`
+      const { data: newUser, error: insErr } = await supabase
         .from('users')
-        .insert({
-          name,
-          role: role.toUpperCase(),
-          pin,
-          is_active: true,
-          is_master: false,
-        })
+        .insert({ name, role, pin, is_active: true })
         .select('id')
         .single();
-      if (cErr) return NextResponse.json({ ok: false, error: cErr.message }, { status: 500 });
-      const newUserId = created?.id;
-      if (!newUserId) return NextResponse.json({ ok: false, error: 'USER_CREATE_FAILED' }, { status: 500 });
+      if (insErr || !newUser?.id) {
+        return NextResponse.json({ ok: false, error: insErr?.message || 'USER_INSERT_FAILED' }, { status: 500 });
+      }
 
-      // 3) Aprovimi + lidhja e pajisjes
-      const { error: aErr } = await supabase
+      // 2) Approve device by device_id
+      const { error: upErr } = await supabase
         .from('tepiha_user_devices')
         .update({
-          user_id: newUserId,
+          user_id: newUser.id,
           is_approved: true,
           approved_at: new Date().toISOString(),
           approved_by: adminId,
           label,
         })
-        .eq('id', deviceRowId);
-      if (aErr) return NextResponse.json({ ok: false, error: aErr.message }, { status: 500 });
+        .eq('device_id', device_id);
 
-      return NextResponse.json({ ok: true, user_id: newUserId });
+      if (upErr) {
+        return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ ok: true, user_id: newUser.id });
     }
 
-    // 3c. Lidhu me user ekzistues (me PIN) + aprovo pajisjen
-    // - User lookup bëhet nga VIEW `tepiha_users`
-    // - Update pajisja në `tepiha_user_devices`
+    // ------------------------------------------------------------
+    // ✅ 4) Lidho user ekzistues (nga VIEW tepiha_users me PIN) + aprovo pajisjen
+    // ------------------------------------------------------------
     if (action === 'link_user_and_approve') {
-      const deviceRowId = String(body?.device_row_id || body?.id || '').trim();
-      const pin = String(body?.pin || '').trim();
+      const device_id = String(body?.device_id || '').trim();
+      const pin = String(body?.pin || '').replace(/\D/g, '').trim();
       const label = body?.label == null ? null : String(body.label);
-
-      if (!deviceRowId) return NextResponse.json({ ok: false, error: 'MISSING_DEVICE_ROW_ID' }, { status: 400 });
-      if (!pin) return NextResponse.json({ ok: false, error: 'MISSING_PIN' }, { status: 400 });
+      if (!device_id) return NextResponse.json({ ok: false, error: 'MISSING_DEVICE_ID' }, { status: 400 });
+      if (!pin || pin.length < 4) return NextResponse.json({ ok: false, error: 'PIN_MIN_4' }, { status: 400 });
 
       const { data: u, error: uErr } = await supabase
         .from('tepiha_users')
-        .select('id, pin, is_active, role')
+        .select('id, pin, role, is_active, name')
         .eq('pin', pin)
         .maybeSingle();
       if (uErr) return NextResponse.json({ ok: false, error: uErr.message }, { status: 500 });
-      if (!u?.id) return NextResponse.json({ ok: false, error: 'USER_NOT_FOUND' }, { status: 404 });
-      if (u.is_active === false) return NextResponse.json({ ok: false, error: 'USER_INACTIVE' }, { status: 403 });
+      if (!u || u.is_active === false) return NextResponse.json({ ok: false, error: 'USER_NOT_FOUND_OR_INACTIVE' }, { status: 400 });
 
-      const { error: aErr } = await supabase
+      const { error: upErr } = await supabase
         .from('tepiha_user_devices')
         .update({
           user_id: u.id,
@@ -173,21 +145,43 @@ export async function POST(req) {
           approved_by: adminId,
           label,
         })
-        .eq('id', deviceRowId);
-      if (aErr) return NextResponse.json({ ok: false, error: aErr.message }, { status: 500 });
+        .eq('device_id', device_id);
+
+      if (upErr) return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
 
       return NextResponse.json({ ok: true, user_id: u.id });
     }
 
-    // 4. Heqja e aprovimit (Bllokimi)
-    if (action === 'revoke') {
+    // 5. Aprovimi i pajisjes (support both `device_id` and legacy `id`)
+    if (action === 'approve') {
+      const device_id = String(body?.device_id || '').trim();
       const id = String(body?.id || '').trim();
-      if (!id) return NextResponse.json({ ok: false, error: 'MISSING_ID' }, { status: 400 });
+      const label = body?.label == null ? null : String(body.label);
+      if (!device_id && !id) return NextResponse.json({ ok: false, error: 'MISSING_DEVICE_ID' }, { status: 400 });
 
-      const { error } = await supabase
+      let q = supabase
+        .from('tepiha_user_devices')
+        .update({ is_approved: true, approved_at: new Date().toISOString(), approved_by: adminId, label })
+      q = device_id ? q.eq('device_id', device_id) : q.eq('id', id);
+
+      const { error } = await q;
+
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      return NextResponse.json({ ok: true });
+    }
+
+    // 6. Heqja e aprovimit (Bllokimi)
+    if (action === 'revoke') {
+      const device_id = String(body?.device_id || '').trim();
+      const id = String(body?.id || '').trim();
+      if (!device_id && !id) return NextResponse.json({ ok: false, error: 'MISSING_DEVICE_ID' }, { status: 400 });
+
+      let q = supabase
         .from('tepiha_user_devices')
         .update({ is_approved: false, approved_at: null, approved_by: null })
-        .eq('id', id);
+      q = device_id ? q.eq('device_id', device_id) : q.eq('id', id);
+
+      const { error } = await q;
 
       if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true });
