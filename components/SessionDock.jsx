@@ -1,194 +1,159 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
-const LS_SESSION = 'tepiha_session_v1';
-const LS_USER = 'CURRENT_USER_DATA';
-
-function readSession() {
+function readUser() {
   try {
-    const raw = localStorage.getItem(LS_SESSION);
-    if (raw) {
-      const s = JSON.parse(raw);
-      const u = s?.user || null;
-      if (u) return u;
-    }
-  } catch {}
-  try {
-    const raw2 = localStorage.getItem(LS_USER);
-    if (raw2) return JSON.parse(raw2);
-  } catch {}
-  return null;
+    const raw =
+      localStorage.getItem('CURRENT_USER_DATA') ||
+      localStorage.getItem('tepiha_user') ||
+      localStorage.getItem('user');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function SessionDock() {
-  const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState(null);
+  const router = useRouter();
+  const [user, setUser] = React.useState(null);
 
-  useEffect(() => {
-    const tick = () => setUser(readSession());
-    tick();
-    const id = setInterval(tick, 1000);
-    window.addEventListener('storage', tick);
+  React.useEffect(() => {
+    setUser(readUser());
+
+    const onStorage = () => setUser(readUser());
+    window.addEventListener('storage', onStorage);
+
+    const onFocus = () => setUser(readUser());
+    window.addEventListener('focus', onFocus);
+
     return () => {
-      clearInterval(id);
-      window.removeEventListener('storage', tick);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', onFocus);
     };
   }, []);
 
-  const label = useMemo(() => {
-    const name = String(user?.name || '').trim();
-    return name || 'MJESHTRI';
-  }, [user]);
+  if (pathname !== '/') return null;
+  if (!user) return null;
 
-  async function doLogout() {
-    try {
-      localStorage.removeItem(LS_SESSION);
-      localStorage.removeItem(LS_USER);
-      localStorage.removeItem('session');
-      localStorage.removeItem('user');
-      localStorage.removeItem('auth_user');
-    } catch {}
-    setUser(null);
-    try {
-      router.replace('/login');
-    } catch {}
-  }
+  const displayName =
+    String(user?.name || user?.username || user?.full_name || 'PËRDORUES')
+      .trim()
+      .split(' ')[0]
+      .toUpperCase();
 
   function openDoctor() {
-    try {
-      router.push('/doctor');
-    } catch {}
+    router.push('/doctor');
   }
 
-  if (pathname !== '/') return null;
+  function logout() {
+    try {
+      localStorage.removeItem('CURRENT_USER_DATA');
+      localStorage.removeItem('tepiha_user');
+      localStorage.removeItem('user');
+      localStorage.removeItem('session');
+    } catch {}
+    router.push('/login');
+  }
 
   return (
     <div
       style={{
         position: 'fixed',
-        left: 0,
-        right: 0,
-        bottom: 0,
+        left: '50%',
+        bottom: 10,
+        transform: 'translateX(-50%)',
         zIndex: 9999,
-        display: 'flex',
-        justifyContent: 'center',
-        padding: '10px 12px calc(10px + env(safe-area-inset-bottom))',
         pointerEvents: 'none',
       }}
     >
       <div
         style={{
+          pointerEvents: 'auto',
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 8,
-          maxWidth: 'calc(100vw - 24px)',
+          gap: 4,
+          background: 'rgba(15,15,15,0.96)',
+          border: '1px solid rgba(255,255,255,0.12)',
           borderRadius: 999,
-          border: '1px solid rgba(255,255,255,0.10)',
-          background: 'rgba(10,14,20,0.92)',
-          boxShadow: '0 12px 34px rgba(0,0,0,0.40)',
-          padding: '8px 10px',
-          pointerEvents: 'auto',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
+          padding: '4px 6px',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
         }}
       >
         <button
           type="button"
           onClick={openDoctor}
+          aria-label="Profili"
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            minWidth: 0,
-            border: 'none',
-            background: 'transparent',
+            width: 22,
+            height: 22,
+            minWidth: 22,
+            borderRadius: '999px',
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: '#1c1c1e',
             color: '#fff',
-            padding: '2px 4px',
+            display: 'grid',
+            placeItems: 'center',
+            fontSize: 11,
+            lineHeight: 1,
             cursor: 'pointer',
+            padding: 0,
           }}
         >
-          <span
-            aria-hidden
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: 999,
-              background: 'rgba(255,255,255,0.08)',
-              display: 'grid',
-              placeItems: 'center',
-              fontSize: 16,
-              flex: '0 0 auto',
-            }}
-          >
-            👤
-          </span>
-          <span
-            style={{
-              maxWidth: '42vw',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              fontWeight: 800,
-              fontSize: 12,
-              letterSpacing: 0.6,
-              textTransform: 'uppercase',
-            }}
-          >
-            {label}
-          </span>
+          👤
+        </button>
+
+        <button
+          type="button"
+          onClick={openDoctor}
+          style={{
+            border: 0,
+            background: 'transparent',
+            color: '#f5f5f5',
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: '0.04em',
+            lineHeight: 1,
+            padding: '0 2px',
+            cursor: 'pointer',
+            textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {displayName}
         </button>
 
         <div
           style={{
             width: 1,
-            height: 18,
-            background: 'rgba(255,255,255,0.10)',
-            flex: '0 0 auto',
+            height: 12,
+            background: 'rgba(255,255,255,0.12)',
+            margin: '0 1px',
           }}
         />
 
-        {!user ? (
-          <button
-            type="button"
-            onClick={() => router.push('/login')}
-            style={{
-              border: 'none',
-              background: 'rgba(255,255,255,0.95)',
-              color: '#000',
-              borderRadius: 999,
-              padding: '8px 12px',
-              fontWeight: 900,
-              fontSize: 10,
-              letterSpacing: 1,
-              textTransform: 'uppercase',
-              cursor: 'pointer',
-            }}
-          >
-            HYJ
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={doLogout}
-            style={{
-              borderRadius: 999,
-              background: 'rgba(255,70,70,0.14)',
-              color: '#ffb3b3',
-              border: '1px solid rgba(255,70,70,0.25)',
-              padding: '8px 12px',
-              fontWeight: 900,
-              fontSize: 10,
-              letterSpacing: 1,
-              textTransform: 'uppercase',
-              cursor: 'pointer',
-            }}
-          >
-            DIL
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={logout}
+          style={{
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: '#111',
+            color: '#fff',
+            borderRadius: 999,
+            fontSize: 10,
+            fontWeight: 700,
+            lineHeight: 1,
+            padding: '4px 7px',
+            cursor: 'pointer',
+            textTransform: 'uppercase',
+          }}
+        >
+          DIL
+        </button>
       </div>
     </div>
   );
