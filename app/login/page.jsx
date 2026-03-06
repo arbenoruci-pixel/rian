@@ -1,9 +1,13 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDeviceId } from "@/lib/deviceId";
 import { cacheApprovedLogin, canLoginOffline } from "@/lib/deviceApprovalsCache";
+
+// iOS PWA OFFLINE RULE:
+// - Do NOT unregister SW on login/logout.
+// - Keep auth purely local (localStorage) to avoid network/middleware loops.
 
 const LS_SESSION = "tepiha_session_v1";
 const LS_USER = "CURRENT_USER_DATA";
@@ -28,11 +32,7 @@ function safeDel(key) {
   } catch {}
 }
 
-function onlyDigits(v) {
-  return String(v || "").replace(/\D/g, "");
-}
-
-function LoginContent() {
+export default function LoginPage() {
   const router = useRouter();
   const sp = useSearchParams();
   const returnTo = sp?.get("returnTo") || "/";
@@ -42,17 +42,25 @@ function LoginContent() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
+  function onlyDigits(v) {
+    return String(v || "").replace(/\D/g, "");
+  }
+
   const deviceId = useMemo(() => getDeviceId(), []);
 
   useEffect(() => {
     try {
       const raw = safeGet(LS_USER);
       const u = raw ? JSON.parse(raw) : null;
+      if (u?.pin) setPin(String(u.pin));
       if (u?.role) setRole(String(u.role));
     } catch {}
   }, []);
 
-  const canSubmit = useMemo(() => String(pin || "").trim().length >= 2, [pin]);
+  const canSubmit = useMemo(() => {
+    const p = String(pin || "").trim();
+    return p.length >= 2;
+  }, [pin]);
 
   async function doLogin() {
     setErr("");
@@ -87,7 +95,7 @@ function LoginContent() {
         const json = await res.json();
         if (!json.ok) {
           if (json.error === "DEVICE_NOT_APPROVED") {
-            setErr("PAJISJA NË PRITJE — ADMINI E APROVON TE LISTA E PAJISJEVE");
+            setErr("PAJISJA NË PRITJE — HAP /ADMIN/DEVICES DHE APROVO");
           } else {
             setErr(String(json.error || "PIN GABIM"));
           }
@@ -99,7 +107,7 @@ function LoginContent() {
         safeSet(LS_SESSION, JSON.stringify(session));
         safeSet(LS_USER, JSON.stringify(actor));
         cacheApprovedLogin({ pin: p, role: r, deviceId, actor });
-      } catch {
+      } catch (e) {
         setErr("S’PO MUNDËM ME U LIDH. PROVO PRAPË.");
         return;
       } finally {
@@ -127,65 +135,63 @@ function LoginContent() {
   }
 
   return (
-    <div style={styles.wrap}>
-      <div style={styles.headerRow}>
+    <div className="wrap">
+      <div className="header-row">
         <div>
-          <h1 style={styles.title}>TEPIHA</h1>
-          <p style={styles.subtitle}>LOG IN</p>
+          <h1 className="title">TEPIHA</h1>
+          <p className="subtitle">LOG IN</p>
         </div>
-        <a style={styles.badge} href="/doctor">
+        <a className="badge" href="/doctor">
           DOCTOR
         </a>
       </div>
 
-      <div style={styles.card}>
-        <div style={styles.cardTitleRow}>
-          <h2 style={styles.cardTitle}>HYRJA</h2>
+      <div className="card">
+        <div className="card-title-row">
+          <h2 className="card-title">HYRJA</h2>
           <span style={{ opacity: 0.7, fontSize: 12 }}>{role}</span>
         </div>
 
-        <div style={styles.fieldGroup}>
-          <label style={styles.label}>PIN</label>
+        <div className="field-group">
+          <label className="label">PIN</label>
           <input
-            style={styles.input}
+            className="input"
             type="password"
             value={pin}
             onChange={(e) => setPin(onlyDigits(e.target.value))}
             placeholder="****"
             inputMode="numeric"
-            autoComplete="current-password"
+            autoComplete="one-time-code"
           />
         </div>
 
-        <div style={styles.fieldGroup}>
-          <label style={styles.label}>ROLI</label>
-          <div style={styles.chipRow}>
-            {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map((x) => {
-              const active = role === x;
-              return (
-                <button
-                  key={x}
-                  type="button"
-                  onClick={() => setRole(x)}
-                  style={{
-                    ...styles.chip,
-                    ...(active ? styles.chipActive : styles.chipOutline),
-                  }}
-                >
-                  {x}
-                </button>
-              );
-            })}
+        <div className="field-group">
+          <label className="label">ROLI</label>
+          <div className="chip-row">
+            {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map((x) => (
+              <button
+                key={x}
+                type="button"
+                className={"chip " + (role === x ? "" : "chip-outline")}
+                onClick={() => setRole(x)}
+              >
+                {x}
+              </button>
+            ))}
           </div>
         </div>
 
-        {err ? <div style={styles.error}>{err}</div> : null}
+        {err ? (
+          <div style={{ marginTop: 6, color: "#ff6b6b", fontSize: 12, fontWeight: 800 }}>
+            {err}
+          </div>
+        ) : null}
 
-        <div style={styles.btnRow}>
-          <button type="button" style={styles.btn} onClick={doLogin} disabled={!canSubmit || busy}>
+        <div className="btn-row">
+          <button type="button" className="btn" onClick={doLogin} disabled={!canSubmit || busy}>
             {busy ? "DUKE HYRË…" : "LOG IN"}
           </button>
-          <button type="button" style={styles.btnSecondary} onClick={clearLocal}>
+          <button type="button" className="btn" onClick={clearLocal}>
             CLEAR
           </button>
         </div>
@@ -193,146 +199,3 @@ function LoginContent() {
     </div>
   );
 }
-
-export default function LoginPage() {
-  return (
-    <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0b1220" }} />}>
-      <LoginContent />
-    </Suspense>
-  );
-}
-
-const styles = {
-  wrap: {
-    minHeight: "100vh",
-    background: "#0b1220",
-    color: "#f8fafc",
-    padding: "24px 16px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 18,
-  },
-  headerRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-  },
-  title: {
-    margin: 0,
-    fontSize: 28,
-    fontWeight: 900,
-    letterSpacing: "0.06em",
-  },
-  subtitle: {
-    margin: "4px 0 0",
-    opacity: 0.7,
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-  },
-  badge: {
-    textDecoration: "none",
-    color: "#fff",
-    border: "1px solid rgba(255,255,255,0.16)",
-    borderRadius: 999,
-    padding: "8px 12px",
-    fontSize: 12,
-    fontWeight: 800,
-    background: "rgba(255,255,255,0.06)",
-  },
-  card: {
-    width: "100%",
-    maxWidth: 520,
-    background: "rgba(15,23,42,0.88)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: 18,
-    padding: 18,
-    boxShadow: "0 20px 40px rgba(0,0,0,0.35)",
-  },
-  cardTitleRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  cardTitle: {
-    margin: 0,
-    fontSize: 16,
-    fontWeight: 900,
-    letterSpacing: "0.06em",
-  },
-  fieldGroup: {
-    marginTop: 12,
-  },
-  label: {
-    display: "block",
-    fontSize: 12,
-    fontWeight: 800,
-    letterSpacing: "0.06em",
-    marginBottom: 6,
-  },
-  input: {
-    width: "100%",
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.06)",
-    color: "#fff",
-    padding: "12px 14px",
-    fontSize: 16,
-    boxSizing: "border-box",
-    outline: "none",
-  },
-  chipRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  chip: {
-    borderRadius: 999,
-    padding: "9px 12px",
-    fontSize: 12,
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  chipActive: {
-    border: "1px solid #2563eb",
-    background: "#2563eb",
-    color: "#fff",
-  },
-  chipOutline: {
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "transparent",
-    color: "#e2e8f0",
-  },
-  error: {
-    marginTop: 10,
-    color: "#f87171",
-    fontSize: 12,
-    fontWeight: 800,
-  },
-  btnRow: {
-    display: "flex",
-    gap: 10,
-    marginTop: 14,
-  },
-  btn: {
-    flex: 1,
-    border: 0,
-    borderRadius: 12,
-    padding: "12px 14px",
-    background: "#2563eb",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  btnSecondary: {
-    flex: 1,
-    border: "1px solid rgba(255,255,255,0.14)",
-    borderRadius: 12,
-    padding: "12px 14px",
-    background: "transparent",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-};
