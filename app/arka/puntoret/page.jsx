@@ -35,7 +35,6 @@ export default function StaffAndDevicesDashboard() {
     });
   }, [pending]);
 
-  // Edit/Create Staff Form
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ name: "", role: "PUNTOR", pin: "", is_active: true });
 
@@ -48,7 +47,6 @@ export default function StaffAndDevicesDashboard() {
     if (savedPin) setMasterPin(savedPin);
     
     reloadAll(savedPin);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function api(action, payload = {}) {
@@ -79,11 +77,9 @@ export default function StaffAndDevicesDashboard() {
   async function reloadAll(pinOverride = null) {
     setLoading(true);
     try {
-      // 1. Lexo Stafin
       const { data: st } = await supabase.from("tepiha_users").select("*").order("created_at", { ascending: false });
       setStaff(st || []);
 
-      // 2. Lexo Pajisjet
       const p = pinOverride !== null ? pinOverride : masterPin;
       if (p) {
         const json = await api("list", { master_pin: p });
@@ -94,11 +90,9 @@ export default function StaffAndDevicesDashboard() {
     }
   }
 
-  // --- ACTIONS: 1-CLICK APPROVE ---
   async function handleOneClickApprove(device) {
     if (!masterPin) return alert("Shkruaj Master PIN lart!");
     
-    // Nëse pajisja nuk ka emër (Unknown Device), i tregojmë çfarë të bëjë
     if (!device.tepiha_users?.name) {
         alert("Ky telefon nuk është i lidhur me asnjë punëtor!\n\nZGJIDHJA: Krijo punëtorin poshtë te 'SHTO MANUALISHT', pastaj thuaji punëtorit të shtypë PIN-in e tij në telefon. Telefoni i tij do dalë këtu me Emër gati për tu aprovuar!");
         return;
@@ -116,18 +110,15 @@ export default function StaffAndDevicesDashboard() {
     setActionBusy(false);
   }
 
-  // Fshij pajisjet mbeturina (të panjohura)
   async function handleReject(device) {
     const conf = confirm("A jeni i sigurt që doni ta fshini këtë kërkesë?");
     if (!conf) return;
-    
     setActionBusy(true);
     await api("revoke", { device_id: device.device_id });
     reloadAll();
     setActionBusy(false);
   }
 
-  // --- ACTIONS: KRIJIMI/EDITIMI MANUAL I STAFIT ---
   function startCreateStaff() {
     setEditingId('NEW');
     setEditForm({ name: "", role: "PUNTOR", pin: "", is_active: true });
@@ -142,13 +133,8 @@ export default function StaffAndDevicesDashboard() {
 
   async function saveStaffEdit() {
     if (!editForm.name) return alert("Shkruaj emrin e punëtorit!");
-
     setActionBusy(true);
-    const payload = {
-      name: editForm.name,
-      role: editForm.role,
-      is_active: editForm.is_active
-    };
+    const payload = { name: editForm.name, role: editForm.role, is_active: editForm.is_active };
 
     if (editingId === 'NEW') {
       if (editForm.pin.length < 4) {
@@ -157,24 +143,14 @@ export default function StaffAndDevicesDashboard() {
         return;
       }
       payload.pin = editForm.pin;
-      
       const { error } = await supabase.from("users").insert([payload]);
-      if (error) {
-        alert("GABIM: " + error.message);
-      } else {
-        setEditingId(null);
-        reloadAll();
-      }
+      if (error) alert("GABIM: " + error.message);
+      else { setEditingId(null); reloadAll(); }
     } else {
       if (editForm.pin.length >= 4) payload.pin = editForm.pin;
-      
       const { error } = await supabase.from("users").update(payload).eq("id", editingId);
-      if (error) {
-        alert("GABIM: " + error.message);
-      } else {
-        setEditingId(null);
-        reloadAll();
-      }
+      if (error) alert("GABIM: " + error.message);
+      else { setEditingId(null); reloadAll(); }
     }
     setActionBusy(false);
   }
@@ -188,7 +164,6 @@ export default function StaffAndDevicesDashboard() {
     <div className="proDashboard">
       <div className="container">
         
-        {/* HEADER & MASTER PIN */}
         <div className="headerArea">
           <div className="flex-between">
             <div>
@@ -225,7 +200,6 @@ export default function StaffAndDevicesDashboard() {
 
         <div className="grid-layout">
           
-          {/* KOLONA E MAJTË: PAJISJET NË PRITJE (1-CLICK APPROVE) */}
           <div className="col">
             <div className="card">
               <div className="card-header flex-between">
@@ -261,7 +235,7 @@ export default function StaffAndDevicesDashboard() {
                              onClick={() => handleReject(d)}
                              disabled={actionBusy}
                           >
-                             FSHIJ KËRKESËN
+                             FSHIJ
                           </button>
                           <button 
                              className="btn-success" 
@@ -269,7 +243,7 @@ export default function StaffAndDevicesDashboard() {
                              onClick={() => handleOneClickApprove(d)}
                              disabled={actionBusy}
                           >
-                             ✅ APROVO PAJISJEN
+                             ✅ APROVO
                           </button>
                         </div>
                       </div>
@@ -280,10 +254,7 @@ export default function StaffAndDevicesDashboard() {
             </div>
           </div>
 
-          {/* KOLONA E DJATHTË: LISTA E STAFIT DHE EDITIMI/KRIJIMI MANUAL */}
           <div className="col">
-            
-            {/* FORMULARI I EDITIMIT OSE KRIJIMIT MANUAL */}
             {editingId && (
               <div className="card mb-4 border-blue">
                 <div className="card-header flex-between">
@@ -307,33 +278,31 @@ export default function StaffAndDevicesDashboard() {
                   </div>
                   <div className="grid-2 align-center">
                     <div className="field">
-                      <label>{editingId === 'NEW' ? 'PIN (Obligative, 4+ numra)' : 'Ndrysho PIN (Opsionale)'}</label>
+                      <label>{editingId === 'NEW' ? 'PIN (Obligative)' : 'Ndrysho PIN'}</label>
                       <input 
                         className="input" 
-                        placeholder={editingId === 'NEW' ? "****" : "Lëre bosh për të mos ndryshuar"} 
+                        placeholder={editingId === 'NEW' ? "****" : "Lëre bosh"} 
                         value={editForm.pin} 
                         onChange={e => setEditForm({...editForm, pin: onlyDigits(e.target.value)})} 
                       />
                     </div>
                     <label className="checkbox-wrap mt-4">
                       <input type="checkbox" checked={editForm.is_active} onChange={e => setEditForm({...editForm, is_active: e.target.checked})} />
-                      <span>Punëtor Aktiv</span>
+                      <span>Aktiv</span>
                     </label>
                   </div>
                   <button className="btn-primary w-full mt-2" onClick={saveStaffEdit} disabled={actionBusy}>
-                    {editingId === 'NEW' ? 'SHTO PUNËTORIN' : 'RUAJ NDRYSHIMET'}
+                    RUAJ
                   </button>
                 </div>
               </div>
             )}
 
-            {/* LISTA E STAFIT */}
             <div className="card">
               <div className="card-header flex-between">
                 <h3 className="card-title">Lista e Stafit</h3>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <button className="btn-success btn-small" onClick={startCreateStaff}>➕ SHTO MANUALISHT</button>
-                  <span className="badge badge-gray">{staff.length} TOTAL</span>
+                  <button className="btn-success btn-small" onClick={startCreateStaff}>➕ SHTO</button>
                 </div>
               </div>
               <div className="card-body p-0">
@@ -362,39 +331,20 @@ export default function StaffAndDevicesDashboard() {
       </div>
 
       <style jsx>{`
-        /* TEMË E NDRITSHME DHE FULL SCREEN */
-        .proDashboard { 
-          background-color: #F8FAFC; 
-          min-height: 100vh; 
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-          color: #0F172A; 
-          padding: 24px 16px 120px 16px;
-          width: 100vw;
-          position: relative;
-          left: 50%;
-          right: 50%;
-          margin-left: -50vw;
-          margin-right: -50vw;
-          box-sizing: border-box;
-        }
-        
+        .proDashboard { background-color: #F8FAFC; min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0F172A; padding: 24px 16px 120px 16px; width: 100vw; position: relative; left: 50%; right: 50%; margin-left: -50vw; margin-right: -50vw; box-sizing: border-box; }
         .container { max-width: 1200px; margin: 0 auto; }
-        
         .headerArea { margin-bottom: 32px; }
         .flex-between { display: flex; justify-content: space-between; align-items: center; }
         .title { font-size: 24px; font-weight: 800; color: #1E293B; margin: 0; letter-spacing: -0.5px; }
         .subtitle { font-size: 14px; color: #64748B; margin-top: 4px; font-weight: 500; }
-        
         .masterPinBox { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; margin-top: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); flex-wrap: wrap; gap: 16px; }
         .pinInfo { display: flex; align-items: center; gap: 12px; }
         .pinInfo .icon { font-size: 24px; background: #F1F5F9; padding: 10px; border-radius: 10px; }
         .pinInfo strong { font-size: 15px; color: #0F172A; }
         .pinInfo p { font-size: 13px; color: #64748B; margin: 2px 0 0 0; }
         .pinInputGroup { display: flex; gap: 12px; flex: 1; max-width: 300px; }
-
         .grid-layout { display: grid; grid-template-columns: 1fr; gap: 24px; }
         @media(min-width: 900px) { .grid-layout { grid-template-columns: 1fr 1.2fr; } }
-        
         .card { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .card-header { padding: 16px 20px; border-bottom: 1px solid #F1F5F9; background: #FAFAF9; }
         .card-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; color: #334155; }
@@ -404,65 +354,43 @@ export default function StaffAndDevicesDashboard() {
         .mt-2 { margin-top: 12px; }
         .mt-4 { margin-top: 24px; }
         .w-full { width: 100%; }
-
         .text-blue { color: #2563EB; }
         .text-orange { color: #EA580C; }
         .text-muted { color: #64748B; }
         .text-sm { font-size: 13px; }
         .text-xs { font-size: 11px; }
-        .text-right { text-align: right; }
         .mono { font-family: monospace; }
-        
-        .highlightCard { border: 2px solid #BFDBFE; background: #EFF6FF; }
-        .highlightCard .card-header { background: #DBEAFE; border-bottom-color: #BFDBFE; }
         .border-blue { border-color: #BFDBFE; }
-
         .form-stack { display: flex; flex-direction: column; gap: 16px; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .align-center { align-items: center; }
-        
         .field label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; }
         .input { width: 100%; padding: 12px 14px; border: 1px solid #CBD5E1; border-radius: 8px; font-size: 14px; color: #0F172A; background: #FFFFFF; transition: 0.2s; box-sizing: border-box; }
         .input:focus { outline: none; border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
         .shadow-sm { box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); }
-
         .btn-primary { background: #2563EB; color: white; border: none; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; }
         .btn-primary:hover { background: #1D4ED8; }
         .btn-success { background: #10B981; color: white; border: none; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; }
         .btn-success:hover { background: #059669; }
-        .btn-outline { background: #FFFFFF; border: 1px solid #CBD5E1; color: #334155; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; text-decoration: none; }
-        .btn-outline:hover { background: #F8FAFC; border-color: #94A3B8; }
+        .btn-outline { background: #FFFFFF; border: 1px solid #CBD5E1; color: #334155; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; text-decoration: none; }
         .btn-close { background: none; border: none; font-size: 16px; color: #64748B; cursor: pointer; }
-        .btn-close:hover { color: #0F172A; }
-
         .btn-small { padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
         .btn-light { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
-        .btn-light:hover { background: #E2E8F0; color: #0F172A; }
         .btn-danger-light { background: #FEF2F2; color: #EF4444; border-color: #FEE2E2; }
-        .btn-danger-light:hover { background: #FEE2E2; }
         .btn-success-light { background: #F0FDF4; color: #10B981; border-color: #DCFCE7; }
-        .btn-success-light:hover { background: #DCFCE7; }
-
-        .list-item { padding: 16px 20px; border-bottom: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; cursor: pointer; }
+        .list-item { padding: 16px 20px; border-bottom: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
         .list-item:hover { background: #F8FAFC; }
         .list-item:last-child { border-bottom: none; }
-        .list-item.selected { background: #EFF6FF; border-left: 3px solid #3B82F6; }
-        .staff-item { cursor: default; }
-
         .item-info { display: flex; align-items: center; gap: 14px; }
         .item-info strong { font-size: 15px; color: #0F172A; }
         .item-actions { display: flex; gap: 8px; }
-
         .badge { padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; }
         .badge-orange { background: #FFF7ED; color: #EA580C; border: 1px solid #FFEDD5; }
         .badge-gray { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
-
         .status-dot { width: 10px; height: 10px; border-radius: 50%; }
         .status-dot.active { background: #10B981; box-shadow: 0 0 0 3px #D1FAE5; }
         .status-dot.blocked { background: #EF4444; box-shadow: 0 0 0 3px #FEE2E2; }
-
         .empty-state { padding: 40px; text-align: center; color: #94A3B8; font-size: 14px; font-weight: 500; }
-        
         .checkbox-wrap { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; font-weight: 600; color: #334155; }
         .checkbox-wrap input { width: 18px; height: 18px; cursor: pointer; accent-color: #2563EB; }
       `}</style>
