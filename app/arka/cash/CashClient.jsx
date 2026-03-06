@@ -200,7 +200,7 @@ export default function CashClient() {
 
       if (hasPin) {
         try {
-          const res = await listPendingCashPayments(200);
+          const res = await listPendingCashPayments(80);
           setPendingPays(Array.isArray(res?.items) ? res.items : []);
         } catch {
           setPendingPays([]);
@@ -213,7 +213,7 @@ export default function CashClient() {
       // ✅ If a worker has OWED items (DISPATCH marked BORXH), show worker confirmation popup
       if (user?.name) {
         try {
-          const ow = await listWorkerOwedPayments(user.name, 200);
+          const ow = await listWorkerOwedPayments(user.name, 80);
           const rows = Array.isArray(ow?.rows) ? ow.rows : [];
           setOwedPays(rows);
           if (rows.length) setOwedModal(true);
@@ -515,9 +515,17 @@ export default function CashClient() {
       if (!applied?.ok) {
         throw new Error(applied?.error || 'PRANO_FAILED');
       }
-      const res = await listPendingCashPayments(200);
-      setPendingPays(Array.isArray(res?.items) ? res.items : []);
-      await refresh();
+
+      setPendingPays((prev) => (prev || []).filter((x) => String(x.external_id || x.externalId) !== String(p.external_id || p.externalId)));
+
+      try {
+        const nextMoves = await dbListCycleMoves(cycle.id);
+        setMoves(Array.isArray(nextMoves) ? nextMoves : []);
+      } catch {}
+      try {
+        const nextCycle = await dbGetActiveCycle();
+        if (nextCycle?.id) setCycle(nextCycle);
+      } catch {}
     } catch (e) {
       const msg = e?.message || String(e);
       setErr(msg.includes('RLS_BLOCKED_UPDATE') ? 'NUK U PRANUA (RLS/POLICY). DUHET SQL POLICY PER arka_pending_payments UPDATE.' : msg);
@@ -547,9 +555,7 @@ export default function CashClient() {
         rejected_by_role: user?.role || null,
         reject_note: pendingRejectNote || null,
       });
-      const res = await listPendingCashPayments(200);
-      setPendingPays(Array.isArray(res?.items) ? res.items : []);
-      await refresh();
+      setPendingPays((prev) => (prev || []).filter((x) => String(x.external_id || x.externalId) !== String(p.external_id || p.externalId)));
     } catch (e) {
       const msg = e?.message || String(e);
       setErr(msg);
@@ -567,6 +573,7 @@ export default function CashClient() {
       setPendingBusy(false);
     }
   }
+
 
   return (
     <div style={{ padding: 16 }}>
@@ -1069,7 +1076,7 @@ export default function CashClient() {
                         try {
                           await markOwedAsPending({ pending: p, actor: user });
                           // refresh lists
-                          const res = await listPendingCashPayments(200);
+                          const res = await listPendingCashPayments(80);
                           setPendingPays(Array.isArray(res?.items) ? res.items : []);
                           const ow = await listWorkerOwedPayments(user?.name, 200);
                           const rows = Array.isArray(ow?.rows) ? ow.rows : [];
