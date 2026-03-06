@@ -137,13 +137,13 @@ export default function CashClient() {
   const [cashCounted, setCashCounted] = useState("");
   const [closeReason, setCloseReason] = useState("");
 
-  // Pending cash payments (non-blocking)
+  // Pending cash payments
   const [pendingPays, setPendingPays] = useState([]);
   const [pendingModal, setPendingModal] = useState(false);
   const [pendingBusy, setPendingBusy] = useState(false);
   const [pendingRejectNote, setPendingRejectNote] = useState("");
 
-  // Worker OWED (when ARKA closed and DISPATCH marked BORXH)
+  // Worker OWED
   const [owedPays, setOwedPays] = useState([]);
   const [owedModal, setOwedModal] = useState(false);
   const [owedBusy, setOwedBusy] = useState(false);
@@ -209,8 +209,6 @@ export default function CashClient() {
         setPendingPays([]);
       }
 
-
-      // ✅ If a worker has OWED items (DISPATCH marked BORXH), show worker confirmation popup
       if (user?.name) {
         try {
           const ow = await listWorkerOwedPayments(user.name, 80);
@@ -291,9 +289,6 @@ export default function CashClient() {
         opened_by_pin: user?.pin || null,
       });
 
-      // LIDHJA ME BUXHETIN E KOMPANISË (DISPATCH LEDGER)
-      // Kur ARKA hapet me burim COMPANY, kjo do të thotë që cash-i është marrë nga buxheti i kompanisë
-      // dhe është futur në ARKË (daily cash). Prandaj e regjistrojmë si OUT në company_budget_moves.
       try {
         if (src === 'COMPANY' && Number(opening_cash || 0) > 0) {
           await budgetAddMove({
@@ -304,15 +299,13 @@ export default function CashClient() {
             source: 'CASH',
             created_by: user?.name || 'LOCAL',
             created_by_name: user?.name || 'UNKNOWN',
-      created_by_pin: user?.pin || null,
+            created_by_pin: user?.pin || null,
             ref_day_id: opened?.id || null,
             ref_type: 'ARKA_CYCLE',
             external_id: opened?.id ? `arka_open_${opened.id}` : null,
           });
         }
-      } catch {
-        // non-blocking: mos e ndal hapjen e ARKËS nese buxheti s'ruhet (RLS ose tabela mungon)
-      }
+      } catch {}
 
       setOpenModal(false);
       await refresh();
@@ -332,9 +325,6 @@ export default function CashClient() {
       const amt = parseEuroInput(moveAmount);
       if (Number.isNaN(amt) || amt <= 0) throw new Error("SHUMA DUHET > 0.");
 
-      // STRICT: çdo lëvizje manuale duhet me pas "KU SHKON / PREJ KUJ".
-      // - KOMPANI: pasqyrohet në company_budget_moves (me drejtim të kundërt)
-      // - PERSONAL: kërkon PIN + ruhet kush e autorizoi
       const type = String(moveType || "OUT").toUpperCase();
       const label = type === 'IN' ? 'PREJ KUJ (IN) [KOMPANI/PERSONAL]' : 'KU SHKON (OUT) [KOMPANI/PERSONAL]';
       const raw = String(window.prompt(label, 'KOMPANI') || '').trim().toUpperCase();
@@ -346,7 +336,6 @@ export default function CashClient() {
         if (!pin) throw new Error('PIN MUNGON (PERSONAL).');
       }
 
-      // PIN stays hidden: do not embed it in any human-visible note.
       const noteExtra = `${counterparty}`;
       const note = `${String(moveNote || '')}${String(moveNote || '').trim() ? ' • ' : ''}${noteExtra}`.trim();
 
@@ -361,10 +350,7 @@ export default function CashClient() {
         created_by_pin: pin || null,
       });
 
-      // Mirror në BUXHET vetëm kur counterparty është KOMPANI
       if (counterparty === 'KOMPANI') {
-        // ARKA OUT -> BUXHET IN (cash u transferua te kompania/banka)
-        // ARKA IN  -> BUXHET OUT (kompania dha cash në arkë)
         const budDir = type === 'OUT' ? 'IN' : 'OUT';
         try {
           await budgetAddMove({
@@ -380,9 +366,7 @@ export default function CashClient() {
             ref_type: 'ARKA_CYCLE',
             external_id: `arka_manual_${cycle?.id || 'x'}_${Date.now()}`,
           });
-        } catch {
-          // non-blocking
-        }
+        } catch {}
       }
       setMoveAmount("");
       setMoveNote("");
@@ -402,7 +386,6 @@ export default function CashClient() {
       const counted = parseEuroInput(cashCounted);
       if (Number.isNaN(counted) || counted < 0) throw new Error("CASH COUNTED S’ËSHTË VALIDE.");
 
-      // If discrepancy, require a reason (stops silent anomalies)
       const disc = Number(counted) - Number(expectedCash || 0);
       if (Math.abs(disc) >= 0.01 && !String(closeReason || "").trim()) {
         throw new Error("SHKRUJ ARSYEN PËR DISKREPANCË.");
@@ -439,8 +422,6 @@ export default function CashClient() {
     try {
       await dbReceiveCycle({ cycle_id, received_by: user?.name || "DISPATCH", received_by_pin: user?.pin || null });
 
-      // Mirror RECEIVED cash into the company budget ledger.
-      // Mos u mbështet vetëm te histCycles (mund të jetë stale). Lexoje direkt nga DB.
       let c = (histCycles || []).find((x) => x.id === cycle_id) || null;
       try {
         const { data: fresh } = await supabase
@@ -462,13 +443,12 @@ export default function CashClient() {
             source: 'CASH',
             created_by: user?.name || 'DISPATCH',
             created_by_name: user?.name || 'UNKNOWN',
-      created_by_pin: user?.pin || null,
+            created_by_pin: user?.pin || null,
             ref_day_id: cycle_id,
             ref_type: 'ARKA_CYCLE',
             external_id: `arka_receive_${cycle_id}`,
           });
         } catch (eBudget) {
-          // Mos e ndal RECEIVE nese buxheti s'ruhet (p.sh. RLS / policy). Jep vetëm një warning.
           setErr((prev) => prev || (`BUXHETI S'U RUAJT: ${eBudget?.message || String(eBudget)}`));
         }
       }
@@ -483,11 +463,9 @@ export default function CashClient() {
 
   const arkaLocked = pendingHanded && !isDispatch;
 
-  // pending cash groups by PIN
   const pendingGroups = useMemo(() => {
     const groups = new Map();
     for (const p of pendingPays || []) {
-      // Prefer PIN; fall back to name; always return a safe string.
       const pin = String(p?.created_by_pin || p?.created_by_name || 'PA_PIN').trim() || 'PA_PIN';
       if (!groups.has(pin)) groups.set(pin, []);
       groups.get(pin).push(p);
@@ -529,16 +507,6 @@ export default function CashClient() {
     } catch (e) {
       const msg = e?.message || String(e);
       setErr(msg.includes('RLS_BLOCKED_UPDATE') ? 'NUK U PRANUA (RLS/POLICY). DUHET SQL POLICY PER arka_pending_payments UPDATE.' : msg);
-      setDebugInfo({
-        action: 'PRANO',
-        pending_id: p?.id || null,
-        external_id: p?.external_id || null,
-        order_id: p?.order_id || null,
-        cycle_id: cycle?.id || null,
-        user: { pin: user?.pin || null, name: user?.name || null, role: user?.role || null },
-        error: msg,
-        raw: e && typeof e === 'object' ? e : null,
-      });
     } finally {
       setPendingBusy(false);
     }
@@ -557,23 +525,11 @@ export default function CashClient() {
       });
       setPendingPays((prev) => (prev || []).filter((x) => String(x.external_id || x.externalId) !== String(p.external_id || p.externalId)));
     } catch (e) {
-      const msg = e?.message || String(e);
-      setErr(msg);
-      setDebugInfo({
-        action: 'BORXH',
-        pending_id: p?.id || null,
-        external_id: p?.external_id || null,
-        order_id: p?.order_id || null,
-        cycle_id: cycle?.id || null,
-        user: { pin: user?.pin || null, name: user?.name || null, role: user?.role || null },
-        error: msg,
-        raw: e && typeof e === 'object' ? e : null,
-      });
+      setErr(e?.message || String(e));
     } finally {
       setPendingBusy(false);
     }
   }
-
 
   return (
     <div style={{ padding: 16 }}>
@@ -602,14 +558,6 @@ export default function CashClient() {
       {err ? (
         <div style={{ border: "2px solid #7a1a1a", color: "#fff", padding: 12, borderRadius: 12, marginBottom: 12 }}>
           {err}
-          {debugInfo ? (
-            <details style={{ marginTop: 10 }}>
-              <summary style={{ cursor: 'pointer', fontWeight: 900, letterSpacing: 2 }}>DETAILS</summary>
-              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 8, fontSize: 12, opacity: 0.95 }}>
-                {JSON.stringify(debugInfo, null, 2)}
-              </pre>
-            </details>
-          ) : null}
         </div>
       ) : null}
 
@@ -640,9 +588,6 @@ export default function CashClient() {
                   <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>CARRYOVER</div>
                   <div style={{ marginTop: 6, fontWeight: 950 }}>
                     {euro(carry.carry_cash)} · {String(carry.carry_source || "COMPANY").toUpperCase()}
-                    {String(carry.carry_source || "").toUpperCase() === "PERSONAL" && carry.carry_person_pin ? (
-                      <></>
-                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -650,7 +595,6 @@ export default function CashClient() {
               <button
                 disabled={busy || pendingHanded}
                 onClick={() => {
-                  // prefill with carryover if available
                   if (Number(carry?.carry_cash || 0) > 0) {
                     setOpeningCash(String(Number(carry.carry_cash || 0)));
                     setOpeningSource(String(carry.carry_source || "COMPANY").toUpperCase());
@@ -706,9 +650,6 @@ export default function CashClient() {
                 <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>STATUS: {cycle.handoff_status}</div>
                 <div style={{ marginTop: 6, fontWeight: 950, letterSpacing: 1.5 }}>
                   FILLIMI: {euro(cycle.opening_cash)} · {String(cycle.opening_source || "").toUpperCase()}
-                  {String(cycle.opening_source || "").toUpperCase() === "PERSONAL" && cycle.opening_person_pin ? (
-                    <></>
-                  ) : null}
                 </div>
               </div>
 
@@ -771,31 +712,70 @@ export default function CashClient() {
                 </button>
               </div>
 
+              {/* KËTU FILLON DIZAJNI I RI I KARTELAVE TË LËVIZJEVE */}
               <div style={{ border: "1px solid rgba(255,255,255,0.15)", borderRadius: 14, padding: 12 }}>
-                <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>LËVIZJET</div>
+                <div style={{ fontWeight: 950, letterSpacing: 2, opacity: 0.9 }}>LËVIZJET E ARKËS</div>
                 {moves?.length ? (
-                  <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                    {moves.map((m) => (
-                      <div
-                        key={m.id}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          border: "1px solid rgba(255,255,255,0.10)",
-                          borderRadius: 12,
-                          padding: 10,
-                        }}
-                      >
-                        <div style={{ fontWeight: 950, letterSpacing: 2 }}>
-                          {String(m.type || "").toUpperCase()}
-                          {m.note ? <span style={{ opacity: 0.8, letterSpacing: 1 }}> · {m.note}</span> : null}
+                  <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                    {moves.map((m) => {
+                      const isIN = m.type === 'IN';
+                      const executorName = String(m.created_by_name || m.created_by || "SISTEMI / I PANJOHUR").toUpperCase();
+                      
+                      return (
+                        <div
+                          key={m.id}
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 8,
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            background: "rgba(255,255,255,0.03)",
+                            borderRadius: 12,
+                            padding: 12,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{
+                                background: isIN ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                color: isIN ? '#34d399' : '#f87171',
+                                padding: '4px 8px',
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 900,
+                                letterSpacing: 1
+                              }}>
+                                {String(m.type || "").toUpperCase()}
+                              </span>
+                              <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.8, letterSpacing: 0.5 }}>
+                                {m.source === 'ORDER_PAY' ? 'PAGESË POROSIE' : 'LËVIZJE MANUALE'}
+                              </span>
+                            </div>
+                            <div style={{ fontWeight: 900, fontSize: 16, color: isIN ? '#34d399' : '#f87171' }}>
+                              {isIN ? '+' : '-'}{euro(m.amount)}
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: 13, opacity: 0.9, lineHeight: 1.4, fontWeight: 600 }}>
+                            📝 {m.note || 'Pa shënim'}
+                          </div>
+
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, paddingTop: 8, borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
+                            <div style={{ fontSize: 11, color: '#60a5fa', fontWeight: 900, letterSpacing: 0.5 }}>
+                              👤 NGA: {executorName}
+                            </div>
+                            {m.created_at && (
+                              <div style={{ fontSize: 10, opacity: 0.5, fontWeight: 700 }}>
+                                {new Date(m.created_at).toLocaleTimeString('sq-AL', { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ fontWeight: 950 }}>{euro(m.amount)}</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
-                  <div style={{ opacity: 0.75, marginTop: 8 }}>S’KA LËVIZJE.</div>
+                  <div style={{ opacity: 0.75, marginTop: 12, fontWeight: 600, fontSize: 13 }}>S’KA ASNJË LËVIZJE SOT.</div>
                 )}
               </div>
 
@@ -1075,7 +1055,6 @@ export default function CashClient() {
                         setOwedBusy(true);
                         try {
                           await markOwedAsPending({ pending: p, actor: user });
-                          // refresh lists
                           const res = await listPendingCashPayments(80);
                           setPendingPays(Array.isArray(res?.items) ? res.items : []);
                           const ow = await listWorkerOwedPayments(user?.name, 200);
