@@ -114,15 +114,6 @@ async function readLocalOrdersByStatus(status) {
   const getStazaRows = (fullOrder) => Array.isArray(fullOrder?.staza) ? fullOrder.staza : (Array.isArray(fullOrder?.stazaRows) ? fullOrder.stazaRows : []);
   const getStairsQty = (fullOrder) => Number(fullOrder?.shkallore?.qty ?? fullOrder?.stairsQty ?? 0) || 0;
   const getStairsPer = (fullOrder) => Number(fullOrder?.shkallore?.per ?? fullOrder?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
-  const computePieces = (fullOrder) => {
-    try{
-      let p = 0;
-      for (const r of getTepihaRows(fullOrder)) p += rowQty(r);
-      for (const r of getStazaRows(fullOrder)) p += rowQty(r);
-      p += getStairsQty(fullOrder);
-      return p;
-    }catch{return 0;}
-  };
 
   const scoreRow = (row) => {
     const m2 = computeM2(row.fullOrder) || 0;
@@ -148,21 +139,44 @@ function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); 
 
 function rowQty(r) { return Number(r?.qty ?? r?.pieces ?? 0) || 0; }
 function rowM2(r) { return Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0; }
+function getOrderPayload(order) {
+  if (!order) return {};
+  const base = unwrapOrderData(order);
+  const data = unwrapOrderData(order?.data);
+  return { ...(base || {}), ...(data || {}) };
+}
+function safeArray(v) {
+  return Array.isArray(v) ? v : [];
+}
 function getTepihaRows(order) {
-  if (Array.isArray(order?.tepiha)) return order.tepiha;
-  if (Array.isArray(order?.tepihaRows)) return order.tepihaRows;
-  return [];
+  const o = getOrderPayload(order);
+  return safeArray(o?.tepiha).length ? safeArray(o?.tepiha) : safeArray(o?.tepihaRows);
 }
 function getStazaRows(order) {
-  if (Array.isArray(order?.staza)) return order.staza;
-  if (Array.isArray(order?.stazaRows)) return order.stazaRows;
-  return [];
+  const o = getOrderPayload(order);
+  const d = unwrapOrderData(o?.data);
+  return safeArray(o?.staza).length
+    ? safeArray(o?.staza)
+    : safeArray(o?.stazaRows).length
+      ? safeArray(o?.stazaRows)
+      : safeArray(d?.staza).length
+        ? safeArray(d?.staza)
+        : safeArray(d?.stazaRows);
 }
 function getStairsQty(order) {
-  return Number(order?.shkallore?.qty ?? order?.stairsQty ?? 0) || 0;
+  const o = getOrderPayload(order);
+  const d = unwrapOrderData(o?.data);
+  return Number(o?.shkallore?.qty ?? d?.shkallore?.qty ?? o?.stairsQty ?? d?.stairsQty ?? 0) || 0;
 }
 function getStairsPer(order) {
-  return Number(order?.shkallore?.per ?? order?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
+  const o = getOrderPayload(order);
+  const d = unwrapOrderData(o?.data);
+  return Number(o?.shkallore?.per ?? d?.shkallore?.per ?? o?.stairsPer ?? d?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
+}
+function getStairsPhoto(order) {
+  const o = getOrderPayload(order);
+  const d = unwrapOrderData(o?.data);
+  return o?.shkallore?.photoUrl || d?.shkallore?.photoUrl || o?.stairsPhotoUrl || d?.stairsPhotoUrl || '';
 }
 function computeM2(order) {
   if (!order) return 0;
@@ -171,6 +185,14 @@ function computeM2(order) {
   for (const r of getStazaRows(order)) total += rowM2(r) * rowQty(r);
   total += getStairsQty(order) * getStairsPer(order);
   return Number(total.toFixed(2));
+}
+function computePieces(order) {
+  if (!order) return 0;
+  let p = 0;
+  for (const r of getTepihaRows(order)) p += rowQty(r);
+  for (const r of getStazaRows(order)) p += rowQty(r);
+  p += getStairsQty(order);
+  return p;
 }
 
 function dayKey(ts) {
@@ -434,7 +456,25 @@ export default function PastrimiPage() {
       setStreamPastrimM2(Number(streamTotal.toFixed(2)));
 
     } catch (e) {
-      console.error('refreshOrders failed:', e);
+      console.error('Pastrimi refreshOrders failed:', e);
+      setDebugInfo((prev) => ({ ...prev, lastError: String(e?.message || e || 'UNKNOWN'), ts: Date.now() }));
+      try {
+        const locals = (await readLocalOrdersByStatus('pastrim')).map((x) => {
+          const order = unwrapOrderData(x.fullOrder);
+          const total = Number(order.pay?.euro || 0);
+          const paid = Number(order.pay?.paid || 0);
+          return {
+            id: x.id, source: 'LOCAL_FALLBACK', ts: Number(order.ts || x.ts || Date.now()),
+            name: order.client?.name || '', phone: order.client?.phone || '', code: normalizeCode(order.client?.code || order.code || x.id),
+            m2: computeM2(order), cope: computePieces(order),
+            total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
+          };
+        });
+        setOrders(Array.isArray(locals) ? locals : []);
+      } catch (fallbackErr) {
+        console.error('Pastrimi local fallback failed:', fallbackErr);
+        setOrders([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -456,16 +496,16 @@ export default function PastrimiPage() {
       setPhone(p.startsWith(phonePrefix) ? p.slice(phonePrefix.length) : p.replace(/\D+/g, ''));
       setClientPhotoUrl(ord.client?.photoUrl || ord.client?.photo || '');
 
-      const tList = Array.isArray(ord.tepiha) ? ord.tepiha : (Array.isArray(ord.tepihaRows) ? ord.tepihaRows : []);
-      const sList = Array.isArray(ord.staza) ? ord.staza : (Array.isArray(ord.stazaRows) ? ord.stazaRows : []);
-      const shk = ord.shkallore || {};
+      ord = getOrderPayload(ord);
+      const tList = getTepihaRows(ord);
+      const sList = getStazaRows(ord);
 
       setTepihaRows(tList.length ? tList.map((x,i)=>({id:`t${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'t1', m2:'', qty:'', photoUrl:''}]);
       setStazaRows(sList.length ? sList.map((x,i)=>({id:`s${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'s1', m2:'', qty:'', photoUrl:''}]);
 
-      setStairsQty(Number(shk?.qty ?? ord.stairsQty ?? 0)||0);
-      setStairsPer(Number(shk?.per ?? ord.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT)||SHKALLORE_M2_PER_STEP_DEFAULT);
-      setStairsPhotoUrl(shk?.photoUrl||'');
+      setStairsQty(getStairsQty(ord));
+      setStairsPer(getStairsPer(ord) || SHKALLORE_M2_PER_STEP_DEFAULT);
+      setStairsPhotoUrl(getStairsPhoto(ord));
 
       setPricePerM2(Number(ord.pay?.rate ?? ord.pay?.price ?? PRICE_DEFAULT));
       const paid = Number(ord.pay?.paid ?? 0);
