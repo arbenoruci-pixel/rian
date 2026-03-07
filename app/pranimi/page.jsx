@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  computeM2FromRows,
   normalizeCode,
   reserveSharedCode,
   ensureBasePool,
@@ -69,6 +68,24 @@ function sanitizePhone(phone) {
 
 function normDigits(s) {
   return String(s || '').replace(/\D+/g, '');
+}
+
+
+function sumRowsM2(rows = []) {
+  let total = 0;
+  for (const r of rows || []) {
+    const m2 = Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0;
+    const qty = Number(r?.qty ?? r?.pieces ?? 1) || 0;
+    total += m2 * qty;
+  }
+  return Number(total.toFixed(2));
+}
+
+function computeTotalM2Universal(tepihaRows = [], stazaRows = [], stairsQty = 0, stairsPer = 0) {
+  const t = sumRowsM2(tepihaRows);
+  const s = sumRowsM2(stazaRows);
+  const sh = (Number(stairsQty) || 0) * (Number(stairsPer) || 0);
+  return Number((t + s + sh).toFixed(2));
 }
 
 async function searchClientsLive(q) {
@@ -347,7 +364,7 @@ async function fetchRemoteDraftsSummary() {
     const d = await readDraftRemote(id);
     if (!d?.id) return;
 
-    const m2 = computeM2FromRows(d.tepihaRows || [], d.stazaRows || [], d.stairsQty || 0, d.stairsPer || 0);
+    const m2 = computeTotalM2Universal(d.tepihaRows || [], d.stazaRows || [], d.stairsQty || 0, d.stairsPer || 0);
     const euro = Number((m2 * (Number(d.pricePerM2) || PRICE_DEFAULT)).toFixed(2));
 
     out.push({
@@ -904,7 +921,7 @@ setCodeRaw(c || '');
     } catch {}
   }, [router]);
 
-  const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
+  const totalM2 = useMemo(() => computeTotalM2Universal(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2)), [totalM2, pricePerM2]);
 
   const diff = useMemo(() => Number((totalEuro - Number(clientPaid || 0)).toFixed(2)), [totalEuro, clientPaid]);
@@ -1662,18 +1679,17 @@ ${msg}${details}`);
   const debt = Number(currentDebt || 0).toFixed(2);
 
   return `Përshëndetje ${name || 'klient'},
-
-Porosia juaj u pranua me sukses dhe procesi i pastrimit ka filluar.
+  
+Porosia juaj u pranua dhe procesi i pastrimit ka filluar.
 
 KODI: ${kod}
-COPË TOTALE: ${copeCount}
-m² TOTAL: ${m2}
-ÇMIMI TOTAL: ${euro} €
+SASIA: ${copeCount} copë (${m2} m²)
+TOTALI: ${euro} €
 BORXHI: ${debt} €
 
-Në momentin që ju lajmërojmë që porosia është GATI, ju lutem t'i tërhiqni sa më parë. Përndryshe nuk mbajmë përgjegjësi për humbjen ose dëmtimin e tyre.
+Sapo të jenë gati për t'u tërhequr, do t'ju njoftojmë me një mesazh tjetër.
 
-Faleminderit,
+Faleminderit që zgjodhët shërbimet tona,
 KOMPANIA JONI`;
 }
 
@@ -1725,27 +1741,6 @@ KOMPANIA JONI`;
       localStorage.setItem(AUTO_MSG_KEY, next ? '1' : '0');
     } catch {}
   }
-
-  useEffect(() => {
-    if (!showMsgSheet) return;
-    try {
-      window.scrollTo({ top: 0, behavior: 'instant' });
-    } catch {
-      try { window.scrollTo(0, 0); } catch {}
-    }
-    const prevBodyOverflow = document?.body?.style?.overflow || '';
-    const prevHtmlOverflow = document?.documentElement?.style?.overflow || '';
-    try {
-      document.body.style.overflow = 'hidden';
-      document.documentElement.style.overflow = 'hidden';
-    } catch {}
-    return () => {
-      try {
-        document.body.style.overflow = prevBodyOverflow;
-        document.documentElement.style.overflow = prevHtmlOverflow;
-      } catch {}
-    };
-  }, [showMsgSheet]);
 
   if (creating) {
     return (
@@ -2151,8 +2146,8 @@ return (
             <button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button>
           </div>
 
-          <div className="payfs-body" style={{ width: '100%', maxWidth: 620, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 12, paddingTop: 12, paddingBottom: 12 }}>
-            <div className="card" style={{ marginTop: 0, width: '100%' }}>
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
               {drafts.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>
                   S’ka “të pa plotsuara”.
@@ -2210,7 +2205,7 @@ return (
 
       {/* ✅ FULL SCREEN: MESAZHI */}
       {showMsgSheet && (
-        <div className="payfs" style={{ alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div className="payfs">
           <div className="payfs-top">
             <div>
               <div className="payfs-title">DËRGO MESAZH</div>
@@ -2219,8 +2214,8 @@ return (
             <button className="btn secondary" onClick={closeMsgSheet}>✕</button>
           </div>
 
-          <div className="payfs-body" style={{ width: '100%', maxWidth: 620, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 12, paddingTop: 12, paddingBottom: 12 }}>
-            <div className="card" style={{ marginTop: 0, width: '100%' }}>
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
               {/* ✅ toggle */}
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: 900 }}>
@@ -2253,7 +2248,7 @@ return (
               </pre>
             </div>
 
-            <div className="card" style={{ width: '100%' }}>
+            <div className="card">
               <div className="row" style={{ gap: 10 }}>
                 <button className="btn secondary" style={{ flex: 1 }} onClick={sendViaViber}>
                   VIBER
@@ -2289,8 +2284,8 @@ return (
             <button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button>
           </div>
 
-          <div className="payfs-body" style={{ width: '100%', maxWidth: 620, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 12, paddingTop: 12, paddingBottom: 12 }}>
-            <div className="card" style={{ marginTop: 0, width: '100%' }}>
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
               <div className="tot-line">QMIMI AKTUAL: <strong>{Number(pricePerM2 || 0).toFixed(2)} € / m²</strong></div>
               <div style={{ height: 10 }} />
               <label className="label">QMIMI I RI (€ / m²)</label>
@@ -2783,47 +2778,6 @@ return (
           background: #0b0b0b;
           color: #fff;
           border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .payfs {
-          position: fixed;
-          inset: 0;
-          background: #0b0b0b;
-          z-index: 10000;
-          display: flex;
-          flex-direction: column;
-        }
-        .payfs-top {
-          width: 100%;
-          max-width: 620px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 14px 14px;
-          background: #0b0b0b;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 18px 18px 0 0;
-        }
-        .payfs-title {
-          color: #fff;
-          font-weight: 900;
-          font-size: 18px;
-        }
-        .payfs-sub {
-          color: rgba(255, 255, 255, 0.7);
-          font-size: 12px;
-          margin-top: 2px;
-        }
-        .payfs-body {
-          flex: 1;
-          overflow: auto;
-          width: 100%;
-        }
-        .payfs-footer {
-          display: flex;
-          gap: 10px;
-          padding: 12px 14px;
-          border-top: 1px solid rgba(255, 255, 255, 0.08);
-          background: #0b0b0b;
         }
 /* WIZARD */
 .wiz-backdrop{

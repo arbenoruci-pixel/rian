@@ -108,8 +108,20 @@ async function readLocalOrdersByStatus(status) {
   } catch {}
 
   const byCode = new Map();
+  const rowQty = (r) => Number(r?.qty ?? r?.pieces ?? 0) || 0;
+  const rowM2 = (r) => Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0;
+  const getTepihaRows = (fullOrder) => Array.isArray(fullOrder?.tepiha) ? fullOrder.tepiha : (Array.isArray(fullOrder?.tepihaRows) ? fullOrder.tepihaRows : []);
+  const getStazaRows = (fullOrder) => Array.isArray(fullOrder?.staza) ? fullOrder.staza : (Array.isArray(fullOrder?.stazaRows) ? fullOrder.stazaRows : []);
+  const getStairsQty = (fullOrder) => Number(fullOrder?.shkallore?.qty ?? fullOrder?.stairsQty ?? 0) || 0;
+  const getStairsPer = (fullOrder) => Number(fullOrder?.shkallore?.per ?? fullOrder?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
   const piecesCount = (fullOrder) => {
-    try { return computePieces(fullOrder); } catch { return 0; }
+    try{
+      let p = 0;
+      for (const r of getTepihaRows(fullOrder)) p += rowQty(r);
+      for (const r of getStazaRows(fullOrder)) p += rowQty(r);
+      p += getStairsQty(fullOrder);
+      return p;
+    }catch{return 0;}
   };
 
   const scoreRow = (row) => {
@@ -134,42 +146,30 @@ async function readLocalOrdersByStatus(status) {
 
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
 
-function getOrderRows(order, primaryKey, secondaryKey) {
-  if (!order || typeof order !== 'object') return [];
-  const primary = Array.isArray(order?.[primaryKey]) ? order[primaryKey] : null;
-  const secondary = Array.isArray(order?.[secondaryKey]) ? order[secondaryKey] : null;
-  return primary || secondary || [];
+function rowQty(r) { return Number(r?.qty ?? r?.pieces ?? 0) || 0; }
+function rowM2(r) { return Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0; }
+function getTepihaRows(order) {
+  if (Array.isArray(order?.tepiha)) return order.tepiha;
+  if (Array.isArray(order?.tepihaRows)) return order.tepihaRows;
+  return [];
 }
-
-function rowQty(row) {
-  return Number(row?.qty ?? row?.pieces ?? row?.piece ?? 0) || 0;
+function getStazaRows(order) {
+  if (Array.isArray(order?.staza)) return order.staza;
+  if (Array.isArray(order?.stazaRows)) return order.stazaRows;
+  return [];
 }
-
-function rowM2(row) {
-  return Number(row?.m2 ?? row?.area ?? row?.size ?? 0) || 0;
+function getStairsQty(order) {
+  return Number(order?.shkallore?.qty ?? order?.stairsQty ?? 0) || 0;
 }
-
-function stairsInfo(order) {
-  const qty = Number(order?.shkallore?.qty ?? order?.stairsQty ?? 0) || 0;
-  const per = Number(order?.shkallore?.per ?? order?.stairsPer ?? 0) || 0;
-  return { qty, per };
+function getStairsPer(order) {
+  return Number(order?.shkallore?.per ?? order?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
 }
-
-function computePieces(order) {
-  if (!order) return 0;
-  const tepiha = getOrderRows(order, 'tepiha', 'tepihaRows').reduce((a, r) => a + rowQty(r), 0);
-  const staza = getOrderRows(order, 'staza', 'stazaRows').reduce((a, r) => a + rowQty(r), 0);
-  const shkallore = stairsInfo(order).qty;
-  return tepiha + staza + shkallore;
-}
-
 function computeM2(order) {
   if (!order) return 0;
   let total = 0;
-  for (const r of getOrderRows(order, 'tepiha', 'tepihaRows')) total += rowM2(r) * rowQty(r);
-  for (const r of getOrderRows(order, 'staza', 'stazaRows')) total += rowM2(r) * rowQty(r);
-  const shk = stairsInfo(order);
-  total += shk.qty * shk.per;
+  for (const r of getTepihaRows(order)) total += rowM2(r) * rowQty(r);
+  for (const r of getStazaRows(order)) total += rowM2(r) * rowQty(r);
+  total += getStairsQty(order) * getStairsPer(order);
   return Number(total.toFixed(2));
 }
 
@@ -320,7 +320,7 @@ export default function PastrimiPage() {
             const isTrans = it.table === 'transport_orders';
             const codeKey = p.code ?? p.code_n ?? p.order_code ?? null;
             const m2 = computeM2(p);
-            const cope = computePieces(p);
+            const cope = piecesCount(p);
             return {
               id: it.id, source: 'OUTBOX', ts: Number(it.createdAt ? Date.parse(it.createdAt) : Date.now()),
               name: p.client?.name || p.client_name || '', phone: p.client?.phone || '', code: normalizeCode(codeKey),
@@ -350,7 +350,7 @@ export default function PastrimiPage() {
           return {
             id: x.id, source: 'LOCAL', ts: Number(order.ts || x.ts || Date.now()),
             name: order.client?.name || '', phone: order.client?.phone || '', code: normalizeCode(order.client?.code || order.code || x.id),
-            m2: computeM2(order), cope: computePieces(order),
+            m2: computeM2(order), cope: piecesCount(order),
             total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
           };
         });
@@ -390,7 +390,7 @@ export default function PastrimiPage() {
         const order = unwrapOrderData(row.data);
         const total = Number(order.pay?.euro || 0);
         const paid = Number(order.pay?.paid || 0);
-        const cope = computePieces(order);
+        const cope = piecesCount(order);
         allOrders.push({
           id: row.id, source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
           name: order.client?.name || order.client_name || '', phone: order.client?.phone || order.client_phone || '',
@@ -403,7 +403,7 @@ export default function PastrimiPage() {
         const order = unwrapOrderData(row.data);
         const total = Number(order.pay?.euro || 0);
         const paid = Number(order.pay?.paid || 0);
-        const cope = computePieces(order);
+        const cope = piecesCount(order);
         allOrders.push({
           id: row.id, source: 'transport_orders', ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
           name: order.client?.name || '', phone: order.client?.phone || '',
@@ -454,12 +454,16 @@ export default function PastrimiPage() {
       setPhone(p.startsWith(phonePrefix) ? p.slice(phonePrefix.length) : p.replace(/\D+/g, ''));
       setClientPhotoUrl(ord.client?.photoUrl || ord.client?.photo || '');
 
-      setTepihaRows(ord.tepiha?.length ? ord.tepiha.map((x,i)=>({id:`t${i+1}`, m2:String(x.m2||''), qty:String(x.qty||''), photoUrl:x.photoUrl||''})) : [{id:'t1', m2:'', qty:'', photoUrl:''}]);
-      setStazaRows(ord.staza?.length ? ord.staza.map((x,i)=>({id:`s${i+1}`, m2:String(x.m2||''), qty:String(x.qty||''), photoUrl:x.photoUrl||''})) : [{id:'s1', m2:'', qty:'', photoUrl:''}]);
+      const tList = Array.isArray(ord.tepiha) ? ord.tepiha : (Array.isArray(ord.tepihaRows) ? ord.tepihaRows : []);
+      const sList = Array.isArray(ord.staza) ? ord.staza : (Array.isArray(ord.stazaRows) ? ord.stazaRows : []);
+      const shk = ord.shkallore || {};
 
-      setStairsQty(Number(ord.shkallore?.qty)||0);
-      setStairsPer(Number(ord.shkallore?.per)||SHKALLORE_M2_PER_STEP_DEFAULT);
-      setStairsPhotoUrl(ord.shkallore?.photoUrl||'');
+      setTepihaRows(tList.length ? tList.map((x,i)=>({id:`t${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'t1', m2:'', qty:'', photoUrl:''}]);
+      setStazaRows(sList.length ? sList.map((x,i)=>({id:`s${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'s1', m2:'', qty:'', photoUrl:''}]);
+
+      setStairsQty(Number(shk?.qty ?? ord.stairsQty ?? 0)||0);
+      setStairsPer(Number(shk?.per ?? ord.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT)||SHKALLORE_M2_PER_STEP_DEFAULT);
+      setStairsPhotoUrl(shk?.photoUrl||'');
 
       setPricePerM2(Number(ord.pay?.rate ?? ord.pay?.price ?? PRICE_DEFAULT));
       const paid = Number(ord.pay?.paid ?? 0);
