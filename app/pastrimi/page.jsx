@@ -83,51 +83,6 @@ function unwrapOrderData(raw) {
   return (o && typeof o === 'object') ? o : {};
 }
 
-function toMoneyNumber(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? Number(n.toFixed(2)) : null;
-}
-
-function getOrderMoneyState(order, fallbackTotal = null) {
-  const pay = (order && typeof order === 'object' && order.pay && typeof order.pay === 'object') ? order.pay : {};
-  const fallback = toMoneyNumber(fallbackTotal);
-  const total = Math.max(0, toMoneyNumber(pay?.euro ?? pay?.total ?? order?.total ?? fallback ?? 0) ?? 0);
-  const debtStored = toMoneyNumber(pay?.debt ?? pay?.borxh ?? order?.debt);
-  const paidStored = toMoneyNumber(pay?.paid ?? order?.paid);
-
-  let debt = debtStored;
-  let paid = paidStored;
-
-  if (debt == null && paid != null) {
-    debt = Math.max(0, Number((total - paid).toFixed(2)));
-  }
-  if (paid == null && debt != null) {
-    paid = Math.max(0, Number((total - debt).toFixed(2)));
-  }
-  if (paid == null) paid = 0;
-  if (debt == null) debt = Math.max(0, Number((total - paid).toFixed(2)));
-
-  paid = Math.max(0, toMoneyNumber(paid) ?? 0);
-  debt = Math.max(0, toMoneyNumber(debt) ?? 0);
-
-  if (debt > total) {
-    debt = total;
-    paid = 0;
-  }
-  if (paid > total && total > 0) {
-    paid = total;
-    debt = 0;
-  }
-
-  return {
-    total,
-    paid,
-    debt,
-    paidUpfront: !!pay?.paidUpfront,
-    isPaid: total > 0 && debt <= 0,
-  };
-}
-
 async function readLocalOrdersByStatus(status) {
   const out = [];
   const blacklist = getGhostBlacklist();
@@ -154,13 +109,7 @@ async function readLocalOrdersByStatus(status) {
 
   const byCode = new Map();
   const piecesCount = (fullOrder) => {
-    try{
-      let p = 0;
-      if (Array.isArray(fullOrder?.tepiha)) for (const r of fullOrder.tepiha) p += (Number(r.qty)||0);
-      if (Array.isArray(fullOrder?.staza)) for (const r of fullOrder.staza) p += (Number(r.qty)||0);
-      if (fullOrder?.shkallore?.qty) p += (Number(fullOrder.shkallore.qty)||0);
-      return p;
-    }catch{return 0;}
+    try { return computePieces(fullOrder); } catch { return 0; }
   };
 
   const scoreRow = (row) => {
@@ -185,12 +134,42 @@ async function readLocalOrdersByStatus(status) {
 
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
 
+function getOrderRows(order, primaryKey, secondaryKey) {
+  if (!order || typeof order !== 'object') return [];
+  const primary = Array.isArray(order?.[primaryKey]) ? order[primaryKey] : null;
+  const secondary = Array.isArray(order?.[secondaryKey]) ? order[secondaryKey] : null;
+  return primary || secondary || [];
+}
+
+function rowQty(row) {
+  return Number(row?.qty ?? row?.pieces ?? row?.piece ?? 0) || 0;
+}
+
+function rowM2(row) {
+  return Number(row?.m2 ?? row?.area ?? row?.size ?? 0) || 0;
+}
+
+function stairsInfo(order) {
+  const qty = Number(order?.shkallore?.qty ?? order?.stairsQty ?? 0) || 0;
+  const per = Number(order?.shkallore?.per ?? order?.stairsPer ?? 0) || 0;
+  return { qty, per };
+}
+
+function computePieces(order) {
+  if (!order) return 0;
+  const tepiha = getOrderRows(order, 'tepiha', 'tepihaRows').reduce((a, r) => a + rowQty(r), 0);
+  const staza = getOrderRows(order, 'staza', 'stazaRows').reduce((a, r) => a + rowQty(r), 0);
+  const shkallore = stairsInfo(order).qty;
+  return tepiha + staza + shkallore;
+}
+
 function computeM2(order) {
   if (!order) return 0;
   let total = 0;
-  if (Array.isArray(order.tepiha)) { for (const r of order.tepiha) total += (Number(r.m2) || 0) * (Number(r.qty) || 0); }
-  if (Array.isArray(order.staza)) { for (const r of order.staza) total += (Number(r.m2) || 0) * (Number(r.qty) || 0); }
-  if (order.shkallore) total += (Number(order.shkallore.qty) || 0) * (Number(order.shkallore.per) || 0);
+  for (const r of getOrderRows(order, 'tepiha', 'tepihaRows')) total += rowM2(r) * rowQty(r);
+  for (const r of getOrderRows(order, 'staza', 'stazaRows')) total += rowM2(r) * rowQty(r);
+  const shk = stairsInfo(order);
+  total += shk.qty * shk.per;
   return Number(total.toFixed(2));
 }
 
@@ -341,13 +320,12 @@ export default function PastrimiPage() {
             const isTrans = it.table === 'transport_orders';
             const codeKey = p.code ?? p.code_n ?? p.order_code ?? null;
             const m2 = computeM2(p);
-            const cope = (p.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (p.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(p.shkallore?.qty) || 0);
-            const money = getOrderMoneyState(p);
+            const cope = computePieces(p);
             return {
               id: it.id, source: 'OUTBOX', ts: Number(it.createdAt ? Date.parse(it.createdAt) : Date.now()),
               name: p.client?.name || p.client_name || '', phone: p.client?.phone || '', code: normalizeCode(codeKey),
-              m2, cope, total: money.total, paid: money.paid, debt: money.debt,
-              paidUpfront: money.paidUpfront, isPaid: money.isPaid,
+              m2, cope, total: Number(p.pay?.euro || 0), paid: Number(p.pay?.paid || 0),
+              isPaid: Number(p.pay?.paid||0) >= Number(p.pay?.euro||0) && Number(p.pay?.euro||0) > 0,
               isReturn: false, fullOrder: p, _outboxPending: true
             };
         }) : [];
@@ -367,13 +345,13 @@ export default function PastrimiPage() {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         const locals = (await readLocalOrdersByStatus('pastrim')).map((x) => {
           const order = unwrapOrderData(x.fullOrder);
-          const money = getOrderMoneyState(order);
+          const total = Number(order.pay?.euro || 0);
+          const paid = Number(order.pay?.paid || 0);
           return {
             id: x.id, source: 'LOCAL', ts: Number(order.ts || x.ts || Date.now()),
             name: order.client?.name || '', phone: order.client?.phone || '', code: normalizeCode(order.client?.code || order.code || x.id),
-            m2: computeM2(order), cope: (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty) || 0),
-            total: money.total, paid: money.paid, debt: money.debt,
-            paidUpfront: money.paidUpfront, isPaid: money.isPaid, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
+            m2: computeM2(order), cope: computePieces(order),
+            total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
           };
         });
 
@@ -410,27 +388,27 @@ export default function PastrimiPage() {
       const allOrders = [];
       (normalData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
-        const money = getOrderMoneyState(order);
-        const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty) || 0);
+        const total = Number(order.pay?.euro || 0);
+        const paid = Number(order.pay?.paid || 0);
+        const cope = computePieces(order);
         allOrders.push({
           id: row.id, source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
           name: order.client?.name || order.client_name || '', phone: order.client?.phone || order.client_phone || '',
           code: normalizeCode(order.client?.code || order.code || row.code), m2: computeM2(order),
-          cope, total: money.total, paid: money.paid, debt: money.debt,
-          paidUpfront: money.paidUpfront, isPaid: money.isPaid, isReturn: !!order?.returnInfo?.active, fullOrder: order
+          cope, total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order
         });
       });
 
       (transportData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
-        const money = getOrderMoneyState(order);
-        const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty) || 0);
+        const total = Number(order.pay?.euro || 0);
+        const paid = Number(order.pay?.paid || 0);
+        const cope = computePieces(order);
         allOrders.push({
           id: row.id, source: 'transport_orders', ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
           name: order.client?.name || '', phone: order.client?.phone || '',
           code: normalizeCode(row.code_str || order.client?.code), m2: computeM2(order),
-          cope, total: money.total, paid: money.paid, debt: money.debt,
-          paidUpfront: money.paidUpfront, isPaid: money.isPaid, isReturn: false, fullOrder: order
+          cope, total, paid, isPaid: paid >= total && total > 0, isReturn: false, fullOrder: order
         });
       });
 
@@ -837,7 +815,7 @@ export default function PastrimiPage() {
                       {o.isReturn && <span style={{color:'#f59e0b'}}>• KTHIM</span>}
                     </div>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{o.cope} copë • {o.m2} m²</div>
-                    {Number(o.debt || 0) > 0 && <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 'bold' }}>Borxh: {Number(o.debt || 0).toFixed(2)}€</div>}
+                    {o.total > o.paid && <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 'bold' }}>Borxh: {(Number(o.total)-Number(o.paid)).toFixed(2)}€</div>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

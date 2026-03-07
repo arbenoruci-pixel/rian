@@ -914,7 +914,7 @@ setCodeRaw(c || '');
   const copeCount = useMemo(() => {
     const t = tepihaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
     const s = stazaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
-    const sh = Number(stairsQty) > 0 ? 1 : 0;
+    const sh = Number(stairsQty) || 0;
     return t + s + sh;
   }, [tepihaRows, stazaRows, stairsQty]);
 
@@ -1662,17 +1662,18 @@ ${msg}${details}`);
   const debt = Number(currentDebt || 0).toFixed(2);
 
   return `Përshëndetje ${name || 'klient'},
-  
-Porosia juaj u pranua dhe procesi i pastrimit ka filluar.
+
+Porosia juaj u pranua me sukses dhe procesi i pastrimit ka filluar.
 
 KODI: ${kod}
-SASIA: ${copeCount} copë (${m2} m²)
-TOTALI: ${euro} €
+COPË TOTALE: ${copeCount}
+m² TOTAL: ${m2}
+ÇMIMI TOTAL: ${euro} €
 BORXHI: ${debt} €
 
-Sapo të jenë gati për t'u tërhequr, do t'ju njoftojmë me një mesazh tjetër.
+Në momentin që ju lajmërojmë që porosia është GATI, ju lutem t'i tërhiqni sa më parë. Përndryshe nuk mbajmë përgjegjësi për humbjen ose dëmtimin e tyre.
 
-Faleminderit që zgjodhët shërbimet tona,
+Faleminderit,
 KOMPANIA JONI`;
 }
 
@@ -1724,6 +1725,27 @@ KOMPANIA JONI`;
       localStorage.setItem(AUTO_MSG_KEY, next ? '1' : '0');
     } catch {}
   }
+
+  useEffect(() => {
+    if (!showMsgSheet) return;
+    try {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    } catch {
+      try { window.scrollTo(0, 0); } catch {}
+    }
+    const prevBodyOverflow = document?.body?.style?.overflow || '';
+    const prevHtmlOverflow = document?.documentElement?.style?.overflow || '';
+    try {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } catch {}
+    return () => {
+      try {
+        document.body.style.overflow = prevBodyOverflow;
+        document.documentElement.style.overflow = prevHtmlOverflow;
+      } catch {}
+    };
+  }, [showMsgSheet]);
 
   if (creating) {
     return (
@@ -2129,8 +2151,8 @@ return (
             <button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button>
           </div>
 
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
+          <div className="payfs-body" style={{ width: '100%', maxWidth: 620, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 12, paddingTop: 12, paddingBottom: 12 }}>
+            <div className="card" style={{ marginTop: 0, width: '100%' }}>
               {drafts.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>
                   S’ka “të pa plotsuara”.
@@ -2188,7 +2210,7 @@ return (
 
       {/* ✅ FULL SCREEN: MESAZHI */}
       {showMsgSheet && (
-        <div className="payfs">
+        <div className="payfs" style={{ alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div className="payfs-top">
             <div>
               <div className="payfs-title">DËRGO MESAZH</div>
@@ -2197,8 +2219,8 @@ return (
             <button className="btn secondary" onClick={closeMsgSheet}>✕</button>
           </div>
 
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
+          <div className="payfs-body" style={{ width: '100%', maxWidth: 620, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 12, paddingTop: 12, paddingBottom: 12 }}>
+            <div className="card" style={{ marginTop: 0, width: '100%' }}>
               {/* ✅ toggle */}
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: 900 }}>
@@ -2231,7 +2253,7 @@ return (
               </pre>
             </div>
 
-            <div className="card">
+            <div className="card" style={{ width: '100%' }}>
               <div className="row" style={{ gap: 10 }}>
                 <button className="btn secondary" style={{ flex: 1 }} onClick={sendViaViber}>
                   VIBER
@@ -2267,8 +2289,8 @@ return (
             <button className="btn secondary" onClick={() => setShowPriceSheet(false)}>✕</button>
           </div>
 
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0 }}>
+          <div className="payfs-body" style={{ width: '100%', maxWidth: 620, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 12, paddingTop: 12, paddingBottom: 12 }}>
+            <div className="card" style={{ marginTop: 0, width: '100%' }}>
               <div className="tot-line">QMIMI AKTUAL: <strong>{Number(pricePerM2 || 0).toFixed(2)} € / m²</strong></div>
               <div style={{ height: 10 }} />
               <label className="label">QMIMI I RI (€ / m²)</label>
@@ -2761,6 +2783,47 @@ return (
           background: #0b0b0b;
           color: #fff;
           border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .payfs {
+          position: fixed;
+          inset: 0;
+          background: #0b0b0b;
+          z-index: 10000;
+          display: flex;
+          flex-direction: column;
+        }
+        .payfs-top {
+          width: 100%;
+          max-width: 620px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 14px 14px;
+          background: #0b0b0b;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 18px 18px 0 0;
+        }
+        .payfs-title {
+          color: #fff;
+          font-weight: 900;
+          font-size: 18px;
+        }
+        .payfs-sub {
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 12px;
+          margin-top: 2px;
+        }
+        .payfs-body {
+          flex: 1;
+          overflow: auto;
+          width: 100%;
+        }
+        .payfs-footer {
+          display: flex;
+          gap: 10px;
+          padding: 12px 14px;
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+          background: #0b0b0b;
         }
 /* WIZARD */
 .wiz-backdrop{

@@ -100,16 +100,34 @@ function sanitizePhone(phone) {
   return String(phone || '').replace(/[^\d+]+/g, '');
 }
 
+function getOrderRows(order, primaryKey, secondaryKey) {
+  if (!order || typeof order !== 'object') return [];
+  const primary = Array.isArray(order?.[primaryKey]) ? order[primaryKey] : null;
+  const secondary = Array.isArray(order?.[secondaryKey]) ? order[secondaryKey] : null;
+  return primary || secondary || [];
+}
+
+function rowQty(row) {
+  return Number(row?.qty ?? row?.pieces ?? row?.piece ?? 0) || 0;
+}
+
+function rowM2(row) {
+  return Number(row?.m2 ?? row?.area ?? row?.size ?? 0) || 0;
+}
+
+function stairsInfo(order) {
+  const qty = Number(order?.shkallore?.qty ?? order?.stairsQty ?? 0) || 0;
+  const per = Number(order?.shkallore?.per ?? order?.stairsPer ?? 0) || 0;
+  return { qty, per };
+}
+
 function computeM2(order) {
   if (!order) return 0;
   let total = 0;
-  if (Array.isArray(order.tepiha)) {
-    for (const r of order.tepiha) total += (Number(r.m2) || 0) * (Number(r.qty) || 0);
-  }
-  if (Array.isArray(order.staza)) {
-    for (const r of order.staza) total += (Number(r.m2) || 0) * (Number(r.qty) || 0);
-  }
-  if (order.shkallore) total += (Number(order.shkallore.qty) || 0) * (Number(order.shkallore.per) || 0);
+  for (const r of getOrderRows(order, 'tepiha', 'tepihaRows')) total += rowM2(r) * rowQty(r);
+  for (const r of getOrderRows(order, 'staza', 'stazaRows')) total += rowM2(r) * rowQty(r);
+  const shk = stairsInfo(order);
+  total += shk.qty * shk.per;
   return Number(total.toFixed(2));
 }
 
@@ -121,56 +139,16 @@ function computeTotalEuro(order) {
   return Number((m2 * rate).toFixed(2));
 }
 
-function toMoneyNumber(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? Number(n.toFixed(2)) : null;
-}
-
-function getOrderMoneyState(order) {
-  const pay = (order && typeof order === 'object' && order.pay && typeof order.pay === 'object') ? order.pay : {};
-  const fallbackTotal = computeTotalEuro(order);
-  const total = Math.max(0, toMoneyNumber(pay?.euro ?? pay?.total ?? order?.total ?? fallbackTotal ?? 0) ?? 0);
-  const debtStored = toMoneyNumber(pay?.debt ?? pay?.borxh ?? order?.debt);
-  const paidStored = toMoneyNumber(pay?.paid ?? order?.paid);
-
-  let debt = debtStored;
-  let paid = paidStored;
-
-  if (debt == null && paid != null) debt = Math.max(0, Number((total - paid).toFixed(2)));
-  if (paid == null && debt != null) paid = Math.max(0, Number((total - debt).toFixed(2)));
-  if (paid == null) paid = 0;
-  if (debt == null) debt = Math.max(0, Number((total - paid).toFixed(2)));
-
-  paid = Math.max(0, toMoneyNumber(paid) ?? 0);
-  debt = Math.max(0, toMoneyNumber(debt) ?? 0);
-
-  if (debt > total) {
-    debt = total;
-    paid = 0;
-  }
-  if (paid > total && total > 0) {
-    paid = total;
-    debt = 0;
-  }
-
-  return {
-    total,
-    paid,
-    debt,
-    paidUpfront: !!pay?.paidUpfront,
-    isPaid: total > 0 && debt <= 0,
-  };
-}
-
 const round2 = (n) => {
   const num = Number(n || 0);
   return Math.round((num + Number.EPSILON) * 100) / 100;
 };
 
 function computePieces(order) {
-  const tCope = order?.tepiha?.reduce((a, b) => a + (Number(b.qty) || 0), 0) || 0;
-  const sCope = order?.staza?.reduce((a, b) => a + (Number(b.qty) || 0), 0) || 0;
-  const shk = Number(order?.shkallore?.qty) > 0 ? 1 : 0;
+  if (!order) return 0;
+  const tCope = getOrderRows(order, 'tepiha', 'tepihaRows').reduce((a, b) => a + rowQty(b), 0);
+  const sCope = getOrderRows(order, 'staza', 'stazaRows').reduce((a, b) => a + rowQty(b), 0);
+  const shk = stairsInfo(order).qty;
   return tCope + sCope + shk;
 }
 
@@ -292,7 +270,8 @@ export default function GatiPage() {
             .map((o) => {
               const order = o || {};
               const m2 = computeM2(order);
-              const money = getOrderMoneyState(order);
+              const total = Number(order.pay?.euro || computeTotalEuro(order));
+              const paid = Number(order.pay?.paid || 0);
               const cope = computePieces(order);
               const readyTs = Number(order.ready_at || order.readyAt || order.ts || 0) || Date.now();
               return {
@@ -304,10 +283,9 @@ export default function GatiPage() {
                 code: order.client?.code || order.code || '',
                 m2,
                 cope,
-                total: money.total,
-                paid: money.paid,
-                debt: money.debt,
-                paidUpfront: money.paidUpfront,
+                total,
+                paid,
+                paidUpfront: !!order.pay?.paidUpfront,
                 isReturn: !!order.returnInfo?.active,
                 readyNote: String(order.ready_note || order.ready_location || ''),
               };
@@ -349,7 +327,8 @@ export default function GatiPage() {
           } catch {}
 
           const m2 = computeM2(order);
-          const money = getOrderMoneyState(order);
+          const total = Number(order.pay?.euro || computeTotalEuro(order));
+          const paid = Number(order.pay?.paid || 0);
           const cope = computePieces(order);
           const readyTs = (row.ready_at ? Date.parse(row.ready_at) : 0) || Number(order.ready_at) || Number(order.ts) || Date.now();
 
@@ -362,10 +341,9 @@ export default function GatiPage() {
             code: order.client?.code || order.code || '',
             m2,
             cope,
-            total: money.total,
-            paid: money.paid,
-            debt: money.debt,
-            paidUpfront: money.paidUpfront,
+            total,
+            paid,
+            paidUpfront: !!order.pay?.paidUpfront,
             isReturn: !!order.returnInfo?.active,
             readyNote: String(order.ready_note || order.ready_location || ''),
           };
@@ -548,9 +526,8 @@ export default function GatiPage() {
       }
       if (!order) return alert('Nuk u gjet porosia.');
 
-      const money = getOrderMoneyState(order);
-      const total = money.total || 0;
-      const paid = money.paid || 0;
+      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
+      const paid = Number(order.pay?.paid || 0) || 0;
 
       setPayOrder({
         id: String(row.id),
@@ -560,9 +537,8 @@ export default function GatiPage() {
         phone: order.client?.phone || '',
         total,
         paid,
-        debt: money.debt,
         arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0,
-        paidUpfront: money.paidUpfront,
+        paidUpfront: !!order.pay?.paidUpfront,
         m2: computeM2(order),
       });
       const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
@@ -912,7 +888,7 @@ export default function GatiPage() {
             const total = Number(o.total || 0);
             const paid = Number(o.paid || 0);
             const isPaid = total > 0 && paid >= total;
-            const debt = Math.max(0, Number((o.debt ?? (total - paid)).toFixed(2)));
+            const debt = Math.max(0, Number((total - paid).toFixed(2)));
 
             return (
               <div
