@@ -138,9 +138,6 @@ function extractArray(obj, ...keys) {
   for (const k of keys) {
     if (Array.isArray(obj[k]) && obj[k].length > 0) return obj[k];
     if (obj.data && typeof obj.data === 'object' && Array.isArray(obj.data[k]) && obj.data[k].length > 0) return obj.data[k];
-    if (typeof obj.data === 'string') {
-      try { const p = JSON.parse(obj.data); if (Array.isArray(p[k]) && p[k].length > 0) return p[k]; } catch(e) {}
-    }
   }
   return [];
 }
@@ -148,15 +145,11 @@ function getTepihaRows(order) { return extractArray(order, 'tepiha', 'tepihaRows
 function getStazaRows(order) { return extractArray(order, 'staza', 'stazaRows'); }
 function getStairsQty(order) {
   if (!order || typeof order !== 'object') return 0;
-  let q = Number(order?.shkallore?.qty) || Number(order?.data?.shkallore?.qty) || Number(order?.stairsQty) || Number(order?.data?.stairsQty) || 0;
-  if (q === 0 && typeof order.data === 'string') { try { const p = JSON.parse(order.data); q = Number(p?.shkallore?.qty) || Number(p?.stairsQty) || 0; } catch(e){} }
-  return q;
+  return Number(order?.shkallore?.qty) || Number(order?.data?.shkallore?.qty) || Number(order?.stairsQty) || Number(order?.data?.stairsQty) || 0;
 }
 function getStairsPer(order) {
   if (!order || typeof order !== 'object') return 0.3;
-  let p = Number(order?.shkallore?.per) || Number(order?.data?.shkallore?.per) || Number(order?.stairsPer) || Number(order?.data?.stairsPer) || 0.3;
-  if (p === 0.3 && typeof order.data === 'string') { try { const parsed = JSON.parse(order.data); p = Number(parsed?.shkallore?.per) || Number(parsed?.stairsPer) || 0.3; } catch(e){} }
-  return p;
+  return Number(order?.shkallore?.per) || Number(order?.data?.shkallore?.per) || Number(order?.stairsPer) || Number(order?.data?.stairsPer) || 0.3;
 }
 function computeM2(order) {
   if (!order) return 0;
@@ -468,15 +461,16 @@ export default function PastrimiPage() {
       setPhone(p.startsWith(phonePrefix) ? p.slice(phonePrefix.length) : p.replace(/\D+/g, ''));
       setClientPhotoUrl(ord.client?.photoUrl || ord.client?.photo || '');
 
-      const tList = getTepihaRows(ord);
-      const sList = getStazaRows(ord);
+      const tList = Array.isArray(ord.tepiha) ? ord.tepiha : (Array.isArray(ord.tepihaRows) ? ord.tepihaRows : []);
+      const sList = Array.isArray(ord.staza) ? ord.staza : (Array.isArray(ord.stazaRows) ? ord.stazaRows : []);
+      const shk = ord.shkallore || {};
 
       setTepihaRows(tList.length ? tList.map((x,i)=>({id:`t${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'t1', m2:'', qty:'', photoUrl:''}]);
       setStazaRows(sList.length ? sList.map((x,i)=>({id:`s${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'s1', m2:'', qty:'', photoUrl:''}]);
 
-      setStairsQty(getStairsQty(ord));
-      setStairsPer(getStairsPer(ord));
-      setStairsPhotoUrl(ord?.shkallore?.photoUrl || ord?.data?.shkallore?.photoUrl || '');
+      setStairsQty(Number(shk?.qty ?? ord.stairsQty ?? 0)||0);
+      setStairsPer(Number(shk?.per ?? ord.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT)||SHKALLORE_M2_PER_STEP_DEFAULT);
+      setStairsPhotoUrl(shk?.photoUrl||'');
 
       setPricePerM2(Number(ord.pay?.rate ?? ord.pay?.price ?? PRICE_DEFAULT));
       const paid = Number(ord.pay?.paid ?? 0);
