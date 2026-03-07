@@ -114,7 +114,7 @@ async function readLocalOrdersByStatus(status) {
   const getStazaRows = (fullOrder) => Array.isArray(fullOrder?.staza) ? fullOrder.staza : (Array.isArray(fullOrder?.stazaRows) ? fullOrder.stazaRows : []);
   const getStairsQty = (fullOrder) => Number(fullOrder?.shkallore?.qty ?? fullOrder?.stairsQty ?? 0) || 0;
   const getStairsPer = (fullOrder) => Number(fullOrder?.shkallore?.per ?? fullOrder?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
-  const piecesCount = (fullOrder) => {
+  const computePieces = (fullOrder) => {
     try{
       let p = 0;
       for (const r of getTepihaRows(fullOrder)) p += rowQty(r);
@@ -126,7 +126,7 @@ async function readLocalOrdersByStatus(status) {
 
   const scoreRow = (row) => {
     const m2 = computeM2(row.fullOrder) || 0;
-    const pcs = piecesCount(row.fullOrder) || 0;
+    const pcs = computePieces(row.fullOrder) || 0;
     return (row.synced ? 1000000 : 0) + (row.source === 'idb' ? 10000 : 0) + (m2 * 100) + (pcs * 10);
   };
 
@@ -320,7 +320,7 @@ export default function PastrimiPage() {
             const isTrans = it.table === 'transport_orders';
             const codeKey = p.code ?? p.code_n ?? p.order_code ?? null;
             const m2 = computeM2(p);
-            const cope = piecesCount(p);
+            const cope = computePieces(p);
             return {
               id: it.id, source: 'OUTBOX', ts: Number(it.createdAt ? Date.parse(it.createdAt) : Date.now()),
               name: p.client?.name || p.client_name || '', phone: p.client?.phone || '', code: normalizeCode(codeKey),
@@ -350,7 +350,7 @@ export default function PastrimiPage() {
           return {
             id: x.id, source: 'LOCAL', ts: Number(order.ts || x.ts || Date.now()),
             name: order.client?.name || '', phone: order.client?.phone || '', code: normalizeCode(order.client?.code || order.code || x.id),
-            m2: computeM2(order), cope: piecesCount(order),
+            m2: computeM2(order), cope: computePieces(order),
             total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
           };
         });
@@ -390,7 +390,7 @@ export default function PastrimiPage() {
         const order = unwrapOrderData(row.data);
         const total = Number(order.pay?.euro || 0);
         const paid = Number(order.pay?.paid || 0);
-        const cope = piecesCount(order);
+        const cope = computePieces(order);
         allOrders.push({
           id: row.id, source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
           name: order.client?.name || order.client_name || '', phone: order.client?.phone || order.client_phone || '',
@@ -403,7 +403,7 @@ export default function PastrimiPage() {
         const order = unwrapOrderData(row.data);
         const total = Number(order.pay?.euro || 0);
         const paid = Number(order.pay?.paid || 0);
-        const cope = piecesCount(order);
+        const cope = computePieces(order);
         allOrders.push({
           id: row.id, source: 'transport_orders', ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
           name: order.client?.name || '', phone: order.client?.phone || '',
