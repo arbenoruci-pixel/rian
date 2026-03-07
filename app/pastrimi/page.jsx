@@ -83,6 +83,51 @@ function unwrapOrderData(raw) {
   return (o && typeof o === 'object') ? o : {};
 }
 
+function toMoneyNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Number(n.toFixed(2)) : null;
+}
+
+function getOrderMoneyState(order, fallbackTotal = null) {
+  const pay = (order && typeof order === 'object' && order.pay && typeof order.pay === 'object') ? order.pay : {};
+  const fallback = toMoneyNumber(fallbackTotal);
+  const total = Math.max(0, toMoneyNumber(pay?.euro ?? pay?.total ?? order?.total ?? fallback ?? 0) ?? 0);
+  const debtStored = toMoneyNumber(pay?.debt ?? pay?.borxh ?? order?.debt);
+  const paidStored = toMoneyNumber(pay?.paid ?? order?.paid);
+
+  let debt = debtStored;
+  let paid = paidStored;
+
+  if (debt == null && paid != null) {
+    debt = Math.max(0, Number((total - paid).toFixed(2)));
+  }
+  if (paid == null && debt != null) {
+    paid = Math.max(0, Number((total - debt).toFixed(2)));
+  }
+  if (paid == null) paid = 0;
+  if (debt == null) debt = Math.max(0, Number((total - paid).toFixed(2)));
+
+  paid = Math.max(0, toMoneyNumber(paid) ?? 0);
+  debt = Math.max(0, toMoneyNumber(debt) ?? 0);
+
+  if (debt > total) {
+    debt = total;
+    paid = 0;
+  }
+  if (paid > total && total > 0) {
+    paid = total;
+    debt = 0;
+  }
+
+  return {
+    total,
+    paid,
+    debt,
+    paidUpfront: !!pay?.paidUpfront,
+    isPaid: total > 0 && debt <= 0,
+  };
+}
+
 async function readLocalOrdersByStatus(status) {
   const out = [];
   const blacklist = getGhostBlacklist();
@@ -297,11 +342,12 @@ export default function PastrimiPage() {
             const codeKey = p.code ?? p.code_n ?? p.order_code ?? null;
             const m2 = computeM2(p);
             const cope = (p.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (p.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(p.shkallore?.qty) || 0);
+            const money = getOrderMoneyState(p);
             return {
               id: it.id, source: 'OUTBOX', ts: Number(it.createdAt ? Date.parse(it.createdAt) : Date.now()),
               name: p.client?.name || p.client_name || '', phone: p.client?.phone || '', code: normalizeCode(codeKey),
-              m2, cope, total: Number(p.pay?.euro || 0), paid: Number(p.pay?.paid || 0),
-              isPaid: Number(p.pay?.paid||0) >= Number(p.pay?.euro||0) && Number(p.pay?.euro||0) > 0,
+              m2, cope, total: money.total, paid: money.paid, debt: money.debt,
+              paidUpfront: money.paidUpfront, isPaid: money.isPaid,
               isReturn: false, fullOrder: p, _outboxPending: true
             };
         }) : [];
@@ -321,13 +367,13 @@ export default function PastrimiPage() {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         const locals = (await readLocalOrdersByStatus('pastrim')).map((x) => {
           const order = unwrapOrderData(x.fullOrder);
-          const total = Number(order.pay?.euro || 0);
-          const paid = Number(order.pay?.paid || 0);
+          const money = getOrderMoneyState(order);
           return {
             id: x.id, source: 'LOCAL', ts: Number(order.ts || x.ts || Date.now()),
             name: order.client?.name || '', phone: order.client?.phone || '', code: normalizeCode(order.client?.code || order.code || x.id),
             m2: computeM2(order), cope: (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty) || 0),
-            total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
+            total: money.total, paid: money.paid, debt: money.debt,
+            paidUpfront: money.paidUpfront, isPaid: money.isPaid, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
           };
         });
 
@@ -364,27 +410,27 @@ export default function PastrimiPage() {
       const allOrders = [];
       (normalData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
-        const total = Number(order.pay?.euro || 0);
-        const paid = Number(order.pay?.paid || 0);
+        const money = getOrderMoneyState(order);
         const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty) || 0);
         allOrders.push({
           id: row.id, source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
           name: order.client?.name || order.client_name || '', phone: order.client?.phone || order.client_phone || '',
           code: normalizeCode(order.client?.code || order.code || row.code), m2: computeM2(order),
-          cope, total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order
+          cope, total: money.total, paid: money.paid, debt: money.debt,
+          paidUpfront: money.paidUpfront, isPaid: money.isPaid, isReturn: !!order?.returnInfo?.active, fullOrder: order
         });
       });
 
       (transportData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
-        const total = Number(order.pay?.euro || 0);
-        const paid = Number(order.pay?.paid || 0);
+        const money = getOrderMoneyState(order);
         const cope = (order.tepiha?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (order.staza?.reduce((a,b)=>a+(Number(b.qty)||0),0)||0) + (Number(order.shkallore?.qty) || 0);
         allOrders.push({
           id: row.id, source: 'transport_orders', ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
           name: order.client?.name || '', phone: order.client?.phone || '',
           code: normalizeCode(row.code_str || order.client?.code), m2: computeM2(order),
-          cope, total, paid, isPaid: paid >= total && total > 0, isReturn: false, fullOrder: order
+          cope, total: money.total, paid: money.paid, debt: money.debt,
+          paidUpfront: money.paidUpfront, isPaid: money.isPaid, isReturn: false, fullOrder: order
         });
       });
 
@@ -791,7 +837,7 @@ export default function PastrimiPage() {
                       {o.isReturn && <span style={{color:'#f59e0b'}}>• KTHIM</span>}
                     </div>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{o.cope} copë • {o.m2} m²</div>
-                    {o.total > o.paid && <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 'bold' }}>Borxh: {(Number(o.total)-Number(o.paid)).toFixed(2)}€</div>}
+                    {Number(o.debt || 0) > 0 && <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 'bold' }}>Borxh: {Number(o.debt || 0).toFixed(2)}€</div>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

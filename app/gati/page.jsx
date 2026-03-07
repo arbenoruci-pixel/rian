@@ -121,6 +121,47 @@ function computeTotalEuro(order) {
   return Number((m2 * rate).toFixed(2));
 }
 
+function toMoneyNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Number(n.toFixed(2)) : null;
+}
+
+function getOrderMoneyState(order) {
+  const pay = (order && typeof order === 'object' && order.pay && typeof order.pay === 'object') ? order.pay : {};
+  const fallbackTotal = computeTotalEuro(order);
+  const total = Math.max(0, toMoneyNumber(pay?.euro ?? pay?.total ?? order?.total ?? fallbackTotal ?? 0) ?? 0);
+  const debtStored = toMoneyNumber(pay?.debt ?? pay?.borxh ?? order?.debt);
+  const paidStored = toMoneyNumber(pay?.paid ?? order?.paid);
+
+  let debt = debtStored;
+  let paid = paidStored;
+
+  if (debt == null && paid != null) debt = Math.max(0, Number((total - paid).toFixed(2)));
+  if (paid == null && debt != null) paid = Math.max(0, Number((total - debt).toFixed(2)));
+  if (paid == null) paid = 0;
+  if (debt == null) debt = Math.max(0, Number((total - paid).toFixed(2)));
+
+  paid = Math.max(0, toMoneyNumber(paid) ?? 0);
+  debt = Math.max(0, toMoneyNumber(debt) ?? 0);
+
+  if (debt > total) {
+    debt = total;
+    paid = 0;
+  }
+  if (paid > total && total > 0) {
+    paid = total;
+    debt = 0;
+  }
+
+  return {
+    total,
+    paid,
+    debt,
+    paidUpfront: !!pay?.paidUpfront,
+    isPaid: total > 0 && debt <= 0,
+  };
+}
+
 const round2 = (n) => {
   const num = Number(n || 0);
   return Math.round((num + Number.EPSILON) * 100) / 100;
@@ -251,8 +292,7 @@ export default function GatiPage() {
             .map((o) => {
               const order = o || {};
               const m2 = computeM2(order);
-              const total = Number(order.pay?.euro || computeTotalEuro(order));
-              const paid = Number(order.pay?.paid || 0);
+              const money = getOrderMoneyState(order);
               const cope = computePieces(order);
               const readyTs = Number(order.ready_at || order.readyAt || order.ts || 0) || Date.now();
               return {
@@ -264,9 +304,10 @@ export default function GatiPage() {
                 code: order.client?.code || order.code || '',
                 m2,
                 cope,
-                total,
-                paid,
-                paidUpfront: !!order.pay?.paidUpfront,
+                total: money.total,
+                paid: money.paid,
+                debt: money.debt,
+                paidUpfront: money.paidUpfront,
                 isReturn: !!order.returnInfo?.active,
                 readyNote: String(order.ready_note || order.ready_location || ''),
               };
@@ -308,8 +349,7 @@ export default function GatiPage() {
           } catch {}
 
           const m2 = computeM2(order);
-          const total = Number(order.pay?.euro || computeTotalEuro(order));
-          const paid = Number(order.pay?.paid || 0);
+          const money = getOrderMoneyState(order);
           const cope = computePieces(order);
           const readyTs = (row.ready_at ? Date.parse(row.ready_at) : 0) || Number(order.ready_at) || Number(order.ts) || Date.now();
 
@@ -322,9 +362,10 @@ export default function GatiPage() {
             code: order.client?.code || order.code || '',
             m2,
             cope,
-            total,
-            paid,
-            paidUpfront: !!order.pay?.paidUpfront,
+            total: money.total,
+            paid: money.paid,
+            debt: money.debt,
+            paidUpfront: money.paidUpfront,
             isReturn: !!order.returnInfo?.active,
             readyNote: String(order.ready_note || order.ready_location || ''),
           };
@@ -507,8 +548,9 @@ export default function GatiPage() {
       }
       if (!order) return alert('Nuk u gjet porosia.');
 
-      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
-      const paid = Number(order.pay?.paid || 0) || 0;
+      const money = getOrderMoneyState(order);
+      const total = money.total || 0;
+      const paid = money.paid || 0;
 
       setPayOrder({
         id: String(row.id),
@@ -518,8 +560,9 @@ export default function GatiPage() {
         phone: order.client?.phone || '',
         total,
         paid,
+        debt: money.debt,
         arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0,
-        paidUpfront: !!order.pay?.paidUpfront,
+        paidUpfront: money.paidUpfront,
         m2: computeM2(order),
       });
       const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
@@ -869,7 +912,7 @@ export default function GatiPage() {
             const total = Number(o.total || 0);
             const paid = Number(o.paid || 0);
             const isPaid = total > 0 && paid >= total;
-            const debt = Math.max(0, Number((total - paid).toFixed(2)));
+            const debt = Math.max(0, Number((o.debt ?? (total - paid)).toFixed(2)));
 
             return (
               <div
