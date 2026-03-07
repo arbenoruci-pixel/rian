@@ -1269,10 +1269,10 @@ setCodeRaw(c || '');
     void (async () => {
       try {
         if (payMethod === 'CASH') {
-          const extId = `pay_${orderId}_${Date.now()}`;
+          const extId = `pay_${oid}_${Date.now()}`;
           await recordCashMove({
             externalId: extId,
-            orderId: orderId,
+            orderId: oid,
             code: normalizeCode(codeRaw),
             name: name.trim(),
             amount: applied,
