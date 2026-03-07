@@ -85,28 +85,6 @@ function reserveSlots(map, orderId, meta, slots) {
 }
 
 // ---------------- HELPERS ----------------
-function safeObject(value) {
-  let v = value;
-  if (!v) return {};
-  if (typeof v === 'string') {
-    try { v = JSON.parse(v); } catch { return {}; }
-  }
-  return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
-}
-
-function firstArray(...values) {
-  for (const value of values) {
-    if (Array.isArray(value)) return value;
-  }
-  return [];
-}
-
-function getOrderContext(raw) {
-  const base = safeObject(raw);
-  const nested = safeObject(base.data);
-  return { base, nested };
-}
-
 function normalizeCode(raw) {
   if (!raw) return '';
   const s = String(raw).trim();
@@ -123,18 +101,10 @@ function sanitizePhone(phone) {
 }
 
 function getOrderRows(order, primaryKey, secondaryKey) {
-  const { base, nested } = getOrderContext(order);
-  return firstArray(nested?.[primaryKey], nested?.[secondaryKey], base?.[primaryKey], base?.[secondaryKey]);
-}
-
-function getClientData(order) {
-  const { base, nested } = getOrderContext(order);
-  return safeObject(nested?.client && typeof nested.client === 'object' ? nested.client : base?.client);
-}
-
-function getPayData(order) {
-  const { base, nested } = getOrderContext(order);
-  return safeObject(nested?.pay && typeof nested.pay === 'object' ? nested.pay : base?.pay);
+  if (!order || typeof order !== 'object') return [];
+  const primary = Array.isArray(order?.[primaryKey]) ? order[primaryKey] : null;
+  const secondary = Array.isArray(order?.[secondaryKey]) ? order[secondaryKey] : null;
+  return primary || secondary || [];
 }
 
 function rowQty(row) {
@@ -142,14 +112,12 @@ function rowQty(row) {
 }
 
 function rowM2(row) {
-  return Number(row?.m2 ?? row?.m ?? row?.area ?? row?.size ?? 0) || 0;
+  return Number(row?.m2 ?? row?.area ?? row?.size ?? 0) || 0;
 }
 
 function stairsInfo(order) {
-  const { base, nested } = getOrderContext(order);
-  const shk = safeObject(nested?.shkallore && typeof nested.shkallore === 'object' ? nested.shkallore : base?.shkallore);
-  const qty = Number(shk?.qty ?? nested?.stairsQty ?? base?.stairsQty ?? 0) || 0;
-  const per = Number(shk?.per ?? nested?.stairsPer ?? base?.stairsPer ?? 0) || 0;
+  const qty = Number(order?.shkallore?.qty ?? order?.stairsQty ?? 0) || 0;
+  const per = Number(order?.shkallore?.per ?? order?.stairsPer ?? 0) || 0;
   return { qty, per };
 }
 
@@ -165,10 +133,9 @@ function computeM2(order) {
 
 function computeTotalEuro(order) {
   if (!order) return 0;
-  const pay = getPayData(order);
-  if (typeof pay?.euro === 'number') return Number(pay.euro) || 0;
+  if (order.pay && typeof order.pay.euro === 'number') return Number(order.pay.euro) || 0;
   const m2 = computeM2(order);
-  const rate = Number(pay?.rate || 0);
+  const rate = Number(order.pay?.rate || 0);
   return Number((m2 * rate).toFixed(2));
 }
 
@@ -274,7 +241,7 @@ export default function GatiPage() {
       .single();
     if (error || !data) throw error || new Error('ORDER_NOT_FOUND');
 
-    const order = safeObject(data.data || {});
+    const order = { ...(data.data || {}) };
     order.id = String(data.id);
     order.status = data.status;
 
@@ -301,31 +268,33 @@ export default function GatiPage() {
           finalRows = list
             .filter((o) => String(o?.status || '').toLowerCase() === 'gati')
             .map((o) => {
-              const order = safeObject(o || {});
-              const client = getClientData(order);
-              const pay = getPayData(order);
+              const order = o || {};
               const m2 = computeM2(order);
-              const total = Number(pay?.euro || computeTotalEuro(order));
-              const paid = Number(pay?.paid || 0);
+              const total = Number(order.pay?.euro || computeTotalEuro(order));
+              const paid = Number(order.pay?.paid || 0);
               const cope = computePieces(order);
               const readyTs = Number(order.ready_at || order.readyAt || order.ts || 0) || Date.now();
               return {
                 id: String(order.id),
                 ts: Number(order.ts || 0),
                 readyTs,
-                name: client?.name || order.client_name || '',
-                phone: client?.phone || order.client_phone || '',
-                code: client?.code || order.code || order.code_n || '',
+                name: order.client?.name || '',
+                phone: order.client?.phone || '',
+                code: order.client?.code || order.code || '',
                 m2,
                 cope,
                 total,
                 paid,
-                paidUpfront: !!pay?.paidUpfront,
+                paidUpfront: !!order.pay?.paidUpfront,
                 isReturn: !!order.returnInfo?.active,
                 readyNote: String(order.ready_note || order.ready_location || ''),
               };
             });
-        } catch {
+        } catch (fatal) {
+          console.error('Fatal Cache Error Detected. Auto-healing...', fatal);
+          try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
+          try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
+          try { window.location.reload(); } catch {}
           finalRows = [];
         }
       } else {
@@ -338,10 +307,22 @@ export default function GatiPage() {
               raw = {};
             }
           }
-          const order = safeObject(raw || {});
-          const client = getClientData(order);
-          const pay = getPayData(order);
+          const order = { ...(raw || {}) };
 
+          if (!Array.isArray(order.tepiha) && Array.isArray(order.tepihaRows)) {
+            order.tepiha = order.tepihaRows.map((r) => ({
+              m2: Number(r?.m2) || 0,
+              qty: Number(r?.qty ?? r?.pieces ?? 0) || 0,
+              photoUrl: r?.photoUrl || '',
+            }));
+          }
+          if (!Array.isArray(order.staza) && Array.isArray(order.stazaRows)) {
+            order.staza = order.stazaRows.map((r) => ({
+              m2: Number(r?.m2) || 0,
+              qty: Number(r?.qty ?? r?.pieces ?? 0) || 0,
+              photoUrl: r?.photoUrl || '',
+            }));
+          }
           order.id = String(row.id);
           order.status = row.status;
 
@@ -350,8 +331,8 @@ export default function GatiPage() {
           } catch {}
 
           const m2 = computeM2(order);
-          const total = Number(pay?.euro || computeTotalEuro(order));
-          const paid = Number(pay?.paid || 0);
+          const total = Number(order.pay?.euro || computeTotalEuro(order));
+          const paid = Number(order.pay?.paid || 0);
           const cope = computePieces(order);
           const readyTs = (row.ready_at ? Date.parse(row.ready_at) : 0) || Number(order.ready_at) || Number(order.ts) || Date.now();
 
@@ -359,14 +340,14 @@ export default function GatiPage() {
             id: String(order.id),
             ts: Number(order.ts || 0),
             readyTs,
-            name: client?.name || order.client_name || '',
-            phone: client?.phone || order.client_phone || '',
-            code: client?.code || order.code || order.code_n || '',
+            name: order.client?.name || '',
+            phone: order.client?.phone || '',
+            code: order.client?.code || order.code || '',
             m2,
             cope,
             total,
             paid,
-            paidUpfront: !!pay?.paidUpfront,
+            paidUpfront: !!order.pay?.paidUpfront,
             isReturn: !!order.returnInfo?.active,
             readyNote: String(order.ready_note || order.ready_location || ''),
           };
@@ -392,6 +373,45 @@ export default function GatiPage() {
             if (changed) saveSlotMap(map);
           } catch (e) {}
         }, 1000);
+      }
+    } catch (e) {
+      console.error('Gati refreshOrders failed.', e);
+      try {
+        const local = await getAllOrdersLocal().catch(() => []);
+        const list = Array.isArray(local) ? local : [];
+        const healed = list
+          .filter((o) => String(o?.status || '').toLowerCase() === 'gati')
+          .map((o) => {
+            const order = o || {};
+            const m2 = computeM2(order);
+            const total = Number(order?.pay?.euro || computeTotalEuro(order));
+            const paid = Number(order?.pay?.paid || 0);
+            const cope = computePieces(order);
+            const readyTs = Number(order?.ready_at || order?.readyAt || order?.ts || 0) || Date.now();
+            return {
+              id: String(order?.id || ''),
+              ts: Number(order?.ts || 0),
+              readyTs,
+              name: order?.client?.name || '',
+              phone: order?.client?.phone || '',
+              code: order?.client?.code || order?.code || '',
+              m2,
+              cope,
+              total,
+              paid,
+              paidUpfront: !!order?.pay?.paidUpfront,
+              isReturn: !!order?.returnInfo?.active,
+              readyNote: String(order?.ready_note || order?.ready_location || ''),
+            };
+          })
+          .filter((r) => !/^T\d+$/i.test(String(r.code || '').trim()))
+          .sort((a, b) => Number(b?.readyTs || 0) - Number(a?.readyTs || 0));
+        setOrders(healed);
+      } catch (fatal) {
+        console.error('Fatal Cache Error Detected. Auto-healing...', fatal);
+        try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
+        try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
+        try { window.location.reload(); } catch {}
       }
     } finally {
       setLoading(false);
@@ -549,20 +569,19 @@ export default function GatiPage() {
       }
       if (!order) return alert('Nuk u gjet porosia.');
 
-      const pay = getPayData(order);
-      const total = Number(pay?.euro || computeTotalEuro(order)) || 0;
-      const paid = Number(pay?.paid || 0) || 0;
+      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
+      const paid = Number(order.pay?.paid || 0) || 0;
 
       setPayOrder({
         id: String(row.id),
         order,
-        code: normalizeCode(getClientData(order)?.code || order.code || order.code_n),
-        name: getClientData(order)?.name || order.client_name || '',
-        phone: getClientData(order)?.phone || order.client_phone || '',
+        code: normalizeCode(order.client?.code),
+        name: order.client?.name || '',
+        phone: order.client?.phone || '',
         total,
         paid,
-        arkaRecordedPaid: Number(pay?.arkaRecordedPaid || 0) || 0,
-        paidUpfront: !!pay?.paidUpfront,
+        arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0,
+        paidUpfront: !!order.pay?.paidUpfront,
         m2: computeM2(order),
       });
       const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
