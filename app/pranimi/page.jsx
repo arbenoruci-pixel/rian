@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  computeM2FromRows,
   normalizeCode,
   reserveSharedCode,
   ensureBasePool,
@@ -68,24 +69,6 @@ function sanitizePhone(phone) {
 
 function normDigits(s) {
   return String(s || '').replace(/\D+/g, '');
-}
-
-
-function sumRowsM2(rows = []) {
-  let total = 0;
-  for (const r of rows || []) {
-    const m2 = Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0;
-    const qty = Number(r?.qty ?? r?.pieces ?? 1) || 0;
-    total += m2 * qty;
-  }
-  return Number(total.toFixed(2));
-}
-
-function computeTotalM2Universal(tepihaRows = [], stazaRows = [], stairsQty = 0, stairsPer = 0) {
-  const t = sumRowsM2(tepihaRows);
-  const s = sumRowsM2(stazaRows);
-  const sh = (Number(stairsQty) || 0) * (Number(stairsPer) || 0);
-  return Number((t + s + sh).toFixed(2));
 }
 
 async function searchClientsLive(q) {
@@ -364,7 +347,7 @@ async function fetchRemoteDraftsSummary() {
     const d = await readDraftRemote(id);
     if (!d?.id) return;
 
-    const m2 = computeTotalM2Universal(d.tepihaRows || [], d.stazaRows || [], d.stairsQty || 0, d.stairsPer || 0);
+    const m2 = computeM2FromRows(d.tepihaRows || [], d.stazaRows || [], d.stairsQty || 0, d.stairsPer || 0);
     const euro = Number((m2 * (Number(d.pricePerM2) || PRICE_DEFAULT)).toFixed(2));
 
     out.push({
@@ -921,7 +904,7 @@ setCodeRaw(c || '');
     } catch {}
   }, [router]);
 
-  const totalM2 = useMemo(() => computeTotalM2Universal(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
+  const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2)), [totalM2, pricePerM2]);
 
   const diff = useMemo(() => Number((totalEuro - Number(clientPaid || 0)).toFixed(2)), [totalEuro, clientPaid]);
@@ -931,7 +914,7 @@ setCodeRaw(c || '');
   const copeCount = useMemo(() => {
     const t = tepihaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
     const s = stazaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
-    const sh = Number(stairsQty) || 0;
+    const sh = Number(stairsQty) > 0 ? 1 : 0;
     return t + s + sh;
   }, [tepihaRows, stazaRows, stairsQty]);
 
@@ -2778,6 +2761,47 @@ return (
           background: #0b0b0b;
           color: #fff;
           border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .payfs {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          background: #0b0f14;
+          display: flex;
+          flex-direction: column;
+        }
+        .payfs-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 14px 14px;
+          background: #0b0f14;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .payfs-title {
+          color: #fff;
+          font-weight: 900;
+          font-size: 18px;
+        }
+        .payfs-sub {
+          color: rgba(255, 255, 255, 0.72);
+          font-size: 12px;
+          margin-top: 2px;
+        }
+        .payfs-body {
+          flex: 1;
+          overflow: auto;
+          padding: 14px;
+        }
+        .payfs-footer {
+          display: flex;
+          gap: 10px;
+          padding: 12px 14px;
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+          background: #0b0f14;
+        }
+        .payfs-footer .btn {
+          flex: 1;
         }
 /* WIZARD */
 .wiz-backdrop{
