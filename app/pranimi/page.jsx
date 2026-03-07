@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  computeM2FromRows,
   normalizeCode,
   reserveSharedCode,
   ensureBasePool,
@@ -54,26 +55,6 @@ const OFFLINE_QUEUE_KEY = 'tepiha_offline_queue_v1';
 
 // ✅ remote folders (shared between workers)
 const DRAFTS_FOLDER = 'drafts';
-
-const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-
-function calcTotalM2Local(tepihaRows = [], stazaRows = [], stairsQty = 0, stairsPer = 0) {
-  const tepiha = (Array.isArray(tepihaRows) ? tepihaRows : []).reduce((s, r) => {
-    const m2 = Number(r?.m2 || 0);
-    const qty = Number(r?.qty || 0);
-    return s + (m2 * qty);
-  }, 0);
-
-  const staza = (Array.isArray(stazaRows) ? stazaRows : []).reduce((s, r) => {
-    const m2 = Number(r?.m2 || 0);
-    const qty = Number(r?.qty || 0);
-    return s + (m2 * qty);
-  }, 0);
-
-  const shkallore = Number(stairsQty || 0) * Number(stairsPer || 0);
-  return round2(tepiha + staza + shkallore);
-}
-
 const SETTINGS_FOLDER = 'settings';
 
 // When a draft has client info, we don't want the reserved code to expire.
@@ -366,7 +347,7 @@ async function fetchRemoteDraftsSummary() {
     const d = await readDraftRemote(id);
     if (!d?.id) return;
 
-    const m2 = calcTotalM2Local(d.tepihaRows || [], d.stazaRows || [], d.stairsQty || 0, d.stairsPer || 0);
+    const m2 = computeM2FromRows(d.tepihaRows || [], d.stazaRows || [], d.stairsQty || 0, d.stairsPer || 0);
     const euro = Number((m2 * (Number(d.pricePerM2) || PRICE_DEFAULT)).toFixed(2));
 
     out.push({
@@ -923,7 +904,7 @@ setCodeRaw(c || '');
     } catch {}
   }, [router]);
 
-  const totalM2 = useMemo(() => calcTotalM2Local(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
+  const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2)), [totalM2, pricePerM2]);
 
   const diff = useMemo(() => Number((totalEuro - Number(clientPaid || 0)).toFixed(2)), [totalEuro, clientPaid]);
@@ -933,7 +914,7 @@ setCodeRaw(c || '');
   const copeCount = useMemo(() => {
     const t = tepihaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
     const s = stazaRows.reduce((a, b) => a + (Number(b.qty) || 0), 0);
-    const sh = Number(stairsQty) || 0;
+    const sh = Number(stairsQty) > 0 ? 1 : 0;
     return t + s + sh;
   }, [tepihaRows, stazaRows, stairsQty]);
 
@@ -1288,10 +1269,10 @@ setCodeRaw(c || '');
     void (async () => {
       try {
         if (payMethod === 'CASH') {
-          const extId = `pay_${orderId}_${Date.now()}`;
+          const extId = `pay_${oid}_${Date.now()}`;
           await recordCashMove({
             externalId: extId,
-            orderId: orderId,
+            orderId: oid,
             code: normalizeCode(codeRaw),
             name: name.trim(),
             amount: applied,
@@ -2917,6 +2898,22 @@ return (
   opacity: 1;
   background: rgba(59,130,246,0.18);
   border-color: rgba(59,130,246,0.35);
+}
+
+.footer-bar{
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display:flex;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(2,6,23,0) 0%, rgba(2,6,23,0.96) 22%, rgba(2,6,23,1) 100%);
+  z-index: 30;
+}
+.footer-bar .btn{
+  flex:1;
 }
 .wiz-actions{
   display:flex;
