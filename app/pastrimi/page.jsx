@@ -108,25 +108,10 @@ async function readLocalOrdersByStatus(status) {
   } catch {}
 
   const byCode = new Map();
-  const rowQty = (r) => Number(r?.qty ?? r?.pieces ?? 0) || 0;
-  const rowM2 = (r) => Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0;
-  const getTepihaRows = (fullOrder) => Array.isArray(fullOrder?.tepiha) ? fullOrder.tepiha : (Array.isArray(fullOrder?.tepihaRows) ? fullOrder.tepihaRows : []);
-  const getStazaRows = (fullOrder) => Array.isArray(fullOrder?.staza) ? fullOrder.staza : (Array.isArray(fullOrder?.stazaRows) ? fullOrder.stazaRows : []);
-  const getStairsQty = (fullOrder) => Number(fullOrder?.shkallore?.qty ?? fullOrder?.stairsQty ?? 0) || 0;
-  const getStairsPer = (fullOrder) => Number(fullOrder?.shkallore?.per ?? fullOrder?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
-  const piecesCount = (fullOrder) => {
-    try{
-      let p = 0;
-      for (const r of getTepihaRows(fullOrder)) p += rowQty(r);
-      for (const r of getStazaRows(fullOrder)) p += rowQty(r);
-      p += getStairsQty(fullOrder);
-      return p;
-    }catch{return 0;}
-  };
 
   const scoreRow = (row) => {
     const m2 = computeM2(row.fullOrder) || 0;
-    const pcs = piecesCount(row.fullOrder) || 0;
+    const pcs = computePieces(row.fullOrder) || 0;
     return (row.synced ? 1000000 : 0) + (row.source === 'idb' ? 10000 : 0) + (m2 * 100) + (pcs * 10);
   };
 
@@ -148,39 +133,46 @@ function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); 
 
 function rowQty(r) { return Number(r?.qty ?? r?.pieces ?? 0) || 0; }
 function rowM2(r) { return Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0; }
-function getTepihaRows(order) {
-  if (Array.isArray(order?.tepiha)) return order.tepiha;
-  if (Array.isArray(order?.tepihaRows)) return order.tepihaRows;
+function extractArray(obj, ...keys) {
+  if (!obj || typeof obj !== 'object') return [];
+  for (const k of keys) {
+    if (Array.isArray(obj[k]) && obj[k].length > 0) return obj[k];
+    if (obj.data && typeof obj.data === 'object' && Array.isArray(obj.data[k]) && obj.data[k].length > 0) return obj.data[k];
+  }
   return [];
 }
-function getStazaRows(order) {
-  if (Array.isArray(order?.staza)) return order.staza;
-  if (Array.isArray(order?.stazaRows)) return order.stazaRows;
-  return [];
-}
+function getTepihaRows(order) { return extractArray(order, 'tepiha', 'tepihaRows'); }
+function getStazaRows(order) { return extractArray(order, 'staza', 'stazaRows'); }
 function getStairsQty(order) {
-  return Number(order?.shkallore?.qty ?? order?.stairsQty ?? 0) || 0;
+  if (!order || typeof order !== 'object') return 0;
+  return Number(order?.shkallore?.qty) || Number(order?.data?.shkallore?.qty) || Number(order?.stairsQty) || Number(order?.data?.stairsQty) || 0;
 }
 function getStairsPer(order) {
-  return Number(order?.shkallore?.per ?? order?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
+  if (!order || typeof order !== 'object') return 0.3;
+  return Number(order?.shkallore?.per) || Number(order?.data?.shkallore?.per) || Number(order?.stairsPer) || Number(order?.data?.stairsPer) || 0.3;
 }
 function computeM2(order) {
   if (!order) return 0;
   let total = 0;
-  for (const r of getTepihaRows(order)) total += rowM2(r) * rowQty(r);
-  for (const r of getStazaRows(order)) total += rowM2(r) * rowQty(r);
+  for (const r of getTepihaRows(order)) total += (Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0) * (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  for (const r of getStazaRows(order)) total += (Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0) * (Number(r?.qty ?? r?.pieces ?? 0) || 0);
   total += getStairsQty(order) * getStairsPer(order);
   return Number(total.toFixed(2));
 }
-
 function computePieces(order) {
   if (!order) return 0;
   let p = 0;
-  for (const r of getTepihaRows(order)) p += rowQty(r);
-  for (const r of getStazaRows(order)) p += rowQty(r);
+  for (const r of getTepihaRows(order)) p += (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  for (const r of getStazaRows(order)) p += (Number(r?.qty ?? r?.pieces ?? 0) || 0);
   p += getStairsQty(order);
   return p;
 }
+function triggerFatalCacheHeal() {
+  console.error('Fatal Cache Error Detected. Auto-healing...');
+  try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
+  try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
+}
+
 
 function dayKey(ts) {
   const d = new Date(ts || Date.now());
@@ -443,39 +435,11 @@ export default function PastrimiPage() {
       setStreamPastrimM2(Number(streamTotal.toFixed(2)));
 
     } catch (e) {
-      console.error('Pastrimi refreshOrders failed.', e);
-      try {
-        const locals = await readLocalOrdersByStatus('pastrim');
-        const healed = (Array.isArray(locals) ? locals : []).map((x) => {
-          const order = unwrapOrderData(x?.fullOrder);
-          const total = Number(order?.pay?.euro || 0);
-          const paid = Number(order?.pay?.paid || 0);
-          return {
-            id: x?.id,
-            source: 'LOCAL_FALLBACK',
-            ts: Number(order?.ts || x?.ts || Date.now()),
-            name: order?.client?.name || order?.client_name || '',
-            phone: order?.client?.phone || order?.client_phone || '',
-            code: normalizeCode(order?.client?.code || order?.code || x?.id),
-            m2: computeM2(order),
-            cope: computePieces(order),
-            total,
-            paid,
-            isPaid: paid >= total && total > 0,
-            isReturn: !!order?.returnInfo?.active,
-            fullOrder: order,
-            localOnly: true,
-          };
-        }).filter((o) => o.cope > 0 || o.m2 > 0 || (o.name && o.name.trim() !== ''));
-        healed.sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
-        setOrders(healed);
-        setDebugInfo({ source: 'LOCAL_FALLBACK', dbCount: 0, localCount: healed.length, online: typeof navigator !== 'undefined' ? navigator.onLine : null, lastError: String(e?.message || e), ts: Date.now() });
-      } catch (fatal) {
-        console.error('Fatal Cache Error Detected. Auto-healing...', fatal);
-        try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
-        try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
-        try { window.location.reload(); } catch {}
-      }
+      console.error('refreshOrders failed:', e);
+      triggerFatalCacheHeal();
+      setOrders([]);
+      setStreamPastrimM2(0);
+      setDebugInfo({ source: 'ERROR', dbCount: 0, localCount: 0, online: navigator?.onLine !== false, lastError: String(e?.message || e), ts: Date.now() });
     } finally {
       setLoading(false);
     }

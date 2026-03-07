@@ -100,34 +100,38 @@ function sanitizePhone(phone) {
   return String(phone || '').replace(/[^\d+]+/g, '');
 }
 
-function getOrderRows(order, primaryKey, secondaryKey) {
-  if (!order || typeof order !== 'object') return [];
-  const primary = Array.isArray(order?.[primaryKey]) ? order[primaryKey] : null;
-  const secondary = Array.isArray(order?.[secondaryKey]) ? order[secondaryKey] : null;
-  return primary || secondary || [];
-}
-
 function rowQty(row) {
-  return Number(row?.qty ?? row?.pieces ?? row?.piece ?? 0) || 0;
+  return Number(row?.qty ?? row?.pieces ?? 0) || 0;
 }
 
 function rowM2(row) {
-  return Number(row?.m2 ?? row?.area ?? row?.size ?? 0) || 0;
+  return Number(row?.m2 ?? row?.m ?? row?.area ?? 0) || 0;
 }
 
-function stairsInfo(order) {
-  const qty = Number(order?.shkallore?.qty ?? order?.stairsQty ?? 0) || 0;
-  const per = Number(order?.shkallore?.per ?? order?.stairsPer ?? 0) || 0;
-  return { qty, per };
+function extractArray(obj, ...keys) {
+  if (!obj || typeof obj !== 'object') return [];
+  for (const k of keys) {
+    if (Array.isArray(obj[k]) && obj[k].length > 0) return obj[k];
+    if (obj.data && typeof obj.data === 'object' && Array.isArray(obj.data[k]) && obj.data[k].length > 0) return obj.data[k];
+  }
+  return [];
 }
-
+function getTepihaRows(order) { return extractArray(order, 'tepiha', 'tepihaRows'); }
+function getStazaRows(order) { return extractArray(order, 'staza', 'stazaRows'); }
+function getStairsQty(order) {
+  if (!order || typeof order !== 'object') return 0;
+  return Number(order?.shkallore?.qty) || Number(order?.data?.shkallore?.qty) || Number(order?.stairsQty) || Number(order?.data?.stairsQty) || 0;
+}
+function getStairsPer(order) {
+  if (!order || typeof order !== 'object') return 0.3;
+  return Number(order?.shkallore?.per) || Number(order?.data?.shkallore?.per) || Number(order?.stairsPer) || Number(order?.data?.stairsPer) || 0.3;
+}
 function computeM2(order) {
   if (!order) return 0;
   let total = 0;
-  for (const r of getOrderRows(order, 'tepiha', 'tepihaRows')) total += rowM2(r) * rowQty(r);
-  for (const r of getOrderRows(order, 'staza', 'stazaRows')) total += rowM2(r) * rowQty(r);
-  const shk = stairsInfo(order);
-  total += shk.qty * shk.per;
+  for (const r of getTepihaRows(order)) total += (Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0) * (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  for (const r of getStazaRows(order)) total += (Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0) * (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  total += getStairsQty(order) * getStairsPer(order);
   return Number(total.toFixed(2));
 }
 
@@ -146,11 +150,18 @@ const round2 = (n) => {
 
 function computePieces(order) {
   if (!order) return 0;
-  const tCope = getOrderRows(order, 'tepiha', 'tepihaRows').reduce((a, b) => a + rowQty(b), 0);
-  const sCope = getOrderRows(order, 'staza', 'stazaRows').reduce((a, b) => a + rowQty(b), 0);
-  const shk = stairsInfo(order).qty;
-  return tCope + sCope + shk;
+  let p = 0;
+  for (const r of getTepihaRows(order)) p += (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  for (const r of getStazaRows(order)) p += (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  p += getStairsQty(order);
+  return p;
 }
+function triggerFatalCacheHeal() {
+  console.error('Fatal Cache Error Detected. Auto-healing...');
+  try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
+  try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
+}
+
 
 function daysSince(ts) {
   const a = new Date(ts || Date.now());
@@ -290,11 +301,9 @@ export default function GatiPage() {
                 readyNote: String(order.ready_note || order.ready_location || ''),
               };
             });
-        } catch (fatal) {
-          console.error('Fatal Cache Error Detected. Auto-healing...', fatal);
-          try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
-          try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
-          try { window.location.reload(); } catch {}
+        } catch (e) {
+          console.error('LOCAL_FALLBACK failed:', e);
+          triggerFatalCacheHeal();
           finalRows = [];
         }
       } else {
@@ -375,44 +384,9 @@ export default function GatiPage() {
         }, 1000);
       }
     } catch (e) {
-      console.error('Gati refreshOrders failed.', e);
-      try {
-        const local = await getAllOrdersLocal().catch(() => []);
-        const list = Array.isArray(local) ? local : [];
-        const healed = list
-          .filter((o) => String(o?.status || '').toLowerCase() === 'gati')
-          .map((o) => {
-            const order = o || {};
-            const m2 = computeM2(order);
-            const total = Number(order?.pay?.euro || computeTotalEuro(order));
-            const paid = Number(order?.pay?.paid || 0);
-            const cope = computePieces(order);
-            const readyTs = Number(order?.ready_at || order?.readyAt || order?.ts || 0) || Date.now();
-            return {
-              id: String(order?.id || ''),
-              ts: Number(order?.ts || 0),
-              readyTs,
-              name: order?.client?.name || '',
-              phone: order?.client?.phone || '',
-              code: order?.client?.code || order?.code || '',
-              m2,
-              cope,
-              total,
-              paid,
-              paidUpfront: !!order?.pay?.paidUpfront,
-              isReturn: !!order?.returnInfo?.active,
-              readyNote: String(order?.ready_note || order?.ready_location || ''),
-            };
-          })
-          .filter((r) => !/^T\d+$/i.test(String(r.code || '').trim()))
-          .sort((a, b) => Number(b?.readyTs || 0) - Number(a?.readyTs || 0));
-        setOrders(healed);
-      } catch (fatal) {
-        console.error('Fatal Cache Error Detected. Auto-healing...', fatal);
-        try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
-        try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
-        try { window.location.reload(); } catch {}
-      }
+      console.error('Gati refresh failed:', e);
+      triggerFatalCacheHeal();
+      setOrders([]);
     } finally {
       setLoading(false);
     }
