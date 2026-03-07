@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import supabase from '@/lib/supabaseClient'; // FIX: Default import
+import { supabase } from '@/lib/supabaseClient';
 import { getAllOrdersLocal, saveOrderLocal } from '@/lib/offlineStore';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import { requirePaymentPin } from '@/lib/paymentPin';
@@ -71,36 +71,16 @@ function normalizeStatus(s){
   return st;
 }
 
-function safeObject(value) {
-  let v = value;
-  if (!v) return {};
-  if (typeof v === 'string') {
-    try { v = JSON.parse(v); } catch { return {}; }
-  }
-  return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
-}
-
-function firstArray(...values) {
-  for (const value of values) {
-    if (Array.isArray(value)) return value;
-  }
-  return [];
-}
-
 function unwrapOrderData(raw) {
-  const o = safeObject(raw);
-  const d = safeObject(o.data);
-  if (d && Object.keys(d).length) {
-    const looksLikeOrder = d.client || d.tepiha || d.tepihaRows || d.staza || d.stazaRows || d.shkallore || d.pay || d.transport;
-    if (looksLikeOrder) return d;
+  let o = raw;
+  if (!o) return {};
+  if (typeof o === 'string') { try { o = JSON.parse(o); } catch { o = {}; } }
+  if (o && o.data) {
+    let d = o.data;
+    if (typeof d === 'string') { try { d = JSON.parse(d); } catch { d = null; } }
+    if (d && (d.client || d.tepiha || d.pay || d.transport)) { o = d; }
   }
-  return o;
-}
-
-function getOrderContext(raw) {
-  const base = unwrapOrderData(raw);
-  const nested = safeObject(base.data);
-  return { base, nested };
+  return (o && typeof o === 'object') ? o : {};
 }
 
 async function readLocalOrdersByStatus(status) {
@@ -135,7 +115,13 @@ async function readLocalOrdersByStatus(status) {
   const getStairsQty = (fullOrder) => Number(fullOrder?.shkallore?.qty ?? fullOrder?.stairsQty ?? 0) || 0;
   const getStairsPer = (fullOrder) => Number(fullOrder?.shkallore?.per ?? fullOrder?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
   const piecesCount = (fullOrder) => {
-    try { return computePieces(fullOrder); } catch { return 0; }
+    try{
+      let p = 0;
+      for (const r of getTepihaRows(fullOrder)) p += rowQty(r);
+      for (const r of getStazaRows(fullOrder)) p += rowQty(r);
+      p += getStairsQty(fullOrder);
+      return p;
+    }catch{return 0;}
   };
 
   const scoreRow = (row) => {
@@ -160,37 +146,23 @@ async function readLocalOrdersByStatus(status) {
 
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
 
-function rowQty(r) { return Number(r?.qty ?? r?.pieces ?? r?.piece ?? 0) || 0; }
-function rowM2(r) { return Number(r?.m2 ?? r?.m ?? r?.area ?? r?.size ?? 0) || 0; }
+function rowQty(r) { return Number(r?.qty ?? r?.pieces ?? 0) || 0; }
+function rowM2(r) { return Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0; }
 function getTepihaRows(order) {
-  const { base, nested } = getOrderContext(order);
-  return firstArray(nested?.tepiha, nested?.tepihaRows, base?.tepiha, base?.tepihaRows);
+  if (Array.isArray(order?.tepiha)) return order.tepiha;
+  if (Array.isArray(order?.tepihaRows)) return order.tepihaRows;
+  return [];
 }
 function getStazaRows(order) {
-  const { base, nested } = getOrderContext(order);
-  return firstArray(nested?.staza, nested?.stazaRows, base?.staza, base?.stazaRows);
-}
-function getShkallore(order) {
-  const { base, nested } = getOrderContext(order);
-  return safeObject(nested?.shkallore && typeof nested.shkallore === 'object' ? nested.shkallore : base?.shkallore);
+  if (Array.isArray(order?.staza)) return order.staza;
+  if (Array.isArray(order?.stazaRows)) return order.stazaRows;
+  return [];
 }
 function getStairsQty(order) {
-  const { base, nested } = getOrderContext(order);
-  const shk = getShkallore(order);
-  return Number(shk?.qty ?? nested?.stairsQty ?? base?.stairsQty ?? 0) || 0;
+  return Number(order?.shkallore?.qty ?? order?.stairsQty ?? 0) || 0;
 }
 function getStairsPer(order) {
-  const { base, nested } = getOrderContext(order);
-  const shk = getShkallore(order);
-  return Number(shk?.per ?? nested?.stairsPer ?? base?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
-}
-function getClientData(order) {
-  const { base, nested } = getOrderContext(order);
-  return safeObject(nested?.client && typeof nested.client === 'object' ? nested.client : base?.client);
-}
-function getPayData(order) {
-  const { base, nested } = getOrderContext(order);
-  return safeObject(nested?.pay && typeof nested.pay === 'object' ? nested.pay : base?.pay);
+  return Number(order?.shkallore?.per ?? order?.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT) || 0;
 }
 function computeM2(order) {
   if (!order) return 0;
@@ -199,14 +171,6 @@ function computeM2(order) {
   for (const r of getStazaRows(order)) total += rowM2(r) * rowQty(r);
   total += getStairsQty(order) * getStairsPer(order);
   return Number(total.toFixed(2));
-}
-
-function computePieces(order) {
-  let total = 0;
-  for (const r of getTepihaRows(order)) total += rowQty(r);
-  for (const r of getStazaRows(order)) total += rowQty(r);
-  total += getStairsQty(order);
-  return total;
 }
 
 function dayKey(ts) {
@@ -381,13 +345,11 @@ export default function PastrimiPage() {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         const locals = (await readLocalOrdersByStatus('pastrim')).map((x) => {
           const order = unwrapOrderData(x.fullOrder);
-          const client = getClientData(order);
-          const pay = getPayData(order);
-          const total = Number(pay?.euro || 0);
-          const paid = Number(pay?.paid || 0);
+          const total = Number(order.pay?.euro || 0);
+          const paid = Number(order.pay?.paid || 0);
           return {
             id: x.id, source: 'LOCAL', ts: Number(order.ts || x.ts || Date.now()),
-            name: client?.name || order.client_name || '', phone: client?.phone || order.client_phone || '', code: normalizeCode(client?.code || order.code || order.code_n || x.id),
+            name: order.client?.name || '', phone: order.client?.phone || '', code: normalizeCode(order.client?.code || order.code || x.id),
             m2: computeM2(order), cope: piecesCount(order),
             total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
           };
@@ -426,30 +388,26 @@ export default function PastrimiPage() {
       const allOrders = [];
       (normalData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
-        const client = getClientData(order);
-        const pay = getPayData(order);
-        const total = Number(pay?.euro || 0);
-        const paid = Number(pay?.paid || 0);
+        const total = Number(order.pay?.euro || 0);
+        const paid = Number(order.pay?.paid || 0);
         const cope = piecesCount(order);
         allOrders.push({
           id: row.id, source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
-          name: client?.name || order.client_name || '', phone: client?.phone || order.client_phone || '',
-          code: normalizeCode(client?.code || order.code || order.code_n || row.code), m2: computeM2(order),
+          name: order.client?.name || order.client_name || '', phone: order.client?.phone || order.client_phone || '',
+          code: normalizeCode(order.client?.code || order.code || row.code), m2: computeM2(order),
           cope, total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order
         });
       });
 
       (transportData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
-        const client = getClientData(order);
-        const pay = getPayData(order);
-        const total = Number(pay?.euro || 0);
-        const paid = Number(pay?.paid || 0);
+        const total = Number(order.pay?.euro || 0);
+        const paid = Number(order.pay?.paid || 0);
         const cope = piecesCount(order);
         allOrders.push({
           id: row.id, source: 'transport_orders', ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
-          name: client?.name || order.client_name || '', phone: client?.phone || order.client_phone || '',
-          code: normalizeCode(row.code_str || client?.code || order.code || order.code_n), m2: computeM2(order),
+          name: order.client?.name || '', phone: order.client?.phone || '',
+          code: normalizeCode(row.code_str || order.client?.code), m2: computeM2(order),
           cope, total, paid, isPaid: paid >= total && total > 0, isReturn: false, fullOrder: order
         });
       });
@@ -475,6 +433,8 @@ export default function PastrimiPage() {
       const streamTotal = cleanOrders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
       setStreamPastrimM2(Number(streamTotal.toFixed(2)));
 
+    } catch (e) {
+      console.error('refreshOrders failed:', e);
     } finally {
       setLoading(false);
     }
@@ -486,36 +446,34 @@ export default function PastrimiPage() {
        return;
     }
     try {
-      let ord = unwrapOrderData(item.fullOrder);
-      const client = getClientData(ord);
-      const pay = getPayData(ord);
-      const tList = getTepihaRows(ord);
-      const sList = getStazaRows(ord);
-      const shk = getShkallore(ord);
-
+      let ord = item.fullOrder;
       setOid(String(item.id));
       setOrderSource(item.source);
       setOrigTs(ord.ts || Date.now());
-      setCodeRaw(normalizeCode(item.code || client?.code || ord.code || ord.code_n));
-      setName(client?.name || ord.client_name || '');
-      const p = String(client?.phone || ord.client_phone || '');
+      setCodeRaw(normalizeCode(item.code));
+      setName(ord.client?.name || '');
+      const p = String(ord.client?.phone || '');
       setPhone(p.startsWith(phonePrefix) ? p.slice(phonePrefix.length) : p.replace(/\D+/g, ''));
-      setClientPhotoUrl(client?.photoUrl || client?.photo || '');
+      setClientPhotoUrl(ord.client?.photoUrl || ord.client?.photo || '');
 
-      setTepihaRows(tList.length ? tList.map((x,i)=>({id:`t${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? x?.size ?? ''), qty:String(x?.qty ?? x?.pieces ?? x?.piece ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'t1', m2:'', qty:'', photoUrl:''}]);
-      setStazaRows(sList.length ? sList.map((x,i)=>({id:`s${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? x?.size ?? ''), qty:String(x?.qty ?? x?.pieces ?? x?.piece ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'s1', m2:'', qty:'', photoUrl:''}]);
+      const tList = Array.isArray(ord.tepiha) ? ord.tepiha : (Array.isArray(ord.tepihaRows) ? ord.tepihaRows : []);
+      const sList = Array.isArray(ord.staza) ? ord.staza : (Array.isArray(ord.stazaRows) ? ord.stazaRows : []);
+      const shk = ord.shkallore || {};
 
-      setStairsQty(Number(shk?.qty ?? 0)||0);
-      setStairsPer(Number(shk?.per ?? SHKALLORE_M2_PER_STEP_DEFAULT)||SHKALLORE_M2_PER_STEP_DEFAULT);
+      setTepihaRows(tList.length ? tList.map((x,i)=>({id:`t${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'t1', m2:'', qty:'', photoUrl:''}]);
+      setStazaRows(sList.length ? sList.map((x,i)=>({id:`s${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? ''), photoUrl:x?.photoUrl||''})) : [{id:'s1', m2:'', qty:'', photoUrl:''}]);
+
+      setStairsQty(Number(shk?.qty ?? ord.stairsQty ?? 0)||0);
+      setStairsPer(Number(shk?.per ?? ord.stairsPer ?? SHKALLORE_M2_PER_STEP_DEFAULT)||SHKALLORE_M2_PER_STEP_DEFAULT);
       setStairsPhotoUrl(shk?.photoUrl||'');
 
-      setPricePerM2(Number(pay?.rate ?? pay?.price ?? PRICE_DEFAULT));
-      const paid = Number(pay?.paid ?? 0);
-      const method = pay?.method || 'CASH';
+      setPricePerM2(Number(ord.pay?.rate ?? ord.pay?.price ?? PRICE_DEFAULT));
+      const paid = Number(ord.pay?.paid ?? 0);
+      const method = ord.pay?.method || 'CASH';
       setClientPaid(paid);
-      setPaidUpfront(!!pay?.paidUpfront);
+      setPaidUpfront(!!ord.pay?.paidUpfront);
       setPayMethod(method);
-      setArkaRecordedPaid(Number(pay?.arkaRecordedPaid ?? (method==='CASH'?paid:0)));
+      setArkaRecordedPaid(Number(ord.pay?.arkaRecordedPaid ?? (method==='CASH'?paid:0)));
 
       setNotes(ord.notes || '');
 
