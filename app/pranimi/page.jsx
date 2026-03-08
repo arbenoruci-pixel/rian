@@ -10,7 +10,7 @@ import {
 } from '@/lib/baseCodes';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { saveOrderLocal, pushOp } from '@/lib/offlineStore';
 import { fetchOrdersFromDb, fetchClientsFromDb } from '@/lib/ordersDb';
@@ -409,6 +409,7 @@ export default function PranimiPage() {
   
   const __isOnlineUI = (typeof navigator !== 'undefined') ? !!navigator.onLine : true;
 const router = useRouter();
+const sp = useSearchParams();
   const phonePrefix = '+383';
 
   const [creating, setCreating] = useState(true);
@@ -426,6 +427,21 @@ const router = useRouter();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
+
+  useEffect(() => {
+    const urlName = sp?.get('name');
+    const urlPhone = sp?.get('phone');
+    if (!urlName && !urlPhone) return;
+
+    if (urlName) setName(String(urlName));
+
+    if (urlPhone != null) {
+      let p = String(urlPhone).trim();
+      if (p.startsWith('+383')) p = p.slice(4);
+      p = p.replace(/\D+/g, '');
+      setPhone(p);
+    }
+  }, [sp, oid]);
 
   // client search (rikthime)
   const [clientQuery, setClientQuery] = useState('');
@@ -1269,10 +1285,10 @@ setCodeRaw(c || '');
     void (async () => {
       try {
         if (payMethod === 'CASH') {
-          const extId = `pay_${oid}_${Date.now()}`;
+          const extId = `pay_${orderId}_${Date.now()}`;
           await recordCashMove({
             externalId: extId,
-            orderId: oid,
+            orderId: orderId,
             code: normalizeCode(codeRaw),
             name: name.trim(),
             amount: applied,
@@ -2898,22 +2914,6 @@ return (
   opacity: 1;
   background: rgba(59,130,246,0.18);
   border-color: rgba(59,130,246,0.35);
-}
-
-.footer-bar{
-  position: sticky;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display:flex;
-  gap: 10px;
-  margin-top: 16px;
-  padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, rgba(2,6,23,0) 0%, rgba(2,6,23,0.96) 22%, rgba(2,6,23,1) 100%);
-  z-index: 30;
-}
-.footer-bar .btn{
-  flex:1;
 }
 .wiz-actions{
   display:flex;

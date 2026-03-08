@@ -76,6 +76,14 @@ export default function HomePage() {
 
   const parsed = useMemo(() => normCode(q), [q]);
 
+  function handleCreateNewForClient(order, e){
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    const name = String(order?.name || '').trim();
+    const phone = String(order?.phone || '').trim();
+    router.push('/pranimi?name=' + encodeURIComponent(name) + '&phone=' + encodeURIComponent(phone));
+  }
+
   async function runSearch(e){
     e?.preventDefault?.();
     setErr('');
@@ -239,7 +247,14 @@ export default function HomePage() {
                       {r.createdBy && <div>👤 <span>SJELLË NGA:</span> {String(r.createdBy)}</div>}
                       {r.transporter && <div style={{color: '#f59e0b'}}>🚚 <span>PRU NGA:</span> {String(r.transporter).toUpperCase()}</div>}
                     </div>
-                    <div className="go-btn">HAP ➔</div>
+                    <div className="result-actions">
+                      {(String(r.status || '').toLowerCase() === 'dorzim' || String(r.status || '').toLowerCase() === 'dorzuar') && (
+                        <button className="new-order-btn" onClick={(e) => handleCreateNewForClient(r, e)}>
+                          ➕ KRIJO POROSI TË RE PËR KËTË KLIENT
+                        </button>
+                      )}
+                      <div className="go-btn">HAP ➔</div>
+                    </div>
                   </div>
                 </Link>
               );
@@ -342,9 +357,11 @@ export default function HomePage() {
         .client-name { font-size: 17px; font-weight: 800; }
         .client-phone { font-size: 14px; color: rgba(255,255,255,0.6); font-weight: 600; }
         
-        .result-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; }
+        .result-footer { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; }
         .workers-info { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: #60a5fa; }
         .workers-info span { opacity: 0.6; color: #fff; margin-right: 2px; }
+        .result-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+        .new-order-btn { background: linear-gradient(180deg, rgba(16,185,129,0.22), rgba(16,185,129,0.12)); color: #d1fae5; border: 1px solid rgba(16,185,129,0.45); border-radius: 12px; padding: 10px 12px; font-size: 11px; font-weight: 900; letter-spacing: 0.2px; text-align: center; cursor: pointer; max-width: 240px; }
         .go-btn { background: #3b82f6; color: #fff; font-weight: 900; padding: 8px 16px; border-radius: 10px; font-size: 13px; }
 
         .modules-section { margin-top: 10px; }
