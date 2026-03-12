@@ -41,6 +41,26 @@ const AUTO_MSG_KEY = 'transport_pranimi_auto_msg_after_save';
 const PRICE_KEY = 'transport_pranimi_price_per_m2';
 const OFFLINE_MODE_KEY = 'transport_offline_mode_v1';
 
+
+function translateTransportDbError(errLike) {
+  const msg = String(errLike?.message || errLike?.error || errLike || '').toLowerCase();
+  if (!msg) return 'Gabim i panjohur gjatë ruajtjes në databazë.';
+  if (msg.includes('nuk ekziston ose perdoruesi nuk eshte aktiv') || msg.includes('nuk ekziston ose përdoruesi nuk është aktiv')) {
+    return 'GABIM: PIN-i nuk ekziston ose llogaria nuk është aktive!';
+  }
+  if ((msg.includes('foreign key') && msg.includes('applied_cycle_id')) || msg.includes('cikli i arkës nuk është valid')) {
+    return 'GABIM: Cikli i arkës nuk është valid. Rifresko faqen dhe provo përsëri!';
+  }
+  if (msg.includes('uuid')) {
+    return 'GABIM: ID e ciklit nuk është UUID valide.';
+  }
+  return errLike?.message || errLike?.error || String(errLike || 'Gabim i panjohur');
+}
+
+function resolveTransportActorPin(session, actor) {
+  return String(actor?.pin || session?.transport_pin || session?.pin || session?.transport_id || '').trim();
+}
+
 function normalizeTcode(raw) {
   if (!raw) return 'T0';
   const s = String(raw).trim();
@@ -858,16 +878,31 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       void (async () => {
         try {
           if (paid > 0 && payMethod === 'CASH') {
-              await recordCashMove({
+              let s = null;
+              try { s = getTransportSession(); } catch {}
+              const actorPin = resolveTransportActorPin(s, actor);
+              if (!actorPin) {
+                alert('GABIM: PIN-i nuk ekziston ose llogaria nuk është aktive!');
+                return;
+              }
+
+              const moveRes = await recordCashMove({
                   amount: paid,
                   note: `PAGESA ${paid}€ - ${name}`,
                   type: 'TRANSPORT',
                   order_code: normalizeTcode(codeRaw),
                   source: 'ORDER_PAY',
-                  createdBy: 'Transport'
+                  created_by_pin: actorPin,
+                  status: 'COLLECTED'
               });
+
+              if (moveRes && moveRes.ok === false) {
+                alert(translateTransportDbError(moveRes.error || moveRes.db_error || moveRes.raw_error));
+              }
           }
-        } catch(e) {}
+        } catch(e) {
+          alert(translateTransportDbError(e));
+        }
       })();
   }
 

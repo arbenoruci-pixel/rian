@@ -6,6 +6,25 @@ import { supabase } from "@/lib/supabaseClient";
 import { getTransportSession } from "@/lib/transportAuth";
 import { recordCashMove } from "@/lib/arkaCashSync";
 
+function translateTransportDbError(errLike) {
+  const msg = String(errLike?.message || errLike?.error || errLike || '').toLowerCase();
+  if (!msg) return 'Gabim i panjohur gjatë ruajtjes në databazë.';
+  if (msg.includes('nuk ekziston ose perdoruesi nuk eshte aktiv') || msg.includes('nuk ekziston ose përdoruesi nuk është aktiv')) {
+    return 'GABIM: PIN-i nuk ekziston ose llogaria nuk është aktive!';
+  }
+  if ((msg.includes('foreign key') && msg.includes('applied_cycle_id')) || msg.includes('cikli i arkës nuk është valid')) {
+    return 'GABIM: Cikli i arkës nuk është valid. Rifresko faqen dhe provo përsëri!';
+  }
+  if (msg.includes('uuid')) {
+    return 'GABIM: ID e ciklit nuk është UUID valide.';
+  }
+  return errLike?.message || errLike?.error || String(errLike || 'Gabim i panjohur');
+}
+
+function getActorPin(session) {
+  return String(session?.transport_pin || session?.pin || session?.transport_id || '').trim();
+}
+
 function money(x) {
   const n = Number(x || 0);
   return n.toFixed(2);
@@ -106,19 +125,32 @@ export default function TransportPayPage() {
 
     // Record as TRANSPORT collected cash (goes to driver's wallet / pending table; NOT auto-applied to daily ARKA)
     try {
-      await recordCashMove({
+      const actorPin = getActorPin(s);
+      if (!actorPin) {
+        alert('GABIM: PIN-i nuk ekziston ose llogaria nuk është aktive!');
+        return;
+      }
+
+      const moveRes = await recordCashMove({
         amount: applied,
         type: "TRANSPORT",
         source: "ORDER_PAY",
         order_id: row.id,
         order_code: String(row.code_str || ""),
         client_name: String(row.client_name || ""),
-        created_by_pin: String(s.transport_id),
-        created_by_name: String(s.transport_name || "TRANSPORT"),
+        created_by_pin: actorPin,
         note: `TRANSPORT PAGESË ${money(applied)}€ • ${row.client_name || ""} • ${row.code_str || ""}`,
         status: "COLLECTED",
       });
-    } catch {}
+
+      if (moveRes && moveRes.ok === false) {
+        alert(translateTransportDbError(moveRes.error || moveRes.db_error || moveRes.raw_error));
+        return;
+      }
+    } catch (e) {
+      alert(translateTransportDbError(e));
+      return;
+    }
 
     router.push("/transport/board");
   }
