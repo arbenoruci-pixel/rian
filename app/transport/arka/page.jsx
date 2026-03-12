@@ -19,6 +19,23 @@ const EXP_TYPES = [
   { v: "OTHER", label: "TË TJERA" },
 ];
 
+function translateTransportArkaError(err){
+  const msg = String(err?.error || err?.message || err || '').toLowerCase();
+  if (!msg) return 'Gabim gjatë transferit.';
+  if (msg.includes('pin-i nuk ekziston') || msg.includes('nuk eshte aktiv') || msg.includes('nuk është aktiv')) return 'GABIM: PIN-i nuk ekziston ose llogaria nuk është aktive!';
+  if (msg.includes('foreign key') || msg.includes('applied_cycle_id')) return 'GABIM: Cikli i arkës nuk është valid.';
+  if (msg.includes('uuid')) return 'GABIM: ID e ciklit nuk është UUID valide.';
+  return String(err?.error || err?.message || err || 'Gabim gjatë transferit.');
+}
+
+function getSessionLabel(me){
+  const realPin = String(me?.transport_pin || me?.pin || '').trim();
+  const transportId = String(me?.transport_id || '').trim();
+  if (realPin) return `${me?.transport_name || ''} • PIN ${realPin}`;
+  if (transportId) return `${me?.transport_name || ''} • ID ${transportId}`;
+  return me?.transport_name || '';
+}
+
 export default function TransportArkaPage(){
   const router = useRouter();
   const [me, setMe] = useState(null);
@@ -58,7 +75,8 @@ export default function TransportArkaPage(){
     if(balance <= 0) return alert("S’ka cash në dorë.");
     const ok = confirm(`TRANSFER te DISPATCH: €${balance.toFixed(2)} ?`);
     if(!ok) return;
-    await addTransportTransferToBase({ transportId: me.transport_id, transporterName: me.transport_name, amount: balance, note: (trNote||"").trim() });
+    const res = await addTransportTransferToBase({ transportId: me.transport_id, transporterName: me.transport_name, actorPin: me?.transport_pin || me?.pin || '', actorName: me?.name || me?.transport_name || '', actorRole: me?.role || 'TRANSPORT', amount: balance, note: (trNote||"").trim() });
+    if(!res?.ok) return alert(translateTransportArkaError(res));
     setTrNote("");
     refresh();
   }
@@ -69,7 +87,8 @@ export default function TransportArkaPage(){
     if(n > balance) return alert("S’mundesh me transferu ma shumë se CASH NË DORË.");
     const ok = confirm(`TRANSFER te DISPATCH: €${n.toFixed(2)} ?`);
     if(!ok) return;
-    await addTransportTransferToBase({ transportId: me.transport_id, transporterName: me.transport_name, amount: n, note: (trNote||"").trim() });
+    const res = await addTransportTransferToBase({ transportId: me.transport_id, transporterName: me.transport_name, actorPin: me?.transport_pin || me?.pin || '', actorName: me?.name || me?.transport_name || '', actorRole: me?.role || 'TRANSPORT', amount: n, note: (trNote||"").trim() });
+    if(!res?.ok) return alert(translateTransportArkaError(res));
     setTrAmt(""); setTrNote("");
     refresh();
   }
@@ -79,7 +98,7 @@ export default function TransportArkaPage(){
       <header className="header-row">
         <div>
           <h1 className="title">TRANSPORT • ARKA</h1>
-          <div className="subtitle">{me?.transport_name || ""} • PIN {me?.transport_id || ""}</div>
+          <div className="subtitle">{getSessionLabel(me)}</div>
         </div>
         <div style={{ display:"flex", gap:8 }}>
           <Link className="pill" href="/transport/menu">MENU</Link>

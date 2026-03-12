@@ -33,13 +33,16 @@ export default function TransportLoginPage() {
 
     const tid = onlyDigits(cleanedPin);
     if (!tid) {
-      setErr('SHKRUAJ TRANSPORT ID / PIN');
+      setErr('SHKRUAJ PIN / TRANSPORT ID');
       return;
     }
 
     setTransportSession({
       transport_id: String(tid),
+      transport_pin: String(tid),
+      pin: String(tid),
       transport_name: (name || '').trim() || 'TRANSPORT',
+      name: (name || '').trim() || 'TRANSPORT',
       role: 'TRANSPORT',
       from: 'login',
       ts: Date.now(),
@@ -55,7 +58,7 @@ export default function TransportLoginPage() {
       </header>
 
       <div className="banner">
-        HAPI 2 AKTIV — GUARD + LOGIN
+        HAPI 2 AKTIV — LOGIN I HARMONIZUAR
       </div>
 
       <section className="card">
