@@ -1,0 +1,1230 @@
+'use client';
+import PosModal from '@/components/PosModal';
+
+// app/gati/page.jsx
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
+import { recordOrderCashPayment } from '@/components/payments/payService';
+import { saveOrderLocal, getAllOrdersLocal } from '@/lib/offlineStore';
+import { queueOp } from '@/lib/offlineSyncClient';
+import { requirePaymentPin } from '@/lib/paymentPin';
+
+function readActor() {
+  try {
+    const raw = localStorage.getItem('CURRENT_USER_DATA');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+const BUCKET = 'tepiha-photos';
+const PAY_CHIPS = [5, 10, 20, 30, 50];
+
+// ---------------- SLOT MAP (A1..A30) MULTI-ORDER ----------------
+const SLOT_MAP_KEY = 'tepiha_gati_slot_map_v1';
+const SPOTS = Array.from({ length: 30 }, (_, i) => `A${i + 1}`);
+
+function loadSlotMap() {
+  try {
+    const raw = localStorage.getItem(SLOT_MAP_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    const map = {};
+    for (const [k, v] of Object.entries(obj || {})) {
+      if (Array.isArray(v)) {
+        map[k] = v;
+      } else if (v && v.orderId) {
+        map[k] = [v];
+      }
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+function saveSlotMap(map) {
+  try {
+    localStorage.setItem(SLOT_MAP_KEY, JSON.stringify(map || {}));
+  } catch {}
+}
+
+function releaseSlotsOwnedBy(map, orderId) {
+  const oid = String(orderId || '');
+  if (!oid) return map;
+  const next = { ...(map || {}) };
+  for (const k of Object.keys(next)) {
+    next[k] = (next[k] || []).filter((x) => String(x.orderId) !== oid);
+    if (next[k].length === 0) delete next[k];
+  }
+  return next;
+}
+
+function reserveSlots(map, orderId, meta, slots) {
+  const oid = String(orderId || '');
+  if (!oid) return map;
+  const next = { ...(map || {}) };
+  const ts = Date.now();
+  for (const s of slots || []) {
+    const key = String(s || '').toUpperCase().trim();
+    if (!key) continue;
+    if (!next[key]) next[key] = [];
+    if (!next[key].some((x) => String(x.orderId) === oid)) {
+      next[key].push({
+        orderId: oid,
+        code: meta?.code || '',
+        name: meta?.name || '',
+        ts,
+      });
+    }
+  }
+  return next;
+}
+
+// ---------------- HELPERS ----------------
+function normalizeCode(raw) {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  if (/^t\d+/i.test(s)) {
+    const n = s.replace(/\D+/g, '').replace(/^0+/, '');
+    return `T${n || '0'}`;
+  }
+  const n = s.replace(/\D+/g, '').replace(/^0+/, '');
+  return n || '0';
+}
+
+function sanitizePhone(phone) {
+  return String(phone || '').replace(/[^\d+]+/g, '');
+}
+
+function rowQty(row) {
+  return Number(row?.qty ?? row?.pieces ?? 0) || 0;
+}
+
+function rowM2(row) {
+  return Number(row?.m2 ?? row?.m ?? row?.area ?? 0) || 0;
+}
+
+function extractArray(obj, ...keys) {
+  if (!obj || typeof obj !== 'object') return [];
+  for (const k of keys) {
+    if (Array.isArray(obj[k]) && obj[k].length > 0) return obj[k];
+    if (obj.data && typeof obj.data === 'object' && Array.isArray(obj.data[k]) && obj.data[k].length > 0) return obj.data[k];
+  }
+  return [];
+}
+function getTepihaRows(order) { return extractArray(order, 'tepiha', 'tepihaRows'); }
+function getStazaRows(order) { return extractArray(order, 'staza', 'stazaRows'); }
+function getStairsQty(order) {
+  if (!order || typeof order !== 'object') return 0;
+  return Number(order?.shkallore?.qty) || Number(order?.data?.shkallore?.qty) || Number(order?.stairsQty) || Number(order?.data?.stairsQty) || 0;
+}
+function getStairsPer(order) {
+  if (!order || typeof order !== 'object') return 0.3;
+  return Number(order?.shkallore?.per) || Number(order?.data?.shkallore?.per) || Number(order?.stairsPer) || Number(order?.data?.stairsPer) || 0.3;
+}
+function computeM2(order) {
+  if (!order) return 0;
+  let total = 0;
+  for (const r of getTepihaRows(order)) total += (Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0) * (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  for (const r of getStazaRows(order)) total += (Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0) * (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  total += getStairsQty(order) * getStairsPer(order);
+  return Number(total.toFixed(2));
+}
+
+function computeTotalEuro(order) {
+  if (!order) return 0;
+  if (order.pay && typeof order.pay.euro === 'number') return Number(order.pay.euro) || 0;
+  const m2 = computeM2(order);
+  const rate = Number(order.pay?.rate || 0);
+  return Number((m2 * rate).toFixed(2));
+}
+
+const round2 = (n) => {
+  const num = Number(n || 0);
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
+function computePieces(order) {
+  if (!order) return 0;
+  let p = 0;
+  for (const r of getTepihaRows(order)) p += (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  for (const r of getStazaRows(order)) p += (Number(r?.qty ?? r?.pieces ?? 0) || 0);
+  p += getStairsQty(order);
+  return p;
+}
+function triggerFatalCacheHeal() {
+  console.error('Fatal Cache Error Detected. Auto-healing...');
+  try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
+  try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
+}
+
+
+function daysSince(ts) {
+  const a = new Date(ts || Date.now());
+  const b = new Date();
+  const startA = new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime();
+  const startB = new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime();
+  return Math.floor((startB - startA) / (24 * 60 * 60 * 1000));
+}
+
+function badgeColorByAge(ts) {
+  const d = daysSince(ts);
+  if (d <= 0) return '#16a34a';
+  if (d === 1) return '#f59e0b';
+  return '#dc2626';
+}
+
+async function downloadJsonNoCache(path) {
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
+  if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
+  const res = await fetch(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Fetch failed');
+  return await res.json();
+}
+
+async function uploadPhoto(file, oid, key) {
+  if (!file || !oid) return null;
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
+  if (error) throw error;
+  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+  return pub?.publicUrl || null;
+}
+
+// ---------------- COMPONENT ----------------
+export default function GatiPage() {
+  const sp = useSearchParams();
+
+  const holdTimer = useRef(null);
+  const holdFired = useRef(false);
+
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  const [showPlace, setShowPlace] = useState(false);
+  const [placeBusy, setPlaceBusy] = useState(false);
+  const [placeErr, setPlaceErr] = useState('');
+  const [placeOrderId, setPlaceOrderId] = useState(null);
+  const [placeOrder, setPlaceOrder] = useState(null);
+  const [placeText, setPlaceText] = useState('');
+  const [selectedSlots, setSelectedSlots] = useState([]);
+  const [slotMap, setSlotMap] = useState({});
+
+  const [showPaySheet, setShowPaySheet] = useState(false);
+  const [payOrder, setPayOrder] = useState(null);
+  const [payAdd, setPayAdd] = useState(0);
+  const [payMethod, setPayMethod] = useState('CASH');
+  const [payBusy, setPayBusy] = useState(false);
+  const [payErr, setPayErr] = useState('');
+
+  const [showReturnSheet, setShowReturnSheet] = useState(false);
+  const [retOrder, setRetOrder] = useState(null);
+  const [retReason, setRetReason] = useState('');
+  const [retNote, setRetNote] = useState('');
+  const [retPhotoUrl, setRetPhotoUrl] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  useEffect(() => {
+    try {
+      const q = sp?.get('q') || '';
+      if (q) setSearch(String(q));
+    } catch {}
+  }, [sp]);
+
+  useEffect(() => {
+    refreshOrders();
+    return () => {
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+    };
+  }, []);
+
+  async function dbFetchOrderById(idNum) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id,status,ready_at,picked_up_at,created_at,data')
+      .eq('id', Number(idNum))
+      .single();
+    if (error || !data) throw error || new Error('ORDER_NOT_FOUND');
+
+    const order = { ...(data.data || {}) };
+    order.id = String(data.id);
+    order.status = data.status;
+
+    return { row: data, order };
+  }
+
+  async function refreshOrders() {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id,status,ready_at,picked_up_at,created_at,data')
+        .eq('status', 'gati')
+        .order('ready_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      let finalRows = [];
+
+      if (error || !data) {
+        try {
+          const local = await getAllOrdersLocal().catch(() => []);
+          const list = Array.isArray(local) ? local : [];
+          finalRows = list
+            .filter((o) => String(o?.status || '').toLowerCase() === 'gati')
+            .map((o) => {
+              const order = o || {};
+              const m2 = computeM2(order);
+              const total = Number(order.pay?.euro || computeTotalEuro(order));
+              const paid = Number(order.pay?.paid || 0);
+              const cope = computePieces(order);
+              const readyTs = Number(order.ready_at || order.readyAt || order.ts || 0) || Date.now();
+              return {
+                id: String(order.id),
+                ts: Number(order.ts || 0),
+                readyTs,
+                name: order.client?.name || '',
+                phone: order.client?.phone || '',
+                code: order.client?.code || order.code || '',
+                m2,
+                cope,
+                total,
+                paid,
+                paidUpfront: !!order.pay?.paidUpfront,
+                isReturn: !!order.returnInfo?.active,
+                readyNote: String(order.ready_note || order.ready_location || ''),
+              };
+            });
+        } catch (e) {
+          console.error('LOCAL_FALLBACK failed:', e);
+          triggerFatalCacheHeal();
+          finalRows = [];
+        }
+      } else {
+        finalRows = (data || []).map((row) => {
+          let raw = row.data;
+          if (typeof raw === 'string') {
+            try {
+              raw = JSON.parse(raw);
+            } catch {
+              raw = {};
+            }
+          }
+          const order = { ...(raw || {}) };
+
+          if (!Array.isArray(order.tepiha) && Array.isArray(order.tepihaRows)) {
+            order.tepiha = order.tepihaRows.map((r) => ({
+              m2: Number(r?.m2) || 0,
+              qty: Number(r?.qty ?? r?.pieces ?? 0) || 0,
+              photoUrl: r?.photoUrl || '',
+            }));
+          }
+          if (!Array.isArray(order.staza) && Array.isArray(order.stazaRows)) {
+            order.staza = order.stazaRows.map((r) => ({
+              m2: Number(r?.m2) || 0,
+              qty: Number(r?.qty ?? r?.pieces ?? 0) || 0,
+              photoUrl: r?.photoUrl || '',
+            }));
+          }
+          order.id = String(row.id);
+          order.status = row.status;
+
+          try {
+            saveOrderLocal({ ...order, id: String(row.id), status: 'gati', ready_at: row.ready_at || null });
+          } catch {}
+
+          const m2 = computeM2(order);
+          const total = Number(order.pay?.euro || computeTotalEuro(order));
+          const paid = Number(order.pay?.paid || 0);
+          const cope = computePieces(order);
+          const readyTs = (row.ready_at ? Date.parse(row.ready_at) : 0) || Number(order.ready_at) || Number(order.ts) || Date.now();
+
+          return {
+            id: String(order.id),
+            ts: Number(order.ts || 0),
+            readyTs,
+            name: order.client?.name || '',
+            phone: order.client?.phone || '',
+            code: order.client?.code || order.code || '',
+            m2,
+            cope,
+            total,
+            paid,
+            paidUpfront: !!order.pay?.paidUpfront,
+            isReturn: !!order.returnInfo?.active,
+            readyNote: String(order.ready_note || order.ready_location || ''),
+          };
+        });
+      }
+
+      const baseOnly = finalRows.filter((r) => !/^T\d+$/i.test(String(r.code || '').trim()));
+      baseOnly.sort((a, b) => (b.readyTs || 0) - (a.readyTs || 0));
+      setOrders(baseOnly);
+
+      if (typeof window !== 'undefined') {
+        setTimeout(() => {
+          try {
+            const activeIds = new Set(baseOnly.map((o) => String(o.id)));
+            let map = loadSlotMap();
+            let changed = false;
+            for (const key of Object.keys(map)) {
+              const originalLength = map[key].length;
+              map[key] = map[key].filter((owner) => activeIds.has(String(owner.orderId)));
+              if (map[key].length !== originalLength) changed = true;
+              if (map[key].length === 0) delete map[key];
+            }
+            if (changed) saveSlotMap(map);
+          } catch (e) {}
+        }, 1000);
+      }
+    } catch (e) {
+      console.error('Gati refresh failed:', e);
+      triggerFatalCacheHeal();
+      setOrders([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const totalM2 = useMemo(() => orders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0), [orders]);
+
+  const filtered = useMemo(() => {
+    const q = (search || '').trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((o) => {
+      const name = (o.name || '').toLowerCase();
+      const phone = (o.phone || '').toLowerCase();
+      const code = normalizeCode(o.code).toLowerCase();
+      return name.includes(q) || phone.includes(q) || code.includes(q);
+    });
+  }, [orders, search]);
+
+  function sendPickupSms(row) {
+    const phone = sanitizePhone(row.phone || '');
+    if (!phone) return alert('Nuk ka numër telefoni.');
+    const code = normalizeCode(row.code);
+    const paidTxt = row.paidUpfront ? '\n✅ KJO POROSI ËSHTË PAGUAR NË FILLIM.' : '';
+    const msg = `Përshëndetje ${row.name || 'klient'}, porosia juaj${code ? ` (kodi ${code})` : ''} është GATI.\nKeni ${row.cope || 0} copë • ${(Number(row.m2) || 0).toFixed(2)} m².${paidTxt}\n\nJu lutem ejani sot ose nesër me i marrë tepihat, sepse kemi mungesë të vendit në depo.\nFaleminderit!`;
+    window.location.href = `sms:${phone}?&body=${encodeURIComponent(msg)}`;
+  }
+
+  // ---------------- KU E LAM ----------------
+  async function openPlaceCard(row) {
+    try {
+      setPlaceErr('');
+      setPlaceBusy(true);
+      setShowPlace(true);
+      setPlaceOrderId(String(row?.id || ''));
+
+      let map = {};
+      try {
+        map = loadSlotMap();
+      } catch {}
+      setSlotMap(map);
+
+      const { order } = await dbFetchOrderById(row?.id);
+      setPlaceOrder(order);
+
+      setSelectedSlots(Array.isArray(order?.ready_slots) ? order.ready_slots : []);
+      setPlaceText(order?.ready_note_text || '');
+    } catch (e) {
+      setPlaceErr('Nuk u hap kartela. Provo prap.');
+      setPlaceOrder(null);
+      setPlaceText('');
+      setSelectedSlots([]);
+    } finally {
+      setPlaceBusy(false);
+    }
+  }
+
+  function closePlaceCard() {
+    setShowPlace(false);
+    setPlaceErr('');
+    setPlaceOrderId(null);
+    setPlaceOrder(null);
+    setPlaceText('');
+    setSelectedSlots([]);
+  }
+
+  function toggleSlot(s) {
+    setSelectedSlots((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+  }
+
+  async function savePlaceCard() {
+    if (!placeOrderId) return;
+
+    const txt = String(placeText || '').trim();
+    const actor = readActor();
+    const meta = {
+      code: normalizeCode(placeOrder?.code || placeOrder?.client?.code || ''),
+      name: (placeOrder?.client?.name || placeOrder?.client_name || '').trim(),
+    };
+
+    const finalNoteString = selectedSlots.length > 0 ? `📍 [${selectedSlots.join(', ')}] ${txt}`.trim() : txt;
+
+    const patch = {
+      ready_note: finalNoteString,
+      ready_note_text: txt,
+      ready_note_at: new Date().toISOString(),
+      ready_note_by: actor?.name || actor?.role || 'UNKNOWN',
+      ready_slots: selectedSlots,
+    };
+
+    setPlaceBusy(true);
+    setPlaceErr('');
+    try {
+      const merged = { ...(placeOrder || {}), ...patch };
+
+      try {
+        const cur = loadSlotMap();
+        const released = releaseSlotsOwnedBy(cur, placeOrderId);
+        const reserved = reserveSlots(released, placeOrderId, meta, selectedSlots);
+        saveSlotMap(reserved);
+        setSlotMap(reserved);
+      } catch {}
+
+      try {
+        await saveOrderLocal(merged);
+      } catch {}
+      try {
+        localStorage.setItem(`order_${placeOrderId}`, JSON.stringify(merged));
+      } catch {}
+
+      let online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+
+      if (online) {
+        const { error: dbErr } = await supabase
+          .from('orders')
+          .update({ data: merged, updated_at: new Date().toISOString() })
+          .eq('id', placeOrderId);
+        if (dbErr) throw dbErr;
+      } else {
+        await queueOp('patch_order_data', { id: placeOrderId, data_patch: patch });
+      }
+
+      setOrders((prev) =>
+        (prev || []).map((x) =>
+          String(x.id) === String(placeOrderId)
+            ? { ...x, readyNote: finalNoteString, readySlots: selectedSlots }
+            : x
+        )
+      );
+      closePlaceCard();
+    } catch (e) {
+      try {
+        await queueOp('patch_order_data', { id: placeOrderId, data_patch: patch });
+      } catch {}
+      setPlaceErr("S'u ruajt online, por u ruajt lokalisht.");
+    } finally {
+      setPlaceBusy(false);
+    }
+  }
+
+  // ---------------- PAY FULLSCREEN ----------------
+  async function openPay(row) {
+    try {
+      let order = null;
+      try {
+        const raw = localStorage.getItem(`order_${row.id}`);
+        if (raw) order = JSON.parse(raw);
+      } catch {
+        order = null;
+      }
+      if (!order) {
+        const res = await dbFetchOrderById(row.id);
+        order = res.order;
+        localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
+      }
+      if (!order) return alert('Nuk u gjet porosia.');
+
+      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
+      const paid = Number(order.pay?.paid || 0) || 0;
+
+      setPayOrder({
+        id: String(row.id),
+        order,
+        code: normalizeCode(order.client?.code),
+        name: order.client?.name || '',
+        phone: order.client?.phone || '',
+        total,
+        paid,
+        arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0,
+        paidUpfront: !!order.pay?.paidUpfront,
+        m2: computeM2(order),
+      });
+      const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
+      setPayAdd(dueNow);
+      setPayMethod('CASH');
+      setShowPaySheet(true);
+    } catch {
+      alert('❌ Gabim gjatë hapjes së pagesës.');
+    }
+  }
+
+  function closePay() {
+    setShowPaySheet(false);
+    setPayOrder(null);
+    setPayAdd(0);
+    setPayMethod('CASH');
+  }
+
+  // PAGESA PA DORËZUAR
+  async function applyPayOnly() {
+    if (!payOrder) return;
+
+    const due = Math.max(0, Number((Number(payOrder.total || 0) - Number(payOrder.paid || 0)).toFixed(2)));
+    const payNow = Number((Number(payAdd) || 0).toFixed(2));
+
+    if (due <= 0) {
+      alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.');
+      return;
+    }
+    if (payNow <= 0) {
+      alert('SHKRUANI SHUMËN!');
+      return;
+    }
+    const applied = Math.min(payNow, due);
+    const kusuri = Math.max(0, payNow - due);
+
+    const pinLabel = `PAGESË: ${applied.toFixed(2)}€
+KLIENTI DHA: ${payNow.toFixed(2)}€
+KUSURI (RESTO): ${kusuri.toFixed(2)}€
+
+👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
+    const pinData = await requirePaymentPin({ label: pinLabel });
+    if (!pinData) return;
+
+    // OPTIMISTIC UI
+    const newPaid = Number((Number(payOrder.paid || 0) + applied).toFixed(2));
+    const newDebt = Math.max(0, Number((Number(payOrder.total || 0) - newPaid).toFixed(2)));
+    setPayOrder({ ...payOrder, paid: newPaid, debt: newDebt, isPaid: newDebt <= 0 });
+    setOrders((prev) =>
+      (prev || []).map((o) =>
+        o.id === payOrder.id ? { ...o, paid: newPaid, debt: newDebt, isPaid: newDebt <= 0 } : o
+      )
+    );
+
+    closePay();
+
+    // Background network work
+    const snap = { ...payOrder, paid: newPaid, debt: newDebt, isPaid: newDebt <= 0 };
+    void (async () => {
+      try {
+        setPayBusy(true);
+        setPayErr(null);
+        await recordOrderCashPayment(snap, applied, pinData, payMethod);
+        await refreshOrders();
+      } catch (e) {
+        setPayErr(e?.message || 'Gabim pagesë');
+      } finally {
+        setPayBusy(false);
+      }
+    })();
+  }
+
+  // DORËZIMI FINAL DHE PAGESA
+  async function confirmDelivery() {
+    if (!payOrder) return;
+
+    // 1) Validate payment (if any)
+    const due = Math.max(0, Number((Number(payOrder.total || 0) - Number(payOrder.paid || 0)).toFixed(2)));
+    const payNow = Number((Number(payAdd) || 0).toFixed(2));
+    if (payNow < 0) {
+      alert('SHUMA E PAVLEFSHME!');
+      return;
+    }
+    const applied = Math.min(payNow, due);
+    const kusuri = Math.max(0, payNow - due);
+
+    const newPaid = Number((Number(payOrder.paid || 0) + applied).toFixed(2));
+    const newDebt = Math.max(0, Number((Number(payOrder.total || 0) - newPaid).toFixed(2)));
+
+    // 2) Require PIN
+    const pinLabel = `DORËZIM POROSIE\nKODI: ${payOrder.code}\n\nPAGESË SOT: ${applied.toFixed(2)}€\nKLIENTI DHA: ${payNow.toFixed(2)}€
+KUSURI: ${kusuri.toFixed(2)}€
+BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFIRMUAR:`;
+    const pinData = await requirePaymentPin({ label: pinLabel });
+    if (!pinData) return;
+
+    // OPTIMISTIC UI: hiqe nga lista dhe mbyll modalin menjëherë
+    const snapOrder = {
+      ...payOrder,
+      paid: newPaid,
+      debt: newDebt,
+      isPaid: newDebt <= 0,
+      status: 'dorzim',
+      delivered_at: new Date().toISOString(),
+      delivered_by: pinData?.pin || null,
+    };
+
+    setOrders((prev) => (prev || []).filter((o) => o.id !== payOrder.id));
+    closePay();
+
+    // Background: DB + arka + foto nënshkrimi + refresh
+    void (async () => {
+      try {
+        setPayBusy(true);
+        setPayErr(null);
+
+        const payload = {
+          ...snapOrder,
+          status: 'dorzim',
+          delivered_at: snapOrder.delivered_at,
+          delivered_by: snapOrder.delivered_by,
+        };
+
+        // Save local mirror (mos blloko UI edhe nëse dështon)
+        try {
+          localStorage.setItem(`tepiha_delivered_${snapOrder.id}`, JSON.stringify(payload));
+          await saveOrderLocal({
+            id: snapOrder.id,
+            status: 'dorzim',
+            data: payload,
+            updated_at: payload.delivered_at,
+            _synced: false,
+            _table: 'orders',
+          });
+        } catch (e) {}
+
+        // Record payment if any
+        if (applied > 0) {
+          try {
+            await recordOrderCashPayment(payload, applied, pinData, payMethod);
+          } catch (e) {}
+        }
+
+        // Update server (orders table)
+        try {
+          const { error: upErr2 } = await supabase
+            .from('orders')
+            .update({ status: 'dorzim', data: payload, updated_at: payload.delivered_at })
+            .eq('id', snapOrder.id);
+          if (upErr2) throw upErr2;
+        } catch (e) {
+          // fallback queue
+          try {
+            await queueOp('patch_order_data', {
+              id: snapOrder.id,
+              data_patch: {
+                status: 'dorzim',
+                delivered_at: payload.delivered_at,
+                delivered_by: payload.delivered_by,
+                paid: payload.paid,
+                debt: payload.debt,
+                isPaid: payload.isPaid,
+              },
+            });
+          } catch (e2) {}
+        }
+
+        await refreshOrders();
+      } catch (e) {
+        setPayErr(e?.message || 'Gabim dorëzim');
+        await refreshOrders();
+      } finally {
+        setPayBusy(false);
+      }
+    })();
+  }
+
+  // ---------------- HIDDEN RETURN ----------------
+  async function openReturn(row) {
+    try {
+      let order = null;
+      try {
+        const raw = localStorage.getItem(`order_${row.id}`);
+        if (raw) order = JSON.parse(raw);
+      } catch {
+        order = null;
+      }
+      if (!order) {
+        order = await downloadJsonNoCache(`orders/${row.id}.json`);
+        localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
+      }
+      if (!order) return alert('Nuk u gjet porosia.');
+      if (!order.db_id && row?.id) order.db_id = row.id;
+      if (!order.id && row?.id) order.id = row.id;
+      if (!order.data) order.data = { ...order };
+      setRetOrder(order);
+      setRetReason('');
+      setRetNote('');
+      setRetPhotoUrl('');
+      setShowReturnSheet(true);
+    } catch {
+      alert('❌ Gabim gjatë hapjes së kthimit.');
+    }
+  }
+
+  function closeReturn() {
+    setShowReturnSheet(false);
+    setRetOrder(null);
+    setRetReason('');
+    setRetNote('');
+    setRetPhotoUrl('');
+  }
+
+  async function handleReturnPhoto(file) {
+    const oid = retOrder?.id || retOrder?.db_id;
+    if (!file || !oid) return;
+    setPhotoUploading(true);
+    try {
+      const url = await uploadPhoto(file, oid, 'return');
+      if (url) setRetPhotoUrl(url);
+    } catch {
+      alert('❌ Gabim foto!');
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  async function confirmReturn() {
+    const oid = retOrder?.id || retOrder?.db_id || retOrder?.data?.db_id || null;
+    if (!oid) return;
+    const reason = (retReason || '').trim();
+    const note = (retNote || '').trim();
+    if (!reason && !note) return alert('Shkruaj së paku një arsye ose shënim për kthimin.');
+    if (!confirm('Kjo porosi do të kthehet në PASTRIM si KTHIM.\nJeni i sigurt?')) return;
+
+    const entry = {
+      id: `ret_${oid}_${Date.now()}`,
+      ts: Date.now(),
+      from: 'gati',
+      reason: reason || '',
+      note: note || '',
+      photoUrl: retPhotoUrl || '',
+    };
+    const updated = {
+      ...retOrder,
+      id: retOrder?.id || oid,
+      status: 'pastrim',
+      returnInfo: {
+        active: true,
+        at: Date.now(),
+        from: 'gati',
+        reason: entry.reason,
+        note: entry.note,
+        photoUrl: entry.photoUrl,
+        logId: entry.id,
+      },
+      returnLog: Array.isArray(retOrder.returnLog) ? [entry, ...retOrder.returnLog] : [entry],
+    };
+    updated.db_id = retOrder?.db_id || retOrder?.data?.db_id || oid;
+
+    try {
+      localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
+      const blob = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(updated)], { type: 'application/json' }) : null;
+      if (blob)
+        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
+      const blob2 = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(entry)], { type: 'application/json' }) : null;
+      if (blob2)
+        await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
+      try {
+        const nextData = {
+          ...updated.data,
+          status: 'pastrim',
+          returnInfo: updated.returnInfo,
+          returnLog: updated.returnLog,
+          ready_at: null,
+          picked_up_at: null,
+          delivered_at: null,
+        };
+        if (updated.db_id) {
+          const { error: dbErr } = await supabase
+            .from('orders')
+            .update({ status: 'pastrim', ready_at: null, picked_up_at: null, data: nextData, updated_at: new Date().toISOString() })
+            .eq('id', updated.db_id);
+          if (dbErr) throw dbErr;
+        }
+      } catch (e) {}
+    } catch (e) {
+      return alert('❌ Gabim gjatë ruajtjes së kthimit.');
+    }
+
+    alert('✅ U kthye në PASTRIM (KTHIM).');
+    closeReturn();
+    setOrders((prev) => prev.filter((x) => String(x.id) !== String(updated.id)));
+  }
+
+  function onPayPressStart(row) {
+    holdFired.current = false;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => {
+      holdFired.current = true;
+      openReturn(row);
+    }, 3000);
+  }
+  function onPayPressEnd(row) {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    if (holdFired.current) return;
+    openPay(row);
+  }
+
+  return (
+    <div className="wrap">
+      <header className="header-row">
+        <div>
+          <h1 className="title">GATI</h1>
+          <div className="subtitle">Porositë e gatshme për marrje</div>
+        </div>
+        <div style={{ textAlign: 'right', fontSize: 12 }}>
+          <div>
+            TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong>
+          </div>
+        </div>
+      </header>
+
+      <input
+        className="input"
+        placeholder="🔎 Kërko emrin / telefonin / kodin..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+
+      <section className="card" style={{ padding: '10px' }}>
+        {loading ? (
+          <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p>
+        ) : filtered.length === 0 ? (
+          <p style={{ textAlign: 'center' }}>Nuk ka porosi GATI.</p>
+        ) : (
+          filtered.map((o) => {
+            const total = Number(o.total || 0);
+            const paid = Number(o.paid || 0);
+            const isPaid = total > 0 && paid >= total;
+            const debt = Math.max(0, Number((total - paid).toFixed(2)));
+
+            return (
+              <div
+                key={o.id}
+                className="list-item-compact"
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 4px',
+                  borderBottom: '1px solid rgba(255,255,255,0.08)',
+                  opacity: o.isReturn ? 0.92 : 1,
+                }}
+              >
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      background: badgeColorByAge(o.readyTs || o.ts),
+                      color: '#fff',
+                      width: 40,
+                      height: 40,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 8,
+                      fontWeight: 900,
+                      fontSize: 14,
+                      flexShrink: 0,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => openPlaceCard(o)}
+                  >
+                    {normalizeCode(o.code)}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 14,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {o.name || 'Pa emër'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
+                      {o.cope} copë • {Number(o.m2 || 0).toFixed(2)} m²
+                    </div>
+                    {o.paidUpfront && (
+                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>
+                    )}
+                    {paid > 0 && !o.paidUpfront && (
+                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>Paguar: {paid.toFixed(2)}€</div>
+                    )}
+                    {debt > 0 && !o.paidUpfront && (
+                      <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 900 }}>Borxh: {debt.toFixed(2)}€</div>
+                    )}
+                    <div style={{ fontSize: 11, color: o.readyNote ? '#4ade80' : '#f59e0b', fontWeight: 800 }}>
+                      {o.readyNote ? String(o.readyNote).split('\n')[0].slice(0, 42) : '📍 PA VEND'}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {isPaid && <span style={{ fontSize: 14 }}>✅</span>}
+                  <button className="btn secondary" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => sendPickupSms(o)}>
+                    SMS
+                  </button>
+                  <button
+                    className="btn primary"
+                    style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      onPayPressStart(o);
+                    }}
+                    onPointerUp={(e) => {
+                      e.preventDefault();
+                      onPayPressEnd(o);
+                    }}
+                    onPointerCancel={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
+                    onPointerLeave={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
+                  >
+                    💶 PAGUAJ
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </section>
+
+      <footer className="dock">
+        <Link href="/" className="btn secondary" style={{ width: '100%' }}>
+          🏠 HOME
+        </Link>
+      </footer>
+
+      {/* ============ PAGESA ME DIZAJN TE RI ARKË (POS) ============ */}
+      {showPaySheet && payOrder && (
+        <PosModal
+          open={showPaySheet}
+          onClose={() => setShowPaySheet(false)}
+          title="DORËZIMI & PAGESA"
+          subtitle={`KODI: ${normalizeCode(payOrder.code)} • ${payOrder.name || ''}`}
+          total={Number(payOrder.total || 0)}
+          alreadyPaid={Number(payOrder.paid || 0)}
+          amount={payAdd}
+          setAmount={setPayAdd}
+          payChips={PAY_CHIPS}
+          confirmText="KONFIRMO DORËZIMIN"
+          cancelText="ANULO"
+          disabled={payBusy}
+          onConfirm={confirmDelivery}
+          footerNote={
+            <button
+              className="btn secondary"
+              onClick={applyPayOnly}
+              disabled={payBusy}
+              style={{
+                width: '100%',
+                padding: '12px',
+                marginTop: '10px',
+                background: 'rgba(59,130,246,0.15)',
+                color: '#60a5fa',
+                border: '1px solid rgba(59,130,246,0.3)',
+                fontWeight: 'bold',
+              }}
+            >
+              PAGUAJ PA DORËZU
+            </button>
+          }
+        />
+      )}
+
+      {/* ============ KTHIMI FSHEHTE ============ */}
+      {showReturnSheet && retOrder && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">KTHIM (HIDDEN)</div>
+            </div>
+            <button className="btn secondary" onClick={closeReturn}>
+              ✕
+            </button>
+          </div>
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="field-group">
+                <label className="label">PSE PO KTHEHET?</label>
+                <select className="input" value={retReason} onChange={(e) => setRetReason(e.target.value)}>
+                  <option value="">— ZGJIDH —</option>
+                  <option value="GABIM">GABIM</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div className="payfs-footer">
+            <button className="btn secondary" onClick={closeReturn}>
+              ANULO
+            </button>
+            <button className="btn primary" onClick={confirmReturn}>
+              KONFIRMO KTHIMIN
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============ KARTELA E VENDOSJES (MULTIPLE ORDERS PER SPOT) ============ */}
+      {showPlace && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: '#0b0b0b',
+            zIndex: 10001,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div
+            style={{
+              padding: 14,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>
+                POZICIONI (KODI: {normalizeCode(placeOrder?.code || placeOrder?.client?.code)})
+              </div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Zgjidh një ose më shumë vende</div>
+            </div>
+            <button className="btn secondary" onClick={closePlaceCard} disabled={placeBusy}>
+              ✕
+            </button>
+          </div>
+
+          <div style={{ padding: '16px 14px', overflow: 'auto', flex: 1 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 20 }}>
+              {SPOTS.map((s) => {
+                const owners = slotMap[s] || [];
+                const isMine = selectedSlots.includes(s);
+                const otherOwners = owners.filter((x) => String(x.orderId) !== String(placeOrderId));
+                const hasOthers = otherOwners.length > 0;
+
+                const bg = isMine ? '#16a34a' : hasOthers ? 'rgba(245, 158, 11, 0.25)' : 'rgba(255,255,255,0.05)';
+                const border = isMine ? '#4ade80' : hasOthers ? 'rgba(245, 158, 11, 0.6)' : 'rgba(255,255,255,0.15)';
+                const color = isMine ? '#fff' : hasOthers ? '#fcd34d' : 'rgba(255,255,255,0.8)';
+
+                return (
+                  <button
+                    key={s}
+                    disabled={placeBusy}
+                    onClick={() => toggleSlot(s)}
+                    style={{
+                      padding: '8px 2px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 10,
+                      fontWeight: 900,
+                      fontSize: 15,
+                      border: `1px solid ${border}`,
+                      background: bg,
+                      color: color,
+                      cursor: 'pointer',
+                      transition: 'all 0.1s',
+                      minHeight: '54px',
+                    }}
+                  >
+                    {s}
+                    {hasOthers && !isMine && (
+                      <span
+                        style={{
+                          fontSize: 9,
+                          marginTop: 2,
+                          fontWeight: 700,
+                          opacity: 0.9,
+                          textAlign: 'center',
+                          lineHeight: 1.1,
+                        }}
+                      >
+                        {otherOwners.map((x) => normalizeCode(x.code)).join(', ')}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="field-group">
+              <label className="label">SHËNIM SHTESË (OPSIONALE)</label>
+              <textarea
+                value={placeText}
+                onChange={(e) => setPlaceText(e.target.value)}
+                placeholder="Psh: Të paketuara dy e nga dy..."
+                className="input"
+                rows={3}
+                style={{ resize: 'none' }}
+              />
+            </div>
+            {placeErr && (
+              <div
+                style={{
+                  marginTop: 10,
+                  color: '#ef4444',
+                  fontWeight: 800,
+                  fontSize: 13,
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  padding: 8,
+                  borderRadius: 8,
+                }}
+              >
+                {placeErr}
+              </div>
+            )}
+          </div>
+
+          <div style={{ padding: 14, borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 10 }}>
+            <button
+              className="btn secondary"
+              onClick={() => {
+                setSelectedSlots([]);
+                setPlaceText('');
+              }}
+              disabled={placeBusy}
+              style={{ flex: 1, fontWeight: 900 }}
+            >
+              PASTRO
+            </button>
+            <button className="btn primary" onClick={savePlaceCard} disabled={placeBusy} style={{ flex: 2, fontWeight: 900 }}>
+              {placeBusy ? 'DUKE RUAJTUR...' : 'RUAJ POZICIONIN'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        .dock {
+          position: sticky;
+          bottom: 0;
+          padding: 10px 0 6px 0;
+          background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0));
+          margin-top: 10px;
+        }
+        .payfs-footer .btn {
+          flex: 1;
+          padding: 16px 0;
+        }
+      `}</style>
+    </div>
+  );
+}

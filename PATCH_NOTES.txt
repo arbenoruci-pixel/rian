@@ -1,0 +1,6 @@
+
+TEPIHA V23.2 PATCH
+- Fix offline base code reservation
+- Prevent code restart from 1
+- Uses getActor() instead of getActorPin dependency
+- Safe fallback when offline pool empty
