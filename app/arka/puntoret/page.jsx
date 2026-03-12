@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -13,36 +13,39 @@ function onlyDigits(v) { return String(v || "").replace(/\D/g, ""); }
 function safeUpper(v, fallback = "") { return String(v || "").trim().toUpperCase() || fallback; }
 function shortDevice(did) { return String(did || "").split("-")[0] + "..."; }
 const euro = (n) => `€${Number(n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}`;
-
-function formatHistoryDate(v) {
+const fmtDateTime = (v) => {
   if (!v) return "-";
   try {
     return new Date(v).toLocaleString("sq-AL", {
-      day: "2-digit",
-      month: "2-digit",
       year: "numeric",
+      month: "short",
+      day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
     });
   } catch {
     return String(v);
   }
-}
-function getHistoryMeta(item) {
-  const status = String(item?.status || "").toUpperCase();
-  const type = String(item?.type || "").toUpperCase();
-  const note = String(item?.note || "");
-  if (status === "CLEARED_PAID") return { label: "RROGË", className: "history-badge history-badge-salary" };
-  if (status === "ADVANCE") return { label: "AVANS", className: "history-badge history-badge-advance" };
-  if (status === "REJECTED" || status === "OWED" || status === "WORKER_DEBT") {
-    return { label: "BORXH", className: "history-badge history-badge-debt" };
+};
+
+function classifyHistoryItem(item) {
+  const status = safeUpper(item?.status);
+  const type = safeUpper(item?.type);
+  const note = String(item?.note || item?.reject_note || "").toLowerCase();
+
+  if (note.includes("rrog") || status === "CLEARED_PAID") {
+    return { label: "Rrogë", cls: "history-badge-salary" };
   }
-  if (status === "APPLIED" || status === "PENDING" || status === "COLLECTED") {
-    return { label: "DORËZIM", className: "history-badge history-badge-delivery" };
+  if (status === "ADVANCE" || type === "ADVANCE") {
+    return { label: "Avans", cls: "history-badge-advance" };
   }
-  if (type === "OUT") return { label: "DALJE", className: "history-badge history-badge-debt" };
-  if (note.toLowerCase().includes("rrog")) return { label: "RROGË", className: "history-badge history-badge-salary" };
-  return { label: type || status || "VEPRIM", className: "history-badge history-badge-default" };
+  if (["REJECTED", "OWED", "WORKER_DEBT"].includes(status)) {
+    return { label: "Borxh", cls: "history-badge-debt" };
+  }
+  if (["APPLIED", "COLLECTED", "PENDING"].includes(status)) {
+    return { label: "Dorëzim", cls: "history-badge-delivery" };
+  }
+  return { label: status || type || "Veprim", cls: "history-badge-default" };
 }
 
 export default function StaffAndDevicesDashboard() {
@@ -60,16 +63,29 @@ export default function StaffAndDevicesDashboard() {
   // Edit/Add Staff
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({
-    name: "", role: "PUNTOR", pin: "", salary: "", avans_manual: "", borxh_afatgjat: "", is_active: true
+    name: "", role: "PUNTOR", pin: "", salary: "", salary_day: "", avans_manual: "", borxh_afatgjat: "", is_active: true
   });
+  const [profileTab, setProfileTab] = useState("edit");
+  const [workerHistory, setWorkerHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // Paguaj Rrogën Modal
   const [salaryModal, setSalaryModal] = useState(null);
 
-  // Kartela Profesionale e Punëtorit
-  const [workerTab, setWorkerTab] = useState("DATA");
-  const [workerHistory, setWorkerHistory] = useState([]);
-  const [workerHistoryLoading, setWorkerHistoryLoading] = useState(false);
+  const salaryToPay = useMemo(() => {
+    if (!salaryModal) return 0;
+    const baseSalary = Number(salaryModal.baseSalary || 0);
+    const autoDebt = Number(salaryModal.autoDebt || 0);
+    const manualAdvance = Number(salaryModal.manualAdvance || 0);
+    const longTermDebt = Number(salaryModal.longTermDebt || 0);
+    const deductOrders = salaryModal.deductOrders ? autoDebt : 0;
+    const deductManual = salaryModal.deductManual ? manualAdvance : 0;
+    const requestedLongTerm = Number(salaryModal.longTermDeduction || 0);
+    const appliedLongTerm = Math.max(0, Math.min(requestedLongTerm, longTermDebt));
+    return Math.max(0, baseSalary - deductOrders - deductManual - appliedLongTerm);
+  }, [salaryModal]);
+
+  const todayDate = new Date().getDate();
 
   useEffect(() => {
     const a = jparse(localStorage.getItem("CURRENT_USER_DATA"), null);
@@ -88,7 +104,7 @@ export default function StaffAndDevicesDashboard() {
     if (!isSilent) setLoading(true);
 
     try {
-      const { data: st, error: stErr } = await supabase.from("tepiha_users").select("*").order("name", { ascending: true });
+      const { data: st, error: stErr } = await supabase.from("users").select("*").order("name", { ascending: true });
       if (!stErr && st) setStaff(st);
 
       const { data: rawDevices, error: devErr } = await supabase.from("tepiha_user_devices").select("*").eq("is_approved", false).order("created_at", { ascending: false });
@@ -121,30 +137,27 @@ export default function StaffAndDevicesDashboard() {
     }
   }
 
-
   async function fetchWorkerHistory(workerName) {
-    const cleanName = String(workerName || "").trim();
-    if (!cleanName) {
+    const name = String(workerName || "").trim();
+    if (!name) {
       setWorkerHistory([]);
       return;
     }
-
-    setWorkerHistoryLoading(true);
+    setHistoryLoading(true);
     try {
       const { data, error } = await supabase
         .from("arka_pending_payments")
-        .select("id, created_at, amount, status, type, note, client_name, order_code")
-        .eq("created_by_name", cleanName)
+        .select("id, created_at, amount, status, type, note, reject_note, applied_at")
+        .eq("created_by_name", name)
         .order("created_at", { ascending: false })
         .limit(30);
-
       if (error) throw error;
       setWorkerHistory(data || []);
     } catch (err) {
-      console.error("Gabim gjatë leximit të historikut financiar:", err);
+      console.error("Gabim te historiku financiar:", err);
       setWorkerHistory([]);
     } finally {
-      setWorkerHistoryLoading(false);
+      setHistoryLoading(false);
     }
   }
 
@@ -173,25 +186,26 @@ export default function StaffAndDevicesDashboard() {
   // MENAXHIMI I STAFIT
   function startCreateStaff() {
     setEditingId('NEW');
-    setWorkerTab("DATA");
+    setProfileTab("edit");
     setWorkerHistory([]);
-    setEditForm({ name: "", role: "PUNTOR", pin: "", salary: "", avans_manual: "", borxh_afatgjat: "", is_active: true });
+    setEditForm({ name: "", role: "PUNTOR", pin: "", salary: "", salary_day: "", avans_manual: "", borxh_afatgjat: "", is_active: true });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function startEdit(u) {
     setEditingId(u.id);
-    setWorkerTab("DATA");
+    setProfileTab("edit");
     setEditForm({
       name: u.name || "",
       role: safeUpper(u.role),
       pin: "",
       salary: u.salary || "",
+      salary_day: u.salary_day || "",
       avans_manual: u.avans_manual || "",
       borxh_afatgjat: u.borxh_afatgjat || "",
       is_active: u.is_active !== false
     });
-    fetchWorkerHistory(u.name || "");
+    fetchWorkerHistory(u.name);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -204,6 +218,7 @@ export default function StaffAndDevicesDashboard() {
       role: editForm.role,
       is_active: editForm.is_active,
       salary: Number(editForm.salary) || 0,
+      salary_day: Math.min(31, Math.max(1, Number(editForm.salary_day) || 0)) || null,
       avans_manual: Number(editForm.avans_manual) || 0,
       borxh_afatgjat: Number(editForm.borxh_afatgjat) || 0,
     };
@@ -220,9 +235,15 @@ export default function StaffAndDevicesDashboard() {
         if (error) throw error;
       }
       setEditingId(null);
+      setWorkerHistory([]);
       reloadAll(false);
     } catch (err) {
-      alert("GABIM: " + err.message);
+      const msg = String(err?.message || "");
+      if (msg.toLowerCase().includes("salary_day") || msg.toLowerCase().includes("schema cache") || msg.toLowerCase().includes("could not find")) {
+        alert("SHËNIM: Duhet ta shtoni kolonën salary_day në tabelën users në Supabase, pastaj provo përsëri.");
+      } else {
+        alert("GABIM: " + err.message);
+      }
     } finally {
       setActionBusy(false);
     }
@@ -231,27 +252,105 @@ export default function StaffAndDevicesDashboard() {
   // PAGESA E RROGËS DHE FSHIRJA E AVANSEVE
   async function handlePaySalary() {
     if (!salaryModal || !masterPin) return alert("Kërkohet Master PIN për këtë veprim!");
-    const conf = confirm(`A jeni i sigurt që dëshironi t'i paguani rrogën dhe të shlyeni avanset për ${salaryModal.name}? (Borxhi afatgjatë nuk do të fshihet)`);
+
+    const autoDeduct = salaryModal.deductOrders ? Number(salaryModal.autoDebt || 0) : 0;
+    const manualDeduct = salaryModal.deductManual ? Number(salaryModal.manualAdvance || 0) : 0;
+    const currentLongTerm = Number(salaryModal.longTermDebt || 0);
+    const requestedLongTerm = Number(salaryModal.longTermDeduction || 0);
+    const longTermDeduct = Math.max(0, Math.min(requestedLongTerm, currentLongTerm));
+    const totalPay = Math.max(0, Number(salaryModal.baseSalary || 0) - autoDeduct - manualDeduct - longTermDeduct);
+
+    const conf = confirm(
+      `A jeni i sigurt që dëshironi t'i paguani rrogën ${salaryModal.name}?
+
+` +
+      `RROGA BAZË: ${euro(salaryModal.baseSalary)}
+` +
+      `Zbritje Avans Porosi: ${euro(autoDeduct)}
+` +
+      `Zbritje Avans Manual: ${euro(manualDeduct)}
+` +
+      `Zbritje Borxh Afatgjatë: ${euro(longTermDeduct)}
+
+` +
+      `TOTALI PËR PAGESË: ${euro(totalPay)}`
+    );
     if (!conf) return;
 
     setActionBusy(true);
     try {
-      // 1. Shlyen Avanset Automatike nga Porositë
-      const { error: err1 } = await supabase
-        .from("arka_pending_payments")
-        .update({ status: 'CLEARED_PAID', applied_at: new Date().toISOString() })
-        .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
-        .eq("created_by_name", salaryModal.name);
-      if (err1) throw err1;
+      if (salaryModal.deductOrders) {
+        const { error: err1 } = await supabase
+          .from("arka_pending_payments")
+          .update({ status: 'CLEARED_PAID', applied_at: new Date().toISOString() })
+          .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+          .eq("created_by_name", salaryModal.name);
+        if (err1) throw err1;
+      }
 
-      // 2. Zero Avansin Manual në profilin e tij (por lë Borxhin Afatgjatë)
+      const userUpdate = {
+        borxh_afatgjat: Math.max(0, currentLongTerm - longTermDeduct),
+      };
+      if (salaryModal.deductManual) userUpdate.avans_manual = 0;
+
       const { error: err2 } = await supabase
         .from("users")
-        .update({ avans_manual: 0 })
+        .update(userUpdate)
         .eq("id", salaryModal.id);
       if (err2) throw err2;
 
-      alert(`✅ Rroga u pagua me sukses! Të gjitha avanset (Manual & Porosi) u zeruan për ${salaryModal.name}.`);
+      alert(`✅ Rroga u përpunua me sukses për ${salaryModal.name}.
+Totali për pagesë: ${euro(totalPay)}`);
+      setSalaryModal(null);
+      reloadAll(false);
+    } catch (e) {
+      alert("GABIM: " + e.message);
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function handleMoveAdvancesToLongTerm() {
+    if (!salaryModal || !masterPin) return alert("Kërkohet Master PIN për këtë veprim!");
+    const totalAdvance = Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0);
+    if (totalAdvance <= 0) return alert("Ky punëtor nuk ka avanse për t'i kaluar në borxh afatgjatë.");
+
+    const conf = confirm(
+      `A jeni i sigurt?
+
+` +
+      `AVANSE TOTALE: ${euro(totalAdvance)}
+` +
+      `BORXH AKTUAL AFATGJATË: ${euro(salaryModal.longTermDebt || 0)}
+` +
+      `BORXH I RI AFATGJATË: ${euro(Number(salaryModal.longTermDebt || 0) + totalAdvance)}
+
+` +
+      `Rroga bazë nuk do të preket.`
+    );
+    if (!conf) return;
+
+    setActionBusy(true);
+    try {
+      if (Number(salaryModal.autoDebt || 0) > 0) {
+        const { error: err1 } = await supabase
+          .from("arka_pending_payments")
+          .update({ status: 'CLEARED_PAID', applied_at: new Date().toISOString(), note: 'KALUAR NË BORXH AFATGJATË' })
+          .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+          .eq("created_by_name", salaryModal.name);
+        if (err1) throw err1;
+      }
+
+      const { error: err2 } = await supabase
+        .from("users")
+        .update({
+          avans_manual: 0,
+          borxh_afatgjat: Number(salaryModal.longTermDebt || 0) + totalAdvance,
+        })
+        .eq("id", salaryModal.id);
+      if (err2) throw err2;
+
+      alert(`✅ Avanset u kaluan në Borxh Afatgjatë për ${salaryModal.name}.`);
       setSalaryModal(null);
       reloadAll(false);
     } catch (e) {
@@ -322,44 +421,27 @@ export default function StaffAndDevicesDashboard() {
           {/* KOLONA 2: MENAXHIMI I STAFIT & FINANCAVE */}
           <div className="col">
 
-            {/* Kartela Profesionale e Punëtorit */}
+            {/* Formular i Editimit / Kartela e Punëtorit */}
             {editingId && (
-              <div className="card mb-4 edit-card worker-ledger-card">
+              <div className="card mb-4 edit-card">
                 <div className="card-header flex-between" style={{ background: 'transparent', borderBottom: '1px solid #BFDBFE' }}>
                   <div>
                     <h3 className="card-title" style={{ color: '#1D4ED8' }}>
-                      {editingId === 'NEW' ? 'SHTO PUNËTOR TË RI' : 'KARTELA E PUNËTORIT'}
+                      {editingId === 'NEW' ? 'SHTO PUNËTOR TË RI' : 'KARTELA PROFESIONALE E PUNËTORIT'}
                     </h3>
-                    <div className="worker-ledger-subtitle">
-                      {editingId === 'NEW' ? 'Krijo profilin dhe vendos të dhënat bazë.' : `Profili profesional dhe historiku financiar për ${editForm.name || 'punëtorin'}.`}
-                    </div>
+                    {editingId !== 'NEW' && <div className="text-xs text-muted" style={{ marginTop: '6px' }}>Editim + histori financiare në një vend</div>}
                   </div>
-                  <button onClick={() => setEditingId(null)} className="close-btn">✕</button>
+                  <button onClick={() => { setEditingId(null); setWorkerHistory([]); }} className="close-btn">✕</button>
                 </div>
 
-                <div className="worker-tabs">
-                  <button
-                    className={`worker-tab ${workerTab === 'DATA' ? 'worker-tab-active' : ''}`}
-                    onClick={() => setWorkerTab('DATA')}
-                    type="button"
-                  >
-                    TË DHËNAT & EDITIMI
-                  </button>
-                  <button
-                    className={`worker-tab ${workerTab === 'HISTORY' ? 'worker-tab-active' : ''}`}
-                    onClick={() => {
-                      setWorkerTab('HISTORY');
-                      if (editingId !== 'NEW') fetchWorkerHistory(editForm.name);
-                    }}
-                    type="button"
-                    disabled={editingId === 'NEW'}
-                    title={editingId === 'NEW' ? 'Historiku shfaqet pasi të ekzistojë punëtori.' : ''}
-                  >
-                    HISTORIKU FINANCIAR
-                  </button>
-                </div>
+                {editingId !== 'NEW' && (
+                  <div className="inner-tabs">
+                    <button className={`inner-tab ${profileTab === 'edit' ? 'active' : ''}`} onClick={() => setProfileTab('edit')}>TË DHËNAT & EDITIMI</button>
+                    <button className={`inner-tab ${profileTab === 'history' ? 'active' : ''}`} onClick={() => setProfileTab('history')}>HISTORIKU FINANCIAR</button>
+                  </div>
+                )}
 
-                {workerTab === 'DATA' ? (
+                {((editingId === 'NEW') || profileTab === 'edit') && (
                   <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div className="grid-2">
                       <div>
@@ -385,16 +467,25 @@ export default function StaffAndDevicesDashboard() {
                       </div>
                     </div>
 
+                    <div className="grid-2">
+                      <div>
+                        <label className="field-label" style={{ color: '#1D4ED8' }}>Dita e Rrogës (1-31)</label>
+                        <input type="number" inputMode="numeric" min="1" max="31" step="1" className="input full-width" placeholder="P.sh. 15" value={editForm.salary_day} onChange={e => setEditForm({ ...editForm, salary_day: onlyDigits(e.target.value).slice(0, 2) })} style={{ borderColor: '#93C5FD', background: '#EFF6FF' }} />
+                        <span style={{ fontSize: '11px', color: '#1E40AF' }}>SHËNIM: Duhet të shtoni kolonën <strong>salary_day</strong> në Supabase.</span>
+                      </div>
+                      <div />
+                    </div>
+
                     <div className="grid-2" style={{ borderTop: '1px dashed #BFDBFE', paddingTop: '16px' }}>
                       <div>
                         <label className="field-label" style={{ color: '#D97706' }}>Avans Manual (€)</label>
                         <input type="number" inputMode="numeric" min="0" step="1" className="input full-width" placeholder="P.sh. 50" value={editForm.avans_manual} onChange={e => setEditForm({ ...editForm, avans_manual: onlyDigits(e.target.value) })} style={{ borderColor: '#FCD34D', background: '#FFFBEB' }} />
-                        <span style={{ fontSize: '11px', color: '#92400E' }}>Zbritet automatikisht te rroga</span>
+                        <span style={{ fontSize: '11px', color: '#92400E' }}>Zbritet automatikisht te rroga vetëm nëse e zgjedh në fletëpagesë</span>
                       </div>
                       <div>
                         <label className="field-label" style={{ color: '#DC2626' }}>Borxh Afatgjatë (€)</label>
                         <input type="number" inputMode="numeric" min="0" step="1" className="input full-width" placeholder="P.sh. 1000" value={editForm.borxh_afatgjat} onChange={e => setEditForm({ ...editForm, borxh_afatgjat: onlyDigits(e.target.value) })} style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }} />
-                        <span style={{ fontSize: '11px', color: '#991B1B' }}>Nuk zerohet kur jep rrogën</span>
+                        <span style={{ fontSize: '11px', color: '#991B1B' }}>Mund të zbritet pjesërisht nga fletëpagesa</span>
                       </div>
                     </div>
 
@@ -404,28 +495,26 @@ export default function StaffAndDevicesDashboard() {
                     </label>
                     <button className="btn-primary full-width" onClick={saveStaffEdit} disabled={actionBusy}>RUAJ TË DHËNAT</button>
                   </div>
-                ) : (
+                )}
+
+                {(editingId !== 'NEW' && profileTab === 'history') && (
                   <div className="card-body">
-                    {workerHistoryLoading ? (
-                      <div className="empty-state" style={{ padding: '24px 10px' }}>Po lexohet historiku financiar...</div>
+                    {historyLoading ? (
+                      <div className="empty-state">Po ngarkohet historiku financiar...</div>
                     ) : workerHistory.length === 0 ? (
-                      <div className="empty-state" style={{ padding: '24px 10px' }}>Nuk u gjet asnjë veprim financiar për këtë punëtor.</div>
+                      <div className="empty-state">Nuk ka ende veprime financiare për këtë punëtor.</div>
                     ) : (
                       <div className="history-list">
-                        {workerHistory.map((item) => {
-                          const meta = getHistoryMeta(item);
+                        {workerHistory.map(item => {
+                          const badge = classifyHistoryItem(item);
                           return (
-                            <div key={item.id || `${item.created_at}_${item.amount}`} className="history-row">
-                              <div className="history-row-top">
-                                <div className="history-date">{formatHistoryDate(item.created_at)}</div>
-                                <div className="history-amount">{euro(item.amount || 0)}</div>
+                            <div key={item.id} className="history-item">
+                              <div className="history-top">
+                                <div className="history-date">{fmtDateTime(item.created_at || item.applied_at)}</div>
+                                <div className={`history-badge ${badge.cls}`}>{badge.label}</div>
                               </div>
-                              <div className="history-row-bottom">
-                                <span className={meta.className}>{meta.label}</span>
-                                <div className="history-note">
-                                  {item.note || item.client_name || (item.order_code ? `Porosia #${item.order_code}` : 'Pa shënim')}
-                                </div>
-                              </div>
+                              <div className="history-amount">{euro(item.amount || 0)}</div>
+                              <div className="history-note">{item.note || item.reject_note || 'Pa shënim'}</div>
                             </div>
                           );
                         })}
@@ -451,13 +540,18 @@ export default function StaffAndDevicesDashboard() {
                     const manualAdvance = Number(u.avans_manual || 0);
                     const totalAdvance = autoDebt + manualAdvance;
                     const longTermDebt = Number(u.borxh_afatgjat || 0);
+                    const salaryDay = Number(u.salary_day || 0);
+                    const salaryDue = salaryDay > 0 && todayDate >= salaryDay;
 
                     return (
                       <div key={u.id} className="list-item staff-row" style={{ opacity: u.is_active ? 1 : 0.5 }}>
 
                         <div className="staff-info">
-                          <strong style={{ display: 'block', fontSize: '15px' }}>{u.name}</strong>
-                          <span className="text-xs text-muted" style={{ display: 'block', marginTop: '2px' }}>Roli: {u.role}</span>
+                          <strong style={{ display: 'block', fontSize: '15px' }}>
+                            {u.name}
+                            {salaryDue && <span className="salary-alert-badge">⚠️ KOHA PËR RROGË</span>}
+                          </strong>
+                          <span className="text-xs text-muted" style={{ display: 'block', marginTop: '2px' }}>Roli: {u.role}{salaryDay > 0 ? ` • Dita e Rrogës: ${salaryDay}` : ''}</span>
                         </div>
 
                         <div className="finance-badges">
@@ -483,7 +577,7 @@ export default function StaffAndDevicesDashboard() {
 
                         <div className="action-buttons">
                           <button className="btn-small btn-light" onClick={() => startEdit(u)}>✏️ EDIT</button>
-                          <button className="btn-small btn-pay" onClick={() => setSalaryModal({ ...u, baseSalary, autoDebt, manualAdvance, totalAdvance, longTermDebt })}>
+                          <button className="btn-small btn-pay" onClick={() => setSalaryModal({ ...u, baseSalary, autoDebt, manualAdvance, totalAdvance, longTermDebt, deductOrders: autoDebt > 0, deductManual: manualAdvance > 0, longTermDeduction: '' })}>
                             💳 RROGA
                           </button>
                         </div>
@@ -502,7 +596,7 @@ export default function StaffAndDevicesDashboard() {
         <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setSalaryModal(null); }}>
           <div className="modal-content receipt-modal">
             <div className="flex-between" style={{ marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, color: '#0F172A', letterSpacing: '1px' }}>FLETËPAGESA</h3>
+              <h3 style={{ margin: 0, color: '#0F172A', letterSpacing: '1px' }}>SMART PAYROLL</h3>
               <button className="btn-small btn-light" onClick={() => setSalaryModal(null)}>✕</button>
             </div>
 
@@ -517,35 +611,57 @@ export default function StaffAndDevicesDashboard() {
                 <strong style={{ color: '#0F172A' }}>{euro(salaryModal.baseSalary)}</strong>
               </div>
 
-              {salaryModal.autoDebt > 0 && (
-                <div className="receipt-row text-red">
-                  <span>- Avans nga Porositë:</span>
-                  <strong>- {euro(salaryModal.autoDebt)}</strong>
+              <label className="deduction-line">
+                <div>
+                  <input type="checkbox" checked={!!salaryModal.deductOrders} onChange={(e) => setSalaryModal({ ...salaryModal, deductOrders: e.target.checked })} />
+                  <span>Zbrit Avansin nga Porositë ({euro(salaryModal.autoDebt)})</span>
                 </div>
-              )}
+                <strong>- {euro(salaryModal.deductOrders ? salaryModal.autoDebt : 0)}</strong>
+              </label>
 
-              {salaryModal.manualAdvance > 0 && (
-                <div className="receipt-row text-red">
-                  <span>- Avans Manual:</span>
-                  <strong>- {euro(salaryModal.manualAdvance)}</strong>
+              <label className="deduction-line">
+                <div>
+                  <input type="checkbox" checked={!!salaryModal.deductManual} onChange={(e) => setSalaryModal({ ...salaryModal, deductManual: e.target.checked })} />
+                  <span>Zbrit Avansin Manual ({euro(salaryModal.manualAdvance)})</span>
                 </div>
-              )}
+                <strong>- {euro(salaryModal.deductManual ? salaryModal.manualAdvance : 0)}</strong>
+              </label>
+
+              <div className="long-term-deduct-box">
+                <label className="field-label" style={{ marginBottom: '8px', color: '#991B1B' }}>Zbrit nga Borxhi Afatgjatë (Opsionale)</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  step="1"
+                  className="input full-width"
+                  placeholder={`Maksimumi ${Number(salaryModal.longTermDebt || 0)}`}
+                  value={salaryModal.longTermDeduction}
+                  onChange={(e) => setSalaryModal({ ...salaryModal, longTermDeduction: onlyDigits(e.target.value) })}
+                />
+                <span className="text-xs text-muted" style={{ display: 'block', marginTop: '6px' }}>Borxhi aktual afatgjatë: {euro(salaryModal.longTermDebt)}</span>
+              </div>
 
               <div className="receipt-total">
                 <span>TOTALI PËR T'U PAGUAR:</span>
-                <strong style={{ color: '#10B981', fontSize: '24px' }}>{euro(salaryModal.baseSalary - salaryModal.totalAdvance)}</strong>
+                <strong style={{ color: '#10B981', fontSize: '24px' }}>{euro(salaryToPay)}</strong>
               </div>
             </div>
 
             {salaryModal.longTermDebt > 0 && (
               <div className="long-term-info">
-                ⚠️ <strong>Informacion:</strong> Ky punëtor ka një Borxh Afatgjatë prej <strong>{euro(salaryModal.longTermDebt)}</strong>. Ky borxh <u>nuk</u> po zbritet automatikisht tani.
+                ⚠️ <strong>Informacion:</strong> Ky punëtor ka një Borxh Afatgjatë prej <strong>{euro(salaryModal.longTermDebt)}</strong>. Mund të zbrisni një pjesë të tij nga kjo rrogë ose t'i kaloni avanset e mbetura në borxh afatgjatë.
               </div>
             )}
 
-            <button className="btn-success btn-large" disabled={actionBusy} onClick={handlePaySalary}>
-              PAGUAJ DHE SHLYEJ AVANSET
-            </button>
+            <div className="salary-modal-actions">
+              <button className="btn-outline btn-large" disabled={actionBusy} onClick={handleMoveAdvancesToLongTerm}>
+                KALO AVANSET NË BORXH AFATGJATË
+              </button>
+              <button className="btn-success btn-large" disabled={actionBusy} onClick={handlePaySalary}>
+                PAGUAJ RROGËN
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -577,31 +693,29 @@ export default function StaffAndDevicesDashboard() {
         .mb-4 { margin-bottom: 24px; }
 
         .edit-card { border-color: #BFDBFE; background: #EFF6FF; }
-        .worker-ledger-card { overflow: hidden; }
-        .worker-ledger-subtitle { margin-top: 4px; font-size: 12px; font-weight: 600; color: #64748B; }
-        .worker-tabs { display: flex; gap: 10px; padding: 14px 20px 0 20px; flex-wrap: wrap; }
-        .worker-tab { border: 1px solid #BFDBFE; background: #DBEAFE; color: #1D4ED8; border-radius: 999px; padding: 10px 14px; font-size: 12px; font-weight: 800; letter-spacing: 0.3px; cursor: pointer; transition: 0.2s; }
-        .worker-tab:hover { background: #BFDBFE; }
-        .worker-tab:disabled { opacity: 0.5; cursor: not-allowed; }
-        .worker-tab-active { background: #1D4ED8; color: white; border-color: #1D4ED8; box-shadow: 0 6px 14px rgba(29, 78, 216, 0.18); }
         .close-btn { background: none; border: none; cursor: pointer; font-size: 16px; color: #1D4ED8; font-weight: bold; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+
+        .inner-tabs { display: flex; gap: 8px; padding: 14px 20px 0 20px; background: transparent; }
+        .inner-tab { flex: 1; border: 1px solid #BFDBFE; background: #DBEAFE; color: #1D4ED8; border-radius: 10px; padding: 10px 12px; font-size: 12px; font-weight: 800; cursor: pointer; }
+        .inner-tab.active { background: white; color: #0F172A; border-color: #93C5FD; box-shadow: 0 2px 6px rgba(37,99,235,0.08); }
+
         .history-list { display: flex; flex-direction: column; gap: 12px; }
-        .history-row { background: #FFFFFF; border: 1px solid #DBEAFE; border-radius: 14px; padding: 14px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
-        .history-row-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+        .history-item { border: 1px solid #DBEAFE; background: white; border-radius: 12px; padding: 14px; }
+        .history-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
         .history-date { font-size: 12px; font-weight: 700; color: #64748B; }
-        .history-amount { font-size: 16px; font-weight: 900; color: #0F172A; }
-        .history-row-bottom { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-        .history-note { flex: 1; min-width: 180px; font-size: 13px; color: #334155; font-weight: 600; line-height: 1.45; }
-        .history-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 900; letter-spacing: 0.3px; white-space: nowrap; }
-        .history-badge-delivery { background: #DCFCE7; color: #166534; border: 1px solid #BBF7D0; }
-        .history-badge-advance { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
-        .history-badge-debt { background: #FEE2E2; color: #B91C1C; border: 1px solid #FECACA; }
-        .history-badge-salary { background: #DBEAFE; color: #1D4ED8; border: 1px solid #BFDBFE; }
-        .history-badge-default { background: #E2E8F0; color: #334155; border: 1px solid #CBD5E1; }
+        .history-amount { font-size: 19px; font-weight: 900; color: #0F172A; margin-bottom: 6px; }
+        .history-note { font-size: 13px; color: #475569; line-height: 1.5; }
+        .history-badge { padding: 5px 9px; border-radius: 999px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.4px; }
+        .history-badge-delivery { background: #DCFCE7; color: #166534; }
+        .history-badge-advance { background: #FEF3C7; color: #92400E; }
+        .history-badge-debt { background: #FEE2E2; color: #B91C1C; }
+        .history-badge-salary { background: #DBEAFE; color: #1D4ED8; }
+        .history-badge-default { background: #E2E8F0; color: #334155; }
 
         .staff-row { flex-wrap: wrap; gap: 12px; }
         .staff-info { flex: 1; min-width: 140px; }
+        .salary-alert-badge { display: inline-block; margin-left: 8px; background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 900; vertical-align: middle; }
         .finance-badges { display: flex; gap: 8px; flex-wrap: wrap; }
         .badge-box { text-align: center; padding: 6px 10px; border-radius: 8px; min-width: 80px; }
         .badge-box span { display: block; font-size: 10px; font-weight: 800; margin-bottom: 2px; }
@@ -642,11 +756,15 @@ export default function StaffAndDevicesDashboard() {
 
         /* Modal Styles */
         .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 16px; }
-        .modal-content { width: 100%; max-width: 420px; background: white; border-radius: 24px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+        .modal-content { width: 100%; max-width: 460px; background: white; border-radius: 24px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
         .receipt-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 16px; padding: 20px; margin-bottom: 20px; }
         .receipt-row { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 15px; font-weight: 600; color: #475569; }
+        .deduction-line { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 14px; font-weight: 700; color: #334155; }
+        .deduction-line > div { display: flex; align-items: center; gap: 8px; }
+        .long-term-deduct-box { margin-top: 12px; margin-bottom: 12px; padding: 12px; border-radius: 12px; background: #FFF7ED; border: 1px solid #FED7AA; }
         .receipt-total { display: flex; justify-content: space-between; align-items: center; font-size: 16px; font-weight: 800; color: #0F172A; border-top: 2px dashed #CBD5E1; padding-top: 16px; margin-top: 16px; }
         .long-term-info { background: #FFFBEB; border: 1px solid #FEF3C7; color: #92400E; padding: 12px; border-radius: 12px; font-size: 12px; line-height: 1.5; margin-bottom: 20px; }
+        .salary-modal-actions { display: flex; flex-direction: column; gap: 10px; }
       `}</style>
     </div>
   );
