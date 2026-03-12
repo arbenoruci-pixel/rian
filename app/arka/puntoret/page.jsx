@@ -14,6 +14,37 @@ function safeUpper(v, fallback = "") { return String(v || "").trim().toUpperCase
 function shortDevice(did) { return String(did || "").split("-")[0] + "..."; }
 const euro = (n) => `€${Number(n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}`;
 
+function formatHistoryDate(v) {
+  if (!v) return "-";
+  try {
+    return new Date(v).toLocaleString("sq-AL", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return String(v);
+  }
+}
+function getHistoryMeta(item) {
+  const status = String(item?.status || "").toUpperCase();
+  const type = String(item?.type || "").toUpperCase();
+  const note = String(item?.note || "");
+  if (status === "CLEARED_PAID") return { label: "RROGË", className: "history-badge history-badge-salary" };
+  if (status === "ADVANCE") return { label: "AVANS", className: "history-badge history-badge-advance" };
+  if (status === "REJECTED" || status === "OWED" || status === "WORKER_DEBT") {
+    return { label: "BORXH", className: "history-badge history-badge-debt" };
+  }
+  if (status === "APPLIED" || status === "PENDING" || status === "COLLECTED") {
+    return { label: "DORËZIM", className: "history-badge history-badge-delivery" };
+  }
+  if (type === "OUT") return { label: "DALJE", className: "history-badge history-badge-debt" };
+  if (note.toLowerCase().includes("rrog")) return { label: "RROGË", className: "history-badge history-badge-salary" };
+  return { label: type || status || "VEPRIM", className: "history-badge history-badge-default" };
+}
+
 export default function StaffAndDevicesDashboard() {
   const router = useRouter();
   const [actor, setActor] = useState(null);
@@ -34,6 +65,11 @@ export default function StaffAndDevicesDashboard() {
 
   // Paguaj Rrogën Modal
   const [salaryModal, setSalaryModal] = useState(null);
+
+  // Kartela Profesionale e Punëtorit
+  const [workerTab, setWorkerTab] = useState("DATA");
+  const [workerHistory, setWorkerHistory] = useState([]);
+  const [workerHistoryLoading, setWorkerHistoryLoading] = useState(false);
 
   useEffect(() => {
     const a = jparse(localStorage.getItem("CURRENT_USER_DATA"), null);
@@ -85,6 +121,33 @@ export default function StaffAndDevicesDashboard() {
     }
   }
 
+
+  async function fetchWorkerHistory(workerName) {
+    const cleanName = String(workerName || "").trim();
+    if (!cleanName) {
+      setWorkerHistory([]);
+      return;
+    }
+
+    setWorkerHistoryLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("arka_pending_payments")
+        .select("id, created_at, amount, status, type, note, client_name, order_code")
+        .eq("created_by_name", cleanName)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (error) throw error;
+      setWorkerHistory(data || []);
+    } catch (err) {
+      console.error("Gabim gjatë leximit të historikut financiar:", err);
+      setWorkerHistory([]);
+    } finally {
+      setWorkerHistoryLoading(false);
+    }
+  }
+
   // APROVIMET E PAJISJEVE
   async function handleOneClickApprove(device) {
     if (!masterPin) return alert("Ju lutem shkruani Master PIN-in lart!");
@@ -110,12 +173,15 @@ export default function StaffAndDevicesDashboard() {
   // MENAXHIMI I STAFIT
   function startCreateStaff() {
     setEditingId('NEW');
+    setWorkerTab("DATA");
+    setWorkerHistory([]);
     setEditForm({ name: "", role: "PUNTOR", pin: "", salary: "", avans_manual: "", borxh_afatgjat: "", is_active: true });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function startEdit(u) {
     setEditingId(u.id);
+    setWorkerTab("DATA");
     setEditForm({
       name: u.name || "",
       role: safeUpper(u.role),
@@ -125,6 +191,7 @@ export default function StaffAndDevicesDashboard() {
       borxh_afatgjat: u.borxh_afatgjat || "",
       is_active: u.is_active !== false
     });
+    fetchWorkerHistory(u.name || "");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -255,59 +322,117 @@ export default function StaffAndDevicesDashboard() {
           {/* KOLONA 2: MENAXHIMI I STAFIT & FINANCAVE */}
           <div className="col">
 
-            {/* Formular i Editimit */}
+            {/* Kartela Profesionale e Punëtorit */}
             {editingId && (
-              <div className="card mb-4 edit-card">
+              <div className="card mb-4 edit-card worker-ledger-card">
                 <div className="card-header flex-between" style={{ background: 'transparent', borderBottom: '1px solid #BFDBFE' }}>
-                  <h3 className="card-title" style={{ color: '#1D4ED8' }}>
-                    {editingId === 'NEW' ? 'SHTO PUNËTOR TË RI' : 'EDITO PUNËTORIN'}
-                  </h3>
+                  <div>
+                    <h3 className="card-title" style={{ color: '#1D4ED8' }}>
+                      {editingId === 'NEW' ? 'SHTO PUNËTOR TË RI' : 'KARTELA E PUNËTORIT'}
+                    </h3>
+                    <div className="worker-ledger-subtitle">
+                      {editingId === 'NEW' ? 'Krijo profilin dhe vendos të dhënat bazë.' : `Profili profesional dhe historiku financiar për ${editForm.name || 'punëtorin'}.`}
+                    </div>
+                  </div>
                   <button onClick={() => setEditingId(null)} className="close-btn">✕</button>
                 </div>
-                <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div className="grid-2">
-                    <div>
-                      <label className="field-label">Emri i Plotë</label>
-                      <input className="input full-width" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} placeholder="P.sh. Adem Jashari" />
-                    </div>
-                    <div>
-                      <label className="field-label">Roli</label>
-                      <select className="input full-width" value={editForm.role} onChange={e => setEditForm({ ...editForm, role: e.target.value })}>
-                        {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map(r => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </div>
-                  </div>
 
-                  <div className="grid-2">
-                    <div>
-                      <label className="field-label">{editingId === 'NEW' ? 'PIN i Qasjes' : 'Ndrysho PIN'}</label>
-                      <input className="input full-width" placeholder="****" value={editForm.pin} onChange={e => setEditForm({ ...editForm, pin: onlyDigits(e.target.value) })} />
-                    </div>
-                    <div>
-                      <label className="field-label" style={{ color: '#059669' }}>Rroga Bazë (€)</label>
-                      <input type="number" inputMode="numeric" min="0" step="1" className="input full-width" placeholder="P.sh. 500" value={editForm.salary} onChange={e => setEditForm({ ...editForm, salary: onlyDigits(e.target.value) })} style={{ borderColor: '#6EE7B7', background: '#F0FDF4' }} />
-                    </div>
-                  </div>
-
-                  <div className="grid-2" style={{ borderTop: '1px dashed #BFDBFE', paddingTop: '16px' }}>
-                    <div>
-                      <label className="field-label" style={{ color: '#D97706' }}>Avans Manual (€)</label>
-                      <input type="number" inputMode="numeric" min="0" step="1" className="input full-width" placeholder="P.sh. 50" value={editForm.avans_manual} onChange={e => setEditForm({ ...editForm, avans_manual: onlyDigits(e.target.value) })} style={{ borderColor: '#FCD34D', background: '#FFFBEB' }} />
-                      <span style={{ fontSize: '11px', color: '#92400E' }}>Zbritet automatikisht te rroga</span>
-                    </div>
-                    <div>
-                      <label className="field-label" style={{ color: '#DC2626' }}>Borxh Afatgjatë (€)</label>
-                      <input type="number" inputMode="numeric" min="0" step="1" className="input full-width" placeholder="P.sh. 1000" value={editForm.borxh_afatgjat} onChange={e => setEditForm({ ...editForm, borxh_afatgjat: onlyDigits(e.target.value) })} style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }} />
-                      <span style={{ fontSize: '11px', color: '#991B1B' }}>Nuk zerohet kur jep rrogën</span>
-                    </div>
-                  </div>
-
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold', marginTop: '8px' }}>
-                    <input type="checkbox" checked={editForm.is_active} onChange={e => setEditForm({ ...editForm, is_active: e.target.checked })} style={{ width: '18px', height: '18px' }} />
-                    Llogari Aktive
-                  </label>
-                  <button className="btn-primary full-width" onClick={saveStaffEdit} disabled={actionBusy}>RUAJ TË DHËNAT</button>
+                <div className="worker-tabs">
+                  <button
+                    className={`worker-tab ${workerTab === 'DATA' ? 'worker-tab-active' : ''}`}
+                    onClick={() => setWorkerTab('DATA')}
+                    type="button"
+                  >
+                    TË DHËNAT & EDITIMI
+                  </button>
+                  <button
+                    className={`worker-tab ${workerTab === 'HISTORY' ? 'worker-tab-active' : ''}`}
+                    onClick={() => {
+                      setWorkerTab('HISTORY');
+                      if (editingId !== 'NEW') fetchWorkerHistory(editForm.name);
+                    }}
+                    type="button"
+                    disabled={editingId === 'NEW'}
+                    title={editingId === 'NEW' ? 'Historiku shfaqet pasi të ekzistojë punëtori.' : ''}
+                  >
+                    HISTORIKU FINANCIAR
+                  </button>
                 </div>
+
+                {workerTab === 'DATA' ? (
+                  <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div className="grid-2">
+                      <div>
+                        <label className="field-label">Emri i Plotë</label>
+                        <input className="input full-width" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} placeholder="P.sh. Adem Jashari" />
+                      </div>
+                      <div>
+                        <label className="field-label">Roli</label>
+                        <select className="input full-width" value={editForm.role} onChange={e => setEditForm({ ...editForm, role: e.target.value })}>
+                          {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid-2">
+                      <div>
+                        <label className="field-label">{editingId === 'NEW' ? 'PIN i Qasjes' : 'Ndrysho PIN'}</label>
+                        <input className="input full-width" placeholder="****" value={editForm.pin} onChange={e => setEditForm({ ...editForm, pin: onlyDigits(e.target.value) })} />
+                      </div>
+                      <div>
+                        <label className="field-label" style={{ color: '#059669' }}>Rroga Bazë (€)</label>
+                        <input type="number" inputMode="numeric" min="0" step="1" className="input full-width" placeholder="P.sh. 500" value={editForm.salary} onChange={e => setEditForm({ ...editForm, salary: onlyDigits(e.target.value) })} style={{ borderColor: '#6EE7B7', background: '#F0FDF4' }} />
+                      </div>
+                    </div>
+
+                    <div className="grid-2" style={{ borderTop: '1px dashed #BFDBFE', paddingTop: '16px' }}>
+                      <div>
+                        <label className="field-label" style={{ color: '#D97706' }}>Avans Manual (€)</label>
+                        <input type="number" inputMode="numeric" min="0" step="1" className="input full-width" placeholder="P.sh. 50" value={editForm.avans_manual} onChange={e => setEditForm({ ...editForm, avans_manual: onlyDigits(e.target.value) })} style={{ borderColor: '#FCD34D', background: '#FFFBEB' }} />
+                        <span style={{ fontSize: '11px', color: '#92400E' }}>Zbritet automatikisht te rroga</span>
+                      </div>
+                      <div>
+                        <label className="field-label" style={{ color: '#DC2626' }}>Borxh Afatgjatë (€)</label>
+                        <input type="number" inputMode="numeric" min="0" step="1" className="input full-width" placeholder="P.sh. 1000" value={editForm.borxh_afatgjat} onChange={e => setEditForm({ ...editForm, borxh_afatgjat: onlyDigits(e.target.value) })} style={{ borderColor: '#FCA5A5', background: '#FEF2F2' }} />
+                        <span style={{ fontSize: '11px', color: '#991B1B' }}>Nuk zerohet kur jep rrogën</span>
+                      </div>
+                    </div>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold', marginTop: '8px' }}>
+                      <input type="checkbox" checked={editForm.is_active} onChange={e => setEditForm({ ...editForm, is_active: e.target.checked })} style={{ width: '18px', height: '18px' }} />
+                      Llogari Aktive
+                    </label>
+                    <button className="btn-primary full-width" onClick={saveStaffEdit} disabled={actionBusy}>RUAJ TË DHËNAT</button>
+                  </div>
+                ) : (
+                  <div className="card-body">
+                    {workerHistoryLoading ? (
+                      <div className="empty-state" style={{ padding: '24px 10px' }}>Po lexohet historiku financiar...</div>
+                    ) : workerHistory.length === 0 ? (
+                      <div className="empty-state" style={{ padding: '24px 10px' }}>Nuk u gjet asnjë veprim financiar për këtë punëtor.</div>
+                    ) : (
+                      <div className="history-list">
+                        {workerHistory.map((item) => {
+                          const meta = getHistoryMeta(item);
+                          return (
+                            <div key={item.id || `${item.created_at}_${item.amount}`} className="history-row">
+                              <div className="history-row-top">
+                                <div className="history-date">{formatHistoryDate(item.created_at)}</div>
+                                <div className="history-amount">{euro(item.amount || 0)}</div>
+                              </div>
+                              <div className="history-row-bottom">
+                                <span className={meta.className}>{meta.label}</span>
+                                <div className="history-note">
+                                  {item.note || item.client_name || (item.order_code ? `Porosia #${item.order_code}` : 'Pa shënim')}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -452,8 +577,28 @@ export default function StaffAndDevicesDashboard() {
         .mb-4 { margin-bottom: 24px; }
 
         .edit-card { border-color: #BFDBFE; background: #EFF6FF; }
+        .worker-ledger-card { overflow: hidden; }
+        .worker-ledger-subtitle { margin-top: 4px; font-size: 12px; font-weight: 600; color: #64748B; }
+        .worker-tabs { display: flex; gap: 10px; padding: 14px 20px 0 20px; flex-wrap: wrap; }
+        .worker-tab { border: 1px solid #BFDBFE; background: #DBEAFE; color: #1D4ED8; border-radius: 999px; padding: 10px 14px; font-size: 12px; font-weight: 800; letter-spacing: 0.3px; cursor: pointer; transition: 0.2s; }
+        .worker-tab:hover { background: #BFDBFE; }
+        .worker-tab:disabled { opacity: 0.5; cursor: not-allowed; }
+        .worker-tab-active { background: #1D4ED8; color: white; border-color: #1D4ED8; box-shadow: 0 6px 14px rgba(29, 78, 216, 0.18); }
         .close-btn { background: none; border: none; cursor: pointer; font-size: 16px; color: #1D4ED8; font-weight: bold; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .history-list { display: flex; flex-direction: column; gap: 12px; }
+        .history-row { background: #FFFFFF; border: 1px solid #DBEAFE; border-radius: 14px; padding: 14px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+        .history-row-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+        .history-date { font-size: 12px; font-weight: 700; color: #64748B; }
+        .history-amount { font-size: 16px; font-weight: 900; color: #0F172A; }
+        .history-row-bottom { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+        .history-note { flex: 1; min-width: 180px; font-size: 13px; color: #334155; font-weight: 600; line-height: 1.45; }
+        .history-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 900; letter-spacing: 0.3px; white-space: nowrap; }
+        .history-badge-delivery { background: #DCFCE7; color: #166534; border: 1px solid #BBF7D0; }
+        .history-badge-advance { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
+        .history-badge-debt { background: #FEE2E2; color: #B91C1C; border: 1px solid #FECACA; }
+        .history-badge-salary { background: #DBEAFE; color: #1D4ED8; border: 1px solid #BFDBFE; }
+        .history-badge-default { background: #E2E8F0; color: #334155; border: 1px solid #CBD5E1; }
 
         .staff-row { flex-wrap: wrap; gap: 12px; }
         .staff-info { flex: 1; min-width: 140px; }
