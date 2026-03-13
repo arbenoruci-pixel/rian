@@ -578,9 +578,23 @@ export default function PranimiPage() {
           if(name || phone) { upsertDraftLocal(d); }
       }, 800);
   }, [creating, oid, name, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, notes, clientPaid, pricePerM2, actor?.role, me?.transport_id, assignTid]);
-  const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
+  const totalM2 = useMemo(() => {
+    const tepihaM2 = (Array.isArray(tepihaRows) ? tepihaRows : []).reduce(
+      (sum, row) => sum + (Number(row?.m2) || 0) * (Number(row?.qty) || 0),
+      0
+    );
+    const stazaM2 = (Array.isArray(stazaRows) ? stazaRows : []).reduce(
+      (sum, row) => sum + (Number(row?.m2) || 0) * (Number(row?.qty) || 0),
+      0
+    );
+    const shkalloreM2 = (Number(stairsQty) || 0) * (Number(stairsPer) || 0);
+    return Number((tepihaM2 + stazaM2 + shkalloreM2).toFixed(2));
+  }, [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * pricePerM2).toFixed(2)), [totalM2, pricePerM2]);
-  const copeCount = tepihaRows.reduce((a,b)=>a+(Number(b.qty)||0),0) + stazaRows.reduce((a,b)=>a+(Number(b.qty)||0),0) + (Number(stairsQty)>0?1:0);
+  const copeCount =
+    tepihaRows.reduce((a,b)=>a+(Number(b.qty)||0),0) +
+    stazaRows.reduce((a,b)=>a+(Number(b.qty)||0),0) +
+    (Number(stairsQty) || 0);
   const currentDebt = Math.max(0, totalEuro - clientPaid);
   const remainingDue = currentDebt;
   const payNow = Math.min(remainingDue, Math.max(0, Number(payAdd || 0)));
