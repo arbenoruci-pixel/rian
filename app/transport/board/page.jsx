@@ -95,6 +95,20 @@ export default function TransportBoardPage() {
     return String(raw || '').trim();
   }
 
+  function translateBoardError(err) {
+    const msg = String(err?.message || err || '').toLowerCase();
+    if (!msg) return 'Gabim i panjohur.';
+    if (msg.includes('load failed') || msg.includes('failed to fetch') || msg.includes('network')) {
+      return 'Gabim rrjeti. Provo përsëri kur të kesh lidhje.';
+    }
+    if (msg.includes('uuid')) {
+      return 'ID e porosisë ose e ciklit nuk është valide.';
+    }
+    return String(err?.message || err || 'Gabim i panjohur.');
+  }
+
+  const RIPLAN_REASON_CHIPS = ['S’ËSHTË NË SHTËPI', 'VJEN POSHTË', 'PRIT 10 MIN', 'THIRRE PËRSËRI', 'ADRESA GABIM'];
+
   const transportId = useMemo(() => deriveTid(session), [session]);
 
   // keep selection stable: clear only when switching tab/mode
@@ -266,7 +280,7 @@ export default function TransportBoardPage() {
       .in('id', uniq);
 
     if (error) {
-      alert('Gabim: ' + error.message);
+      alert('Gabim: ' + translateBoardError(error));
       return;
     }
 
@@ -292,7 +306,7 @@ export default function TransportBoardPage() {
       .eq('id', orderId);
 
     if (error) {
-      alert('Gabim: ' + error.message);
+      alert('Gabim: ' + translateBoardError(error));
       return;
     }
 
@@ -712,6 +726,35 @@ export default function TransportBoardPage() {
                               ))}
                             </div>
 
+                            <div style={{ marginTop: 10, marginBottom: 8 }}>
+                              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: 'rgba(255,255,255,0.8)' }}>
+                                ARSYE TË SHPEJTA
+                              </div>
+                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                {RIPLAN_REASON_CHIPS.map((reason) => (
+                                  <button
+                                    key={reason}
+                                    type="button"
+                                    onClick={() => setRiplanPick((p) => ({
+                                      ...p,
+                                      note: p.note ? (p.note.toLowerCase().includes(reason.toLowerCase()) ? p.note : `${p.note} • ${reason}`) : reason,
+                                    }))}
+                                    style={{
+                                      border: '1px solid rgba(255,255,255,0.14)',
+                                      background: 'rgba(255,255,255,0.06)',
+                                      color: 'rgba(255,255,255,0.95)',
+                                      borderRadius: 999,
+                                      padding: '8px 12px',
+                                      fontWeight: 900,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {reason}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
                             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                               <div style={{ flex: '1 1 220px', minWidth: 220 }}>
                                 <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: 'rgba(255,255,255,0.8)' }}>
@@ -809,6 +852,10 @@ export default function TransportBoardPage() {
                               >
                                 KTHE NË DORËZIM
                               </button>
+                            </div>
+                            <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 1.45 }}>
+                              RIPLAN e mban porosinë në listën e transportit derisa të kryhet dorëzimi.
+                            </div>
                             </div>
                           </div>
                         )}

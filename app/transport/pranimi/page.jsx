@@ -13,6 +13,7 @@ import { getTransportSession, getTransportContext } from '@/lib/transportAuth';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import PosModal from '@/components/PosModal';
 import { enqueueTransportOrder, syncNow } from '@/lib/syncManager';
+import { addTransportCollected } from '@/lib/transportArkaStore';
 
 const BUCKET = 'tepiha-photos';
 
@@ -93,82 +94,58 @@ async function searchClientsLive(transportId, q) {
   const isTCode = /^t\d+$/i.test(qLower) || (qLower.startsWith('t') && normalizePhoneDigits(qLower.slice(1)).length > 0);
   const tDigits = isTCode ? normalizePhoneDigits(qLower.replace(/^t/i, '')) : '';
 
-  // Priority order:
-  // 1) Phone (nr tel)
-  // 2) T-code (order code)
-  // 3) Client code (NR RENDOR) via local map
-  // 4) Name
   const out = [];
   const seen = new Set();
   const push = (x) => {
-    const key = `${normalizePhoneDigits(x?.phone_digits || x?.phone)}|${String(x?.name || '').trim()}`;
+    const key = [
+      String(x?.id || ''),
+      String(x?.tcode || x?.client_tcode || ''),
+      normalizePhoneDigits(x?.phone_digits || x?.phone || ''),
+      String(x?.name || '').trim().toLowerCase(),
+    ].join('|');
     if (seen.has(key)) return;
     seen.add(key);
     out.push(x);
   };
 
-  // --- 1) PHONE SEARCH ---
   if (qDigits.length >= 3) {
     const { data, error } = await supabase
       .from('transport_clients')
       .select('id, tcode, name, phone, phone_digits, address, gps_lat, gps_lng, updated_at')
       .ilike('phone_digits', `%${qDigits}%`)
       .order('updated_at', { ascending: false })
-      .limit(10);
+      .limit(12);
 
     if (!error) {
       (data || []).forEach((c) => {
         const digits = normalizePhoneDigits(c.phone_digits || c.phone || '');
         push({
-          id: c.id,
-          kind: 'client',
-          tcode: String(c.tcode || ''),
-          name: String(c.name || ''),
-          phone: String(c.phone || ''),
-          phone_digits: digits,
-          address: c.address || '',
-          gps_lat: c.gps_lat,
-          gps_lng: c.gps_lng,
+          id: c.id, kind: 'client', tcode: String(c.tcode || ''), name: String(c.name || ''),
+          phone: String(c.phone || ''), phone_digits: digits, address: c.address || '', gps_lat: c.gps_lat, gps_lng: c.gps_lng,
         });
       });
-    } else {
-      console.warn('transport_clients phone search blocked:', error.message);
     }
   }
 
-  // --- 2) T-CODE SEARCH (transport_clients.tcode) ---
   if (isTCode && tDigits) {
-    const like = `T${tDigits}%`;
     const { data, error } = await supabase
       .from('transport_clients')
       .select('id, tcode, name, phone, phone_digits, address, gps_lat, gps_lng, updated_at')
-      .ilike('tcode', like)
+      .ilike('tcode', `T${tDigits}%`)
       .order('updated_at', { ascending: false })
-      .limit(10);
+      .limit(12);
 
     if (!error) {
       (data || []).forEach((c) => {
         const digits = normalizePhoneDigits(c.phone_digits || c.phone || '');
         push({
-          id: c.id,
-          kind: 'client',
-          tcode: String(c.tcode || ''),
-          name: String(c.name || ''),
-          phone: String(c.phone || ''),
-          phone_digits: digits,
-          address: c.address || '',
-          gps_lat: c.gps_lat,
-          gps_lng: c.gps_lng,
+          id: c.id, kind: 'client', tcode: String(c.tcode || ''), name: String(c.name || ''),
+          phone: String(c.phone || ''), phone_digits: digits, address: c.address || '', gps_lat: c.gps_lat, gps_lng: c.gps_lng,
         });
       });
-    } else {
-      console.warn('transport_clients tcode search blocked:', error.message);
     }
   }
 
-  // --- 3) CLIENT CODE SEARCH (NR RENDOR) via local map ---
-
-  // Allow short digits (e.g. "1", "12") as client code searches.
   if (tid && isDigitsOnly && qDigits.length >= 1 && qDigits.length <= 6) {
     const codeWanted = Number(qDigits);
     if (Number.isFinite(codeWanted) && codeWanted > 0) {
@@ -180,21 +157,13 @@ async function searchClientsLive(transportId, q) {
           .select('id, tcode, name, phone, phone_digits, address, gps_lat, gps_lng, updated_at')
           .in('phone_digits', phoneDigitsMatches)
           .order('updated_at', { ascending: false })
-          .limit(10);
-
+          .limit(12);
         if (!error) {
           (data || []).forEach((c) => {
             const digits = normalizePhoneDigits(c.phone_digits || c.phone || '');
             push({
-              id: c.id,
-              kind: 'client',
-          tcode: String(c.tcode || ''),
-          name: String(c.name || ''),
-              phone: String(c.phone || ''),
-              phone_digits: digits,
-              address: c.address || '',
-              gps_lat: c.gps_lat,
-              gps_lng: c.gps_lng,
+              id: c.id, kind: 'client', tcode: String(c.tcode || ''), name: String(c.name || ''),
+              phone: String(c.phone || ''), phone_digits: digits, address: c.address || '', gps_lat: c.gps_lat, gps_lng: c.gps_lng,
               code_n: Number(map[digits] || null),
             });
           });
@@ -203,37 +172,55 @@ async function searchClientsLive(transportId, q) {
     }
   }
 
-  // --- 4) NAME SEARCH ---
   if (qq.length >= 2) {
     const { data, error } = await supabase
       .from('transport_clients')
       .select('id, tcode, name, phone, phone_digits, address, gps_lat, gps_lng, updated_at')
       .ilike('name', `%${qq}%`)
       .order('updated_at', { ascending: false })
-      .limit(10);
+      .limit(12);
 
     if (!error) {
       (data || []).forEach((c) => {
         const digits = normalizePhoneDigits(c.phone_digits || c.phone || '');
         push({
-          id: c.id,
-          kind: 'client',
-          tcode: String(c.tcode || ''),
-          name: String(c.name || ''),
-          phone: String(c.phone || ''),
-          phone_digits: digits,
-          address: c.address || '',
-          gps_lat: c.gps_lat,
-          gps_lng: c.gps_lng,
+          id: c.id, kind: 'client', tcode: String(c.tcode || ''), name: String(c.name || ''),
+          phone: String(c.phone || ''), phone_digits: digits, address: c.address || '', gps_lat: c.gps_lat, gps_lng: c.gps_lng,
         });
       });
-    } else {
-      console.warn('transport_clients name search blocked:', error.message);
     }
   }
 
-  return out;
+  try {
+    let qOrders = supabase
+      .from('transport_orders')
+      .select('id, client_tcode, client_name, client_phone, data, created_at')
+      .eq('transport_id', tid)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (isTCode && tDigits) qOrders = qOrders.ilike('client_tcode', `T${tDigits}%`);
+    else if (qDigits.length >= 3) qOrders = qOrders.ilike('client_phone', `%${qDigits}%`);
+    else if (qq.length >= 2) qOrders = qOrders.ilike('client_name', `%${qq}%`);
+
+    const { data: ordersData, error: ordersErr } = await qOrders;
+    if (!ordersErr) {
+      (ordersData || []).forEach((row) => {
+        const d = row?.data || {};
+        const c = d?.client || {};
+        const phone = String(row?.client_phone || c?.phone || '');
+        push({
+          id: row.id, kind: 'order', tcode: String(row?.client_tcode || c?.tcode || c?.code || ''),
+          name: String(row?.client_name || c?.name || ''), phone, phone_digits: normalizePhoneDigits(phone),
+          address: c?.address || '', gps_lat: c?.gps?.lat || '', gps_lng: c?.gps?.lng || '',
+        });
+      });
+    }
+  } catch {}
+
+  return out.slice(0, 20);
 }
+
  
 async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
@@ -255,7 +242,8 @@ function loadDraftIds() { const raw = localStorage.getItem(DRAFT_LIST_KEY); retu
 function saveDraftIds(ids) { localStorage.setItem(DRAFT_LIST_KEY, JSON.stringify(ids)); }
 function upsertDraftLocal(d) {
   if (!d?.id) return;
-  localStorage.setItem(`${DRAFT_ITEM_PREFIX}${d.id}`, JSON.stringify(d));
+  const next = { ...d, transport_id: String(d?.transport_id || '').trim() || null };
+  localStorage.setItem(`${DRAFT_ITEM_PREFIX}${d.id}`, JSON.stringify(next));
   const ids = loadDraftIds();
   if (!ids.includes(d.id)) { ids.unshift(d.id); saveDraftIds(ids); } 
 }
@@ -264,55 +252,20 @@ function removeDraftLocal(id) {
   localStorage.removeItem(`${DRAFT_ITEM_PREFIX}${id}`);
   saveDraftIds(loadDraftIds().filter((x) => x !== id));
 }
-function readAllDraftsLocal() { return loadDraftIds().map(id => safeJsonParse(localStorage.getItem(`${DRAFT_ITEM_PREFIX}${id}`), null)).filter(Boolean).sort((a, b) => (b.ts || 0) - (a.ts || 0)); }
-
-function getSafeTransportActorScope() {
-  if (typeof window === 'undefined') {
-    return { role: 'UNKNOWN', pin: '', transport_pin: '', transport_id: '' };
-  }
-
-  try {
-    const ctx = typeof getTransportContext === 'function' ? getTransportContext() : null;
-    if (ctx?.role) {
-      const role = String(ctx.role || '').toUpperCase() || 'UNKNOWN';
-      const pin = String(ctx.pin || ctx.transport_pin || '').trim();
-      const transportId = String(
-        ctx.transport_id || (role === 'TRANSPORT' ? pin : (pin ? `ADMIN_${pin}` : 'ADMIN')) || ''
-      ).trim();
-      return {
-        ...ctx,
-        role,
-        pin,
-        transport_pin: pin,
-        transport_id: transportId,
-      };
-    }
-  } catch {}
-
-  let main = null;
-  try { main = JSON.parse(localStorage.getItem('tepiha_session_v1') || 'null'); } catch {}
-  const role = String(main?.user?.role || '').toUpperCase() || 'UNKNOWN';
-  const pin = String(main?.user?.pin || '').trim();
-
-  if (role === 'TRANSPORT') {
-    let s = null;
-    try { s = getTransportSession(); } catch {}
-    const tid = String(s?.transport_id || pin || '').trim();
-    return {
-      role: 'TRANSPORT',
-      pin,
-      transport_pin: pin,
-      transport_id: tid,
-      name: String(s?.transport_name || main?.user?.name || 'TRANSPORT'),
-    };
-  }
-
+function readAllDraftsLocal(scopeTid = '') {
+  const wantedTid = String(scopeTid || '').trim();
+  return loadDraftIds()
+    .map(id => safeJsonParse(localStorage.getItem(`${DRAFT_ITEM_PREFIX}${id}`), null))
+    .filter(Boolean)
+    .filter((d) => !wantedTid || String(d?.transport_id || '').trim() === wantedTid)
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+}
+function buildDraftPayload(d = {}, scopeTid = '') {
   return {
-    role,
-    pin,
-    transport_pin: pin,
-    transport_id: pin ? `ADMIN_${pin}` : 'ADMIN',
-    name: String(main?.user?.name || role || 'USER'),
+    ...d,
+    id: d.id,
+    ts: Date.now(),
+    transport_id: String(scopeTid || d?.transport_id || '').trim() || null,
   };
 }
 
@@ -402,6 +355,10 @@ export default function PranimiPage() {
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
 
+  function getCurrentDraftTransportId() {
+    return String((actor?.role === 'TRANSPORT' ? me?.transport_id : assignTid) || '').trim();
+  }
+
   // --- INIT ---
   useEffect(() => {
     (async () => {
@@ -440,7 +397,7 @@ export default function PranimiPage() {
           } catch {}
         }
         
-        try { setDrafts(readAllDraftsLocal()); } catch {}
+        try { setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); } catch {}
 
         if (isEdit) {
             const { data: row } = await supabase.from('transport_orders').select('*').eq('id', editId).single();
@@ -598,10 +555,25 @@ export default function PranimiPage() {
       if(creating || !oid) return;
       clearTimeout(draftTimer.current);
       draftTimer.current = setTimeout(() => {
-          const d = { id:oid, ts:Date.now(), codeRaw, name, phone, tepihaRows, stazaRows, clientPaid, pricePerM2 };
+          const d = buildDraftPayload({
+            id: oid,
+            codeRaw,
+            name,
+            phone,
+            tepihaRows,
+            stazaRows,
+            stairsQty,
+            stairsPer,
+            addressDesc,
+            gpsLat,
+            gpsLng,
+            notes,
+            clientPaid,
+            pricePerM2
+          }, getCurrentDraftTransportId());
           if(name || phone) { upsertDraftLocal(d); }
-      }, 1000);
-  }, [name, phone, tepihaRows, stazaRows, clientPaid, pricePerM2]);
+      }, 800);
+  }, [creating, oid, name, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, notes, clientPaid, pricePerM2, actor?.role, me?.transport_id, assignTid]);
 
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * pricePerM2).toFixed(2)), [totalM2, pricePerM2]);
@@ -669,12 +641,23 @@ export default function PranimiPage() {
 
   // ✅ FIX: MESAZHI I GATSHËM PËR SMS/VIBER
   function buildStartMessage() {
-      return `Përshëndetje ${name},
-Porosia u pranua.
-KODI: ${normalizeTcode(codeRaw)}
-TOTAL: ${totalEuro} €
-Ju njoftojmë kur të bëhet gati.
-Tel: ${COMPANY_PHONE_DISPLAY}`;
+      const code = normalizeTcode(codeRaw);
+      const pieces = Number(copeCount || 0);
+      return [
+        `Përshëndetje ${name || ''},`,
+        `Porosia juaj u pranua me sukses.`,
+        `KODI: ${code}`,
+        `COPË: ${pieces}`,
+        `TOTALI: ${Number(totalEuro || 0).toFixed(2)} €`,
+        ``,
+        `Kur porosia të jetë gati, do t'ju njoftojmë për konfirmim.`,
+        `Pa konfirmimin tuaj, porosia nuk sillet.`,
+        `Nëse nuk lajmëroheni brenda 3 ditëve, porosia dërgohet në depo (storage) dhe duhet ta merrni vetë,`,
+        `ose do të aplikohet një tarifë ekstra për ta risjellë.`,
+        ``,
+        `Tel: ${COMPANY_PHONE_DISPLAY}`
+      ].join('
+');
   }
 
   function buildReceiptMessage() {
@@ -725,7 +708,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
 
       if (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0') {
         // S’ka kod => ruaje si draft dhe mos e humb klientin
-        try { upsertDraftLocal({ id: oid, ts: Date.now(), codeRaw, name, phone, tepihaRows, stazaRows, clientPaid, pricePerM2 }); } catch {}
+        try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
         try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
         alert('⚠️ S’MORI T-KOD. U RUAJT SI DRAFT. Provo prap kur të ketë lidhje.');
         setSavingContinue(false);
@@ -811,9 +794,8 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       } catch (e) {
           // Nëse DB bie/RLS/rrjeti, mos e humb porosinë — ruaje si DRAFT.
           try {
-            upsertDraftLocal({
+            upsertDraftLocal(buildDraftPayload({
               id: oid,
-              ts: Date.now(),
               codeRaw,
               name,
               phone,
@@ -821,10 +803,13 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
               stazaRows,
               stairsQty,
               stairsPer,
+              addressDesc,
+              gpsLat,
+              gpsLng,
               clientPaid,
               pricePerM2,
               notes,
-            });
+            }, getCurrentDraftTransportId()));
           } catch {}
           try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
           alert("⚠️ RUJTJA NË SERVER DËSHTOI. U RUAJT SI DRAFT/OFFLINE.\n" + (e?.message || ''));
@@ -881,13 +866,29 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       void (async () => {
         try {
           if (paid > 0 && payMethod === 'CASH') {
+              const actorPin = String(actor?.pin || me?.transport_pin || me?.pin || '').trim();
+              const actorTid = String(me?.transport_id || assignTid || '').trim();
+              try {
+                if (actorTid) {
+                  addTransportCollected(actorTid, {
+                    id: `cash_${Date.now()}`,
+                    amount: paid,
+                    order_code: normalizeTcode(codeRaw),
+                    client_name: name,
+                    note: `PAGESA ${paid}€ - ${name}`,
+                    created_at: new Date().toISOString(),
+                    created_by_pin: actorPin || null,
+                  });
+                }
+              } catch {}
               await recordCashMove({
                   amount: paid,
                   note: `PAGESA ${paid}€ - ${name}`,
                   type: 'TRANSPORT',
+                  status: 'COLLECTED',
                   order_code: normalizeTcode(codeRaw),
                   source: 'ORDER_PAY',
-                  createdBy: 'Transport'
+                  created_by_pin: actorPin || null
               });
           }
         } catch(e) {}
@@ -895,13 +896,17 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
   }
 
   // --- DRAFTS ---
-  function openDrafts() { setDrafts(readAllDraftsLocal()); setShowDraftsSheet(true); }
+  function openDrafts() { setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); setShowDraftsSheet(true); }
   function loadDraft(d) {
-      setOid(d.id); setCodeRaw(d.codeRaw); setName(d.name); setPhone(d.phone); 
+      setOid(d.id); setCodeRaw(d.codeRaw); setName(d.name || ''); setPhone(d.phone || ''); 
       setTepihaRows(d.tepihaRows||[]); setStazaRows(d.stazaRows||[]); setClientPaid(d.clientPaid||0);
+      setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
+      setAddressDesc(d.addressDesc || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || '');
+      setNotes(d.notes || '');
+      setCurrentStep(1);
       setShowDraftsSheet(false);
   }
-  function deleteDraft(id) { removeDraftLocal(id); setDrafts(readAllDraftsLocal()); }
+  function deleteDraft(id) { removeDraftLocal(id); setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); }
 
   // --- LONG PRESS PRICE ---
   function startPayHold() { payHoldTriggeredRef.current = false; if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = setTimeout(() => { payHoldTriggeredRef.current = true; openPriceEditor(); }, 1200); }
@@ -1278,7 +1283,7 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
           payChips={PAY_CHIPS}
           confirmText="KRYEJ PAGESËN"
           cancelText="ANULO"
-          disabled={saving}
+          disabled={savingContinue}
           onConfirm={applyPayAndClose}
           footerNote={`SOT PAGUAN: ${Number(payNow || 0).toFixed(2)}€ • KTHIM: ${Number(changeDue || 0).toFixed(2)}€`}
         />
@@ -1400,38 +1405,46 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
         </div>
       )}
 
-      {/* MESSAGE SHEET */}
+      {/* MESSAGE MODAL FULL SCREEN */}
       {showMsgSheet && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div className="payfs-title">MESAZHI</div>
-            <button className="btn secondary" onClick={() => router.push('/transport/board')}>MBYLL</button>
-          </div>
-          <div className="payfs-body">
-             <div className="card" style={{marginTop:0}}>
-                <pre style={{color:'#CCC', fontSize:13, whiteSpace:'pre-wrap', lineHeight:1.4}}>{buildCurrentMessage()}</pre>
-             </div>
-             <div className="card">
-                 <button className="btn secondary" style={{width:'100%', marginBottom:10}} onClick={() => {
-                    const txt = buildCurrentMessage();
-                    const ph = sanitizePhone(phonePrefix + phone);
-                     window.open(`https://wa.me/${ph}?text=${encodeURIComponent(txt)}`, '_blank');
-                 }}>WHATSAPP</button>
-                 <button className="btn secondary" style={{width:'100%', marginBottom:10}} onClick={() => {
-                    const txt = buildCurrentMessage();
-                    const ph = sanitizePhone(phonePrefix + phone);
-                     window.open(`viber://chat?number=%2B${ph}`, '_blank');
-                 }}>VIBER</button>
-                 <button className="btn secondary" style={{width:'100%'}} onClick={() => {
-                    const txt = buildCurrentMessage();
-                    const ph = sanitizePhone(phonePrefix + phone);
-                     window.open(`sms:${ph}?&body=${encodeURIComponent(txt)}`, '_blank');
-                 }}>SMS</button>
-             </div>
+        <div className="msgOverlay" onClick={() => router.push('/transport/board')}>
+          <div className="msgModal" onClick={(e) => e.stopPropagation()}>
+            <div className="msgModalTop">
+              <div>
+                <div className="msgModalTitle">MESAZHI PËR KLIENTIN</div>
+                <div className="msgModalSub">Dërgoje nga këtu para se ta mbyllësh porosinë.</div>
+              </div>
+              <button className="btn secondary" onClick={() => router.push('/transport/board')}>MBYLL</button>
+            </div>
+
+            <div className="msgPreview">
+              <pre style={{color:'#E5E7EB', fontSize:14, whiteSpace:'pre-wrap', lineHeight:1.55, margin:0}}>{buildCurrentMessage()}</pre>
+            </div>
+
+            <div className="msgActions">
+              <button className="btn secondary" onClick={() => {
+                const txt = buildCurrentMessage();
+                try { navigator.clipboard?.writeText(txt); } catch {}
+              }}>KOPJO</button>
+              <button className="btn secondary" onClick={() => {
+                const txt = buildCurrentMessage();
+                const ph = sanitizePhone(phonePrefix + phone);
+                window.open(`https://wa.me/${ph}?text=${encodeURIComponent(txt)}`, '_blank');
+              }}>WHATSAPP</button>
+              <button className="btn secondary" onClick={() => {
+                const txt = buildCurrentMessage();
+                const ph = sanitizePhone(phonePrefix + phone);
+                window.open(`viber://chat?number=%2B${ph}`, '_blank');
+              }}>VIBER</button>
+              <button className="btn primary" onClick={() => {
+                const txt = buildCurrentMessage();
+                const ph = sanitizePhone(phonePrefix + phone);
+                window.open(`sms:${ph}?&body=${encodeURIComponent(txt)}`, '_blank');
+              }}>SMS</button>
+            </div>
           </div>
         </div>
       )}
-
       <style jsx>{`
         .wrap { padding: 10px 10px 80px; max-width: 600px; margin: 0 auto; color: white; }
         .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
@@ -1458,6 +1471,13 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
         .prefixOpt { padding: 12px; border-bottom: 1px solid #222; display: flex; justify-content: space-between; font-weight: 700; }
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9999; display: flex; alignItems: center; justifyContent: center; padding: 20px; }
         .modal-content { width: 100%; max-width: 420px; padding: 18px; border-radius: 18px; background: white; }
+        .msgOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.82); z-index: 11000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .msgModal { width: min(760px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: linear-gradient(180deg, #0b1220, #111827); border: 1px solid rgba(255,255,255,0.12); border-radius: 22px; box-shadow: 0 24px 80px rgba(0,0,0,0.45); padding: 18px; }
+        .msgModalTop { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+        .msgModalTitle { font-size: 18px; font-weight: 900; letter-spacing: .4px; }
+        .msgModalSub { font-size: 12px; opacity: .72; margin-top: 4px; }
+        .msgPreview { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 16px; }
+        .msgActions { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; margin-top:14px; }
         .modal-content.dark { background: #0b0b0b; color: #fff; border: 1px solid rgba(255,255,255,0.1); }
         
         /* MODERN CHIPS STYLE */
