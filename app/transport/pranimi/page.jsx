@@ -9,10 +9,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { saveOrderLocal, pushOp } from '@/lib/offlineStore';
-import { getTransportSession } from '@/lib/transportAuth';
+import { getTransportSession, getTransportContext } from '@/lib/transportAuth';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import PosModal from '@/components/PosModal';
-import { getActor } from '@/lib/actorSession';
 import { enqueueTransportOrder, syncNow } from '@/lib/syncManager';
 
 const BUCKET = 'tepiha-photos';
@@ -40,26 +39,6 @@ const COMPANY_PHONE_DISPLAY = '+383 44 735 312';
 const AUTO_MSG_KEY = 'transport_pranimi_auto_msg_after_save';
 const PRICE_KEY = 'transport_pranimi_price_per_m2';
 const OFFLINE_MODE_KEY = 'transport_offline_mode_v1';
-
-
-function translateTransportDbError(errLike) {
-  const msg = String(errLike?.message || errLike?.error || errLike || '').toLowerCase();
-  if (!msg) return 'Gabim i panjohur gjatë ruajtjes në databazë.';
-  if (msg.includes('nuk ekziston ose perdoruesi nuk eshte aktiv') || msg.includes('nuk ekziston ose përdoruesi nuk është aktiv')) {
-    return 'GABIM: PIN-i nuk ekziston ose llogaria nuk është aktive!';
-  }
-  if ((msg.includes('foreign key') && msg.includes('applied_cycle_id')) || msg.includes('cikli i arkës nuk është valid')) {
-    return 'GABIM: Cikli i arkës nuk është valid. Rifresko faqen dhe provo përsëri!';
-  }
-  if (msg.includes('uuid')) {
-    return 'GABIM: ID e ciklit nuk është UUID valide.';
-  }
-  return errLike?.message || errLike?.error || String(errLike || 'Gabim i panjohur');
-}
-
-function resolveTransportActorPin(session, actor) {
-  return String(actor?.pin || session?.transport_pin || session?.pin || session?.transport_id || '').trim();
-}
 
 function normalizeTcode(raw) {
   if (!raw) return 'T0';
@@ -287,6 +266,56 @@ function removeDraftLocal(id) {
 }
 function readAllDraftsLocal() { return loadDraftIds().map(id => safeJsonParse(localStorage.getItem(`${DRAFT_ITEM_PREFIX}${id}`), null)).filter(Boolean).sort((a, b) => (b.ts || 0) - (a.ts || 0)); }
 
+function getSafeTransportActorScope() {
+  if (typeof window === 'undefined') {
+    return { role: 'UNKNOWN', pin: '', transport_pin: '', transport_id: '' };
+  }
+
+  try {
+    const ctx = typeof getTransportContext === 'function' ? getTransportContext() : null;
+    if (ctx?.role) {
+      const role = String(ctx.role || '').toUpperCase() || 'UNKNOWN';
+      const pin = String(ctx.pin || ctx.transport_pin || '').trim();
+      const transportId = String(
+        ctx.transport_id || (role === 'TRANSPORT' ? pin : (pin ? `ADMIN_${pin}` : 'ADMIN')) || ''
+      ).trim();
+      return {
+        ...ctx,
+        role,
+        pin,
+        transport_pin: pin,
+        transport_id: transportId,
+      };
+    }
+  } catch {}
+
+  let main = null;
+  try { main = JSON.parse(localStorage.getItem('tepiha_session_v1') || 'null'); } catch {}
+  const role = String(main?.user?.role || '').toUpperCase() || 'UNKNOWN';
+  const pin = String(main?.user?.pin || '').trim();
+
+  if (role === 'TRANSPORT') {
+    let s = null;
+    try { s = getTransportSession(); } catch {}
+    const tid = String(s?.transport_id || pin || '').trim();
+    return {
+      role: 'TRANSPORT',
+      pin,
+      transport_pin: pin,
+      transport_id: tid,
+      name: String(s?.transport_name || main?.user?.name || 'TRANSPORT'),
+    };
+  }
+
+  return {
+    role,
+    pin,
+    transport_pin: pin,
+    transport_id: pin ? `ADMIN_${pin}` : 'ADMIN',
+    name: String(main?.user?.name || role || 'USER'),
+  };
+}
+
 // ---------------- COMPONENT ----------------
 export default function PranimiPage() {
   const router = useRouter();
@@ -357,6 +386,7 @@ export default function PranimiPage() {
 
   const [offlineMode, setOfflineMode] = useState(false);
   const [netState, setNetState] = useState({ ok: true, reason: '' });
+  const [currentStep, setCurrentStep] = useState(1);
 
   // ADMIN/DISPATCH can create transport orders without being a transport actor.
   // Prevent leaking orders to a driver just because a stale transport session exists.
@@ -375,32 +405,25 @@ export default function PranimiPage() {
   // --- INIT ---
   useEffect(() => {
     (async () => {
-        // Read main session (role/pin) first.
-        let main = null;
-        try { main = JSON.parse(localStorage.getItem('tepiha_session_v1') || 'null'); } catch {}
-        const role = String(main?.user?.role || '').toUpperCase();
-        const pin = String(main?.user?.pin || '').trim();
-        const actorObj = { role: role || 'UNKNOWN', pin };
+        const scope = getSafeTransportActorScope();
+        const role = String(scope?.role || 'UNKNOWN').toUpperCase();
+        const pin = String(scope?.pin || '').trim();
+        const actorObj = { role, pin };
         setActor(actorObj);
 
-        // Transport actor (driver) must have a transport session.
-        // Admin/Dispatch should NOT depend on transport session (it can be stale).
-        let s = null;
+        let transportScope = null;
         let adminTidLocal = null;
         if (role === 'TRANSPORT') {
-          s = getTransportSession();
-          if (!s?.transport_id) { router.push('/transport/menu'); return; }
-          setMe(s);
-          setAssignTid(String(s.transport_id)); // locked for driver
+          transportScope = scope?.transport_id ? scope : (getTransportSession() || null);
+          if (!transportScope?.transport_id) { router.push('/transport/menu'); return; }
+          setMe({ ...transportScope, role: 'TRANSPORT', pin });
+          setAssignTid(String(transportScope.transport_id));
         } else {
-          // Admin/Dispatch: use a dedicated ADMIN transport_id namespace.
-          // This prevents mixing between admin-created orders and driver boards.
-          const adminTid = pin ? `ADMIN_${pin}` : 'ADMIN';
+          const adminTid = String(scope?.transport_id || (pin ? `ADMIN_${pin}` : 'ADMIN'));
           adminTidLocal = adminTid;
           setMe({ transport_id: null, role, pin });
           setAssignTid(adminTid);
 
-          // Load transport users for assignment dropdown.
           try {
             const { data } = await supabase
               .from('users')
@@ -409,9 +432,10 @@ export default function PranimiPage() {
               .order('name', { ascending: true })
               .limit(200);
             const rows = Array.isArray(data) ? data : [];
-            setTransportUsers(rows
-              .filter(r => r?.pin)
-              .map(r => ({ pin: String(r.pin), name: String(r.name || r.pin) }))
+            setTransportUsers(
+              rows
+                .filter((r) => r?.pin)
+                .map((r) => ({ pin: String(r.pin), name: String(r.name || r.pin) }))
             );
           } catch {}
         }
@@ -445,24 +469,18 @@ export default function PranimiPage() {
                 if (searchParams?.get('focus') === 'pay') { setTimeout(() => setShowPaySheet(true), 200); }
             }
         } else {
-            // transport_orders.id është UUID në DB → përdor UUID reale (jo string "ord_...")
             const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
               ? crypto.randomUUID()
               : `ord_${Date.now()}`;
             setOid(id);
             try {
-              // Reserve code under the ASSIGNED transport_id (driver) or ADMIN namespace.
               const tidForCode = (role === 'TRANSPORT')
-                ? String(s?.transport_id || '')
-                : String(adminTidLocal || assignTid || '');
+                ? String(transportScope?.transport_id || scope?.transport_id || '')
+                : String(adminTidLocal || scope?.transport_id || assignTid || '');
               const c = await getOrReserveTransportCode(tidForCode);
               setCodeRaw(c);
             } catch (e) {
-              
-      // ULTRA GUARANTEE CATCH: never lose the order
-      try { await saveOrderLocal(order); } catch {}
-      try { await pushOp({ type: 'UPSERT_ORDER', payload: order }); } catch {}
-setCodeRaw('');
+              setCodeRaw('');
               try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
               alert('⚠️ S’MUND TË MERRET KODI (TRANSPORT). Do të ruhet si DRAFT/OFFLINE deri sa të kthehet lidhja.');
             }
@@ -476,10 +494,6 @@ setCodeRaw('');
     // Polling is the most reliable option because localStorage changes in the same tab
     // do not fire the 'storage' event.
     let alive = true;
-
-    const readMain = () => {
-      try { return JSON.parse(localStorage.getItem('tepiha_session_v1') || 'null'); } catch { return null; }
-    };
 
     const resetFor = async (role, pin, transport_id) => {
       // Reset all form state so the new actor never inherits the previous actor's order.
@@ -523,19 +537,10 @@ setCodeRaw('');
 
     const tick = async () => {
       if (!alive) return;
-      const main = readMain();
-      const role = String(main?.user?.role || '').toUpperCase();
-      const pin = String(main?.user?.pin || '').trim();
-
-      // Determine current transport scope (driver transport_id OR admin namespace).
-      let tid = '';
-      if (role === 'TRANSPORT') {
-        let s = null;
-        try { s = getTransportSession(); } catch {}
-        tid = String(s?.transport_id || '');
-      } else {
-        tid = pin ? `ADMIN_${pin}` : 'ADMIN';
-      }
+      const scope = getSafeTransportActorScope();
+      const role = String(scope?.role || 'UNKNOWN').toUpperCase();
+      const pin = String(scope?.pin || '').trim();
+      const tid = String(scope?.transport_id || (pin ? `ADMIN_${pin}` : 'ADMIN')).trim();
 
       const sig = `${role}|${pin}|${tid}`;
       if (!actorSigRef.current) {
@@ -550,12 +555,10 @@ setCodeRaw('');
         setActor({ role: role || 'UNKNOWN', pin });
 
         if (role === 'TRANSPORT') {
-          let s = null;
-          try { s = getTransportSession(); } catch {}
-          if (!s?.transport_id) { router.push('/transport/menu'); return; }
-          setMe(s);
-          setAssignTid(String(s.transport_id));
-          await resetFor(role, pin, String(s.transport_id));
+          if (!scope?.transport_id) { router.push('/transport/menu'); return; }
+          setMe({ ...scope, role: 'TRANSPORT', pin });
+          setAssignTid(String(scope.transport_id));
+          await resetFor(role, pin, String(scope.transport_id));
         } else {
           setMe({ transport_id: null, role, pin });
           setAssignTid(tid);
@@ -878,31 +881,16 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
       void (async () => {
         try {
           if (paid > 0 && payMethod === 'CASH') {
-              let s = null;
-              try { s = getTransportSession(); } catch {}
-              const actorPin = resolveTransportActorPin(s, actor);
-              if (!actorPin) {
-                alert('GABIM: PIN-i nuk ekziston ose llogaria nuk është aktive!');
-                return;
-              }
-
-              const moveRes = await recordCashMove({
+              await recordCashMove({
                   amount: paid,
                   note: `PAGESA ${paid}€ - ${name}`,
                   type: 'TRANSPORT',
                   order_code: normalizeTcode(codeRaw),
                   source: 'ORDER_PAY',
-                  created_by_pin: actorPin,
-                  status: 'COLLECTED'
+                  createdBy: 'Transport'
               });
-
-              if (moveRes && moveRes.ok === false) {
-                alert(translateTransportDbError(moveRes.error || moveRes.db_error || moveRes.raw_error));
-              }
           }
-        } catch(e) {
-          alert(translateTransportDbError(e));
-        }
+        } catch(e) {}
       })();
   }
 
@@ -927,6 +915,9 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
   }
 
   if (creating) return <div className="wrap"><p style={{textAlign:'center', paddingTop:30}}>Duke u hapur...</p></div>;
+
+  const totalSteps = 5;
+  const stepPct = (currentStep / totalSteps) * 100;
 
   return (
     <div className="wrap">
@@ -978,185 +969,297 @@ Tel: ${COMPANY_PHONE_DISPLAY}`;
             </button>
         </section>
 
-        {/* --- KLIENTI (SMART CARD STYLE) --- */}
-        <section className="card" style={{padding: 0, overflow: 'hidden', background: '#111', border: '1px solid rgba(255,255,255,0.1)', marginTop: 16}}>
-            <div style={{background: '#1C1C1E', padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)'}}>
-                <div style={{display:'flex', alignItems:'center', gap: 10, background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '8px 12px'}}>
-                    <span style={{fontSize: 16, opacity: 0.5}}>🔍</span>
-                    <input style={{background:'transparent', border:'none', color:'#fff', fontSize:15, width:'100%', outline:'none'}} placeholder="KËRKO: TEL • KOD • Txx • EMËR" value={clientQuery} onChange={e => setClientQuery(e.target.value)} />
-                </div>
-                {clientHits.length > 0 && (
-                    <div style={{marginTop: 8}}>
-                        {clientHits.map((c, i) => (
-                            <div
-                              key={c.id || i}
-                              style={{padding: '10px 0', borderBottom: '1px solid #333', fontSize: 14, color: '#DDD'}}
-                              onClick={() => {
 
-                                setName(c.name);
-                                // phone is stored digits-only in state (prefix separate)
-                                const digits = normalizePhoneDigits(c.phone_digits || c.phone);
-                                if (digits) {
-                                  // try to split prefix + local number if the stored value already includes +383 etc
-                                  if (String(c.phone || '').startsWith('+')) {
-                                    setPhonePrefix(String(c.phone).slice(0, 4));
-                                    setPhone(digits.replace(/^383/, ''));
-                                  } else {
-                                    setPhone(digits);
-                                  }
-                                }
-                                setClientId(c.id || null);
-                                const tc = String(c.tcode || '').trim();
-                                if (tc) { setClientTcode(tc); setCodeRaw(tc); }
-                                setClientCode(getOrAssignTransportClientCode((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid, digits));
-                                if (c.address) setAddressDesc(c.address);
-                                if (c.gps_lat) setGpsLat(c.gps_lat);
-                                if (c.gps_lng) setGpsLng(c.gps_lng);
-                                setClientQuery('');
-                              }}
-                            >
-                                <b style={{color:'#fff'}}>
-                                  {(String(c.tcode || '').trim()
-                                    ? `${String(c.tcode).toUpperCase()} `
-                                    : (c.code_n
-                                      ? `#${c.code_n} `
-                                      : (getOrAssignTransportClientCode((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid, normalizePhoneDigits(c.phone_digits || c.phone))
-                                        ? `#${getOrAssignTransportClientCode((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid, normalizePhoneDigits(c.phone_digits || c.phone))} `
-                                        : '')))}
-                                </b>
-                                {c.name} • {c.phone}
-                            </div>
-                        ))}
-                    </div>
-                )}
+        <section className="card" style={{marginTop:16, padding:'14px 14px 12px'}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:10}}>
+            <div>
+              <div className="card-title" style={{marginBottom:4}}>WIZARD I PRANIMIT</div>
+              <div style={{fontSize:12, opacity:.75}}>HAPI {currentStep} / {totalSteps}</div>
             </div>
-            <div style={{display: 'grid', gridTemplateColumns: '70px 1fr', padding: 16, gap: 16, alignItems: 'center'}}>
-                <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap: 4}}>
-                    <label style={{width: 60, height: 60, borderRadius: '50%', background: '#2C2C2E', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', cursor: 'pointer'}}>
-                        {clientPhotoUrl ? <img src={clientPhotoUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <span style={{fontSize:24}}>📷</span>}
-                        <input type="file" hidden accept="image/*" onChange={e => uploadPhoto(e.target.files[0], oid, 'client').then(u => u && setClientPhotoUrl(u))} />
-                    </label>
-                    <span style={{fontSize: 9, color: '#666', fontWeight: '700'}}>FOTO</span>
-                </div>
-                <div style={{display:'flex', flexDirection:'column', gap: 8}}>
-                    <input style={{background:'transparent', border:'none', color:'#fff', fontSize: 20, fontWeight:'700', width:'100%', outline:'none', padding: 0}} placeholder="EMRI MBIEMRI" value={name} onChange={e => setName(e.target.value)} />
-                    <div style={{display:'flex', alignItems:'center', gap: 8}}>
-                        <button onClick={()=>setShowPrefixSheet(true)} style={{background: '#2C2C2E', border: 'none', borderRadius: 6, padding: '4px 8px', color: '#007AFF', fontWeight: '600', fontSize: 14}}>{phonePrefix}</button>
-                        <input style={{background:'transparent', border:'none', color:'#CCC', fontSize: 16, width:'100%', outline:'none', padding: 0}} placeholder="44xxxxxx" type="tel" value={phone} onChange={e => setPhone(e.target.value)} />
-                    </div>
-                </div>
-            </div>
-            <div style={{padding: '0 16px 16px', display:'flex', gap: 10}}>
-                <div style={{flex: 1, background: '#2C2C2E', borderRadius: 10, padding: '8px 12px', display:'flex', alignItems:'center'}}>
-                    <input style={{background:'transparent', border:'none', color:'#fff', fontSize: 14, width:'100%', outline:'none'}} placeholder="Shto adresë..." value={addressDesc} onChange={e => setAddressDesc(e.target.value)} />
-                </div>
-                <button onClick={handleGetGPS} style={{width: 40, height: 40, borderRadius: 10, background: gpsLat ? '#34C759' : '#2C2C2E', border: 'none', display:'flex', alignItems:'center', justifyContent:'center', fontSize: 20}}>📍</button>
-            </div>
+            <div style={{fontSize:12, opacity:.75, fontWeight:800}}>{Math.round(stepPct)}%</div>
+          </div>
+          <div style={{height:10, borderRadius:999, background:'rgba(255,255,255,0.08)', overflow:'hidden'}}>
+            <div style={{height:'100%', width:`${stepPct}%`, borderRadius:999, background:'linear-gradient(90deg, #0ea5e9, #22c55e)', transition:'width .25s ease'}} />
+          </div>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:8, marginTop:12}}>
+            {[
+              '1. KLIENTI',
+              '2. ADRESA',
+              '3. TEPIHA',
+              '4. STAZA',
+              '5. SHKALLORE & TOTALI'
+            ].map((label, idx) => {
+              const step = idx + 1;
+              const active = currentStep === step;
+              const done = currentStep > step;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setCurrentStep(step)}
+                  style={{
+                    minHeight: 42,
+                    borderRadius: 12,
+                    border: active ? '1px solid rgba(14,165,233,.9)' : '1px solid rgba(255,255,255,0.12)',
+                    background: done ? 'rgba(34,197,94,.14)' : (active ? 'rgba(14,165,233,.14)' : 'rgba(255,255,255,.04)'),
+                    color: '#fff',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    padding: '8px 6px'
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </section>
 
-      {/* TEPIHA */}
-      <section className="card">
-        <h2 className="card-title">TEPIHA</h2>
-        <div className="chip-row modern">
-          {TEPIHA_CHIPS.map((v) => (
-            <button key={v} type="button" className="chip chip-modern" onClick={() => applyChip('tepiha', v)} style={chipStyleForVal(v)}>
-              {v.toFixed(1)}
-            </button>
-          ))}
-        </div>
-        {tepihaRows.map((row) => (
-          <div className="piece-row" key={row.id}>
-            <div className="row">
-              <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
-              <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
-              <label className="camera-btn">
-                  {row.photoUrl ? <img src={row.photoUrl} style={{width:'100%', height:'100%', borderRadius:12, objectFit:'cover'}} /> : '📷'}
-                  <input type="file" hidden accept="image/*" onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} />
-              </label>
-            </div>
-          </div>
-        ))}
-        <div className="row btn-row">
-          <button className="btn secondary" onClick={() => addRow('tepiha')}>+ RRESHT</button>
-          <button className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button>
-        </div>
-      </section>
+        {currentStep === 1 && (
+          <>
+            {/* --- KLIENTI (SMART CARD STYLE) --- */}
+            <section className="card" style={{padding: 0, overflow: 'hidden', background: '#111', border: '1px solid rgba(255,255,255,0.1)', marginTop: 16}}>
+                <div style={{background: '#1C1C1E', padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)'}}>
+                    <div style={{display:'flex', alignItems:'center', gap: 10, background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '8px 12px'}}>
+                        <span style={{fontSize: 16, opacity: 0.5}}>🔍</span>
+                        <input style={{background:'transparent', border:'none', color:'#fff', fontSize:15, width:'100%', outline:'none'}} placeholder="KËRKO: TEL • KOD • Txx • EMËR" value={clientQuery} onChange={e => setClientQuery(e.target.value)} />
+                    </div>
+                    {clientHits.length > 0 && (
+                        <div style={{marginTop: 8}}>
+                            {clientHits.map((c, i) => (
+                                <div
+                                  key={c.id || i}
+                                  style={{padding: '10px 0', borderBottom: '1px solid #333', fontSize: 14, color: '#DDD'}}
+                                  onClick={() => {
 
-      {/* STAZA */}
-      <section className="card">
-        <h2 className="card-title">STAZA</h2>
-        <div className="chip-row modern">
-          {STAZA_CHIPS.map((v) => (
-            <button key={v} type="button" className="chip chip-modern" onClick={() => applyChip('staza', v)} style={chipStyleForVal(v)}>
-              {v.toFixed(1)}
-            </button>
-          ))}
-        </div>
-        {stazaRows.map((row) => (
-          <div className="piece-row" key={row.id}>
-            <div className="row">
-              <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
-              <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
-              <label className="camera-btn">
-                  {row.photoUrl ? <img src={row.photoUrl} style={{width:'100%', height:'100%', borderRadius:12, objectFit:'cover'}} /> : '📷'}
-                  <input type="file" hidden accept="image/*" onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} />
-              </label>
-            </div>
-          </div>
-        ))}
-        <div className="row btn-row">
-          <button className="btn secondary" onClick={() => addRow('staza')}>+ RRESHT</button>
-          <button className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button>
-        </div>
-      </section>
+                                    setName(c.name);
+                                    const digits = normalizePhoneDigits(c.phone_digits || c.phone);
+                                    if (digits) {
+                                      if (String(c.phone || '').startsWith('+')) {
+                                        setPhonePrefix(String(c.phone).slice(0, 4));
+                                        setPhone(digits.replace(/^383/, ''));
+                                      } else {
+                                        setPhone(digits);
+                                      }
+                                    }
+                                    setClientId(c.id || null);
+                                    const tc = String(c.tcode || '').trim();
+                                    if (tc) { setClientTcode(tc); setCodeRaw(tc); }
+                                    setClientCode(getOrAssignTransportClientCode((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid, digits));
+                                    if (c.address) setAddressDesc(c.address);
+                                    if (c.gps_lat) setGpsLat(c.gps_lat);
+                                    if (c.gps_lng) setGpsLng(c.gps_lng);
+                                    setClientQuery('');
+                                  }}
+                                >
+                                    <b style={{color:'#fff'}}>
+                                      {(String(c.tcode || '').trim()
+                                        ? `${String(c.tcode).toUpperCase()} `
+                                        : (c.code_n
+                                          ? `#${c.code_n} `
+                                          : (getOrAssignTransportClientCode((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid, normalizePhoneDigits(c.phone_digits || c.phone))
+                                            ? `#${getOrAssignTransportClientCode((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid, normalizePhoneDigits(c.phone_digits || c.phone))} `
+                                            : '')))}
+                                    </b>
+                                    {c.name} • {c.phone}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <div style={{display: 'grid', gridTemplateColumns: '70px 1fr', padding: 16, gap: 16, alignItems: 'center'}}>
+                    <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap: 4}}>
+                        <label style={{width: 60, height: 60, borderRadius: '50%', background: '#2C2C2E', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', cursor: 'pointer'}}>
+                            {clientPhotoUrl ? <img src={clientPhotoUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <span style={{fontSize:24}}>📷</span>}
+                            <input type="file" hidden accept="image/*" onChange={e => uploadPhoto(e.target.files[0], oid, 'client').then(u => u && setClientPhotoUrl(u))} />
+                        </label>
+                        <span style={{fontSize: 9, color: '#666', fontWeight: '700'}}>FOTO</span>
+                    </div>
+                    <div style={{display:'flex', flexDirection:'column', gap: 8}}>
+                        <input style={{background:'transparent', border:'none', color:'#fff', fontSize: 20, fontWeight:'700', width:'100%', outline:'none', padding: 0}} placeholder="EMRI MBIEMRI" value={name} onChange={e => setName(e.target.value)} />
+                        <div style={{display:'flex', alignItems:'center', gap: 8}}>
+                            <button onClick={()=>setShowPrefixSheet(true)} style={{background: '#2C2C2E', border: 'none', borderRadius: 6, padding: '4px 8px', color: '#007AFF', fontWeight: '600', fontSize: 14}}>{phonePrefix}</button>
+                            <input style={{background:'transparent', border:'none', color:'#CCC', fontSize: 16, width:'100%', outline:'none', padding: 0}} placeholder="44xxxxxx" type="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+                        </div>
+                    </div>
+                </div>
+            </section>
 
-      {/* UTIL */}
-      <section className="card">
-        <div className="row util-row" style={{ gap: 10 }}>
-          <button className="btn secondary" style={{ flex: 1, minHeight: 54, fontSize: 16, fontWeight: 900 }} onClick={() => setShowStairsSheet(true)}>
-            🪜 SHKALLORE
-          </button>
-          <button className="btn secondary" style={{ flex: 1, minHeight: 54, fontSize: 16, fontWeight: 900 }} 
-            onMouseDown={startPayHold} onMouseUp={endPayHold} onMouseLeave={cancelPayHold}
-            onTouchStart={startPayHold} onTouchEnd={endPayHold}
-          >
-            € PAGESA
-          </button>
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <button className="btn secondary" style={{ width: '100%' }} onClick={() => {
-            const focusPay = String(searchParams?.get('focus') || '').toLowerCase() === 'pay';
-            setMsgKind((focusPay || showPaySheet) ? 'receipt' : 'start');
-            setShowMsgSheet(true);
-          }}>
-            📩 DËRGO MESAZH
-          </button>
-        </div>
-        <div className="tot-line">M² Total: <strong>{totalM2.toFixed(2)}</strong></div>
-        <div className="tot-line">Copë: <strong>{copeCount}</strong></div>
-        <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
-        <div className="tot-line" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 10, paddingTop: 10 }}>
-          Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong>
-        </div>
-        <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
-          Regjistru n&apos;ARKË: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong>
-        </div>
-        {currentDebt > 0 && <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{currentDebt.toFixed(2)} €</strong></div>}
-      </section>
+            <footer className="footer-bar">
+              <button className="btn secondary" onClick={() => router.push('/transport/menu')}>↩ MENU</button>
+              <button className="btn primary" onClick={() => setCurrentStep(2)} disabled={!String(name || '').trim()}>
+                NEXT ▶
+              </button>
+            </footer>
+          </>
+        )}
 
-      {/* NOTES */}
-      <section className="card">
-        <h2 className="card-title">SHËNIME</h2>
-        <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </section>
+        {currentStep === 2 && (
+          <>
+            <section className="card" style={{marginTop:16}}>
+              <h2 className="card-title">ADRESA</h2>
+              <div style={{display:'grid', gap:12}}>
+                <textarea
+                  className="input"
+                  rows={5}
+                  placeholder="PËRSHKRUAJ ADRESËN, LAGJEN, KATIN, HYRJEN, OBORRIN..."
+                  value={addressDesc}
+                  onChange={e => setAddressDesc(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={handleGetGPS}
+                  style={{
+                    minHeight: 62,
+                    borderRadius: 16,
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: gpsLat ? 'rgba(34,197,94,.18)' : 'rgba(255,255,255,.05)',
+                    color:'#fff',
+                    fontWeight:900,
+                    fontSize:18
+                  }}
+                >
+                  📍 {gpsLat ? 'GPS U MOR' : 'MERRE GPS'}
+                </button>
+                {(gpsLat || gpsLng) && (
+                  <div style={{fontSize:12, opacity:.8}}>
+                    GPS: {String(gpsLat || '')} {gpsLng ? `• ${String(gpsLng)}` : ''}
+                  </div>
+                )}
+              </div>
+            </section>
 
-      {/* FOOTER */}
-      <footer className="footer-bar">
-        <button className="btn secondary" onClick={() => router.push('/')}>🏠 HOME</button>
-        <button className="btn primary" onClick={handleContinue} disabled={photoUploading || savingContinue}>
-          {savingContinue ? '⏳ DUKE RUJT...' : (isEdit ? '💾 RUAJ' : '▶ VAZHDO')}
-        </button>
-      </footer>
+            <footer className="footer-bar">
+              <button className="btn secondary" onClick={() => setCurrentStep(1)}>◀ BACK</button>
+              <button className="btn primary" onClick={() => setCurrentStep(3)}>NEXT ▶</button>
+            </footer>
+          </>
+        )}
+
+        {currentStep === 3 && (
+          <>
+            {/* TEPIHA */}
+            <section className="card" style={{marginTop:16}}>
+              <h2 className="card-title">TEPIHA</h2>
+              <div className="chip-row modern">
+                {TEPIHA_CHIPS.map((v) => (
+                  <button key={v} type="button" className="chip chip-modern" onClick={() => applyChip('tepiha', v)} style={chipStyleForVal(v)}>
+                    {v.toFixed(1)}
+                  </button>
+                ))}
+              </div>
+              {tepihaRows.map((row) => (
+                <div className="piece-row" key={row.id}>
+                  <div className="row">
+                    <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
+                    <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
+                    <label className="camera-btn">
+                        {row.photoUrl ? <img src={row.photoUrl} style={{width:'100%', height:'100%', borderRadius:12, objectFit:'cover'}} /> : '📷'}
+                        <input type="file" hidden accept="image/*" onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} />
+                    </label>
+                  </div>
+                </div>
+              ))}
+              <div className="row btn-row">
+                <button className="btn secondary" onClick={() => addRow('tepiha')}>+ RRESHT</button>
+                <button className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button>
+              </div>
+            </section>
+
+            <footer className="footer-bar">
+              <button className="btn secondary" onClick={() => setCurrentStep(2)}>◀ BACK</button>
+              <button className="btn primary" onClick={() => setCurrentStep(4)}>NEXT ▶</button>
+            </footer>
+          </>
+        )}
+
+        {currentStep === 4 && (
+          <>
+            {/* STAZA */}
+            <section className="card" style={{marginTop:16}}>
+              <h2 className="card-title">STAZA</h2>
+              <div className="chip-row modern">
+                {STAZA_CHIPS.map((v) => (
+                  <button key={v} type="button" className="chip chip-modern" onClick={() => applyChip('staza', v)} style={chipStyleForVal(v)}>
+                    {v.toFixed(1)}
+                  </button>
+                ))}
+              </div>
+              {stazaRows.map((row) => (
+                <div className="piece-row" key={row.id}>
+                  <div className="row">
+                    <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
+                    <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
+                    <label className="camera-btn">
+                        {row.photoUrl ? <img src={row.photoUrl} style={{width:'100%', height:'100%', borderRadius:12, objectFit:'cover'}} /> : '📷'}
+                        <input type="file" hidden accept="image/*" onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} />
+                    </label>
+                  </div>
+                </div>
+              ))}
+              <div className="row btn-row">
+                <button className="btn secondary" onClick={() => addRow('staza')}>+ RRESHT</button>
+                <button className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button>
+              </div>
+            </section>
+
+            <footer className="footer-bar">
+              <button className="btn secondary" onClick={() => setCurrentStep(3)}>◀ BACK</button>
+              <button className="btn primary" onClick={() => setCurrentStep(5)}>NEXT ▶</button>
+            </footer>
+          </>
+        )}
+
+        {currentStep === 5 && (
+          <>
+            {/* UTIL */}
+            <section className="card" style={{marginTop:16}}>
+              <div className="row util-row" style={{ gap: 10 }}>
+                <button className="btn secondary" style={{ flex: 1, minHeight: 54, fontSize: 16, fontWeight: 900 }} onClick={() => setShowStairsSheet(true)}>
+                  🪜 SHKALLORE
+                </button>
+                <button className="btn secondary" style={{ flex: 1, minHeight: 54, fontSize: 16, fontWeight: 900 }} 
+                  onMouseDown={startPayHold} onMouseUp={endPayHold} onMouseLeave={cancelPayHold}
+                  onTouchStart={startPayHold} onTouchEnd={endPayHold}
+                >
+                  € PAGESA
+                </button>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <button className="btn secondary" style={{ width: '100%' }} onClick={() => {
+                  const focusPay = String(searchParams?.get('focus') || '').toLowerCase() === 'pay';
+                  setMsgKind((focusPay || showPaySheet) ? 'receipt' : 'start');
+                  setShowMsgSheet(true);
+                }}>
+                  📩 DËRGO MESAZH
+                </button>
+              </div>
+              <div className="tot-line">M² Total: <strong>{totalM2.toFixed(2)}</strong></div>
+              <div className="tot-line">Copë: <strong>{copeCount}</strong></div>
+              <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
+              <div className="tot-line" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 10, paddingTop: 10 }}>
+                Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong>
+              </div>
+              <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
+                Regjistru n&apos;ARKË: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong>
+              </div>
+              {currentDebt > 0 && <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{currentDebt.toFixed(2)} €</strong></div>}
+            </section>
+
+            {/* NOTES */}
+            <section className="card">
+              <h2 className="card-title">SHËNIME</h2>
+              <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </section>
+
+            <footer className="footer-bar">
+              <button className="btn secondary" onClick={() => setCurrentStep(4)}>◀ BACK</button>
+              <button className="btn primary" onClick={handleContinue} disabled={photoUploading || savingContinue}>
+                {savingContinue ? '⏳ DUKE RUJT...' : (isEdit ? '💾 RUAJ' : '💾 RUAJ / VAZHDO')}
+              </button>
+            </footer>
+          </>
+        )}
 
       {/* PAY SHEET */}
       {showPaySheet && (
