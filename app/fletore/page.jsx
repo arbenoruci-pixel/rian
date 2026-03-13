@@ -144,29 +144,54 @@ export default function FletorePage() {
 
   async function loadLatest(pinOverride) {
     setLoading(true);
-    setError(""); 
+    setError("");
     setNotice("");
     try {
       const qs = new URLSearchParams();
       const usePin = String(pinOverride ?? pin ?? "").trim();
       if (usePin) qs.set("pin", usePin);
-      
+
       const r = await fetch(`/api/backup/latest?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
-      
-      if (!r.ok || !j?.ok) throw new Error(j?.error || "FAILED");
-      const item = j.item;
-      
-      if (!item || !item?.payload) {
+
+      if (!r.ok || !j?.ok) {
+        throw new Error(j?.detail || j?.error || "FAILED_TO_LOAD_BACKUP");
+      }
+
+      const item = j?.item || j?.backup || null;
+
+      if (!item) {
+        setNotice("Nuk u gjet backup. Po ngarkohen të dhënat live.");
         await loadLiveData();
         setMeta(null);
         return;
       }
-      setMeta({ id: item.id, created_at: item.created_at, pin: item.pin });
-      setData(item.payload);
+
+      const payload = item?.payload || (item?.clients || item?.orders ? { clients: item.clients || [], orders: item.orders || [] } : null);
+
+      if (!payload) {
+        throw new Error("BACKUP_PAYLOAD_MISSING");
+      }
+
+      const payloadClients = Array.isArray(payload?.clients) ? payload.clients : [];
+      const payloadOrders = Array.isArray(payload?.orders) ? payload.orders : [];
+
+      setMeta({ id: item.id, created_at: item.created_at || item.generated_at, pin: item.pin });
+      setData({ ...payload, clients: payloadClients, orders: payloadOrders });
+
+      if (payloadOrders.length === 0) {
+        setNotice("Backup u lexua, por lista e porosive doli bosh. Kontrollo /api/backup/run dhe tabelën e backup-it.");
+      }
     } catch (e) {
-      await loadLiveData();
-      setMeta(null);
+      const msg = String(e?.message || e || "Gabim gjatë leximit të backup-it");
+      setError(`Backup failed: ${msg}`);
+      try {
+        await loadLiveData();
+        setMeta(null);
+      } catch (liveErr) {
+        const liveMsg = String(liveErr?.message || liveErr || "Gabim gjatë leximit live");
+        setError(`Backup failed: ${msg}. Live fallback failed: ${liveMsg}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -174,13 +199,24 @@ export default function FletorePage() {
 
   async function runNow() {
     setRunning(true);
+    setError("");
+    setNotice("");
     try {
       const qs = new URLSearchParams();
       if (pin) qs.set("pin", pin);
-      await fetch(`/api/backup/run?${qs.toString()}`, { method: "POST" });
+      const r = await fetch(`/api/backup/run?${qs.toString()}`, { method: "POST" });
+      const j = await r.json().catch(() => null);
+
+      if (!r.ok || !j?.ok) {
+        throw new Error(j?.detail || j?.error || "BACKUP_RUN_FAILED");
+      }
+
+      setNotice(`Backup u krijua me sukses. Porosi: ${j?.saved?.orders_cnt ?? 0}, Klientë: ${j?.saved?.clients_cnt ?? 0}`);
       await loadLatest();
     } catch (e) {
-      setError(e.message);
+      const msg = String(e?.message || e || "Gabim gjatë krijimit të backup-it");
+      setError(`Backup failed: ${msg}`);
+      if (typeof window !== "undefined") window.alert(`Backup failed: ${msg}`);
     } finally {
       setRunning(false);
     }
