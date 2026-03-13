@@ -1280,21 +1280,38 @@ export default function PranimiPage() {
       )}
       {/* DRAFTS SHEET */}
       {showDraftsSheet && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div className="payfs-title">TË PA PLOTSUARAT</div>
-            <button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button>
-          </div>
-          <div className="payfs-body">
-            {drafts.length === 0 ? <div style={{textAlign:'center', padding:20, color:'#666'}}>S'ka porosi të pambarura.</div> : drafts.map(d => (
-                <div key={d.id} style={{padding:12, borderBottom:'1px solid #333', display:'flex', justifyContent:'space-between'}}>
-                    <div onClick={() => loadDraft(d)} style={{cursor:'pointer', flex:1}}>
-                        <div style={{fontWeight:'bold'}}>{d.codeRaw || 'Pa Kod'}</div>
-                        <div style={{fontSize:12, color:'#888'}}>{d.name}</div>
-                    </div>
-                    <button onClick={() => deleteDraft(d.id)} style={{background:'none', border:'none', color:'red'}}>🗑</button>
-                </div>
-            ))}
+        <div className="draftsOverlay" onClick={() => setShowDraftsSheet(false)}>
+          <div className="draftsModal" onClick={(e) => e.stopPropagation()}>
+            <div className="draftsTop">
+              <div>
+                <div className="draftsTitle">TË PA PLOTSUARAT</div>
+                <div className="draftsSub">Zgjidh një draft për të vazhduar ose fshije nëse nuk të duhet më.</div>
+              </div>
+              <button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>✕</button>
+            </div>
+            <div className="draftsBody">
+              {drafts.length === 0 ? (
+                <div className="draftsEmpty">S'ka porosi të pambarura.</div>
+              ) : (
+                drafts.map((d) => (
+                  <div key={d.id} className="draftCardWrap">
+                    <button type="button" className="draftCard" onClick={() => loadDraft(d)}>
+                      <div className="draftCode">{d.codeRaw || 'PA KOD'}</div>
+                      <div className="draftName">{d.name || 'Pa emër klienti'}</div>
+                    </button>
+                    <button
+                      type="button"
+                      className="draftDelete"
+                      onClick={() => deleteDraft(d.id)}
+                      aria-label="Fshi draftin"
+                      title="Fshi draftin"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1418,6 +1435,18 @@ export default function PranimiPage() {
         .prefixOpt { padding: 12px; border-bottom: 1px solid #222; display: flex; justify-content: space-between; font-weight: 700; }
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9999; display: flex; alignItems: center; justifyContent: center; padding: 20px; }
         .modal-content { width: 100%; max-width: 420px; padding: 18px; border-radius: 18px; background: white; }
+        .draftsOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.82); z-index: 11050; display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .draftsModal { width: min(860px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: linear-gradient(180deg, #0b1220, #111827); border: 1px solid rgba(255,255,255,0.12); border-radius: 22px; box-shadow: 0 24px 80px rgba(0,0,0,0.45); padding: 18px; }
+        .draftsTop { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:14px; }
+        .draftsTitle { font-size: 18px; font-weight: 900; letter-spacing: .4px; }
+        .draftsSub { font-size: 12px; opacity: .72; margin-top: 4px; }
+        .draftsBody { display:flex; flex-direction:column; gap:12px; }
+        .draftsEmpty { text-align:center; padding:28px 16px; color:#94a3b8; background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:18px; }
+        .draftCardWrap { display:flex; gap:10px; align-items:stretch; }
+        .draftCard { flex:1; text-align:left; padding:16px; border-radius:18px; background: rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.10); color:#fff; cursor:pointer; }
+        .draftCode { color:#22c55e; font-weight:900; font-size:18px; line-height:1.15; }
+        .draftName { margin-top:8px; font-size:15px; font-weight:700; color:#e5e7eb; }
+        .draftDelete { width:52px; min-width:52px; border-radius:16px; border:1px solid rgba(255,255,255,0.10); background: rgba(239,68,68,0.14); color:#fecaca; font-size:22px; cursor:pointer; }
         .msgOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.82); z-index: 11000; display: flex; align-items: center; justify-content: center; padding: 16px; }
         .msgModal { width: min(760px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: linear-gradient(180deg, #0b1220, #111827); border: 1px solid rgba(255,255,255,0.12); border-radius: 22px; box-shadow: 0 24px 80px rgba(0,0,0,0.45); padding: 18px; }
         .msgModalTop { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
