@@ -153,8 +153,9 @@ export default function AuthGate({ children }) {
 
       if (isOffline) {
         if (!mountedRef.current || cancelled) return;
-        approvedRef.current = !!localCheck.ok;
-        setDeviceApproved(!!localCheck.ok);
+        const offlineFallbackOk = !!localCheck.ok || !!currentActor?.pin;
+        approvedRef.current = offlineFallbackOk;
+        setDeviceApproved(offlineFallbackOk);
         setCheckingDevice(false);
         setOfflineNoUser(false);
         setReady(true);
@@ -183,8 +184,11 @@ export default function AuthGate({ children }) {
         setReady(true);
       } catch {
         if (!mountedRef.current || cancelled) return;
-        setDeviceApproved(!!localCheck.ok);
+        const offlineFallbackOk = !!localCheck.ok || !!currentActor?.pin;
+        approvedRef.current = offlineFallbackOk;
+        setDeviceApproved(offlineFallbackOk);
         setCheckingDevice(false);
+        setOfflineNoUser(false);
         setReady(true);
       }
     }
