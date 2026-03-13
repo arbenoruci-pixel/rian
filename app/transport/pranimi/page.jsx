@@ -306,6 +306,10 @@ function buildDraftPayload(d = {}, scopeTid = '') {
     id: d.id,
     ts: Date.now(),
     transport_id: String(scopeTid || d?.transport_id || '').trim() || null,
+    addressDesc: d?.addressDesc ?? '',
+    gpsLat: d?.gpsLat ?? '',
+    gpsLng: d?.gpsLng ?? '',
+    clientPhotoUrl: d?.clientPhotoUrl ?? '',
   };
 }
 // ---------------- COMPONENT ----------------
@@ -711,7 +715,7 @@ export default function PranimiPage() {
       }
       if (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0') {
         // S’ka kod => ruaje si draft dhe mos e humb klientin
-        try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
+        try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
         try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
         alert('⚠️ S’MORI T-KOD. U RUAJT SI DRAFT. Provo prap kur të ketë lidhje.');
         setSavingContinue(false);
@@ -736,7 +740,7 @@ export default function PranimiPage() {
       }
       const order = {
           id: oid, ts: Date.now(),
-          client: { id: clientId, tcode: tcodeForClient, code_n: clientCodeN, name, phone: phonePrefix+phone, code: tcodeForClient, photoUrl: clientPhotoUrl, address: addressDesc, gps: { lat: gpsLat, lng: gpsLng } },
+          client: { id: clientId, tcode: tcodeForClient, code_n: clientCodeN, name, phone: phonePrefix+phone, code: tcodeForClient, photoUrl: clientPhotoUrl, address: addressDesc, gps: { lat: gpsLat || null, lng: gpsLng || null } },
           tepiha: tepihaRows, staza: stazaRows, shkallore: { qty: stairsQty, per: stairsPer, photoUrl: stairsPhotoUrl },
           pay: { m2: totalM2, euro: totalEuro, paid: clientPaid, rate: pricePerM2, arkaRecordedPaid },
           notes
@@ -771,7 +775,7 @@ export default function PranimiPage() {
           // Pra NUK guxojmë me e fut në INSERT/UPDATE (kthen error "cannot insert a non-DEFAULT value...").
           // Board e lexon transport_id nga kolona e gjeneruar, sepse ne e ruajmë gjithmonë te data.transport_id.
           status: isEdit ? editRowStatus : 'loaded', // ✅ FORCE KAMION (LOADED)
-          data: { ...order, transport_id: tid, created_by_pin: actor?.pin || null, created_by_role: actor?.role || null }
+          data: { ...order, transport_id: tid, created_by_pin: actor?.pin || null, created_by_role: actor?.role || null, gps_lat: gpsLat || null, gps_lng: gpsLng || null }
       };
       // In edit mode, keep original client_tcode/visit_nr (don't overwrite)
       if (isEdit) {
@@ -804,6 +808,7 @@ export default function PranimiPage() {
               addressDesc,
               gpsLat,
               gpsLng,
+              clientPhotoUrl,
               clientPaid,
               pricePerM2,
               notes,
@@ -892,6 +897,7 @@ export default function PranimiPage() {
       setTepihaRows(d.tepihaRows||[]); setStazaRows(d.stazaRows||[]); setClientPaid(d.clientPaid||0);
       setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
       setAddressDesc(d.addressDesc || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || '');
+      setClientPhotoUrl(d.clientPhotoUrl || '');
       setNotes(d.notes || '');
       setCurrentStep(1);
       setShowDraftsSheet(false);

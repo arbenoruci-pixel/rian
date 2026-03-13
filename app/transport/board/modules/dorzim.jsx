@@ -224,8 +224,8 @@ function DorzimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, se
       )}
 
       {toolsRow && (
-        <div style={ui.modalOverlay} onClick={() => { setNoShowOpen(false); setToolsRow(null); }}>
-          <div style={ui.toolsSheet} onClick={(e) => e.stopPropagation()}>
+        <div style={{ ...ui.modalOverlay, justifyContent: 'center', alignItems: 'center', padding: 16 }} onClick={() => { setNoShowOpen(false); setToolsRow(null); }}>
+          <div style={{ ...ui.toolsSheet, width: 'min(760px, 100%)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', borderRadius: 22 }} onClick={(e) => e.stopPropagation()}>
             <div style={ui.toolsHeader}>
               <div style={{ fontWeight: '900', fontSize: 18 }}>{getName(toolsRow)}</div>
               <div style={{ fontSize: 13, opacity: 0.7 }}>{getAddress(toolsRow)}</div>
@@ -276,29 +276,8 @@ function DorzimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, se
               </button>
             </div>
 
-            <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-              <button style={ui.btnSmall} onClick={() => sendMsg(toolsRow, 'eta30')}>30 MIN</button>
-              <button style={ui.btnSmall} onClick={() => sendMsg(toolsRow, 'eta20')}>20 MIN</button>
-              <button style={ui.btnSmall} onClick={() => sendMsg(toolsRow, 'eta10')}>10 MIN</button>
-              <button style={ui.btnSmall} onClick={() => sendMsg(toolsRow, 'door')}>TEK DERA</button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-              <button style={ui.btnSmall} onClick={() => setReminder(toolsRow.id, 10)}>⏰ 10</button>
-              <button style={ui.btnSmall} onClick={() => setReminder(toolsRow.id, 30)}>⏰ 30</button>
-              <button style={ui.btnSmall} onClick={() => clearReminder(toolsRow.id)}>⏰ HIQ</button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-              <button style={ui.btnSmall} onClick={() => { setAgreement(toolsRow.id, 'VJEN POSHTË'); }}>VJEN POSHTË</button>
-              <button style={ui.btnSmall} onClick={() => { setAgreement(toolsRow.id, 'TEK DERA'); }}>TEK DERA</button>
-              <button style={ui.btnSmall} onClick={() => { setAgreement(toolsRow.id, 'S\'ESHT N\'SHTËPI'); }}>S'ESHT</button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-              <button style={ui.btnSmall} onClick={() => sendMsg(toolsRow, 'wait5')}>PRIT 5</button>
-              <button style={ui.btnSmall} onClick={() => sendMsg(toolsRow, 'wait10')}>PRIT 10</button>
-              <button style={{ ...ui.btnSmall, background: 'rgba(255,59,48,0.18)', borderColor: 'rgba(255,59,48,0.35)' }} onClick={() => setNoShowOpen(true)}>NO-SHOW</button>
+            <div style={{ marginTop: 12, fontSize: 12, opacity: 0.76 }}>
+              Veprimet e dorëzimit hapen tash në ekran të plotë për klikim më të lehtë në telefon.
             </div>
 
             {noShowOpen && (
@@ -341,8 +320,8 @@ function DorzimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, se
       )}
 
       {showReturn && toolsRow && (
-        <div style={ui.modalOverlay} onClick={() => setShowReturn(false)}>
-          <div style={{ ...ui.toolsSheet, margin: 'auto', maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ ...ui.modalOverlay, justifyContent: 'center', alignItems: 'center', padding: 16 }} onClick={() => setShowReturn(false)}>
+          <div style={{ ...ui.toolsSheet, width: 'min(760px, 100%)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', borderRadius: 22 }} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>KTHIM NGA KLIENTI</div>
             <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 12 }}>{getName(toolsRow)} • {getCode(toolsRow)}</div>
 

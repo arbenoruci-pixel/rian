@@ -62,33 +62,7 @@ function rowAgingStyle(row) {
 
 function getRiplanAt(row) {
   const d = row?.data || row?.order || row || {};
-  
-  const routeTotals = useMemo(() => {
-    const list = Array.isArray(routeItems) ? routeItems : [];
-    return list.reduce((acc, it) => {
-      const t = getTotals(it);
-      acc.count += 1;
-      acc.pieces += Number(t.pieces || 0);
-      acc.m2 += Number(t.m2 || 0);
-      acc.total += Number(t.total || 0);
-      return acc;
-    }, { count: 0, pieces: 0, m2: 0, total: 0 });
-  }, [routeItems]);
-
-  const zoneSummary = useMemo(() => {
-    const list = Array.isArray(routeItems) ? routeItems : [];
-    const map = {};
-    for (const it of list) {
-      const z = parseZone(getAddress(it));
-      const t = getTotals(it);
-      if (!map[z]) map[z] = { count: 0, m2: 0 };
-      map[z].count += 1;
-      map[z].m2 += Number(t.m2 || 0);
-    }
-    return Object.entries(map).sort((a, b) => b[1].count - a[1].count);
-  }, [routeItems]);
-
-return (
+  return (
     row?.riplan_at ||
     row?.reschedule_at ||
     d?.riplan_at ||
@@ -125,6 +99,31 @@ function ReadyView({ items, loading, geo, onOpenModal, onBulkStatus, onGoDorzo }
 
   const [showBulk, setShowBulk] = useState(false);
   const [routeItems, setRouteItems] = useState([]);
+  const routeTotals = useMemo(() => {
+    const list = Array.isArray(routeItems) ? routeItems : [];
+    return list.reduce((acc, it) => {
+      const t = getTotals(it);
+      acc.count += 1;
+      acc.pieces += Number(t.pieces || 0);
+      acc.m2 += Number(t.m2 || 0);
+      acc.total += Number(t.total || 0);
+      return acc;
+    }, { count: 0, pieces: 0, m2: 0, total: 0 });
+  }, [routeItems]);
+
+  const zoneSummary = useMemo(() => {
+    const list = Array.isArray(routeItems) ? routeItems : [];
+    const map = {};
+    for (const it of list) {
+      const z = parseZone(getAddress(it));
+      const t = getTotals(it);
+      if (!map[z]) map[z] = { count: 0, m2: 0 };
+      map[z].count += 1;
+      map[z].m2 += Number(t.m2 || 0);
+    }
+    return Object.entries(map).sort((a, b) => b[1].count - a[1].count);
+  }, [routeItems]);
+
   const [toolsRow, setToolsRow] = useState(null);
   const [showRiplan, setShowRiplan] = useState(false);
   const [rDate, setRDate] = useState('');
@@ -253,9 +252,11 @@ function ReadyView({ items, loading, geo, onOpenModal, onBulkStatus, onGoDorzo }
 function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
   function openBulkMsg() { prepareActionItems(); setShowBulk(true); }
 
-  function openRiplanModal(row) {
+  async function openRiplanModal(row) {
     const at = getRiplanAt(row);
-    setRDate(toLocalDateValue(at) || toLocalDateValue(new Date()));
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setRDate(toLocalDateValue(at) || toLocalDateValue(tomorrow));
     setRTime(toLocalTimeValue(at) || '10:00');
     setRNote(getRiplanNote(row) || '');
     setShowRiplan(true);
@@ -303,7 +304,9 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
 
     setSavingRiplan(true);
     try {
+      if (onBulkStatus) await onBulkStatus([row.id], 'riplan');
       await updateTransportOrderById(row.id, {
+        status: 'riplan',
         reschedule_at: iso,
         reschedule_note:
           (((rRemind30 ? '[KUJTO 30] ' : '') + (rNote || '').trim()).trim() || null),
@@ -311,6 +314,7 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
 
       try { window.dispatchEvent(new CustomEvent('transport:refresh')); } catch {}
       setShowRiplan(false);
+      setToolsRow(null);
     } catch (e) {
       alert('Gabim: ' + (e?.message || e));
     } finally {
@@ -327,11 +331,21 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
 
   return (
     <>
-      <div style={{ padding: '0 16px 10px', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+      <div style={{ padding: '0 16px 10px', display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         {selectionMode ? (
           <>
             <button style={ui.btnSmall} onClick={() => { setSelectionMode(false); setSelectedIds(new Set()); }}>Anulo</button>
             <button style={ui.btnSmall} onClick={selectAll}>Zgjedh Krejt</button>
+            {(selectedIds?.size || 0) > 0 && (
+              <>
+                <button style={ui.btnSmall} onClick={() => { prepareActionItems(); setShowBulk(true); }}>
+                  DËRGO SMS KONFIRMIMI
+                </button>
+                <button style={ui.btnSmall} onClick={() => { prepareActionItems(); setShowRoute(true); }}>
+                  OPTIMIZO RRUGËN
+                </button>
+              </>
+            )}
           </>
         ) : (
           <button style={ui.btnSmall} onClick={() => setSelectionMode(true)}>Selekto</button>
@@ -369,7 +383,7 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
 
       <div style={ui.floatingBar}>
         <button style={ui.floatBtn} onClick={openRouteBuilder}><span style={{ fontSize: 20 }}>🚛</span><span style={{ fontSize: 10 }}>Ngarko</span></button>
-        <button style={ui.floatBtn} onClick={openBulkMsg}><span style={{ fontSize: 20 }}>💬</span><span style={{ fontSize: 10 }}>Njofto</span></button>
+        <button style={ui.floatBtn} onClick={openBulkMsg}><span style={{ fontSize: 20 }}>💬</span><span style={{ fontSize: 10 }}>SMS</span></button>
         <Link href="/transport/menu" style={ui.floatBtnLink}><span style={{ fontSize: 20 }}>☰</span><span style={{ fontSize: 10 }}>Menu</span></Link>
       </div>
 
@@ -382,7 +396,7 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
             </div>
             <div style={ui.toolsGrid}>
               <button style={ui.toolBtnBig} onClick={() => openMap(toolsRow)}><span style={{ fontSize: 22 }}>📍</span><span>MAPS</span></button>
-              <button style={ui.toolBtnBig} onClick={() => sendMsg(toolsRow, 'gati')}><span style={{ fontSize: 22 }}>💬</span><span>GATI</span></button>
+              <button style={ui.toolBtnBig} onClick={() => sendMsg(toolsRow, 'gati')}><span style={{ fontSize: 22 }}>💬</span><span>SMS</span></button>
               
               <button
                 style={{ ...ui.toolBtnBig, background: 'rgba(255,255,255,0.06)' }}
@@ -583,7 +597,7 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
             <div style={{ padding: 12, background: '#000', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:10 }}>
                 <button style={ui.miniBtnMid} onClick={askGpsOrigin}>📍 MERRE GPS</button>
-                <button style={ui.miniBtnMid} onClick={autoSortRoute}>⚡ AUTO SORT</button>
+                <button style={ui.miniBtnMid} onClick={autoSortRoute}>🧭 OPTIMIZO RRUGËN</button>
                 <button style={ui.miniBtnMid} onClick={() => setGpsOrigin(null)}>↩︎ RESET GPS</button>
               </div>
 
@@ -616,20 +630,29 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
                 </div>
               )}
 
-              <div style={{ marginTop:12, display:'flex', gap:10 }}>
+              <div style={{ marginTop:12, display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
                 <button
-                  style={{ ...ui.bulkBtn, background: '#0A84FF', flex: 1, fontWeight: 900 }}
+                  style={{ ...ui.bulkBtn, background: '#6D28D9', fontWeight: 900 }}
+                  onClick={() => {
+                    prepareActionItems();
+                    setShowRoute(false);
+                    setShowBulk(true);
+                  }}
+                >
+                  💬 DËRGO SMS KONFIRMIMI
+                </button>
+                <button
+                  style={{ ...ui.bulkBtn, background: '#0A84FF', fontWeight: 900 }}
                   onClick={async () => {
                     const ids = (routeItems || []).map(x => x.id).filter(Boolean);
                     if (!ids.length) return;
-                    // set NGARKIM (loaded)
                     if (onBulkStatus) await onBulkStatus(ids, 'loaded');
                     setShowRoute(false);
                   }}
                 >
-                  ✅ SET NGARKIM
+                  ✅ NGARKO
                 </button>
-                <button style={{ ...ui.bulkBtn, flex: 1 }} onClick={() => setShowRoute(false)}>✕ MBYLL</button>
+                <button style={{ ...ui.bulkBtn }} onClick={() => setShowRoute(false)}>✕ MBYLL</button>
               </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: 16, background: '#000' }}>
@@ -641,8 +664,8 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
                     <div style={{ fontSize: 12, color: '#888' }}>{getAddress(item)}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button style={ui.btnIcon} onClick={() => moveItem(idx, -1)}>▲</button>
-                    <button style={ui.btnIcon} onClick={() => moveItem(idx, 1)}>▼</button>
+                    <button style={ui.btnIcon} onClick={() => moveItem(idx, -1)}>⬆️</button>
+                    <button style={ui.btnIcon} onClick={() => moveItem(idx, 1)}>⬇️</button>
                     <button style={ui.btnMapIcon} onClick={() => openMap(item)}>📍</button>
                   </div>
                 </div>
@@ -658,7 +681,7 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
           <div style={ui.modalShell}>
             <div style={ui.modalTop}>
               <button style={ui.btnCloseModal} onClick={() => setShowBulk(false)}>✕ Mbylle</button>
-              <span style={{ fontWeight: 600 }}>Dërgo Njoftimet</span>
+              <span style={{ fontWeight: 600 }}>DËRGO SMS KONFIRMIMI</span>
               <div style={{ width: 60 }} />
             </div>
             <div style={{ padding: 16, flex: 1, overflowY: 'auto' }}>
@@ -671,7 +694,7 @@ function openRouteBuilder() { prepareActionItems(); setShowRoute(true); }
                       <div style={{ fontSize: 12, color: '#AAA' }}>{money(t.total)}€ • {getPhone(item)}</div>
                     </div>
                     <button style={ui.btnSend} onClick={(e) => { sendMsg(item, 'gati'); e.currentTarget.style.background = '#333'; e.currentTarget.innerText = 'U Dërgua'; }}>
-                      DËRGO 💬
+                      DËRGO SMS
                     </button>
                   </div>
                 );
