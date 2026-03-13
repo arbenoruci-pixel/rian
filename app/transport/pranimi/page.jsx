@@ -208,6 +208,74 @@ async function uploadPhoto(file, oid, key) {
 function chipStyleForVal(v) {
   return { background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontWeight: '700' };
 }
+
+function getSafeTransportActorScope() {
+  if (typeof window === 'undefined') return { role: 'UNKNOWN', pin: '', transport_id: '', name: '' };
+
+  const safeParse = (raw) => {
+    try { return raw ? JSON.parse(raw) : null; } catch { return null; }
+  };
+
+  try {
+    if (typeof getTransportContext === 'function') {
+      const ctx = getTransportContext();
+      if (ctx && (ctx.role || ctx.transport_id || ctx.transport_pin || ctx.pin)) {
+        return {
+          role: String(ctx.role || '').toUpperCase() || 'UNKNOWN',
+          pin: String(ctx.pin || ctx.transport_pin || '').trim(),
+          transport_id: String(ctx.transport_id || ctx.pin || ctx.transport_pin || '').trim(),
+          name: String(ctx.name || ctx.transport_name || '').trim(),
+        };
+      }
+    }
+  } catch {}
+
+  try {
+    if (typeof getTransportSession === 'function') {
+      const ts = getTransportSession();
+      if (ts?.transport_id) {
+        return {
+          role: 'TRANSPORT',
+          pin: String(ts.pin || ts.transport_pin || ts.transport_id || '').trim(),
+          transport_id: String(ts.transport_id || '').trim(),
+          name: String(ts.name || ts.transport_name || '').trim(),
+        };
+      }
+    }
+  } catch {}
+
+  try {
+    const rawTransport = localStorage.getItem('tepiha_transport_session_v1');
+    const t = safeParse(rawTransport);
+    if (t?.transport_id) {
+      return {
+        role: 'TRANSPORT',
+        pin: String(t.pin || t.transport_pin || t.transport_id || '').trim(),
+        transport_id: String(t.transport_id || '').trim(),
+        name: String(t.name || t.transport_name || '').trim(),
+      };
+    }
+  } catch {}
+
+  try {
+    const rawMain = localStorage.getItem('tepiha_session_v1');
+    const m = safeParse(rawMain);
+    const u = m?.user || m?.actor || m || null;
+    const role = String(u?.role || '').trim().toUpperCase();
+    const pin = String(u?.pin || '').trim();
+    if (role || pin) {
+      return {
+        role: role || 'UNKNOWN',
+        pin,
+        transport_id: role === 'TRANSPORT' ? pin : (pin ? `ADMIN_${pin}` : ''),
+        name: String(u?.name || '').trim(),
+      };
+    }
+  } catch {}
+
+  return { role: 'UNKNOWN', pin: '', transport_id: '', name: '' };
+}
+
 // Local Drafts Helpers
 function safeJsonParse(s, f) { try { return JSON.parse(s); } catch { return f; } }
 function loadDraftIds() { const raw = localStorage.getItem(DRAFT_LIST_KEY); return safeJsonParse(raw || '[]', []); }
@@ -404,8 +472,6 @@ export default function PranimiPage() {
     let alive = true;
     const resetFor = async (role, pin, transport_id) => {
       // Reset all form state so the new actor never inherits the previous actor's order.
-      setIsEdit(false);
-      setEditId(null);
       setClientQuery('');
       setClientHits([]);
       setName('');
@@ -1167,7 +1233,7 @@ export default function PranimiPage() {
           amount={giveNow}
           setAmount={(v) => {
             const n = Number(v || 0);
-            setGiveNow(n);
+            setClientGive(n);
           }}
           payChips={PAY_CHIPS}
           confirmText="KRYEJ PAGESËN"
