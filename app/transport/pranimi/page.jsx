@@ -1362,28 +1362,31 @@ export default function PranimiPage() {
       )}
       {/* MESSAGE SHEET */}
       {showReceiptSheet && (
-        <div className="payfs">
-          <div className="payfs-top">
-            <div className="payfs-title">RECITË E PAGESËS</div>
-            <button className="btn secondary" onClick={() => { setShowReceiptSheet(false); router.push('/transport/board'); }}>MBYLL</button>
-          </div>
-          <div className="payfs-body">
-            <div className="card" style={{marginTop:0}}>
-              <pre style={{color:'#CCC', fontSize:13, whiteSpace:'pre-wrap', lineHeight:1.4}}>{receiptText}</pre>
+        <div className="msgOverlay" onClick={() => { setShowReceiptSheet(false); router.push('/transport/board'); }}>
+          <div className="msgModal" onClick={(e) => e.stopPropagation()}>
+            <div className="msgModalTop">
+              <div>
+                <div className="msgModalTitle">RECITË E PAGESËS</div>
+                <div className="msgModalSub">Shpërndaje recitën nga këtu ose mbylle për t'u kthyer te lista.</div>
+              </div>
+              <button className="btn secondary" onClick={() => { setShowReceiptSheet(false); router.push('/transport/board'); }}>MBYLL</button>
             </div>
-            <div className="card">
-              <button className="btn secondary" style={{width:'100%', marginBottom:10}} onClick={() => {
+            <div className="msgPreview">
+              <pre style={{color:'#E5E7EB', fontSize:14, whiteSpace:'pre-wrap', lineHeight:1.55, margin:0}}>{receiptText}</pre>
+            </div>
+            <div className="msgActions">
+              <button className="btn secondary" onClick={() => {
                 try { navigator.clipboard?.writeText(receiptText); } catch(e){}
               }}>KOPJO</button>
-              <button className="btn secondary" style={{width:'100%', marginBottom:10}} onClick={() => {
+              <button className="btn secondary" onClick={() => {
                 const ph = sanitizePhone(phonePrefix + phone);
                 window.open(`https://wa.me/${ph}?text=${encodeURIComponent(receiptText)}`, '_blank');
               }}>WHATSAPP</button>
-              <button className="btn secondary" style={{width:'100%', marginBottom:10}} onClick={() => {
+              <button className="btn secondary" onClick={() => {
                 const ph = sanitizePhone(phonePrefix + phone);
                 window.open(`viber://chat?number=%2B${ph}`, '_blank');
               }}>VIBER</button>
-              <button className="btn secondary" style={{width:'100%'}} onClick={() => {
+              <button className="btn primary" onClick={() => {
                 const ph = sanitizePhone(phonePrefix + phone);
                 window.open(`sms:${ph}?&body=${encodeURIComponent(receiptText)}`, '_blank');
               }}>SMS</button>
