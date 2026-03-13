@@ -856,7 +856,6 @@ export default function TransportBoardPage() {
                             <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 1.45 }}>
                               RIPLAN e mban porosinë në listën e transportit derisa të kryhet dorëzimi.
                             </div>
-                            </div>
                           </div>
                         )}
                       </div>

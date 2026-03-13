@@ -1,10 +1,8 @@
 "use client";
-
 import { computeM2FromRows } from '@/lib/baseCodes';
 import { reserveTransportCode } from '@/lib/transportCodes';
 import { getOrAssignTransportClientCode, normalizePhoneDigits } from '@/lib/transport/clientCodes';
 import { upsertTransportClient } from '@/lib/transport/transportDb';
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -14,9 +12,7 @@ import { recordCashMove } from '@/lib/arkaCashSync';
 import PosModal from '@/components/PosModal';
 import { enqueueTransportOrder, syncNow } from '@/lib/syncManager';
 import { addTransportCollected } from '@/lib/transportArkaStore';
-
 const BUCKET = 'tepiha-photos';
-
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
 const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
@@ -24,7 +20,6 @@ const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
 const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 3.0;
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-
 const PREFIX_OPTIONS = [
   { flag: '🇽🇰', code: '+383', label: 'KOSOVË' },
   { flag: '🇦🇱', code: '+355', label: 'SHQIPËRI' },
@@ -33,14 +28,12 @@ const PREFIX_OPTIONS = [
   { flag: '🇩🇪', code: '+49',  label: 'GJERMANI' },
   { flag: '🇦🇹', code: '+43',  label: 'AUSTRI' },
 ];
-
 const DRAFT_LIST_KEY = 'transport_draft_orders_v1';
 const DRAFT_ITEM_PREFIX = 'transport_draft_order_';
 const COMPANY_PHONE_DISPLAY = '+383 44 735 312';
 const AUTO_MSG_KEY = 'transport_pranimi_auto_msg_after_save';
 const PRICE_KEY = 'transport_pranimi_price_per_m2';
 const OFFLINE_MODE_KEY = 'transport_offline_mode_v1';
-
 function normalizeTcode(raw) {
   if (!raw) return 'T0';
   const s = String(raw).trim();
@@ -55,14 +48,11 @@ const ACTIVE_CODE_KEY = 'transport_pranimi_active_code_v1';
 const CODE_LEASE_KEY = 'transport_code_lease_v1';
 const DRAFTS_FOLDER = 'transport_drafts';
 const SETTINGS_FOLDER = 'transport_settings';
-
 // ---------------- HELPERS ----------------
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
 function normDigits(s) { return String(s || '').replace(/\D+/g, ''); }
-
 function readCodeLease() { try { return JSON.parse(localStorage.getItem(CODE_LEASE_KEY)); } catch { return null; } }
 function writeCodeLease(tid, code) { try { localStorage.setItem(CODE_LEASE_KEY, JSON.stringify({ tid: String(tid), code: String(code), at: Date.now() })); } catch {} }
-
 async function getOrReserveTransportCode(tid) {
   const TID = String(tid || '').trim();
   if (!TID) return '';
@@ -72,7 +62,6 @@ async function getOrReserveTransportCode(tid) {
   if (c) writeCodeLease(TID, c);
   return c;
 }
-
 function readClientCodeMap(tid) {
   try {
     const key = `transport_client_code_map_v1_${String(tid || '')}`;
@@ -82,18 +71,15 @@ function readClientCodeMap(tid) {
     return {};
   }
 }
-
 async function searchClientsLive(transportId, q) {
   const tid = String(transportId || '').trim();
   const qq = String(q || '').trim();
   if (!qq) return [];
-
   const qLower = qq.toLowerCase();
   const qDigits = normalizePhoneDigits(qq);
   const isDigitsOnly = qDigits && qDigits === qq.replace(/\s+/g, '');
   const isTCode = /^t\d+$/i.test(qLower) || (qLower.startsWith('t') && normalizePhoneDigits(qLower.slice(1)).length > 0);
   const tDigits = isTCode ? normalizePhoneDigits(qLower.replace(/^t/i, '')) : '';
-
   const out = [];
   const seen = new Set();
   const push = (x) => {
@@ -107,7 +93,6 @@ async function searchClientsLive(transportId, q) {
     seen.add(key);
     out.push(x);
   };
-
   if (qDigits.length >= 3) {
     const { data, error } = await supabase
       .from('transport_clients')
@@ -115,7 +100,6 @@ async function searchClientsLive(transportId, q) {
       .ilike('phone_digits', `%${qDigits}%`)
       .order('updated_at', { ascending: false })
       .limit(12);
-
     if (!error) {
       (data || []).forEach((c) => {
         const digits = normalizePhoneDigits(c.phone_digits || c.phone || '');
@@ -126,7 +110,6 @@ async function searchClientsLive(transportId, q) {
       });
     }
   }
-
   if (isTCode && tDigits) {
     const { data, error } = await supabase
       .from('transport_clients')
@@ -134,7 +117,6 @@ async function searchClientsLive(transportId, q) {
       .ilike('tcode', `T${tDigits}%`)
       .order('updated_at', { ascending: false })
       .limit(12);
-
     if (!error) {
       (data || []).forEach((c) => {
         const digits = normalizePhoneDigits(c.phone_digits || c.phone || '');
@@ -145,7 +127,6 @@ async function searchClientsLive(transportId, q) {
       });
     }
   }
-
   if (tid && isDigitsOnly && qDigits.length >= 1 && qDigits.length <= 6) {
     const codeWanted = Number(qDigits);
     if (Number.isFinite(codeWanted) && codeWanted > 0) {
@@ -171,7 +152,6 @@ async function searchClientsLive(transportId, q) {
       }
     }
   }
-
   if (qq.length >= 2) {
     const { data, error } = await supabase
       .from('transport_clients')
@@ -179,7 +159,6 @@ async function searchClientsLive(transportId, q) {
       .ilike('name', `%${qq}%`)
       .order('updated_at', { ascending: false })
       .limit(12);
-
     if (!error) {
       (data || []).forEach((c) => {
         const digits = normalizePhoneDigits(c.phone_digits || c.phone || '');
@@ -190,7 +169,6 @@ async function searchClientsLive(transportId, q) {
       });
     }
   }
-
   try {
     let qOrders = supabase
       .from('transport_orders')
@@ -198,11 +176,9 @@ async function searchClientsLive(transportId, q) {
       .eq('transport_id', tid)
       .order('created_at', { ascending: false })
       .limit(20);
-
     if (isTCode && tDigits) qOrders = qOrders.ilike('client_tcode', `T${tDigits}%`);
     else if (qDigits.length >= 3) qOrders = qOrders.ilike('client_phone', `%${qDigits}%`);
     else if (qq.length >= 2) qOrders = qOrders.ilike('client_name', `%${qq}%`);
-
     const { data: ordersData, error: ordersErr } = await qOrders;
     if (!ordersErr) {
       (ordersData || []).forEach((row) => {
@@ -217,10 +193,8 @@ async function searchClientsLive(transportId, q) {
       });
     }
   } catch {}
-
   return out.slice(0, 20);
 }
-
  
 async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
@@ -231,11 +205,9 @@ async function uploadPhoto(file, oid, key) {
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
 }
-
 function chipStyleForVal(v) {
   return { background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontWeight: '700' };
 }
-
 // Local Drafts Helpers
 function safeJsonParse(s, f) { try { return JSON.parse(s); } catch { return f; } }
 function loadDraftIds() { const raw = localStorage.getItem(DRAFT_LIST_KEY); return safeJsonParse(raw || '[]', []); }
@@ -268,7 +240,6 @@ function buildDraftPayload(d = {}, scopeTid = '') {
     transport_id: String(scopeTid || d?.transport_id || '').trim() || null,
   };
 }
-
 // ---------------- COMPONENT ----------------
 export default function PranimiPage() {
   const router = useRouter();
@@ -280,21 +251,16 @@ export default function PranimiPage() {
   // ✅ FIX: Default status 'loaded' (Kamion) - Porosia e re shkon direkt në Kamion
   const createStatus = (newStatusRaw === 'pickup' || newStatusRaw === 'loaded') ? newStatusRaw : 'loaded';
   const [editRowStatus, setEditRowStatus] = useState('loaded');
-
   const [phonePrefix, setPhonePrefix] = useState('+383');
   const [showPrefixSheet, setShowPrefixSheet] = useState(false);
-
   const [me, setMe] = useState(null);
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [savingContinue, setSavingContinue] = useState(false);
-
   const [oid, setOid] = useState('');
   const [codeRaw, setCodeRaw] = useState('');
-
   const [drafts, setDrafts] = useState([]);
   const [showDraftsSheet, setShowDraftsSheet] = useState(false);
-
   // Client Data
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -302,28 +268,24 @@ export default function PranimiPage() {
   const [addressDesc, setAddressDesc] = useState('');
   const [gpsLat, setGpsLat] = useState('');
   const [gpsLng, setGpsLng] = useState('');
-
   const [clientQuery, setClientQuery] = useState('');
   const [clientHits, setClientHits] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(false);
   const [clientId, setClientId] = useState(null);
   const [clientCode, setClientCode] = useState(null);
   const [clientTcode, setClientTcode] = useState('');
-
   // Rows
   const [tepihaRows, setTepihaRows] = useState([]);
   const [stazaRows, setStazaRows] = useState([]);
   const [stairsQty, setStairsQty] = useState(0);
   const [stairsPer, setStairsPer] = useState(SHKALLORE_M2_PER_STEP_DEFAULT);
   const [stairsPhotoUrl, setStairsPhotoUrl] = useState('');
-
   // Pay
   const [pricePerM2, setPricePerM2] = useState(PRICE_DEFAULT);
   const [clientPaid, setClientPaid] = useState(0);
   const [arkaRecordedPaid, setArkaRecordedPaid] = useState(0);
   const [payMethod, setPayMethod] = useState('CASH');
   const [notes, setNotes] = useState('');
-
   // Sheets
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
@@ -336,29 +298,23 @@ export default function PranimiPage() {
   const [priceTmp, setPriceTmp] = useState(PRICE_DEFAULT);
   const [payAdd, setPayAdd] = useState(0);
   const [clientGive, setClientGive] = useState(0); // KLIENTI DHA
-
   const [offlineMode, setOfflineMode] = useState(false);
   const [netState, setNetState] = useState({ ok: true, reason: '' });
   const [currentStep, setCurrentStep] = useState(1);
-
   // ADMIN/DISPATCH can create transport orders without being a transport actor.
   // Prevent leaking orders to a driver just because a stale transport session exists.
   const [actor, setActor] = useState(null); // { role, pin }
   const [assignTid, setAssignTid] = useState(''); // transport_id to write into order.data.transport_id
   const [transportUsers, setTransportUsers] = useState([]); // [{pin,name}]
-
   // Detect actor/session changes (logout/login) without full page reload.
   // Safari/PWA can keep this page alive; without this, a new PIN can inherit the previous actor's code/oid.
   const actorSigRef = useRef('');
-
   const draftTimer = useRef(null);
   const payHoldTimerRef = useRef(null);
   const payHoldTriggeredRef = useRef(false);
-
   function getCurrentDraftTransportId() {
     return String((actor?.role === 'TRANSPORT' ? me?.transport_id : assignTid) || '').trim();
   }
-
   // --- INIT ---
   useEffect(() => {
     (async () => {
@@ -367,7 +323,6 @@ export default function PranimiPage() {
         const pin = String(scope?.pin || '').trim();
         const actorObj = { role, pin };
         setActor(actorObj);
-
         let transportScope = null;
         let adminTidLocal = null;
         if (role === 'TRANSPORT') {
@@ -380,7 +335,6 @@ export default function PranimiPage() {
           adminTidLocal = adminTid;
           setMe({ transport_id: null, role, pin });
           setAssignTid(adminTid);
-
           try {
             const { data } = await supabase
               .from('users')
@@ -398,7 +352,6 @@ export default function PranimiPage() {
         }
         
         try { setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); } catch {}
-
         if (isEdit) {
             const { data: row } = await supabase.from('transport_orders').select('*').eq('id', editId).single();
             if (row) {
@@ -422,7 +375,6 @@ export default function PranimiPage() {
                 setPricePerM2(d.pay?.rate||PRICE_DEFAULT); 
                 setArkaRecordedPaid(d.pay?.arkaRecordedPaid||0);
                 setNotes(d.notes||'');
-
                 if (searchParams?.get('focus') === 'pay') { setTimeout(() => setShowPaySheet(true), 200); }
             }
         } else {
@@ -445,13 +397,11 @@ export default function PranimiPage() {
         setCreating(false);
     })();
   }, []);
-
   // --- SESSION WATCH (PIN SWITCH) ---
   useEffect(() => {
     // Polling is the most reliable option because localStorage changes in the same tab
     // do not fire the 'storage' event.
     let alive = true;
-
     const resetFor = async (role, pin, transport_id) => {
       // Reset all form state so the new actor never inherits the previous actor's order.
       setIsEdit(false);
@@ -476,12 +426,10 @@ export default function PranimiPage() {
       setArkaRecordedPaid(0);
       setShowPaySheet(false);
       setShowDraftsSheet(false);
-
       const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
         ? crypto.randomUUID()
         : `ord_${Date.now()}`;
       setOid(id);
-
       // Reserve / reuse code for the new actor scope.
       try {
         const c = await getOrReserveTransportCode(String(transport_id || ''));
@@ -491,26 +439,21 @@ export default function PranimiPage() {
         try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
       }
     };
-
     const tick = async () => {
       if (!alive) return;
       const scope = getSafeTransportActorScope();
       const role = String(scope?.role || 'UNKNOWN').toUpperCase();
       const pin = String(scope?.pin || '').trim();
       const tid = String(scope?.transport_id || (pin ? `ADMIN_${pin}` : 'ADMIN')).trim();
-
       const sig = `${role}|${pin}|${tid}`;
       if (!actorSigRef.current) {
         actorSigRef.current = sig;
         return;
       }
-
       if (sig !== actorSigRef.current) {
         actorSigRef.current = sig;
-
         // Update actor scope + reset order session.
         setActor({ role: role || 'UNKNOWN', pin });
-
         if (role === 'TRANSPORT') {
           if (!scope?.transport_id) { router.push('/transport/menu'); return; }
           setMe({ ...scope, role: 'TRANSPORT', pin });
@@ -523,17 +466,14 @@ export default function PranimiPage() {
         }
       }
     };
-
     const t = setInterval(() => { tick(); }, 1200);
     return () => { alive = false; clearInterval(t); };
   }, [router]);
-
   // Search Live (TEL / KOD / T-CODE / EMËR)
   useEffect(() => {
       const q = String(clientQuery || '').trim();
       const digits = normalizePhoneDigits(q);
       const isT = /^t\d+$/i.test(q) || (q.toLowerCase().startsWith('t') && normalizePhoneDigits(q.slice(1)).length > 0);
-
       // allow:
       // - phone (>=3 digits)
       // - client code (any digits)
@@ -541,7 +481,6 @@ export default function PranimiPage() {
       // - name (>=2 chars)
       const should = (digits.length >= 1) || isT || (q.length >= 2);
       if (!should) { setClientHits([]); return; }
-
       setClientsLoading(true);
       // Search should follow the current assignment scope.
       // Transport drivers search within their own transport_id.
@@ -549,7 +488,6 @@ export default function PranimiPage() {
       const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
       searchClientsLive(tid, q).then(r => { setClientHits(r); setClientsLoading(false); });
   }, [clientQuery, me?.transport_id, assignTid, actor?.role]);
-
   // Autosave Draft
   useEffect(() => {
       if(creating || !oid) return;
@@ -574,7 +512,6 @@ export default function PranimiPage() {
           if(name || phone) { upsertDraftLocal(d); }
       }, 800);
   }, [creating, oid, name, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, notes, clientPaid, pricePerM2, actor?.role, me?.transport_id, assignTid]);
-
   const totalM2 = useMemo(() => computeM2FromRows(tepihaRows, stazaRows, stairsQty, stairsPer), [tepihaRows, stazaRows, stairsQty, stairsPer]);
   const totalEuro = useMemo(() => Number((totalM2 * pricePerM2).toFixed(2)), [totalM2, pricePerM2]);
   const copeCount = tepihaRows.reduce((a,b)=>a+(Number(b.qty)||0),0) + stazaRows.reduce((a,b)=>a+(Number(b.qty)||0),0) + (Number(stairsQty)>0?1:0);
@@ -583,7 +520,6 @@ export default function PranimiPage() {
   const payNow = Math.min(remainingDue, Math.max(0, Number(payAdd || 0)));
   const giveNow = Math.max(0, Number(clientGive || 0));
   const changeDue = Math.max(0, giveNow - payNow);
-
   // When opening the payment sheet: prefill "Klienti dha" with exact remaining due (BASE behavior)
   useEffect(() => {
       if(!showPaySheet) return;
@@ -592,7 +528,6 @@ export default function PranimiPage() {
       setPayAdd(remainingDue);
       setClientGive(remainingDue);
   }, [showPaySheet, remainingDue]);
-
   function addRow(kind) {
       const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
       const p = kind === 'tepiha' ? 't' : 's';
@@ -614,7 +549,6 @@ export default function PranimiPage() {
       if(url) handleRowChange(kind, id, 'photoUrl', url);
       setPhotoUploading(false);
   }
-
   async function handleStairsPhotoChange(file) {
       if(!file || !oid) return;
       setPhotoUploading(true);
@@ -622,7 +556,6 @@ export default function PranimiPage() {
       if(url) setStairsPhotoUrl(url);
       setPhotoUploading(false);
   }
-
   function applyChip(kind, val) {
       const rows = kind === 'tepiha' ? tepihaRows : stazaRows;
       const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
@@ -634,11 +567,9 @@ export default function PranimiPage() {
           else setter([...rows, { id: `${p}${Date.now()}`, m2: String(val), qty: '1', photoUrl: '' }]);
       }
   }
-
   async function handleGetGPS() {
       navigator.geolocation.getCurrentPosition(p => { setGpsLat(p.coords.latitude); setGpsLng(p.coords.longitude); });
   }
-
   // ✅ FIX: MESAZHI I GATSHËM PËR SMS/VIBER
   function buildStartMessage() {
       const code = normalizeTcode(codeRaw);
@@ -656,10 +587,8 @@ export default function PranimiPage() {
         `ose do të aplikohet një tarifë ekstra për ta risjellë.`,
         ``,
         `Tel: ${COMPANY_PHONE_DISPLAY}`
-      ].join('
-');
+      ].join('\n');
   }
-
   function buildReceiptMessage() {
       const paid = Number(clientPaid || 0);
       const debt = Math.max(0, Number(totalEuro || 0) - paid);
@@ -673,11 +602,9 @@ export default function PranimiPage() {
         `Tel: ${COMPANY_PHONE_DISPLAY}`,
       ].join('\n');
   }
-
   function buildCurrentMessage() {
       return msgKind === 'receipt' ? buildReceiptMessage() : buildStartMessage();
   }
-
   // ✅ FIX: RUAJTJA -> KAMION -> MESAZH
   async function handleContinue() {
       if(!name) return alert("Shkruaj emrin!");
@@ -686,15 +613,12 @@ export default function PranimiPage() {
       // - ADMIN/DISPATCH: selected driver tid OR ADMIN_<pin>
       const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
       if(!tid) return alert("S'je i kyçur (PIN)!");
-
       setSavingContinue(true);
-
       // 1) Upsert transport client (transport-only client book)
       const phoneFull = sanitizePhone(phonePrefix + phone);
       const phoneDigits = normalizePhoneDigits(phoneFull);
       const clientCodeN = getOrAssignTransportClientCode(tid, phoneDigits);
       let tcodeForClient = String((clientTcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim();
-
       // Nëse nuk kemi T-KOD (p.sh. lease/pool ra), provoj edhe 1 herë me e rezervu.
       if (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0') {
         try {
@@ -705,7 +629,6 @@ export default function PranimiPage() {
           }
         } catch {}
       }
-
       if (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0') {
         // S’ka kod => ruaje si draft dhe mos e humb klientin
         try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
@@ -714,7 +637,6 @@ export default function PranimiPage() {
         setSavingContinue(false);
         return;
       }
-
       let clientId = null;
       try {
         const r = await upsertTransportClient({
@@ -740,7 +662,6 @@ export default function PranimiPage() {
           notes
       };
       
-
       // Visit number (how many times this client has had an order)
       let visitNr = 1;
       try {
@@ -758,7 +679,6 @@ export default function PranimiPage() {
         }
       } catch {}
       if (!Number.isFinite(visitNr) || visitNr < 1) visitNr = 1;
-
       const payload = {
           id: oid, 
           code_str: tcodeForClient, 
@@ -773,13 +693,11 @@ export default function PranimiPage() {
           status: isEdit ? editRowStatus : 'loaded', // ✅ FORCE KAMION (LOADED)
           data: { ...order, transport_id: tid, created_by_pin: actor?.pin || null, created_by_role: actor?.role || null }
       };
-
       // In edit mode, keep original client_tcode/visit_nr (don't overwrite)
       if (isEdit) {
         delete payload.client_tcode;
         delete payload.visit_nr;
       }
-
       try {
         // ✅ Robust Outbox: persist PENDING first, then attempt immediate sync.
         // DB triggers will auto-mark pool codes as USED only when INSERT/UPSERT succeeds.
@@ -816,30 +734,25 @@ export default function PranimiPage() {
           setSavingContinue(false);
       }
   }
-
   async function applyPayAndClose() {
       // "KLIENTI DHA" (clientGive) -> system computes "SOT PAGUAN" (payNow) and "KTHIM" (changeDue)
       const paid = Number(payNow || 0);
       const gave = Number(giveNow || 0);
       const change = Number(changeDue || 0);
-
       // Nothing to save
       if (!(paid > 0) && !(gave > 0)) {
           setShowPaySheet(false);
           return;
       }
-
       // OPTIMISTIC UI: përditëso menjëherë totals
       if (paid > 0) {
           const newVal = Number((clientPaid + paid).toFixed(2));
           setClientPaid(newVal);
-
           if (payMethod === 'CASH') {
               const newArka = Number((arkaRecordedPaid + paid).toFixed(2));
               setArkaRecordedPaid(newArka);
           }
       }
-
       // Receipt text (simple)
       const debtAfter = Math.max(0, Number((totalEuro - (clientPaid + paid)).toFixed(2)));
       const receipt = [
@@ -856,12 +769,10 @@ export default function PranimiPage() {
       ].join('\n');
       setReceiptText(receipt);
       setShowReceiptSheet(true);
-
       // Close payment sheet immediately
       setShowPaySheet(false);
       setPayAdd(0);
       setClientGive(0);
-
       // Background network work (mos blloko UI)
       void (async () => {
         try {
@@ -894,7 +805,6 @@ export default function PranimiPage() {
         } catch(e) {}
       })();
   }
-
   // --- DRAFTS ---
   function openDrafts() { setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); setShowDraftsSheet(true); }
   function loadDraft(d) {
@@ -907,7 +817,6 @@ export default function PranimiPage() {
       setShowDraftsSheet(false);
   }
   function deleteDraft(id) { removeDraftLocal(id); setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); }
-
   // --- LONG PRESS PRICE ---
   function startPayHold() { payHoldTriggeredRef.current = false; if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); payHoldTimerRef.current = setTimeout(() => { payHoldTriggeredRef.current = true; openPriceEditor(); }, 1200); }
   function endPayHold() { if (payHoldTimerRef.current) clearTimeout(payHoldTimerRef.current); if (!payHoldTriggeredRef.current) setShowPaySheet(true); payHoldTriggeredRef.current = false; }
@@ -918,19 +827,15 @@ export default function PranimiPage() {
       if(v>0) setPricePerM2(v);
       setShowPriceSheet(false);
   }
-
   if (creating) return <div className="wrap"><p style={{textAlign:'center', paddingTop:30}}>Duke u hapur...</p></div>;
-
   const totalSteps = 5;
   const stepPct = (currentStep / totalSteps) * 100;
-
   return (
     <div className="wrap">
         <header className="header-row">
             <div><h1 className="title">PRANIMI</h1><div className="subtitle">KRIJO POROSI</div></div>
             <div className="code-badge"><span className="badge">KODI: {normalizeTcode(codeRaw)}</span></div>
         </header>
-
         {/* ADMIN/DISPATCH: choose which transport driver this order belongs to (or keep ADMIN-only) */}
         {actor?.role !== 'TRANSPORT' && (
           <section style={{marginTop: 10}}>
@@ -966,15 +871,12 @@ export default function PranimiPage() {
             </div>
           </section>
         )}
-
         {/* --- DRAFTS BUTTON --- */}
         <section style={{marginTop: 10}}>
             <button className="btn secondary" style={{width:'100%', padding:'12px 14px', borderRadius:18}} onClick={openDrafts}>
                 📝 TË PA PLOTSUARAT {drafts.length>0 ? `(${drafts.length})` : ''}
             </button>
         </section>
-
-
         <section className="card" style={{marginTop:16, padding:'14px 14px 12px'}}>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:10}}>
             <div>
@@ -1019,7 +921,6 @@ export default function PranimiPage() {
             })}
           </div>
         </section>
-
         {currentStep === 1 && (
           <>
             {/* --- KLIENTI (SMART CARD STYLE) --- */}
@@ -1036,7 +937,6 @@ export default function PranimiPage() {
                                   key={c.id || i}
                                   style={{padding: '10px 0', borderBottom: '1px solid #333', fontSize: 14, color: '#DDD'}}
                                   onClick={() => {
-
                                     setName(c.name);
                                     const digits = normalizePhoneDigits(c.phone_digits || c.phone);
                                     if (digits) {
@@ -1089,7 +989,6 @@ export default function PranimiPage() {
                     </div>
                 </div>
             </section>
-
             <footer className="footer-bar">
               <button className="btn secondary" onClick={() => router.push('/transport/menu')}>↩ MENU</button>
               <button className="btn primary" onClick={() => setCurrentStep(2)} disabled={!String(name || '').trim()}>
@@ -1098,7 +997,6 @@ export default function PranimiPage() {
             </footer>
           </>
         )}
-
         {currentStep === 2 && (
           <>
             <section className="card" style={{marginTop:16}}>
@@ -1133,14 +1031,12 @@ export default function PranimiPage() {
                 )}
               </div>
             </section>
-
             <footer className="footer-bar">
               <button className="btn secondary" onClick={() => setCurrentStep(1)}>◀ BACK</button>
               <button className="btn primary" onClick={() => setCurrentStep(3)}>NEXT ▶</button>
             </footer>
           </>
         )}
-
         {currentStep === 3 && (
           <>
             {/* TEPIHA */}
@@ -1170,14 +1066,12 @@ export default function PranimiPage() {
                 <button className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button>
               </div>
             </section>
-
             <footer className="footer-bar">
               <button className="btn secondary" onClick={() => setCurrentStep(2)}>◀ BACK</button>
               <button className="btn primary" onClick={() => setCurrentStep(4)}>NEXT ▶</button>
             </footer>
           </>
         )}
-
         {currentStep === 4 && (
           <>
             {/* STAZA */}
@@ -1207,14 +1101,12 @@ export default function PranimiPage() {
                 <button className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button>
               </div>
             </section>
-
             <footer className="footer-bar">
               <button className="btn secondary" onClick={() => setCurrentStep(3)}>◀ BACK</button>
               <button className="btn primary" onClick={() => setCurrentStep(5)}>NEXT ▶</button>
             </footer>
           </>
         )}
-
         {currentStep === 5 && (
           <>
             {/* UTIL */}
@@ -1250,13 +1142,11 @@ export default function PranimiPage() {
               </div>
               {currentDebt > 0 && <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{currentDebt.toFixed(2)} €</strong></div>}
             </section>
-
             {/* NOTES */}
             <section className="card">
               <h2 className="card-title">SHËNIME</h2>
               <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </section>
-
             <footer className="footer-bar">
               <button className="btn secondary" onClick={() => setCurrentStep(4)}>◀ BACK</button>
               <button className="btn primary" onClick={handleContinue} disabled={photoUploading || savingContinue}>
@@ -1265,7 +1155,6 @@ export default function PranimiPage() {
             </footer>
           </>
         )}
-
       {/* PAY SHEET */}
       {showPaySheet && (
         <PosModal
@@ -1288,7 +1177,6 @@ export default function PranimiPage() {
           footerNote={`SOT PAGUAN: ${Number(payNow || 0).toFixed(2)}€ • KTHIM: ${Number(changeDue || 0).toFixed(2)}€`}
         />
       )}
-
       {/* SHKALLORE SHEET */}
       {showStairsSheet && (
         <div className="modal-overlay" onClick={() => setShowStairsSheet(false)}>
@@ -1324,7 +1212,6 @@ export default function PranimiPage() {
           </div>
         </div>
       )}
-
       {/* DRAFTS SHEET */}
       {showDraftsSheet && (
         <div className="payfs">
@@ -1345,7 +1232,6 @@ export default function PranimiPage() {
           </div>
         </div>
       )}
-
       {/* PREFIX SHEET */}
       {showPrefixSheet && (
         <div className="modalCenterOverlay" onClick={() => setShowPrefixSheet(false)}>
@@ -1358,7 +1244,6 @@ export default function PranimiPage() {
             </div>
         </div>
       )}
-
       {/* PRICE SHEET */}
       {showPriceSheet && (
         <div className="payfs">
@@ -1372,7 +1257,6 @@ export default function PranimiPage() {
           </div>
         </div>
       )}
-
       {/* MESSAGE SHEET */}
       {showReceiptSheet && (
         <div className="payfs">
@@ -1404,7 +1288,6 @@ export default function PranimiPage() {
           </div>
         </div>
       )}
-
       {/* MESSAGE MODAL FULL SCREEN */}
       {showMsgSheet && (
         <div className="msgOverlay" onClick={() => router.push('/transport/board')}>
@@ -1416,11 +1299,9 @@ export default function PranimiPage() {
               </div>
               <button className="btn secondary" onClick={() => router.push('/transport/board')}>MBYLL</button>
             </div>
-
             <div className="msgPreview">
               <pre style={{color:'#E5E7EB', fontSize:14, whiteSpace:'pre-wrap', lineHeight:1.55, margin:0}}>{buildCurrentMessage()}</pre>
             </div>
-
             <div className="msgActions">
               <button className="btn secondary" onClick={() => {
                 const txt = buildCurrentMessage();
