@@ -50,7 +50,7 @@ export default function TransportBoardPage() {
 
   // RIPLAN panel (clock on truck icon)
   const [showRiplan, setShowRiplan] = useState(false);
-  const [riplanPick, setRiplanPick] = useState({ id: '', whenLocal: '', note: '' });
+  const [riplanPick, setRiplanPick] = useState({ id: '', whenLocal: '', note: '', open: false });
 
   // -----------------------------
   // Init session + GPS
@@ -599,7 +599,7 @@ export default function TransportBoardPage() {
                 style={ui.btnCloseModal}
                 onClick={() => {
                   setShowRiplan(false);
-                  setRiplanPick({ id: '', whenLocal: '', note: '' });
+                  setRiplanPick({ id: '', whenLocal: '', note: '', open: false });
                 }}
               >
                 ✕ Mbylle
@@ -677,6 +677,7 @@ export default function TransportBoardPage() {
                               id: it.id,
                               whenLocal: whenLocal || '',
                               note: note || '',
+                              open: false,
                             })}
                             style={{
                               border: '1px solid rgba(255,255,255,0.16)',
@@ -689,12 +690,36 @@ export default function TransportBoardPage() {
                               minWidth: 90,
                             }}
                           >
-                            {picked ? 'ZGJEDHUR' : 'ZGJIDH'}
+                            {picked ? (riplanPick.open ? 'RIPLAN AKTIV' : 'ZGJEDHUR') : 'ZGJIDH'}
                           </button>
                         </div>
 
                         {picked && (
                           <div style={{ marginTop: 10 }}>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                              <button
+                                type="button"
+                                onClick={() => setRiplanPick((p) => ({ ...p, open: !p.open }))}
+                                style={{
+                                  border: '1px solid rgba(255,255,255,0.16)',
+                                  background: riplanPick.open ? 'rgba(255,180,0,0.18)' : 'rgba(255,255,255,0.06)',
+                                  color: 'rgba(255,255,255,0.95)',
+                                  borderRadius: 12,
+                                  padding: '10px 12px',
+                                  fontWeight: 1000,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {riplanPick.open ? 'MBYLLE OPSIONET E RIPLANIT' : 'HAP OPSIONET E RIPLANIT'}
+                              </button>
+                            </div>
+
+                            {!riplanPick.open ? (
+                              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 1.45 }}>
+                                Opsionet e riplanifikimit hapen vetëm pasi të klikosh "HAP OPSIONET E RIPLANIT".
+                              </div>
+                            ) : (
+                              <>
                             <div style={{
                               display: 'flex',
                               gap: 8,
@@ -856,6 +881,8 @@ export default function TransportBoardPage() {
                             <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 1.45 }}>
                               RIPLAN e mban porosinë në listën e transportit derisa të kryhet dorëzimi.
                             </div>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
