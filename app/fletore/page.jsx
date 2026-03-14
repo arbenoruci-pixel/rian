@@ -139,7 +139,7 @@ export default function FletorePage() {
     }));
 
     setMeta({ mode: "LIVE" });
-    setData({ clients, orders, live: true });
+    setData({ clients, orders, live: true, generated_at: new Date().toISOString() });
   }
 
   async function loadLatest(pinOverride) {
@@ -151,6 +151,7 @@ export default function FletorePage() {
       const usePin = String(pinOverride ?? pin ?? "").trim();
       if (usePin) qs.set("pin", usePin);
 
+      qs.set('live', '1');
       const r = await fetch(`/api/backup/latest?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json();
 
@@ -161,7 +162,7 @@ export default function FletorePage() {
       const item = j?.item || j?.backup || null;
 
       if (!item) {
-        setNotice("Nuk u gjet backup. Po ngarkohen të dhënat live.");
+        setNotice("Nuk u gjet snapshot backup. Po ngarkohen të dhënat live.");
         await loadLiveData();
         setMeta(null);
         return;
@@ -180,17 +181,17 @@ export default function FletorePage() {
       setData({ ...payload, clients: payloadClients, orders: payloadOrders });
 
       if (payloadOrders.length === 0) {
-        setNotice("Backup u lexua, por lista e porosive doli bosh. Kontrollo /api/backup/run dhe tabelën e backup-it.");
+        setNotice("Fletorja po përdor gjendjen LIVE të databazës. Nëse lista del bosh, kontrollo tabelën orders/clients.");
       }
     } catch (e) {
       const msg = String(e?.message || e || "Gabim gjatë leximit të backup-it");
-      setError(`Backup failed: ${msg}`);
+      setError(`Live fetch failed: ${msg}`);
       try {
         await loadLiveData();
         setMeta(null);
       } catch (liveErr) {
         const liveMsg = String(liveErr?.message || liveErr || "Gabim gjatë leximit live");
-        setError(`Backup failed: ${msg}. Live fallback failed: ${liveMsg}`);
+        setError(`Live fetch failed: ${msg}. Fallback failed: ${liveMsg}`);
       }
     } finally {
       setLoading(false);
@@ -215,7 +216,7 @@ export default function FletorePage() {
       await loadLatest();
     } catch (e) {
       const msg = String(e?.message || e || "Gabim gjatë krijimit të backup-it");
-      setError(`Backup failed: ${msg}`);
+      setError(`Live fetch failed: ${msg}`);
       if (typeof window !== "undefined") window.alert(`Backup failed: ${msg}`);
     } finally {
       setRunning(false);
@@ -307,7 +308,7 @@ export default function FletorePage() {
         <div style={{ borderBottom: "2px solid #000", marginBottom: 20, paddingBottom: 10 }}>
           <h1 style={{ margin: 0, fontSize: "24px", fontWeight: "900", textTransform: "uppercase" }}>SISTEMI BACKUP</h1>
           <p style={{ margin: "5px 0", fontSize: "14px", color: "#666" }}>
-            Data e gjenerimit: <b>{data?.generated_at ? fmtDate(data.generated_at) : "LIVE TANI"}</b>
+            Burimi: <b>{data?.live ? "LIVE DB" : (meta?.mode || "SNAPSHOT")}</b> · Data: <b>{data?.generated_at ? fmtDate(data.generated_at) : "LIVE TANI"}</b>
           </p>
         </div>
 
@@ -324,7 +325,7 @@ export default function FletorePage() {
             placeholder="PIN"
             style={{ padding: "10px", width: "80px", borderRadius: 5, border: "1px solid #ccc" }}
           />
-          <button onClick={loadLatest} style={{ padding: "10px 15px", cursor: "pointer", fontWeight: "bold" }}>RIFRESKO</button>
+          <button onClick={loadLatest} style={{ padding: "10px 15px", cursor: "pointer", fontWeight: "bold" }}>RIFRESKO LIVE</button>
           <button onClick={runNow} disabled={running} style={{ padding: "10px 15px", backgroundColor: "#000", color: "#fff", cursor: "pointer", fontWeight: "bold", border: "none", borderRadius: 4 }}>
             {running ? "..." : "RUAJ TANI"}
           </button>
