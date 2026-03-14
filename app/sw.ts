@@ -54,7 +54,6 @@ const WARM_URLS = [
   '/',
   '/login',
   '/offline.html',
-  '/doctor',
   '/pranimi',
   '/pastrimi',
   '/gati',

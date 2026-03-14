@@ -66,9 +66,7 @@ function isPublicPath(pathname) {
     pathname === "/login" ||
     pathname.startsWith("/login/") ||
     pathname === "/transport/login" ||
-    pathname.startsWith("/transport/login") ||
-    pathname === "/doctor" ||
-    pathname.startsWith("/doctor/")
+    pathname.startsWith("/transport/login")
   ) {
     return true;
   }

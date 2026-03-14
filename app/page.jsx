@@ -93,10 +93,6 @@ export default function HomePage() {
     const qRaw = String(q || '').trim();
     const qLower = qRaw.toLowerCase();
     
-    if (qLower === 'doctor' || qLower === '/doctor') {
-      router.push('/doctor');
-      return;
-    }
     if (qLower === 'offline' || qLower === '/offline' || qLower === 'offline.html' || qLower === '/offline.html') {
       router.push('/offline.html');
       return;

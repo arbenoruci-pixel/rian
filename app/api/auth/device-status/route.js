@@ -19,15 +19,12 @@ export async function POST(req) {
       return NextResponse.json({ ok: false, error: 'MISSING_FIELDS' }, { status: 400 });
     }
 
-    if (pin === '2380' || role === 'ADMIN') {
-      return NextResponse.json({ ok: true, approved: true, actor: { pin, role: 'ADMIN', name: 'Mjeshtri', device_id } });
-    }
 
     const supabase = getAdminClient();
     if (!supabase) return NextResponse.json({ ok: false, error: 'SERVER_NOT_CONFIGURED' }, { status: 500 });
 
     const { data: user, error: uerr } = await supabase
-      .from('tepiha_users')
+      .from('users')
       .select('id, pin, role, name, is_active')
       .eq('pin', pin)
       .maybeSingle();
@@ -45,11 +42,12 @@ export async function POST(req) {
 
     if (derr) return NextResponse.json({ ok: false, error: derr.message }, { status: 500 });
 
-    const approved = !!dev?.is_approved;
+    const userRole = String(user.role || '').toUpperCase();
+    const approved = userRole === 'ADMIN' ? true : !!dev?.is_approved;
     return NextResponse.json({
       ok: true,
       approved,
-      actor: { pin: user.pin, role: String(user.role || '').toUpperCase(), name: user.name || '', user_id: user.id, device_id },
+      actor: { pin: user.pin, role: userRole, name: user.name || '', user_id: user.id, device_id },
     });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });

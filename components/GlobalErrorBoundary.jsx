@@ -28,12 +28,6 @@ export default class GlobalErrorBoundary extends React.Component {
     this.setState({ hasError: false, msg: "" });
   };
 
-  goDoctor = () => {
-    try {
-      window.location.href = "/doctor";
-    } catch {}
-  };
-
   render() {
     if (!this.state.hasError) return this.props.children;
 
@@ -69,20 +63,6 @@ export default class GlobalErrorBoundary extends React.Component {
             }}
           >
             TRY AGAIN
-          </button>
-          <button
-            onClick={this.goDoctor}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 12,
-              border: "1px solid rgba(255,255,255,0.2)",
-              background: "rgba(59,130,246,0.16)",
-              color: "#fff",
-              fontWeight: 900,
-              letterSpacing: 1,
-            }}
-          >
-            SHIKO DOCTOR
           </button>
           <button
             onClick={() => window.location.reload()}

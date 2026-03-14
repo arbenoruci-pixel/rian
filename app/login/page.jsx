@@ -129,9 +129,6 @@ function LoginContent() {
           <h1 className="title">TEPIHA</h1>
           <p className="subtitle">LOG IN</p>
         </div>
-        <a className="badge" href="/doctor">
-          DOCTOR
-        </a>
       </div>
 
       <div className="card">

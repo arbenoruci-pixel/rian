@@ -3,16 +3,46 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
-function readUser() {
+function readJson(key) {
   try {
-    const raw =
-      localStorage.getItem('CURRENT_USER_DATA') ||
-      localStorage.getItem('tepiha_user') ||
-      localStorage.getItem('user');
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
+}
+
+function readUser() {
+  const direct = readJson('CURRENT_USER_DATA') || readJson('tepiha_user') || readJson('user');
+  if (direct && typeof direct === 'object') {
+    return {
+      ...direct,
+      name: direct.name || direct.username || '',
+      role: String(direct.role || '').toUpperCase() || '',
+    };
+  }
+
+  const session = readJson('tepiha_session_v1');
+  const actor = session?.actor || session?.user || null;
+  if (actor && typeof actor === 'object') {
+    return {
+      ...actor,
+      name: actor.name || actor.username || '',
+      role: String(actor.role || '').toUpperCase() || '',
+    };
+  }
+
+  const transport = readJson('tepiha_transport_session_v1');
+  if (transport && typeof transport === 'object') {
+    return {
+      ...transport,
+      name: transport.transport_name || transport.name || '',
+      role: String(transport.role || 'TRANSPORT').toUpperCase(),
+      pin: transport.transport_pin || transport.pin || '',
+    };
+  }
+
+  return null;
 }
 
 export default function SessionDock() {
@@ -53,11 +83,6 @@ export default function SessionDock() {
     localStorage.removeItem('CURRENT_USER_DATA');
     localStorage.removeItem('tepiha_session_v1');
     router.push('/login');
-  }
-
-  function goDoctor() {
-    router.push('/doctor');
-    setIsOpen(false);
   }
 
   return (
@@ -121,26 +146,6 @@ export default function SessionDock() {
             <div style={{ fontSize: '14px', fontWeight: '900', color: '#fff', letterSpacing: '0.05em' }}>{fullName}</div>
             <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: '700', marginTop: '2px' }}>ROLI: {role}</div>
           </div>
-
-          <button
-            onClick={goDoctor}
-            style={{
-              background: 'rgba(59, 130, 246, 0.15)',
-              color: '#60a5fa',
-              border: '1px solid rgba(59, 130, 246, 0.3)',
-              padding: '10px',
-              borderRadius: '10px',
-              fontWeight: '800',
-              fontSize: '12px',
-              cursor: 'pointer',
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            🛠️ SISTEMI (DOC)
-          </button>
 
           <button
             onClick={handleLogout}

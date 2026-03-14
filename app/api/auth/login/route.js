@@ -34,21 +34,12 @@ export async function POST(req) {
       );
     }
 
-    if (pin === '2380') {
-      return attachDeviceCookie(
-        NextResponse.json({
-          ok: true,
-          actor: { pin: '2380', role: 'ADMIN', name: 'Mjeshtri', device_id }
-        }),
-        device_id
-      );
-    }
 
     const supabase = getAdminClient();
     if (!supabase) return attachDeviceCookie(NextResponse.json({ ok: false, error: 'SERVER_NOT_CONFIGURED' }, { status: 500 }), device_id);
 
     const { data: user, error: uerr } = await supabase
-      .from('tepiha_users')
+      .from('users')
       .select('id, pin, role, name, is_active')
       .eq('pin', pin)
       .maybeSingle();
