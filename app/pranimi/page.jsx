@@ -39,6 +39,11 @@ const AUTO_MSG_KEY = 'pranimi_auto_msg_after_save';
 const PRICE_KEY = 'pranimi_price_per_m2';
 const OFFLINE_MODE_KEY = 'tepiha_offline_mode_v1';
 const OFFLINE_QUEUE_KEY = 'tepiha_offline_queue_v1';
+const LS_BASE_EPOCH_KEY = 'tepiha_base_epoch_v1';
+const LS_BASE_POOL_PREFIX = 'base_code_pool:';
+const LS_BASE_USED_QUEUE_PREFIX = 'base_code_used_queue:';
+const LS_BASE_ORDER_CODE_PREFIX = 'base_order_code:';
+const APP_META_KEY = 'global';
 const DRAFTS_FOLDER = 'drafts';
 const SETTINGS_FOLDER = 'settings';
 const LOCK_MINUTES_AFTER_INFO = 60 * 24 * 365 * 10;
@@ -193,6 +198,62 @@ function safeJsonParse(s, fallback) {
     return JSON.parse(s);
   } catch {
     return fallback;
+  }
+}
+
+async function fetchBaseDbEpoch() {
+  try {
+    const { data, error } = await supabase
+      .from('app_meta')
+      .select('db_epoch')
+      .eq('key', APP_META_KEY)
+      .maybeSingle();
+    if (error) throw error;
+    const n = Number(data?.db_epoch || 0);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  } catch {
+    return null;
+  }
+}
+
+function clearPranimiLocalDraftsAndCodeState(pin = '') {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const p = String(pin || '').trim();
+    const toRemove = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (!k) continue;
+      if (
+        k === DRAFT_LIST_KEY ||
+        k.startsWith(DRAFT_ITEM_PREFIX) ||
+        k.startsWith(LS_BASE_ORDER_CODE_PREFIX) ||
+        (p && k === `${LS_BASE_POOL_PREFIX}${p}`) ||
+        (p && k === `${LS_BASE_USED_QUEUE_PREFIX}${p}`)
+      ) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach((k) => {
+      try { window.localStorage.removeItem(k); } catch {}
+    });
+  } catch {}
+}
+
+async function ensureFreshPranimiEpoch(pin = '') {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    const dbEpoch = await fetchBaseDbEpoch();
+    if (!dbEpoch) return false;
+    const localEpoch = Number(window.localStorage.getItem(LS_BASE_EPOCH_KEY) || '0');
+    if (!localEpoch || localEpoch !== dbEpoch) {
+      clearPranimiLocalDraftsAndCodeState(pin);
+      try { window.localStorage.setItem(LS_BASE_EPOCH_KEY, String(dbEpoch)); } catch {}
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -428,6 +489,7 @@ export default function PranimiPage() {
   const [offlineMode, setOfflineMode] = useState(false);
   const [netState, setNetState] = useState({ ok: true, reason: '' });
   const [showOfflinePrompt, setShowOfflinePrompt] = useState(false);
+  const [epochReady, setEpochReady] = useState(false);
 
   const RESET_ON_SHOW_KEY = 'tepiha_pranimi_reset_on_show_v1';
 
@@ -508,11 +570,38 @@ export default function PranimiPage() {
     try {
       const init = loadOfflineModeInit();
       setOfflineMode(init);
-      (async () => {
+    } catch {}
+
+    let alive = true;
+
+    (async () => {
+      try {
+        const activePin = actor?.pin || actor?.pinCode || actor?.id || '2380';
+        const epochChanged = await ensureFreshPranimiEpoch(activePin);
+        if (!alive) return;
+
+        if (epochChanged) {
+          try { setDrafts([]); } catch {}
+          try { setOid(''); } catch {}
+          try { setCodeRaw(''); } catch {}
+          try { setName(''); } catch {}
+          try { setPhone(''); } catch {}
+          try { setClientPhotoUrl(''); } catch {}
+          try { setTepihaRows([]); } catch {}
+          try { setStazaRows([]); } catch {}
+          try { setStairsQty(0); } catch {}
+          try { setStairsPer(SHKALLORE_M2_PER_STEP_DEFAULT); } catch {}
+          try { setStairsPhotoUrl(''); } catch {}
+          try { setClientPaid(0); } catch {}
+          try { setArkaRecordedPaid(0); } catch {}
+          try { setNotes(''); } catch {}
+          try { setShowDraftsSheet(false); } catch {}
+        }
+
         try {
           if (typeof navigator !== 'undefined' && navigator.onLine) {
             try {
-              await ensureBasePool(actor?.pin || actor?.pinCode || actor?.id || '2380');
+              await ensureBasePool(activePin);
             } catch {}
             try { localStorage.removeItem(OFFLINE_MODE_KEY); } catch {}
             try { setOfflineMode(false); } catch {}
@@ -520,9 +609,12 @@ export default function PranimiPage() {
             try { setNetState({ ok: true, reason: null }); } catch {}
           }
         } catch {}
-      })();
-      try { if (!oid) { void resetForNewOrder(); } } catch {}
-    } catch {}
+
+        try { if (!oid) { await resetForNewOrder(); } } catch {}
+      } finally {
+        if (alive) setEpochReady(true);
+      }
+    })();
 
     try {
       const need = sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1';
@@ -542,8 +634,6 @@ export default function PranimiPage() {
       } catch {}
     };
     document.addEventListener('visibilitychange', onVis);
-
-    let alive = true;
 
     async function run() {
       const s = await checkConnectivity();
@@ -771,6 +861,7 @@ export default function PranimiPage() {
   }, [clientQuery, clientsIndex]);
 
   useEffect(() => {
+    if (!epochReady) return;
     (async () => {
       try { await refreshDrafts(); } catch {}
 
@@ -798,7 +889,7 @@ export default function PranimiPage() {
         setEtaText(text || (cached > DAILY_CAPACITY_M2 ? 'GATI DITËN E 3-TË (MBASNESËR)' : 'GATI DITËN E 2-TË (NESËR)'));
       } catch {}
     })();
-  }, []);
+  }, [epochReady]);
 
   useEffect(() => {
     try { router?.prefetch?.('/pastrimi'); } catch {}
