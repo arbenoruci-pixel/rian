@@ -5,7 +5,7 @@ import {
   reserveSharedCode,
   ensureBasePool,
   markCodeUsed,
-  releaseLocksForCode,
+
 } from '@/lib/baseCodes';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -965,7 +965,7 @@ export default function PranimiPage() {
       const n = Number(normalizeCode(codeRaw));
       if (Number.isFinite(n) && n > 0) {
         try { await markCodeUsed(n, oid); } catch {}
-        try { await releaseLocksForCode(String(n)); } catch {}
+        try { // removed releaseLocksForCode); } catch {}
       }
     } catch {}
   }
@@ -1342,7 +1342,7 @@ export default function PranimiPage() {
         try {
           const codeToFinalize = order?.client?.code;
           if (codeToFinalize !== null && codeToFinalize !== undefined && String(codeToFinalize).trim() !== '') {
-            await releaseLocksForCode(codeToFinalize);
+            // removed releaseLocksForCode
           }
         } catch {}
       })();
