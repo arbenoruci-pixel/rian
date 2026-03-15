@@ -713,7 +713,7 @@ export default function PranimiPage() {
     setShowWizard(true);
   }
   function closeWizard() { setShowWizard(false); }
-  function wizNext() { setWizStep((s) => Math.min(3, s + 1)); }
+  function wizNext() { setWizStep((s) => Math.min(5, s + 1)); }
   function wizBack() { setWizStep((s) => Math.max(1, s - 1)); }
 
   async function refreshDrafts() {
@@ -964,7 +964,7 @@ export default function PranimiPage() {
       const n = Number(normalizeCode(codeRaw));
       if (Number.isFinite(n) && n > 0) {
         try { await markCodeUsed(n, oid); } catch {}
-      }
+}
     } catch {}
   }
 
@@ -1340,7 +1340,7 @@ export default function PranimiPage() {
         try {
           const codeToFinalize = order?.client?.code;
           if (codeToFinalize !== null && codeToFinalize !== undefined && String(codeToFinalize).trim() !== '') {
-          }
+}
         } catch {}
       })();
 
@@ -1782,39 +1782,64 @@ KOMPANIA JONI`;
       )}
 
       {showWizard ? (
-        <div className="wiz-backdrop" onClick={closeWizard}>
-          <div className="wiz-card" onClick={(e) => e.stopPropagation()}>
-            <div className="wiz-top">
-              <div className="wiz-title">KLIENTI — WIZARD</div>
+        <div className="wiz-backdrop" onClick={closeWizard} style={{ background:'rgba(0,0,0,.72)', backdropFilter:'blur(6px)' }}>
+          <div className="wiz-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760, width:'min(96vw,760px)', background:'#111', border:'1px solid rgba(255,255,255,.1)', borderRadius:24, boxShadow:'0 30px 60px rgba(0,0,0,.35)', color:'#fff' }}>
+            <div className="wiz-top" style={{ borderBottom:'1px solid rgba(255,255,255,.08)' }}>
+              <div>
+                <div className="wiz-title" style={{ color:'#fff' }}>PRANIMI — WIZARD</div>
+                <div style={{ fontSize:12, opacity:.7, marginTop:4 }}>HAPI {wizStep} NGA 5</div>
+              </div>
               <button type="button" className="wiz-x" onClick={closeWizard}>✕</button>
             </div>
-            <div className="wiz-steps">
-              <div className={`wiz-dot ${wizStep === 1 ? 'on' : ''}`}>1</div>
-              <div className={`wiz-dot ${wizStep === 2 ? 'on' : ''}`}>2</div>
-              <div className={`wiz-dot ${wizStep === 3 ? 'on' : ''}`}>3</div>
+            <div style={{ padding:'12px 16px 0' }}>
+              <div style={{ height:8, borderRadius:999, background:'rgba(255,255,255,.08)', overflow:'hidden' }}>
+                <div style={{ width:`${(wizStep/5)*100}%`, height:'100%', background:'linear-gradient(90deg,#22c55e,#16a34a)', transition:'width .2s ease' }} />
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8, marginTop:10 }}>
+                {[1,2,3,4,5].map((n)=> (
+                  <div key={n} style={{ textAlign:'center', fontSize:11, fontWeight:800, letterSpacing:'.08em', opacity:wizStep===n?1:.55, color:wizStep>=n?'#fff':'rgba(255,255,255,.55)' }}>
+                    {n===1?'KLIENT':n===2?'TEPIHA':n===3?'STAZA':n===4?'SHKALLORE': 'PËRMBLEDHJE'}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="wiz-body">
+            <div className="wiz-body" style={{ paddingTop:16 }}>
               {wizStep === 1 ? (
                 <div>
-                  <div className="wiz-h">HAPI 1 — KLIENTI</div>
-                  <div className="row" style={{ gap: 10, marginTop: 8 }}>
-                    <div className="pill on">KLIENTI I RI</div>
-                    <button type="button" className="pill" onClick={() => { closeWizard(); setTimeout(() => { try { document.getElementById('clientSearchInput')?.focus(); } catch {} }, 180); }}>KLIENTI (KËRKO)</button>
-                  </div>
-                  <div className="field-group">
-                    <label className="label">EMRI & MBIEMRI</label>
-                    <div className="row" style={{ alignItems: 'center', gap: 10 }}>
-                      <input className="input" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1 }} />
-                      {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini" /> : null}
-                      <label className="camera-btn" title="FOTO KLIENTI" style={{ marginLeft: 2 }}>📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} /></label>
+                  <section style={{ padding:0, overflow:'hidden', background:'#111', marginTop:0 }}>
+                    <div style={{ background:'#1C1C1E', padding:'10px 14px', borderBottom:'1px solid rgba(255,255,255,.05)' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:10, background:'rgba(255,255,255,.08)', borderRadius:10, padding:'8px 12px' }}>
+                        <span style={{ fontSize:16, opacity:.5 }}>🔍</span>
+                        <input id="clientSearchInput" style={{ background:'transparent', border:'none', color:'#fff', fontSize:15, width:'100%', outline:'none' }} placeholder="KËRKO: TEL • KOD • EMËR" value={clientQuery} onChange={e => setClientQuery(e.target.value)} />
+                      </div>
+                      {clientsLoading ? <div style={{ fontSize:10, opacity:.7, marginTop:6 }}>DUKE NGARKUAR KLIENTËT...</div> : null}
+                      {clientHits.length > 0 && (
+                        <div style={{ marginTop:8, maxHeight:180, overflow:'auto' }}>
+                          {clientHits.map((c, i) => (
+                            <div key={c.id || i} style={{ padding:'10px 0', borderBottom:'1px solid rgba(255,255,255,0.06)', cursor:'pointer' }} onClick={() => { if (c.name) setName(String(c.name)); setPhone(String(c.phone || '').replace(/\D/g,'')); setClientQuery(''); setClientHits([]); }}>
+                              <div style={{ display:'flex', justifyContent:'space-between', gap:10 }}>
+                                <div style={{ fontWeight:900, color:'#fff' }}>{String(c.code || '')} • {String(c.name || '').toUpperCase()}</div>
+                                <div style={{ opacity:.85, color:'#fff' }}>{String(c.phonePrefix || '')}{String(c.phone || '')}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    {clientPhotoUrl ? <button type="button" className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 8 }} onClick={() => setClientPhotoUrl('')}>🗑️ FSHI FOTO</button> : null}
+                  </section>
+                  <div className="field-group" style={{ marginTop:14 }}>
+                    <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>EMRI & MBIEMRI</label>
+                    <div className="row" style={{ alignItems:'center', gap:10 }}>
+                      <input className="input" value={name} onChange={(e) => setName(e.target.value)} style={{ flex:1, background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
+                      {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini" /> : null}
+                      <label className="camera-btn" title="FOTO KLIENTI" style={{ marginLeft:2 }}>📷<input type="file" accept="image/*" style={{ display:'none' }} onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} /></label>
+                    </div>
                   </div>
                   <div className="field-group">
-                    <label className="label">TELEFONI</label>
+                    <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>TELEFONI</label>
                     <div className="row">
-                      <input className="input small" value={phonePrefix} readOnly />
-                      <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                      <input className="input small" value={phonePrefix} readOnly style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
+                      <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
                     </div>
                   </div>
                 </div>
@@ -1822,123 +1847,134 @@ KOMPANIA JONI`;
 
               {wizStep === 2 ? (
                 <div>
-                  <div className="wiz-h">HAPI 2 — FOTOT</div>
-                  <div className="wiz-tabs">
-                    <button type="button" className={`wiz-tab ${wizTab === 'TEPIHA' ? 'on' : ''}`} onClick={() => setWizTab('TEPIHA')}>TEPIHA</button>
-                    <button type="button" className={`wiz-tab ${wizTab === 'STAZA' ? 'on' : ''}`} onClick={() => setWizTab('STAZA')}>STAZA</button>
-                    <button type="button" className={`wiz-tab ${wizTab === 'SHKALLORE' ? 'on' : ''}`} onClick={() => setWizTab('SHKALLORE')}>SHKALLORE</button>
+                  <div className="wiz-h" style={{ color:'#fff' }}>HAPI 2 — TEPIHA</div>
+                  <div className="chip-row modern">
+                    {TEPIHA_CHIPS.map((v) => (
+                      <button key={`ws_t_${v}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('tepiha', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button>
+                    ))}
                   </div>
-
-                  {wizTab === 'TEPIHA' ? (
-                    <div>
-                      <div className="chip-row modern">
-                        {TEPIHA_CHIPS.map((v) => (
-                          <button key={`w_t_${v}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('tepiha', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button>
-                        ))}
+                  {tepihaRows.map((row) => (
+                    <div className="piece-row" key={`ws_tepiha_${row.id}`}>
+                      <div className="row">
+                        <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
+                        <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
+                        <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display:'none' }} onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} /></label>
                       </div>
-                      {tepihaRows.map((row) => (
-                        <div className="piece-row" key={`w_tepiha_${row.id}`}>
-                          <div className="row">
-                            <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
-                            <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
-                            <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} /></label>
-                          </div>
-                          {row.photoUrl ? (
-                            <div style={{ marginTop: 8 }}>
-                              <img src={row.photoUrl} className="photo-thumb" alt="" />
-                              <button type="button" className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => handleRowChange('tepiha', row.id, 'photoUrl', '')}>🗑️ FSHI FOTO</button>
-                            </div>
-                          ) : null}
+                      {row.photoUrl ? (
+                        <div style={{ marginTop:8 }}>
+                          <img src={row.photoUrl} className="photo-thumb" alt="" />
+                          <button type="button" className="btn secondary" style={{ display:'block', fontSize:10, padding:'4px 8px', marginTop:4 }} onClick={() => handleRowChange('tepiha', row.id, 'photoUrl', '')}>🗑️ FSHI FOTO</button>
                         </div>
-                      ))}
-                      <div className="row btn-row">
-                        <button type="button" className="btn secondary" onClick={() => addRow('tepiha')}>+ RRESHT</button>
-                        <button type="button" className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button>
-                      </div>
+                      ) : null}
                     </div>
-                  ) : null}
-
-                  {wizTab === 'STAZA' ? (
-                    <div>
-                      <div className="chip-row modern">
-                        {STAZA_CHIPS.map((v) => (
-                          <button key={`w_s_${v}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('staza', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button>
-                        ))}
-                      </div>
-                      {stazaRows.map((row) => (
-                        <div className="piece-row" key={`w_staza_${row.id}`}>
-                          <div className="row">
-                            <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
-                            <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
-                            <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} /></label>
-                          </div>
-                          {row.photoUrl ? (
-                            <div style={{ marginTop: 8 }}>
-                              <img src={row.photoUrl} className="photo-thumb" alt="" />
-                              <button type="button" className="btn secondary" style={{ display: 'block', fontSize: 10, padding: '4px 8px', marginTop: 4 }} onClick={() => handleRowChange('staza', row.id, 'photoUrl', '')}>🗑️ FSHI FOTO</button>
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
-                      <div className="row btn-row">
-                        <button type="button" className="btn secondary" onClick={() => addRow('staza')}>+ RRESHT</button>
-                        <button type="button" className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {wizTab === 'SHKALLORE' ? (
-                    <div>
-                      <div className="field-group">
-                        <label className="label">SHKALLORE — COPË</label>
-                        <div className="chip-row modern">
-                          {SHKALLORE_QTY_CHIPS.map((n) => (
-                            <button key={`w_q_${n}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsQty(Number(n)); }} style={chipStyleForVal(2.5, false)}>{n}</button>
-                          ))}
-                        </div>
-                        <input className="input" type="number" value={stairsQty} onChange={(e) => setStairsQty(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="p.sh. 20" />
-                      </div>
-                      <div className="field-group">
-                        <label className="label">SHKALLORE — m² PËR COPË</label>
-                        <div className="chip-row modern">
-                          {SHKALLORE_PER_CHIPS.map((n) => (
-                            <button key={`w_p_${n}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsPer(Number(n)); }} style={chipStyleForVal(3.0, false)}>{Number(n).toFixed(2)}</button>
-                          ))}
-                        </div>
-                        <input className="input" type="number" value={stairsPer} onChange={(e) => setStairsPer(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="p.sh. 0.30" />
-                      </div>
-                      <div className="field-group">
-                        <label className="label">FOTO SHKALLORE</label>
-                        <div className="row" style={{ alignItems: 'center', gap: 10 }}>
-                          <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>
-                          {stairsPhotoUrl ? <img src={stairsPhotoUrl} className="photo-thumb" alt="" style={{ height: 54, width: 78, objectFit: 'cover' }} /> : <div style={{ fontSize: 11, opacity: 0.7 }}>PA FOTO</div>}
-                          {stairsPhotoUrl ? <button type="button" className="btn secondary" style={{ marginLeft: 'auto', fontSize: 10, padding: '6px 10px' }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI</button> : null}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
+                  ))}
+                  <div className="row btn-row">
+                    <button type="button" className="btn secondary" onClick={() => addRow('tepiha')}>+ RRESHT</button>
+                    <button type="button" className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button>
+                  </div>
                 </div>
               ) : null}
 
               {wizStep === 3 ? (
                 <div>
-                  <div className="wiz-h">HAPI 3 — GATI</div>
-                  <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.4 }}>
+                  <div className="wiz-h" style={{ color:'#fff' }}>HAPI 3 — STAZA</div>
+                  <div className="chip-row modern">
+                    {STAZA_CHIPS.map((v) => (
+                      <button key={`ws_s_${v}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('staza', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button>
+                    ))}
+                  </div>
+                  {stazaRows.map((row) => (
+                    <div className="piece-row" key={`ws_staza_${row.id}`}>
+                      <div className="row">
+                        <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
+                        <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
+                        <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display:'none' }} onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} /></label>
+                      </div>
+                      {row.photoUrl ? (
+                        <div style={{ marginTop:8 }}>
+                          <img src={row.photoUrl} className="photo-thumb" alt="" />
+                          <button type="button" className="btn secondary" style={{ display:'block', fontSize:10, padding:'4px 8px', marginTop:4 }} onClick={() => handleRowChange('staza', row.id, 'photoUrl', '')}>🗑️ FSHI FOTO</button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                  <div className="row btn-row">
+                    <button type="button" className="btn secondary" onClick={() => addRow('staza')}>+ RRESHT</button>
+                    <button type="button" className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button>
+                  </div>
+                </div>
+              ) : null}
+
+              {wizStep === 4 ? (
+                <div>
+                  <div className="wiz-h" style={{ color:'#fff' }}>HAPI 4 — SHKALLORE & SHËNIME</div>
+                  <div className="field-group">
+                    <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>SHKALLORE — COPË</label>
+                    <div className="chip-row modern">
+                      {SHKALLORE_QTY_CHIPS.map((n) => (
+                        <button key={`ws_q_${n}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsQty(Number(n)); }} style={chipStyleForVal(2.5, false)}>{n}</button>
+                      ))}
+                    </div>
+                    <input className="input" type="number" value={stairsQty} onChange={(e) => setStairsQty(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="p.sh. 20" style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
+                  </div>
+                  <div className="field-group">
+                    <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>SHKALLORE — m² PËR COPË</label>
+                    <div className="chip-row modern">
+                      {SHKALLORE_PER_CHIPS.map((n) => (
+                        <button key={`ws_p_${n}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsPer(Number(n)); }} style={chipStyleForVal(3.0, false)}>{Number(n).toFixed(2)}</button>
+                      ))}
+                    </div>
+                    <input className="input" type="number" value={stairsPer} onChange={(e) => setStairsPer(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="p.sh. 0.30" style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
+                  </div>
+                  <div className="field-group">
+                    <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>FOTO SHKALLORE</label>
+                    <div className="row" style={{ alignItems:'center', gap:10 }}>
+                      <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display:'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>
+                      {stairsPhotoUrl ? <img src={stairsPhotoUrl} className="photo-thumb" alt="" style={{ height:54, width:78, objectFit:'cover' }} /> : <div style={{ fontSize:11, opacity:.7, color:'#fff' }}>PA FOTO</div>}
+                      {stairsPhotoUrl ? <button type="button" className="btn secondary" style={{ marginLeft:'auto', fontSize:10, padding:'6px 10px' }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI</button> : null}
+                    </div>
+                  </div>
+                  <div className="field-group">
+                    <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>SHËNIME</label>
+                    <textarea className="input" rows={4} value={notes} onChange={(e)=>setNotes(e.target.value)} placeholder="Shënime për pranimin..." style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
+                  </div>
+                  <div className="row" style={{ gap:10, marginTop:12 }}>
+                    <button type="button" className="btn secondary" style={{ flex:1 }} onClick={() => setShowDraftsSheet(true)}>🗂 TË PA PLOTËSUARAT</button>
+                    <button type="button" className="btn secondary" style={{ flex:1 }} onClick={openPay}>€ PAGESA</button>
+                  </div>
+                </div>
+              ) : null}
+
+              {wizStep === 5 ? (
+                <div>
+                  <div className="wiz-h" style={{ color:'#fff' }}>HAPI 5 — PËRMBLEDHJA</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+                    <div style={{ background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.08)', borderRadius:16, padding:14 }}>
+                      <div style={{ fontSize:11, opacity:.7 }}>COPË</div><div style={{ fontSize:24, fontWeight:900 }}>{copeCount}</div>
+                    </div>
+                    <div style={{ background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.08)', borderRadius:16, padding:14 }}>
+                      <div style={{ fontSize:11, opacity:.7 }}>M² TOTAL</div><div style={{ fontSize:24, fontWeight:900 }}>{Number(totalM2 || 0).toFixed(2)}</div>
+                    </div>
+                    <div style={{ background:'rgba(34,197,94,.18)', border:'1px solid rgba(34,197,94,.25)', borderRadius:16, padding:14 }}>
+                      <div style={{ fontSize:11, opacity:.8 }}>TOTAL €</div><div style={{ fontSize:24, fontWeight:900 }}>€{Number(totalEuro || 0).toFixed(2)}</div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop:12, fontSize:13, opacity:.88, lineHeight:1.55 }}>
                     • Emri: <b>{String(name || '').trim() || '—'}</b><br/>
                     • Tel: <b>{phonePrefix}{String(phone || '').trim() || '—'}</b><br/>
-                    • m² total: <b>{Number(totalM2 || 0).toFixed(2)}</b><br/>
-                    • Totali: <b>€{Number(totalEuro || 0).toFixed(2)}</b>
+                    • Pagesa klienti: <b>€{Number(clientPaid || 0).toFixed(2)}</b><br/>
+                    • Borxh: <b>€{Number(currentDebt || 0).toFixed(2)}</b>{currentChange > 0 ? <> · Kusur: <b>€{Number(currentChange || 0).toFixed(2)}</b></> : null}
                   </div>
-                  <div className="row" style={{ gap: 10, marginTop: 12 }}>
-                    <button type="button" className="btn secondary" style={{ flex: 1 }} onClick={openPay}>€ PAGESA</button>
-                    <button type="button" className="btn" style={{ flex: 1 }} onClick={closeWizard}>MBYLL</button>
+                  <div className="row" style={{ gap:10, marginTop:12 }}>
+                    <button type="button" className="btn secondary" style={{ flex:1 }} onClick={() => setShowMsgSheet(true)}>📩 DËRGO MESAZH</button>
+                    <button type="button" className="btn" style={{ flex:1 }} onClick={handleContinue} disabled={photoUploading || savingContinue}>{savingContinue ? '⏳ DUKE RUJT...' : '💾 RUAJ / VAZHDO'}</button>
                   </div>
                 </div>
               ) : null}
             </div>
-            <div className="wiz-actions">
+            <div className="wiz-actions" style={{ borderTop:'1px solid rgba(255,255,255,.08)', paddingTop:14 }}>
               <button type="button" className="btn secondary" onClick={wizBack} disabled={wizStep === 1}>MBRAPA</button>
-              <button type="button" className="btn" onClick={wizStep === 3 ? handleContinue : wizNext} disabled={photoUploading || savingContinue}>{wizStep === 3 ? (savingContinue ? '⏳ DUKE RUJT...' : 'RUAJ & VAZHDO') : 'VAZHDO'}</button>
+              <button type="button" className="btn" onClick={wizStep === 5 ? handleContinue : wizNext} disabled={photoUploading || savingContinue}>{wizStep === 5 ? (savingContinue ? '⏳ DUKE RUJT...' : 'RUAJ & VAZHDO') : 'VAZHDO'}</button>
             </div>
           </div>
         </div>
