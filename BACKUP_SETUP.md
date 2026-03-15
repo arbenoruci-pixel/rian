@@ -1,7 +1,4 @@
 
-
-
-
 # BACKUP (FLETORJA) — TEPIHA
 
 Ky patch e shton një **backup automatik ditor** (çdo 24 orë) dhe një faqe **/fletore** ku mund t’i shohësh/printosh klientët & porositë si “fletore”, edhe nëse aplikacioni prishet ose localStorage bëhet lëmsh.
