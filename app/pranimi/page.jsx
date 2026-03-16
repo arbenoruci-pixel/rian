@@ -1609,78 +1609,57 @@ Faleminderit!`;
                 {renderRows('staza', stazaRows)}
               </SectionCard>
             )}
-
-            {wizStep === 4 && (
-              <>
-                <SectionCard title="SHKALLORJA OPSIONALE" style={{ marginTop: 0 }}>
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    style={{ width: '100%', minHeight: 56, fontWeight: 900, fontSize: 16 }}
-                    onClick={() => setShowStairsArea((v) => !v)}
-                  >
-                    {showStairsArea ? '[-] LARGOHU' : '[+] SHTO SHKALLORE (OPSIONALE)'}
+              {wizStep === 4 ? (
+                <div>
+                  <div className="wiz-h" style={{ color:'#fff' }}>HAPI 4 — SHKALLORE & SHËNIME</div>
+                  
+                  <button type="button" className="btn secondary" style={{ width: '100%', marginBottom: 14, padding: '14px 0', fontWeight: 900, border: showStairsArea ? '1px solid rgba(248,113,113,0.4)' : '1px dashed rgba(255,255,255,0.3)', color: showStairsArea ? '#fca5a5' : '#fff', background: showStairsArea ? 'rgba(239,68,68,0.1)' : 'transparent' }} onClick={() => setShowStairsArea(!showStairsArea)}>
+                    {showStairsArea ? '[-] MBYLL SHKALLOREN' : '[+] SHTO SHKALLORE (OPSIONALE)'}
                   </button>
 
                   {showStairsArea && (
-                    <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
-                      <div className="field-group">
-                        <label className="label">COPË</label>
-                        <div className="chip-row">
+                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: '14px 14px 2px 14px', marginBottom: 14 }}>
+                      <div className="field-group" style={{ marginTop: 0 }}>
+                        <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>SHKALLORE — COPË</label>
+                        <div className="chip-row modern">
                           {SHKALLORE_QTY_CHIPS.map((n) => (
-                            <button key={n} className="chip" onClick={() => setStairsQty(n)}>{n}</button>
+                            <button key={`ws_q_${n}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsQty(Number(n)); }} style={chipStyleForVal(2.5, false)}>{n}</button>
                           ))}
                         </div>
-                        <input type="number" className="input" value={stairsQty || ''} onChange={(e) => setStairsQty(e.target.value)} />
+                        <input className="input" type="number" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => setStairsQty(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="p.sh. 20" style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)', marginTop: 8 }} />
                       </div>
-
                       <div className="field-group">
-                        <label className="label">m² PËR COPË</label>
-                        <div className="chip-row">
-                          {SHKALLORE_PER_CHIPS.map((v) => (
-                            <button key={v} className="chip" onClick={() => setStairsPer(v)}>{v}</button>
+                        <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>SHKALLORE — m² PËR COPË</label>
+                        <div className="chip-row modern">
+                          {SHKALLORE_PER_CHIPS.map((n) => (
+                            <button key={`ws_p_${n}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsPer(Number(n)); }} style={chipStyleForVal(3.0, false)}>{Number(n).toFixed(2)}</button>
                           ))}
                         </div>
-                        <input type="number" step="0.01" className="input" value={stairsPer || ''} onChange={(e) => setStairsPer(e.target.value)} />
+                        <input className="input" type="number" step="0.01" value={stairsPer === 0 ? '' : stairsPer} onChange={(e) => setStairsPer(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="p.sh. 0.30" style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)', marginTop: 8 }} />
                       </div>
-
                       <div className="field-group">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <label className="label">FOTO</label>
-                          <label className="camera-btn">
-                            {stairsPhotoUrl ? <img src={stairsPhotoUrl} alt="stairs" style={{ width: '100%', height: '100%', borderRadius: 12, objectFit: 'cover' }} /> : '📷'}
-                            <input type="file" hidden accept="image/*" onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} />
-                          </label>
+                        <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>FOTO SHKALLORE</label>
+                        <div className="row" style={{ alignItems:'center', gap:10 }}>
+                          <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display:'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>
+                          {stairsPhotoUrl ? <img src={stairsPhotoUrl} className="photo-thumb" alt="" style={{ height:54, width:78, objectFit:'cover', borderRadius: 8 }} /> : <div style={{ fontSize:11, opacity:.7, color:'#fff' }}>PA FOTO</div>}
+                          {stairsPhotoUrl ? <button type="button" className="btn secondary" style={{ marginLeft:'auto', fontSize:10, padding:'6px 10px' }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI</button> : null}
                         </div>
                       </div>
                     </div>
                   )}
-                </SectionCard>
 
-                <SectionCard title="SHËNIME">
-                  <textarea className="input" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
-                </SectionCard>
-
-                <SectionCard>
-                  <div className="row" style={{ gap: 10 }}>
-                    <button className="btn secondary" style={{ flex: 1, minHeight: 54, fontWeight: 900 }} onClick={openDrafts}>TË PA PLOTËSUARAT</button>
-                    <button
-                      className="btn secondary"
-                      style={{ flex: 1, minHeight: 54, fontWeight: 900 }}
-                      onMouseDown={startPayHold}
-                      onMouseUp={endPayHold}
-                      onMouseLeave={cancelPayHold}
-                      onTouchStart={startPayHold}
-                      onTouchEnd={endPayHold}
-                    >
-                      € PAGESA
-                    </button>
+                  <div className="field-group">
+                    <label className="label" style={{ color:'rgba(255,255,255,.7)' }}>SHËNIME</label>
+                    <textarea className="input" rows={4} value={notes} onChange={(e)=>setNotes(e.target.value)} placeholder="Shënime për pranimin..." style={{ background:'rgba(255,255,255,.06)', color:'#fff', border:'1px solid rgba(255,255,255,.1)' }} />
                   </div>
-                </SectionCard>
-              </>
-            )}
+                  <div className="row" style={{ gap:10, marginTop:12 }}>
+                    <button type="button" className="btn secondary" style={{ flex:1 }} onClick={() => setShowDraftsSheet(true)}>🗂 TË PA PLOTËSUARAT</button>
+                    <button type="button" className="btn secondary" style={{ flex:1 }} onClick={openPay}>€ PAGESA</button>
+                  </div>
+                </div>
+              ) : null}
 
-            {wizStep === 5 && (
+              {wizStep === 5 ? (
               <>
                 <SectionCard title="PËRMBLEDHJE" style={{ marginTop: 0 }}>
                   <div style={{ display: 'grid', gap: 12 }}>
