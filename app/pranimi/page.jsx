@@ -1686,7 +1686,7 @@ Faleminderit!`;
                   <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
                 </SectionCard>
               </>
-            )}
+            ) : null}
 
             <footer className="wiz-actions" style={{ display: 'flex', gap: 10, marginTop: 16 }}>
               <button className="btn secondary" onClick={wizStep === 1 ? closeWizard : wizBack}>
