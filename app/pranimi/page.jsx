@@ -705,17 +705,17 @@ export default function PranimiPage() {
 
   const [showWizard, setShowWizard] = useState(false);
   const [wizStep, setWizStep] = useState(1);
+  const [wizTab, setWizTab] = useState('TEPIHA');
   const [showStairsArea, setShowStairsArea] = useState(false);
-  const totalWizardSteps = 5;
-  const wizardProgressPct = (wizStep / totalWizardSteps) * 100;
 
   function openWizard() {
     setWizStep(1);
+    setWizTab('TEPIHA');
     setShowStairsArea(false);
     setShowWizard(true);
   }
   function closeWizard() { setShowWizard(false); }
-  function wizNext() { setWizStep((s) => Math.min(totalWizardSteps, s + 1)); }
+  function wizNext() { setWizStep((s) => Math.min(5, s + 1)); }
   function wizBack() { setWizStep((s) => Math.max(1, s - 1)); }
 
   async function refreshDrafts() {
@@ -1780,27 +1780,24 @@ KOMPANIA JONI`;
           </div>
         </div>
       )}
+
       {showWizard ? (
         <div className="wiz-backdrop" onClick={closeWizard}>
-          <div className="wiz-card transport-like" onClick={(e) => e.stopPropagation()}>
+          <div className="wiz-card" onClick={(e) => e.stopPropagation()}>
             <div className="wiz-top">
               <div>
-                <div className="wiz-title">WIZARD I PRANIMIT</div>
-                <div className="wiz-sub">HAPI {wizStep} / {totalWizardSteps}</div>
+                <div className="wiz-title">PRANIMI</div>
+                <div className="wiz-sub">WIZARD • SI TRANSPORTI</div>
               </div>
               <button type="button" className="wiz-x" onClick={closeWizard}>✕</button>
             </div>
 
-            <div className="wiz-progress-shell">
-              <div className="wiz-progress-bar" style={{ width: `${wizardProgressPct}%` }} />
-            </div>
-
-            <div className="wiz-step-grid">
+            <div className="wiz-transport-steps">
               {[
                 '1. KLIENTI',
                 '2. TEPIHA',
                 '3. STAZA',
-                '4. SHKALLORE',
+                '4. SHKALLORE & SHËNIME',
                 '5. TOTALI'
               ].map((label, idx) => {
                 const step = idx + 1;
@@ -1810,8 +1807,8 @@ KOMPANIA JONI`;
                   <button
                     key={label}
                     type="button"
-                    className={`wiz-step-pill ${active ? 'active' : ''} ${done ? 'done' : ''}`}
                     onClick={() => setWizStep(step)}
+                    className={`wiz-step-btn ${active ? 'active' : ''} ${done ? 'done' : ''}`}
                   >
                     {label}
                   </button>
@@ -1819,299 +1816,179 @@ KOMPANIA JONI`;
               })}
             </div>
 
-            <div className="wiz-body">
-              {wizStep === 1 ? (
-                <section className="card wizard-section" style={{ padding: 0, overflow: 'hidden', background: '#111', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <div style={{ background: '#1C1C1E', padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div style={{ display:'flex', alignItems:'center', gap: 10, background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '8px 12px' }}>
-                      <span style={{ fontSize: 16, opacity: 0.5 }}>🔍</span>
-                      <input
-                        style={{ background:'transparent', border:'none', color:'#fff', fontSize:15, width:'100%', outline:'none' }}
-                        placeholder="KËRKO: TEL • KOD • EMËR"
-                        value={clientQuery}
-                        onChange={(e) => setClientQuery(e.target.value)}
-                      />
-                    </div>
-                    {clientHits.length > 0 && (
-                      <div style={{ marginTop: 8, maxHeight: 180, overflow: 'auto' }}>
-                        {clientHits.map((c, i) => (
-                          <div
-                            key={`${c.code}_${c.phone}_${i}`}
-                            style={{ padding: '10px 0', borderBottom: '1px solid #333', fontSize: 14, color: '#DDD', cursor: 'pointer' }}
-                            onClick={() => {
-                              if (c.name) setName(String(c.name));
-                              setPhone(String(c.phone || '').replace(/\D/g, ''));
-                              setClientQuery('');
-                              setClientHits([]);
-                            }}
-                          >
-                            <b style={{ color:'#fff' }}>{String(c.code || '')}</b> {String(c.name || '')} • {String(c.phone || '')}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', padding: 16, gap: 16, alignItems: 'center' }}>
-                    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap: 4 }}>
-                      <label style={{ width: 60, height: 60, borderRadius: '50%', background: '#2C2C2E', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', cursor: 'pointer' }}>
-                        {clientPhotoUrl ? <img src={clientPhotoUrl} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" /> : <span style={{ fontSize:24 }}>📷</span>}
-                        <input type="file" hidden accept="image/*" onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} />
-                      </label>
-                      <span style={{ fontSize: 9, color: '#666', fontWeight: '700' }}>FOTO</span>
-                    </div>
-
-                    <div style={{ display:'flex', flexDirection:'column', gap: 8 }}>
-                      <input
-                        style={{ background:'transparent', border:'none', color:'#fff', fontSize: 20, fontWeight:'700', width:'100%', outline:'none', padding: 0 }}
-                        placeholder="EMRI MBIEMRI"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                      />
-                      <div style={{ display:'flex', alignItems:'center', gap: 8 }}>
-                        <div style={{ background: '#2C2C2E', borderRadius: 6, padding: '4px 8px', color: '#60a5fa', fontWeight: '700', fontSize: 14 }}>{phonePrefix}</div>
-                        <input
-                          style={{ background:'transparent', border:'none', color:'#CCC', fontSize: 16, width:'100%', outline:'none', padding: 0 }}
-                          placeholder="44xxxxxx"
-                          type="tel"
-                          value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-
-              {wizStep === 2 ? (
-                <section className="card wizard-section">
-                  <h2 className="card-title">TEPIHA</h2>
-                  <div className="chip-row modern">
-                    {TEPIHA_CHIPS.map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        className="chip chip-modern"
-                        onPointerDown={(e) => tapDown(chipTapRef, e)}
-                        onPointerMove={(e) => tapMove(chipTapRef, e)}
-                        onPointerUp={(e) => guardedApplyChip('tepiha', v, e)}
-                        style={chipStyleForVal(v, false)}
-                      >
-                        {v.toFixed(1)}
-                      </button>
-                    ))}
-                  </div>
-
-                  {tepihaRows.map((row) => (
-                    <div className="piece-row" key={row.id}>
-                      <div className="row">
-                        <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
-                        <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
-                        <label className="camera-btn">
-                          {row.photoUrl ? <img src={row.photoUrl} style={{ width:'100%', height:'100%', borderRadius:12, objectFit:'cover' }} alt="" /> : '📷'}
-                          <input type="file" hidden accept="image/*" onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-
-                  <div className="row btn-row">
-                    <button type="button" className="btn secondary" onClick={() => addRow('tepiha')}>+ RRESHT</button>
-                    <button type="button" className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button>
-                  </div>
-                </section>
-              ) : null}
-
-              {wizStep === 3 ? (
-                <section className="card wizard-section">
-                  <h2 className="card-title">STAZA</h2>
-                  <div className="chip-row modern">
-                    {STAZA_CHIPS.map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        className="chip chip-modern"
-                        onPointerDown={(e) => tapDown(chipTapRef, e)}
-                        onPointerMove={(e) => tapMove(chipTapRef, e)}
-                        onPointerUp={(e) => guardedApplyChip('staza', v, e)}
-                        style={chipStyleForVal(v, false)}
-                      >
-                        {v.toFixed(1)}
-                      </button>
-                    ))}
-                  </div>
-
-                  {stazaRows.map((row) => (
-                    <div className="piece-row" key={row.id}>
-                      <div className="row">
-                        <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
-                        <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
-                        <label className="camera-btn">
-                          {row.photoUrl ? <img src={row.photoUrl} style={{ width:'100%', height:'100%', borderRadius:12, objectFit:'cover' }} alt="" /> : '📷'}
-                          <input type="file" hidden accept="image/*" onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-
-                  <div className="row btn-row">
-                    <button type="button" className="btn secondary" onClick={() => addRow('staza')}>+ RRESHT</button>
-                    <button type="button" className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button>
-                  </div>
-                </section>
-              ) : null}
-
-              {wizStep === 4 ? (
+            <div className="wiz-body transport-like">
+              {wizStep === 1 && (
                 <>
-                  <section className="card wizard-section">
-                    <h2 className="card-title">SHKALLORE</h2>
+                  <section className="card wiz-section" style={{padding: 0, overflow: 'hidden', background: '#111', border: '1px solid rgba(255,255,255,0.1)'}}>
+                    <div style={{display:'grid', gridTemplateColumns:'70px 1fr', padding:16, gap:16, alignItems:'center'}}>
+                      <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:4}}>
+                        <label style={{width:60, height:60, borderRadius:'50%', background:'#2C2C2E', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', border:'1px solid #333', cursor:'pointer'}}>
+                          {clientPhotoUrl ? <img src={clientPhotoUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <span style={{fontSize:24}}>📷</span>}
+                          <input type="file" hidden accept="image/*" onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} />
+                        </label>
+                        <span style={{fontSize:9, color:'#666', fontWeight:'700'}}>FOTO</span>
+                      </div>
+                      <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                        <input style={{background:'transparent', border:'none', color:'#fff', fontSize:20, fontWeight:'700', width:'100%', outline:'none', padding:0}} placeholder="EMRI MBIEMRI" value={name} onChange={(e) => setName(e.target.value)} />
+                        <div style={{display:'flex', alignItems:'center', gap:8}}>
+                          <input className="input small" value={phonePrefix} readOnly style={{maxWidth:90}} />
+                          <input style={{background:'transparent', border:'none', color:'#CCC', fontSize:16, width:'100%', outline:'none', padding:0}} placeholder="44xxxxxx" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                </>
+              )}
 
-                    <button
-                      type="button"
-                      className="wiz-toggle-stairs"
-                      onClick={() => setShowStairsArea((v) => !v)}
-                    >
-                      {showStairsArea ? '− MBYLLE SHKALLOREN' : '[+] SHTO SHKALLORE (OPSIONALE)'}
-                    </button>
+              {wizStep === 2 && (
+                <>
+                  <section className="card wiz-section" style={{marginTop:16}}>
+                    <h2 className="card-title">TEPIHA</h2>
+                    <div className="chip-row modern">
+                      {TEPIHA_CHIPS.map((v) => (
+                        <button key={`w_t_${v}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('tepiha', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button>
+                      ))}
+                    </div>
+                    {tepihaRows.map((row) => (
+                      <div className="piece-row" key={`w_tepiha_${row.id}`}>
+                        <div className="row">
+                          <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
+                          <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
+                          <label className="camera-btn">
+                            {row.photoUrl ? <img src={row.photoUrl} style={{width:'100%', height:'100%', borderRadius:12, objectFit:'cover'}} /> : '📷'}
+                            <input type="file" hidden accept="image/*" onChange={(e) => handleRowPhotoChange('tepiha', row.id, e.target.files?.[0])} />
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="row btn-row">
+                      <button type="button" className="btn secondary" onClick={() => addRow('tepiha')}>+ RRESHT</button>
+                      <button type="button" className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button>
+                    </div>
+                  </section>
+                </>
+              )}
 
-                    {showStairsArea ? (
+              {wizStep === 3 && (
+                <>
+                  <section className="card wiz-section" style={{marginTop:16}}>
+                    <h2 className="card-title">STAZA</h2>
+                    <div className="chip-row modern">
+                      {STAZA_CHIPS.map((v) => (
+                        <button key={`w_s_${v}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('staza', v, e)} style={chipStyleForVal(v, false)}>{v.toFixed(1)}</button>
+                      ))}
+                    </div>
+                    {stazaRows.map((row) => (
+                      <div className="piece-row" key={`w_staza_${row.id}`}>
+                        <div className="row">
+                          <input className="input small" type="number" value={row.m2} onChange={(e) => handleRowChange('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
+                          <input className="input small" type="number" value={row.qty} onChange={(e) => handleRowChange('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
+                          <label className="camera-btn">
+                            {row.photoUrl ? <img src={row.photoUrl} style={{width:'100%', height:'100%', borderRadius:12, objectFit:'cover'}} /> : '📷'}
+                            <input type="file" hidden accept="image/*" onChange={(e) => handleRowPhotoChange('staza', row.id, e.target.files?.[0])} />
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="row btn-row">
+                      <button type="button" className="btn secondary" onClick={() => addRow('staza')}>+ RRESHT</button>
+                      <button type="button" className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button>
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {wizStep === 4 && (
+                <>
+                  <section className="card wiz-section" style={{marginTop:16}}>
+                    <div className="row util-row" style={{ gap: 10 }}>
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        style={{ flex: 1, minHeight: 54, fontSize: 16, fontWeight: 900 }}
+                        onClick={() => setShowStairsArea((v) => !v)}
+                      >
+                        {showStairsArea ? '🪜 MBYLLE SHKALLOREN' : '🪜 SHKALLORE'}
+                      </button>
+                      <button className="btn secondary" style={{ flex: 1, minHeight: 54, fontSize: 16, fontWeight: 900 }} onMouseDown={startPayHold} onMouseUp={endPayHold} onMouseLeave={cancelPayHold} onTouchStart={startPayHold} onTouchEnd={endPayHold}>
+                        € PAGESA
+                      </button>
+                    </div>
+
+                    {showStairsArea && (
                       <div style={{ marginTop: 12 }}>
                         <div className="field-group">
-                          <label className="label">SHKALLORE — COPË</label>
+                          <label className="label">COPË</label>
                           <div className="chip-row modern">
                             {SHKALLORE_QTY_CHIPS.map((n) => (
-                              <button
-                                key={`w_q_${n}`}
-                                type="button"
-                                className="chip chip-modern"
-                                onPointerDown={(e) => tapDown(chipTapRef, e)}
-                                onPointerMove={(e) => tapMove(chipTapRef, e)}
-                                onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsQty(Number(n)); }}
-                                style={chipStyleForVal(2.5, false)}
-                              >
-                                {n}
-                              </button>
+                              <button key={`w_q_${n}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsQty(Number(n)); }} style={chipStyleForVal(2.5, false)}>{n}</button>
                             ))}
                           </div>
                           <input className="input" type="number" value={stairsQty} onChange={(e) => setStairsQty(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="p.sh. 20" />
                         </div>
-
                         <div className="field-group">
-                          <label className="label">SHKALLORE — m² PËR COPË</label>
+                          <label className="label">m² PËR COPË</label>
                           <div className="chip-row modern">
                             {SHKALLORE_PER_CHIPS.map((n) => (
-                              <button
-                                key={`w_p_${n}`}
-                                type="button"
-                                className="chip chip-modern"
-                                onPointerDown={(e) => tapDown(chipTapRef, e)}
-                                onPointerMove={(e) => tapMove(chipTapRef, e)}
-                                onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsPer(Number(n)); }}
-                                style={chipStyleForVal(3.0, false)}
-                              >
-                                {Number(n).toFixed(2)}
-                              </button>
+                              <button key={`w_p_${n}`} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={() => { if (isRealTap(chipTapRef)) setStairsPer(Number(n)); }} style={chipStyleForVal(3.0, false)}>{Number(n).toFixed(2)}</button>
                             ))}
                           </div>
                           <input className="input" type="number" value={stairsPer} onChange={(e) => setStairsPer(e.target.value === '' ? 0 : Number(e.target.value))} placeholder="p.sh. 0.30" />
                         </div>
-
                         <div className="field-group">
                           <label className="label">FOTO SHKALLORE</label>
                           <div className="row" style={{ alignItems: 'center', gap: 10 }}>
                             <label className="camera-btn">
-                              📷
-                              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} />
+                              {stairsPhotoUrl ? <img src={stairsPhotoUrl} style={{width:'100%', height:'100%', borderRadius:12, objectFit:'cover'}} /> : '📷'}
+                              <input type="file" hidden accept="image/*" onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} />
                             </label>
-                            {stairsPhotoUrl ? <img src={stairsPhotoUrl} className="photo-thumb" alt="" style={{ height: 54, width: 78, objectFit: 'cover' }} /> : <div style={{ fontSize: 11, opacity: 0.7 }}>PA FOTO</div>}
-                            {stairsPhotoUrl ? (
-                              <button type="button" className="btn secondary" style={{ marginLeft: 'auto', fontSize: 10, padding: '6px 10px' }} onClick={() => setStairsPhotoUrl('')}>
-                                🗑️ FSHI
-                              </button>
-                            ) : null}
+                            {stairsPhotoUrl ? <button type="button" className="btn secondary" style={{ marginLeft: 'auto', fontSize: 10, padding: '6px 10px' }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI</button> : null}
                           </div>
                         </div>
                       </div>
-                    ) : (
-                      <div className="wiz-muted">Shkallorja është opsionale dhe rri e mbyllur derisa ta hapësh vetë.</div>
                     )}
                   </section>
 
-                  <section className="card wizard-section">
-                    <div className="row util-row" style={{ gap: 10 }}>
-                      <button className="btn secondary" style={{ flex: 1, minHeight: 54, fontSize: 16, fontWeight: 900 }} onClick={openDrafts}>
-                        📝 DRAFTS
-                      </button>
-                      <button
-                        className="btn secondary"
-                        style={{ flex: 1, minHeight: 54, fontSize: 16, fontWeight: 900 }}
-                        onPointerDown={(e) => { tapDown(payTapRef, e); startPayHold(); }}
-                        onPointerMove={(e) => { tapMove(payTapRef, e); if (payTapRef.current?.moved) cancelPayHold(); }}
-                        onPointerUp={() => { endPayHold(); }}
-                        onPointerCancel={cancelPayHold}
-                        onMouseDown={(e) => { tapDown(payTapRef, e); startPayHold(); }}
-                        onMouseMove={(e) => { tapMove(payTapRef, e); if (payTapRef.current?.moved) cancelPayHold(); }}
-                        onMouseUp={endPayHold}
-                        onMouseLeave={cancelPayHold}
-                      >
-                        € PAGESA
-                      </button>
-                    </div>
-                  </section>
-
-                  <section className="card wizard-section">
+                  <section className="card wiz-section">
                     <h2 className="card-title">SHËNIME</h2>
                     <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
                   </section>
                 </>
-              ) : null}
+              )}
 
-              {wizStep === 5 ? (
-                <section className="card wizard-section">
-                  <div className="premium-stats">
-                    <div className="premium-box premium-blue">
-                      <div className="premium-kicker">COPË</div>
-                      <div className="premium-value">{copeCount}</div>
+              {wizStep === 5 && (
+                <>
+                  <section className="card wiz-section" style={{marginTop:16}}>
+                    <div className="wiz-premium-grid">
+                      <div className="wiz-premium-box">
+                        <div className="wiz-premium-label">COPË</div>
+                        <div className="wiz-premium-value">{copeCount}</div>
+                      </div>
+                      <div className="wiz-premium-box">
+                        <div className="wiz-premium-label">M²</div>
+                        <div className="wiz-premium-value">{Number(totalM2 || 0).toFixed(2)}</div>
+                      </div>
+                      <div className="wiz-premium-box">
+                        <div className="wiz-premium-label">TOTAL €</div>
+                        <div className="wiz-premium-value">{Number(totalEuro || 0).toFixed(2)}</div>
+                      </div>
                     </div>
-                    <div className="premium-box premium-cyan">
-                      <div className="premium-kicker">M²</div>
-                      <div className="premium-value">{Number(totalM2 || 0).toFixed(2)}</div>
+                    <div className="tot-line" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 14, paddingTop: 12 }}>
+                      Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong>
                     </div>
-                    <div className="premium-box premium-green">
-                      <div className="premium-kicker">TOTAL €</div>
-                      <div className="premium-value">{Number(totalEuro || 0).toFixed(2)}</div>
+                    <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
+                      Regjistru n&apos;ARKË: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong>
                     </div>
-                  </div>
-
-                  <div className="tot-line" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 14, paddingTop: 12 }}>
-                    Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong>
-                  </div>
-                  <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
-                    Regjistru n&apos;ARKË: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong>
-                  </div>
-                  {currentDebt > 0 ? <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{currentDebt.toFixed(2)} €</strong></div> : null}
-                  {currentChange > 0 ? <div className="tot-line">Kthim: <strong style={{ color: '#2563eb' }}>{currentChange.toFixed(2)} €</strong></div> : null}
-
-                  <div style={{ marginTop: 12 }}>
-                    <button className="btn secondary" style={{ width: '100%' }} onClick={() => setShowMsgSheet(true)}>
-                      📩 DËRGO MESAZH — FILLON PASTRIMI
-                    </button>
-                  </div>
-                </section>
-              ) : null}
+                    {currentDebt > 0 && <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{currentDebt.toFixed(2)} €</strong></div>}
+                  </section>
+                </>
+              )}
             </div>
 
             <div className="wiz-actions">
-              <button type="button" className="btn secondary" onClick={wizStep === 1 ? closeWizard : wizBack}>
-                {wizStep === 1 ? 'MBYLL' : 'MBRAPA'}
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                onClick={wizStep === 5 ? handleContinue : wizNext}
-                disabled={photoUploading || savingContinue}
-              >
-                {wizStep === 5 ? (savingContinue ? '⏳ DUKE RUJT...' : 'RUAJ & VAZHDO') : 'NEXT ▶'}
+              <button type="button" className="btn secondary" onClick={wizBack} disabled={wizStep === 1}>MBRAPA</button>
+              <button type="button" className="btn" onClick={wizStep === 5 ? handleContinue : wizNext} disabled={photoUploading || savingContinue}>
+                {wizStep === 5 ? (savingContinue ? '⏳ DUKE RUJT...' : 'RUAJ & VAZHDO') : 'VAZHDO'}
               </button>
             </div>
           </div>
@@ -2141,30 +2018,38 @@ KOMPANIA JONI`;
         .payfs-footer { display: flex; gap: 10px; padding: 12px 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); background: #0b0f14; }
         .payfs-footer .btn { flex: 1; }
         .wiz-backdrop{ position:fixed; inset:0; background: rgba(0,0,0,0.72); display:flex; align-items:center; justify-content:center; z-index:9999; padding: 14px; }
-        .wiz-card{ width: min(92vw, 560px); max-height: 88vh; overflow: hidden; background:#0b0f14; border:1px solid rgba(255,255,255,0.14); border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.55); display:flex; flex-direction: column; }
-        .wiz-card.transport-like{ background: linear-gradient(180deg, #0b1220 0%, #111827 100%); }
-        .wiz-top{ display:flex; align-items:center; justify-content:space-between; padding: 14px 14px 8px 14px; }
+        .pill{ border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.9); padding: 10px 12px; border-radius: 14px; font-weight: 900; letter-spacing: 0.4px; font-size: 11px; }
+        .wiz-card{ width:100%; max-width:480px; max-height:92vh; overflow:hidden; display:flex; flex-direction:column; border-radius:24px; background:linear-gradient(180deg, #0f141b 0%, #090c10 100%); border:1px solid rgba(255,255,255,0.12); box-shadow: 0 22px 70px rgba(0,0,0,0.48); }
+        .wiz-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 16px 12px; border-bottom:1px solid rgba(255,255,255,0.08); }
+        .wiz-title{ color:#fff; font-size:18px; font-weight:900; letter-spacing:0.6px; }
+        .wiz-sub{ color:rgba(255,255,255,0.6); font-size:11px; font-weight:800; margin-top:2px; }
+        .wiz-x{ min-width:42px; height:42px; border:none; border-radius:12px; background:rgba(255,255,255,0.08); color:#fff; font-size:18px; font-weight:900; }
+        .wiz-transport-steps{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:8px; padding:12px 16px 0; }
+        .wiz-step-btn{ min-height:42px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04); color:#fff; font-size:11px; font-weight:800; padding:8px 6px; }
+        .wiz-step-btn.active{ border-color:rgba(14,165,233,.9); background:rgba(14,165,233,.14); }
+        .wiz-step-btn.done{ background:rgba(34,197,94,.14); }
+        .wiz-body.transport-like{ flex:1; overflow:auto; padding:0 16px 16px; }
+        .wiz-section{ margin-top:16px; }
+        .wiz-premium-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+        .wiz-premium-box{ padding:14px 10px; border-radius:18px; border:1px solid rgba(255,255,255,0.14); background:linear-gradient(180deg, rgba(14,165,233,.18) 0%, rgba(255,255,255,.04) 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 12px 24px rgba(0,0,0,0.24); }
+        .wiz-premium-label{ font-size:10px; color:rgba(255,255,255,0.68); font-weight:900; letter-spacing:0.7px; margin-bottom:8px; }
+        .wiz-premium-value{ font-size:20px; color:#fff; font-weight:900; letter-spacing:0.2px; }
+        .wiz-actions{ display:flex; gap:10px; padding:12px 16px 16px; border-top:1px solid rgba(255,255,255,0.08); background:#0b0f14; }
+        .wiz-actions .btn{ flex:1; }
+        .pill.on{ background: rgba(34,197,94,0.16); border-color: rgba(34,197,94,0.28); color: rgba(255,255,255,0.95); }
+        .wiz-card{ width: min(92vw, 560px); max-height: 88vh; overflow: hidden; background:#0b0f14; border:1px solid rgba(255,255,255,0.14); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.55); display:flex; flex-direction: column; }
+        .wiz-top{ display:flex; align-items:center; justify-content:space-between; padding: 12px 12px 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
         .wiz-title{ font-weight: 900; letter-spacing: .08em; }
-        .wiz-sub{ font-size: 12px; opacity: .75; margin-top: 2px; }
         .wiz-x{ background: transparent; border: 0; color: #fff; font-size: 18px; padding: 8px 10px; }
-        .wiz-progress-shell{ height:10px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; margin: 0 14px 12px; }
-        .wiz-progress-bar{ height:100%; border-radius:999px; background:linear-gradient(90deg, #0ea5e9, #22c55e); transition:width .25s ease; }
-        .wiz-step-grid{ display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; padding: 0 14px 14px; }
-        .wiz-step-pill{ min-height:42px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,.04); color:#fff; font-size:11px; font-weight:800; padding:8px 6px; }
-        .wiz-step-pill.active{ border-color: rgba(14,165,233,.9); background: rgba(14,165,233,.14); }
-        .wiz-step-pill.done{ background: rgba(34,197,94,.14); }
-        .wiz-body{ flex:1; overflow:auto; padding: 0 14px 14px; }
-        .wizard-section{ margin-top: 0; }
-        .wiz-toggle-stairs{ width:100%; min-height:56px; border-radius:16px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,.05); color:#fff; font-weight:900; font-size:15px; }
-        .wiz-muted{ margin-top:12px; font-size:12px; color:rgba(255,255,255,.72); line-height:1.45; }
-        .premium-stats{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; }
-        .premium-box{ border-radius:18px; padding:14px 12px; border:1px solid rgba(255,255,255,0.12); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 30px rgba(0,0,0,0.22); }
-        .premium-blue{ background: linear-gradient(180deg, rgba(37,99,235,.28), rgba(30,41,59,.88)); }
-        .premium-cyan{ background: linear-gradient(180deg, rgba(14,165,233,.25), rgba(15,23,42,.88)); }
-        .premium-green{ background: linear-gradient(180deg, rgba(34,197,94,.24), rgba(20,28,36,.90)); }
-        .premium-kicker{ font-size:11px; font-weight:900; letter-spacing:.08em; color:rgba(255,255,255,.78); }
-        .premium-value{ margin-top:8px; font-size:22px; font-weight:900; color:#fff; line-height:1.1; }
-        .wiz-actions{ display:flex; gap: 10px; padding: 12px 14px; border-top: 1px solid rgba(255,255,255,0.08); background: #0b0b0b; }
+        .wiz-steps{ display:flex; gap: 8px; padding: 10px 12px; }
+        .wiz-dot{ width: 28px; height: 28px; border-radius: 999px; display:flex; align-items:center; justify-content:center; font-weight: 900; border: 1px solid rgba(255,255,255,0.22); opacity: .65; }
+        .wiz-dot.on{ opacity: 1; border-color: rgba(34,197,94,0.8); box-shadow: 0 0 0 2px rgba(34,197,94,0.18); }
+        .wiz-body{ flex:1; overflow:auto; padding: 12px; }
+        .wiz-h{ font-weight: 900; letter-spacing: .06em; margin-bottom: 10px; }
+        .wiz-tabs{ display:flex; gap: 8px; margin-bottom: 10px; }
+        .wiz-tab{ flex:1; padding: 10px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: transparent; color: #fff; font-weight: 900; letter-spacing: .06em; opacity: .85; }
+        .wiz-tab.on{ opacity: 1; background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.35); }
+        .wiz-actions{ display:flex; gap: 10px; padding: 12px; border-top: 1px solid rgba(255,255,255,0.08); background: #0b0b0b; }
         .wiz-actions .btn{ flex:1; }
         .footer-bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px)); background: #0b0f14; border-top: 1px solid rgba(255,255,255,0.08); z-index: 1000; }
         .footer-bar .btn { flex: 1; }
