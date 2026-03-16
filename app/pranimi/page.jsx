@@ -474,6 +474,7 @@ export default function PranimiPage() {
 
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
+  const [showStairsArea, setShowStairsArea] = useState(false);
   const [showMsgSheet, setShowMsgSheet] = useState(false);
 
   const [autoMsgAfterSave, setAutoMsgAfterSave] = useState(true);
@@ -1422,4 +1423,393 @@ BORXHI: ${debt} €
 Sapo t'ju njoftojmë që janë gati, ju lutemi t'i merrni. Ne nuk mbajmë përgjegjësi për humbjen e tyre pas ditës që jeni njoftuar, pasi nuk kemi hapësirë për t'i lënë gjatë.
 
 Faleminderit!`;
+}
+
+
+  const summaryCardBase = {
+    borderRadius: 18,
+    padding: '14px 16px',
+    border: '1px solid rgba(255,255,255,0.12)',
+    boxShadow: '0 14px 30px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.08)',
+    backdropFilter: 'blur(8px)',
+  };
+
+  const summaryCardStyles = {
+    pieces: {
+      ...summaryCardBase,
+      background: 'linear-gradient(135deg, rgba(59,130,246,0.24) 0%, rgba(139,92,246,0.22) 100%)',
+      border: '1px solid rgba(147,197,253,0.32)',
+    },
+    m2: {
+      ...summaryCardBase,
+      background: 'linear-gradient(135deg, rgba(251,146,60,0.24) 0%, rgba(239,68,68,0.18) 100%)',
+      border: '1px solid rgba(251,191,36,0.30)',
+    },
+    total: {
+      ...summaryCardBase,
+      background: 'linear-gradient(135deg, rgba(16,185,129,0.24) 0%, rgba(34,197,94,0.18) 100%)',
+      border: '1px solid rgba(74,222,128,0.30)',
+    },
+  };
+
+  const SectionCard = ({ title, children, style }) => (
+    <section className="card" style={{ marginTop: 16, ...style }}>
+      {title ? <h2 className="card-title">{title}</h2> : null}
+      {children}
+    </section>
+  );
+
+  const renderRows = (kind, rows) => (
+    <>
+      {(rows || []).map((row) => (
+        <div className="piece-row" key={row.id}>
+          <div className="row">
+            <input
+              className="input small"
+              type="number"
+              value={row.m2}
+              onChange={(e) => handleRowChange(kind, row.id, 'm2', e.target.value)}
+              placeholder="m²"
+            />
+            <input
+              className="input small"
+              type="number"
+              value={row.qty}
+              onChange={(e) => handleRowChange(kind, row.id, 'qty', e.target.value)}
+              placeholder="copë"
+            />
+            <label className="camera-btn">
+              {row.photoUrl ? <img src={row.photoUrl} alt="foto" style={{ width: '100%', height: '100%', borderRadius: 12, objectFit: 'cover' }} /> : '📷'}
+              <input type="file" hidden accept="image/*" onChange={(e) => handleRowPhotoChange(kind, row.id, e.target.files?.[0])} />
+            </label>
+          </div>
+        </div>
+      ))}
+      <div className="row btn-row">
+        <button className="btn secondary" onClick={() => addRow(kind)}>+ RRESHT</button>
+        <button className="btn secondary" onClick={() => removeRow(kind)}>− RRESHT</button>
+      </div>
+    </>
+  );
+
+  return (
+    <>
+      <div style={{ padding: 16, color: '#fff' }}>
+        <div className="card" style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div className="card-title" style={{ marginBottom: 6 }}>PRANIMI</div>
+              <div style={{ opacity: 0.8, fontSize: 13 }}>KODI: <strong>{formatKod(normalizeCode(codeRaw), netState.ok)}</strong></div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn secondary" onClick={openDrafts}>DRAFTS</button>
+              <button className="btn primary" onClick={openWizard}>HAP WIZARD</button>
+            </div>
+          </div>
+          {!showWizard && (
+            <div style={{ marginTop: 12, opacity: 0.78, fontSize: 13 }}>
+              ETA: {etaText} • KAPACITETI SOT: {Number(todayPastrimM2 || 0).toFixed(2)} m²
+            </div>
+          )}
+        </div>
+
+        {showOfflinePrompt && (
+          <div className="card" style={{ marginTop: 12, border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(127,29,29,0.28)' }}>
+            ⚠️ OFFLINE / PROBLEM ME KODIN. RUJESE BEST-EFFORT MBETET AKTIVE.
+          </div>
+        )}
+
+        {showWizard && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <div className="card-title" style={{ margin: 0 }}>HAPI {wizStep} / 5</div>
+              <button className="btn secondary" onClick={closeWizard}>MBYLLE</button>
+            </div>
+
+            {wizStep === 1 && (
+              <>
+                <SectionCard title="KLIENTI" style={{ marginTop: 0 }}>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <input className="input" value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder="KËRKO KLIENTIN" />
+                    {clientHits.length > 0 && (
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {clientHits.map((c, idx) => (
+                          <button
+                            key={`${c.code}_${idx}`}
+                            type="button"
+                            className="btn secondary"
+                            style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                            onClick={() => {
+                              setName(c.name || '');
+                              setPhone(String(c.phone || '').replace(/^\+?383/, '').replace(/\D+/g, ''));
+                              setClientQuery(c.name || c.code || '');
+                            }}
+                          >
+                            {c.code} • {c.name} • {c.phone}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="EMRI DHE MBIEMRI" />
+                    <div className="row">
+                      <div className="input small" style={{ display: 'flex', alignItems: 'center', opacity: 0.8 }}>{phonePrefix}</div>
+                      <input className="input small" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="NUMRI I TELEFONIT" />
+                      <label className="camera-btn">
+                        {clientPhotoUrl ? <img src={clientPhotoUrl} alt="client" style={{ width: '100%', height: '100%', borderRadius: 12, objectFit: 'cover' }} /> : '📷'}
+                        <input type="file" hidden accept="image/*" onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} />
+                      </label>
+                    </div>
+                  </div>
+                </SectionCard>
+              </>
+            )}
+
+            {wizStep === 2 && (
+              <SectionCard title="TEPIHA" style={{ marginTop: 0 }}>
+                <div className="chip-row modern">
+                  {TEPIHA_CHIPS.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      className="chip chip-modern"
+                      style={chipStyleForVal(v, false)}
+                      onMouseDown={(e) => tapStart(chipTapRef, e)}
+                      onMouseMove={(e) => tapMove(chipTapRef, e)}
+                      onTouchStart={(e) => tapStart(chipTapRef, e.touches?.[0])}
+                      onTouchMove={(e) => tapMove(chipTapRef, e.touches?.[0])}
+                      onClick={(e) => guardedApplyChip('tepiha', v, e)}
+                    >
+                      {v.toFixed(1)}
+                    </button>
+                  ))}
+                </div>
+                {renderRows('tepiha', tepihaRows)}
+              </SectionCard>
+            )}
+
+            {wizStep === 3 && (
+              <SectionCard title="STAZA" style={{ marginTop: 0 }}>
+                <div className="chip-row modern">
+                  {STAZA_CHIPS.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      className="chip chip-modern"
+                      style={chipStyleForVal(v, false)}
+                      onMouseDown={(e) => tapStart(chipTapRef, e)}
+                      onMouseMove={(e) => tapMove(chipTapRef, e)}
+                      onTouchStart={(e) => tapStart(chipTapRef, e.touches?.[0])}
+                      onTouchMove={(e) => tapMove(chipTapRef, e.touches?.[0])}
+                      onClick={(e) => guardedApplyChip('staza', v, e)}
+                    >
+                      {v.toFixed(1)}
+                    </button>
+                  ))}
+                </div>
+                {renderRows('staza', stazaRows)}
+              </SectionCard>
+            )}
+
+            {wizStep === 4 && (
+              <>
+                <SectionCard title="SHKALLORJA OPSIONALE" style={{ marginTop: 0 }}>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    style={{ width: '100%', minHeight: 56, fontWeight: 900, fontSize: 16 }}
+                    onClick={() => setShowStairsArea((v) => !v)}
+                  >
+                    {showStairsArea ? '[-] LARGOHU' : '[+] SHTO SHKALLORE (OPSIONALE)'}
+                  </button>
+
+                  {showStairsArea && (
+                    <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
+                      <div className="field-group">
+                        <label className="label">COPË</label>
+                        <div className="chip-row">
+                          {SHKALLORE_QTY_CHIPS.map((n) => (
+                            <button key={n} className="chip" onClick={() => setStairsQty(n)}>{n}</button>
+                          ))}
+                        </div>
+                        <input type="number" className="input" value={stairsQty || ''} onChange={(e) => setStairsQty(e.target.value)} />
+                      </div>
+
+                      <div className="field-group">
+                        <label className="label">m² PËR COPË</label>
+                        <div className="chip-row">
+                          {SHKALLORE_PER_CHIPS.map((v) => (
+                            <button key={v} className="chip" onClick={() => setStairsPer(v)}>{v}</button>
+                          ))}
+                        </div>
+                        <input type="number" step="0.01" className="input" value={stairsPer || ''} onChange={(e) => setStairsPer(e.target.value)} />
+                      </div>
+
+                      <div className="field-group">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <label className="label">FOTO</label>
+                          <label className="camera-btn">
+                            {stairsPhotoUrl ? <img src={stairsPhotoUrl} alt="stairs" style={{ width: '100%', height: '100%', borderRadius: 12, objectFit: 'cover' }} /> : '📷'}
+                            <input type="file" hidden accept="image/*" onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </SectionCard>
+
+                <SectionCard title="SHËNIME">
+                  <textarea className="input" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
+                </SectionCard>
+
+                <SectionCard>
+                  <div className="row" style={{ gap: 10 }}>
+                    <button className="btn secondary" style={{ flex: 1, minHeight: 54, fontWeight: 900 }} onClick={openDrafts}>TË PA PLOTËSUARAT</button>
+                    <button
+                      className="btn secondary"
+                      style={{ flex: 1, minHeight: 54, fontWeight: 900 }}
+                      onMouseDown={startPayHold}
+                      onMouseUp={endPayHold}
+                      onMouseLeave={cancelPayHold}
+                      onTouchStart={startPayHold}
+                      onTouchEnd={endPayHold}
+                    >
+                      € PAGESA
+                    </button>
+                  </div>
+                </SectionCard>
+              </>
+            )}
+
+            {wizStep === 5 && (
+              <>
+                <SectionCard title="PËRMBLEDHJE" style={{ marginTop: 0 }}>
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={summaryCardStyles.pieces}>
+                      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>COPË</div>
+                      <div style={{ fontSize: 28, fontWeight: 900 }}>{copeCount}</div>
+                    </div>
+                    <div style={summaryCardStyles.m2}>
+                      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>M² TOTAL</div>
+                      <div style={{ fontSize: 28, fontWeight: 900 }}>{Number(totalM2 || 0).toFixed(2)}</div>
+                    </div>
+                    <div style={summaryCardStyles.total}>
+                      <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 6 }}>TOTAL €</div>
+                      <div style={{ fontSize: 28, fontWeight: 900 }}>{Number(totalEuro || 0).toFixed(2)} €</div>
+                    </div>
+                    <div className="tot-line">PAGUAR: <strong style={{ color: '#4ade80' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div>
+                    {!!currentDebt && <div className="tot-line">BORXHI: <strong style={{ color: '#f87171' }}>{Number(currentDebt || 0).toFixed(2)} €</strong></div>}
+                    {!!currentChange && <div className="tot-line">KUSURI: <strong>{Number(currentChange || 0).toFixed(2)} €</strong></div>}
+                    <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>REGJISTRU N'ARKË: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong></div>
+                  </div>
+                </SectionCard>
+
+                <SectionCard title="SHËNIME">
+                  <textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+                </SectionCard>
+              </>
+            )}
+
+            <footer className="wiz-actions" style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button className="btn secondary" onClick={wizStep === 1 ? closeWizard : wizBack}>
+                {wizStep === 1 ? 'MBYLLE' : 'MBRAPA'}
+              </button>
+              {wizStep < 5 ? (
+                <button className="btn primary" onClick={wizNext}>VAZHDO</button>
+              ) : (
+                <button className="btn primary" onClick={handleContinue} disabled={photoUploading || savingContinue}>
+                  {savingContinue ? '⏳ DUKE RUJT...' : 'RUAJ & VAZHDO'}
+                </button>
+              )}
+            </footer>
+          </div>
+        )}
+      </div>
+
+      {showPaySheet && (
+        <PosModal
+          open={showPaySheet}
+          onClose={() => setShowPaySheet(false)}
+          title="PAGESA (ARKË)"
+          subtitle={`KODI: ${formatKod(normalizeCode(codeRaw), netState.ok)} • ${name}`}
+          total={totalEuro}
+          alreadyPaid={Number(clientPaid || 0)}
+          amount={Number(payAdd || 0)}
+          setAmount={(v) => setPayAdd(Number(v || 0))}
+          payChips={PAY_CHIPS}
+          confirmText="KRYEJ PAGESËN"
+          cancelText="ANULO"
+          disabled={savingContinue}
+          onConfirm={applyPayAndClose}
+          footerNote={`BORXHI: ${Number(currentDebt || 0).toFixed(2)}€ • KUSURI: ${Number(Math.max(0, Number(payAdd || 0) - Number(currentDebt || 0))).toFixed(2)}€`}
+        />
+      )}
+
+      {showPriceSheet && (
+        <div className="modal-overlay" onClick={() => setShowPriceSheet(false)}>
+          <div className="modal-content dark" onClick={(e) => e.stopPropagation()}>
+            <h3 className="card-title" style={{ marginTop: 0 }}>NDRYSHO ÇMIMIN / m²</h3>
+            <input type="number" step="0.1" className="input" value={priceTmp} onChange={(e) => setPriceTmp(e.target.value)} />
+            <div className="row" style={{ gap: 10, marginTop: 12 }}>
+              <button className="btn secondary" onClick={() => setShowPriceSheet(false)}>ANULO</button>
+              <button className="btn primary" onClick={savePriceAndClose}>RUAJ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDraftsSheet && (
+        <div className="modal-overlay" onClick={() => setShowDraftsSheet(false)}>
+          <div className="modal-content dark" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <h3 className="card-title" style={{ margin: 0 }}>TË PA PLOTËSUARAT</h3>
+              <button className="btn secondary" onClick={() => setShowDraftsSheet(false)}>MBYLLE</button>
+            </div>
+            <div style={{ display: 'grid', gap: 10, marginTop: 14, maxHeight: '60vh', overflow: 'auto' }}>
+              {drafts.length === 0 ? (
+                <div style={{ opacity: 0.7 }}>NUK KA DRAFTS.</div>
+              ) : drafts.map((d) => (
+                <div key={d.id} className="card" style={{ marginTop: 0 }}>
+                  <div style={{ fontWeight: 900 }}>{d.code || '—'} • {d.name || 'PA EMËR'}</div>
+                  <div style={{ opacity: 0.72, fontSize: 13, marginTop: 4 }}>{d.phone || ''}</div>
+                  <div className="row" style={{ gap: 10, marginTop: 10 }}>
+                    <button className="btn secondary" onClick={() => loadDraftIntoForm(d.id)}>HAP</button>
+                    <button className="btn secondary" onClick={() => deleteDraft(d.id)}>FSHIJ</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMsgSheet && (
+        <div className="modal-overlay" onClick={() => {
+          setShowMsgSheet(false);
+          if (pendingNavTo) {
+            const to = pendingNavTo;
+            setPendingNavTo('');
+            router.push(to);
+          }
+        }}>
+          <div className="modal-content dark" onClick={(e) => e.stopPropagation()}>
+            <h3 className="card-title" style={{ marginTop: 0 }}>MESAZHI</h3>
+            <textarea className="input" rows={12} value={buildStartMessage()} readOnly />
+            <div className="row" style={{ gap: 10, marginTop: 12 }}>
+              <button className="btn secondary" onClick={async () => {
+                try { await navigator.clipboard.writeText(buildStartMessage()); } catch {}
+              }}>COPY</button>
+              <button className="btn primary" onClick={() => {
+                setShowMsgSheet(false);
+                if (pendingNavTo) {
+                  const to = pendingNavTo;
+                  setPendingNavTo('');
+                  router.push(to);
+                }
+              }}>VAZHDO</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
