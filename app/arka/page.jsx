@@ -1,6 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import { getActor } from '@/lib/actorSession';
+import { handoffActorPendingCash, listPendingCashForActor } from '@/lib/arkaCashSync';
 
 function HubTile({ href, icon, title, desc, accent = '#0f172a' }) {
   return (
@@ -20,6 +23,41 @@ function HubTile({ href, icon, title, desc, accent = '#0f172a' }) {
 }
 
 export default function ArkaPage() {
+  const [actor, setActor] = useState(null);
+  const [mine, setMine] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  async function refreshMine(a = null) {
+    const act = a || getActor();
+    setActor(act || null);
+    const pin = String(act?.pin || '').trim();
+    if (!pin) { setMine([]); return; }
+    const res = await listPendingCashForActor(pin, 200);
+    setMine(Array.isArray(res?.items) ? res.items.filter((x) => ['PENDING','COLLECTED'].includes(String(x?.status || '').toUpperCase())) : []);
+  }
+
+  useEffect(() => { void refreshMine(); }, []);
+
+  const myTotal = useMemo(() => mine.reduce((sum, x) => sum + (Number(x?.amount || 0) || 0), 0), [mine]);
+
+  async function onHandoff() {
+    if (!actor?.pin) return alert('Mungon PIN-i i punëtorit.');
+    if (myTotal <= 0) return alert('Arka jote është 0€.');
+    const ok = window.confirm(`A don me i dorëzu ${myTotal.toFixed(2)}€ te bosi?`);
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await handoffActorPendingCash({ actor });
+      if (!res?.ok) throw new Error(res?.error || 'Dështoi dorëzimi');
+      await refreshMine(actor);
+      alert(`U dorëzuan ${Number(res.total || 0).toFixed(2)}€.`);
+    } catch (e) {
+      alert(e?.message || 'Gabim gjatë dorëzimit.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="arkaHubPage">
       <div className="arkaHubShell">
@@ -35,6 +73,29 @@ export default function ArkaPage() {
           <Link href="/" className="homeBtn">
             ← HOME
           </Link>
+        </div>
+
+        <div className="myArkaCard">
+          <div className="myArkaHead">
+            <div>
+              <div className="myArkaEyebrow">ARKA IME</div>
+              <div className="myArkaName">{actor?.name || 'PUNËTORI'}</div>
+              <div className="myArkaMeta">PIN: {actor?.pin || '—'}</div>
+            </div>
+            <div className="myArkaAmount">€{Number(myTotal || 0).toFixed(2)}</div>
+          </div>
+          <button className="handoffBtn" disabled={busy || myTotal <= 0} onClick={onHandoff}>DORËZO PARET TE BOSI</button>
+          <div className="myArkaList">
+            {mine.length ? mine.slice(0, 6).map((x) => (
+              <div key={x.external_id || x.id} className="myArkaRow">
+                <div>
+                  <div className="myArkaRowTitle">{x.client_name || x.order_code || 'PAGESË CASH'}</div>
+                  <div className="myArkaRowSub">{x.order_code ? `KODI ${x.order_code}` : (x.note || 'Pa shënim')}</div>
+                </div>
+                <div className="myArkaRowAmt">€{Number(x.amount || 0).toFixed(2)}</div>
+              </div>
+            )) : <div className="myArkaEmpty">S’ke pagesa cash të padorëzuara.</div>}
+          </div>
         </div>
 
         <div className="heroCard">
@@ -142,6 +203,29 @@ export default function ArkaPage() {
           box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
           border-color: #cbd5e1;
         }
+
+        .myArkaCard {
+          background: #0f172a;
+          color: #fff;
+          border-radius: 28px;
+          padding: 22px;
+          border: 1px solid rgba(255,255,255,0.08);
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+          margin-bottom: 20px;
+        }
+        .myArkaHead { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+        .myArkaEyebrow { font-size: 11px; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
+        .myArkaName { margin-top: 8px; font-size: 24px; font-weight: 900; line-height: 1; }
+        .myArkaMeta { margin-top: 6px; font-size: 13px; color: rgba(255,255,255,0.62); }
+        .myArkaAmount { font-size: clamp(28px, 4vw, 42px); font-weight: 900; letter-spacing: -0.04em; }
+        .handoffBtn { margin-top: 16px; width: 100%; border: none; border-radius: 18px; padding: 16px 18px; background: linear-gradient(180deg, #22c55e, #16a34a); color: #fff; font-size: 16px; font-weight: 900; cursor: pointer; }
+        .handoffBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .myArkaList { margin-top: 14px; display: grid; gap: 10px; }
+        .myArkaRow { display:flex; justify-content:space-between; gap:12px; align-items:center; padding: 11px 12px; border-radius: 16px; background: rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.06); }
+        .myArkaRowTitle { font-size: 14px; font-weight: 800; }
+        .myArkaRowSub { margin-top: 3px; font-size: 12px; color: rgba(255,255,255,0.58); }
+        .myArkaRowAmt { font-size: 16px; font-weight: 900; white-space: nowrap; }
+        .myArkaEmpty { padding: 12px; border-radius: 14px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.72); font-size: 13px; }
 
         .heroCard {
           background: rgba(255, 255, 255, 0.94);

@@ -130,6 +130,12 @@ async function readLocalOrdersByStatus(status) {
 }
 
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
+function formatDayMonth(ts) {
+  if (!ts) return '--/--';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '--/--';
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
 function rowQty(r) { return Number(r?.qty ?? r?.pieces ?? 0) || 0; }
 function rowM2(r) { return Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0; }
@@ -271,6 +277,9 @@ export default function PastrimiPage() {
 
   const [showPaySheet, setShowPaySheet] = useState(false);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
+  const [readyPlaceSheet, setReadyPlaceSheet] = useState(false);
+  const [readyPlaceOrder, setReadyPlaceOrder] = useState(null);
+  const [readyPlaceText, setReadyPlaceText] = useState('');
   const [payAdd, setPayAdd] = useState(0);
 
   const [streamPastrimM2, setStreamPastrimM2] = useState(0);
@@ -542,7 +551,30 @@ export default function PastrimiPage() {
     }
   }
 
-  async function handleMarkReady(o) {
+  function openReadyPlaceSheet(o) {
+    if (o?._outboxPending) {
+      alert("⏳ Kjo porosi është në pritje për internet. Prit sa të sinkronizohet lart.");
+      return;
+    }
+    if (o?.source === 'transport_orders') {
+      handleMarkReady(o);
+      return;
+    }
+    setReadyPlaceOrder(o);
+    setReadyPlaceText(String(o?.fullOrder?.ready_note || o?.fullOrder?.ready_location || ''));
+    setReadyPlaceSheet(true);
+  }
+
+  async function confirmReadyPlaceAndSend() {
+    if (!readyPlaceOrder) return;
+    const txt = String(readyPlaceText || '').trim();
+    setReadyPlaceSheet(false);
+    await handleMarkReady(readyPlaceOrder, { readyNote: txt });
+    setReadyPlaceOrder(null);
+    setReadyPlaceText('');
+  }
+
+  async function handleMarkReady(o, opts = {}) {
     if (o._outboxPending) {
        alert("⏳ Kjo porosi është në pritje për internet. Prit sa të sinkronizohet lart.");
        return;
@@ -565,7 +597,7 @@ export default function PastrimiPage() {
         );
         if (fetchErr) throw fetchErr;
 
-        const updatedJson = { ...(currentRow.data || {}), status: 'gati', ready_at: now };
+        const updatedJson = { ...(currentRow.data || {}), status: 'gati', ready_at: now, ...(opts?.readyNote ? { ready_note: String(opts.readyNote).trim(), ready_location: String(opts.readyNote).trim() } : {}) };
         if (table === 'transport_orders') {
           await supabase.from('transport_orders').update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now }).eq('id', o.id);
           alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
@@ -816,13 +848,16 @@ export default function PastrimiPage() {
               return (
               <div key={o.id + o.source} className="list-item-compact" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)', opacity: o.isReturn ? 0.92 : 1 }}>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flex: 1 }}>
-                  <div
-                    onMouseDown={() => startLongPress(o)}
-                    onTouchStart={() => startLongPress(o)}
-                    onMouseUp={cancelLongPress}
-                    onTouchEnd={cancelLongPress}
-                    style={{ background: badgeColorByAge(o.ts), color: '#fff', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, fontWeight: 800, fontSize: 14, flexShrink: 0 }}>
-                    {codeLabel}
+                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, flexShrink:0 }}>
+                    <div
+                      onMouseDown={() => startLongPress(o)}
+                      onTouchStart={() => startLongPress(o)}
+                      onMouseUp={cancelLongPress}
+                      onTouchEnd={cancelLongPress}
+                      style={{ background: badgeColorByAge(o.ts), color: '#fff', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, fontWeight: 800, fontSize: 14, flexShrink: 0 }}>
+                      {codeLabel}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.75)', fontWeight: 800 }}>{formatDayMonth(o.ts)}</div>
                   </div>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>
@@ -837,7 +872,7 @@ export default function PastrimiPage() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {o.isPaid && <span>✅</span>}
-                  <button id={`btn-${o.id}`} className="btn primary" style={{ padding: '6px 10px', fontSize: 12, backgroundColor: o.source === 'transport_orders' ? '#2563eb' : '#16a34a' }} onClick={() => handleMarkReady(o)}>
+                  <button id={`btn-${o.id}`} className="btn primary" style={{ padding: '6px 10px', fontSize: 12, backgroundColor: o.source === 'transport_orders' ? '#2563eb' : '#16a34a' }} onClick={() => openReadyPlaceSheet(o)}>
                     {o.source === 'transport_orders' ? 'GATI (SHOPFER)' : 'SMS KLIENTIT'}
                   </button>
                 </div>
@@ -845,7 +880,23 @@ export default function PastrimiPage() {
             )})}
       </section>
 
+
+      {readyPlaceSheet && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:10040, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ width:'100%', maxWidth:420, background:'#0b0b0b', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, padding:16 }}>
+            <div style={{ fontWeight:900, fontSize:18 }}>📍 LOKACIONI / RAFTI</div>
+            <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)', marginTop:4 }}>Vendose raftin para se të hapet SMS-ja e klientit.</div>
+            <textarea className="input" rows={3} value={readyPlaceText} onChange={(e)=>setReadyPlaceText(e.target.value)} placeholder="P.sh. RAFTI A2 / POSHTË DJATHTAS" style={{ marginTop:12, resize:'none' }} />
+            <div style={{ display:'flex', gap:8, marginTop:12 }}>
+              <button className="btn secondary" style={{ flex:1 }} onClick={() => { setReadyPlaceSheet(false); setReadyPlaceOrder(null); }}>ANULO</button>
+              <button className="btn primary" style={{ flex:1 }} onClick={confirmReadyPlaceAndSend}>RUAJ & HAP SMS</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <footer className="dock"><Link href="/" className="btn secondary" style={{ width: '100%' }}>🏠 HOME</Link></footer>
+
 
       <style jsx>{`
         .list-item-compact:last-child { border-bottom: none; }

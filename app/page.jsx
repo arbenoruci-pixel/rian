@@ -23,6 +23,21 @@ function routeForStatus(status){
   return '/pastrimi';
 }
 
+
+function pickClientMeta(order){
+  const name = String(order?.client_name || order?.data?.client?.name || order?.client?.name || order?.data?.client_name || order?.data?.name || order?.name || 'Pa Emër').trim() || 'Pa Emër';
+  const phone = String(order?.client_phone || order?.data?.client?.phone || order?.client?.phone || order?.data?.client_phone || order?.data?.phone || order?.phone || '').trim();
+  return { name, phone };
+}
+
+function matchesUniversal(order, q){
+  const qq = String(q || '').toLowerCase().trim();
+  if (!qq) return true;
+  const meta = pickClientMeta(order);
+  const code = String(order?.client_tcode || order?.code || '').toLowerCase();
+  return code.includes(qq) || meta.name.toLowerCase().includes(qq) || meta.phone.toLowerCase().includes(qq);
+}
+
 function getStatusStyle(status) {
   const s = String(status||'').toLowerCase();
   if (s === 'gati') return { background: 'rgba(16, 185, 129, 0.15)', color: '#4ade80', border: '1px solid rgba(16, 185, 129, 0.3)' };
@@ -101,37 +116,37 @@ export default function HomePage() {
     const kind = parsed.kind;
     const raw = parsed.raw;
 
-    if(!raw){
-      setErr('SHKRUAJ KODIN (p.sh. 3 ose T3)');
+    if(!qRaw){
+      setErr('SHKRUAJ KODIN, EMRIN OSE TELEFONIN.');
       return;
     }
 
     setLoading(true);
     try{
-      if(kind === 'T'){
+      const isNumericOnly = /^\d+$/.test(qRaw);
+      const searchLower = qRaw.toLowerCase();
+
+      if(kind === 'T' && raw){
         const tcode = String(raw || '').toUpperCase();
         const { data, error } = await supabase
           .from('transport_orders')
           .select('id,client_tcode,status,transport_id,data,updated_at,created_at')
-          .eq('client_tcode', tcode)
           .order('updated_at', { ascending: false })
           .order('created_at', { ascending: false })
-          .limit(10);
-
+          .limit(40);
         if(error) throw new Error(error.message);
-
-        const rows = Array.isArray(data) ? data : [];
+        const rows = Array.isArray(data) ? data.filter((r) => matchesUniversal(r, qRaw)) : [];
         const out = [];
         for(const r of rows){
           const transport_id = r?.transport_id ?? r?.data?.transport_id ?? r?.data?.transportId ?? null;
           const transporter = transport_id ? await fetchTransporterNameByPin(transport_id) : '';
-          const client = r?.data?.client || r?.data?.klienti || {};
+          const meta = pickClientMeta(r);
           out.push({
             kind:'T',
             code: String(r?.client_tcode || tcode),
             status: r?.status || '',
-            name: r?.data?.client_name || client?.name || r?.data?.name || '',
-            phone: r?.data?.client_phone || client?.phone || r?.data?.phone || '',
+            name: meta.name,
+            phone: meta.phone,
             transporter,
             pieces: computePieces(r?.data),
             id: r?.id || null,
@@ -141,34 +156,57 @@ export default function HomePage() {
         return;
       }
 
-      const n = Number(raw) || 0;
-      if(!(n>0)){
-        setErr('KOD I PAVLEFSHËM.');
+      if (isNumericOnly && qRaw.length <= 4 && Number(raw) > 0) {
+        const n = Number(raw) || 0;
+        const { data, error } = await supabase
+          .from('orders')
+          .select('id,code,status,client_name,client_phone,data,updated_at')
+          .eq('code', n)
+          .order('updated_at', { ascending: false })
+          .limit(20);
+        if(error) throw new Error(error.message);
+        const rows = Array.isArray(data) ? data : [];
+        const out = [];
+        for(const r of rows){
+          const transport_id = r?.data?.transport_id ?? r?.data?.transportId ?? null;
+          const transporter = transport_id ? await fetchTransporterNameByPin(transport_id) : '';
+          const createdBy = r?.data?._audit?.created_by_name || r?.data?.created_by_name || r?.data?.created_by || null;
+          const meta = pickClientMeta(r);
+          out.push({
+            kind:'B',
+            code: String(r?.code ?? n),
+            status: r?.status || '',
+            name: meta.name,
+            phone: meta.phone,
+            transporter,
+            createdBy,
+            pieces: computePieces(r?.data),
+            id: r?.id || null,
+          });
+        }
+        setResults(out);
         return;
       }
 
       const { data, error } = await supabase
         .from('orders')
         .select('id,code,status,client_name,client_phone,data,updated_at')
-        .eq('code', n)
         .order('updated_at', { ascending: false })
-        .limit(10);
-
+        .limit(120);
       if(error) throw new Error(error.message);
-
-      const rows = Array.isArray(data) ? data : [];
+      const rows = Array.isArray(data) ? data.filter((r) => matchesUniversal(r, searchLower)) : [];
       const out = [];
       for(const r of rows){
         const transport_id = r?.data?.transport_id ?? r?.data?.transportId ?? null;
         const transporter = transport_id ? await fetchTransporterNameByPin(transport_id) : '';
         const createdBy = r?.data?._audit?.created_by_name || r?.data?.created_by_name || r?.data?.created_by || null;
-        
+        const meta = pickClientMeta(r);
         out.push({
           kind:'B',
-          code: String(r?.code ?? n),
+          code: String(r?.code ?? ''),
           status: r?.status || '',
-          name: r?.client_name || '',
-          phone: r?.client_phone || '',
+          name: meta.name,
+          phone: meta.phone,
           transporter,
           createdBy,
           pieces: computePieces(r?.data),
@@ -201,7 +239,7 @@ export default function HomePage() {
             className="search-input"
             value={q}
             onChange={(e)=>setQ(e.target.value)}
-            placeholder="Shkruaj Kodin (Psh: 3 ose T3)"
+            placeholder="Shkruaj kodin, emrin ose telefonin"
             inputMode="text"
             autoComplete="off"
           />

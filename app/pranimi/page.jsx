@@ -17,6 +17,7 @@ import { recordCashMove } from '@/lib/arkaCashSync';
 import PosModal from '@/components/PosModal';
 import { getActor } from '@/lib/actorSession';
 import { requirePaymentPin } from '@/lib/paymentPin';
+import { getClientBalanceByPhone } from '@/lib/clientBalanceDb';
 
 const BUCKET = 'tepiha-photos';
 
@@ -453,6 +454,7 @@ export default function PranimiPage() {
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [oldClientDebt, setOldClientDebt] = useState(0);
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
 
   const [clientQuery, setClientQuery] = useState('');
@@ -907,6 +909,22 @@ export default function PranimiPage() {
   const totalEuro = useMemo(() => Number((totalM2 * (Number(pricePerM2) || 0)).toFixed(2)), [totalM2, pricePerM2]);
   const diff = useMemo(() => Number((totalEuro - Number(clientPaid || 0)).toFixed(2)), [totalEuro, clientPaid]);
   const currentDebt = diff > 0 ? diff : 0;
+
+  useEffect(() => {
+    let alive = true;
+    const phoneFull = sanitizePhone(phonePrefix + (phone || ''));
+    if (!phoneFull || phoneFull.length < 6) { setOldClientDebt(0); return; }
+    (async () => {
+      try {
+        const res = await getClientBalanceByPhone(phoneFull);
+        if (!alive) return;
+        setOldClientDebt(Number(res?.debt_eur || 0) || 0);
+      } catch {
+        if (alive) setOldClientDebt(0);
+      }
+    })();
+    return () => { alive = false; };
+  }, [phonePrefix, phone]);
   const currentChange = diff < 0 ? Math.abs(diff) : 0;
 
   const copeCount = useMemo(() => {
@@ -1563,6 +1581,7 @@ KOMPANIA JONI`;
             <input className="input small" value={phonePrefix} readOnly />
             <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
+          {oldClientDebt > 0 && <div style={{ marginTop:8, padding:'10px 12px', borderRadius:12, background:'rgba(239,68,68,0.16)', border:'1px solid rgba(239,68,68,0.35)', color:'#fecaca', fontWeight:900, fontSize:12 }}>⚠️ KUJDES: KY KLIENT KA {oldClientDebt.toFixed(2)}€ BORXH TË VJETËR!</div>}
         </div>
       </section>
 
@@ -1834,6 +1853,7 @@ KOMPANIA JONI`;
                           <input className="input small" value={phonePrefix} readOnly style={{maxWidth:90}} />
                           <input style={{background:'transparent', border:'none', color:'#CCC', fontSize:16, width:'100%', outline:'none', padding:0}} placeholder="44xxxxxx" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
                         </div>
+                        {oldClientDebt > 0 && <div style={{ marginTop:8, padding:'10px 12px', borderRadius:12, background:'rgba(239,68,68,0.16)', border:'1px solid rgba(239,68,68,0.35)', color:'#fecaca', fontWeight:900, fontSize:12 }}>⚠️ KUJDES: KY KLIENT KA {oldClientDebt.toFixed(2)}€ BORXH TË VJETËR!</div>}
                       </div>
                     </div>
                   </section>

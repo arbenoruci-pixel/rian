@@ -11,6 +11,7 @@ import { recordOrderCashPayment } from '@/components/payments/payService';
 import { saveOrderLocal, getAllOrdersLocal } from '@/lib/offlineStore';
 import { queueOp } from '@/lib/offlineSyncClient';
 import { requirePaymentPin } from '@/lib/paymentPin';
+import { setClientBalanceByPhone } from '@/lib/clientBalanceDb';
 
 function readActor() {
   try {
@@ -98,6 +99,12 @@ function normalizeCode(raw) {
 
 function sanitizePhone(phone) {
   return String(phone || '').replace(/[^\d+]+/g, '');
+}
+function formatDayMonth(ts) {
+  if (!ts) return '--/--';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '--/--';
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function rowQty(row) {
@@ -212,6 +219,16 @@ export default function GatiPage() {
   const [placeErr, setPlaceErr] = useState('');
   const [placeOrderId, setPlaceOrderId] = useState(null);
   const [placeOrder, setPlaceOrder] = useState(null);
+  const [showCodeMenu, setShowCodeMenu] = useState(false);
+  const [codeMenuOrder, setCodeMenuOrder] = useState(null);
+  const [showEditMeasures, setShowEditMeasures] = useState(false);
+  const [editMeasuresOrderId, setEditMeasuresOrderId] = useState(null);
+  const [editMeasuresOrder, setEditMeasuresOrder] = useState(null);
+  const [editTepihaRows, setEditTepihaRows] = useState([{ id: 't1', m2: '', qty: '' }]);
+  const [editStazaRows, setEditStazaRows] = useState([{ id: 's1', m2: '', qty: '' }]);
+  const [editStairsQty, setEditStairsQty] = useState('0');
+  const [editStairsPer, setEditStairsPer] = useState('0.3');
+  const [editMeasuresBusy, setEditMeasuresBusy] = useState(false);
   const [placeText, setPlaceText] = useState('');
   const [selectedSlots, setSelectedSlots] = useState([]);
   const [slotMap, setSlotMap] = useState({});
@@ -288,6 +305,7 @@ export default function GatiPage() {
               return {
                 id: String(order.id),
                 ts: Number(order.ts || 0),
+                createdAt: order.created_at || null,
                 readyTs,
                 name: order.client?.name || '',
                 phone: order.client?.phone || '',
@@ -348,6 +366,7 @@ export default function GatiPage() {
           return {
             id: String(order.id),
             ts: Number(order.ts || 0),
+            createdAt: row.created_at || order.created_at || null,
             readyTs,
             name: order.client?.name || '',
             phone: order.client?.phone || '',
@@ -415,6 +434,117 @@ export default function GatiPage() {
   }
 
   // ---------------- KU E LAM ----------------
+  function openCodeMenu(row) {
+    setCodeMenuOrder(row);
+    setShowCodeMenu(true);
+  }
+
+  async function openEditMeasures(row) {
+    try {
+      setEditMeasuresBusy(true);
+      setShowCodeMenu(false);
+      let order = null;
+      try {
+        const raw = localStorage.getItem(`order_${row.id}`);
+        if (raw) order = JSON.parse(raw);
+      } catch {}
+      if (!order) {
+        const res = await dbFetchOrderById(row.id);
+        order = res.order;
+      }
+      if (!order) return alert('Nuk u gjet porosia.');
+      const tList = getTepihaRows(order);
+      const sList = getStazaRows(order);
+      setEditMeasuresOrderId(String(row.id));
+      setEditMeasuresOrder(order);
+      setEditTepihaRows(tList.length ? tList.map((x,i)=>({ id:`t${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? 0) })) : [{ id:'t1', m2:'', qty:'' }]);
+      setEditStazaRows(sList.length ? sList.map((x,i)=>({ id:`s${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? 0) })) : [{ id:'s1', m2:'', qty:'' }]);
+      setEditStairsQty(String(getStairsQty(order) || 0));
+      setEditStairsPer(String(getStairsPer(order) || 0.3));
+      setShowEditMeasures(true);
+    } catch {
+      alert('Nuk u hap editimi i masave.');
+    } finally {
+      setEditMeasuresBusy(false);
+    }
+  }
+
+  function closeEditMeasures() {
+    setShowEditMeasures(false);
+    setEditMeasuresOrderId(null);
+    setEditMeasuresOrder(null);
+  }
+
+  function updateMeasureRow(kind, id, field, value) {
+    const setter = kind === 'tepiha' ? setEditTepihaRows : setEditStazaRows;
+    setter((rows) => rows.map((r) => String(r.id) === String(id) ? { ...r, [field]: value } : r));
+  }
+
+  function addMeasureRow(kind) {
+    const setter = kind === 'tepiha' ? setEditTepihaRows : setEditStazaRows;
+    const prefix = kind === 'tepiha' ? 't' : 's';
+    setter((rows) => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '' }]);
+  }
+
+  async function saveEditMeasures() {
+    if (!editMeasuresOrderId || !editMeasuresOrder) return;
+    setEditMeasuresBusy(true);
+    try {
+      const totalM2 = Number((editTepihaRows.reduce((a,r)=>a+(Number(r.m2)||0)*(Number(r.qty)||0),0) + editStazaRows.reduce((a,r)=>a+(Number(r.m2)||0)*(Number(r.qty)||0),0) + (Number(editStairsQty)||0)*(Number(editStairsPer)||0)).toFixed(2));
+      const rate = Number(editMeasuresOrder.pay?.rate || 0) || 0;
+      const merged = {
+        ...editMeasuresOrder,
+        tepiha: editTepihaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0 })),
+        staza: editStazaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0 })),
+        shkallore: { ...(editMeasuresOrder.shkallore || {}), qty: Number(editStairsQty) || 0, per: Number(editStairsPer) || 0 },
+        pay: { ...(editMeasuresOrder.pay || {}), m2: totalM2, euro: Number((rate * totalM2).toFixed(2)) },
+      };
+      const now = new Date().toISOString();
+      await saveOrderLocal({ id: editMeasuresOrderId, status: 'gati', data: merged, updated_at: now, _synced: false, _table: 'orders' });
+      try { localStorage.setItem(`order_${editMeasuresOrderId}`, JSON.stringify(merged)); } catch {}
+      const { error } = await supabase.from('orders').update({ data: merged, updated_at: now }).eq('id', editMeasuresOrderId);
+      if (error) throw error;
+      await refreshOrders();
+      closeEditMeasures();
+    } catch (e) {
+      alert(e?.message || 'Gabim gjatë ruajtjes së masave.');
+    } finally {
+      setEditMeasuresBusy(false);
+    }
+  }
+
+  async function cancelOrderPayment(row) {
+    try {
+      let order = null;
+      try {
+        const raw = localStorage.getItem(`order_${row.id}`);
+        if (raw) order = JSON.parse(raw);
+      } catch {}
+      if (!order) {
+        const res = await dbFetchOrderById(row.id);
+        order = res.order;
+      }
+      if (!order) return alert('Nuk u gjet porosia.');
+      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
+      const next = { ...order, pay: { ...(order.pay || {}), paid: 0, debt: total, paidUpfront: false, arkaRecordedPaid: 0, method: order.pay?.method || 'CASH' } };
+      const now = new Date().toISOString();
+      await saveOrderLocal({ id: row.id, status: 'gati', data: next, updated_at: now, _synced: false, _table: 'orders' });
+      try { localStorage.setItem(`order_${row.id}`, JSON.stringify(next)); } catch {}
+      const { error } = await supabase.from('orders').update({ data: next, updated_at: now }).eq('id', row.id);
+      if (error) throw error;
+      await refreshOrders();
+      setShowCodeMenu(false);
+      alert('Pagesa e porosisë u anulua.');
+    } catch (e) {
+      alert(e?.message || 'Gabim gjatë anulimit të pagesës.');
+    }
+  }
+
+  function openHoldMenu(row) {
+    setCodeMenuOrder(row);
+    setShowCodeMenu(true);
+  }
+
   async function openPlaceCard(row) {
     try {
       setPlaceErr('');
@@ -679,6 +809,10 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
           delivered_by: snapOrder.delivered_by,
         };
 
+        try {
+          await setClientBalanceByPhone({ phone: payload.phone || payload.order?.client?.phone || '', client_name: payload.name || payload.order?.client?.name || '', debt_eur: Number(newDebt || 0), last_order_id: snapOrder.id });
+        } catch {}
+
         // Save local mirror (mos blloko UI edhe nëse dështon)
         try {
           localStorage.setItem(`tepiha_delivered_${snapOrder.id}`, JSON.stringify(payload));
@@ -864,8 +998,8 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
     if (holdTimer.current) clearTimeout(holdTimer.current);
     holdTimer.current = setTimeout(() => {
       holdFired.current = true;
-      openReturn(row);
-    }, 3000);
+      openHoldMenu(row);
+    }, 2000);
   }
   function onPayPressEnd(row) {
     if (holdTimer.current) {
@@ -938,7 +1072,7 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
                       flexShrink: 0,
                       cursor: 'pointer',
                     }}
-                    onClick={() => openPlaceCard(o)}
+                    onClick={() => openCodeMenu(o)}
                   >
                     {normalizeCode(o.code)}
                   </div>
@@ -957,6 +1091,7 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
                       {o.cope} copë • {Number(o.m2 || 0).toFixed(2)} m²
                     </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.58)', fontWeight: 800 }}>PRANUAR: {formatDayMonth(o.createdAt || o.ts)}</div>
                     {o.paidUpfront && (
                       <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>
                     )}
@@ -1075,6 +1210,65 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
             <button className="btn primary" onClick={confirmReturn}>
               KONFIRMO KTHIMIN
             </button>
+          </div>
+        </div>
+      )}
+
+
+      {showCodeMenu && codeMenuOrder && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.72)', zIndex:10020, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={(e)=>{ if(e.target===e.currentTarget) setShowCodeMenu(false); }}>
+          <div style={{ width:'100%', maxWidth:420, background:'#0b0b0b', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, padding:16 }}>
+            <div style={{ fontWeight:900, fontSize:18 }}>KODI {normalizeCode(codeMenuOrder.code)}</div>
+            <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)', marginTop:4 }}>{codeMenuOrder.name || 'Klient'}</div>
+            <div style={{ display:'grid', gap:10, marginTop:14 }}>
+              <button className="btn secondary" onClick={() => { setShowCodeMenu(false); openPlaceCard(codeMenuOrder); }}>📍 VENDOS LOKACIONIN</button>
+              <button className="btn secondary" onClick={() => openEditMeasures(codeMenuOrder)}>✏️ SHIKO / EDITO MASAT</button>
+              <button className="btn secondary" onClick={() => { setShowCodeMenu(false); openReturn(codeMenuOrder); }}>↩️ KTHE NË PASTRIM</button>
+              <button className="btn secondary" onClick={() => cancelOrderPayment(codeMenuOrder)}>💶 ANULO PAGESËN</button>
+              <button className="btn primary" onClick={() => setShowCodeMenu(false)}>MBYLL</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditMeasures && (
+        <div style={{ position:'fixed', inset:0, background:'#0b0b0b', zIndex:10015, display:'flex', flexDirection:'column' }}>
+          <div style={{ padding:14, borderBottom:'1px solid rgba(255,255,255,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div>
+              <div style={{ fontWeight:900, fontSize:18 }}>EDITO MASAT</div>
+              <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)' }}>KODI: {normalizeCode(editMeasuresOrder?.client?.code || editMeasuresOrder?.code)}</div>
+            </div>
+            <button className="btn secondary" onClick={closeEditMeasures}>✕</button>
+          </div>
+          <div style={{ padding:14, overflow:'auto', flex:1, display:'grid', gap:12 }}>
+            <div>
+              <div style={{ fontWeight:900, marginBottom:8 }}>TEPIHA</div>
+              {editTepihaRows.map((row) => (
+                <div key={row.id} style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+                  <input className="input" type="number" value={row.m2} onChange={(e)=>updateMeasureRow('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
+                  <input className="input" type="number" value={row.qty} onChange={(e)=>updateMeasureRow('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
+                </div>
+              ))}
+              <button className="btn secondary" onClick={()=>addMeasureRow('tepiha')}>+ SHTO RRESHT</button>
+            </div>
+            <div>
+              <div style={{ fontWeight:900, marginBottom:8 }}>STAZA</div>
+              {editStazaRows.map((row) => (
+                <div key={row.id} style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+                  <input className="input" type="number" value={row.m2} onChange={(e)=>updateMeasureRow('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
+                  <input className="input" type="number" value={row.qty} onChange={(e)=>updateMeasureRow('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
+                </div>
+              ))}
+              <button className="btn secondary" onClick={()=>addMeasureRow('staza')}>+ SHTO RRESHT</button>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              <input className="input" type="number" value={editStairsQty} onChange={(e)=>setEditStairsQty(e.target.value)} placeholder="Shkallore copë" />
+              <input className="input" type="number" value={editStairsPer} onChange={(e)=>setEditStairsPer(e.target.value)} placeholder="m² / copë" />
+            </div>
+          </div>
+          <div style={{ padding:14, borderTop:'1px solid rgba(255,255,255,0.08)', display:'flex', gap:8 }}>
+            <button className="btn secondary" style={{ flex:1 }} onClick={closeEditMeasures}>ANULO</button>
+            <button className="btn primary" style={{ flex:1 }} onClick={saveEditMeasures} disabled={editMeasuresBusy}>{editMeasuresBusy ? 'RUAJ...' : 'RUAJ'}</button>
           </div>
         </div>
       )}
