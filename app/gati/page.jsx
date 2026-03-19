@@ -178,6 +178,14 @@ function badgeColorByAge(ts) {
   return '#dc2626';
 }
 
+function formatDayMonth(ts) {
+  const d = new Date(ts || Date.now());
+  if (Number.isNaN(d.getTime())) return '--/--';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}`;
+}
+
 async function downloadJsonNoCache(path) {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
   if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
@@ -231,6 +239,18 @@ export default function GatiPage() {
   const [retErr, setRetErr] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
   const returnPhotoInputRef = useRef(null);
+
+  const [showCodeMenu, setShowCodeMenu] = useState(false);
+  const [menuOrder, setMenuOrder] = useState(null);
+
+  const [showEditSheet, setShowEditSheet] = useState(false);
+  const [editOrder, setEditOrder] = useState(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editErr, setEditErr] = useState('');
+  const [editTepihaRows, setEditTepihaRows] = useState([{ id: 't1', m2: '', qty: '' }]);
+  const [editStazaRows, setEditStazaRows] = useState([{ id: 's1', m2: '', qty: '' }]);
+  const [editStairsQty, setEditStairsQty] = useState('0');
+  const [editStairsPer, setEditStairsPer] = useState('0.3');
 
   useEffect(() => {
     try {
@@ -916,13 +936,178 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
     }
   }
 
+
+  function openCodeMenu(row) {
+    setMenuOrder(row || null);
+    setShowCodeMenu(true);
+  }
+
+  function closeCodeMenu() {
+    setShowCodeMenu(false);
+    setMenuOrder(null);
+  }
+
+  async function openEditMeasures(row) {
+    try {
+      setEditErr('');
+      setEditBusy(true);
+      let order = null;
+
+      try {
+        const res = await dbFetchOrderById(row.id);
+        order = res?.order || null;
+      } catch {}
+
+      if (!order) {
+        try {
+          const raw = localStorage.getItem(`order_${row.id}`);
+          if (raw) order = JSON.parse(raw);
+        } catch {}
+      }
+
+      if (!order) {
+        try {
+          order = await downloadJsonNoCache(`orders/${row.id}.json`);
+        } catch {}
+      }
+
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+
+      if (!order.id) order.id = row.id;
+      if (!order.db_id) order.db_id = row.id;
+
+      const tList = getTepihaRows(order);
+      const sList = getStazaRows(order);
+
+      setEditOrder(order);
+      setEditTepihaRows(
+        tList.length
+          ? tList.map((x, i) => ({ id: `t${i + 1}`, m2: String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty: String(x?.qty ?? x?.pieces ?? '') }))
+          : [{ id: 't1', m2: '', qty: '' }]
+      );
+      setEditStazaRows(
+        sList.length
+          ? sList.map((x, i) => ({ id: `s${i + 1}`, m2: String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty: String(x?.qty ?? x?.pieces ?? '') }))
+          : [{ id: 's1', m2: '', qty: '' }]
+      );
+      setEditStairsQty(String(getStairsQty(order) || 0));
+      setEditStairsPer(String(getStairsPer(order) || 0.3));
+      setShowEditSheet(true);
+    } catch (e) {
+      setEditErr('Gabim gjatë hapjes së editimit.');
+      alert('❌ Gabim gjatë hapjes së editimit.');
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  function closeEditSheet() {
+    setShowEditSheet(false);
+    setEditOrder(null);
+    setEditErr('');
+    setEditBusy(false);
+    setEditTepihaRows([{ id: 't1', m2: '', qty: '' }]);
+    setEditStazaRows([{ id: 's1', m2: '', qty: '' }]);
+    setEditStairsQty('0');
+    setEditStairsPer('0.3');
+  }
+
+  function addEditRow(kind) {
+    if (kind === 'tepiha') {
+      setEditTepihaRows((prev) => [...prev, { id: `t${prev.length + 1}`, m2: '', qty: '' }]);
+      return;
+    }
+    setEditStazaRows((prev) => [...prev, { id: `s${prev.length + 1}`, m2: '', qty: '' }]);
+  }
+
+  function updateEditRow(kind, id, field, value) {
+    const setter = kind === 'tepiha' ? setEditTepihaRows : setEditStazaRows;
+    setter((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
+  }
+
+  function removeEditRow(kind, id) {
+    const setter = kind === 'tepiha' ? setEditTepihaRows : setEditStazaRows;
+    setter((prev) => {
+      const next = prev.filter((row) => row.id !== id);
+      if (next.length) return next;
+      return [kind === 'tepiha' ? { id: 't1', m2: '', qty: '' } : { id: 's1', m2: '', qty: '' }];
+    });
+  }
+
+  async function saveEditMeasures() {
+    if (!editOrder) return;
+    setEditBusy(true);
+    setEditErr('');
+    try {
+      const cleanRows = (rows) =>
+        (rows || [])
+          .map((r) => ({
+            m2: Number(r?.m2 || 0) || 0,
+            qty: Number(r?.qty || 0) || 0,
+          }))
+          .filter((r) => r.m2 > 0 && r.qty > 0);
+
+      const tepiha = cleanRows(editTepihaRows);
+      const staza = cleanRows(editStazaRows);
+      const shkallore = {
+        qty: Number(editStairsQty || 0) || 0,
+        per: Number(editStairsPer || 0.3) || 0.3,
+      };
+
+      const nextData = {
+        ...((editOrder?.data && typeof editOrder.data === 'object') ? editOrder.data : {}),
+        tepiha,
+        tepihaRows: tepiha,
+        staza,
+        stazaRows: staza,
+        shkallore,
+        stairsQty: shkallore.qty,
+        stairsPer: shkallore.per,
+      };
+
+      const updated = {
+        ...editOrder,
+        data: nextData,
+        tepiha,
+        tepihaRows: tepiha,
+        staza,
+        stazaRows: staza,
+        shkallore,
+        stairsQty: shkallore.qty,
+        stairsPer: shkallore.per,
+      };
+
+      try { await saveOrderLocal(updated); } catch {}
+      try { localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated)); } catch {}
+
+      const { error: dbErr } = await supabase
+        .from('orders')
+        .update({ data: nextData, updated_at: new Date().toISOString() })
+        .eq('id', updated.db_id || updated.id);
+      if (dbErr) throw dbErr;
+
+      setOrders((prev) =>
+        (prev || []).map((o) =>
+          String(o.id) === String(updated.id)
+            ? { ...o, m2: computeM2(updated), cope: computePieces(updated), total: Number(updated.pay?.euro || computeTotalEuro(updated)) }
+            : o
+        )
+      );
+      closeEditSheet();
+    } catch (e) {
+      setEditErr(e?.message || 'Gabim gjatë ruajtjes së masave.');
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   function onPayPressStart(row) {
     holdFired.current = false;
     if (holdTimer.current) clearTimeout(holdTimer.current);
     holdTimer.current = setTimeout(() => {
       holdFired.current = true;
       openReturn(row);
-    }, 3000);
+    }, 2000);
   }
   function onPayPressEnd(row) {
     if (holdTimer.current) {
@@ -995,7 +1180,7 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
                       flexShrink: 0,
                       cursor: 'pointer',
                     }}
-                    onClick={() => openPlaceCard(o)}
+                    onClick={() => openCodeMenu(o)}
                   >
                     {normalizeCode(o.code)}
                   </div>
@@ -1013,6 +1198,9 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
                     </div>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
                       {o.cope} copë • {Number(o.m2 || 0).toFixed(2)} m²
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.48)', marginTop: 2 }}>
+                      PRANUAR: {formatDayMonth(o.ts)}
                     </div>
                     {o.paidUpfront && (
                       <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>
@@ -1066,6 +1254,46 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
         </Link>
       </footer>
 
+      {showCodeMenu && menuOrder && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">VEPRIMET E KODIT</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 4 }}>
+                KODI: {normalizeCode(menuOrder.code)}
+              </div>
+            </div>
+            <button className="btn secondary" onClick={closeCodeMenu}>✕</button>
+          </div>
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0, display: 'grid', gap: 10 }}>
+              <button
+                className="btn secondary"
+                onClick={() => {
+                  const row = menuOrder;
+                  closeCodeMenu();
+                  openPlaceCard(row);
+                }}
+                style={{ width: '100%', padding: 14, fontWeight: 900 }}
+              >
+                📍 VENDOS LOKACIONIN
+              </button>
+              <button
+                className="btn secondary"
+                onClick={() => {
+                  const row = menuOrder;
+                  closeCodeMenu();
+                  openEditMeasures(row);
+                }}
+                style={{ width: '100%', padding: 14, fontWeight: 900 }}
+              >
+                ✏️ EDITO MASAT
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ============ PAGESA ME DIZAJN TE RI ARKË (POS) ============ */}
       {showPaySheet && payOrder && (
         <PosModal
@@ -1101,6 +1329,68 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
             </button>
           }
         />
+      )}
+
+      {showEditSheet && editOrder && (
+        <div className="payfs">
+          <div className="payfs-top">
+            <div>
+              <div className="payfs-title">EDITO MASAT</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 4 }}>
+                KODI: {normalizeCode(editOrder?.client?.code || editOrder?.code)}
+              </div>
+            </div>
+            <button className="btn secondary" onClick={closeEditSheet} disabled={editBusy}>✕</button>
+          </div>
+          <div className="payfs-body">
+            <div className="card" style={{ marginTop: 0, display: 'grid', gap: 14 }}>
+              <div>
+                <div className="label" style={{ marginBottom: 8 }}>TEPIHA</div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {editTepihaRows.map((row) => (
+                    <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
+                      <input className="input" inputMode="decimal" placeholder="m²" value={row.m2} onChange={(e) => updateEditRow('tepiha', row.id, 'm2', e.target.value)} />
+                      <input className="input" inputMode="numeric" placeholder="copë" value={row.qty} onChange={(e) => updateEditRow('tepiha', row.id, 'qty', e.target.value)} />
+                      <button className="btn secondary" type="button" onClick={() => removeEditRow('tepiha', row.id)}>✕</button>
+                    </div>
+                  ))}
+                </div>
+                <button className="btn secondary" type="button" onClick={() => addEditRow('tepiha')} style={{ marginTop: 8 }}>+ SHTO RRESHT</button>
+              </div>
+
+              <div>
+                <div className="label" style={{ marginBottom: 8 }}>STAZA</div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {editStazaRows.map((row) => (
+                    <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
+                      <input className="input" inputMode="decimal" placeholder="m²" value={row.m2} onChange={(e) => updateEditRow('staza', row.id, 'm2', e.target.value)} />
+                      <input className="input" inputMode="numeric" placeholder="copë" value={row.qty} onChange={(e) => updateEditRow('staza', row.id, 'qty', e.target.value)} />
+                      <button className="btn secondary" type="button" onClick={() => removeEditRow('staza', row.id)}>✕</button>
+                    </div>
+                  ))}
+                </div>
+                <button className="btn secondary" type="button" onClick={() => addEditRow('staza')} style={{ marginTop: 8 }}>+ SHTO RRESHT</button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  <div className="label" style={{ marginBottom: 8 }}>SHKALLORE COPË</div>
+                  <input className="input" inputMode="numeric" value={editStairsQty} onChange={(e) => setEditStairsQty(e.target.value)} />
+                </div>
+                <div>
+                  <div className="label" style={{ marginBottom: 8 }}>M² / COPË</div>
+                  <input className="input" inputMode="decimal" value={editStairsPer} onChange={(e) => setEditStairsPer(e.target.value)} />
+                </div>
+              </div>
+
+              {editErr ? <div style={{ color: '#fca5a5', fontSize: 13, fontWeight: 800 }}>{editErr}</div> : null}
+            </div>
+          </div>
+          <div className="payfs-footer">
+            <button className="btn secondary" onClick={closeEditSheet} disabled={editBusy}>ANULO</button>
+            <button className="btn primary" onClick={saveEditMeasures} disabled={editBusy}>{editBusy ? 'DUKE RUAJTUR...' : 'RUAJ MASAT'}</button>
+          </div>
+        </div>
       )}
 
       {/* ============ KTHIMI NË PASTRIM ============ */}
