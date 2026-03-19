@@ -11,7 +11,6 @@ import { recordOrderCashPayment } from '@/components/payments/payService';
 import { saveOrderLocal, getAllOrdersLocal } from '@/lib/offlineStore';
 import { queueOp } from '@/lib/offlineSyncClient';
 import { requirePaymentPin } from '@/lib/paymentPin';
-import { setClientBalanceByPhone } from '@/lib/clientBalanceDb';
 
 function readActor() {
   try {
@@ -99,12 +98,6 @@ function normalizeCode(raw) {
 
 function sanitizePhone(phone) {
   return String(phone || '').replace(/[^\d+]+/g, '');
-}
-function formatDayMonth(ts) {
-  if (!ts) return '--/--';
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return '--/--';
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function rowQty(row) {
@@ -219,16 +212,6 @@ export default function GatiPage() {
   const [placeErr, setPlaceErr] = useState('');
   const [placeOrderId, setPlaceOrderId] = useState(null);
   const [placeOrder, setPlaceOrder] = useState(null);
-  const [showCodeMenu, setShowCodeMenu] = useState(false);
-  const [codeMenuOrder, setCodeMenuOrder] = useState(null);
-  const [showEditMeasures, setShowEditMeasures] = useState(false);
-  const [editMeasuresOrderId, setEditMeasuresOrderId] = useState(null);
-  const [editMeasuresOrder, setEditMeasuresOrder] = useState(null);
-  const [editTepihaRows, setEditTepihaRows] = useState([{ id: 't1', m2: '', qty: '' }]);
-  const [editStazaRows, setEditStazaRows] = useState([{ id: 's1', m2: '', qty: '' }]);
-  const [editStairsQty, setEditStairsQty] = useState('0');
-  const [editStairsPer, setEditStairsPer] = useState('0.3');
-  const [editMeasuresBusy, setEditMeasuresBusy] = useState(false);
   const [placeText, setPlaceText] = useState('');
   const [selectedSlots, setSelectedSlots] = useState([]);
   const [slotMap, setSlotMap] = useState({});
@@ -243,9 +226,11 @@ export default function GatiPage() {
   const [showReturnSheet, setShowReturnSheet] = useState(false);
   const [retOrder, setRetOrder] = useState(null);
   const [retReason, setRetReason] = useState('');
-  const [retNote, setRetNote] = useState('');
   const [retPhotoUrl, setRetPhotoUrl] = useState('');
+  const [retBusy, setRetBusy] = useState(false);
+  const [retErr, setRetErr] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
+  const returnPhotoInputRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -305,7 +290,6 @@ export default function GatiPage() {
               return {
                 id: String(order.id),
                 ts: Number(order.ts || 0),
-                createdAt: order.created_at || null,
                 readyTs,
                 name: order.client?.name || '',
                 phone: order.client?.phone || '',
@@ -366,7 +350,6 @@ export default function GatiPage() {
           return {
             id: String(order.id),
             ts: Number(order.ts || 0),
-            createdAt: row.created_at || order.created_at || null,
             readyTs,
             name: order.client?.name || '',
             phone: order.client?.phone || '',
@@ -434,117 +417,6 @@ export default function GatiPage() {
   }
 
   // ---------------- KU E LAM ----------------
-  function openCodeMenu(row) {
-    setCodeMenuOrder(row);
-    setShowCodeMenu(true);
-  }
-
-  async function openEditMeasures(row) {
-    try {
-      setEditMeasuresBusy(true);
-      setShowCodeMenu(false);
-      let order = null;
-      try {
-        const raw = localStorage.getItem(`order_${row.id}`);
-        if (raw) order = JSON.parse(raw);
-      } catch {}
-      if (!order) {
-        const res = await dbFetchOrderById(row.id);
-        order = res.order;
-      }
-      if (!order) return alert('Nuk u gjet porosia.');
-      const tList = getTepihaRows(order);
-      const sList = getStazaRows(order);
-      setEditMeasuresOrderId(String(row.id));
-      setEditMeasuresOrder(order);
-      setEditTepihaRows(tList.length ? tList.map((x,i)=>({ id:`t${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? 0) })) : [{ id:'t1', m2:'', qty:'' }]);
-      setEditStazaRows(sList.length ? sList.map((x,i)=>({ id:`s${i+1}`, m2:String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty:String(x?.qty ?? x?.pieces ?? 0) })) : [{ id:'s1', m2:'', qty:'' }]);
-      setEditStairsQty(String(getStairsQty(order) || 0));
-      setEditStairsPer(String(getStairsPer(order) || 0.3));
-      setShowEditMeasures(true);
-    } catch {
-      alert('Nuk u hap editimi i masave.');
-    } finally {
-      setEditMeasuresBusy(false);
-    }
-  }
-
-  function closeEditMeasures() {
-    setShowEditMeasures(false);
-    setEditMeasuresOrderId(null);
-    setEditMeasuresOrder(null);
-  }
-
-  function updateMeasureRow(kind, id, field, value) {
-    const setter = kind === 'tepiha' ? setEditTepihaRows : setEditStazaRows;
-    setter((rows) => rows.map((r) => String(r.id) === String(id) ? { ...r, [field]: value } : r));
-  }
-
-  function addMeasureRow(kind) {
-    const setter = kind === 'tepiha' ? setEditTepihaRows : setEditStazaRows;
-    const prefix = kind === 'tepiha' ? 't' : 's';
-    setter((rows) => [...rows, { id: `${prefix}${rows.length + 1}`, m2: '', qty: '' }]);
-  }
-
-  async function saveEditMeasures() {
-    if (!editMeasuresOrderId || !editMeasuresOrder) return;
-    setEditMeasuresBusy(true);
-    try {
-      const totalM2 = Number((editTepihaRows.reduce((a,r)=>a+(Number(r.m2)||0)*(Number(r.qty)||0),0) + editStazaRows.reduce((a,r)=>a+(Number(r.m2)||0)*(Number(r.qty)||0),0) + (Number(editStairsQty)||0)*(Number(editStairsPer)||0)).toFixed(2));
-      const rate = Number(editMeasuresOrder.pay?.rate || 0) || 0;
-      const merged = {
-        ...editMeasuresOrder,
-        tepiha: editTepihaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0 })),
-        staza: editStazaRows.map((r) => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0 })),
-        shkallore: { ...(editMeasuresOrder.shkallore || {}), qty: Number(editStairsQty) || 0, per: Number(editStairsPer) || 0 },
-        pay: { ...(editMeasuresOrder.pay || {}), m2: totalM2, euro: Number((rate * totalM2).toFixed(2)) },
-      };
-      const now = new Date().toISOString();
-      await saveOrderLocal({ id: editMeasuresOrderId, status: 'gati', data: merged, updated_at: now, _synced: false, _table: 'orders' });
-      try { localStorage.setItem(`order_${editMeasuresOrderId}`, JSON.stringify(merged)); } catch {}
-      const { error } = await supabase.from('orders').update({ data: merged, updated_at: now }).eq('id', editMeasuresOrderId);
-      if (error) throw error;
-      await refreshOrders();
-      closeEditMeasures();
-    } catch (e) {
-      alert(e?.message || 'Gabim gjatë ruajtjes së masave.');
-    } finally {
-      setEditMeasuresBusy(false);
-    }
-  }
-
-  async function cancelOrderPayment(row) {
-    try {
-      let order = null;
-      try {
-        const raw = localStorage.getItem(`order_${row.id}`);
-        if (raw) order = JSON.parse(raw);
-      } catch {}
-      if (!order) {
-        const res = await dbFetchOrderById(row.id);
-        order = res.order;
-      }
-      if (!order) return alert('Nuk u gjet porosia.');
-      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
-      const next = { ...order, pay: { ...(order.pay || {}), paid: 0, debt: total, paidUpfront: false, arkaRecordedPaid: 0, method: order.pay?.method || 'CASH' } };
-      const now = new Date().toISOString();
-      await saveOrderLocal({ id: row.id, status: 'gati', data: next, updated_at: now, _synced: false, _table: 'orders' });
-      try { localStorage.setItem(`order_${row.id}`, JSON.stringify(next)); } catch {}
-      const { error } = await supabase.from('orders').update({ data: next, updated_at: now }).eq('id', row.id);
-      if (error) throw error;
-      await refreshOrders();
-      setShowCodeMenu(false);
-      alert('Pagesa e porosisë u anulua.');
-    } catch (e) {
-      alert(e?.message || 'Gabim gjatë anulimit të pagesës.');
-    }
-  }
-
-  function openHoldMenu(row) {
-    setCodeMenuOrder(row);
-    setShowCodeMenu(true);
-  }
-
   async function openPlaceCard(row) {
     try {
       setPlaceErr('');
@@ -809,10 +681,6 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
           delivered_by: snapOrder.delivered_by,
         };
 
-        try {
-          await setClientBalanceByPhone({ phone: payload.phone || payload.order?.client?.phone || '', client_name: payload.name || payload.order?.client?.name || '', debt_eur: Number(newDebt || 0), last_order_id: snapOrder.id });
-        } catch {}
-
         // Save local mirror (mos blloko UI edhe nëse dështon)
         try {
           localStorage.setItem(`tepiha_delivered_${snapOrder.id}`, JSON.stringify(payload));
@@ -870,28 +738,49 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
   // ---------------- HIDDEN RETURN ----------------
   async function openReturn(row) {
     try {
+      setRetErr('');
+      setRetBusy(true);
       let order = null;
+
       try {
-        const raw = localStorage.getItem(`order_${row.id}`);
-        if (raw) order = JSON.parse(raw);
-      } catch {
-        order = null;
-      }
+        const res = await dbFetchOrderById(row.id);
+        order = res?.order || null;
+        if (order) {
+          try { localStorage.setItem(`order_${row.id}`, JSON.stringify(order)); } catch {}
+        }
+      } catch {}
+
       if (!order) {
-        order = await downloadJsonNoCache(`orders/${row.id}.json`);
-        localStorage.setItem(`order_${row.id}`, JSON.stringify(order));
+        try {
+          const raw = localStorage.getItem(`order_${row.id}`);
+          if (raw) order = JSON.parse(raw);
+        } catch {
+          order = null;
+        }
       }
-      if (!order) return alert('Nuk u gjet porosia.');
+
+      if (!order) {
+        try {
+          order = await downloadJsonNoCache(`orders/${row.id}.json`);
+          try { localStorage.setItem(`order_${row.id}`, JSON.stringify(order)); } catch {}
+        } catch {}
+      }
+
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+
       if (!order.db_id && row?.id) order.db_id = row.id;
       if (!order.id && row?.id) order.id = row.id;
-      if (!order.data) order.data = { ...order };
+      if (!order.data || typeof order.data !== 'object') order.data = {};
+
       setRetOrder(order);
       setRetReason('');
-      setRetNote('');
       setRetPhotoUrl('');
       setShowReturnSheet(true);
-    } catch {
+    } catch (e) {
+      setRetErr('Gabim gjatë hapjes së kthimit.');
       alert('❌ Gabim gjatë hapjes së kthimit.');
+    } finally {
+      setRetBusy(false);
     }
   }
 
@@ -899,18 +788,22 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
     setShowReturnSheet(false);
     setRetOrder(null);
     setRetReason('');
-    setRetNote('');
     setRetPhotoUrl('');
+    setRetErr('');
+    setRetBusy(false);
+    try { if (returnPhotoInputRef.current) returnPhotoInputRef.current.value = ''; } catch {}
   }
 
   async function handleReturnPhoto(file) {
     const oid = retOrder?.id || retOrder?.db_id;
     if (!file || !oid) return;
     setPhotoUploading(true);
+    setRetErr('');
     try {
       const url = await uploadPhoto(file, oid, 'return');
       if (url) setRetPhotoUrl(url);
     } catch {
+      setRetErr('Gabim gjatë ngarkimit të fotos.');
       alert('❌ Gabim foto!');
     } finally {
       setPhotoUploading(false);
@@ -920,77 +813,107 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
   async function confirmReturn() {
     const oid = retOrder?.id || retOrder?.db_id || retOrder?.data?.db_id || null;
     if (!oid) return;
-    const reason = (retReason || '').trim();
-    const note = (retNote || '').trim();
-    if (!reason && !note) return alert('Shkruaj së paku një arsye ose shënim për kthimin.');
-    if (!confirm('Kjo porosi do të kthehet në PASTRIM si KTHIM.\nJeni i sigurt?')) return;
 
+    const reason = (retReason || '').trim();
+    if (!reason) {
+      setRetErr('Shkruaj arsyen e kthimit.');
+      return;
+    }
+
+    const at = Date.now();
     const entry = {
-      id: `ret_${oid}_${Date.now()}`,
-      ts: Date.now(),
+      id: `ret_${oid}_${at}`,
+      ts: at,
       from: 'gati',
-      reason: reason || '',
-      note: note || '',
+      reason,
       photoUrl: retPhotoUrl || '',
     };
+
+    const returnInfo = {
+      active: true,
+      reason,
+      photoUrl: retPhotoUrl || '',
+      at,
+    };
+
+    const nextData = {
+      ...((retOrder?.data && typeof retOrder.data === 'object') ? retOrder.data : {}),
+      returnInfo,
+      returnLog: Array.isArray(retOrder?.data?.returnLog) ? [entry, ...retOrder.data.returnLog] : [entry],
+      ready_at: null,
+      picked_up_at: null,
+      delivered_at: null,
+    };
+
     const updated = {
       ...retOrder,
       id: retOrder?.id || oid,
+      db_id: retOrder?.db_id || retOrder?.data?.db_id || oid,
       status: 'pastrim',
-      returnInfo: {
-        active: true,
-        at: Date.now(),
-        from: 'gati',
-        reason: entry.reason,
-        note: entry.note,
-        photoUrl: entry.photoUrl,
-        logId: entry.id,
-      },
-      returnLog: Array.isArray(retOrder.returnLog) ? [entry, ...retOrder.returnLog] : [entry],
+      data: nextData,
+      returnInfo,
+      returnLog: nextData.returnLog,
+      ready_at: null,
+      picked_up_at: null,
+      delivered_at: null,
     };
-    updated.db_id = retOrder?.db_id || retOrder?.data?.db_id || oid;
 
+    setRetBusy(true);
+    setRetErr('');
     try {
-      localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
+      try {
+        await saveOrderLocal(updated);
+      } catch {}
+      try {
+        localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
+      } catch {}
+
       const blob = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(updated)], { type: 'application/json' }) : null;
-      if (blob)
+      if (blob) {
         await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
           upsert: true,
           cacheControl: '0',
           contentType: 'application/json',
         });
-      const blob2 = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(entry)], { type: 'application/json' }) : null;
-      if (blob2)
-        await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
-          upsert: true,
-          cacheControl: '0',
-          contentType: 'application/json',
-        });
-      try {
-        const nextData = {
-          ...updated.data,
+      }
+
+      const { error: dbErr } = await supabase
+        .from('orders')
+        .update({
           status: 'pastrim',
-          returnInfo: updated.returnInfo,
-          returnLog: updated.returnLog,
           ready_at: null,
           picked_up_at: null,
-          delivered_at: null,
-        };
-        if (updated.db_id) {
-          const { error: dbErr } = await supabase
-            .from('orders')
-            .update({ status: 'pastrim', ready_at: null, picked_up_at: null, data: nextData, updated_at: new Date().toISOString() })
-            .eq('id', updated.db_id);
-          if (dbErr) throw dbErr;
-        }
-      } catch (e) {}
-    } catch (e) {
-      return alert('❌ Gabim gjatë ruajtjes së kthimit.');
-    }
+          data: nextData,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', updated.db_id);
+      if (dbErr) throw dbErr;
 
-    alert('✅ U kthye në PASTRIM (KTHIM).');
-    closeReturn();
-    setOrders((prev) => prev.filter((x) => String(x.id) !== String(updated.id)));
+      try {
+        const blob2 = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(entry)], { type: 'application/json' }) : null;
+        if (blob2) {
+          await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
+            upsert: true,
+            cacheControl: '0',
+            contentType: 'application/json',
+          });
+        }
+      } catch {}
+
+      closeReturn();
+      await refreshOrders();
+    } catch (e) {
+      try {
+        await queueOp('patch_order_data', {
+          id: updated.db_id || updated.id,
+          data_patch: nextData,
+        });
+      } catch {}
+      setRetErr(e?.message || 'Gabim gjatë ruajtjes së kthimit.');
+      alert('❌ Gabim gjatë ruajtjes së kthimit.');
+    } finally {
+      setRetBusy(false);
+    }
   }
 
   function onPayPressStart(row) {
@@ -998,8 +921,8 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
     if (holdTimer.current) clearTimeout(holdTimer.current);
     holdTimer.current = setTimeout(() => {
       holdFired.current = true;
-      openHoldMenu(row);
-    }, 2000);
+      openReturn(row);
+    }, 3000);
   }
   function onPayPressEnd(row) {
     if (holdTimer.current) {
@@ -1072,7 +995,7 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
                       flexShrink: 0,
                       cursor: 'pointer',
                     }}
-                    onClick={() => openCodeMenu(o)}
+                    onClick={() => openPlaceCard(o)}
                   >
                     {normalizeCode(o.code)}
                   </div>
@@ -1091,7 +1014,6 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
                       {o.cope} copë • {Number(o.m2 || 0).toFixed(2)} m²
                     </div>
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.58)', fontWeight: 800 }}>PRANUAR: {formatDayMonth(o.createdAt || o.ts)}</div>
                     {o.paidUpfront && (
                       <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>
                     )}
@@ -1181,94 +1103,84 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
         />
       )}
 
-      {/* ============ KTHIMI FSHEHTE ============ */}
+      {/* ============ KTHIMI NË PASTRIM ============ */}
       {showReturnSheet && retOrder && (
         <div className="payfs">
           <div className="payfs-top">
             <div>
-              <div className="payfs-title">KTHIM (HIDDEN)</div>
+              <div className="payfs-title">KTHIMI NË PASTRIM</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 4 }}>
+                Shkruaj arsyen dhe shto foto nëse duhet.
+              </div>
             </div>
-            <button className="btn secondary" onClick={closeReturn}>
+            <button className="btn secondary" onClick={closeReturn} disabled={retBusy || photoUploading}>
               ✕
             </button>
           </div>
           <div className="payfs-body">
             <div className="card" style={{ marginTop: 0 }}>
-              <div className="field-group">
-                <label className="label">PSE PO KTHEHET?</label>
-                <select className="input" value={retReason} onChange={(e) => setRetReason(e.target.value)}>
-                  <option value="">— ZGJIDH —</option>
-                  <option value="GABIM">GABIM</option>
-                </select>
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div>
+                  <div className="label" style={{ marginBottom: 8 }}>ARSYEJA E KTHIMIT</div>
+                  <textarea
+                    className="input"
+                    value={retReason}
+                    onChange={(e) => setRetReason(e.target.value)}
+                    placeholder="p.sh. ka mbetur njollë, duhet ripastruar..."
+                    rows={5}
+                    style={{ minHeight: 120, resize: 'vertical', paddingTop: 12 }}
+                  />
+                </div>
+
+                <div>
+                  <div className="label" style={{ marginBottom: 8 }}>FOTO E PROBLEMIT</div>
+                  <input
+                    ref={returnPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => handleReturnPhoto(e.target.files?.[0] || null)}
+                    style={{ display: 'none' }}
+                  />
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      onClick={() => returnPhotoInputRef.current?.click()}
+                      disabled={retBusy || photoUploading}
+                      style={{ minWidth: 160 }}
+                    >
+                      {photoUploading ? 'DUKE NGARKUAR...' : '📷 BASHKANGJIT FOTO'}
+                    </button>
+                    {retPhotoUrl ? (
+                      <a
+                        href={retPhotoUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn secondary"
+                        style={{ textDecoration: 'none' }}
+                      >
+                        SHIKO FOTON
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+
+                {retErr ? (
+                  <div style={{ color: '#fca5a5', fontSize: 13, fontWeight: 800 }}>
+                    {retErr}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
           <div className="payfs-footer">
-            <button className="btn secondary" onClick={closeReturn}>
+            <button className="btn secondary" onClick={closeReturn} disabled={retBusy || photoUploading}>
               ANULO
             </button>
-            <button className="btn primary" onClick={confirmReturn}>
-              KONFIRMO KTHIMIN
+            <button className="btn primary" onClick={confirmReturn} disabled={retBusy || photoUploading}>
+              {retBusy ? 'DUKE RUAJTUR...' : 'KONFIRMO KTHIMIN'}
             </button>
-          </div>
-        </div>
-      )}
-
-
-      {showCodeMenu && codeMenuOrder && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.72)', zIndex:10020, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={(e)=>{ if(e.target===e.currentTarget) setShowCodeMenu(false); }}>
-          <div style={{ width:'100%', maxWidth:420, background:'#0b0b0b', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, padding:16 }}>
-            <div style={{ fontWeight:900, fontSize:18 }}>KODI {normalizeCode(codeMenuOrder.code)}</div>
-            <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)', marginTop:4 }}>{codeMenuOrder.name || 'Klient'}</div>
-            <div style={{ display:'grid', gap:10, marginTop:14 }}>
-              <button className="btn secondary" onClick={() => { setShowCodeMenu(false); openPlaceCard(codeMenuOrder); }}>📍 VENDOS LOKACIONIN</button>
-              <button className="btn secondary" onClick={() => openEditMeasures(codeMenuOrder)}>✏️ SHIKO / EDITO MASAT</button>
-              <button className="btn secondary" onClick={() => { setShowCodeMenu(false); openReturn(codeMenuOrder); }}>↩️ KTHE NË PASTRIM</button>
-              <button className="btn secondary" onClick={() => cancelOrderPayment(codeMenuOrder)}>💶 ANULO PAGESËN</button>
-              <button className="btn primary" onClick={() => setShowCodeMenu(false)}>MBYLL</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showEditMeasures && (
-        <div style={{ position:'fixed', inset:0, background:'#0b0b0b', zIndex:10015, display:'flex', flexDirection:'column' }}>
-          <div style={{ padding:14, borderBottom:'1px solid rgba(255,255,255,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <div>
-              <div style={{ fontWeight:900, fontSize:18 }}>EDITO MASAT</div>
-              <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)' }}>KODI: {normalizeCode(editMeasuresOrder?.client?.code || editMeasuresOrder?.code)}</div>
-            </div>
-            <button className="btn secondary" onClick={closeEditMeasures}>✕</button>
-          </div>
-          <div style={{ padding:14, overflow:'auto', flex:1, display:'grid', gap:12 }}>
-            <div>
-              <div style={{ fontWeight:900, marginBottom:8 }}>TEPIHA</div>
-              {editTepihaRows.map((row) => (
-                <div key={row.id} style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
-                  <input className="input" type="number" value={row.m2} onChange={(e)=>updateMeasureRow('tepiha', row.id, 'm2', e.target.value)} placeholder="m²" />
-                  <input className="input" type="number" value={row.qty} onChange={(e)=>updateMeasureRow('tepiha', row.id, 'qty', e.target.value)} placeholder="copë" />
-                </div>
-              ))}
-              <button className="btn secondary" onClick={()=>addMeasureRow('tepiha')}>+ SHTO RRESHT</button>
-            </div>
-            <div>
-              <div style={{ fontWeight:900, marginBottom:8 }}>STAZA</div>
-              {editStazaRows.map((row) => (
-                <div key={row.id} style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
-                  <input className="input" type="number" value={row.m2} onChange={(e)=>updateMeasureRow('staza', row.id, 'm2', e.target.value)} placeholder="m²" />
-                  <input className="input" type="number" value={row.qty} onChange={(e)=>updateMeasureRow('staza', row.id, 'qty', e.target.value)} placeholder="copë" />
-                </div>
-              ))}
-              <button className="btn secondary" onClick={()=>addMeasureRow('staza')}>+ SHTO RRESHT</button>
-            </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              <input className="input" type="number" value={editStairsQty} onChange={(e)=>setEditStairsQty(e.target.value)} placeholder="Shkallore copë" />
-              <input className="input" type="number" value={editStairsPer} onChange={(e)=>setEditStairsPer(e.target.value)} placeholder="m² / copë" />
-            </div>
-          </div>
-          <div style={{ padding:14, borderTop:'1px solid rgba(255,255,255,0.08)', display:'flex', gap:8 }}>
-            <button className="btn secondary" style={{ flex:1 }} onClick={closeEditMeasures}>ANULO</button>
-            <button className="btn primary" style={{ flex:1 }} onClick={saveEditMeasures} disabled={editMeasuresBusy}>{editMeasuresBusy ? 'RUAJ...' : 'RUAJ'}</button>
           </div>
         </div>
       )}
