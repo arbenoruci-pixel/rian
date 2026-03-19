@@ -56,6 +56,7 @@ function badgeFromHistory(row) {
 export default function PayrollPage() {
   const router = useRouter();
   const [actor, setActor] = useState(null);
+  const isAdmin = actor?.role === "admin";
   const [masterPin, setMasterPin] = useState("");
   const [staff, setStaff] = useState([]);
   const [debtsMap, setDebtsMap] = useState({});
@@ -314,6 +315,39 @@ export default function PayrollPage() {
     }
   }
 
+  async function handleDeleteWorker(u) {
+    if (!isAdmin) return;
+    if (!u?.id) return;
+    if (String(actor?.id || '') && String(actor?.id) === String(u.id)) {
+      alert("Nuk mund ta fshini vetveten nga lista e rrogave.");
+      return;
+    }
+
+    const workerName = String(u?.name || 'Pa emër').trim() || 'Pa emër';
+    const ok = window.confirm(`A jeni i sigurt që dëshironi të fshini punëtorin ${workerName} nga lista e rrogave?`);
+    if (!ok) return;
+
+    setActionBusy(true);
+    try {
+      const { error } = await supabase
+        .from("users")
+        .delete()
+        .eq("id", u.id);
+
+      if (error) throw error;
+
+      if (editingId && String(editingId) === String(u.id)) setEditingId(null);
+      if (salaryModal && String(salaryModal?.id) === String(u.id)) setSalaryModal(null);
+
+      await reloadAll(false);
+      alert(`✅ Punëtori ${workerName} u fshi nga lista e rrogave.`);
+    } catch (err) {
+      alert("GABIM: " + normalizeDbError(err));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   const financeCards = useMemo(() => {
     return (staff || []).map((u) => {
       const workerName = String(u.name || "").trim().toUpperCase();
@@ -462,7 +496,23 @@ export default function PayrollPage() {
                       {u.role || "—"} · PIN {u.pin || "—"} · Dita e rrogës: {u.salary_day || "—"}
                     </div>
                   </div>
-                  <button className="editMini" onClick={() => startFinanceEdit(u)}>EDITO</button>
+                  <div className="moneyActions">
+                    {isAdmin && <div className="actionLabel">VEPRIMI</div>}
+                    <div className="moneyActionRow">
+                      <button className="editMini" onClick={() => startFinanceEdit(u)}>EDITO</button>
+                      {isAdmin && (
+                        <button
+                          className="deleteMini"
+                          onClick={() => handleDeleteWorker(u)}
+                          disabled={actionBusy}
+                          title={`Fshi ${u.name || 'punëtorin'}`}
+                          aria-label={`Fshi ${u.name || 'punëtorin'}`}
+                        >
+                          🗑️ FSHI
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="moneyMetrics">
