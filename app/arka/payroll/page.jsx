@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { budgetAddOutMove } from "@/lib/companyBudgetDb";
 
 function jparse(s, fallback) {
   try { return JSON.parse(s) ?? fallback; } catch { return fallback; }
@@ -56,7 +57,6 @@ function badgeFromHistory(row) {
 export default function PayrollPage() {
   const router = useRouter();
   const [actor, setActor] = useState(null);
-  const isAdmin = actor?.role === "admin";
   const [masterPin, setMasterPin] = useState("");
   const [staff, setStaff] = useState([]);
   const [debtsMap, setDebtsMap] = useState({});
@@ -76,6 +76,8 @@ export default function PayrollPage() {
   const [deductManualAdvance, setDeductManualAdvance] = useState(true);
   const [deductLongTermAmount, setDeductLongTermAmount] = useState("");
   const [workerHistory, setWorkerHistory] = useState([]);
+
+  const isAdmin = ["admin", "dispatch", "owner", "admin_master"].includes(String(actor?.role || "").toLowerCase());
 
   useEffect(() => {
     const a = jparse(localStorage.getItem("CURRENT_USER_DATA"), null);
@@ -133,6 +135,28 @@ export default function PayrollPage() {
       borxh_afatgjat: String(u.borxh_afatgjat ?? ""),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleDeleteWorker(u) {
+    if (!u?.id || !isAdmin) return;
+    const ok = window.confirm(`A jeni i sigurt që dëshironi të fshini punëtorin ${u.name || 'PA EMËR'} nga lista e rrogave?`);
+    if (!ok) return;
+
+    setActionBusy(true);
+    try {
+      const { error } = await supabase
+        .from("users")
+        .delete()
+        .eq("id", u.id);
+      if (error) throw error;
+      if (salaryModal?.id === u.id) setSalaryModal(null);
+      if (editingId === u.id) setEditingId(null);
+      await reloadAll(false);
+    } catch (err) {
+      alert("GABIM: " + normalizeDbError(err));
+    } finally {
+      setActionBusy(false);
+    }
   }
 
   async function saveFinanceEdit() {
@@ -257,6 +281,24 @@ export default function PayrollPage() {
 
       if (err2) throw err2;
 
+      const paidNow = Math.max(0, Number(payableAmount || 0));
+      if (paidNow > 0) {
+        try {
+          await budgetAddOutMove({
+            amount: paidNow,
+            reason: 'SALARY',
+            note: `RROGA · ${salaryModal.name || 'PUNTOR'}`,
+            source: 'PAYROLL',
+            created_by: actor?.name || 'ADMIN',
+            created_by_name: actor?.name || null,
+            created_by_pin: actor?.pin || null,
+            external_id: `salary_pay_${salaryModal.id}_${new Date().toISOString()}`,
+            ref_day_id: salaryModal.id,
+            ref_type: 'USER_SALARY',
+          });
+        } catch {}
+      }
+
       alert(`✅ Rroga u përpunua me sukses për ${salaryModal.name}.`);
       setSalaryModal(null);
       await reloadAll(false);
@@ -310,39 +352,6 @@ export default function PayrollPage() {
       await reloadAll(false);
     } catch (e) {
       alert("GABIM: " + normalizeDbError(e));
-    } finally {
-      setActionBusy(false);
-    }
-  }
-
-  async function handleDeleteWorker(u) {
-    if (!isAdmin) return;
-    if (!u?.id) return;
-    if (String(actor?.id || '') && String(actor?.id) === String(u.id)) {
-      alert("Nuk mund ta fshini vetveten nga lista e rrogave.");
-      return;
-    }
-
-    const workerName = String(u?.name || 'Pa emër').trim() || 'Pa emër';
-    const ok = window.confirm(`A jeni i sigurt që dëshironi të fshini punëtorin ${workerName} nga lista e rrogave?`);
-    if (!ok) return;
-
-    setActionBusy(true);
-    try {
-      const { error } = await supabase
-        .from("users")
-        .delete()
-        .eq("id", u.id);
-
-      if (error) throw error;
-
-      if (editingId && String(editingId) === String(u.id)) setEditingId(null);
-      if (salaryModal && String(salaryModal?.id) === String(u.id)) setSalaryModal(null);
-
-      await reloadAll(false);
-      alert(`✅ Punëtori ${workerName} u fshi nga lista e rrogave.`);
-    } catch (err) {
-      alert("GABIM: " + normalizeDbError(err));
     } finally {
       setActionBusy(false);
     }
@@ -496,22 +505,11 @@ export default function PayrollPage() {
                       {u.role || "—"} · PIN {u.pin || "—"} · Dita e rrogës: {u.salary_day || "—"}
                     </div>
                   </div>
-                  <div className="moneyActions">
-                    {isAdmin && <div className="actionLabel">VEPRIMI</div>}
-                    <div className="moneyActionRow">
-                      <button className="editMini" onClick={() => startFinanceEdit(u)}>EDITO</button>
-                      {isAdmin && (
-                        <button
-                          className="deleteMini"
-                          onClick={() => handleDeleteWorker(u)}
-                          disabled={actionBusy}
-                          title={`Fshi ${u.name || 'punëtorin'}`}
-                          aria-label={`Fshi ${u.name || 'punëtorin'}`}
-                        >
-                          🗑️ FSHI
-                        </button>
-                      )}
-                    </div>
+                  <div className="cardActions">
+                    <button className="editMini" onClick={() => startFinanceEdit(u)}>EDITO</button>
+                    {isAdmin && (
+                      <button className="deleteMini" disabled={actionBusy} onClick={() => handleDeleteWorker(u)}>🗑️ FSHI</button>
+                    )}
                   </div>
                 </div>
 
@@ -890,10 +888,24 @@ export default function PayrollPage() {
           font-weight: 900;
           letter-spacing: .08em;
         }
+        .cardActions {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
         .editMini {
           background: #eff6ff;
           color: #1d4ed8;
           border: 1px solid #bfdbfe;
+          border-radius: 14px;
+          padding: 12px 14px;
+          font-weight: 900;
+        }
+        .deleteMini {
+          background: #fff1f2;
+          color: #be123c;
+          border: 1px solid #fecdd3;
           border-radius: 14px;
           padding: 12px 14px;
           font-weight: 900;

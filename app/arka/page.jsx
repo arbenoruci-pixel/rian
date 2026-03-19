@@ -2,9 +2,115 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { getActor } from '@/lib/actorSession';
-import { handoffActorPendingCash, listPendingCashForActor, listWorkerOwedPayments } from '@/lib/arkaCashSync';
 import { supabase } from '@/lib/supabaseClient';
+import { getActor } from '@/lib/actorSession';
+import { budgetListMoves } from '@/lib/companyBudgetDb';
+import {
+  handoffActorPendingCash,
+  listPendingCashForActor,
+  listDispatchHandoffs,
+  confirmHandoffByDispatch,
+  listAcceptedCashPayments,
+} from '@/lib/arkaCashSync';
+
+const LS_BUDGET_CACHE = 'company_budget_moves_cache_v1';
+const LS_PENDING_KEY = 'arka_pending_payments_v1';
+
+const euro = (n) => `€${Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}`;
+
+function roleNorm(role) {
+  return String(role || '').trim().toLowerCase();
+}
+
+function isAdminRole(role) {
+  return ['admin', 'dispatch', 'owner', 'admin_master'].includes(roleNorm(role));
+}
+
+function readLs(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : fallback;
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLs(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
+function uniqueByExternal(items = []) {
+  const out = [];
+  const seen = new Set();
+  for (const row of items || []) {
+    const id = String(row?.external_id || row?.externalId || row?.id || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(row);
+  }
+  return out;
+}
+
+function groupByActor(items = []) {
+  const map = new Map();
+  for (const row of items || []) {
+    const pin = String(row?.created_by_pin || row?.pin || '').trim() || 'PA_PIN';
+    const name = String(row?.created_by_name || row?.name || '').trim() || 'PUNËTOR';
+    const key = `${pin}__${name}`;
+    if (!map.has(key)) map.set(key, { pin, name, total: 0, count: 0, items: [] });
+    const g = map.get(key);
+    g.total += Number(row?.amount || 0) || 0;
+    g.count += 1;
+    g.items.push(row);
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+}
+
+function collectLocalPersonalDebtRows(actor) {
+  const pin = String(actor?.pin || '').trim();
+  const name = String(actor?.name || '').trim().toUpperCase();
+  const allowed = new Set(['ADVANCE', 'REJECTED', 'OWED', 'WORKER_DEBT']);
+  const rows = [];
+
+  const lsRows = readLs(LS_PENDING_KEY, []);
+  for (const row of lsRows) {
+    const st = String(row?.status || '').toUpperCase();
+    const rowPin = String(row?.created_by_pin || row?.pin || '').trim();
+    const rowName = String(row?.created_by_name || row?.name || '').trim().toUpperCase();
+    if (allowed.has(st) && (rowPin === pin || (!!name && rowName === name))) rows.push(row);
+  }
+
+  const orderCache = readLs('tepiha_local_orders_v1', []);
+  for (const order of Array.isArray(orderCache) ? orderCache : []) {
+    const pends = order?.data?.pay?.pendingCash || order?.pay?.pendingCash || [];
+    for (const row of pends) {
+      const st = String(row?.status || '').toUpperCase();
+      const rowPin = String(row?.created_by_pin || row?.pin || '').trim();
+      const rowName = String(row?.created_by_name || row?.name || '').trim().toUpperCase();
+      if (allowed.has(st) && (rowPin === pin || (!!name && rowName === name))) rows.push(row);
+    }
+  }
+
+  return uniqueByExternal(rows);
+}
+
+function deriveBudgetTotals(acceptedRows = [], budgetMoves = []) {
+  const acceptedIn = (acceptedRows || []).reduce((sum, row) => sum + (Number(row?.amount || 0) || 0), 0);
+  const budgetOut = (budgetMoves || [])
+    .filter((row) => String(row?.direction || '').toUpperCase() === 'OUT')
+    .reduce((sum, row) => sum + (Number(row?.amount || 0) || 0), 0);
+  const budgetIn = (budgetMoves || [])
+    .filter((row) => String(row?.direction || '').toUpperCase() === 'IN')
+    .reduce((sum, row) => sum + (Number(row?.amount || 0) || 0), 0);
+
+  return {
+    acceptedIn,
+    budgetOut,
+    budgetIn,
+    companyTotal: acceptedIn - budgetOut,
+  };
+}
 
 function HubTile({ href, icon, title, desc, accent = '#0f172a' }) {
   return (
@@ -23,294 +129,147 @@ function HubTile({ href, icon, title, desc, accent = '#0f172a' }) {
   );
 }
 
-function readJson(key, fallback) {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function normalizeName(v) {
-  return String(v || '').trim().toUpperCase();
-}
-
-function normalizePin(v) {
-  return String(v || '').trim();
-}
-
-function money(n) {
-  return `€${Number(n || 0).toFixed(2)}`;
-}
-
-function matchActorRow(row, actor) {
-  const rowPin = normalizePin(row?.created_by_pin || row?.pin || row?.advance_by_pin || row?.rejected_by_pin);
-  const actorPin = normalizePin(actor?.pin);
-  if (rowPin && actorPin && rowPin === actorPin) return true;
-
-  const rowName = normalizeName(
-    row?.created_by_name ||
-    row?.name ||
-    row?.worker_name ||
-    row?.advance_by_name ||
-    row?.rejected_by_name
-  );
-  const actorName = normalizeName(actor?.name);
-  return !!rowName && !!actorName && rowName === actorName;
-}
-
-function getLocalUsers() {
-  const raw = readJson('tepiha_users_v1', []);
-  return Array.isArray(raw) ? raw : [];
-}
-
-function getLocalPendingRows() {
-  const rows = [];
-  const seen = new Set();
-
-  const pushRow = (item, orderId = null) => {
-    const eid = String(item?.external_id || item?.externalId || '').trim();
-    if (!eid || seen.has(eid)) return;
-    rows.push({ ...item, external_id: eid, order_id: orderId || item?.order_id || null });
-    seen.add(eid);
-  };
-
-  const lsPending = readJson('arka_pending_payments_v1', []);
-  if (Array.isArray(lsPending)) {
-    lsPending.forEach((item) => pushRow(item));
-  }
-
-  const localOrders = readJson('tepiha_local_orders_v1', []);
-  if (Array.isArray(localOrders)) {
-    localOrders.forEach((order) => {
-      const pends = order?.data?.pay?.pendingCash || order?.pay?.pendingCash || [];
-      if (Array.isArray(pends)) pends.forEach((item) => pushRow(item, order?.id || order?.local_oid || null));
-    });
-  }
-
-  return rows;
-}
-
-async function loadActorProfile(actor) {
-  const pin = normalizePin(actor?.pin);
-  const current = actor || null;
-
-  if (!pin) {
-    return {
-      name: current?.name || 'PUNËTORI',
-      pin: pin || '—',
-      salary: Number(current?.salary || 0) || 0,
-      avans_manual: Number(current?.avans_manual || 0) || 0,
-      borxh_afatgjat: Number(current?.borxh_afatgjat || 0) || 0,
-    };
-  }
-
-  try {
-    const { data } = await supabase
-      .from('users')
-      .select('id,name,pin,role,salary,avans_manual,borxh_afatgjat')
-      .eq('pin', pin)
-      .maybeSingle();
-
-    if (data) {
-      return {
-        ...data,
-        salary: Number(data?.salary || 0) || 0,
-        avans_manual: Number(data?.avans_manual || 0) || 0,
-        borxh_afatgjat: Number(data?.borxh_afatgjat || 0) || 0,
-      };
-    }
-  } catch {}
-
-  const cached = getLocalUsers().find((u) => normalizePin(u?.pin) === pin) || current || {};
-  return {
-    ...cached,
-    name: cached?.name || current?.name || 'PUNËTORI',
-    pin: pin,
-    salary: Number(cached?.salary || current?.salary || 0) || 0,
-    avans_manual: Number(cached?.avans_manual || current?.avans_manual || 0) || 0,
-    borxh_afatgjat: Number(cached?.borxh_afatgjat || current?.borxh_afatgjat || 0) || 0,
-  };
-}
-
-async function loadAdvanceRows(actor, limit = 200) {
-  const items = [];
-  const seen = new Set();
-  const add = (row) => {
-    const eid = String(row?.external_id || row?.externalId || `${row?.created_at || ''}_${row?.amount || ''}`).trim();
-    if (!eid || seen.has(eid)) return;
-    items.push({ ...row, external_id: eid });
-    seen.add(eid);
-  };
-
-  try {
-    const pin = normalizePin(actor?.pin);
-    const name = normalizeName(actor?.name);
-    let query = supabase
-      .from('arka_pending_payments')
-      .select('*')
-      .eq('status', 'ADVANCE')
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (pin) query = query.eq('created_by_pin', pin);
-    const { data } = await query;
-
-    if (Array.isArray(data) && data.length) {
-      data.filter((row) => matchActorRow(row, actor) || normalizeName(row?.created_by_name) === name).forEach(add);
-      if (items.length) return items;
-    }
-  } catch {}
-
-  getLocalPendingRows()
-    .filter((row) => String(row?.status || '').toUpperCase() === 'ADVANCE')
-    .filter((row) => matchActorRow(row, actor))
-    .forEach(add);
-
-  return items.slice(0, limit);
-}
-
-async function loadDebtRows(actor, limit = 200) {
-  const rows = [];
-  const seen = new Set();
-  const add = (row) => {
-    const eid = String(row?.external_id || row?.externalId || `${row?.created_at || ''}_${row?.amount || ''}`).trim();
-    if (!eid || seen.has(eid)) return;
-    rows.push({ ...row, external_id: eid });
-    seen.add(eid);
-  };
-
-  try {
-    const byName = await listWorkerOwedPayments(actor?.name, limit);
-    if (Array.isArray(byName?.rows)) {
-      byName.rows.filter((row) => matchActorRow(row, actor)).forEach(add);
-    }
-  } catch {}
-
-  if (!rows.length) {
-    getLocalPendingRows()
-      .filter((row) => ['REJECTED', 'OWED', 'WORKER_DEBT'].includes(String(row?.status || row?.type || '').toUpperCase()) || String(row?.type || '').toUpperCase() === 'WORKER_DEBT')
-      .filter((row) => matchActorRow(row, actor))
-      .forEach(add);
-  }
-
-  return rows.slice(0, limit);
-}
-
-function RowList({ rows, emptyText, tone = 'light' }) {
-  if (!rows.length) return <div className={`emptyBox ${tone}`}>{emptyText}</div>;
-  return (
-    <div className="miniList">
-      {rows.map((row) => (
-        <div key={row.external_id || row.id} className={`miniRow ${tone}`}>
-          <div>
-            <div className="miniRowTitle">{row.client_name || row.order_code || row.note || 'VEPRIM'}</div>
-            <div className="miniRowSub">
-              {row.order_code ? `KODI ${row.order_code}` : (row.note || 'Pa shënim')}
-              {row.created_at ? ` • ${new Date(row.created_at).toLocaleDateString('sq-AL')}` : ''}
-            </div>
-          </div>
-          <div className="miniRowAmt">{money(row.amount || 0)}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function ArkaPage() {
   const [actor, setActor] = useState(null);
   const [mine, setMine] = useState([]);
-  const [profile, setProfile] = useState(null);
-  const [advanceRows, setAdvanceRows] = useState([]);
-  const [debtRows, setDebtRows] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [salaryValue, setSalaryValue] = useState(0);
+  const [myAdvances, setMyAdvances] = useState([]);
+  const [myDebts, setMyDebts] = useState([]);
+  const [handoffs, setHandoffs] = useState([]);
+  const [acceptedRows, setAcceptedRows] = useState([]);
+  const [budgetMoves, setBudgetMoves] = useState([]);
+  const [adminBusyPin, setAdminBusyPin] = useState('');
 
-  const liveActor = actor || getActor();
-  const isAdmin = String(liveActor?.role || '').toLowerCase() === 'admin';
+  const isAdmin = isAdminRole(actor?.role);
 
   async function refreshMine(a = null) {
     const act = a || getActor();
     setActor(act || null);
-    const pin = normalizePin(act?.pin);
+    const pin = String(act?.pin || '').trim();
     if (!pin) {
       setMine([]);
+      setSalaryValue(0);
+      setMyAdvances([]);
+      setMyDebts([]);
       return;
     }
 
     const res = await listPendingCashForActor(pin, 200);
-    const base = Array.isArray(res?.items)
+    const items = Array.isArray(res?.items)
       ? res.items.filter((x) => ['PENDING', 'COLLECTED'].includes(String(x?.status || '').toUpperCase()))
       : [];
+    setMine(items);
 
-    const extra = getLocalPendingRows().filter((row) => {
-      const st = String(row?.status || '').toUpperCase();
-      return ['PENDING', 'COLLECTED'].includes(st) && matchActorRow(row, act);
-    });
-
-    const seen = new Set();
-    const merged = [];
-    [...base, ...extra].forEach((item) => {
-      const eid = String(item?.external_id || item?.externalId || '').trim();
-      if (!eid || seen.has(eid)) return;
-      merged.push(item);
-      seen.add(eid);
-    });
-
-    setMine(merged);
-  }
-
-  async function refreshAll() {
-    const act = getActor();
-    setActor(act || null);
-    setLoading(true);
     try {
-      await refreshMine(act);
-      if (act && String(act?.role || '').toLowerCase() !== 'admin') {
-        const [nextProfile, nextAdvanceRows, nextDebtRows] = await Promise.all([
-          loadActorProfile(act),
-          loadAdvanceRows(act),
-          loadDebtRows(act),
-        ]);
-        setProfile(nextProfile || null);
-        setAdvanceRows(Array.isArray(nextAdvanceRows) ? nextAdvanceRows : []);
-        setDebtRows(Array.isArray(nextDebtRows) ? nextDebtRows : []);
+      const { data, error } = await supabase
+        .from('users')
+        .select('salary,name,pin')
+        .eq('pin', pin)
+        .maybeSingle();
+      if (!error && data) {
+        setSalaryValue(Number(data?.salary || 0) || 0);
+        writeLs(`arka_user_salary_${pin}`, data);
       } else {
-        setProfile(null);
-        setAdvanceRows([]);
-        setDebtRows([]);
+        const cached = readLs(`arka_user_salary_${pin}`, null);
+        setSalaryValue(Number(cached?.salary || act?.salary || 0) || 0);
       }
-    } finally {
-      setLoading(false);
+    } catch {
+      const cached = readLs(`arka_user_salary_${pin}`, null);
+      setSalaryValue(Number(cached?.salary || act?.salary || 0) || 0);
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('arka_pending_payments')
+        .select('*')
+        .in('status', ['ADVANCE', 'REJECTED', 'OWED', 'WORKER_DEBT'])
+        .or(`created_by_pin.eq.${pin},created_by_name.eq.${String(act?.name || '').trim()}`)
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (!error && Array.isArray(data)) {
+        const rows = uniqueByExternal(data);
+        setMyAdvances(rows.filter((x) => String(x?.status || '').toUpperCase() === 'ADVANCE'));
+        setMyDebts(rows.filter((x) => ['REJECTED', 'OWED', 'WORKER_DEBT'].includes(String(x?.status || '').toUpperCase())));
+      } else {
+        const rows = collectLocalPersonalDebtRows(act);
+        setMyAdvances(rows.filter((x) => String(x?.status || '').toUpperCase() === 'ADVANCE'));
+        setMyDebts(rows.filter((x) => ['REJECTED', 'OWED', 'WORKER_DEBT'].includes(String(x?.status || '').toUpperCase())));
+      }
+    } catch {
+      const rows = collectLocalPersonalDebtRows(act);
+      setMyAdvances(rows.filter((x) => String(x?.status || '').toUpperCase() === 'ADVANCE'));
+      setMyDebts(rows.filter((x) => ['REJECTED', 'OWED', 'WORKER_DEBT'].includes(String(x?.status || '').toUpperCase())));
     }
   }
 
-  useEffect(() => { void refreshAll(); }, []);
+  async function refreshAdmin() {
+    const handoffRes = await listDispatchHandoffs(500);
+    setHandoffs(Array.isArray(handoffRes?.items) ? handoffRes.items : []);
+
+    const acceptedRes = await listAcceptedCashPayments(500);
+    setAcceptedRows(Array.isArray(acceptedRes?.items) ? acceptedRes.items : []);
+
+    try {
+      const rows = await budgetListMoves(400);
+      setBudgetMoves(Array.isArray(rows) ? rows : []);
+      writeLs(LS_BUDGET_CACHE, rows || []);
+    } catch {
+      setBudgetMoves(readLs(LS_BUDGET_CACHE, []));
+    }
+  }
+
+  useEffect(() => {
+    const act = getActor();
+    setActor(act || null);
+    void refreshMine(act);
+    if (isAdminRole(act?.role)) void refreshAdmin();
+  }, []);
 
   const myTotal = useMemo(() => mine.reduce((sum, x) => sum + (Number(x?.amount || 0) || 0), 0), [mine]);
-  const advancesTotal = useMemo(() => advanceRows.reduce((sum, x) => sum + (Number(x?.amount || 0) || 0), 0), [advanceRows]);
-  const debtsTotal = useMemo(() => {
-    const dynamic = debtRows.reduce((sum, x) => sum + (Number(x?.amount || 0) || 0), 0);
-    return dynamic + (Number(profile?.borxh_afatgjat || 0) || 0);
-  }, [debtRows, profile]);
+  const myAdvanceTotal = useMemo(() => myAdvances.reduce((sum, x) => sum + (Number(x?.amount || x?.sum || 0) || 0), 0), [myAdvances]);
+  const myDebtTotal = useMemo(() => myDebts.reduce((sum, x) => sum + (Number(x?.amount || x?.sum || 0) || 0), 0), [myDebts]);
+  const budgetTotals = useMemo(() => deriveBudgetTotals(acceptedRows, budgetMoves), [acceptedRows, budgetMoves]);
+  const pendingDispatchTotal = useMemo(() => handoffs.reduce((sum, x) => sum + (Number(x?.total || 0) || 0), 0), [handoffs]);
 
   async function onHandoff() {
     if (!actor?.pin) return alert('Mungon PIN-i i punëtorit.');
     if (myTotal <= 0) return alert('Arka jote është 0€.');
-    const ok = window.confirm(`A don me i dorëzu ${myTotal.toFixed(2)}€ te bosi?`);
+    const ok = window.confirm(`A don me i dorëzu ${myTotal.toFixed(2)}€ te dispatch?`);
     if (!ok) return;
     setBusy(true);
     try {
       const res = await handoffActorPendingCash({ actor });
       if (!res?.ok) throw new Error(res?.error || 'Dështoi dorëzimi');
-      await refreshAll();
-      alert(`U dorëzuan ${Number(res.total || 0).toFixed(2)}€.`);
+      await refreshMine(actor);
+      if (isAdmin) await refreshAdmin();
+      alert(`U dorëzuan ${Number(res.total || 0).toFixed(2)}€ te dispatch.`);
     } catch (e) {
       alert(e?.message || 'Gabim gjatë dorëzimit.');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onAcceptHandoff(pin, name) {
+    if (!pin) return;
+    const group = handoffs.find((x) => String(x?.pin || '') === String(pin));
+    const total = Number(group?.total || 0);
+    const ok = window.confirm(`A jeni i sigurt që dëshironi të pranoni ${euro(total)} nga ${name || pin}?`);
+    if (!ok) return;
+
+    setAdminBusyPin(String(pin));
+    try {
+      const res = await confirmHandoffByDispatch(pin, actor);
+      if (!res?.ok) throw new Error(res?.error || 'Pranimi dështoi');
+      await refreshAdmin();
+      if (String(actor?.pin || '').trim() === String(pin).trim()) await refreshMine(actor);
+      alert(`U pranuan ${euro(res?.total || total)} dhe u shtuan në buxhet.`);
+    } catch (e) {
+      alert(e?.message || 'Gabim gjatë pranimit.');
+    } finally {
+      setAdminBusyPin('');
     }
   }
 
@@ -320,11 +279,11 @@ export default function ArkaPage() {
         <div className="arkaHubTop">
           <div>
             <div className="arkaEyebrow">ARKA / HUB</div>
-            <h1 className="arkaTitle">{isAdmin ? 'Menu Kryesore e Arkës' : 'Dashboard Personal i Arkës'}</h1>
+            <h1 className="arkaTitle">{isAdmin ? 'Dispatch & Buxheti i Arkës' : 'Dashboard Personal i Arkës'}</h1>
             <p className="arkaSubtitle">
               {isAdmin
-                ? 'Zgjidh sektorin që dëshiron të menaxhosh. Faqe e pastër, e lehtë dhe pa lëmsh listash.'
-                : 'Këtu shfaqen vetëm të dhënat e tua personale. Totale globale, shpenzime të kompanisë dhe rrogat e të tjerëve janë të fshehura.'}
+                ? 'Prano dorëzimet nga terreni, kontrollo buxhetin total të kompanisë dhe hyr shpejt te payroll-i, stafi dhe shpenzimet.'
+                : 'Këtu sheh vetëm paranë tënde, rrogën tënde dhe detyrimet e tua. Dorëzimi kalon tani te Dispatch.'}
             </p>
           </div>
 
@@ -336,33 +295,131 @@ export default function ArkaPage() {
         <div className="myArkaCard">
           <div className="myArkaHead">
             <div>
-              <div className="myArkaEyebrow">ARKA IME</div>
+              <div className="myArkaEyebrow">{isAdmin ? 'DISPATCH WALLET' : 'ARKA IME'}</div>
               <div className="myArkaName">{actor?.name || 'PUNËTORI'}</div>
-              <div className="myArkaMeta">PIN: {actor?.pin || '—'}</div>
+              <div className="myArkaMeta">PIN: {actor?.pin || '—'} · ROLI: {actor?.role || '—'}</div>
             </div>
-            <div className="myArkaAmount">€{Number(myTotal || 0).toFixed(2)}</div>
+            <div className="myArkaAmount">{euro(isAdmin ? pendingDispatchTotal : myTotal)}</div>
           </div>
-          <button className="handoffBtn" disabled={busy || myTotal <= 0} onClick={onHandoff}>DORËZO PARET TE BOSI</button>
+          {!isAdmin && (
+            <button className="handoffBtn" disabled={busy || myTotal <= 0} onClick={onHandoff}>DORËZO PARET TE DISPATCH</button>
+          )}
           <div className="myArkaList">
-            {mine.length ? mine.slice(0, 6).map((x) => (
-              <div key={x.external_id || x.id} className="myArkaRow">
-                <div>
-                  <div className="myArkaRowTitle">{x.client_name || x.order_code || 'PAGESË CASH'}</div>
-                  <div className="myArkaRowSub">{x.order_code ? `KODI ${x.order_code}` : (x.note || 'Pa shënim')}</div>
+            {!isAdmin ? (
+              mine.length ? mine.slice(0, 6).map((x) => (
+                <div key={x.external_id || x.id} className="myArkaRow">
+                  <div>
+                    <div className="myArkaRowTitle">{x.client_name || x.order_code || 'PAGESË CASH'}</div>
+                    <div className="myArkaRowSub">{x.order_code ? `KODI ${x.order_code}` : (x.note || 'Pa shënim')}</div>
+                  </div>
+                  <div className="myArkaRowAmt">{euro(x.amount || 0)}</div>
                 </div>
-                <div className="myArkaRowAmt">€{Number(x.amount || 0).toFixed(2)}</div>
-              </div>
-            )) : <div className="myArkaEmpty">S’ke pagesa cash të padorëzuara.</div>}
+              )) : <div className="myArkaEmpty">S’ke pagesa cash të padorëzuara.</div>
+            ) : (
+              handoffs.length ? handoffs.slice(0, 6).map((x) => (
+                <div key={`${x.pin}_${x.name}`} className="myArkaRow">
+                  <div>
+                    <div className="myArkaRowTitle">{x.name || 'PUNËTOR'}</div>
+                    <div className="myArkaRowSub">PIN {x.pin || '—'} · {x.count || 0} dorëzime në pritje</div>
+                  </div>
+                  <div className="myArkaRowAmt">{euro(x.total || 0)}</div>
+                </div>
+              )) : <div className="myArkaEmpty">S’ka dorëzime në pritje nga terreni.</div>
+            )}
           </div>
         </div>
 
-        {isAdmin ? (
+        {!isAdmin ? (
           <>
-            <div className="heroCard">
-              <div className="heroBadge">LIGHT UI</div>
-              <div className="heroHeading">Hub i ri për Stafin, Payroll-in dhe Shpenzimet</div>
-              <div className="heroText">
-                Kjo faqe tani shërben vetëm si menu kryesore. Nuk shfaq më lista punëtorësh, rroga apo llogaritje.
+            <div className="dashboardGrid">
+              <div className="infoCard">
+                <div className="heroBadge">READ ONLY</div>
+                <div className="heroHeading smallHeading">RROGA IME</div>
+                <div className="bigValue">{euro(salaryValue)}</div>
+                <div className="heroText">Shfaqet vetëm vlera aktuale e rrogës tënde. Pa butona editimi.</div>
+              </div>
+
+              <div className="infoCard">
+                <div className="heroBadge amber">AVANSET E MIA</div>
+                <div className="bigValue">{euro(myAdvanceTotal)}</div>
+                <div className="miniList">
+                  {myAdvances.length ? myAdvances.slice(0, 5).map((row) => (
+                    <div key={row.external_id || row.id} className="miniRow">
+                      <span>{row.note || row.client_name || 'AVANS'}</span>
+                      <strong>{euro(row.amount || 0)}</strong>
+                    </div>
+                  )) : <div className="miniEmpty">S’ke avanse aktive.</div>}
+                </div>
+              </div>
+
+              <div className="infoCard">
+                <div className="heroBadge rose">BORXHET E MIA</div>
+                <div className="bigValue">{euro(myDebtTotal)}</div>
+                <div className="miniList">
+                  {myDebts.length ? myDebts.slice(0, 5).map((row) => (
+                    <div key={row.external_id || row.id} className="miniRow">
+                      <span>{row.note || row.client_name || String(row.status || 'BORXH')}</span>
+                      <strong>{euro(row.amount || 0)}</strong>
+                    </div>
+                  )) : <div className="miniEmpty">S’ke borxhe aktive.</div>}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="budgetHeroRow">
+              <div className="budgetBigCard">
+                <div className="heroBadge emerald">BUXHETI TOTAL I KOMPANISË</div>
+                <div className="budgetValue">{euro(budgetTotals.companyTotal)}</div>
+                <div className="budgetMetaGrid">
+                  <div className="budgetMetaItem">
+                    <span>Pranime ACCEPTED</span>
+                    <strong>{euro(budgetTotals.acceptedIn)}</strong>
+                  </div>
+                  <div className="budgetMetaItem">
+                    <span>Dalje nga buxheti</span>
+                    <strong>{euro(budgetTotals.budgetOut)}</strong>
+                  </div>
+                </div>
+                <div className="heroText">Formula: të gjitha pranimet ACCEPTED minus të gjitha daljet OUT nga buxheti, ku hyjnë rrogat dhe shpenzimet e regjistruara.</div>
+              </div>
+
+              <div className="heroCard">
+                <div className="heroBadge">PRANIMET NGA TERRENI</div>
+                <div className="heroHeading">Dispatch Queue</div>
+                <div className="heroText">Këtu shfaqen punëtorët që kanë shtypur “Dorëzo”. Me ✅ PRANO, statusi kalon në ACCEPTED dhe shtohet në buxhet.</div>
+              </div>
+            </div>
+
+            <div className="acceptCard">
+              <div className="sectionHead">
+                <div>
+                  <div className="sectionEyebrow">DISPATCH</div>
+                  <div className="sectionTitle">PRANIMET NGA TERRENI</div>
+                </div>
+                <div className="sectionTotal">{euro(pendingDispatchTotal)}</div>
+              </div>
+
+              <div className="acceptList">
+                {handoffs.length ? handoffs.map((g) => (
+                  <div className="acceptRow" key={`${g.pin}_${g.name}`}>
+                    <div>
+                      <div className="acceptName">{g.name || 'PUNËTOR'}</div>
+                      <div className="acceptSub">PIN {g.pin || '—'} · {g.count || 0} pagesa në pritje</div>
+                    </div>
+                    <div className="acceptRight">
+                      <div className="acceptAmt">{euro(g.total || 0)}</div>
+                      <button
+                        className="acceptBtn"
+                        disabled={adminBusyPin === String(g.pin)}
+                        onClick={() => onAcceptHandoff(g.pin, g.name)}
+                      >
+                        {adminBusyPin === String(g.pin) ? 'DUKE PRANUAR…' : '✅ PRANO'}
+                      </button>
+                    </div>
+                  </div>
+                )) : <div className="myArkaEmpty darkText">S’ka asnjë dorëzim në pritje.</div>}
               </div>
             </div>
 
@@ -379,7 +436,7 @@ export default function ArkaPage() {
                 href="/arka/payroll"
                 icon="💸"
                 title="PAYROLL & RROGAT"
-                desc="Rroga bazë, dita e rrogës, avanset, borxhet afatgjata dhe Smart Payroll."
+                desc="Rroga bazë, dita e rrogës, avanset, borxhet afatgjata dhe fshirja e punëtorëve vetëm për admin."
                 accent="#2563eb"
               />
 
@@ -390,41 +447,6 @@ export default function ArkaPage() {
                 desc="Daljet cash, regjistrimi i shpenzimeve dhe historiku i lëvizjeve të shpenzimeve."
                 accent="#c2410c"
               />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="heroCard">
-              <div className="heroBadge">READ ONLY</div>
-              <div className="heroHeading">Dashboard Personal</div>
-              <div className="heroText">
-                Punëtori sheh vetëm arkat e veta, rrogën e vet dhe listën e avanseve/borxheve. Logjika offline vazhdon të përdorë fallback nga localStorage dhe backup-et te orders.data kur databaza nuk kthehet.
-              </div>
-            </div>
-
-            <div className="personalGrid">
-              <div className="personalCard">
-                <div className="cardEyebrow">RROGA IME</div>
-                <div className="metricAmount">{money(profile?.salary || 0)}</div>
-                <div className="metricSub">Vlera aktuale e rrogës tënde.</div>
-              </div>
-
-              <div className="personalCard">
-                <div className="cardEyebrow">AVANSET E MIA</div>
-                <div className="metricAmount amber">{money((profile?.avans_manual || 0) + advancesTotal)}</div>
-                <div className="metricSub">Avanse manuale + avanse të regjistruara në histori.</div>
-                <RowList rows={advanceRows.slice(0, 6)} emptyText="S’ka avanse të regjistruara për ty." tone="warm" />
-              </div>
-
-              <div className="personalCard">
-                <div className="cardEyebrow">BORXHET E MIA</div>
-                <div className="metricAmount red">{money(debtsTotal)}</div>
-                <div className="metricSub">Përfshin borxhin afatgjatë dhe borxhet aktive nga arkëtimi.</div>
-                {Number(profile?.borxh_afatgjat || 0) > 0 ? (
-                  <div className="longDebtBox">BORXH AFATGJATË: {money(profile?.borxh_afatgjat || 0)}</div>
-                ) : null}
-                <RowList rows={debtRows.slice(0, 6)} emptyText="S’ka borxhe aktive për ty." tone="danger" />
-              </div>
             </div>
           </>
         )}
@@ -441,319 +463,81 @@ export default function ArkaPage() {
           padding: 28px 16px 40px;
           font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
-
-        .arkaHubShell {
-          max-width: 1120px;
-          margin: 0 auto;
-        }
-
-        .arkaHubTop {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 18px;
-          flex-wrap: wrap;
-          margin-bottom: 18px;
-        }
-
-        .arkaEyebrow {
-          font-size: 12px;
-          line-height: 1;
-          font-weight: 900;
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-          color: #64748b;
-          margin-bottom: 10px;
-        }
-
-        .arkaTitle {
-          margin: 0;
-          font-size: clamp(30px, 4vw, 46px);
-          line-height: 0.98;
-          letter-spacing: -0.05em;
-          font-weight: 900;
-          color: #0f172a;
-        }
-
-        .arkaSubtitle {
-          margin: 12px 0 0;
-          max-width: 760px;
-          color: #475569;
-          font-size: 15px;
-          line-height: 1.55;
-        }
-
-        .homeBtn {
-          text-decoration: none;
-          background: rgba(255, 255, 255, 0.95);
-          color: #0f172a;
-          border: 1px solid #e2e8f0;
-          border-radius: 16px;
-          padding: 13px 18px;
-          font-weight: 800;
-          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-          transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
-        }
-
-        .homeBtn:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
-          border-color: #cbd5e1;
-        }
-
-        .myArkaCard {
-          background: #0f172a;
-          color: #fff;
-          border-radius: 28px;
-          padding: 22px;
-          border: 1px solid rgba(255,255,255,0.08);
-          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-          margin-bottom: 20px;
-        }
+        .arkaHubShell { max-width: 1120px; margin: 0 auto; }
+        .arkaHubTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 18px; }
+        .arkaEyebrow { font-size: 12px; line-height: 1; font-weight: 900; letter-spacing: 0.16em; text-transform: uppercase; color: #64748b; margin-bottom: 10px; }
+        .arkaTitle { margin: 0; font-size: clamp(30px, 4vw, 46px); line-height: 0.98; letter-spacing: -0.05em; font-weight: 900; color: #0f172a; }
+        .arkaSubtitle { margin: 12px 0 0; max-width: 760px; color: #475569; font-size: 15px; line-height: 1.55; }
+        .homeBtn { text-decoration: none; background: rgba(255, 255, 255, 0.95); color: #0f172a; border: 1px solid #e2e8f0; border-radius: 16px; padding: 13px 18px; font-weight: 800; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease; }
+        .homeBtn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08); border-color: #cbd5e1; }
+        .myArkaCard { background: #0f172a; color: #fff; border-radius: 28px; padding: 22px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); margin-bottom: 20px; }
         .myArkaHead { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; }
         .myArkaEyebrow { font-size: 11px; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
         .myArkaName { margin-top: 8px; font-size: 24px; font-weight: 900; line-height: 1; }
         .myArkaMeta { margin-top: 6px; font-size: 13px; color: rgba(255,255,255,0.62); }
         .myArkaAmount { font-size: clamp(28px, 4vw, 42px); font-weight: 900; letter-spacing: -0.04em; }
-        .handoffBtn { margin-top: 16px; width: 100%; border: none; border-radius: 18px; padding: 16px 18px; background: linear-gradient(180deg, #22c55e, #16a34a); color: #fff; font-size: 16px; font-weight: 900; cursor: pointer; }
-        .handoffBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .handoffBtn, .acceptBtn { margin-top: 16px; border: none; border-radius: 18px; padding: 16px 18px; color: #fff; font-size: 16px; font-weight: 900; cursor: pointer; }
+        .handoffBtn { width: 100%; background: linear-gradient(180deg, #22c55e, #16a34a); }
+        .handoffBtn:disabled, .acceptBtn:disabled { opacity: 0.45; cursor: not-allowed; }
         .myArkaList { margin-top: 14px; display: grid; gap: 10px; }
         .myArkaRow { display:flex; justify-content:space-between; gap:12px; align-items:center; padding: 11px 12px; border-radius: 16px; background: rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.06); }
         .myArkaRowTitle { font-size: 14px; font-weight: 800; }
         .myArkaRowSub { margin-top: 3px; font-size: 12px; color: rgba(255,255,255,0.58); }
         .myArkaRowAmt { font-size: 16px; font-weight: 900; white-space: nowrap; }
         .myArkaEmpty { padding: 12px; border-radius: 14px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.72); font-size: 13px; }
-
-        .heroCard {
-          background: rgba(255, 255, 255, 0.94);
-          border: 1px solid rgba(226, 232, 240, 0.95);
-          border-radius: 28px;
-          padding: 24px;
-          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
-          margin-bottom: 20px;
-        }
-
-        .heroBadge {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 30px;
-          padding: 0 12px;
-          border-radius: 999px;
-          background: #eff6ff;
-          color: #1d4ed8;
-          border: 1px solid #bfdbfe;
-          font-size: 11px;
-          font-weight: 900;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-        }
-
-        .heroHeading {
-          margin-top: 14px;
-          font-size: clamp(22px, 2.8vw, 34px);
-          line-height: 1.02;
-          letter-spacing: -0.04em;
-          font-weight: 900;
-          color: #0f172a;
-        }
-
-        .heroText {
-          margin-top: 10px;
-          color: #64748b;
-          font-size: 15px;
-          line-height: 1.6;
-          max-width: 720px;
-        }
-
-        .hubGrid,
-        .personalGrid {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 18px;
-        }
-
-        .hubTile,
-        .personalCard {
-          min-height: 160px;
-          padding: 22px;
-          border-radius: 28px;
-          background: rgba(255, 255, 255, 0.96);
-          border: 1px solid #e2e8f0;
-          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
-        }
-
-        .hubTile {
-          display: grid;
-          grid-template-columns: auto 1fr auto;
-          gap: 16px;
-          align-items: center;
-          transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-        }
-
-        .hubTile:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 18px 34px rgba(15, 23, 42, 0.08);
-          border-color: #cbd5e1;
-        }
-
-        .hubTileIconWrap {
-          width: 74px;
-          height: 74px;
-          border-radius: 22px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex: 0 0 auto;
-        }
-
-        .hubTileIcon {
-          font-size: 34px;
-          line-height: 1;
-        }
-
-        .hubTileBody {
-          min-width: 0;
-        }
-
-        .hubTileTitle {
-          font-size: 22px;
-          line-height: 1.05;
-          letter-spacing: -0.035em;
-          font-weight: 900;
-          color: #0f172a;
-        }
-
-        .hubTileDesc {
-          margin-top: 10px;
-          color: #64748b;
-          font-size: 14px;
-          line-height: 1.6;
-        }
-
-        .hubTileArrow {
-          font-size: 34px;
-          line-height: 1;
-          color: #94a3b8;
-          font-weight: 500;
-        }
-
-        .cardEyebrow {
-          font-size: 11px;
-          font-weight: 900;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          color: #64748b;
-          margin-bottom: 10px;
-        }
-
-        .metricAmount {
-          font-size: clamp(28px, 3vw, 38px);
-          line-height: 1;
-          font-weight: 900;
-          letter-spacing: -0.04em;
-          color: #0f172a;
-        }
-
-        .metricAmount.amber { color: #b45309; }
-        .metricAmount.red { color: #b91c1c; }
-
-        .metricSub {
-          margin-top: 8px;
-          color: #64748b;
-          font-size: 14px;
-          line-height: 1.55;
-        }
-
-        .miniList {
-          margin-top: 14px;
-          display: grid;
-          gap: 10px;
-        }
-
-        .miniRow {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: center;
-          padding: 12px;
-          border-radius: 16px;
-          border: 1px solid #e2e8f0;
-        }
-
-        .miniRow.light { background: #f8fafc; }
-        .miniRow.warm { background: #fffbeb; border-color: #fde68a; }
-        .miniRow.danger { background: #fef2f2; border-color: #fecaca; }
-
-        .miniRowTitle { font-size: 14px; font-weight: 800; color: #0f172a; }
-        .miniRowSub { margin-top: 3px; font-size: 12px; color: #64748b; }
-        .miniRowAmt { white-space: nowrap; font-size: 15px; font-weight: 900; color: #0f172a; }
-
-        .emptyBox {
-          margin-top: 14px;
-          padding: 12px;
-          border-radius: 16px;
-          font-size: 13px;
-          color: #64748b;
-          background: #f8fafc;
-          border: 1px dashed #cbd5e1;
-        }
-
-        .emptyBox.warm { background: #fffbeb; border-color: #fde68a; }
-        .emptyBox.danger { background: #fef2f2; border-color: #fecaca; }
-
-        .longDebtBox {
-          margin-top: 14px;
-          padding: 11px 12px;
-          border-radius: 14px;
-          background: #fff7ed;
-          border: 1px solid #fdba74;
-          color: #9a3412;
-          font-size: 13px;
-          font-weight: 800;
-        }
+        .darkText { color: #64748b; background: rgba(15, 23, 42, 0.04); }
+        .dashboardGrid, .budgetHeroRow { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:18px; margin-bottom:20px; }
+        .budgetHeroRow { grid-template-columns: 1.3fr .9fr; }
+        .infoCard, .heroCard, .budgetBigCard, .acceptCard, .hubTile { background: rgba(255, 255, 255, 0.94); border: 1px solid rgba(226, 232, 240, 0.95); border-radius: 28px; padding: 24px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05); }
+        .heroBadge { display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 12px; border-radius: 999px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-size: 11px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; }
+        .heroBadge.amber { background:#fffbeb; color:#92400e; border-color:#fde68a; }
+        .heroBadge.rose { background:#fff1f2; color:#be123c; border-color:#fecdd3; }
+        .heroBadge.emerald { background:#ecfdf5; color:#166534; border-color:#bbf7d0; }
+        .heroHeading { margin-top: 14px; font-size: clamp(22px, 2.8vw, 34px); line-height: 1.02; letter-spacing: -0.04em; font-weight: 900; color: #0f172a; }
+        .smallHeading { font-size: 22px; }
+        .heroText { margin-top: 10px; color: #64748b; font-size: 15px; line-height: 1.6; max-width: 720px; }
+        .bigValue, .budgetValue { margin-top: 14px; font-size: clamp(34px, 4vw, 54px); font-weight: 900; line-height: 1; letter-spacing: -.05em; color:#0f172a; }
+        .budgetMetaGrid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; margin-top:16px; }
+        .budgetMetaItem { border-radius:18px; background:#f8fafc; border:1px solid #e2e8f0; padding:14px; }
+        .budgetMetaItem span { display:block; font-size:11px; font-weight:900; letter-spacing:.12em; text-transform:uppercase; color:#64748b; margin-bottom:8px; }
+        .budgetMetaItem strong { font-size:24px; font-weight:900; letter-spacing:-.04em; color:#0f172a; }
+        .miniList, .acceptList { margin-top: 14px; display:grid; gap:10px; }
+        .miniRow, .acceptRow { display:flex; justify-content:space-between; align-items:center; gap:12px; border-radius:16px; padding:12px 14px; background:#f8fafc; border:1px solid #e2e8f0; }
+        .miniRow span { color:#475569; font-size:13px; }
+        .miniRow strong { font-size:15px; font-weight:900; }
+        .miniEmpty { color:#64748b; font-size:13px; }
+        .sectionHead { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; }
+        .sectionEyebrow { font-size:11px; font-weight:900; letter-spacing:.14em; text-transform:uppercase; color:#64748b; }
+        .sectionTitle { margin-top:8px; font-size:28px; line-height:1; font-weight:900; letter-spacing:-.04em; }
+        .sectionTotal { font-size:32px; font-weight:900; letter-spacing:-.04em; }
+        .acceptName { font-size:16px; font-weight:900; color:#0f172a; }
+        .acceptSub { margin-top:4px; font-size:12px; color:#64748b; }
+        .acceptRight { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+        .acceptAmt { font-size:18px; font-weight:900; color:#0f172a; }
+        .acceptBtn { margin-top:0; background: linear-gradient(180deg, #22c55e, #16a34a); padding:12px 16px; min-width:140px; }
+        .hubGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+        .hubTile { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; min-height: 160px; }
+        .hubTile:hover { transform: translateY(-2px); box-shadow: 0 18px 34px rgba(15, 23, 42, 0.08); border-color: #cbd5e1; }
+        .hubTileIconWrap { width: 74px; height: 74px; border-radius: 22px; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+        .hubTileIcon { font-size: 34px; line-height: 1; }
+        .hubTileBody { min-width: 0; }
+        .hubTileTitle { font-size: 22px; line-height: 1.05; letter-spacing: -0.035em; font-weight: 900; color: #0f172a; }
+        .hubTileDesc { margin-top: 10px; color: #64748b; font-size: 14px; line-height: 1.6; }
+        .hubTileArrow { font-size: 34px; line-height: 1; color: #94a3b8; font-weight: 500; }
 
         @media (max-width: 980px) {
-          .hubGrid,
-          .personalGrid {
-            grid-template-columns: 1fr;
-          }
+          .dashboardGrid, .hubGrid, .budgetHeroRow { grid-template-columns: 1fr; }
         }
-
         @media (max-width: 640px) {
-          .arkaHubPage {
-            padding: 18px 12px 30px;
-          }
-
-          .heroCard,
-          .hubTile,
-          .personalCard {
-            border-radius: 22px;
-          }
-
-          .hubTile {
-            grid-template-columns: 1fr;
-            align-items: flex-start;
-          }
-
-          .hubTileArrow {
-            display: none;
-          }
-
-          .hubTileIconWrap {
-            width: 64px;
-            height: 64px;
-            border-radius: 18px;
-          }
-
-          .homeBtn {
-            width: 100%;
-            text-align: center;
-          }
-
-          .arkaHubTop {
-            gap: 14px;
-          }
+          .arkaHubPage { padding: 18px 12px 30px; }
+          .heroCard, .hubTile, .acceptCard, .budgetBigCard, .infoCard { border-radius: 22px; }
+          .hubTile { grid-template-columns: 1fr; align-items: flex-start; }
+          .hubTileArrow { display: none; }
+          .hubTileIconWrap { width: 64px; height: 64px; border-radius: 18px; }
+          .homeBtn { width: 100%; text-align: center; }
+          .arkaHubTop { gap: 14px; }
+          .budgetMetaGrid { grid-template-columns: 1fr; }
+          .acceptRight { width:100%; justify-content:space-between; }
         }
       `}</style>
     </div>
