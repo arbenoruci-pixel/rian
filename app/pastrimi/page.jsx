@@ -23,6 +23,7 @@ const PRICE_DEFAULT = 3.0;
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 const DAILY_CAPACITY_M2 = 400;
 const STREAM_MAX_M2 = 450;
+const READY_SPOTS = ['A1','A2','A3','A4','A5','B1','B2','B3','B4','B5','C1','C2','C3','C4','C5'];
 
 // FIX: Timeout 7s për mbrojtjen e Safari
 function withTimeout(promise, ms = 7000) {
@@ -280,6 +281,7 @@ export default function PastrimiPage() {
   const [readyPlaceSheet, setReadyPlaceSheet] = useState(false);
   const [readyPlaceOrder, setReadyPlaceOrder] = useState(null);
   const [readyPlaceText, setReadyPlaceText] = useState('');
+  const [readyPlaceBusy, setReadyPlaceBusy] = useState(false);
   const [payAdd, setPayAdd] = useState(0);
 
   const [streamPastrimM2, setStreamPastrimM2] = useState(0);
@@ -565,13 +567,20 @@ export default function PastrimiPage() {
     setReadyPlaceSheet(true);
   }
 
-  async function confirmReadyPlaceAndSend() {
-    if (!readyPlaceOrder) return;
-    const txt = String(readyPlaceText || '').trim();
-    setReadyPlaceSheet(false);
-    await handleMarkReady(readyPlaceOrder, { readyNote: txt });
-    setReadyPlaceOrder(null);
-    setReadyPlaceText('');
+  async function confirmReadyPlaceAndSend(selectedSpot) {
+    if (!readyPlaceOrder || readyPlaceBusy) return;
+    const txt = String(selectedSpot || readyPlaceText || '').trim();
+    if (!txt) return;
+    setReadyPlaceBusy(true);
+    setReadyPlaceText(txt);
+    try {
+      setReadyPlaceSheet(false);
+      await handleMarkReady(readyPlaceOrder, { readyNote: txt });
+      setReadyPlaceOrder(null);
+      setReadyPlaceText('');
+    } finally {
+      setReadyPlaceBusy(false);
+    }
   }
 
   async function handleMarkReady(o, opts = {}) {
@@ -882,14 +891,40 @@ export default function PastrimiPage() {
 
 
       {readyPlaceSheet && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:10040, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:10040, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={(e)=>{ if(e.target===e.currentTarget && !readyPlaceBusy){ setReadyPlaceSheet(false); setReadyPlaceOrder(null); setReadyPlaceText(''); } }}>
           <div style={{ width:'100%', maxWidth:420, background:'#0b0b0b', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, padding:16 }}>
             <div style={{ fontWeight:900, fontSize:18 }}>📍 LOKACIONI / RAFTI</div>
-            <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)', marginTop:4 }}>Vendose raftin para se të hapet SMS-ja e klientit.</div>
-            <textarea className="input" rows={3} value={readyPlaceText} onChange={(e)=>setReadyPlaceText(e.target.value)} placeholder="P.sh. RAFTI A2 / POSHTË DJATHTAS" style={{ marginTop:12, resize:'none' }} />
+            <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)', marginTop:4 }}>Zgjidh raftin dhe SMS-ja hapet automatikisht.</div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8, marginTop:14 }}>
+              {READY_SPOTS.map((spot) => {
+                const isActive = String(readyPlaceText || '').trim().toUpperCase() === spot;
+                return (
+                  <button
+                    key={spot}
+                    className="btn secondary"
+                    disabled={readyPlaceBusy}
+                    onClick={() => confirmReadyPlaceAndSend(spot)}
+                    style={{
+                      minHeight: 54,
+                      borderRadius: 12,
+                      fontWeight: 900,
+                      fontSize: 16,
+                      border: `1px solid ${isActive ? '#4ade80' : 'rgba(255,255,255,0.14)'}`,
+                      background: isActive ? 'rgba(34,197,94,0.22)' : 'rgba(255,255,255,0.05)',
+                      color: isActive ? '#dcfce7' : '#fff',
+                    }}
+                  >
+                    {spot}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)', marginTop:12, textAlign:'center' }}>Preke një raft për ta ruajtur direkt dhe për ta hapur SMS-në.</div>
+
             <div style={{ display:'flex', gap:8, marginTop:12 }}>
-              <button className="btn secondary" style={{ flex:1 }} onClick={() => { setReadyPlaceSheet(false); setReadyPlaceOrder(null); }}>ANULO</button>
-              <button className="btn primary" style={{ flex:1 }} onClick={confirmReadyPlaceAndSend}>RUAJ & HAP SMS</button>
+              <button className="btn secondary" style={{ flex:1 }} disabled={readyPlaceBusy} onClick={() => { setReadyPlaceSheet(false); setReadyPlaceOrder(null); setReadyPlaceText(''); }}>ANULO</button>
             </div>
           </div>
         </div>
