@@ -3,16 +3,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
 import { budgetAddMove, budgetDeleteMove, budgetListMoves } from '@/lib/companyBudgetDb';
 import { isAdmin } from '@/lib/roles';
 
-const euro = (n) =>
-  `€${Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}`;
+const euro = (n) => `€${Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const onlyNum = (v) => String(v ?? '').replace(',', '.').replace(/[^\d.]/g, '');
 
-function parseEuroInput(v) {
-  const s = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.');
-  const n = Number(s || 0);
-  return Number.isFinite(n) ? n : NaN;
+function readLS(key, fallback) {
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; }
 }
 
 export default function CompanyBudgetPage() {
@@ -20,26 +19,45 @@ export default function CompanyBudgetPage() {
   const [user, setUser] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [rows, setRows] = useState([]);
-
-  const [form, setForm] = useState({ type: 'OUT', amount: '', note: '' });
+  const [budgetRows, setBudgetRows] = useState([]);
+  const [investments, setInvestments] = useState([]);
+  const [payouts, setPayouts] = useState([]);
+  const [form, setForm] = useState({ title: '', amount: '', monthly_amount: '' });
+  const [split, setSplit] = useState({ owner1: 'PRONARI 1', owner2: 'PRONARI 2', p1: '50', p2: '50' });
 
   const canSee = useMemo(() => isAdmin(user?.role), [user?.role]);
 
-  const totals = useMemo(() => {
-    const ins = (rows || [])
-      .filter((r) => String(r.direction || '').toUpperCase() === 'IN')
-      .reduce((a, r) => a + Number(r.amount || 0), 0);
-    const outs = (rows || [])
-      .filter((r) => String(r.direction || '').toUpperCase() === 'OUT')
-      .reduce((a, r) => a + Number(r.amount || 0), 0);
-    return { ins, outs, balance: ins - outs };
-  }, [rows]);
-
   async function reload() {
+    setErr('');
     try {
-      const items = await budgetListMoves(300);
-      setRows(items || []);
+      let rows = [];
+      try {
+        rows = await budgetListMoves(500);
+      } catch {}
+      try {
+        const { data } = await supabase.from('company_budget').select('*').order('created_at', { ascending: false }).limit(500);
+        if (Array.isArray(data) && data.length) {
+          const mapped = data.map((r) => ({ ...r, direction: r.direction || 'IN' }));
+          const seen = new Set((rows || []).map((x) => `${x.id}`));
+          mapped.forEach((r) => { if (!seen.has(`${r.id}`)) rows.push(r); });
+        }
+      } catch {}
+      setBudgetRows(Array.isArray(rows) ? rows.sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0)) : []);
+
+      let inv = [];
+      try {
+        const { data } = await supabase.from('investments').select('*').order('created_at', { ascending: false }).limit(200);
+        if (Array.isArray(data)) inv = data;
+      } catch {}
+      if (!inv.length) inv = readLS('company_investments_v1', []);
+      setInvestments(Array.isArray(inv) ? inv : []);
+
+      let pay = [];
+      try {
+        const { data } = await supabase.from('company_budget').select('*').eq('reason', 'PROFIT_SPLIT').order('created_at', { ascending: false }).limit(100);
+        if (Array.isArray(data)) pay = data;
+      } catch {}
+      setPayouts(pay);
     } catch (e) {
       setErr(e?.message || String(e));
     }
@@ -47,41 +65,49 @@ export default function CompanyBudgetPage() {
 
   useEffect(() => {
     const u = (() => {
-      try {
-        return JSON.parse(localStorage.getItem('CURRENT_USER_DATA')) || null;
-      } catch {
-        return null;
-      }
+      try { return JSON.parse(localStorage.getItem('CURRENT_USER_DATA')) || null; } catch { return null; }
     })();
-    if (!u) {
-      router.push('/login');
-      return;
-    }
+    if (!u) { router.push('/login'); return; }
     setUser(u);
-    reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void reload();
   }, [router]);
 
-  async function addMove() {
-    setErr('');
+  const totals = useMemo(() => {
+    const ins = (budgetRows || []).filter((r) => String(r.direction || '').toUpperCase() === 'IN').reduce((a, r) => a + Number(r.amount || 0), 0);
+    const outs = (budgetRows || []).filter((r) => String(r.direction || '').toUpperCase() === 'OUT').reduce((a, r) => a + Number(r.amount || 0), 0);
+    return { ins, outs, balance: ins - outs };
+  }, [budgetRows]);
+
+  const activeInvestments = useMemo(() => (investments || []).filter((x) => String(x.status || 'ACTIVE').toUpperCase() !== 'PAID'), [investments]);
+  const monthlyInvestmentReserve = useMemo(() => activeInvestments.reduce((s, x) => s + Number(x.monthly_amount || 0), 0), [activeInvestments]);
+  const freeProfit = Math.max(0, totals.balance - monthlyInvestmentReserve);
+
+  async function addInvestment() {
     setBusy(true);
+    setErr('');
     try {
-      const amt = parseEuroInput(form.amount);
-      if (!Number.isFinite(amt) || amt <= 0) throw new Error('SHUMA DUHET > 0');
-      const type = String(form.type || 'OUT').toUpperCase();
-      if (type !== 'IN' && type !== 'OUT') throw new Error('TIPI DUHET IN/OUT');
-
-      await budgetAddMove({
-        direction: type,
-        amount: amt,
-        reason: 'MANUAL',
-        note: String(form.note || ''),
-        created_by: user?.name || 'LOCAL',
-        created_by_name: user?.name || 'UNKNOWN',
+      const amount = Number(onlyNum(form.amount) || 0);
+      const monthly_amount = Number(onlyNum(form.monthly_amount) || 0);
+      if (!form.title.trim()) throw new Error('SHKRUANI EMRIN E INVESTIMIT.');
+      if (!(amount > 0)) throw new Error('SHUMA DUHET > 0.');
+      const row = {
+        title: form.title.trim(),
+        total_amount: amount,
+        remaining_amount: amount,
+        monthly_amount,
+        status: 'ACTIVE',
+        created_by_name: user?.name || null,
         created_by_pin: user?.pin || null,
-      });
-
-      setForm({ type: 'OUT', amount: '', note: '' });
+      };
+      try {
+        const { error } = await supabase.from('investments').insert(row);
+        if (error) throw error;
+      } catch {
+        const ls = readLS('company_investments_v1', []);
+        ls.unshift({ id: `inv_${Date.now()}`, created_at: new Date().toISOString(), ...row });
+        localStorage.setItem('company_investments_v1', JSON.stringify(ls.slice(0, 200)));
+      }
+      setForm({ title: '', amount: '', monthly_amount: '' });
       await reload();
     } catch (e) {
       setErr(e?.message || String(e));
@@ -90,13 +116,65 @@ export default function CompanyBudgetPage() {
     }
   }
 
-  async function del(id) {
-    if (!id) return;
+  async function splitProfit() {
     setBusy(true);
     setErr('');
     try {
+      const p1 = Number(onlyNum(split.p1) || 0);
+      const p2 = Number(onlyNum(split.p2) || 0);
+      if (Math.round((p1 + p2) * 100) !== 10000) throw new Error('PËRQINDJET DUHET TË JENË 100%.');
+      if (freeProfit <= 0) throw new Error('NUK KA PROFIT TË LIRË PËR NDARJE.');
+
+      let reserveTotal = 0;
+      for (const inv of activeInvestments) {
+        const reserve = Math.min(Number(inv.monthly_amount || 0), Number(inv.remaining_amount || 0));
+        if (reserve <= 0) continue;
+        reserveTotal += reserve;
+        try {
+          await budgetAddMove({
+            direction: 'OUT',
+            amount: reserve,
+            reason: 'INVESTMENT_RESERVE',
+            note: `REZERVË INVESTIMI • ${inv.title}`,
+            source: 'COMPANY_BUDGET',
+            created_by: user?.name || 'ADMIN',
+            created_by_name: user?.name || null,
+            created_by_pin: user?.pin || null,
+          });
+        } catch {}
+        try {
+          const nextRemaining = Math.max(0, Number(inv.remaining_amount || 0) - reserve);
+          const patch = { remaining_amount: nextRemaining, status: nextRemaining <= 0 ? 'PAID' : 'ACTIVE' };
+          const { error } = await supabase.from('investments').update(patch).eq('id', inv.id);
+          if (error) throw error;
+        } catch {
+          const ls = readLS('company_investments_v1', []);
+          const next = ls.map((x) => x.id === inv.id ? { ...x, remaining_amount: Math.max(0, Number(x.remaining_amount || 0) - reserve), status: Math.max(0, Number(x.remaining_amount || 0) - reserve) <= 0 ? 'PAID' : 'ACTIVE' } : x);
+          localStorage.setItem('company_investments_v1', JSON.stringify(next));
+        }
+      }
+
+      const distributable = Math.max(0, totals.balance - reserveTotal);
+      const owner1Amount = Number((distributable * (p1 / 100)).toFixed(2));
+      const owner2Amount = Number((distributable * (p2 / 100)).toFixed(2));
+
+      await budgetAddMove({ direction: 'OUT', amount: owner1Amount, reason: 'PROFIT_SPLIT', note: `FITIM • ${split.owner1}`, source: 'COMPANY_BUDGET', created_by: user?.name || 'ADMIN', created_by_name: user?.name || null, created_by_pin: user?.pin || null });
+      await budgetAddMove({ direction: 'OUT', amount: owner2Amount, reason: 'PROFIT_SPLIT', note: `FITIM • ${split.owner2}`, source: 'COMPANY_BUDGET', created_by: user?.name || 'ADMIN', created_by_name: user?.name || null, created_by_pin: user?.pin || null });
+      await reload();
+      alert(`Fitimi u nda me sukses. ${split.owner1}: ${euro(owner1Amount)} | ${split.owner2}: ${euro(owner2Amount)}`);
+    } catch (e) {
+      setErr(e?.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteBudgetMove(id) {
+    if (!id) return;
+    if (!window.confirm('A jeni i sigurt që dëshironi ta fshini këtë lëvizje?')) return;
+    setBusy(true);
+    try {
       await budgetDeleteMove(id);
-      // keep backwards compatibility: old function name removed
       await reload();
     } catch (e) {
       setErr(e?.message || String(e));
@@ -111,7 +189,7 @@ export default function CompanyBudgetPage() {
     <div className="pageWrap">
       <div className="topRow">
         <div>
-          <div className="title">BUXHETI I KOMPANIS</div>
+          <div className="title">BUXHETI & INVESTIMET</div>
           <div className="sub">{String(user.name || '').toUpperCase()} • {String(user.role || '').toUpperCase()}</div>
         </div>
         <Link className="ghostBtn" href="/arka">KTHEHU</Link>
@@ -120,78 +198,110 @@ export default function CompanyBudgetPage() {
       {err ? <div className="err">{err}</div> : null}
 
       {!canSee ? (
-        <div className="card">
-          <div className="cardTitle">VETËM ADMIN/DISPATCH</div>
-          <div className="muted">KJO FAQE ËSHTË VETËM PËR KONTROLLIN E BUXHETIT TË KOMPANIS.</div>
-        </div>
+        <div className="card"><div className="cardTitle">VETËM ADMIN</div><div className="muted">KJO FAQE ËSHTË VETËM PËR BUXHETIN E KOMPANISË.</div></div>
       ) : (
         <>
-          <div className="card">
-            <div className="cardTitle">PËRMBLEDHJE</div>
-            <div className="summary">
-              <div><span className="k">IN</span> {euro(totals.ins)}</div>
-              <div><span className="k">OUT</span> {euro(totals.outs)}</div>
-              <div><span className="k">BALANC</span> {euro(totals.balance)}</div>
+          <div className="heroGrid">
+            <div className="heroCard dark">
+              <div className="cardTitle">BUXHETI LIVE</div>
+              <div className="big">{euro(totals.balance)}</div>
+              <div className="muted light">Cash-in-hand / balanca aktuale pas hyrjeve dhe daljeve.</div>
             </div>
-            <div className="muted">IN vjen automatikisht kur DISPATCH pranon (RECEIVE) ARKËN. OUT vjen nga shpenzimet/avanset + manual.</div>
+            <div className="heroCard">
+              <div className="cardTitle">INVESTIME AKTIVE</div>
+              <div className="big small">{activeInvestments.length}</div>
+              <div className="muted">Rezervë mujore: {euro(monthlyInvestmentReserve)}</div>
+            </div>
+            <div className="heroCard">
+              <div className="cardTitle">PROFIT I LIRË</div>
+              <div className="big small">{euro(freeProfit)}</div>
+              <div className="muted">Balanca e lirë pas mbajtjes së pjesës mujore për investime.</div>
+            </div>
           </div>
 
-          <div className="card">
-            <div className="cardTitle">SHTO LËVIZJE</div>
-            <div className="row">
-              <select className="input" value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}>
-                <option value="OUT">OUT (DALJE)</option>
-                <option value="IN">IN (HYRJE)</option>
-              </select>
-              <input className="input" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="SHUMA (€)" inputMode="decimal" />
-            </div>
-            <input className="input" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="SHËNIM" />
-            <button className="primary" disabled={busy} onClick={addMove}>{busy ? 'DUKE RUJTUR…' : 'SHTO'}</button>
-          </div>
-
-          <div className="card">
-            <div className="cardTitle">LISTA</div>
-            {rows.length === 0 ? (
-              <div className="muted">S’KA LËVIZJE.</div>
-            ) : (
-              <div className="list">
-                {rows.map((r) => (
-                  <div key={r.id} className="item">
-                    <div className="itemTop">
-                      <div className="strong">{euro(r.amount)} • {String(r.direction || '').toUpperCase()}</div>
-                      <button className="del" disabled={busy} onClick={() => del(r.id)}>FSHI</button>
-                    </div>
-                    {r.note ? <div className="muted">{String(r.note).toUpperCase()}</div> : null}
-                    {r.created_by ? <div className="muted">{String(r.created_by).toUpperCase()}</div> : null}
-                  </div>
-                ))}
+          <div className="sectionGrid">
+            <div className="card">
+              <div className="cardTitle">INVESTIMET</div>
+              <div className="row">
+                <input className="input" placeholder="P.SH. BLERJA E FURGONIT" value={form.title} onChange={(e)=>setForm((f)=>({...f,title:e.target.value}))} />
+                <input className="input" placeholder="TOTALI €" value={form.amount} onChange={(e)=>setForm((f)=>({...f,amount:onlyNum(e.target.value)}))} />
               </div>
-            )}
+              <input className="input" placeholder="SHLYERJA MUJORE €" value={form.monthly_amount} onChange={(e)=>setForm((f)=>({...f,monthly_amount:onlyNum(e.target.value)}))} />
+              <button className="primary" disabled={busy} onClick={addInvestment}>SHTO INVESTIM</button>
+
+              <div className="list">
+                {investments.length ? investments.map((inv) => (
+                  <div key={inv.id} className="item">
+                    <div className="itemTop"><div className="strong">{String(inv.title || '').toUpperCase()}</div><div className="pill">{String(inv.status || 'ACTIVE').toUpperCase()}</div></div>
+                    <div className="muted">TOTALI {euro(inv.total_amount)} • MBETJA {euro(inv.remaining_amount)} • MUJORJA {euro(inv.monthly_amount)}</div>
+                  </div>
+                )) : <div className="muted">S’KA INVESTIME.</div>}
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="cardTitle">NDARJA E FITIMIT</div>
+              <div className="ownersGrid">
+                <div className="ownerCard"><div className="miniTitle">PRONARI 1</div><input className="input" value={split.owner1} onChange={(e)=>setSplit((s)=>({...s,owner1:e.target.value}))} /><input className="input" value={split.p1} onChange={(e)=>setSplit((s)=>({...s,p1:onlyNum(e.target.value)}))} placeholder="50" /></div>
+                <div className="ownerCard"><div className="miniTitle">PRONARI 2</div><input className="input" value={split.owner2} onChange={(e)=>setSplit((s)=>({...s,owner2:e.target.value}))} /><input className="input" value={split.p2} onChange={(e)=>setSplit((s)=>({...s,p2:onlyNum(e.target.value)}))} placeholder="50" /></div>
+              </div>
+              <div className="muted">Kur shtypet “NDAJ FITIMIN”, sistemi mban pjesën mujore për investimet aktive dhe pjesën tjetër e ndan sipas përqindjes.</div>
+              <button className="primary green" disabled={busy} onClick={splitProfit}>NDAJ FITIMIN</button>
+              <div className="list compact">
+                {payouts.length ? payouts.slice(0,8).map((r)=> (
+                  <div key={r.id} className="item"><div className="itemTop"><div className="strong">{String(r.note || 'FITIM').toUpperCase()}</div><div className="strong">{euro(r.amount)}</div></div></div>
+                )) : <div className="muted">Ende s’ka ndarje fitimi.</div>}
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="cardTitle">HISTORIKU I BUXHETIT</div>
+            <div className="list">
+              {budgetRows.length ? budgetRows.map((r) => (
+                <div key={r.id} className="item">
+                  <div className="itemTop">
+                    <div className="strong">{euro(r.amount)} • {String(r.direction || '').toUpperCase()}</div>
+                    <button className="del" disabled={busy} onClick={() => deleteBudgetMove(r.id)}>FSHI</button>
+                  </div>
+                  <div className="muted">{String(r.note || r.reason || 'PA SHËNIM').toUpperCase()}</div>
+                </div>
+              )) : <div className="muted">S’KA LËVIZJE.</div>}
+            </div>
           </div>
         </>
       )}
 
       <style jsx>{`
-        .pageWrap{max-width:980px;margin:0 auto;padding:18px 14px 40px;text-transform:uppercase;}
-        .topRow{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:14px;}
-        .title{font-size:34px;letter-spacing:1px;font-weight:900;}
-        .sub{opacity:.75;margin-top:4px;font-size:13px;letter-spacing:.8px;}
-        .ghostBtn{height:40px;padding:0 12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);display:inline-flex;align-items:center;justify-content:center;font-weight:800;letter-spacing:.6px;text-decoration:none;}
-        .err{border:2px solid rgba(255,80,80,.35);background:rgba(255,0,0,.08);color:#ffd1d1;padding:12px;border-radius:14px;margin-bottom:12px;font-weight:900;letter-spacing:.08em;}
-        .card{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);border-radius:16px;padding:14px 14px 12px;margin:12px 0;}
-        .cardTitle{font-weight:950;letter-spacing:.18em;opacity:.85;font-size:10px;margin-bottom:10px;}
-        .summary{display:flex;gap:12px;flex-wrap:wrap;font-weight:950;letter-spacing:.14em;font-size:12px;}
-        .k{opacity:.75;margin-right:6px;}
-        .row{display:flex;gap:10px;}
-        .input{width:100%;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.16);padding:12px;border-radius:12px;font-size:12px;color:#fff;margin-top:10px;outline:none;letter-spacing:.08em;font-weight:900;}
-        .primary{width:100%;margin-top:10px;padding:12px;border-radius:12px;border:1px solid rgba(0,150,255,.35);background:rgba(0,150,255,.12);color:rgba(190,230,255,.95);font-size:10px;font-weight:950;letter-spacing:.16em;opacity:1;}
-        .primary:disabled{opacity:.55;}
-        .muted{opacity:.7;padding:6px 0;font-size:10px;letter-spacing:.16em;}
-        .list{display:grid;gap:10px;}
-        .item{border:1px solid rgba(255,255,255,.10);background:rgba(0,0,0,.35);border-radius:14px;padding:12px;}
+        .pageWrap{max-width:1120px;margin:0 auto;padding:22px 14px 42px;color:#0f172a;background:transparent;}
+        .topRow{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+        .title{font-size:38px;letter-spacing:-.04em;font-weight:900;}
+        .sub{opacity:.75;margin-top:4px;font-size:13px;letter-spacing:.8px;text-transform:uppercase;}
+        .ghostBtn{height:42px;padding:0 14px;border-radius:14px;border:1px solid #dbe3ef;background:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;letter-spacing:.6px;text-decoration:none;box-shadow:0 10px 26px rgba(15,23,42,.05);}
+        .err{border:2px solid rgba(255,80,80,.18);background:#fff1f2;color:#991b1b;padding:12px;border-radius:16px;margin-bottom:12px;font-weight:900;letter-spacing:.04em;}
+        .heroGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:14px;}
+        .heroCard,.card{border:1px solid #e2e8f0;background:rgba(255,255,255,.96);border-radius:24px;padding:16px 16px 14px;box-shadow:0 12px 28px rgba(15,23,42,.05);}
+        .heroCard.dark{background:#0f172a;color:#fff;border-color:rgba(255,255,255,.08);}
+        .cardTitle{font-weight:950;letter-spacing:.18em;opacity:.85;font-size:10px;margin-bottom:10px;text-transform:uppercase;}
+        .big{font-size:42px;line-height:1;font-weight:900;letter-spacing:-.05em;}
+        .big.small{font-size:34px;}
+        .sectionGrid{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;}
+        .row,.ownersGrid{display:flex;gap:10px;}
+        .ownersGrid{align-items:stretch;}
+        .ownerCard{flex:1;border:1px solid #e2e8f0;background:#f8fafc;border-radius:18px;padding:12px;}
+        .miniTitle{font-size:11px;font-weight:900;letter-spacing:.14em;margin-bottom:6px;}
+        .input{width:100%;background:#fff;border:1px solid #dbe3ef;padding:12px;border-radius:14px;font-size:12px;color:#0f172a;margin-top:10px;outline:none;letter-spacing:.04em;font-weight:800;}
+        .primary{width:100%;margin-top:10px;padding:13px;border-radius:14px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:950;letter-spacing:.16em;text-transform:uppercase;}
+        .primary.green{background:linear-gradient(180deg,#22c55e,#16a34a);border-color:#16a34a;color:#fff;}
+        .muted{opacity:.75;padding:6px 0;font-size:11px;letter-spacing:.08em;line-height:1.45;}
+        .muted.light{color:rgba(255,255,255,.78);}
+        .list{display:grid;gap:10px;margin-top:12px;}
+        .item{border:1px solid #e2e8f0;background:#fff;border-radius:16px;padding:12px;}
         .itemTop{display:flex;justify-content:space-between;gap:10px;align-items:center;}
-        .strong{font-weight:950;letter-spacing:.12em;font-size:11px;}
-        .del{border-radius:12px;padding:10px 12px;border:1px solid rgba(255,80,80,.35);background:rgba(255,80,80,.10);font-weight:950;letter-spacing:.14em;font-size:10px;}
+        .strong{font-weight:950;letter-spacing:.08em;font-size:11px;text-transform:uppercase;}
+        .pill{border-radius:999px;padding:7px 10px;background:#eef2ff;color:#4338ca;font-weight:900;font-size:10px;letter-spacing:.12em;}
+        .del{border-radius:12px;padding:10px 12px;border:1px solid rgba(255,80,80,.25);background:#fff1f2;font-weight:950;letter-spacing:.14em;font-size:10px;color:#991b1b;}
+        @media (max-width:980px){.heroGrid,.sectionGrid{grid-template-columns:1fr;}.row,.ownersGrid{flex-direction:column;}}
       `}</style>
     </div>
   );

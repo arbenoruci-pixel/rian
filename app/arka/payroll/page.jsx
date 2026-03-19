@@ -4,7 +4,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { budgetAddOutMove } from "@/lib/companyBudgetDb";
 
 function jparse(s, fallback) {
   try { return JSON.parse(s) ?? fallback; } catch { return fallback; }
@@ -77,7 +76,7 @@ export default function PayrollPage() {
   const [deductLongTermAmount, setDeductLongTermAmount] = useState("");
   const [workerHistory, setWorkerHistory] = useState([]);
 
-  const isAdmin = ["admin", "dispatch", "owner", "admin_master"].includes(String(actor?.role || "").toLowerCase());
+  const isAdminUser = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH'].includes(String(actor?.role || '').toUpperCase());
 
   useEffect(() => {
     const a = jparse(localStorage.getItem("CURRENT_USER_DATA"), null);
@@ -135,28 +134,6 @@ export default function PayrollPage() {
       borxh_afatgjat: String(u.borxh_afatgjat ?? ""),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  async function handleDeleteWorker(u) {
-    if (!u?.id || !isAdmin) return;
-    const ok = window.confirm(`A jeni i sigurt që dëshironi të fshini punëtorin ${u.name || 'PA EMËR'} nga lista e rrogave?`);
-    if (!ok) return;
-
-    setActionBusy(true);
-    try {
-      const { error } = await supabase
-        .from("users")
-        .delete()
-        .eq("id", u.id);
-      if (error) throw error;
-      if (salaryModal?.id === u.id) setSalaryModal(null);
-      if (editingId === u.id) setEditingId(null);
-      await reloadAll(false);
-    } catch (err) {
-      alert("GABIM: " + normalizeDbError(err));
-    } finally {
-      setActionBusy(false);
-    }
   }
 
   async function saveFinanceEdit() {
@@ -281,24 +258,6 @@ export default function PayrollPage() {
 
       if (err2) throw err2;
 
-      const paidNow = Math.max(0, Number(payableAmount || 0));
-      if (paidNow > 0) {
-        try {
-          await budgetAddOutMove({
-            amount: paidNow,
-            reason: 'SALARY',
-            note: `RROGA · ${salaryModal.name || 'PUNTOR'}`,
-            source: 'PAYROLL',
-            created_by: actor?.name || 'ADMIN',
-            created_by_name: actor?.name || null,
-            created_by_pin: actor?.pin || null,
-            external_id: `salary_pay_${salaryModal.id}_${new Date().toISOString()}`,
-            ref_day_id: salaryModal.id,
-            ref_type: 'USER_SALARY',
-          });
-        } catch {}
-      }
-
       alert(`✅ Rroga u përpunua me sukses për ${salaryModal.name}.`);
       setSalaryModal(null);
       await reloadAll(false);
@@ -352,6 +311,25 @@ export default function PayrollPage() {
       await reloadAll(false);
     } catch (e) {
       alert("GABIM: " + normalizeDbError(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+
+  async function handleDeleteWorker(u) {
+    if (!isAdminUser || !u?.id) return;
+    const ok = window.confirm(`A jeni i sigurt që dëshironi të fshini punëtorin ${u?.name || ''} nga lista e rrogave?`);
+    if (!ok) return;
+    setActionBusy(true);
+    try {
+      const { error } = await supabase.from('users').delete().eq('id', u.id);
+      if (error) throw error;
+      if (salaryModal?.id === u.id) setSalaryModal(null);
+      if (editingId === u.id) setEditingId(null);
+      await reloadAll(false);
+    } catch (err) {
+      alert('GABIM: ' + normalizeDbError(err));
     } finally {
       setActionBusy(false);
     }
@@ -507,9 +485,9 @@ export default function PayrollPage() {
                   </div>
                   <div className="cardActions">
                     <button className="editMini" onClick={() => startFinanceEdit(u)}>EDITO</button>
-                    {isAdmin && (
-                      <button className="deleteMini" disabled={actionBusy} onClick={() => handleDeleteWorker(u)}>🗑️ FSHI</button>
-                    )}
+                    {isAdminUser ? (
+                      <button className="deleteMini" onClick={() => handleDeleteWorker(u)}>🗑️ FSHI</button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -888,12 +866,6 @@ export default function PayrollPage() {
           font-weight: 900;
           letter-spacing: .08em;
         }
-        .cardActions {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
         .editMini {
           background: #eff6ff;
           color: #1d4ed8;
@@ -902,14 +874,24 @@ export default function PayrollPage() {
           padding: 12px 14px;
           font-weight: 900;
         }
-        .deleteMini {
-          background: #fff1f2;
-          color: #be123c;
-          border: 1px solid #fecdd3;
-          border-radius: 14px;
-          padding: 12px 14px;
-          font-weight: 900;
+        .cardActions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
         }
+
+        .deleteMini {
+          border: 1px solid rgba(239, 68, 68, 0.24);
+          background: rgba(254, 242, 242, 0.96);
+          color: #991b1b;
+          padding: 10px 12px;
+          border-radius: 999px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          font-size: 11px;
+        }
+
         .moneyMetrics {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1225,7 +1207,25 @@ export default function PayrollPage() {
           .hero, .payMainGrid, .cardsGrid, .formGrid {
             grid-template-columns: 1fr;
           }
-          .moneyMetrics {
+          .cardActions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+
+        .deleteMini {
+          border: 1px solid rgba(239, 68, 68, 0.24);
+          background: rgba(254, 242, 242, 0.96);
+          color: #991b1b;
+          padding: 10px 12px;
+          border-radius: 999px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          font-size: 11px;
+        }
+
+        .moneyMetrics {
             grid-template-columns: 1fr;
           }
         }
