@@ -1616,6 +1616,55 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
           background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0));
           margin-top: 10px;
         }
+        .payfs {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          background: rgba(5, 8, 12, 0.96);
+          display: flex;
+          flex-direction: column;
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
+        .payfs-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          padding: 14px 14px;
+          background: #0b0f14;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          position: sticky;
+          top: 0;
+          z-index: 2;
+        }
+        .payfs-title {
+          color: #fff;
+          font-weight: 900;
+          font-size: 18px;
+          letter-spacing: 0.02em;
+        }
+        .payfs-sub {
+          color: rgba(255, 255, 255, 0.72);
+          font-size: 12px;
+          margin-top: 2px;
+          line-height: 1.25;
+        }
+        .payfs-body {
+          flex: 1;
+          overflow: auto;
+          padding: 14px;
+        }
+        .payfs-footer {
+          display: flex;
+          gap: 10px;
+          padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+          background: #0b0f14;
+          position: sticky;
+          bottom: 0;
+          z-index: 2;
+        }
         .payfs-footer .btn {
           flex: 1;
           padding: 16px 0;
