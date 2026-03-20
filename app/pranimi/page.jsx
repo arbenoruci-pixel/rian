@@ -1290,13 +1290,11 @@ export default function PranimiPage() {
 
       const nowIso = new Date().toISOString();
       const payload = {
-        id: oid,
-        local_oid: String(oid),
         status: 'pastrim',
         code: Number(normCodeNow || 0) || null,
         client_name: name?.trim() || null,
         client_phone: phonePrefix + (phone || ''),
-        pieces: copeCount,
+        pieces: Number(copeCount || 0),
         m2_total: Number(totalM2 || 0),
         price_total: Number(totalEuro || 0),
         paid_cash: Number(clientPaid || 0),
@@ -1307,11 +1305,15 @@ export default function PranimiPage() {
           ...order,
           status: 'pastrim',
           updated_at: nowIso,
-            client_name: name?.trim() || null,
+          client_name: name?.trim() || null,
           client_phone: phonePrefix + (phone || ''),
-          pieces: copeCount,
+          pieces: Number(copeCount || 0),
           m2_total: Number(totalM2 || 0),
           price_total: Number(totalEuro || 0),
+          paid_cash: Number(clientPaid || 0),
+          is_paid_upfront: Number(clientPaid || 0) > 0,
+          note: notes || null,
+          local_oid: String(oid),
         },
       };
 
