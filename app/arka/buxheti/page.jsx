@@ -7,8 +7,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { budgetAddMove, budgetDeleteMove, budgetListMoves } from '@/lib/companyBudgetDb';
 import { isAdmin } from '@/lib/roles';
 
-const euro = (n) =>
-  `€${Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const euro = (n) => `€${Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function parseEuroInput(v) {
   const s = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.');
@@ -20,12 +19,13 @@ function pct(part, total) {
   const p = Number(part || 0);
   const t = Number(total || 0);
   if (!t || t <= 0) return 0;
-  const out = Math.round((p / t) * 100);
-  return Math.max(0, Math.min(100, out));
+  return Math.max(0, Math.min(100, Math.round((p / t) * 100)));
 }
 
-function currentMonthKey() {
-  return new Date().toISOString().slice(0, 7);
+function monthKeyFromDate(value) {
+  const raw = String(value || '');
+  if (!raw) return new Date().toISOString().slice(0, 7);
+  return raw.slice(0, 7);
 }
 
 function readUserFromLs() {
@@ -36,72 +36,47 @@ function readUserFromLs() {
   }
 }
 
-function readDashboardFallback() {
-  try {
-    return JSON.parse(localStorage.getItem('company_dashboard_cache_v1') || 'null') || null;
-  } catch {
-    return null;
-  }
-}
-
-function saveDashboardFallback(payload) {
-  try {
-    localStorage.setItem('company_dashboard_cache_v1', JSON.stringify(payload));
-  } catch {}
-}
-
 function normalizeMove(row = {}) {
   return {
-    id: row.id,
-    created_at: row.created_at,
-    direction: String(row.direction || row.type || '').toUpperCase(),
-    amount: Number(row.amount || 0),
-    category: row.category || row.source || 'OTHER',
-    reason: row.reason || row.note || '',
-    note: row.note || '',
-    month_key: row.month_key || null,
-    created_by: row.created_by || row.created_by_name || null,
-    worker_pin: row.worker_pin || null,
-    worker_name: row.worker_name || null,
+    ...row,
+    direction: String(row?.direction || row?.type || '').toUpperCase(),
+    amount: Number(row?.amount || 0) || 0,
+    category: row?.category || 'OTHER',
+    reason: row?.reason || row?.note || '',
+    month_key: row?.month_key || monthKeyFromDate(row?.created_at),
+    status: String(row?.status || 'ACTIVE').toUpperCase(),
   };
 }
 
-export default function CompanyBudgetPage() {
+export default function CompanyBudgetDashboardPage() {
   const router = useRouter();
-
   const [user, setUser] = useState(null);
   const [busy, setBusy] = useState(false);
   const [splitBusy, setSplitBusy] = useState(false);
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
-
   const [rows, setRows] = useState([]);
   const [investments, setInvestments] = useState([]);
   const [ownerBalances, setOwnerBalances] = useState([]);
   const [partners, setPartners] = useState([]);
-
+  const [liveBudget, setLiveBudget] = useState(0);
   const [form, setForm] = useState({ type: 'OUT', amount: '', note: '' });
   const [withdrawForm, setWithdrawForm] = useState({ partner: 'OWNER 1', amount: '' });
 
+  const monthKey = useMemo(() => new Date().toISOString().slice(0, 7), []);
   const canSee = useMemo(() => isAdmin(user?.role), [user?.role]);
-  const monthKey = useMemo(() => currentMonthKey(), []);
 
   const totals = useMemo(() => {
-    const ins = (rows || [])
-      .filter((r) => String(r.direction || '').toUpperCase() === 'IN')
-      .reduce((a, r) => a + Number(r.amount || 0), 0);
-    const outs = (rows || [])
-      .filter((r) => String(r.direction || '').toUpperCase() === 'OUT')
-      .reduce((a, r) => a + Number(r.amount || 0), 0);
+    const activeRows = (rows || []).filter((r) => String(r?.status || 'ACTIVE').toUpperCase() === 'ACTIVE');
+    const ins = activeRows.filter((r) => String(r.direction || '').toUpperCase() === 'IN').reduce((a, r) => a + Number(r.amount || 0), 0);
+    const outs = activeRows.filter((r) => String(r.direction || '').toUpperCase() === 'OUT').reduce((a, r) => a + Number(r.amount || 0), 0);
     return { ins, outs, balance: ins - outs };
   }, [rows]);
 
   const monthProfit = useMemo(() => {
-    const monthRows = (rows || []).filter((r) => String(r.month_key || '') === monthKey || String(r.created_at || '').slice(0, 7) === monthKey);
-    const ins = monthRows
-      .filter((r) => String(r.direction || '').toUpperCase() === 'IN')
-      .reduce((a, r) => a + Number(r.amount || 0), 0);
+    const monthRows = (rows || []).filter((r) => String(r.month_key || '') === monthKey && String(r.status || 'ACTIVE').toUpperCase() === 'ACTIVE');
+    const ins = monthRows.filter((r) => String(r.direction || '').toUpperCase() === 'IN').reduce((a, r) => a + Number(r.amount || 0), 0);
     const outs = monthRows
       .filter((r) => String(r.direction || '').toUpperCase() === 'OUT')
       .filter((r) => !['PARTNER', 'PARTNER_WITHDRAW'].includes(String(r.category || '').toUpperCase()))
@@ -114,12 +89,11 @@ export default function CompanyBudgetPage() {
   }, [rows, monthKey]);
 
   const owners = useMemo(() => {
-    const balances = Array.isArray(ownerBalances) ? ownerBalances : [];
-    const partnerRows = Array.isArray(partners) && partners.length ? partners : [{ name: 'OWNER 1', percentage: 50 }, { name: 'OWNER 2', percentage: 50 }];
-    return partnerRows.map((p, idx) => {
-      const found = balances.find((x) => String(x.partner_name || '').toUpperCase() === String(p.name || '').toUpperCase());
+    const fallbackPartners = Array.isArray(partners) && partners.length ? partners : [{ name: 'OWNER 1', percentage: 50 }, { name: 'OWNER 2', percentage: 50 }];
+    return fallbackPartners.map((p, idx) => {
+      const found = (ownerBalances || []).find((x) => String(x.partner_name || '').toUpperCase() === String(p.name || '').toUpperCase());
       return {
-        id: found?.id || p.id || idx,
+        id: found?.id || idx,
         name: p.name,
         percentage: Number(p.percentage || 0),
         current_balance: Number(found?.current_balance || 0),
@@ -129,45 +103,41 @@ export default function CompanyBudgetPage() {
     });
   }, [ownerBalances, partners]);
 
+  async function loadLiveBudgetFallback() {
+    try {
+      const { data, error } = await supabase.rpc('get_company_budget_live');
+      if (error) throw error;
+      return Number(data || 0) || 0;
+    } catch {
+      return 0;
+    }
+  }
+
   async function reload() {
     setErr('');
     try {
-      const [movesRes, investmentsRes, ownersRes, partnersRes] = await Promise.allSettled([
-        budgetListMoves(500),
-        supabase.from('investments').select('*').order('created_at', { ascending: false }),
-        supabase.from('owner_balances').select('*').order('partner_name', { ascending: true }),
-        supabase.from('company_partners').select('*').order('created_at', { ascending: true }),
+      const [movesRes, invRes, ownerRes, partnerRes, budgetValue] = await Promise.all([
+        budgetListMoves(500).catch(() => []),
+        supabase.from('investments').select('*').order('created_at', { ascending: false }).then((r) => (r.error ? [] : (r.data || []))).catch(() => []),
+        supabase.from('owner_balances').select('*').order('partner_name', { ascending: true }).then((r) => (r.error ? [] : (r.data || []))).catch(() => []),
+        supabase.from('company_partners').select('*').order('created_at', { ascending: true }).then((r) => (r.error ? [] : (r.data || []))).catch(() => []),
+        loadLiveBudgetFallback(),
       ]);
 
-      const nextRows = movesRes.status === 'fulfilled' ? (movesRes.value || []).map(normalizeMove) : [];
-      const nextInvestments = investmentsRes.status === 'fulfilled' && !investmentsRes.value?.error ? (investmentsRes.value.data || []) : [];
-      const nextOwners = ownersRes.status === 'fulfilled' && !ownersRes.value?.error ? (ownersRes.value.data || []) : [];
-      const nextPartners = partnersRes.status === 'fulfilled' && !partnersRes.value?.error ? (partnersRes.value.data || []) : [];
-
-      if (!nextPartners.length) {
-        const fallback = [{ name: 'OWNER 1', percentage: 50 }, { name: 'OWNER 2', percentage: 50 }];
-        setPartners(fallback);
-        if (!withdrawForm.partner) setWithdrawForm((f) => ({ ...f, partner: fallback[0].name }));
-      } else {
-        setPartners(nextPartners);
-        const first = nextPartners[0]?.name || 'OWNER 1';
-        setWithdrawForm((f) => ({ ...f, partner: f.partner || first }));
-      }
-
-      setRows(nextRows);
-      setInvestments(nextInvestments);
-      setOwnerBalances(nextOwners);
-
-      saveDashboardFallback({ rows: nextRows, investments: nextInvestments, ownerBalances: nextOwners, partners: nextPartners });
+      setRows((movesRes || []).map(normalizeMove));
+      setInvestments(Array.isArray(invRes) ? invRes : []);
+      setOwnerBalances(Array.isArray(ownerRes) ? ownerRes : []);
+      const nextPartners = Array.isArray(partnerRes) && partnerRes.length ? partnerRes : [{ name: 'OWNER 1', percentage: 50 }, { name: 'OWNER 2', percentage: 50 }];
+      setPartners(nextPartners);
+      setLiveBudget(Number(budgetValue || 0) || 0);
+      setWithdrawForm((f) => ({ ...f, partner: f.partner || nextPartners[0]?.name || 'OWNER 1' }));
     } catch (e) {
-      const fb = readDashboardFallback();
-      if (fb) {
-        setRows(fb.rows || []);
-        setInvestments(fb.investments || []);
-        setOwnerBalances(fb.ownerBalances || []);
-        setPartners(fb.partners || []);
-      }
-      setErr(e?.message || 'NUK U MUND TË NGARKOHET BUXHETI');
+      setRows([]);
+      setInvestments([]);
+      setOwnerBalances([]);
+      setPartners([{ name: 'OWNER 1', percentage: 50 }, { name: 'OWNER 2', percentage: 50 }]);
+      setLiveBudget(0);
+      setErr(e?.message || 'NUK U MUND TË NGARKOHET DASHBOARD-I.');
     }
   }
 
@@ -178,8 +148,7 @@ export default function CompanyBudgetPage() {
       return;
     }
     setUser(u);
-    reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void reload();
   }, [router]);
 
   async function addMove() {
@@ -191,7 +160,6 @@ export default function CompanyBudgetPage() {
       if (!Number.isFinite(amt) || amt <= 0) throw new Error('SHUMA DUHET > 0');
       const type = String(form.type || 'OUT').toUpperCase();
       if (type !== 'IN' && type !== 'OUT') throw new Error('TIPI DUHET IN/OUT');
-
       await budgetAddMove({
         direction: type,
         amount: amt,
@@ -201,9 +169,8 @@ export default function CompanyBudgetPage() {
         created_by_name: user?.name || 'UNKNOWN',
         created_by_pin: user?.pin || null,
       });
-
       setForm({ type: 'OUT', amount: '', note: '' });
-      setInfo('LËVIZJA U RUAJT ME SUKSES.');
+      setInfo('LËVIZJA U RUAJT.');
       await reload();
     } catch (e) {
       setErr(e?.message || String(e));
@@ -254,10 +221,7 @@ export default function CompanyBudgetPage() {
       if (!Number.isFinite(amt) || amt <= 0) throw new Error('SHUMA DUHET > 0');
       const partner = String(withdrawForm.partner || '').trim();
       if (!partner) throw new Error('ZGJIDH PRONARIN');
-      const { data, error } = await supabase.rpc('owner_withdraw', {
-        p_partner: partner,
-        p_amount: amt,
-      });
+      const { data, error } = await supabase.rpc('owner_withdraw', { p_partner: partner, p_amount: amt });
       if (error) throw error;
       if (data?.error) throw new Error(String(data.error));
       setWithdrawForm((f) => ({ ...f, amount: '' }));
@@ -298,16 +262,14 @@ export default function CompanyBudgetPage() {
           <div className="metricsGrid">
             <div className="heroCard live">
               <div className="metricLabel">💼 BUXHETI LIVE</div>
-              <div className="metricValue">{euro(totals.balance)}</div>
-              <div className="metricHint">PARATË AKTUALE NË BIZNES</div>
+              <div className="metricValue">{euro(liveBudget)}</div>
+              <div className="metricHint">GET_COMPANY_BUDGET_LIVE() ME FALLBACK 0</div>
             </div>
-
             <div className="heroCard profit">
               <div className="metricLabel">📈 FITIMI I MUAJIT</div>
               <div className="metricValue">{euro(monthProfit)}</div>
-              <div className="metricHint">HYRJE TË MUAJIT − SHPENZIME / RROGA</div>
+              <div className="metricHint">IN − SHPENZIME / RROGA PËR {monthKey}</div>
             </div>
-
             <div className="heroCard splitStatus">
               <div className="metricLabel">🧮 SPLIT I MUAJIT</div>
               <div className="metricValue small">{alreadySplitThisMonth ? 'I KRYER' : 'NË PRITJE'}</div>
@@ -327,14 +289,8 @@ export default function CompanyBudgetPage() {
                   <div className="ownerIcon">👤</div>
                 </div>
                 <div className="ownerBalance">{euro(owner.current_balance)}</div>
-                <div className="ownerMetaRow">
-                  <span>FITUAR</span>
-                  <strong>{euro(owner.total_earned)}</strong>
-                </div>
-                <div className="ownerMetaRow">
-                  <span>TËRHEQUR</span>
-                  <strong>{euro(owner.total_withdrawn)}</strong>
-                </div>
+                <div className="ownerMetaRow"><span>FITUAR</span><strong>{euro(owner.total_earned)}</strong></div>
+                <div className="ownerMetaRow"><span>TËRHEQUR</span><strong>{euro(owner.total_withdrawn)}</strong></div>
               </div>
             ))}
           </div>
@@ -344,28 +300,25 @@ export default function CompanyBudgetPage() {
               <div className="cardHeaderLine">
                 <div>
                   <div className="cardTitle">NDARJA MUJORE E FITIMIT</div>
-                  <div className="muted">SHLYEN KËSTET E INVESTIMEVE DHE NDAN PJESËN E MBETUR SIPAS % TË PRONARËVE.</div>
+                  <div className="muted">SHLYEN KËSTET E INVESTIMEVE AKTIVE DHE NDAN PJESËN E MBETUR SIPAS % SË PRONARËVE.</div>
                 </div>
                 <button className="primary bigAction" disabled={splitBusy || alreadySplitThisMonth} onClick={doSplit}>
                   {splitBusy ? 'DUKE KRYER…' : alreadySplitThisMonth ? 'U NDA KËTË MUAJ' : 'KRYEJ NDARJEN MUJORE'}
                 </button>
               </div>
-
               <div className="splitSummary">
                 <div className="summaryPill"><span>IN TOTAL</span><strong>{euro(totals.ins)}</strong></div>
                 <div className="summaryPill"><span>OUT TOTAL</span><strong>{euro(totals.outs)}</strong></div>
-                <div className="summaryPill accent"><span>BALANCË PËR SPLIT</span><strong>{euro(totals.balance)}</strong></div>
+                <div className="summaryPill accent"><span>BALANCA LIVE</span><strong>{euro(liveBudget)}</strong></div>
               </div>
             </div>
 
             <div className="card premiumCard">
               <div className="cardTitle">TËRHEQJA E PRONARËVE</div>
-              <div className="muted">KJO UL VETËM BALANCËN PERSONALE TE OWNER_BALANCES. NUK PREK MË BUXHETIN E KOMPANISË.</div>
+              <div className="muted">KJO THËRRET OWNER_WITHDRAW() DHE UL VETËM BALANCËN PERSONALE TE OWNER_BALANCES.</div>
               <div className="row compactTop">
                 <select className="input" value={withdrawForm.partner} onChange={(e) => setWithdrawForm((f) => ({ ...f, partner: e.target.value }))}>
-                  {owners.map((owner) => (
-                    <option key={owner.name} value={owner.name}>{String(owner.name || '').toUpperCase()}</option>
-                  ))}
+                  {owners.map((owner) => <option key={owner.name} value={owner.name}>{String(owner.name || '').toUpperCase()}</option>)}
                 </select>
                 <input className="input" value={withdrawForm.amount} onChange={(e) => setWithdrawForm((f) => ({ ...f, amount: e.target.value }))} placeholder="SHUMA (€)" inputMode="decimal" />
               </div>
@@ -374,20 +327,16 @@ export default function CompanyBudgetPage() {
           </div>
 
           <div className="card premiumCard">
-            <div className="cardHeaderLine">
-              <div>
-                <div className="cardTitle">INVESTIMET AKTIVE</div>
-                <div className="muted">PËR ÇDO INVESTIM SHFAQET SA ËSHTË SHLYER, SA KA MBETUR DHE PROGRESI VIZUAL.</div>
-              </div>
-            </div>
-            {investments.length === 0 ? (
+            <div className="cardTitle">INVESTIMET AKTIVE</div>
+            <div className="muted">EMRI, TOTALI, SA ËSHTË SHLYER DHE SA KA MBETUR ME PROGRESS BAR VIZUAL.</div>
+            {investments.filter((x) => x.is_active !== false).length === 0 ? (
               <div className="muted">S’KA INVESTIME AKTIVE.</div>
             ) : (
               <div className="investList">
                 {investments.filter((x) => x.is_active !== false).map((inv) => {
-                  const total = Number(inv.total_amount || 0);
-                  const remaining = Number(inv.remaining_amount || 0);
-                  const paid = Number(inv.paid_amount || Math.max(0, total - remaining));
+                  const total = Number(inv.total_amount || 0) || 0;
+                  const remaining = Number(inv.remaining_amount || 0) || 0;
+                  const paid = Number(inv.paid_amount || Math.max(0, total - remaining)) || 0;
                   const pr = pct(paid, total);
                   return (
                     <div key={inv.id} className="investItem">
@@ -421,7 +370,7 @@ export default function CompanyBudgetPage() {
                 <input className="input" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="SHUMA (€)" inputMode="decimal" />
               </div>
               <input className="input" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="SHËNIM" />
-              <button className="primary" disabled={busy} onClick={addMove}>{busy ? 'DUKE RUJTUR…' : 'SHTO LËVIZJE'}</button>
+              <button className="primary" disabled={busy} onClick={addMove}>{busy ? 'DUKE RUAJTUR…' : 'SHTO LËVIZJE'}</button>
             </div>
 
             <div className="card">
@@ -465,10 +414,6 @@ export default function CompanyBudgetPage() {
         .ok{border:2px solid rgba(70,220,150,.35);background:rgba(20,140,90,.12);color:#cbffe4;}
         .metricsGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:14px;}
         .heroCard{position:relative;overflow:hidden;border-radius:22px;padding:18px 18px 16px;border:1px solid rgba(255,255,255,.12);background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.03));box-shadow:0 20px 50px rgba(0,0,0,.26);}
-        .heroCard:before{content:'';position:absolute;inset:auto -10% -45% auto;width:180px;height:180px;border-radius:50%;filter:blur(20px);opacity:.22;}
-        .live:before{background:rgba(0,180,255,.9);}
-        .profit:before{background:rgba(130,90,255,.9);}
-        .splitStatus:before{background:rgba(255,185,0,.95);}
         .metricLabel{font-size:11px;letter-spacing:.18em;font-weight:950;opacity:.85;}
         .metricValue{font-size:40px;line-height:1;margin-top:12px;font-weight:1000;letter-spacing:.03em;}
         .metricValue.small{font-size:28px;}
@@ -520,14 +465,7 @@ export default function CompanyBudgetPage() {
         .miniBadge{padding:5px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);font-size:9px;letter-spacing:.12em;font-weight:900;}
         .tiny{opacity:.62;font-size:10px;letter-spacing:.10em;margin-top:8px;}
         .del{border-radius:12px;padding:10px 12px;border:1px solid rgba(255,80,80,.35);background:rgba(255,80,80,.10);font-weight:950;letter-spacing:.14em;font-size:10px;color:#fff;}
-        @media (max-width: 980px){
-          .metricsGrid,.ownersGrid,.twoCols,.historyCols,.splitSummary,.investBottom{grid-template-columns:1fr;}
-          .metricValue{font-size:32px;}
-          .ownerBalance{font-size:28px;}
-          .topRow{align-items:flex-start;flex-direction:column;}
-          .topActions{width:100%;}
-          .ghostBtn{flex:1;}
-        }
+        @media (max-width:980px){.metricsGrid,.ownersGrid,.twoCols,.historyCols,.splitSummary,.investBottom{grid-template-columns:1fr;}.metricValue{font-size:32px;}.ownerBalance{font-size:28px;}.topRow{align-items:flex-start;flex-direction:column;}.topActions{width:100%;}.ghostBtn{flex:1;}}
       `}</style>
     </div>
   );
