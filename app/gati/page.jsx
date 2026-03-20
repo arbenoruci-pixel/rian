@@ -11,6 +11,8 @@ import { recordOrderCashPayment } from '@/components/payments/payService';
 import { saveOrderLocal, getAllOrdersLocal } from '@/lib/offlineStore';
 import { queueOp } from '@/lib/offlineSyncClient';
 import { requirePaymentPin } from '@/lib/paymentPin';
+import RackLocationModal from '@/components/RackLocationModal';
+import { loadSlotMap, saveSlotMap, releaseSlotsOwnedBy, reserveSlots } from '@/lib/rackLocations';
 
 function readActor() {
   try {
@@ -24,66 +26,7 @@ function readActor() {
 const BUCKET = 'tepiha-photos';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 
-// ---------------- SLOT MAP (A1..A30) MULTI-ORDER ----------------
-const SLOT_MAP_KEY = 'tepiha_gati_slot_map_v1';
-const SPOTS = Array.from({ length: 30 }, (_, i) => `A${i + 1}`);
-
-function loadSlotMap() {
-  try {
-    const raw = localStorage.getItem(SLOT_MAP_KEY);
-    const obj = raw ? JSON.parse(raw) : {};
-    const map = {};
-    for (const [k, v] of Object.entries(obj || {})) {
-      if (Array.isArray(v)) {
-        map[k] = v;
-      } else if (v && v.orderId) {
-        map[k] = [v];
-      }
-    }
-    return map;
-  } catch {
-    return {};
-  }
-}
-
-function saveSlotMap(map) {
-  try {
-    localStorage.setItem(SLOT_MAP_KEY, JSON.stringify(map || {}));
-  } catch {}
-}
-
-function releaseSlotsOwnedBy(map, orderId) {
-  const oid = String(orderId || '');
-  if (!oid) return map;
-  const next = { ...(map || {}) };
-  for (const k of Object.keys(next)) {
-    next[k] = (next[k] || []).filter((x) => String(x.orderId) !== oid);
-    if (next[k].length === 0) delete next[k];
-  }
-  return next;
-}
-
-function reserveSlots(map, orderId, meta, slots) {
-  const oid = String(orderId || '');
-  if (!oid) return map;
-  const next = { ...(map || {}) };
-  const ts = Date.now();
-  for (const s of slots || []) {
-    const key = String(s || '').toUpperCase().trim();
-    if (!key) continue;
-    if (!next[key]) next[key] = [];
-    if (!next[key].some((x) => String(x.orderId) === oid)) {
-      next[key].push({
-        orderId: oid,
-        code: meta?.code || '',
-        name: meta?.name || '',
-        ts,
-      });
-    }
-  }
-  return next;
-}
-
+// ---------------- SHARED RACK LOCATIONS ----------------
 // ---------------- HELPERS ----------------
 function normalizeCode(raw) {
   if (!raw) return '';
@@ -1476,137 +1419,27 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
       )}
 
       {/* ============ KARTELA E VENDOSJES (MULTIPLE ORDERS PER SPOT) ============ */}
-      {showPlace && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: '#0b0b0b',
-            zIndex: 10001,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <div
-            style={{
-              padding: 14,
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 900, fontSize: 18 }}>
-                POZICIONI (KODI: {normalizeCode(placeOrder?.code || placeOrder?.client?.code)})
-              </div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Zgjidh një ose më shumë vende</div>
-            </div>
-            <button className="btn secondary" onClick={closePlaceCard} disabled={placeBusy}>
-              ✕
-            </button>
-          </div>
-
-          <div style={{ padding: '16px 14px', overflow: 'auto', flex: 1 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 20 }}>
-              {SPOTS.map((s) => {
-                const owners = slotMap[s] || [];
-                const isMine = selectedSlots.includes(s);
-                const otherOwners = owners.filter((x) => String(x.orderId) !== String(placeOrderId));
-                const hasOthers = otherOwners.length > 0;
-
-                const bg = isMine ? '#16a34a' : hasOthers ? 'rgba(245, 158, 11, 0.25)' : 'rgba(255,255,255,0.05)';
-                const border = isMine ? '#4ade80' : hasOthers ? 'rgba(245, 158, 11, 0.6)' : 'rgba(255,255,255,0.15)';
-                const color = isMine ? '#fff' : hasOthers ? '#fcd34d' : 'rgba(255,255,255,0.8)';
-
-                return (
-                  <button
-                    key={s}
-                    disabled={placeBusy}
-                    onClick={() => toggleSlot(s)}
-                    style={{
-                      padding: '8px 2px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: 10,
-                      fontWeight: 900,
-                      fontSize: 15,
-                      border: `1px solid ${border}`,
-                      background: bg,
-                      color: color,
-                      cursor: 'pointer',
-                      transition: 'all 0.1s',
-                      minHeight: '54px',
-                    }}
-                  >
-                    {s}
-                    {hasOthers && !isMine && (
-                      <span
-                        style={{
-                          fontSize: 9,
-                          marginTop: 2,
-                          fontWeight: 700,
-                          opacity: 0.9,
-                          textAlign: 'center',
-                          lineHeight: 1.1,
-                        }}
-                      >
-                        {otherOwners.map((x) => normalizeCode(x.code)).join(', ')}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="field-group">
-              <label className="label">SHËNIM SHTESË (OPSIONALE)</label>
-              <textarea
-                value={placeText}
-                onChange={(e) => setPlaceText(e.target.value)}
-                placeholder="Psh: Të paketuara dy e nga dy..."
-                className="input"
-                rows={3}
-                style={{ resize: 'none' }}
-              />
-            </div>
-            {placeErr && (
-              <div
-                style={{
-                  marginTop: 10,
-                  color: '#ef4444',
-                  fontWeight: 800,
-                  fontSize: 13,
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  padding: 8,
-                  borderRadius: 8,
-                }}
-              >
-                {placeErr}
-              </div>
-            )}
-          </div>
-
-          <div style={{ padding: 14, borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 10 }}>
-            <button
-              className="btn secondary"
-              onClick={() => {
-                setSelectedSlots([]);
-                setPlaceText('');
-              }}
-              disabled={placeBusy}
-              style={{ flex: 1, fontWeight: 900 }}
-            >
-              PASTRO
-            </button>
-            <button className="btn primary" onClick={savePlaceCard} disabled={placeBusy} style={{ flex: 2, fontWeight: 900 }}>
-              {placeBusy ? 'DUKE RUAJTUR...' : 'RUAJ POZICIONIN'}
-            </button>
-          </div>
-        </div>
-      )}
+      <RackLocationModal
+        open={showPlace}
+        busy={placeBusy}
+        title="POZICIONI"
+        subtitle="Zgjidh një ose më shumë vende"
+        orderId={placeOrderId}
+        orderCode={normalizeCode(placeOrder?.code || placeOrder?.client?.code)}
+        slotMap={slotMap}
+        selectedSlots={selectedSlots}
+        onToggleSlot={toggleSlot}
+        placeText={placeText}
+        onPlaceTextChange={setPlaceText}
+        placeErr={placeErr}
+        onClose={closePlaceCard}
+        onClear={() => {
+          setSelectedSlots([]);
+          setPlaceText('');
+        }}
+        onSave={savePlaceCard}
+        saveLabel="RUAJ POZICIONIN"
+      />
 
       <style jsx>{`
         .dock {

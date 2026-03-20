@@ -9,6 +9,8 @@ import { recordCashMove } from '@/lib/arkaCashSync';
 import { requirePaymentPin } from '@/lib/paymentPin';
 import { getOutboxSnapshot } from '@/lib/syncManager';
 import PosModal from '@/components/PosModal'; // SHTUAR: Për leximin e porosive Offline
+import RackLocationModal from '@/components/RackLocationModal';
+import { loadSlotMap, saveSlotMap, releaseSlotsOwnedBy, reserveSlots } from '@/lib/rackLocations';
 
 // --- CONFIG ---
 const BUCKET = 'tepiha-photos';
@@ -23,7 +25,6 @@ const PRICE_DEFAULT = 3.0;
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 const DAILY_CAPACITY_M2 = 400;
 const STREAM_MAX_M2 = 450;
-const READY_SPOTS = ['A1','A2','A3','A4','A5','B1','B2','B3','B4','B5','C1','C2','C3','C4','C5'];
 
 // FIX: Timeout 7s për mbrojtjen e Safari
 function withTimeout(promise, ms = 7000) {
@@ -282,6 +283,9 @@ export default function PastrimiPage() {
   const [readyPlaceOrder, setReadyPlaceOrder] = useState(null);
   const [readyPlaceText, setReadyPlaceText] = useState('');
   const [readyPlaceBusy, setReadyPlaceBusy] = useState(false);
+  const [readyPlaceErr, setReadyPlaceErr] = useState('');
+  const [slotMap, setSlotMap] = useState({});
+  const [selectedSlots, setSelectedSlots] = useState([]);
   const [payAdd, setPayAdd] = useState(0);
 
   const [streamPastrimM2, setStreamPastrimM2] = useState(0);
@@ -398,7 +402,7 @@ export default function PastrimiPage() {
 
       // ONLINE MODE
       const { data: normalData } = await withTimeout(
-        supabase.from('orders').select('id,status,created_at,data,code,client_name,client_phone,pieces,m2_total,price_total,paid_cash').in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
+        supabase.from('orders').select('id,status,created_at,data,code').in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
       );
       const { data: transportData } = await withTimeout(
         supabase.from('transport_orders').select('id,status,created_at,data,code_str').in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
@@ -407,22 +411,14 @@ export default function PastrimiPage() {
       const allOrders = [];
       (normalData || []).forEach(row => {
         const order = unwrapOrderData(row.data);
-        const m2 = computeM2(order) || Number(row.m2_total || 0) || 0;
-        const cope = computePieces(order) || Number(row.pieces || 0) || 0;
-        const total = Number(order.pay?.euro || row.price_total || 0);
-        const paid = Number(order.pay?.paid || row.paid_cash || 0);
+        const total = Number(order.pay?.euro || 0);
+        const paid = Number(order.pay?.paid || 0);
+        const cope = computePieces(order);
         allOrders.push({
           id: row.id, source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
-          name: order.client?.name || order.client_name || row.client_name || '',
-          phone: order.client?.phone || order.client_phone || row.client_phone || '',
-          code: normalizeCode(order.client?.code || order.code || row.code),
-          m2,
-          cope,
-          total,
-          paid,
-          isPaid: paid >= total && total > 0,
-          isReturn: !!order?.returnInfo?.active,
-          fullOrder: order
+          name: order.client?.name || order.client_name || '', phone: order.client?.phone || order.client_phone || '',
+          code: normalizeCode(order.client?.code || order.code || row.code), m2: computeM2(order),
+          cope, total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order
         });
       });
 
@@ -570,22 +566,52 @@ export default function PastrimiPage() {
       handleMarkReady(o);
       return;
     }
+    setReadyPlaceErr('');
     setReadyPlaceOrder(o);
-    setReadyPlaceText(String(o?.fullOrder?.ready_note || o?.fullOrder?.ready_location || ''));
+    setReadyPlaceText(String(o?.fullOrder?.ready_note_text || o?.fullOrder?.ready_note || o?.fullOrder?.ready_location || ''));
+    setSelectedSlots(Array.isArray(o?.fullOrder?.ready_slots) ? o.fullOrder.ready_slots : []);
+    try { setSlotMap(loadSlotMap()); } catch { setSlotMap({}); }
     setReadyPlaceSheet(true);
   }
 
-  async function confirmReadyPlaceAndSend(selectedSpot) {
+  function toggleReadySlot(s) {
+    setSelectedSlots((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+  }
+
+  function closeReadyPlaceSheet() {
+    if (readyPlaceBusy) return;
+    setReadyPlaceSheet(false);
+    setReadyPlaceOrder(null);
+    setReadyPlaceText('');
+    setReadyPlaceErr('');
+    setSelectedSlots([]);
+  }
+
+  async function confirmReadyPlaceAndSend() {
     if (!readyPlaceOrder || readyPlaceBusy) return;
-    const txt = String(selectedSpot || readyPlaceText || '').trim();
-    if (!txt) return;
     setReadyPlaceBusy(true);
-    setReadyPlaceText(txt);
+    setReadyPlaceErr('');
     try {
+      const txt = String(readyPlaceText || '').trim();
+      const meta = {
+        code: normalizeCode(readyPlaceOrder?.code || readyPlaceOrder?.fullOrder?.code || ''),
+        name: (readyPlaceOrder?.name || readyPlaceOrder?.fullOrder?.client?.name || readyPlaceOrder?.fullOrder?.client_name || '').trim(),
+      };
+      const finalNoteString = selectedSlots.length > 0 ? `📍 [${selectedSlots.join(', ')}] ${txt}`.trim() : txt;
+      try {
+        const cur = loadSlotMap();
+        const released = releaseSlotsOwnedBy(cur, readyPlaceOrder.id);
+        const reserved = reserveSlots(released, readyPlaceOrder.id, meta, selectedSlots);
+        saveSlotMap(reserved);
+        setSlotMap(reserved);
+      } catch {}
       setReadyPlaceSheet(false);
-      await handleMarkReady(readyPlaceOrder, { readyNote: txt });
+      await handleMarkReady(readyPlaceOrder, { readyNote: finalNoteString, readyNoteText: txt, readySlots: selectedSlots });
       setReadyPlaceOrder(null);
       setReadyPlaceText('');
+      setSelectedSlots([]);
+    } catch (e) {
+      setReadyPlaceErr("S'u ruajt pozicioni. Provo prap.");
     } finally {
       setReadyPlaceBusy(false);
     }
@@ -614,7 +640,14 @@ export default function PastrimiPage() {
         );
         if (fetchErr) throw fetchErr;
 
-        const updatedJson = { ...(currentRow.data || {}), status: 'gati', ready_at: now, ...(opts?.readyNote ? { ready_note: String(opts.readyNote).trim(), ready_location: String(opts.readyNote).trim() } : {}) };
+        const updatedJson = {
+          ...(currentRow.data || {}),
+          status: 'gati',
+          ready_at: now,
+          ...(opts?.readyNote ? { ready_note: String(opts.readyNote).trim(), ready_location: String(opts.readyNote).trim() } : {}),
+          ...(typeof opts?.readyNoteText === 'string' ? { ready_note_text: opts.readyNoteText } : {}),
+          ...(Array.isArray(opts?.readySlots) ? { ready_slots: opts.readySlots } : {}),
+        };
         if (table === 'transport_orders') {
           await supabase.from('transport_orders').update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now }).eq('id', o.id);
           alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
@@ -898,45 +931,27 @@ export default function PastrimiPage() {
       </section>
 
 
-      {readyPlaceSheet && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:10040, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={(e)=>{ if(e.target===e.currentTarget && !readyPlaceBusy){ setReadyPlaceSheet(false); setReadyPlaceOrder(null); setReadyPlaceText(''); } }}>
-          <div style={{ width:'100%', maxWidth:420, background:'#0b0b0b', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, padding:16 }}>
-            <div style={{ fontWeight:900, fontSize:18 }}>📍 LOKACIONI / RAFTI</div>
-            <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)', marginTop:4 }}>Zgjidh raftin dhe SMS-ja hapet automatikisht.</div>
-
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8, marginTop:14 }}>
-              {READY_SPOTS.map((spot) => {
-                const isActive = String(readyPlaceText || '').trim().toUpperCase() === spot;
-                return (
-                  <button
-                    key={spot}
-                    className="btn secondary"
-                    disabled={readyPlaceBusy}
-                    onClick={() => confirmReadyPlaceAndSend(spot)}
-                    style={{
-                      minHeight: 54,
-                      borderRadius: 12,
-                      fontWeight: 900,
-                      fontSize: 16,
-                      border: `1px solid ${isActive ? '#4ade80' : 'rgba(255,255,255,0.14)'}`,
-                      background: isActive ? 'rgba(34,197,94,0.22)' : 'rgba(255,255,255,0.05)',
-                      color: isActive ? '#dcfce7' : '#fff',
-                    }}
-                  >
-                    {spot}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)', marginTop:12, textAlign:'center' }}>Preke një raft për ta ruajtur direkt dhe për ta hapur SMS-në.</div>
-
-            <div style={{ display:'flex', gap:8, marginTop:12 }}>
-              <button className="btn secondary" style={{ flex:1 }} disabled={readyPlaceBusy} onClick={() => { setReadyPlaceSheet(false); setReadyPlaceOrder(null); setReadyPlaceText(''); }}>ANULO</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <RackLocationModal
+        open={readyPlaceSheet}
+        busy={readyPlaceBusy}
+        title="POZICIONI"
+        subtitle="Zgjidh një ose më shumë vende. Pastaj porosia kalon në GATI dhe hapet SMS-ja."
+        orderId={readyPlaceOrder?.id}
+        orderCode={normalizeCode(readyPlaceOrder?.code || readyPlaceOrder?.fullOrder?.code || '')}
+        slotMap={slotMap}
+        selectedSlots={selectedSlots}
+        onToggleSlot={toggleReadySlot}
+        placeText={readyPlaceText}
+        onPlaceTextChange={setReadyPlaceText}
+        placeErr={readyPlaceErr}
+        onClose={closeReadyPlaceSheet}
+        onClear={() => {
+          setSelectedSlots([]);
+          setReadyPlaceText('');
+        }}
+        onSave={confirmReadyPlaceAndSend}
+        saveLabel="RUAJ POZICIONIN & HAP SMS"
+      />
 
       <footer className="dock"><Link href="/" className="btn secondary" style={{ width: '100%' }}>🏠 HOME</Link></footer>
 
