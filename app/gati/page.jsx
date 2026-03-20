@@ -26,7 +26,6 @@ function readActor() {
 const BUCKET = 'tepiha-photos';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 
-// ---------------- SHARED RACK LOCATIONS ----------------
 // ---------------- HELPERS ----------------
 function normalizeCode(raw) {
   if (!raw) return '';
@@ -1418,27 +1417,21 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
         </div>
       )}
 
-      {/* ============ KARTELA E VENDOSJES (MULTIPLE ORDERS PER SPOT) ============ */}
       <RackLocationModal
         open={showPlace}
         busy={placeBusy}
-        title="POZICIONI"
-        subtitle="Zgjidh një ose më shumë vende"
-        orderId={placeOrderId}
         orderCode={normalizeCode(placeOrder?.code || placeOrder?.client?.code)}
+        currentOrderId={placeOrderId}
+        subtitle="Zgjidh një ose më shumë vende"
         slotMap={slotMap}
         selectedSlots={selectedSlots}
-        onToggleSlot={toggleSlot}
         placeText={placeText}
-        onPlaceTextChange={setPlaceText}
-        placeErr={placeErr}
+        onTextChange={setPlaceText}
+        onToggleSlot={toggleSlot}
         onClose={closePlaceCard}
-        onClear={() => {
-          setSelectedSlots([]);
-          setPlaceText('');
-        }}
+        onClear={() => { setSelectedSlots([]); setPlaceText(''); }}
         onSave={savePlaceCard}
-        saveLabel="RUAJ POZICIONIN"
+        error={placeErr}
       />
 
       <style jsx>{`
