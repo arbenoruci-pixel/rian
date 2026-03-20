@@ -723,6 +723,7 @@ Shoferi u njoftua në listën e tij.`);
           }).eq('id', o.id);
           if (updErr) throw updErr;
         }
+      }
       if (o.source !== 'transport_orders') {
         const totalAmount = Number(o.total || 0);
         const paidAmount = Number(o.paid || 0);
