@@ -809,13 +809,54 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
       at,
     };
 
+    const prevData = (retOrder?.data && typeof retOrder.data === 'object') ? retOrder.data : {};
+    const preservedName =
+      retOrder?.client_name ||
+      prevData?.client_name ||
+      prevData?.client?.name ||
+      retOrder?.name ||
+      null;
+    const preservedPhone =
+      retOrder?.client_phone ||
+      prevData?.client_phone ||
+      prevData?.client?.phone ||
+      retOrder?.phone ||
+      null;
+    const preservedPieces = Number(
+      retOrder?.pieces ??
+      prevData?.pieces ??
+      retOrder?.qty ??
+      safePieces(retOrder) ??
+      0
+    ) || 0;
+    const preservedM2 = Number(
+      retOrder?.m2_total ??
+      prevData?.m2_total ??
+      retOrder?.m2 ??
+      safeM2(retOrder) ??
+      0
+    ) || 0;
+    const preservedPrice = Number(
+      retOrder?.price_total ??
+      prevData?.price_total ??
+      retOrder?.price ??
+      0
+    ) || 0;
+
     const nextData = {
-      ...((retOrder?.data && typeof retOrder.data === 'object') ? retOrder.data : {}),
+      ...prevData,
+      client_name: preservedName,
+      client_phone: preservedPhone,
+      pieces: preservedPieces,
+      m2_total: preservedM2,
+      price_total: preservedPrice,
       returnInfo,
-      returnLog: Array.isArray(retOrder?.data?.returnLog) ? [entry, ...retOrder.data.returnLog] : [entry],
+      returnLog: Array.isArray(prevData?.returnLog) ? [entry, ...prevData.returnLog] : [entry],
       ready_at: null,
       picked_up_at: null,
       delivered_at: null,
+      ready_location: prevData?.ready_location || retOrder?.ready_location || '',
+      ready_note: prevData?.ready_note || retOrder?.ready_note || '',
     };
 
     const updated = {
@@ -823,6 +864,11 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
       id: retOrder?.id || oid,
       db_id: retOrder?.db_id || retOrder?.data?.db_id || oid,
       status: 'pastrim',
+      client_name: preservedName,
+      client_phone: preservedPhone,
+      pieces: preservedPieces,
+      m2_total: preservedM2,
+      price_total: preservedPrice,
       data: nextData,
       returnInfo,
       returnLog: nextData.returnLog,
@@ -854,6 +900,11 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
         .from('orders')
         .update({
           status: 'pastrim',
+          client_name: preservedName,
+          client_phone: preservedPhone,
+          pieces: preservedPieces,
+          m2_total: preservedM2,
+          price_total: preservedPrice,
           ready_at: null,
           picked_up_at: null,
           data: nextData,
