@@ -42,7 +42,8 @@ function withTimeout(promise, ms = 7000) {
 // ---------------- HELPERS ----------------
 
 function getGhostBlacklist() {
-  return [];
+  if (typeof window === 'undefined') return [];
+  try { return JSON.parse(window.localStorage.getItem('tepiha_ghost_blacklist') || '[]'); } catch { return []; }
 }
 
 function normalizeCode(raw) {
@@ -81,6 +82,46 @@ function unwrapOrderData(raw) {
     if (d && (d.client || d.tepiha || d.pay || d.transport)) { o = d; }
   }
   return (o && typeof o === 'object') ? o : {};
+}
+
+function rowToOrder(row) {
+  const base = unwrapOrderData(row?.data || {});
+  const normalizedCode = normalizeCode(row?.code_n ?? row?.code ?? base?.client?.code ?? base?.code ?? '');
+  return {
+    ...base,
+    id: row?.id || base?.id,
+    status: normalizeStatus(row?.status || base?.status || 'pastrim'),
+    client: {
+      ...(base?.client || {}),
+      name: row?.client_name ?? base?.client?.name ?? '',
+      phone: row?.client_phone ?? base?.client?.phone ?? '',
+      code: normalizedCode,
+      photoUrl: base?.client?.photoUrl || base?.client?.photo || '',
+    },
+    tepiha: Array.isArray(base?.tepiha) ? base.tepiha : (Array.isArray(base?.tepihaRows) ? base.tepihaRows : []),
+    staza: Array.isArray(base?.staza) ? base.staza : (Array.isArray(base?.stazaRows) ? base.stazaRows : []),
+    shkallore: base?.shkallore || {
+      qty: Number(base?.stairsQty || 0) || 0,
+      per: Number(base?.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT) || SHKALLORE_M2_PER_STEP_DEFAULT,
+      photoUrl: '',
+    },
+    pay: {
+      ...(base?.pay || {}),
+      m2: Number(row?.m2_total ?? base?.pay?.m2 ?? 0) || 0,
+      euro: Number(row?.price_total ?? base?.pay?.euro ?? 0) || 0,
+      paid: Number(row?.paid_cash ?? base?.pay?.paid ?? 0) || 0,
+      debt: Number(base?.pay?.debt ?? 0) || 0,
+      paidUpfront: typeof row?.is_paid_upfront === 'boolean' ? row.is_paid_upfront : !!base?.pay?.paidUpfront,
+      method: base?.pay?.method || 'CASH',
+      rate: Number(base?.pay?.rate ?? PRICE_DEFAULT) || PRICE_DEFAULT,
+      arkaRecordedPaid: Number(base?.pay?.arkaRecordedPaid ?? row?.paid_cash ?? 0) || 0,
+    },
+    notes: row?.note ?? base?.notes ?? '',
+    ready_at: row?.ready_at || base?.ready_at || null,
+    delivered_at: row?.delivered_at || base?.delivered_at || null,
+    updated_at: row?.updated_at || base?.updated_at || null,
+    created_at: row?.created_at || base?.created_at || null,
+  };
 }
 
 async function readLocalOrdersByStatus(status) {
@@ -330,66 +371,153 @@ export default function PastrimiPage() {
   async function refreshOrders() {
     setLoading(true);
     try {
-      const { data, error } = await withTimeout(
+      // 1. Lexojmë Outbox-in për porositë që janë ruajtur offline por s'kanë shkuar në DB
+      const outboxSnap = typeof getOutboxSnapshot === 'function' ? getOutboxSnapshot() : [];
+      const pendingOutbox = Array.isArray(outboxSnap)
+        ? outboxSnap.filter((it) => it?.status === 'pending' && (it?.table === 'orders' || it?.table === 'transport_orders')).map((it) => {
+            const p = it.payload || {};
+            const isTrans = it.table === 'transport_orders';
+            const codeKey = p.code ?? p.code_n ?? p.order_code ?? null;
+            const m2 = computeM2(p);
+            const cope = computePieces(p);
+            return {
+              id: it.id, source: 'OUTBOX', ts: Number(it.createdAt ? Date.parse(it.createdAt) : Date.now()),
+              name: p.client?.name || p.client_name || '', phone: p.client?.phone || '', code: normalizeCode(codeKey),
+              m2, cope, total: Number(p.pay?.euro || 0), paid: Number(p.pay?.paid || 0),
+              isPaid: Number(p.pay?.paid||0) >= Number(p.pay?.euro||0) && Number(p.pay?.euro||0) > 0,
+              isReturn: false, fullOrder: p, _outboxPending: true
+            };
+        }) : [];
+
+      const mergeUnique = (baseArr, extraArr) => {
+        const seen = new Set((baseArr || []).map((o) => String(o?.id || o?.oid)));
+        (extraArr || []).forEach((o) => {
+          const k = String(o?.id || o?.oid);
+          if (seen.has(k)) return;
+          baseArr.push(o);
+          seen.add(k);
+        });
+        return baseArr;
+      };
+
+      // OFFLINE MODE
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        const locals = (await readLocalOrdersByStatus('pastrim')).map((x) => {
+          const order = unwrapOrderData(x.fullOrder);
+          const total = Number(order.pay?.euro || 0);
+          const paid = Number(order.pay?.paid || 0);
+          return {
+            id: x.id, source: 'LOCAL', ts: Number(order.ts || x.ts || Date.now()),
+            name: order.client?.name || '', phone: order.client?.phone || '', code: normalizeCode(order.client?.code || order.code || x.id),
+            m2: computeM2(order), cope: computePieces(order),
+            total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: order, localOnly: true,
+          };
+        });
+
+        const cleanLocals = locals.filter(o => o.cope > 0 || o.m2 > 0 || (o.name && o.name.trim() !== ''));
+        mergeUnique(cleanLocals, pendingOutbox); // Shton Outbox-in
+
+        // FINAL DEDUPE: vetëm me id/oid (jo me code)
+        const byId = new Map();
+        (cleanLocals || []).forEach((o) => {
+          const k = String(o?.id || o?.oid);
+          if (!k) return;
+          const prev = byId.get(k);
+          if (!prev) { byId.set(k, o); return; }
+          if (Number(o.ts || 0) >= Number(prev.ts || 0)) byId.set(k, o);
+        });
+        const dedupedLocals = Array.from(byId.values());
+
+        dedupedLocals.sort((a, b) => b.ts - a.ts);
+
+        setOrders(dedupedLocals);
+        setDebugInfo({ source: 'LOCAL_OFFLINE', dbCount: 0, localCount: dedupedLocals.length, online: false, lastError: null, ts: Date.now() });
+        setLoading(false);
+        return;
+      }
+
+      // ONLINE MODE
+      const { data: normalData } = await withTimeout(
         supabase
           .from('orders')
-          .select('id,status,created_at,updated_at,code,code_n,client_name,client_phone,pieces,m2_total,price_total,paid_cash,is_paid_upfront,note')
-          .in('status', ['pastrim', 'pastrimi'])
+          .select('id,status,created_at,updated_at,ready_at,delivered_at,data,code,code_n,client_name,client_phone,pieces,m2_total,price_total,paid_cash,is_paid_upfront,note')
+          .in('status', ['pastrim','pastrimi'])
           .order('updated_at', { ascending: false })
           .limit(300)
       );
 
-      if (error) throw error;
+      let transportData = [];
+      try {
+        const transportRes = await withTimeout(
+          supabase.from('transport_orders').select('id,status,created_at,data,code_str').in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
+        );
+        transportData = transportRes?.data || [];
+      } catch {}
 
-      const rows = (Array.isArray(data) ? data : []).map((row) => {
-        const total = Number(row?.price_total || 0);
-        const paid = Number(row?.paid_cash || 0);
-        const fullOrder = {
-          id: row?.id,
-          status: row?.status,
-          client: {
-            name: row?.client_name || '',
-            phone: row?.client_phone || '',
-            code: row?.code_n ?? row?.code ?? ''
-          },
-          pay: {
-            euro: total,
-            paid,
-            paidUpfront: !!row?.is_paid_upfront
-          },
-          notes: row?.note || '',
-          pieces: Number(row?.pieces || 0),
-          m2_total: Number(row?.m2_total || 0),
-          price_total: total,
-        };
-
-        return {
+      const allOrders = [];
+      (normalData || []).forEach(row => {
+        const order = rowToOrder(row);
+        const total = Number(row?.price_total ?? order?.pay?.euro ?? 0) || 0;
+        const paid = Number(row?.paid_cash ?? order?.pay?.paid ?? 0) || 0;
+        const cope = Number(row?.pieces ?? computePieces(order) ?? 0) || 0;
+        const m2 = Number(row?.m2_total ?? order?.pay?.m2 ?? computeM2(order) ?? 0) || 0;
+        allOrders.push({
           id: row.id,
           source: 'orders',
-          ts: Number(Date.parse(row?.updated_at || row?.created_at || new Date().toISOString()) || Date.now()),
-          name: row?.client_name || '',
-          phone: row?.client_phone || '',
-          code: normalizeCode(row?.code_n ?? row?.code ?? row?.id),
-          m2: Number(row?.m2_total || 0),
-          cope: Number(row?.pieces || 0),
+          ts: Number(row?.updated_at ? Date.parse(row.updated_at) : (row?.created_at ? Date.parse(row.created_at) : 0)) || Date.now(),
+          name: order.client?.name || row?.client_name || '',
+          phone: order.client?.phone || row?.client_phone || '',
+          code: normalizeCode(row?.code_n ?? row?.code ?? order.client?.code),
+          m2,
+          cope,
           total,
           paid,
           isPaid: paid >= total && total > 0,
-          isReturn: false,
-          fullOrder,
-        };
+          isReturn: !!order?.returnInfo?.active,
+          fullOrder: order,
+        });
       });
 
-      setOrders(rows);
-      const streamTotal = rows.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
+      (transportData || []).forEach(row => {
+        const order = unwrapOrderData(row.data);
+        const total = Number(order.pay?.euro || 0);
+        const paid = Number(order.pay?.paid || 0);
+        const cope = computePieces(order);
+        allOrders.push({
+          id: row.id, source: 'transport_orders', ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
+          name: order.client?.name || '', phone: order.client?.phone || '',
+          code: normalizeCode(row.code_str || order.client?.code), m2: computeM2(order),
+          cope, total, paid, isPaid: paid >= total && total > 0, isReturn: false, fullOrder: order
+        });
+      });
+
+      mergeUnique(allOrders, pendingOutbox); // Shton Outbox-in
+
+      // FINAL DEDUPE: vetëm me id/oid (jo me code)
+      const byId = new Map();
+      (allOrders || []).forEach((o) => {
+        const k = String(o?.id || o?.oid);
+        if (!k) return;
+        const prev = byId.get(k);
+        if (!prev) { byId.set(k, o); return; }
+        if (Number(o.ts || 0) >= Number(prev.ts || 0)) byId.set(k, o);
+      });
+      const dedupedOrders = Array.from(byId.values());
+
+      dedupedOrders.sort((a, b) => b.ts - a.ts);
+
+      const cleanOrders = dedupedOrders.filter(o => o.cope > 0 || o.m2 > 0 || (o.name && o.name.trim() !== ''));
+      setOrders(cleanOrders);
+
+      const streamTotal = cleanOrders.reduce((sum, o) => sum + (Number(o.m2) || 0), 0);
       setStreamPastrimM2(Number(streamTotal.toFixed(2)));
-      setDebugInfo({ source: 'DB_ORDERS', dbCount: rows.length, localCount: 0, online: navigator?.onLine !== false, lastError: null, ts: Date.now() });
+
     } catch (e) {
       console.error('refreshOrders failed:', e);
+      triggerFatalCacheHeal();
       setOrders([]);
       setStreamPastrimM2(0);
       setDebugInfo({ source: 'ERROR', dbCount: 0, localCount: 0, online: navigator?.onLine !== false, lastError: String(e?.message || e), ts: Date.now() });
-      alert('LOAD ERROR: ' + String(e?.message || e));
     } finally {
       setLoading(false);
     }
@@ -459,25 +587,52 @@ export default function PastrimiPage() {
   async function handleSave() {
     setSaving(true);
     try {
-      const payload = {
-        client_name: name.trim(),
-        client_phone: phonePrefix + (phone || ''),
-        pieces: computePieces({ tepiha: tepihaRows, staza: stazaRows, shkallore: { qty: Number(stairsQty) || 0, per: Number(stairsPer) || 0 } }),
-        m2_total: totalM2,
-        price_total: totalEuro,
-        paid_cash: Number((Number(clientPaid) || 0).toFixed(2)),
-        is_paid_upfront: !!paidUpfront,
-        note: notes || '',
-        updated_at: new Date().toISOString(),
+      const currentPaidAmount = Number((Number(clientPaid) || 0).toFixed(2));
+      let finalArka = Number(arkaRecordedPaid) || 0;
+
+      const order = {
+        id: oid, ts: origTs, status: 'pastrim',
+        client: { name: name.trim(), phone: phonePrefix + (phone || ''), code: normalizeCode(codeRaw), photoUrl: clientPhotoUrl || '' },
+        tepiha: tepihaRows.map(r => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0, photoUrl: r.photoUrl || '' })),
+        staza: stazaRows.map(r => ({ m2: Number(r.m2) || 0, qty: Number(r.qty) || 0, photoUrl: r.photoUrl || '' })),
+        shkallore: { qty: Number(stairsQty) || 0, per: Number(stairsPer) || 0, photoUrl: stairsPhotoUrl || '' },
+        pay: { m2: totalM2, rate: Number(pricePerM2) || PRICE_DEFAULT, euro: totalEuro, paid: currentPaidAmount, debt: currentDebt, paidUpfront: paidUpfront, method: payMethod, arkaRecordedPaid: finalArka },
+        notes: notes || '',
+        returnInfo: returnActive ? { active: true, at: returnAt, reason: returnReason, note: returnNote, photoUrl: returnPhoto } : undefined
       };
 
-      const { error: dbErr } = await supabase.from('orders').update(payload).eq('id', oid);
-      if (dbErr) throw dbErr;
+      const now = new Date().toISOString();
+      if (orderSource === 'transport_orders') {
+        const { error: dbErr } = await supabase
+          .from('transport_orders')
+          .update({ status: 'pastrim', data: order, updated_at: now })
+          .eq('id', oid);
+        if (dbErr) throw dbErr;
+      } else {
+        const codeNum = Number(String(normalizeCode(codeRaw)).replace(/\D+/g, '')) || null;
+        const payload = {
+          status: 'pastrim',
+          updated_at: now,
+          data: order,
+          code: codeNum,
+          code_n: codeNum,
+          client_name: order.client?.name || null,
+          client_phone: order.client?.phone || null,
+          pieces: computePieces(order),
+          m2_total: Number(totalM2 || 0),
+          price_total: Number(totalEuro || 0),
+          paid_cash: Number(currentPaidAmount || 0),
+          is_paid_upfront: !!paidUpfront,
+          note: notes || null,
+        };
+        const { error: dbErr } = await supabase.from('orders').update(payload).eq('id', oid);
+        if (dbErr) throw dbErr;
+      }
 
       setEditMode(false);
       await refreshOrders();
     } catch (e) {
-      alert('SAVE ERROR: ' + String(e?.message || e));
+      alert('❌ Gabim ruajtja: ' + e.message);
     } finally {
       setSaving(false);
     }
@@ -524,60 +679,64 @@ export default function PastrimiPage() {
 
     try {
       const now = new Date().toISOString();
-      const { error: orderErr } = await supabase
-        .from('orders')
-        .update({ status: 'gati', ready_at: now, updated_at: now })
-        .eq('id', o.id);
-
-      if (orderErr) throw orderErr;
-
-      try {
-        const amount = Number(o.total || 0);
-        if (amount > 0) {
-          const { error: moveErr } = await supabase.from('company_budget_moves').insert({
-            direction: 'IN',
-            amount,
-            category: 'Llarje',
-            reason: `Pastrimi #${normalizeCode(o.code)}`,
-            status: 'ACTIVE',
-            month_key: dayKey(now).slice(0, 7),
-            worker_name: o.name || null,
-          });
-          if (moveErr) {
-            console.warn('company_budget_moves insert failed:', moveErr);
-          }
-        }
-      } catch (budgetErr) {
-        console.warn('Budget bypass:', budgetErr);
-      }
-
       setOrders(prev => prev.filter(x => x.id !== o.id));
-      await refreshOrders();
 
-      const totalAmount = Number(o.total || 0);
-      const paidAmount = Number(o.paid || 0);
-      const debt = Math.max(0, Number((totalAmount - paidAmount).toFixed(2)));
-      let pagesaTxt = (o.paidUpfront || (totalAmount > 0 && debt <= 0) || o.isPaid) ? 'E PAGUAR ✅' : `${debt.toFixed(2)} €`;
-      const msg = `Përshëndetje ${o.name || 'klient'},
+      if (o.source === 'LOCAL') {
+        const { updateOrderStatus } = await import('@/lib/ordersDb');
+        await updateOrderStatus(o.id, 'gati');
+      } else {
+        const table = o.source;
+        const { data: currentRow, error: fetchErr } = await withTimeout(
+          supabase.from(table).select('*').eq('id', o.id).single()
+        );
+        if (fetchErr) throw fetchErr;
 
-Porosia juaj (KODI: ${normalizeCode(o.code)}) është GATI për marrje.
-
-📦 Sasia: ${o.cope || 0} copë
-💶 Për të paguar: ${pagesaTxt}
-
-⚠️ JU LUTEMI: Tërhiqni tepihat tuaj brenda 24-48 orëve.
-
-Faleminderit,
-KOMPANIA JONI`;
-      const url = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
-      const link = document.createElement('a');
-      link.href = url;
-      link.click();
+        const currentJson = rowToOrder(currentRow || {});
+        const updatedJson = {
+          ...currentJson,
+          status: 'gati',
+          ready_at: now,
+          ...(opts?.readyNote ? { ready_note: String(opts.readyNote).trim(), ready_location: String(opts.readyNote).trim() } : {}),
+        };
+        if (table === 'transport_orders') {
+          const { error: updErr } = await supabase.from('transport_orders').update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now }).eq('id', o.id);
+          if (updErr) throw updErr;
+          alert(`✅ U bë GATI!
+Shoferi u njoftua në listën e tij.`);
+        } else {
+          const codeNum = Number(String(normalizeCode(currentRow?.code_n ?? currentRow?.code ?? updatedJson?.client?.code)).replace(/\D+/g, '')) || null;
+          const { error: updErr } = await supabase.from('orders').update({
+            status: 'gati',
+            ready_at: now,
+            updated_at: now,
+            data: updatedJson,
+            code: codeNum,
+            code_n: codeNum,
+            client_name: updatedJson?.client?.name || null,
+            client_phone: updatedJson?.client?.phone || null,
+            pieces: Number(currentRow?.pieces ?? o?.cope ?? computePieces(updatedJson) ?? 0) || 0,
+            m2_total: Number(currentRow?.m2_total ?? o?.m2 ?? updatedJson?.pay?.m2 ?? computeM2(updatedJson) ?? 0) || 0,
+            price_total: Number(currentRow?.price_total ?? o?.total ?? updatedJson?.pay?.euro ?? 0) || 0,
+            paid_cash: Number(currentRow?.paid_cash ?? o?.paid ?? updatedJson?.pay?.paid ?? 0) || 0,
+            is_paid_upfront: !!(currentRow?.is_paid_upfront ?? updatedJson?.pay?.paidUpfront),
+            note: currentRow?.note ?? updatedJson?.notes ?? null,
+          }).eq('id', o.id);
+          if (updErr) throw updErr;
+        }
+      if (o.source !== 'transport_orders') {
+        const totalAmount = Number(o.total || 0);
+        const paidAmount = Number(o.paid || 0);
+        const debt = Math.max(0, Number((totalAmount - paidAmount).toFixed(2)));
+        let pagesaTxt = (o.paidUpfront || (totalAmount > 0 && debt <= 0) || o.isPaid) ? 'E PAGUAR ✅' : `${debt.toFixed(2)} €`;
+        const msg = `Përshëndetje ${o.name || 'klient'},\n\nPorosia juaj (KODI: ${normalizeCode(o.code)}) është GATI për marrje.\n\n📦 Sasia: ${o.cope || 0} copë\n💶 Për të paguar: ${pagesaTxt}\n\n⚠️ JU LUTEMI: Tërhiqni tepihat tuaj brenda 24-48 orëve.\n\nFaleminderit,\nKOMPANIA JONI`;
+        const url = `sms:${sanitizePhone(o.phone)}?&body=${encodeURIComponent(msg)}`;
+        const link = document.createElement('a');
+        link.href = url;
+        link.click();
+      }
     } catch (e) {
-      alert('READY ERROR: ' + String(e?.message || e));
-      await refreshOrders();
-    } finally {
-      if (btn) { btn.disabled = false; btn.innerText = 'SMS KLIENTIT'; }
+      alert("❌ Diçka shkoi keq. Provo prapë.");
+      refreshOrders(); 
     }
   }
 
