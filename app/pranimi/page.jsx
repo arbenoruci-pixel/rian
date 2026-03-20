@@ -1283,14 +1283,23 @@ export default function PranimiPage() {
 
       const normCodeNow = formatKod(normalizeCode(codeRaw), netState.ok);
       const outboxRow = {
+        id: oid,
         code: Number(normCodeNow || 0) || null,
+        code_n: Number(normCodeNow || 0) || null,
         local_oid: String(oid),
         status: 'pastrim',
         client_name: name || null,
         client_phone: String(phone || ''),
-        total: Number(totalEuro || 0),
-        paid: Number(clientPaid || 0),
-        data: order,
+        pieces: Number(
+          tepihaRows.reduce((s, r) => s + (Number(r.qty) || 0), 0) +
+          stazaRows.reduce((s, r) => s + (Number(r.qty) || 0), 0) +
+          (Number(stairsQty) || 0)
+        ) || 0,
+        m2_total: Number(totalM2 || 0),
+        price_total: Number(totalEuro || 0),
+        paid_cash: Number(clientPaid || 0),
+        is_paid_upfront: String(payMethod || '').toUpperCase() === 'CASH' && Number(clientPaid || 0) > 0,
+        note: notes || '',
         updated_at: new Date().toISOString(),
       };
 
@@ -1333,16 +1342,33 @@ export default function PranimiPage() {
       }
 
       try {
-        enqueueBaseOrder(outboxRow);
-        await syncNow();
-      } catch {
-        try { enqueueBaseOrder(outboxRow); } catch {}
-        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-        setOfflineMode(true);
-        alert('⚠️ SERVERI DËSHTOI. U RUAJT LOKALISHT (SYNC MË VONË).');
-        try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
+        const payload = {
+          id: oid,
+          status: 'pastrim',
+          code: outboxRow.code,
+          code_n: outboxRow.code_n,
+          client_name: outboxRow.client_name,
+          client_phone: outboxRow.client_phone,
+          pieces: outboxRow.pieces,
+          m2_total: outboxRow.m2_total,
+          price_total: outboxRow.price_total,
+          paid_cash: outboxRow.paid_cash,
+          is_paid_upfront: outboxRow.is_paid_upfront,
+          note: outboxRow.note,
+          local_oid: outboxRow.local_oid,
+          updated_at: outboxRow.updated_at,
+        };
+
+        const { error: saveErr } = await supabase
+          .from('orders')
+          .upsert(payload, { onConflict: 'id' });
+
+        if (saveErr) {
+          throw saveErr;
+        }
+      } catch (err) {
+        alert(`❌ SUPABASE SAVE ERROR: ${err?.message || 'Unknown error'}`);
         setSavingContinue(false);
-        router.push('/pastrimi');
         return;
       }
 
@@ -1371,8 +1397,8 @@ export default function PranimiPage() {
 
       setSavingContinue(false);
       router.push('/pastrimi');
-    } catch {
-      alert(`❌ RUJTJA DËSHTOI`);
+    } catch (err) {
+      alert(`❌ RUJTJA DËSHTOI: ${err?.message || 'Unknown error'}`);
       setSavingContinue(false);
     }
   }
