@@ -216,6 +216,7 @@ export default function ArkaPage() {
           <HubTile href="/arka/stafi" icon="👥" title="MENAXHIMI I STAFIT" desc="ROLET, PIN-ET DHE STATUSI AKTIV/JOAKTIV." accent="#0f766e" />
           <HubTile href="/arka/payroll" icon="💸" title="PAYROLL & RROGAT" desc="RROGA BAZË, AVANSET, BORXHET DHE SMART PAYROLL." accent="#2563eb" />
           <HubTile href="/arka/shpenzime" icon="🧾" title="SHPENZIMET" desc="DALJET CASH DHE HISTORIKU I SHPENZIMEVE." accent="#c2410c" />
+          <HubTile href="/arka/corporate" icon="🏛️" title="KORPORATË / 4 NIVELE" desc="PUNËTORI → DISPATCH → KOMPANIA → OWNERS. CASH FLOW I KONTROLLUAR DHE CLEAN." accent="#9333ea" />
           {admin ? <HubTile href="/arka/buxheti" icon="📊" title="BUXHETI & INVESTIMET" desc="PROFIT DASHBOARD, INVESTIME, OWNER BALANCES DHE PARTNER SPLIT." accent="#7c3aed" /> : null}
         </div>
       </div>
