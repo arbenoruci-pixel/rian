@@ -211,7 +211,7 @@ export default function GatiPage() {
   async function dbFetchOrderById(idNum) {
     const { data, error } = await supabase
       .from('orders')
-      .select('id,status,ready_at,picked_up_at,created_at,data')
+      .select('id,status,ready_at,picked_up_at,created_at,data,code,client_name,client_phone')
       .eq('id', Number(idNum))
       .single();
     if (error || !data) throw error || new Error('ORDER_NOT_FOUND');
@@ -219,6 +219,16 @@ export default function GatiPage() {
     const order = { ...(data.data || {}) };
     order.id = String(data.id);
     order.status = data.status;
+    order.code = data.code || order.code || order.client?.code || '';
+    order.client_name = data.client_name || order.client_name || order.client?.name || '';
+    order.client_phone = data.client_phone || order.client_phone || order.client?.phone || '';
+    if (!order.client || typeof order.client !== 'object') order.client = {};
+    order.client = {
+      ...order.client,
+      name: order.client?.name || data.client_name || order.client_name || '',
+      phone: order.client?.phone || data.client_phone || order.client_phone || '',
+      code: order.client?.code || data.code || order.code || '',
+    };
 
     return { row: data, order };
   }
@@ -228,7 +238,7 @@ export default function GatiPage() {
     try {
       const { data, error } = await supabase
         .from('orders')
-        .select('id,status,ready_at,picked_up_at,created_at,data')
+        .select('id,status,ready_at,picked_up_at,created_at,data,code,client_name,client_phone')
         .eq('status', 'gati')
         .order('ready_at', { ascending: false })
         .order('created_at', { ascending: false })
@@ -253,8 +263,8 @@ export default function GatiPage() {
                 id: String(order.id),
                 ts: Number(order.ts || 0),
                 readyTs,
-                name: order.client?.name || '',
-                phone: order.client?.phone || '',
+                name: order.client?.name || order.client_name || '',
+                phone: order.client?.phone || order.client_phone || '',
                 code: order.client?.code || order.code || '',
                 m2,
                 cope,
@@ -313,16 +323,16 @@ export default function GatiPage() {
             id: String(order.id),
             ts: Number(order.ts || 0),
             readyTs,
-            name: order.client?.name || '',
-            phone: order.client?.phone || '',
-            code: order.client?.code || order.code || '',
+            name: row.client_name || order.client_name || order.client?.name || order.data?.client_name || order.data?.client?.name || 'Pa Emër',
+            phone: row.client_phone || order.client_phone || order.client?.phone || order.data?.client_phone || order.data?.client?.phone || '',
+            code: normalizeCode(row.code || order.client?.code || order.code || ''),
             m2,
             cope,
             total,
             paid,
             paidUpfront: !!order.pay?.paidUpfront,
             isReturn: !!order.returnInfo?.active,
-            readyNote: String(order.ready_note || order.ready_location || ''),
+            readyNote: String(order.ready_note || order.ready_location || order.ready_note_text || ''),
           };
         });
       }
@@ -396,7 +406,7 @@ export default function GatiPage() {
       setPlaceOrder(order);
 
       setSelectedSlots(Array.isArray(order?.ready_slots) ? order.ready_slots : []);
-      setPlaceText(order?.ready_note_text || '');
+      setPlaceText(order?.ready_note_text || order?.ready_note || order?.ready_location || '');
     } catch (e) {
       setPlaceErr('Nuk u hap kartela. Provo prap.');
       setPlaceOrder(null);
@@ -435,6 +445,7 @@ export default function GatiPage() {
     const patch = {
       ready_note: finalNoteString,
       ready_note_text: txt,
+      ready_location: selectedSlots.length > 0 ? selectedSlots.join(', ') : txt,
       ready_note_at: new Date().toISOString(),
       ready_note_by: actor?.name || actor?.role || 'UNKNOWN',
       ready_slots: selectedSlots,
@@ -513,9 +524,9 @@ export default function GatiPage() {
       setPayOrder({
         id: String(row.id),
         order,
-        code: normalizeCode(order.client?.code),
-        name: order.client?.name || '',
-        phone: order.client?.phone || '',
+        code: normalizeCode(order.client?.code || order.code || row.code),
+        name: order.client?.name || order.client_name || row.name || '',
+        phone: order.client?.phone || order.client_phone || row.phone || '',
         total,
         paid,
         arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0,

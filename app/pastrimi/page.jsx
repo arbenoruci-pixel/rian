@@ -624,7 +624,24 @@ export default function PastrimiPage() {
         );
         if (fetchErr) throw fetchErr;
 
-        const updatedJson = { ...(currentRow.data || {}), status: 'gati', ready_at: now, ...(opts?.readyNote ? { ready_note: String(opts.readySlots?.length ? `📍 [${opts.readySlots.join(', ')}] ${String(opts.readyNote || '').trim()}`.trim() : String(opts.readyNote).trim()), ready_note_text: String(opts.readyNote || '').trim(), ready_location: String(opts.readySlots?.length ? opts.readySlots.join(', ') : (opts.readyNote || '')).trim(), ready_slots: Array.isArray(opts?.readySlots) ? opts.readySlots : [] } : {}) };
+        const hasReadyMeta = Boolean((Array.isArray(opts?.readySlots) && opts.readySlots.length) || String(opts?.readyNote || '').trim());
+        const updatedJson = {
+          ...(currentRow.data || {}),
+          status: 'gati',
+          ready_at: now,
+          ...(hasReadyMeta
+            ? {
+                ready_note: String(
+                  opts.readySlots?.length
+                    ? `📍 [${opts.readySlots.join(', ')}] ${String(opts.readyNote || '').trim()}`.trim()
+                    : String(opts.readyNote || '').trim()
+                ),
+                ready_note_text: String(opts.readyNote || '').trim(),
+                ready_location: String(opts.readySlots?.length ? opts.readySlots.join(', ') : (opts.readyNote || '')).trim(),
+                ready_slots: Array.isArray(opts?.readySlots) ? opts.readySlots : [],
+              }
+            : {}),
+        };
         if (table === 'transport_orders') {
           await supabase.from('transport_orders').update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now }).eq('id', o.id);
           alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
