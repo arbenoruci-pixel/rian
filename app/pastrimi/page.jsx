@@ -84,46 +84,6 @@ function unwrapOrderData(raw) {
   return (o && typeof o === 'object') ? o : {};
 }
 
-function rowToOrder(row) {
-  const base = unwrapOrderData(row?.data || {});
-  const normalizedCode = normalizeCode(row?.code_n ?? row?.code ?? base?.client?.code ?? base?.code ?? '');
-  return {
-    ...base,
-    id: row?.id || base?.id,
-    status: normalizeStatus(row?.status || base?.status || 'pastrim'),
-    client: {
-      ...(base?.client || {}),
-      name: row?.client_name ?? base?.client?.name ?? '',
-      phone: row?.client_phone ?? base?.client?.phone ?? '',
-      code: normalizedCode,
-      photoUrl: base?.client?.photoUrl || base?.client?.photo || '',
-    },
-    tepiha: Array.isArray(base?.tepiha) ? base.tepiha : (Array.isArray(base?.tepihaRows) ? base.tepihaRows : []),
-    staza: Array.isArray(base?.staza) ? base.staza : (Array.isArray(base?.stazaRows) ? base.stazaRows : []),
-    shkallore: base?.shkallore || {
-      qty: Number(base?.stairsQty || 0) || 0,
-      per: Number(base?.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT) || SHKALLORE_M2_PER_STEP_DEFAULT,
-      photoUrl: '',
-    },
-    pay: {
-      ...(base?.pay || {}),
-      m2: Number(row?.m2_total ?? base?.pay?.m2 ?? 0) || 0,
-      euro: Number(row?.price_total ?? base?.pay?.euro ?? 0) || 0,
-      paid: Number(row?.paid_cash ?? base?.pay?.paid ?? 0) || 0,
-      debt: Number(base?.pay?.debt ?? 0) || 0,
-      paidUpfront: typeof row?.is_paid_upfront === 'boolean' ? row.is_paid_upfront : !!base?.pay?.paidUpfront,
-      method: base?.pay?.method || 'CASH',
-      rate: Number(base?.pay?.rate ?? PRICE_DEFAULT) || PRICE_DEFAULT,
-      arkaRecordedPaid: Number(base?.pay?.arkaRecordedPaid ?? row?.paid_cash ?? 0) || 0,
-    },
-    notes: row?.note ?? base?.notes ?? '',
-    ready_at: row?.ready_at || base?.ready_at || null,
-    delivered_at: row?.delivered_at || base?.delivered_at || null,
-    updated_at: row?.updated_at || base?.updated_at || null,
-    created_at: row?.created_at || base?.created_at || null,
-  };
-}
-
 async function readLocalOrdersByStatus(status) {
   const out = [];
   const blacklist = getGhostBlacklist();
@@ -438,43 +398,31 @@ export default function PastrimiPage() {
 
       // ONLINE MODE
       const { data: normalData } = await withTimeout(
-        supabase
-          .from('orders')
-          .select('id,status,created_at,updated_at,ready_at,delivered_at,data,code,code_n,client_name,client_phone,pieces,m2_total,price_total,paid_cash,is_paid_upfront,note')
-          .in('status', ['pastrim','pastrimi'])
-          .order('updated_at', { ascending: false })
-          .limit(300)
+        supabase.from('orders').select('id,status,created_at,data,code,client_name,client_phone,pieces,m2_total,price_total,paid_cash').in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
       );
-
-      let transportData = [];
-      try {
-        const transportRes = await withTimeout(
-          supabase.from('transport_orders').select('id,status,created_at,data,code_str').in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
-        );
-        transportData = transportRes?.data || [];
-      } catch {}
+      const { data: transportData } = await withTimeout(
+        supabase.from('transport_orders').select('id,status,created_at,data,code_str').in('status', ['pastrim','pastrimi']).order('created_at', { ascending: false }).limit(300)
+      );
 
       const allOrders = [];
       (normalData || []).forEach(row => {
-        const order = rowToOrder(row);
-        const total = Number(row?.price_total ?? order?.pay?.euro ?? 0) || 0;
-        const paid = Number(row?.paid_cash ?? order?.pay?.paid ?? 0) || 0;
-        const cope = Number(row?.pieces ?? computePieces(order) ?? 0) || 0;
-        const m2 = Number(row?.m2_total ?? order?.pay?.m2 ?? computeM2(order) ?? 0) || 0;
+        const order = unwrapOrderData(row.data);
+        const m2 = computeM2(order) || Number(row.m2_total || 0) || 0;
+        const cope = computePieces(order) || Number(row.pieces || 0) || 0;
+        const total = Number(order.pay?.euro || row.price_total || 0);
+        const paid = Number(order.pay?.paid || row.paid_cash || 0);
         allOrders.push({
-          id: row.id,
-          source: 'orders',
-          ts: Number(row?.updated_at ? Date.parse(row.updated_at) : (row?.created_at ? Date.parse(row.created_at) : 0)) || Date.now(),
-          name: order.client?.name || row?.client_name || '',
-          phone: order.client?.phone || row?.client_phone || '',
-          code: normalizeCode(row?.code_n ?? row?.code ?? order.client?.code),
+          id: row.id, source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
+          name: order.client?.name || order.client_name || row.client_name || '',
+          phone: order.client?.phone || order.client_phone || row.client_phone || '',
+          code: normalizeCode(order.client?.code || order.code || row.code),
           m2,
           cope,
           total,
           paid,
           isPaid: paid >= total && total > 0,
           isReturn: !!order?.returnInfo?.active,
-          fullOrder: order,
+          fullOrder: order
         });
       });
 
@@ -601,33 +549,8 @@ export default function PastrimiPage() {
         returnInfo: returnActive ? { active: true, at: returnAt, reason: returnReason, note: returnNote, photoUrl: returnPhoto } : undefined
       };
 
-      const now = new Date().toISOString();
-      if (orderSource === 'transport_orders') {
-        const { error: dbErr } = await supabase
-          .from('transport_orders')
-          .update({ status: 'pastrim', data: order, updated_at: now })
-          .eq('id', oid);
-        if (dbErr) throw dbErr;
-      } else {
-        const codeNum = Number(String(normalizeCode(codeRaw)).replace(/\D+/g, '')) || null;
-        const payload = {
-          status: 'pastrim',
-          updated_at: now,
-          data: order,
-          code: codeNum,
-          code_n: codeNum,
-          client_name: order.client?.name || null,
-          client_phone: order.client?.phone || null,
-          pieces: computePieces(order),
-          m2_total: Number(totalM2 || 0),
-          price_total: Number(totalEuro || 0),
-          paid_cash: Number(currentPaidAmount || 0),
-          is_paid_upfront: !!paidUpfront,
-          note: notes || null,
-        };
-        const { error: dbErr } = await supabase.from('orders').update(payload).eq('id', oid);
-        if (dbErr) throw dbErr;
-      }
+      const { error: dbErr } = await supabase.from(orderSource).update({ status: 'pastrim', data: order, updated_at: new Date().toISOString() }).eq('id', oid);
+      if (dbErr) throw dbErr;
 
       setEditMode(false);
       await refreshOrders();
@@ -687,43 +610,19 @@ export default function PastrimiPage() {
       } else {
         const table = o.source;
         const { data: currentRow, error: fetchErr } = await withTimeout(
-          supabase.from(table).select('*').eq('id', o.id).single()
+          supabase.from(table).select('data').eq('id', o.id).single()
         );
         if (fetchErr) throw fetchErr;
 
-        const currentJson = rowToOrder(currentRow || {});
-        const updatedJson = {
-          ...currentJson,
-          status: 'gati',
-          ready_at: now,
-          ...(opts?.readyNote ? { ready_note: String(opts.readyNote).trim(), ready_location: String(opts.readyNote).trim() } : {}),
-        };
+        const updatedJson = { ...(currentRow.data || {}), status: 'gati', ready_at: now, ...(opts?.readyNote ? { ready_note: String(opts.readyNote).trim(), ready_location: String(opts.readyNote).trim() } : {}) };
         if (table === 'transport_orders') {
-          const { error: updErr } = await supabase.from('transport_orders').update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now }).eq('id', o.id);
-          if (updErr) throw updErr;
-          alert(`✅ U bë GATI!
-Shoferi u njoftua në listën e tij.`);
+          await supabase.from('transport_orders').update({ status: 'gati', data: updatedJson, updated_at: now, ready_at: now }).eq('id', o.id);
+          alert(`✅ U bë GATI!\nShoferi u njoftua në listën e tij.`);
         } else {
-          const codeNum = Number(String(normalizeCode(currentRow?.code_n ?? currentRow?.code ?? updatedJson?.client?.code)).replace(/\D+/g, '')) || null;
-          const { error: updErr } = await supabase.from('orders').update({
-            status: 'gati',
-            ready_at: now,
-            updated_at: now,
-            data: updatedJson,
-            code: codeNum,
-            code_n: codeNum,
-            client_name: updatedJson?.client?.name || null,
-            client_phone: updatedJson?.client?.phone || null,
-            pieces: Number(currentRow?.pieces ?? o?.cope ?? computePieces(updatedJson) ?? 0) || 0,
-            m2_total: Number(currentRow?.m2_total ?? o?.m2 ?? updatedJson?.pay?.m2 ?? computeM2(updatedJson) ?? 0) || 0,
-            price_total: Number(currentRow?.price_total ?? o?.total ?? updatedJson?.pay?.euro ?? 0) || 0,
-            paid_cash: Number(currentRow?.paid_cash ?? o?.paid ?? updatedJson?.pay?.paid ?? 0) || 0,
-            is_paid_upfront: !!(currentRow?.is_paid_upfront ?? updatedJson?.pay?.paidUpfront),
-            note: currentRow?.note ?? updatedJson?.notes ?? null,
-          }).eq('id', o.id);
-          if (updErr) throw updErr;
+          await supabase.from('orders').update({ status: 'gati', ready_at: now, data: updatedJson }).eq('id', o.id);
         }
       }
+
       if (o.source !== 'transport_orders') {
         const totalAmount = Number(o.total || 0);
         const paidAmount = Number(o.paid || 0);
