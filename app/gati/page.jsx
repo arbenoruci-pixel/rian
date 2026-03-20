@@ -783,13 +783,43 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
     }
   }
 
+async function resolveReturnDbId(row) {
+  const direct = row?.db_id || row?.id || row?.data?.db_id || null;
+  if (direct && /^\d+$/.test(String(direct))) return Number(direct);
+
+  const code = Number(row?.code || row?.data?.code || row?.client?.code || 0) || 0;
+  if (!code) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id,code,status')
+      .eq('code', code)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    if (!error && Array.isArray(data) && data[0]?.id) return Number(data[0].id);
+  } catch {}
+
+  return null;
+}
+
+
   async function confirmReturn() {
-    const oid = retOrder?.id || retOrder?.db_id || retOrder?.data?.db_id || null;
-    if (!oid) return;
+    setRetBusy(true);
+    setRetErr('');
+
+    const oid = await resolveReturnDbId(retOrder);
+    if (!oid) {
+      setRetErr('S'u gjet ID e porosisë për kthim.');
+      setRetBusy(false);
+      alert('❌ S'u gjet porosia për kthim.');
+      return;
+    }
 
     const reason = (retReason || '').trim();
     if (!reason) {
       setRetErr('Shkruaj arsyen e kthimit.');
+      setRetBusy(false);
       return;
     }
 
@@ -877,8 +907,6 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
       delivered_at: null,
     };
 
-    setRetBusy(true);
-    setRetErr('');
     try {
       try {
         await saveOrderLocal(updated);
