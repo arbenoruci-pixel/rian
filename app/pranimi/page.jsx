@@ -1282,98 +1282,46 @@ export default function PranimiPage() {
       };
 
       const normCodeNow = formatKod(normalizeCode(codeRaw), netState.ok);
-      const outboxRow = {
+      if (!normCodeNow || normCodeNow === '0') {
+        alert('DB ERROR: Kodi mungon ose nuk u rezervua saktë.');
+        setSavingContinue(false);
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const payload = {
         id: oid,
-        code: Number(normCodeNow || 0) || null,
-        code_n: Number(normCodeNow || 0) || null,
         local_oid: String(oid),
         status: 'pastrim',
-        client_name: name || null,
-        client_phone: String(phone || ''),
-        pieces: Number(
-          tepihaRows.reduce((s, r) => s + (Number(r.qty) || 0), 0) +
-          stazaRows.reduce((s, r) => s + (Number(r.qty) || 0), 0) +
-          (Number(stairsQty) || 0)
-        ) || 0,
+        code: Number(normCodeNow || 0) || null,
+        code_n: Number(normCodeNow || 0) || null,
+        client_name: name?.trim() || null,
+        client_phone: phonePrefix + (phone || ''),
+        pieces: totalQty,
         m2_total: Number(totalM2 || 0),
         price_total: Number(totalEuro || 0),
         paid_cash: Number(clientPaid || 0),
-        is_paid_upfront: String(payMethod || '').toUpperCase() === 'CASH' && Number(clientPaid || 0) > 0,
-        note: notes || '',
-        updated_at: new Date().toISOString(),
+        is_paid_upfront: Number(clientPaid || 0) > 0,
+        note: notes || null,
+        updated_at: nowIso,
+        data: {
+          ...order,
+          status: 'pastrim',
+          updated_at: nowIso,
+          code_n: Number(normCodeNow || 0) || null,
+          client_name: name?.trim() || null,
+          client_phone: phonePrefix + (phone || ''),
+          pieces: totalQty,
+          m2_total: Number(totalM2 || 0),
+          price_total: Number(totalEuro || 0),
+        },
       };
 
-      if (!normCodeNow || normCodeNow === '0') {
-        const conn = await checkConnectivity();
-        const browserOffline = (typeof navigator !== 'undefined' && navigator.onLine === false);
-        if (!browserOffline && conn?.ok) {
-          setNetState({ ok: false, reason: 'CODE_MISSING_ONLINE' });
-          setShowOfflinePrompt(true);
-          alert('❌ NUK U MOR KOD NGA DB (ONLINE). Provo “PROVO PRAP” ose kontrollo RPC/RLS në Supabase.');
-          setSavingContinue(false);
-          return;
-        }
-
-        const ok = saveOfflineQueueItem(order);
-        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-        setOfflineMode(true);
-        if (!ok) { alert('❌ S’KEMI KOD + OFFLINE: nuk u ruajt lokalisht!'); setSavingContinue(false); return; }
-        alert('⚠️ S’MORI KOD NGA SERVERI. U RUAJT OFFLINE. Provo prap kur të ketë lidhje.');
-        try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
-        setSavingContinue(false);
-        router.push('/pastrimi');
-        return;
-      }
-
-      const conn = await checkConnectivity();
-      const browserOffline = (typeof navigator !== 'undefined' && navigator.onLine === false);
-      if (offlineMode || (browserOffline && !conn.ok)) {
-        const ok = saveOfflineQueueItem(order);
-        try { saveOrderLocal(order); } catch {}
-        try { enqueueBaseOrder(outboxRow); } catch {}
-        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-        setOfflineMode(true);
-        if (!ok) { alert('❌ OFFLINE: nuk u ruajt lokalisht!'); setSavingContinue(false); return; }
-        alert('✅ U RUAJT OFFLINE. Kur të kthehet interneti, do të sinkronizohet automatikisht.');
-        try { sessionStorage.setItem(RESET_ON_SHOW_KEY, '1'); } catch {}
-        setSavingContinue(false);
-        router.push('/pastrimi');
-        return;
-      }
-
-      try {
-        const payload = {
-          id: oid,
-          status: 'pastrim',
-          code: outboxRow.code,
-          code_n: outboxRow.code_n,
-          client_name: outboxRow.client_name,
-          client_phone: outboxRow.client_phone,
-          pieces: outboxRow.pieces,
-          m2_total: outboxRow.m2_total,
-          price_total: outboxRow.price_total,
-          paid_cash: outboxRow.paid_cash,
-          is_paid_upfront: outboxRow.is_paid_upfront,
-          note: outboxRow.note,
-          local_oid: outboxRow.local_oid,
-          updated_at: outboxRow.updated_at,
-        };
-
-        const { error: saveErr } = await supabase
-          .from('orders')
-          .upsert(payload, { onConflict: 'id' });
-
-        if (saveErr) {
-          throw saveErr;
-        }
-      } catch (err) {
-        alert(`❌ SUPABASE SAVE ERROR: ${err?.message || 'Unknown error'}`);
-        setSavingContinue(false);
-        return;
-      }
+      const { error } = await supabase.from('orders').upsert(payload);
+      if (error) throw error;
 
       try { localStorage.setItem(`order_${oid}`, JSON.stringify(order)); } catch {}
-      
+
       void (async () => {
         try {
           const blob = new Blob([JSON.stringify(order)], { type: 'application/json' });
@@ -1398,8 +1346,9 @@ export default function PranimiPage() {
       setSavingContinue(false);
       router.push('/pastrimi');
     } catch (err) {
-      alert(`❌ RUJTJA DËSHTOI: ${err?.message || 'Unknown error'}`);
+      alert('DB ERROR: ' + (err?.message || 'Unknown error'));
       setSavingContinue(false);
+      return;
     }
   }
 
