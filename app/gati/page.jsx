@@ -856,14 +856,14 @@ async function resolveReturnDbId(row) {
       retOrder?.pieces ??
       prevData?.pieces ??
       retOrder?.qty ??
-      safePieces(retOrder) ??
+      prevData?.qty ??
       0
     ) || 0;
     const preservedM2 = Number(
       retOrder?.m2_total ??
       prevData?.m2_total ??
       retOrder?.m2 ??
-      safeM2(retOrder) ??
+      prevData?.m2 ??
       0
     ) || 0;
     const preservedPrice = Number(
@@ -1320,6 +1320,18 @@ async function resolveReturnDbId(row) {
                 style={{ width: '100%', padding: 14, fontWeight: 900 }}
               >
                 ✏️ EDITO MASAT
+              </button>
+              <button
+                className="btn secondary"
+                onClick={() => {
+                  const row = menuOrder;
+                  closeCodeMenu();
+                  setRetOrder(row);
+                  setShowReturnSheet(true);
+                }}
+                style={{ width: '100%', padding: 14, fontWeight: 900 }}
+              >
+                ↩️ KTHIM NË PASTRIM
               </button>
             </div>
           </div>
