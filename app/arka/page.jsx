@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { getActor } from '@/lib/actorSession';
 import { handoffActorPendingCash, listPendingCashForActor } from '@/lib/arkaCashSync';
 import { supabase } from '@/lib/supabaseClient';
-import { isAdmin } from '@/lib/roles';
 
 const euro = (n) => `€${Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const MONTH_KEY = () => new Date().toISOString().slice(0, 7);
@@ -34,7 +33,16 @@ export default function ArkaPage() {
   const [investments, setInvestments] = useState([]);
   const [splitDone, setSplitDone] = useState(false);
 
-  const admin = isAdmin(actor?.role);
+  const role = String(actor?.role || '').trim().toUpperCase();
+  const workerOnly = ['PUNTOR', 'PUNETOR', 'WORKER', 'TRANSPORT'].includes(role);
+  const dispatchOnly = role === 'DISPATCH';
+  const privileged = ['ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(role);
+  const admin = privileged;
+  const canSeeStaff = privileged;
+  const canSeePayroll = privileged;
+  const canSeeExpenses = privileged;
+  const canSeeBudget = privileged;
+  const canSeeCorporate = !!actor?.pin;
 
   async function refreshMine(a = null) {
     const act = a || getActor();
@@ -135,7 +143,7 @@ export default function ArkaPage() {
           <div>
             <div className="arkaEyebrow">ARKA / HUB</div>
             <h1 className="arkaTitle">MENU KRYESORE E ARKËS</h1>
-            <p className="arkaSubtitle">MENAXHIM I STAFIT, PAYROLL-IT, SHPENZIMEVE DHE BUXHETIT TË KOMPANISË.</p>
+            <p className="arkaSubtitle">{workerOnly ? 'ARKA JOTE, DORËZIMI TE DISPATCH DHE QASJA NË PANELIN KORPORATË.' : dispatchOnly ? 'PRANIMI I CASH-IT NGA PUNËTORËT DHE QASJA E KONTROLLUAR NË PANELIN KORPORATË.' : 'MENAXHIM I STAFIT, PAYROLL-IT, SHPENZIMEVE DHE BUXHETIT TË KOMPANISË.'}</p>
           </div>
           <Link href="/" className="homeBtn">← HOME</Link>
         </div>
@@ -213,11 +221,11 @@ export default function ArkaPage() {
         ) : null}
 
         <div className="hubGrid">
-          <HubTile href="/arka/stafi" icon="👥" title="MENAXHIMI I STAFIT" desc="ROLET, PIN-ET DHE STATUSI AKTIV/JOAKTIV." accent="#0f766e" />
-          <HubTile href="/arka/payroll" icon="💸" title="PAYROLL & RROGAT" desc="RROGA BAZË, AVANSET, BORXHET DHE SMART PAYROLL." accent="#2563eb" />
-          <HubTile href="/arka/shpenzime" icon="🧾" title="SHPENZIMET" desc="DALJET CASH DHE HISTORIKU I SHPENZIMEVE." accent="#c2410c" />
-          <HubTile href="/arka/corporate" icon="🏛️" title="KORPORATË / 4 NIVELE" desc="PUNËTORI → DISPATCH → KOMPANIA → OWNERS. CASH FLOW I KONTROLLUAR DHE CLEAN." accent="#9333ea" />
-          {admin ? <HubTile href="/arka/buxheti" icon="📊" title="BUXHETI & INVESTIMET" desc="PROFIT DASHBOARD, INVESTIME, OWNER BALANCES DHE PARTNER SPLIT." accent="#7c3aed" /> : null}
+          {canSeeStaff ? <HubTile href="/arka/stafi" icon="👥" title="MENAXHIMI I STAFIT" desc="ROLET, PIN-ET DHE STATUSI AKTIV/JOAKTIV." accent="#0f766e" /> : null}
+          {canSeePayroll ? <HubTile href="/arka/payroll" icon="💸" title="PAYROLL & RROGAT" desc="RROGA BAZË, AVANSET, BORXHET DHE SMART PAYROLL." accent="#2563eb" /> : null}
+          {canSeeExpenses ? <HubTile href="/arka/shpenzime" icon="🧾" title="SHPENZIMET" desc="DALJET CASH DHE HISTORIKU I SHPENZIMEVE." accent="#c2410c" /> : null}
+          {canSeeCorporate ? <HubTile href="/arka/corporate" icon="🏛️" title="KORPORATË / 4 NIVELE" desc="PUNËTORI → DISPATCH → KOMPANIA → OWNERS. CASH FLOW I KONTROLLUAR DHE CLEAN." accent="#9333ea" /> : null}
+          {canSeeBudget ? <HubTile href="/arka/buxheti" icon="📊" title="BUXHETI & INVESTIMET" desc="PROFIT DASHBOARD, INVESTIME, OWNER BALANCES DHE PARTNER SPLIT." accent="#7c3aed" /> : null}
         </div>
       </div>
 

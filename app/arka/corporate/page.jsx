@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { getActor } from '@/lib/actorSession';
-import { isAdmin, isDispatch } from '@/lib/roles';
 import {
   addOwnerInvestment,
   acceptDispatchHandoff,
@@ -62,8 +61,14 @@ export default function CorporateFinancePage() {
   const [investment, setInvestment] = useState({ ownerId: '', amount: '', description: '', mode: 'ADDITIONAL' });
   const [repayment, setRepayment] = useState({ ownerId: '', amount: '', description: '' });
 
-  const admin = isAdmin(actor?.role);
-  const dispatch = isDispatch(actor?.role);
+  const role = String(actor?.role || '').trim().toUpperCase();
+  const workerOnly = ['PUNTOR', 'PUNETOR', 'WORKER', 'TRANSPORT'].includes(role);
+  const dispatch = role === 'DISPATCH';
+  const admin = ['ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(role);
+  const canWorkerTab = workerOnly || admin;
+  const canDispatchTab = dispatch || admin;
+  const canCompanyTab = admin;
+  const canOwnersTab = admin;
 
   async function loadAll(a = null) {
     const act = a || getActor();
@@ -91,6 +96,33 @@ export default function CorporateFinancePage() {
   useEffect(() => {
     void loadAll();
   }, []);
+
+  useEffect(() => {
+    if (!actor?.pin) return;
+    if (workerOnly && tab !== 'WORKER') {
+      setTab('WORKER');
+      return;
+    }
+    if (dispatch && tab !== 'DISPATCH') {
+      setTab('DISPATCH');
+      return;
+    }
+    if (tab === 'WORKER' && !canWorkerTab) {
+      setTab(canDispatchTab ? 'DISPATCH' : canCompanyTab ? 'COMPANY' : 'WORKER');
+      return;
+    }
+    if (tab === 'DISPATCH' && !canDispatchTab) {
+      setTab(canWorkerTab ? 'WORKER' : canCompanyTab ? 'COMPANY' : 'WORKER');
+      return;
+    }
+    if (tab === 'COMPANY' && !canCompanyTab) {
+      setTab(canDispatchTab ? 'DISPATCH' : 'WORKER');
+      return;
+    }
+    if (tab === 'OWNERS' && !canOwnersTab) {
+      setTab(canCompanyTab ? 'COMPANY' : canDispatchTab ? 'DISPATCH' : 'WORKER');
+    }
+  }, [actor?.pin, workerOnly, dispatch, canWorkerTab, canDispatchTab, canCompanyTab, canOwnersTab, tab]);
 
   const workerTotal = useMemo(() => workerCash.reduce((s, x) => s + norm(x.amount), 0), [workerCash]);
 
@@ -125,27 +157,27 @@ export default function CorporateFinancePage() {
         </div>
 
         <div className="statsGrid">
-          <Stat label="BUXHETI I KOMPANISË" value={euro(summary.current_balance)} />
-          <Stat label="HYRJE TOTALE" value={euro(summary.total_in)} />
-          <Stat label="DALJE TOTALE" value={euro(summary.total_out)} danger />
+          {(admin || dispatch) ? <Stat label="BUXHETI I KOMPANISË" value={euro(summary.current_balance)} /> : null}
+          {admin ? <Stat label="HYRJE TOTALE" value={euro(summary.total_in)} /> : null}
+          {admin ? <Stat label="DALJE TOTALE" value={euro(summary.total_out)} danger /> : null}
           <Stat label="ARKA IME NË TERREN" value={euro(workerTotal)} />
         </div>
 
         <div className="tabs">
-          <button className={tab === 'WORKER' ? 'tab active' : 'tab'} onClick={() => setTab('WORKER')}>1. PUNËTORI</button>
-          <button className={tab === 'DISPATCH' ? 'tab active' : 'tab'} onClick={() => setTab('DISPATCH')}>2. DISPATCH</button>
-          <button className={tab === 'COMPANY' ? 'tab active' : 'tab'} onClick={() => setTab('COMPANY')}>3. KOMPANIA</button>
-          <button className={tab === 'OWNERS' ? 'tab active' : 'tab'} onClick={() => setTab('OWNERS')}>4. OWNERS</button>
+          {canWorkerTab ? <button className={tab === 'WORKER' ? 'tab active' : 'tab'} onClick={() => setTab('WORKER')}>1. PUNËTORI</button> : null}
+          {canDispatchTab ? <button className={tab === 'DISPATCH' ? 'tab active' : 'tab'} onClick={() => setTab('DISPATCH')}>2. DISPATCH</button> : null}
+          {canCompanyTab ? <button className={tab === 'COMPANY' ? 'tab active' : 'tab'} onClick={() => setTab('COMPANY')}>3. KOMPANIA</button> : null}
+          {canOwnersTab ? <button className={tab === 'OWNERS' ? 'tab active' : 'tab'} onClick={() => setTab('OWNERS')}>4. OWNERS</button> : null}
         </div>
 
         {msg ? <div className="okBox">{msg}</div> : null}
         {err ? <div className="errBox">{err}</div> : null}
 
-        {tab === 'WORKER' ? (
+        {tab === 'WORKER' && canWorkerTab ? (
           <SectionCard
             title="PANELI I PUNËTORIT"
             sub="Punëtori mbledh cash dhe e dorëzon te Dispatch. Paratë nuk hyjnë direkt në buxhet."
-            right={!admin ? (
+            right={workerOnly ? (
               <button
                 className="primaryBtn"
                 disabled={busy === 'handoff' || workerTotal <= 0}
@@ -169,7 +201,7 @@ export default function CorporateFinancePage() {
           </SectionCard>
         ) : null}
 
-        {tab === 'DISPATCH' ? (
+        {tab === 'DISPATCH' && canDispatchTab ? (
           <SectionCard title="PRANIMI NGA DISPATCH" sub="Vetëm kur Dispatch pranon, lekët hyjnë në buxhetin e kompanisë.">
             <div className="listCard">
               {(dispatch || admin) ? (handoffs.length ? handoffs.map((h) => (
@@ -191,7 +223,7 @@ export default function CorporateFinancePage() {
           </SectionCard>
         ) : null}
 
-        {tab === 'COMPANY' ? (
+        {tab === 'COMPANY' && canCompanyTab ? (
           <SectionCard title="BUXHETI I KOMPANISË" sub="Shpenzime të detajuara dhe kalimi i fitimit te pronarët.">
             {admin ? (
               <>
@@ -237,7 +269,7 @@ export default function CorporateFinancePage() {
           </SectionCard>
         ) : null}
 
-        {tab === 'OWNERS' ? (
+        {tab === 'OWNERS' && canOwnersTab ? (
           <SectionCard title="OWNERS BOARD" sub="Investim fillestar, kthim investimi dhe ndarje fitimi.">
             {admin ? (
               <>
