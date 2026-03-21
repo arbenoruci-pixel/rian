@@ -1595,6 +1595,26 @@ KOMPANIA JONI`;
 
         {(name || phone || clientPhotoUrl) ? (
           <div className="client-selected-card">
+            <button
+              type="button"
+              className="client-card-close"
+              aria-label="Mbyll klientin"
+              title="ANULO KLIENTIN"
+              onClick={async () => {
+                try { setName(''); } catch {}
+                try { setPhone(''); } catch {}
+                try { setClientPhotoUrl(''); } catch {}
+                try { setOldClientDebt(0); } catch {}
+                try { setClientQuery(''); } catch {}
+                try { setClientHits([]); } catch {}
+                try {
+                  const next = await claimOrReuseCode();
+                  if (next) setCodeRaw(String(next));
+                } catch {}
+              }}
+            >
+              ✕
+            </button>
             <div className="client-selected-main">
               {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini large" /> : <div className="client-avatar-fallback">👤</div>}
               <div className="client-selected-copy">
@@ -1602,9 +1622,6 @@ KOMPANIA JONI`;
                 <div className="client-selected-name">{name || 'KLIENT I RI'}</div>
                 <div className="client-selected-phone">{phone ? `${phonePrefix} ${phone}` : 'PA TELEFON'}</div>
               </div>
-            </div>
-            <div className="client-selected-actions">
-              <button type="button" className="mini-action primary" onClick={openWizard}>NDRYSHO</button>
             </div>
           </div>
         ) : null}
