@@ -810,9 +810,9 @@ async function resolveReturnDbId(row) {
 
     const oid = await resolveReturnDbId(retOrder);
     if (!oid) {
-      setRetErr('S'u gjet ID e porosisë për kthim.');
+      setRetErr("S'u gjet ID e porosisë për kthim.");
       setRetBusy(false);
-      alert('❌ S'u gjet porosia për kthim.');
+      alert("❌ S'u gjet porosia për kthim.");
       return;
     }
 
@@ -1255,8 +1255,21 @@ async function resolveReturnDbId(row) {
                   </button>
                   <button
                     className="btn primary"
-                    style={{ padding: '6px 10px', fontSize: 12 }}
-                    onClick={() => openPay(o)}
+                    style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      onPayPressStart(o);
+                    }}
+                    onPointerUp={(e) => {
+                      e.preventDefault();
+                      onPayPressEnd(o);
+                    }}
+                    onPointerCancel={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
+                    onPointerLeave={() => {
+                      if (holdTimer.current) clearTimeout(holdTimer.current);
+                    }}
                   >
                     💶 PAGUAJ
                   </button>
@@ -1307,17 +1320,6 @@ async function resolveReturnDbId(row) {
                 style={{ width: '100%', padding: 14, fontWeight: 900 }}
               >
                 ✏️ EDITO MASAT
-              </button>
-              <button
-                className="btn secondary"
-                onClick={() => {
-                  const row = menuOrder;
-                  closeCodeMenu();
-                  openReturn(row);
-                }}
-                style={{ width: '100%', padding: 14, fontWeight: 900 }}
-              >
-                ↩️ KTHIM NË PASTRIM
               </button>
             </div>
           </div>
