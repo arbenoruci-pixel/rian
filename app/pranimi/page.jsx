@@ -1542,10 +1542,7 @@ KOMPANIA JONI`;
 
         <div className="client-toolbar">
           <button type="button" className="icon-chip search" onClick={() => setShowClientSearch(true)} aria-label="Kërko klient" title="KËRKO KLIENT">
-            <span aria-hidden="true">🔎</span>
-          </button>
-          <button type="button" className="icon-chip add" onClick={openWizard} aria-label="Shto klient" title="SHTO KLIENT">
-            <span aria-hidden="true">➕</span>
+            <span aria-hidden="true">⌕</span>
           </button>
           <button
             type="button"
@@ -1554,8 +1551,11 @@ KOMPANIA JONI`;
             aria-label="Të pa plotsuarat"
             title={`TË PA PLOTSUARAT${drafts.length > 0 ? ` (${drafts.length})` : ''}`}
           >
-            <span aria-hidden="true">🗂️</span>
+            <span aria-hidden="true">☰</span>
             {drafts.length > 0 ? <span className="header-icon-badge">{drafts.length}</span> : null}
+          </button>
+          <button type="button" className="icon-chip add" onClick={openWizard} aria-label="Shto klient" title="SHTO KLIENT">
+            <span aria-hidden="true">✚</span>
           </button>
         </div>
 
@@ -1570,7 +1570,6 @@ KOMPANIA JONI`;
               </div>
             </div>
             <div className="client-selected-actions">
-              <button type="button" className="mini-action" onClick={() => setShowClientSearch(true)}>KËRKO</button>
               <button type="button" className="mini-action primary" onClick={openWizard}>NDRYSHO</button>
             </div>
           </div>
@@ -1823,13 +1822,14 @@ KOMPANIA JONI`;
                       className="apple-result-row"
                       onClick={() => {
                         if (c.name) setName(String(c.name));
+                        if (c.code) setCodeRaw(String(c.code));
                         setPhone(String(c.phone || '').replace(/\D/g, ''));
                         setClientQuery('');
                         setClientHits([]);
                         setShowClientSearch(false);
                       }}
                     >
-                      <div className="apple-result-title">{String(c.code || '')} • {String(c.name || '').toUpperCase()}</div>
+                      <div className="apple-result-title"><span className="result-code-badge">NR {String(c.code || '')}</span> <span>{String(c.name || '').toUpperCase()}</span></div>
                       <div className="apple-result-sub">{phonePrefix} {String(c.phone || '')}</div>
                     </button>
                   ))}
@@ -1859,7 +1859,7 @@ KOMPANIA JONI`;
                   {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="apple-photo-preview" /> : <span>📸</span>}
                   <input type="file" hidden accept="image/*" onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} />
                 </label>
-                <div className="apple-help-text">PREK KËTU PËR FOTO</div>
+                <div className="apple-help-text">FOTO</div>
               </div>
 
               <div className="field-group">
@@ -1899,7 +1899,7 @@ KOMPANIA JONI`;
         .client-selected-main{ display:flex; align-items:center; gap:12px; min-width:0; }
         .client-selected-name{ font-size:16px; font-weight:900; color:#fff; letter-spacing:.02em; }
         .client-selected-phone{ font-size:12px; font-weight:800; color:rgba(255,255,255,0.72); margin-top:3px; }
-        .client-selected-actions{ display:flex; gap:8px; }
+        .client-selected-actions{ display:flex; gap:8px; align-items:center; }
         .mini-action{ min-height:38px; padding:0 12px; border:none; border-radius:999px; background:#f2f2f7; color:#111; font-size:11px; font-weight:900; letter-spacing:.04em; }
         .mini-action.primary{ background:#007aff; color:#fff; }
         .client-empty-state{ margin-top:12px; padding:14px; border-radius:18px; background:rgba(255,255,255,0.05); border:1px dashed rgba(255,255,255,0.16); color:rgba(255,255,255,0.78); font-size:12px; font-weight:800; line-height:1.4; text-align:center; }
@@ -1920,8 +1920,9 @@ KOMPANIA JONI`;
         .apple-help-text{ font-size:11px; font-weight:800; color:rgba(255,255,255,0.68); letter-spacing:.04em; }
         .apple-results-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
         .apple-result-row{ width:100%; text-align:left; padding:14px 14px; border:none; border-radius:20px; background:#f2f2f7; color:#111; box-shadow:0 8px 22px rgba(0,0,0,0.18); }
-        .apple-result-title{ font-size:14px; font-weight:900; }
+        .apple-result-title{ font-size:14px; font-weight:900; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
         .apple-result-sub{ font-size:12px; font-weight:700; color:#4b5563; margin-top:4px; }
+        .result-code-badge{ display:inline-flex; align-items:center; min-height:24px; padding:0 10px; border-radius:999px; background:linear-gradient(180deg,#3fe07e 0%, #26b85d 100%); color:#fff; font-size:11px; font-weight:900; letter-spacing:.06em; box-shadow:0 8px 18px rgba(52,199,89,0.22); }
         .apple-photo-row{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; margin-bottom:10px; }
         .apple-photo-picker{ width:84px; height:84px; border-radius:999px; background:#f2f2f7; color:#111; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:30px; box-shadow:0 12px 28px rgba(0,0,0,0.22); cursor:pointer; }
         .apple-photo-preview{ width:100%; height:100%; object-fit:cover; }
@@ -1945,31 +1946,31 @@ KOMPANIA JONI`;
         .pill{ border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.9); padding: 10px 12px; border-radius: 14px; font-weight: 900; letter-spacing: 0.4px; font-size: 11px; }
         .wiz-card{ width:100%; max-width:480px; max-height:92vh; overflow:hidden; display:flex; flex-direction:column; border-radius:24px; background:linear-gradient(180deg, #0f141b 0%, #090c10 100%); border:1px solid rgba(255,255,255,0.12); box-shadow: 0 22px 70px rgba(0,0,0,0.48); }
 
-        .client-toolbar{ display:flex; gap:12px; margin-top:10px; align-items:center; flex-wrap:wrap; }
-        .icon-chip{ position:relative; width:58px; height:58px; border:none; border-radius:999px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:900; box-shadow:0 14px 28px rgba(0,0,0,0.26), inset 0 2px 0 rgba(255,255,255,0.72), inset 0 -10px 18px rgba(255,255,255,0.10); transition:transform .18s ease, box-shadow .18s ease, filter .18s ease; }
+        .client-toolbar{ display:flex; justify-content:space-between; align-items:center; gap:14px; margin-top:12px; }
+        .icon-chip{ position:relative; width:62px; height:62px; border:none; border-radius:999px; display:flex; align-items:center; justify-content:center; font-size:25px; font-weight:900; box-shadow:0 14px 28px rgba(0,0,0,0.26), inset 0 2px 0 rgba(255,255,255,0.78), inset 0 -10px 18px rgba(255,255,255,0.12); transition:transform .18s ease, box-shadow .18s ease, filter .18s ease; }
         .icon-chip:active{ transform:scale(.965); }
-        .icon-chip.search{ background:linear-gradient(180deg, #eef5ff 0%, #d9eaff 100%); color:#0a66ff; }
-        .icon-chip.add{ background:linear-gradient(180deg, #ebfff1 0%, #d7f9e1 100%); color:#14a44d; }
-        .icon-chip.drafts{ background:linear-gradient(180deg, #fff6d8 0%, #ffe8a3 100%); color:#8a5a00; }
+        .icon-chip.search{ background:linear-gradient(180deg, #eff7ff 0%, #cfe4ff 100%); color:#0a66ff; }
+        .icon-chip.add{ background:linear-gradient(180deg, #f0fff4 0%, #c9f7d6 100%); color:#10a34a; }
+        .icon-chip.drafts{ background:linear-gradient(180deg, #fff6ea 0%, #ffd7b0 100%); color:#b35b00; }
         .header-icon-btn{ position:relative; width:42px; height:42px; border:none; border-radius:999px; background:linear-gradient(180deg,#fff6d8 0%, #ffe8a3 100%); color:#8a5a00; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:900; box-shadow:0 8px 20px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.7); transition:transform .18s ease, box-shadow .18s ease, background .18s ease; }
         .client-selected-card{ margin-top:14px; padding:16px; border-radius:22px; background:linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.05)); border:1px solid rgba(255,255,255,0.14); display:flex; align-items:center; justify-content:space-between; gap:12px; }
         .client-selected-copy{ min-width:0; }
         .client-code-pill{ display:inline-flex; align-items:center; min-height:28px; padding:0 12px; border-radius:999px; background:linear-gradient(180deg,#3fe07e 0%, #26b85d 100%); color:#fff; font-size:12px; font-weight:900; letter-spacing:.08em; box-shadow:0 10px 22px rgba(52,199,89,0.24), inset 0 1px 0 rgba(255,255,255,0.45); margin-bottom:8px; }
-        .client-selected-name{ font-size:22px; font-weight:900; color:#fff; letter-spacing:.01em; line-height:1.1; }
-        .client-selected-phone{ font-size:17px; font-weight:850; color:#eef2ff; margin-top:6px; letter-spacing:.01em; }
+        .client-selected-name{ font-size:24px; font-weight:900; color:#fff; letter-spacing:.01em; line-height:1.08; }
+        .client-selected-phone{ font-size:19px; font-weight:850; color:#eef2ff; margin-top:6px; letter-spacing:.01em; }
         .mini-action{ min-height:42px; padding:0 14px; border:none; border-radius:999px; background:#f2f2f7; color:#111; font-size:11px; font-weight:900; letter-spacing:.04em; }
-        .client-avatar-fallback{ width:50px; height:50px; border-radius:999px; display:flex; align-items:center; justify-content:center; background:#f2f2f7; color:#111; font-size:22px; }
-        .client-mini.large{ width:50px; height:50px; }
-        .apple-photo-row{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; margin-bottom:8px; }
-        .apple-photo-picker{ width:58px; height:58px; border-radius:16px; background:linear-gradient(180deg,#f2f2f7 0%, #e5e5ea 100%); color:#111; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:20px; box-shadow:0 10px 22px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.72); cursor:pointer; }
-        .apple-help-text{ font-size:10px; font-weight:900; color:rgba(255,255,255,0.86); letter-spacing:.03em; }
+        .client-avatar-fallback{ width:50px; height:50px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#f2f2f7; color:#111; font-size:22px; }
+        .client-mini.large{ width:50px; height:50px; border-radius:16px; }
+        .apple-photo-row{ display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:4px; margin-bottom:8px; }
+        .apple-photo-picker{ width:46px; height:46px; border-radius:14px; background:linear-gradient(180deg,#f2f2f7 0%, #e5e5ea 100%); color:#111; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:16px; box-shadow:0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.72); cursor:pointer; }
+        .apple-help-text{ font-size:10px; font-weight:900; color:rgba(255,255,255,0.92); letter-spacing:.03em; }
         .field-group .label{ font-size:15px; font-weight:900; color:#fff; margin-bottom:8px; display:block; }
-        .field-group .input{ min-height:64px; font-size:24px; font-weight:900; border-radius:20px; }
+        .field-group .input{ min-height:72px; font-size:28px; font-weight:900; border-radius:22px; }
         .field-group .row{ align-items:stretch; gap:10px; }
-        .field-group .input.small{ max-width:100px; font-size:21px; }
+        .field-group .input.small{ max-width:108px; font-size:24px; }
         .chip-row.modern { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
-        .chip-modern { min-height:48px; padding:12px 16px; border-radius:18px; font-size:16px; font-weight:900; letter-spacing:0.2px; color:#fff; backdrop-filter:blur(8px); box-shadow:0 12px 22px rgba(0,0,0,0.20), inset 0 1px 0 rgba(255,255,255,0.22); }
-        .camera-btn{ width:40px; min-width:40px; height:40px; border-radius:12px; font-size:16px; box-shadow:0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.6); }
+        .chip-modern { min-height:53px; padding:13px 18px; border-radius:18px; font-size:17px; font-weight:900; letter-spacing:0.2px; color:#fff; backdrop-filter:blur(8px); box-shadow:0 12px 22px rgba(0,0,0,0.20), inset 0 1px 0 rgba(255,255,255,0.22); }
+        .camera-btn{ width:34px; min-width:34px; height:34px; border-radius:10px; font-size:14px; box-shadow:0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.6); }
 
         .wiz-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 16px 12px; border-bottom:1px solid rgba(255,255,255,0.08); }
         .wiz-title{ color:#fff; font-size:18px; font-weight:900; letter-spacing:0.6px; }
