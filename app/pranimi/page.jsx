@@ -21,8 +21,8 @@ import { getClientBalanceByPhone } from '@/lib/clientBalanceDb';
 
 const BUCKET = 'tepiha-photos';
 
-const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
-const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
+const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.5, 3.7, 4.0, 5.0, 6.0, 8.0, 12.0];
+const STAZA_CHIPS = [0.5, 0.8, 0.9, 1.2, 1.5, 1.6, 2.0, 2.4, 2.5, 3.0, 4.0, 5.0];
 
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
 const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
@@ -1524,30 +1524,28 @@ KOMPANIA JONI`;
           <div className="subtitle">KRIJO POROSI</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
-            <input type="checkbox" checked={offlineMode} onChange={(e) => { const v = e.target.checked; setOfflineMode(v); try { localStorage.setItem(OFFLINE_MODE_KEY, v ? '1' : '0'); } catch {} }} />
-            <span style={{ fontWeight: 900, letterSpacing: 0.5 }}>OFFLINE MODE</span>
-          </label>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
+              <input type="checkbox" checked={offlineMode} onChange={(e) => { const v = e.target.checked; setOfflineMode(v); try { localStorage.setItem(OFFLINE_MODE_KEY, v ? '1' : '0'); } catch {} }} />
+              <span style={{ fontWeight: 900, letterSpacing: 0.5 }}>OFFLINE MODE</span>
+            </label>
+            <button
+              type="button"
+              className="header-icon-btn"
+              onClick={openDrafts}
+              aria-label="Të pa plotsuarat"
+              title={`TË PA PLOTSUARAT${drafts.length > 0 ? ` (${drafts.length})` : ''}`}
+            >
+              <span aria-hidden="true">📝</span>
+              {drafts.length > 0 ? <span className="header-icon-badge">{drafts.length}</span> : null}
+            </button>
+          </div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>{netState.ok ? 'ONLINE' : `LIDHJA: ${netState.reason}`}</div>
         </div>
         <div className="code-badge">
           <span className="badge">{`KODI: ${formatKod(normalizeCode(codeRaw), netState.ok)}`}</span>
         </div>
       </header>
-
-      <section className="cap-mini">
-        <div className="cap-mini-top">
-          <div className="cap-mini-title">SOT NË PASTRIM</div>
-          <div className="cap-mini-val">{Number(todayPastrimM2 || 0).toFixed(1)} m²</div>
-        </div>
-        <div className="cap-mini-eta">{etaText}</div>
-      </section>
-
-      <section style={{ marginTop: 10 }}>
-        <button type="button" className="btn secondary" style={{ width: '100%', padding: '12px 14px', borderRadius: 18 }} onClick={openDrafts}>
-          📝 TË PA PLOTSUARAT {drafts.length > 0 ? `(${drafts.length})` : ''}
-        </button>
-      </section>
 
       <section className="card">
         <h2 className="card-title">KLIENTI</h2>
@@ -1893,6 +1891,9 @@ KOMPANIA JONI`;
         .icon-chip{ width:54px; height:54px; border:none; border-radius:999px; background:#f2f2f7; color:#111; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:900; box-shadow:0 10px 26px rgba(0,0,0,0.24); transition:transform .18s ease, box-shadow .18s ease, background .18s ease; }
         .icon-chip:active{ transform:scale(.97); }
         .icon-chip.plus{ background:#ffffff; }
+        .header-icon-btn{ position:relative; width:42px; height:42px; border:none; border-radius:999px; background:#f2f2f7; color:#111; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:900; box-shadow:0 8px 20px rgba(0,0,0,0.18); transition:transform .18s ease, box-shadow .18s ease, background .18s ease; }
+        .header-icon-btn:active{ transform:scale(.97); }
+        .header-icon-badge{ position:absolute; top:-4px; right:-4px; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:#34c759; color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; line-height:1; font-weight:900; box-shadow:0 4px 10px rgba(52,199,89,0.35); }
         .client-selected-card{ margin-top:12px; padding:14px; border-radius:20px; background:linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04)); border:1px solid rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:space-between; gap:12px; }
         .client-selected-main{ display:flex; align-items:center; gap:12px; min-width:0; }
         .client-selected-name{ font-size:16px; font-weight:900; color:#fff; letter-spacing:.02em; }
@@ -1924,11 +1925,6 @@ KOMPANIA JONI`;
         .apple-photo-picker{ width:84px; height:84px; border-radius:999px; background:#f2f2f7; color:#111; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:30px; box-shadow:0 12px 28px rgba(0,0,0,0.22); cursor:pointer; }
         .apple-photo-preview{ width:100%; height:100%; object-fit:cover; }
         .client-mini{ width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 6px 14px rgba(0,0,0,0.35); }
-        .cap-mini { margin-top: 8px; padding: 10px 12px; border-radius: 16px; background: #0b0b0b; border: 1px solid rgba(255,255,255,0.1); }
-        .cap-mini-top { display: flex; justify-content: space-between; align-items: baseline; }
-        .cap-mini-title { font-size: 10px; letter-spacing: 0.7px; color: rgba(255,255,255,0.65); font-weight: 900; }
-        .cap-mini-val { font-size: 12px; color: #16a34a; font-weight: 900; }
-        .cap-mini-eta { margin-top: 6px; font-size: 12px; color: rgba(255,255,255,0.85); font-weight: 800; }
         .chip-row.modern { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .chip-modern { padding: 10px 14px; border-radius: 14px; font-weight: 900; letter-spacing: 0.2px; color: rgba(255,255,255,0.92); backdrop-filter: blur(8px); }
         .chip-modern:active { transform: translateY(1px); }
