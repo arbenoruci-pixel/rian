@@ -709,6 +709,7 @@ export default function PranimiPage() {
   }
 
   const [showWizard, setShowWizard] = useState(false);
+  const [activeChipKey, setActiveChipKey] = useState('');
   const [wizStep, setWizStep] = useState(1);
   const [wizTab, setWizTab] = useState('TEPIHA');
   const [showStairsArea, setShowStairsArea] = useState(false);
@@ -1113,6 +1114,7 @@ export default function PranimiPage() {
 
   function applyChip(kind, val, ev) {
     vibrateTap(15);
+    setActiveChipKey(`${kind}:${Number(val)}`);
     if (ev?.currentTarget) bumpEl(ev.currentTarget);
 
     const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
@@ -1542,7 +1544,10 @@ KOMPANIA JONI`;
 
         <div className="client-toolbar">
           <button type="button" className="icon-chip search" onClick={() => setShowClientSearch(true)} aria-label="Kërko klient" title="KËRKO KLIENT">
-            <span aria-hidden="true">⌕</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="icon-svg">
+              <circle cx="11" cy="11" r="5.5" fill="none" stroke="currentColor" strokeWidth="2.2" />
+              <path d="M16 16L21 21" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+            </svg>
           </button>
           <button
             type="button"
@@ -1551,11 +1556,18 @@ KOMPANIA JONI`;
             aria-label="Të pa plotsuarat"
             title={`TË PA PLOTSUARAT${drafts.length > 0 ? ` (${drafts.length})` : ''}`}
           >
-            <span aria-hidden="true">☰</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="icon-svg">
+              <path d="M6 7.5h12M6 12h12M6 16.5h12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
+            </svg>
             {drafts.length > 0 ? <span className="header-icon-badge">{drafts.length}</span> : null}
           </button>
           <button type="button" className="icon-chip add" onClick={openWizard} aria-label="Shto klient" title="SHTO KLIENT">
-            <span aria-hidden="true">✚</span>
+            <svg viewBox="0 0 64 64" aria-hidden="true" className="icon-svg add-contact-svg">
+              <circle cx="24" cy="22" r="10" fill="currentColor" opacity="0.92" />
+              <path d="M10 48c1.8-8 8-13 15-13s13.2 5 15 13" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round"/>
+              <circle cx="46" cy="42" r="13" fill="none" stroke="currentColor" strokeWidth="5"/>
+              <path d="M46 35v14M39 42h14" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round"/>
+            </svg>
           </button>
         </div>
 
@@ -1573,22 +1585,21 @@ KOMPANIA JONI`;
               <button type="button" className="mini-action primary" onClick={openWizard}>NDRYSHO</button>
             </div>
           </div>
-        ) : (
-          <div className="client-empty-state">
-            PËRDOR IKONËN E LUPËS PËR KËRKIM OSE PLUS PËR SHTIM TË KLIENTIT.
-          </div>
-        )}
+        ) : null}
 
         {oldClientDebt > 0 && <div style={{ marginTop:12, padding:'10px 12px', borderRadius:12, background:'rgba(239,68,68,0.16)', border:'1px solid rgba(239,68,68,0.35)', color:'#fecaca', fontWeight:900, fontSize:12 }}>⚠️ KUJDES: KY KLIENT KA {oldClientDebt.toFixed(2)}€ BORXH TË VJETËR!</div>}
       </section>
       <section className="card">
         <h2 className="card-title">TEPIHA</h2>
         <div className="chip-row modern">
-          {TEPIHA_CHIPS.map((v) => (
-            <button key={v} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('tepiha', v, e)} style={chipStyleForVal(v, false)}>
-              {v.toFixed(1)}
+          {TEPIHA_CHIPS.map((v) => {
+            const isActive = activeChipKey === `tepiha:${Number(v)}`;
+            return (
+            <button key={v} type="button" className={`chip chip-modern ${isActive ? 'selected' : ''}`} onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('tepiha', v, e)} style={chipStyleForVal(v, isActive)}>
+              <span className="chip-text">{v.toFixed(1)}</span>
+              {isActive ? <span className="chip-tick" aria-hidden="true">✓</span> : null}
             </button>
-          ))}
+          )})}
         </div>
         {tepihaRows.map((row) => (
           <div className={`piece-row ${recentAddedRows[row.id] ? 'row-flash-add' : ''} ${removingRows[row.id] ? 'row-flash-remove' : ''}`} key={row.id}>
@@ -1614,11 +1625,14 @@ KOMPANIA JONI`;
       <section className="card">
         <h2 className="card-title">STAZA</h2>
         <div className="chip-row modern">
-          {STAZA_CHIPS.map((v) => (
-            <button key={v} type="button" className="chip chip-modern" onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('staza', v, e)} style={chipStyleForVal(v, false)}>
-              {v.toFixed(1)}
+          {STAZA_CHIPS.map((v) => {
+            const isActive = activeChipKey === `staza:${Number(v)}`;
+            return (
+            <button key={v} type="button" className={`chip chip-modern ${isActive ? 'selected' : ''}`} onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('staza', v, e)} style={chipStyleForVal(v, isActive)}>
+              <span className="chip-text">{v.toFixed(1)}</span>
+              {isActive ? <span className="chip-tick" aria-hidden="true">✓</span> : null}
             </button>
-          ))}
+          )})}
         </div>
         {stazaRows.map((row) => (
           <div className={`piece-row ${recentAddedRows[row.id] ? 'row-flash-add' : ''} ${removingRows[row.id] ? 'row-flash-remove' : ''}`} key={row.id}>
