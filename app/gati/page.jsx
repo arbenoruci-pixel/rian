@@ -99,60 +99,42 @@ function computePieces(order) {
   return p;
 }
 
-function expandReturnItems(order) {
+function explodeReturnPieces(order) {
   const out = [];
-  let idx = 1;
+  let idx = 0;
   for (const r of getTepihaRows(order)) {
-    const qty = Number(r?.qty ?? r?.pieces ?? 0) || 0;
-    const m2 = Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0;
+    const qty = rowQty(r);
+    const m2 = rowM2(r);
     for (let i = 0; i < qty; i += 1) out.push({ id: `t_${idx++}`, kind: 'tepiha', m2, selected: true });
   }
   for (const r of getStazaRows(order)) {
-    const qty = Number(r?.qty ?? r?.pieces ?? 0) || 0;
-    const m2 = Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0;
+    const qty = rowQty(r);
+    const m2 = rowM2(r);
     for (let i = 0; i < qty; i += 1) out.push({ id: `s_${idx++}`, kind: 'staza', m2, selected: true });
   }
   const stairsQty = getStairsQty(order);
   const stairsPer = getStairsPer(order);
-  for (let i = 0; i < stairsQty; i += 1) out.push({ id: `st_${idx++}`, kind: 'stairs', m2: stairsPer, per: stairsPer, selected: true });
+  for (let i = 0; i < stairsQty; i += 1) out.push({ id: `k_${idx++}`, kind: 'shkallore', m2: stairsPer, selected: true });
   return out;
 }
 
-function groupReturnItems(items) {
-  const map = new Map();
-  for (const item of items || []) {
-    const key = `${item.kind}|${Number(item.m2 || 0).toFixed(2)}`;
-    if (!map.has(key)) map.set(key, { kind: item.kind, m2: Number(item.m2 || 0), qty: 0 });
-    map.get(key).qty += 1;
+function aggregateReturnPieces(items) {
+  const res = { tepiha: [], staza: [], shkallore: { qty: 0, per: 0.3 } };
+  const mapT = new Map();
+  const mapS = new Map();
+  for (const it of items || []) {
+    const m2 = Number(it?.m2 || 0) || 0;
+    if (m2 <= 0) continue;
+    if (it.kind === 'tepiha') mapT.set(m2, (mapT.get(m2) || 0) + 1);
+    else if (it.kind === 'staza') mapS.set(m2, (mapS.get(m2) || 0) + 1);
+    else if (it.kind === 'shkallore') {
+      res.shkallore.per = m2;
+      res.shkallore.qty += 1;
+    }
   }
-  return Array.from(map.values());
-}
-
-function buildOrderFromReturnItems(baseOrder, items, options = {}) {
-  const grouped = groupReturnItems(items);
-  const tepihaRows = grouped.filter((x) => x.kind === 'tepiha').map((x, i) => ({ id: `t${i+1}`, m2: String(x.m2), qty: String(x.qty) }));
-  const stazaRows = grouped.filter((x) => x.kind === 'staza').map((x, i) => ({ id: `s${i+1}`, m2: String(x.m2), qty: String(x.qty) }));
-  const stairs = grouped.filter((x) => x.kind === 'stairs');
-  const stairsQty = stairs.reduce((s, x) => s + Number(x.qty || 0), 0);
-  const stairsPer = stairs[0]?.m2 || getStairsPer(baseOrder);
-  const pieces = (items || []).length;
-  const m2Total = round2((items || []).reduce((s, x) => s + Number(x.m2 || 0), 0));
-  const rate = Number(options.rate || baseOrder?.pay?.rate || 0) || (Number(baseOrder?.price_total || baseOrder?.data?.price_total || 0) > 0 && Number(baseOrder?.m2_total || baseOrder?.data?.m2_total || computeM2(baseOrder) || 0) > 0 ? Number(baseOrder?.price_total || baseOrder?.data?.price_total || 0) / Number(baseOrder?.m2_total || baseOrder?.data?.m2_total || computeM2(baseOrder) || 1) : 0);
-  const priceTotal = round2(m2Total * rate);
-  return {
-    tepihaRows,
-    stazaRows,
-    stairsQty,
-    stairsPer,
-    pieces,
-    m2_total: m2Total,
-    price_total: priceTotal,
-    pay: {
-      ...(baseOrder?.pay || {}),
-      rate,
-      euro: priceTotal,
-    },
-  };
+  res.tepiha = Array.from(mapT.entries()).map(([m2, qty]) => ({ m2: Number(m2), qty }));
+  res.staza = Array.from(mapS.entries()).map(([m2, qty]) => ({ m2: Number(m2), qty }));
+  return res;
 }
 function triggerFatalCacheHeal() {
   console.error('Fatal Cache Error Detected. Auto-healing...');
@@ -233,10 +215,10 @@ export default function GatiPage() {
   const [retOrder, setRetOrder] = useState(null);
   const [retReason, setRetReason] = useState('');
   const [retPhotoUrl, setRetPhotoUrl] = useState('');
+  const [retItems, setRetItems] = useState([]);
+  const [retPayMode, setRetPayMode] = useState('original');
   const [retBusy, setRetBusy] = useState(false);
   const [retErr, setRetErr] = useState('');
-  const [retItems, setRetItems] = useState([]);
-  const [retPaidMode, setRetPaidMode] = useState('original');
   const [photoUploading, setPhotoUploading] = useState(false);
   const returnPhotoInputRef = useRef(null);
 
@@ -806,6 +788,8 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
       setRetOrder(order);
       setRetReason('');
       setRetPhotoUrl('');
+      setRetItems(explodeReturnPieces(order));
+      setRetPayMode('original');
       setShowReturnSheet(true);
     } catch (e) {
       setRetErr('Gabim gjatë hapjes së kthimit.');
@@ -820,10 +804,10 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
     setRetOrder(null);
     setRetReason('');
     setRetPhotoUrl('');
+    setRetItems([]);
+    setRetPayMode('original');
     setRetErr('');
     setRetBusy(false);
-    setRetItems([]);
-    setRetPaidMode('original');
     try { if (returnPhotoInputRef.current) returnPhotoInputRef.current.value = ''; } catch {}
   }
 
@@ -860,214 +844,121 @@ async function resolveReturnDbId(row) {
     if (!error && Array.isArray(data) && data[0]?.id) return Number(data[0].id);
   } catch {}
 
-
-  async function openReturnSheet(row) {
-    try {
-      let order = null;
-      try {
-        const res = await dbFetchOrderById(row.id);
-        order = res?.order || null;
-      } catch {}
-      if (!order) {
-        try {
-          const raw = localStorage.getItem(`order_${row.id}`);
-          if (raw) order = JSON.parse(raw);
-        } catch {}
-      }
-      if (!order) {
-        try {
-          order = await downloadJsonNoCache(`orders/${row.id}.json`);
-        } catch {}
-      }
-      if (!order) throw new Error('ORDER_NOT_FOUND');
-      if (!order.id) order.id = String(row.id);
-      if (!order.db_id) order.db_id = Number(row.id);
-      if (!order.code) order.code = row.code;
-      if (!order.client_name) order.client_name = row.name || '';
-      if (!order.client_phone) order.client_phone = row.phone || '';
-      setRetOrder(order);
-      setRetItems(expandReturnItems(order));
-      setRetReason('');
-      setRetPhotoUrl('');
-      setRetErr('');
-      setRetPaidMode('original');
-      setShowReturnSheet(true);
-    } catch (e) {
-      alert('❌ Nuk u hap kthimi.');
-    }
-  }
-
-  async function reserveReturnCode() {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('code')
-      .order('code', { ascending: false })
-      .limit(1);
-    if (error) throw error;
-    return Number(data?.[0]?.code || 0) + 1;
-  }
+  return null;
+}
 
 
   async function confirmReturn() {
     setRetBusy(true);
     setRetErr('');
-
-    const oid = await resolveReturnDbId(retOrder);
-    if (!oid) {
-      setRetErr("S'u gjet ID e porosisë për kthim.");
-      setRetBusy(false);
-      alert("❌ S'u gjet porosia për kthim.");
-      return;
-    }
-
-    const reason = (retReason || '').trim();
-    if (!reason) {
-      setRetErr('Shkruaj arsyen e kthimit.');
-      setRetBusy(false);
-      return;
-    }
-
-    const selected = (retItems || []).filter((x) => x.selected);
-    if (!selected.length) {
-      setRetErr('Zgjidh të paktën një tepih që po kthehet.');
-      setRetBusy(false);
-      return;
-    }
-
     try {
-      const { row, order } = await dbFetchOrderById(oid);
-      const baseOrder = order || retOrder || {};
-      const allItems = expandReturnItems(baseOrder);
+      const oid = await resolveReturnDbId(retOrder);
+      if (!oid) {
+        setRetErr("S'u gjet ID e porosisë për kthim.");
+        alert("❌ S'u gjet porosia për kthim.");
+        return;
+      }
+      const reason = (retReason || '').trim();
+      if (!reason) {
+        setRetErr('Shkruaj arsyen e kthimit.');
+        return;
+      }
+      const selected = (retItems || []).filter((x) => x?.selected);
+      if (!selected.length) {
+        setRetErr('Zgjidh të paktën një tepih për kthim.');
+        return;
+      }
+      const full = await dbFetchOrderById(oid).catch(() => null);
+      const baseOrder = full?.order || retOrder || {};
+      const allPieces = explodeReturnPieces(baseOrder);
       const selectedIds = new Set(selected.map((x) => x.id));
-      const returnedItems = allItems.filter((x) => selectedIds.has(x.id));
-      const remainingItems = allItems.filter((x) => !selectedIds.has(x.id));
-      const originalPieces = allItems.length;
-      const originalM2 = round2(allItems.reduce((s, x) => s + Number(x.m2 || 0), 0));
-      const originalPrice = Number(row?.price_total || baseOrder?.price_total || baseOrder?.data?.price_total || computeTotalEuro(baseOrder) || 0);
-      const originalPaid = Number(row?.paid_cash || baseOrder?.paid_cash || baseOrder?.pay?.paid || 0);
-      const rate = originalM2 > 0 ? originalPrice / originalM2 : Number(baseOrder?.pay?.rate || 0);
-
-      const retBuilt = buildOrderFromReturnItems(baseOrder, returnedItems, { rate });
-      const remBuilt = buildOrderFromReturnItems(baseOrder, remainingItems, { rate });
-
-      let returnPaid = 0;
-      let remainingPaid = 0;
-      if (retPaidMode === 'paid') {
-        returnPaid = retBuilt.price_total;
-        remainingPaid = Math.max(0, originalPaid - returnPaid);
-      } else if (retPaidMode === 'unpaid') {
-        returnPaid = 0;
-        remainingPaid = originalPaid;
-      } else {
-        const ratio = originalPrice > 0 ? Math.min(1, originalPaid / originalPrice) : 0;
-        returnPaid = round2(retBuilt.price_total * ratio);
-        remainingPaid = round2(Math.max(0, originalPaid - returnPaid));
+      const remaining = allPieces.filter((x) => !selectedIds.has(x.id));
+      const selAgg = aggregateReturnPieces(selected);
+      const remAgg = aggregateReturnPieces(remaining);
+      const returnedPieces = selected.length;
+      const returnedM2 = round2(selected.reduce((sum, item) => sum + Number(item?.m2 || 0), 0));
+      const originalM2 = Number(baseOrder?.m2_total ?? baseOrder?.data?.m2_total ?? computeM2(baseOrder) ?? 0) || 0;
+      const originalTotal = Number(baseOrder?.price_total ?? baseOrder?.data?.price_total ?? computeTotalEuro(baseOrder) ?? 0) || 0;
+      const originalPaid = Number(baseOrder?.paid_cash ?? baseOrder?.data?.paid_cash ?? baseOrder?.pay?.paid ?? 0) || 0;
+      const pricePerM2 = originalM2 > 0 ? (originalTotal / originalM2) : 0;
+      const returnedPrice = round2(returnedM2 * pricePerM2);
+      const remainingM2 = round2(remaining.reduce((sum, item) => sum + Number(item?.m2 || 0), 0));
+      const remainingPrice = round2(Math.max(0, originalTotal - returnedPrice));
+      let returnedPaid = 0;
+      if (retPayMode === 'paid') returnedPaid = returnedPrice;
+      else if (retPayMode === 'debt') returnedPaid = 0;
+      else {
+        const ratio = originalTotal > 0 ? Math.max(0, Math.min(1, originalPaid / originalTotal)) : 0;
+        returnedPaid = round2(returnedPrice * ratio);
       }
-
-      const at = Date.now();
-      const entry = {
-        id: `ret_${oid}_${at}`,
-        ts: at,
-        from: 'gati',
-        reason,
-        photoUrl: retPhotoUrl || '',
+      const returnedData = {
+        ...((baseOrder?.data && typeof baseOrder.data === 'object') ? baseOrder.data : {}),
+        tepiha: selAgg.tepiha,
+        tepihaRows: selAgg.tepiha,
+        staza: selAgg.staza,
+        stazaRows: selAgg.staza,
+        shkallore: selAgg.shkallore,
+        stairsQty: selAgg.shkallore.qty,
+        stairsPer: selAgg.shkallore.per,
+        returnInfo: { active: true, reason, photoUrl: retPhotoUrl || '', at: Date.now() },
       };
 
-      const returnInfo = {
-        active: true,
-        reason,
-        photoUrl: retPhotoUrl || '',
-        at,
-      };
-
-      const baseData = (baseOrder?.data && typeof baseOrder.data === 'object') ? baseOrder.data : (baseOrder || {});
-      const returnData = {
-        ...baseData,
-        tepihaRows: retBuilt.tepihaRows,
-        stazaRows: retBuilt.stazaRows,
-        stairsQty: retBuilt.stairsQty,
-        stairsPer: retBuilt.stairsPer,
-        pieces: retBuilt.pieces,
-        m2_total: retBuilt.m2_total,
-        price_total: retBuilt.price_total,
-        paid_cash: returnPaid,
-        client_name: row?.client_name || baseOrder?.client_name || baseOrder?.client?.name || '',
-        client_phone: row?.client_phone || baseOrder?.client_phone || baseOrder?.client?.phone || '',
-        returnInfo,
-        returnLog: Array.isArray(baseData?.returnLog) ? [entry, ...baseData.returnLog] : [entry],
-      };
-
-      if (!remainingItems.length) {
-        const { error: updErr } = await supabase
-          .from('orders')
-          .update({
-            status: 'pastrim',
-            client_name: returnData.client_name,
-            client_phone: returnData.client_phone,
-            pieces: retBuilt.pieces,
-            m2_total: retBuilt.m2_total,
-            price_total: retBuilt.price_total,
-            paid_cash: returnPaid,
-            is_paid_upfront: returnPaid >= retBuilt.price_total && retBuilt.price_total > 0,
-            note: reason,
-            ready_at: null,
-            picked_up_at: null,
-            data: returnData,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', oid);
-        if (updErr) throw updErr;
+      if (!remaining.length) {
+        const { error: dbErr } = await supabase.from('orders').update({
+          status: 'pastrim',
+          client_name: baseOrder?.client_name || baseOrder?.data?.client_name || baseOrder?.client?.name || null,
+          client_phone: baseOrder?.client_phone || baseOrder?.data?.client_phone || baseOrder?.client?.phone || null,
+          pieces: returnedPieces,
+          m2_total: returnedM2,
+          price_total: returnedPrice,
+          paid_cash: returnedPaid,
+          is_paid_upfront: returnedPaid >= returnedPrice && returnedPrice > 0,
+          note: reason,
+          ready_at: null,
+          picked_up_at: null,
+          data: returnedData,
+          updated_at: new Date().toISOString(),
+        }).eq('id', oid);
+        if (dbErr) throw dbErr;
       } else {
-        const newCode = await reserveReturnCode();
-        const { error: insErr } = await supabase
-          .from('orders')
-          .insert({
-            status: 'pastrim',
-            code: newCode,
-            client_name: returnData.client_name,
-            client_phone: returnData.client_phone,
-            pieces: retBuilt.pieces,
-            m2_total: retBuilt.m2_total,
-            price_total: retBuilt.price_total,
-            paid_cash: returnPaid,
-            is_paid_upfront: returnPaid >= retBuilt.price_total && retBuilt.price_total > 0,
-            note: reason,
-            data: {
-              ...returnData,
-              return_parent_code: row?.code || baseOrder?.code || null,
-            },
-            updated_at: new Date().toISOString(),
-          });
-        if (insErr) throw insErr;
-
         const remainingData = {
-          ...baseData,
-          tepihaRows: remBuilt.tepihaRows,
-          stazaRows: remBuilt.stazaRows,
-          stairsQty: remBuilt.stairsQty,
-          stairsPer: remBuilt.stairsPer,
-          pieces: remBuilt.pieces,
-          m2_total: remBuilt.m2_total,
-          price_total: remBuilt.price_total,
-          paid_cash: remainingPaid,
+          ...((baseOrder?.data && typeof baseOrder.data === 'object') ? baseOrder.data : {}),
+          tepiha: remAgg.tepiha,
+          tepihaRows: remAgg.tepiha,
+          staza: remAgg.staza,
+          stazaRows: remAgg.staza,
+          shkallore: remAgg.shkallore,
+          stairsQty: remAgg.shkallore.qty,
+          stairsPer: remAgg.shkallore.per,
         };
-
-        const { error: updErr } = await supabase
-          .from('orders')
-          .update({
-            status: 'gati',
-            pieces: remBuilt.pieces,
-            m2_total: remBuilt.m2_total,
-            price_total: remBuilt.price_total,
-            paid_cash: remainingPaid,
-            is_paid_upfront: remainingPaid >= remBuilt.price_total && remBuilt.price_total > 0,
-            data: remainingData,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', oid);
+        const remainingPaid = retPayMode === 'original' ? round2(Math.max(0, originalPaid - returnedPaid)) : Math.min(originalPaid, remainingPrice);
+        const { error: updErr } = await supabase.from('orders').update({
+          pieces: remaining.length,
+          m2_total: remainingM2,
+          price_total: remainingPrice,
+          paid_cash: remainingPaid,
+          is_paid_upfront: remainingPaid >= remainingPrice && remainingPrice > 0,
+          data: remainingData,
+          updated_at: new Date().toISOString(),
+        }).eq('id', oid);
         if (updErr) throw updErr;
+        const { error: insErr } = await supabase.from('orders').insert({
+          status: 'pastrim',
+          code: Number(baseOrder?.code || 0) || null,
+          client_name: baseOrder?.client_name || baseOrder?.data?.client_name || baseOrder?.client?.name || null,
+          client_phone: baseOrder?.client_phone || baseOrder?.data?.client_phone || baseOrder?.client?.phone || null,
+          pieces: returnedPieces,
+          m2_total: returnedM2,
+          price_total: returnedPrice,
+          paid_cash: returnedPaid,
+          is_paid_upfront: returnedPaid >= returnedPrice && returnedPrice > 0,
+          note: reason,
+          data: returnedData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        if (insErr) throw insErr;
       }
-
       closeReturn();
       await refreshOrders();
     } catch (e) {
@@ -1078,7 +969,6 @@ async function resolveReturnDbId(row) {
       setRetBusy(false);
     }
   }
-
 
   function openCodeMenu(row) {
     setMenuOrder(row || null);
@@ -1437,7 +1327,7 @@ async function resolveReturnDbId(row) {
                 onClick={() => {
                   const row = menuOrder;
                   closeCodeMenu();
-                  openReturnSheet(row);
+                  openReturn(row);
                 }}
                 style={{ width: '100%', padding: 14, fontWeight: 900 }}
               >
@@ -1574,6 +1464,28 @@ async function resolveReturnDbId(row) {
                     rows={5}
                     style={{ minHeight: 120, resize: 'vertical', paddingTop: 12 }}
                   />
+                </div>
+
+                <div>
+                  <div className="label" style={{ marginBottom: 8 }}>TEPIHAT QË KTHEHEN</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {(retItems || []).map((it) => (
+                      <label key={it.id} className="row" style={{ gap: 10, alignItems: 'center' }}>
+                        <input type="checkbox" checked={!!it.selected} onChange={(e) => setRetItems((prev) => prev.map((x) => x.id === it.id ? { ...x, selected: e.target.checked } : x))} />
+                        <span style={{ fontWeight: 800, color: '#fff' }}>{Number(it.m2 || 0).toFixed(1)} m²</span>
+                        <span style={{ color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase' }}>{it.kind}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="label" style={{ marginBottom: 8 }}>PAGESA E KTHIMIT</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <label className="row" style={{ gap: 8, alignItems: 'center' }}><input type="radio" checked={retPayMode === 'original'} onChange={() => setRetPayMode('original')} /> <span>SI ORIGJINALI</span></label>
+                    <label className="row" style={{ gap: 8, alignItems: 'center' }}><input type="radio" checked={retPayMode === 'paid'} onChange={() => setRetPayMode('paid')} /> <span>E PAGUAR</span></label>
+                    <label className="row" style={{ gap: 8, alignItems: 'center' }}><input type="radio" checked={retPayMode === 'debt'} onChange={() => setRetPayMode('debt')} /> <span>BORXH</span></label>
+                  </div>
                 </div>
 
                 <div>
