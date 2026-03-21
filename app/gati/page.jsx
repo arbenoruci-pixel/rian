@@ -25,6 +25,11 @@ function readActor() {
 
 const BUCKET = 'tepiha-photos';
 const PAY_CHIPS = [5, 10, 20, 30, 50];
+const RETURN_M2_CHIPS = [1.0, 1.2, 1.5, 1.9, 2.0, 2.2, 2.5, 3.0, 3.5, 3.7, 4.0, 6.0];
+
+function makeReturnRow(m2 = '') {
+  return { id: `rr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, m2: m2 === '' ? '' : String(m2) };
+}
 
 // ---------------- HELPERS ----------------
 function normalizeCode(raw) {
@@ -98,6 +103,70 @@ function computePieces(order) {
   p += getStairsQty(order);
   return p;
 }
+function expandOrderItems(order) {
+  const out = [];
+  for (const r of getTepihaRows(order)) {
+    const qty = Number(r?.qty ?? r?.pieces ?? 0) || 0;
+    const m2 = Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0;
+    for (let i = 0; i < qty; i += 1) out.push({ type: 'tepiha', m2: round2(m2) });
+  }
+  for (const r of getStazaRows(order)) {
+    const qty = Number(r?.qty ?? r?.pieces ?? 0) || 0;
+    const m2 = Number(r?.m2 ?? r?.m ?? r?.area ?? 0) || 0;
+    for (let i = 0; i < qty; i += 1) out.push({ type: 'staza', m2: round2(m2) });
+  }
+  const stairsQty = getStairsQty(order);
+  const stairsPer = getStairsPer(order);
+  for (let i = 0; i < stairsQty; i += 1) out.push({ type: 'stairs', m2: round2(stairsPer || 0.3) });
+  return out;
+}
+
+function compressItemsToData(items) {
+  const buckets = new Map();
+  (items || []).forEach((it) => {
+    const m2 = round2(Number(it?.m2 || 0));
+    if (!(m2 > 0)) return;
+    const key = `${it?.type || 'tepiha'}:${m2.toFixed(2)}`;
+    const prev = buckets.get(key) || { type: it?.type || 'tepiha', m2, qty: 0 };
+    prev.qty += 1;
+    buckets.set(key, prev);
+  });
+  const tepihaRows = [];
+  const stazaRows = [];
+  let stairsQty = 0;
+  let stairsPer = 0.3;
+  Array.from(buckets.values()).forEach((b, idx) => {
+    if (b.type === 'stairs') {
+      stairsQty += b.qty;
+      stairsPer = b.m2 || stairsPer;
+      return;
+    }
+    const row = { id: `${b.type[0] || 't'}${idx + 1}`, m2: String(b.m2), qty: String(b.qty) };
+    if (b.type === 'staza') stazaRows.push(row); else tepihaRows.push(row);
+  });
+  const pieces = (items || []).length;
+  const m2_total = round2((items || []).reduce((s, it) => s + Number(it?.m2 || 0), 0));
+  return { tepihaRows, stazaRows, stairsQty, stairsPer, pieces, m2_total };
+}
+
+function buildReturnRowsFromOrder(order) {
+  const items = expandOrderItems(order);
+  return items.length ? items.map((it) => makeReturnRow(it.m2)) : [makeReturnRow('')];
+}
+
+function parseReturnRows(rows) {
+  return (rows || []).map((r) => round2(Number(r?.m2 || 0))).filter((m2) => m2 > 0).map((m2) => ({ type: 'tepiha', m2 }));
+}
+
+function subtractReturnedItems(originalItems, returnedItems) {
+  const remaining = [...(originalItems || [])];
+  for (const ret of returnedItems || []) {
+    const idx = remaining.findIndex((it) => Math.abs(Number(it?.m2 || 0) - Number(ret?.m2 || 0)) < 0.011);
+    if (idx >= 0) remaining.splice(idx, 1);
+  }
+  return remaining;
+}
+
 function triggerFatalCacheHeal() {
   console.error('Fatal Cache Error Detected. Auto-healing...');
   try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
@@ -177,6 +246,7 @@ export default function GatiPage() {
   const [retOrder, setRetOrder] = useState(null);
   const [retReason, setRetReason] = useState('');
   const [retPhotoUrl, setRetPhotoUrl] = useState('');
+  const [retRows, setRetRows] = useState([makeReturnRow('')]);
   const [retBusy, setRetBusy] = useState(false);
   const [retErr, setRetErr] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -748,6 +818,7 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
       setRetOrder(order);
       setRetReason('');
       setRetPhotoUrl('');
+      setRetRows(buildReturnRowsFromOrder(order));
       setShowReturnSheet(true);
     } catch (e) {
       setRetErr('Gabim gjatë hapjes së kthimit.');
@@ -762,6 +833,7 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
     setRetOrder(null);
     setRetReason('');
     setRetPhotoUrl('');
+    setRetRows([makeReturnRow('')]);
     setRetErr('');
     setRetBusy(false);
     try { if (returnPhotoInputRef.current) returnPhotoInputRef.current.value = ''; } catch {}
@@ -804,192 +876,195 @@ async function resolveReturnDbId(row) {
 }
 
 
+  function setReturnRowValue(id, value) {
+    setRetRows((prev) => prev.map((r) => (r.id === id ? { ...r, m2: value } : r)));
+  }
+
+  function addReturnRow(prefill = '') {
+    setRetRows((prev) => [...prev, makeReturnRow(prefill)]);
+  }
+
+  function removeReturnRow(id) {
+    setRetRows((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      return next.length ? next : [makeReturnRow('')];
+    });
+  }
+
   async function confirmReturn() {
     setRetBusy(true);
     setRetErr('');
 
-    const oid = await resolveReturnDbId(retOrder);
-    if (!oid) {
-      setRetErr("S'u gjet ID e porosisë për kthim.");
-      setRetBusy(false);
-      alert("❌ S'u gjet porosia për kthim.");
-      return;
-    }
-
-    const reason = (retReason || '').trim();
-    if (!reason) {
-      setRetErr('Shkruaj arsyen e kthimit.');
-      setRetBusy(false);
-      return;
-    }
-
-    const at = Date.now();
-    const entry = {
-      id: `ret_${oid}_${at}`,
-      ts: at,
-      from: 'gati',
-      reason,
-      photoUrl: retPhotoUrl || '',
-    };
-
-    const returnInfo = {
-      active: true,
-      reason,
-      photoUrl: retPhotoUrl || '',
-      at,
-    };
-
-    let fullOrder = null;
     try {
-      const { data, error } = await supabase
+      const oid = await resolveReturnDbId(retOrder);
+      if (!oid) {
+        setRetErr("S'u gjet ID e porosisë për kthim.");
+        alert("❌ S'u gjet porosia për kthim.");
+        return;
+      }
+
+      const reason = (retReason || '').trim();
+      if (!reason) {
+        setRetErr('Shkruaj arsyen e kthimit.');
+        return;
+      }
+
+      const selectedItems = parseReturnRows(retRows);
+      if (!selectedItems.length) {
+        setRetErr('Zgjidh të paktën një tepih / masë për kthim.');
+        return;
+      }
+
+      const { data: fullOrderRow, error: fetchErr } = await supabase
         .from('orders')
         .select('*')
         .eq('id', oid)
         .single();
-      if (!error && data) fullOrder = data;
-    } catch {}
 
-    const dbData = fullOrder?.data && typeof fullOrder.data === 'object' ? fullOrder.data : {};
-    const prevData = retOrder?.data && typeof retOrder.data === 'object' ? retOrder.data : {};
-    const mergedPrev = { ...dbData, ...prevData };
-
-    const preservedName =
-      fullOrder?.client_name ||
-      retOrder?.client_name ||
-      mergedPrev?.client_name ||
-      mergedPrev?.client?.name ||
-      retOrder?.name ||
-      null;
-
-    const preservedPhone =
-      fullOrder?.client_phone ||
-      retOrder?.client_phone ||
-      mergedPrev?.client_phone ||
-      mergedPrev?.client?.phone ||
-      retOrder?.phone ||
-      null;
-
-    const preservedPieces = Number(
-      fullOrder?.pieces ??
-      retOrder?.pieces ??
-      mergedPrev?.pieces ??
-      fullOrder?.qty ??
-      retOrder?.qty ??
-      mergedPrev?.qty ??
-      0
-    ) || 0;
-
-    const preservedM2 = Number(
-      fullOrder?.m2_total ??
-      retOrder?.m2_total ??
-      mergedPrev?.m2_total ??
-      fullOrder?.m2 ??
-      retOrder?.m2 ??
-      mergedPrev?.m2 ??
-      0
-    ) || 0;
-
-    const preservedPrice = Number(
-      fullOrder?.price_total ??
-      retOrder?.price_total ??
-      mergedPrev?.price_total ??
-      fullOrder?.price ??
-      retOrder?.price ??
-      mergedPrev?.price ??
-      0
-    ) || 0;
-
-    const nextData = {
-      ...mergedPrev,
-      client_name: preservedName,
-      client_phone: preservedPhone,
-      pieces: preservedPieces,
-      m2_total: preservedM2,
-      price_total: preservedPrice,
-      returnInfo,
-      returnLog: Array.isArray(mergedPrev?.returnLog) ? [entry, ...mergedPrev.returnLog] : [entry],
-      ready_at: null,
-      picked_up_at: null,
-      delivered_at: null,
-      ready_location: mergedPrev?.ready_location || retOrder?.ready_location || '',
-      ready_note: mergedPrev?.ready_note || retOrder?.ready_note || '',
-    };
-
-    const updated = {
-      ...(fullOrder || {}),
-      ...(retOrder || {}),
-      id: retOrder?.id || fullOrder?.id || oid,
-      db_id: retOrder?.db_id || retOrder?.data?.db_id || fullOrder?.id || oid,
-      status: 'pastrim',
-      client_name: preservedName,
-      client_phone: preservedPhone,
-      pieces: preservedPieces,
-      m2_total: preservedM2,
-      price_total: preservedPrice,
-      data: nextData,
-      returnInfo,
-      returnLog: nextData.returnLog,
-      ready_at: null,
-      picked_up_at: null,
-      delivered_at: null,
-    };
-
-    try {
-      try {
-        await saveOrderLocal(updated);
-      } catch {}
-      try {
-        localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
-      } catch {}
-
-      const blob = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(updated)], { type: 'application/json' }) : null;
-      if (blob) {
-        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
-          upsert: true,
-          cacheControl: '0',
-          contentType: 'application/json',
-        });
+      if (fetchErr || !fullOrderRow) {
+        setRetErr("S'u gjet porosia në DB.");
+        alert("❌ Nuk u gjet porosia në DB.");
+        return;
       }
 
-      const { error: dbErr } = await supabase
+      const prevData = (fullOrderRow?.data && typeof fullOrderRow.data === 'object') ? fullOrderRow.data : {};
+      const originalOrder = { ...prevData, id: String(fullOrderRow.id), db_id: fullOrderRow.id };
+      const originalItems = expandOrderItems(originalOrder);
+      if (selectedItems.length > originalItems.length) {
+        setRetErr('Po kthen më shumë tepihë sesa ka porosia.');
+        return;
+      }
+
+      const remainingItems = subtractReturnedItems(originalItems, selectedItems);
+      const returnedPack = compressItemsToData(selectedItems);
+      const remainingPack = compressItemsToData(remainingItems);
+
+      const originalM2 = Number(fullOrderRow.m2_total ?? computeM2(originalOrder) ?? 0) || 0;
+      const originalPrice = Number(fullOrderRow.price_total ?? computeTotalEuro(originalOrder) ?? 0) || 0;
+      const unitRate = originalM2 > 0 ? originalPrice / originalM2 : 0;
+      const returnedPrice = round2(returnedPack.m2_total * unitRate);
+      const remainingPrice = round2(Math.max(0, originalPrice - returnedPrice));
+
+      const preservedName = fullOrderRow.client_name || prevData?.client_name || prevData?.client?.name || retOrder?.name || null;
+      const preservedPhone = fullOrderRow.client_phone || prevData?.client_phone || prevData?.client?.phone || retOrder?.phone || null;
+
+      const at = Date.now();
+      const entry = {
+        id: `ret_${oid}_${at}`,
+        ts: at,
+        from: 'gati',
+        reason,
+        photoUrl: retPhotoUrl || '',
+        pieces: returnedPack.pieces,
+        m2_total: returnedPack.m2_total,
+      };
+
+      const returnInfo = {
+        active: true,
+        reason,
+        photoUrl: retPhotoUrl || '',
+        at,
+        pieces: returnedPack.pieces,
+        m2_total: returnedPack.m2_total,
+      };
+
+      const { data: maxCodeRows } = await supabase.from('orders').select('code').order('code', { ascending: false }).limit(1);
+      const nextCode = (Number(maxCodeRows?.[0]?.code || 0) || 0) + 1;
+
+      const returnData = {
+        ...prevData,
+        tepihaRows: returnedPack.tepihaRows,
+        stazaRows: returnedPack.stazaRows,
+        stairsQty: returnedPack.stairsQty,
+        stairsPer: returnedPack.stairsPer,
+        pieces: returnedPack.pieces,
+        m2_total: returnedPack.m2_total,
+        price_total: returnedPrice,
+        client_name: preservedName,
+        client_phone: preservedPhone,
+        returnInfo,
+        returnLog: Array.isArray(prevData?.returnLog) ? [entry, ...prevData.returnLog] : [entry],
+        return_parent_id: oid,
+        return_parent_code: fullOrderRow.code,
+        return_label: 'KTHIM',
+        ready_at: null,
+        picked_up_at: null,
+        delivered_at: null,
+      };
+
+      const { error: insertErr } = await supabase
         .from('orders')
-        .update({
+        .insert({
           status: 'pastrim',
+          code: nextCode,
           client_name: preservedName,
           client_phone: preservedPhone,
-          pieces: preservedPieces,
-          m2_total: preservedM2,
-          price_total: preservedPrice,
-          ready_at: null,
-          picked_up_at: null,
-          data: nextData,
+          pieces: returnedPack.pieces,
+          m2_total: returnedPack.m2_total,
+          price_total: returnedPrice,
+          paid_cash: 0,
+          is_paid_upfront: false,
+          note: `KTHIM: ${reason}`,
+          data: returnData,
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', updated.db_id);
-      if (dbErr) throw dbErr;
+        });
+      if (insertErr) throw insertErr;
 
-      try {
-        const blob2 = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(entry)], { type: 'application/json' }) : null;
-        if (blob2) {
-          await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
-            upsert: true,
-            cacheControl: '0',
-            contentType: 'application/json',
-          });
-        }
-      } catch {}
+      if (remainingItems.length > 0) {
+        const nextOriginalData = {
+          ...prevData,
+          tepihaRows: remainingPack.tepihaRows,
+          stazaRows: remainingPack.stazaRows,
+          stairsQty: remainingPack.stairsQty,
+          stairsPer: remainingPack.stairsPer,
+          pieces: remainingPack.pieces,
+          m2_total: remainingPack.m2_total,
+          price_total: remainingPrice,
+          returnLog: Array.isArray(prevData?.returnLog) ? [entry, ...prevData.returnLog] : [entry],
+        };
+        const { error: dbErr } = await supabase
+          .from('orders')
+          .update({
+            status: 'gati',
+            client_name: preservedName,
+            client_phone: preservedPhone,
+            pieces: remainingPack.pieces,
+            m2_total: remainingPack.m2_total,
+            price_total: remainingPrice,
+            data: nextOriginalData,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', oid);
+        if (dbErr) throw dbErr;
+      } else {
+        const nextOriginalData = {
+          ...prevData,
+          returnLog: Array.isArray(prevData?.returnLog) ? [entry, ...prevData.returnLog] : [entry],
+          returnInfo,
+        };
+        const { error: dbErr } = await supabase
+          .from('orders')
+          .update({
+            status: 'pastrim',
+            client_name: preservedName,
+            client_phone: preservedPhone,
+            pieces: returnedPack.pieces,
+            m2_total: returnedPack.m2_total,
+            price_total: returnedPrice,
+            ready_at: null,
+            picked_up_at: null,
+            data: nextOriginalData,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', oid);
+        if (dbErr) throw dbErr;
+      }
 
       closeReturn();
       await refreshOrders();
     } catch (e) {
-      try {
-        await queueOp('patch_order_data', {
-          id: updated.db_id || updated.id,
-          data_patch: nextData,
-        });
-      } catch {}
       setRetErr(e?.message || 'Gabim gjatë ruajtjes së kthimit.');
-      alert('❌ Gabim gjatë ruajtjes së kthimit.');
+      alert("❌ Gabim gjatë ruajtjes së kthimit.");
     } finally {
       setRetBusy(false);
     }
@@ -1479,6 +1554,32 @@ async function resolveReturnDbId(row) {
                     rows={5}
                     style={{ minHeight: 120, resize: 'vertical', paddingTop: 12 }}
                   />
+                </div>
+
+                <div>
+                  <div className="label" style={{ marginBottom: 8 }}>TEPIHAT QË KTHEHEN</div>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {retRows.map((r, idx) => (
+                      <div key={r.id} className="card" style={{ marginTop: 0, padding: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                          <div style={{ fontWeight: 900, fontSize: 12, opacity: 0.85 }}>TEPIHI {idx + 1}</div>
+                          <button className="btn secondary" type="button" onClick={() => removeReturnRow(r.id)} disabled={retBusy || photoUploading}>HIQ</button>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                          {RETURN_M2_CHIPS.map((chip) => (
+                            <button key={`${r.id}_${chip}`} type="button" className={`chip ${String(r.m2) === String(chip) ? 'active' : ''}`} onClick={() => setReturnRowValue(r.id, String(chip))} disabled={retBusy || photoUploading}>
+                              {chip}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input className="input" value={r.m2} onChange={(e) => setReturnRowValue(r.id, e.target.value)} placeholder="Masë manuale" inputMode="decimal" />
+                          <button className="btn secondary" type="button" onClick={() => addReturnRow('')} disabled={retBusy || photoUploading}>+ SHTO</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 8 }}>Zgjidh me chips ose shkruaj masën manualisht. Kthimi mund të jetë parcial.</div>
                 </div>
 
                 <div>
