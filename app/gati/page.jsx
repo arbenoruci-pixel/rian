@@ -810,9 +810,9 @@ async function resolveReturnDbId(row) {
 
     const oid = await resolveReturnDbId(retOrder);
     if (!oid) {
-      setRetErr('S'u gjet ID e porosisë për kthim.');
+      setRetErr("S'u gjet ID e porosisë për kthim.");
       setRetBusy(false);
-      alert('❌ S'u gjet porosia për kthim.');
+      alert("❌ S'u gjet porosia për kthim.");
       return;
     }
 
