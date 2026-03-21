@@ -1658,8 +1658,8 @@ KOMPANIA JONI`;
           </div>
         ))}
         <div className="row btn-row">
-          <button className="row-add-btn" onClick={() => addRow('tepiha')}>+ RRESHT</button>
-          <button className="row-remove-btn" onClick={() => removeRow('tepiha')}>− RRESHT</button>
+          <button className="rbtn add" onClick={(e) => { e.currentTarget.classList.remove('pulse'); void e.currentTarget.offsetWidth; e.currentTarget.classList.add('pulse'); addRow('tepiha'); }}>+ RRESHT</button>
+          <button className="rbtn remove" onClick={(e) => { e.currentTarget.classList.remove('pulse'); void e.currentTarget.offsetWidth; e.currentTarget.classList.add('pulse'); removeRow('tepiha'); }}>− RRESHT</button>
         </div>
       </section>
 
@@ -1691,8 +1691,8 @@ KOMPANIA JONI`;
           </div>
         ))}
         <div className="row btn-row">
-          <button className="row-add-btn" onClick={() => addRow('staza')}>+ RRESHT</button>
-          <button className="row-remove-btn" onClick={() => removeRow('staza')}>− RRESHT</button>
+          <button className="rbtn add" onClick={(e) => { e.currentTarget.classList.remove('pulse'); void e.currentTarget.offsetWidth; e.currentTarget.classList.add('pulse'); addRow('staza'); }}>+ RRESHT</button>
+          <button className="rbtn remove" onClick={(e) => { e.currentTarget.classList.remove('pulse'); void e.currentTarget.offsetWidth; e.currentTarget.classList.add('pulse'); removeRow('staza'); }}>− RRESHT</button>
         </div>
       </section>
 
