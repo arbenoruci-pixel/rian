@@ -1658,8 +1658,8 @@ KOMPANIA JONI`;
           </div>
         ))}
         <div className="row btn-row">
-          <button className="rbtn add" onClick={(e) => { e.currentTarget.classList.remove('pulse'); void e.currentTarget.offsetWidth; e.currentTarget.classList.add('pulse'); addRow('tepiha'); }}>+ RRESHT</button>
-          <button className="rbtn remove" onClick={(e) => { e.currentTarget.classList.remove('pulse'); void e.currentTarget.offsetWidth; e.currentTarget.classList.add('pulse'); removeRow('tepiha'); }}>− RRESHT</button>
+          <button className="rbtn add" onClick={() => addRow('tepiha')}>+ RRESHT</button>
+          <button className="rbtn remove" onClick={() => removeRow('tepiha')}>− RRESHT</button>
         </div>
       </section>
 
@@ -1691,8 +1691,8 @@ KOMPANIA JONI`;
           </div>
         ))}
         <div className="row btn-row">
-          <button className="rbtn add" onClick={(e) => { e.currentTarget.classList.remove('pulse'); void e.currentTarget.offsetWidth; e.currentTarget.classList.add('pulse'); addRow('staza'); }}>+ RRESHT</button>
-          <button className="rbtn remove" onClick={(e) => { e.currentTarget.classList.remove('pulse'); void e.currentTarget.offsetWidth; e.currentTarget.classList.add('pulse'); removeRow('staza'); }}>− RRESHT</button>
+          <button className="rbtn add" onClick={() => addRow('staza')}>+ RRESHT</button>
+          <button className="rbtn remove" onClick={() => removeRow('staza')}>− RRESHT</button>
         </div>
       </section>
 
@@ -2079,40 +2079,54 @@ KOMPANIA JONI`;
           .apple-close{ width:42px; height:42px; flex-basis:42px; }
           .apple-sheet-actions .btn{ min-height:56px; font-size:18px; }
         }
-      `}
+
         .rbtn{
           width:100%;
-          height:58px;
+          min-height:56px;
           border-radius:18px;
           border:none;
           outline:none;
           display:flex;
           align-items:center;
           justify-content:center;
+          text-align:center;
           font-size:16px;
           font-weight:900;
+          letter-spacing:.2px;
           color:#fff;
           -webkit-appearance:none;
           appearance:none;
-          transition:all .15s ease;
-          background:none;
+          -webkit-tap-highlight-color: transparent;
+          transition:transform .14s ease, box-shadow .18s ease, filter .18s ease;
+          position:relative;
+          overflow:hidden;
         }
-
+        .rbtn::before{
+          content:'';
+          position:absolute;
+          inset:1px;
+          border-radius:17px;
+          background:linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.04));
+          pointer-events:none;
+        }
         .rbtn.add{
-          background: linear-gradient(180deg, #34C759, #16a34a) !important;
-          box-shadow: 0 10px 25px rgba(52,199,89,.35);
+          background:linear-gradient(180deg, #48df79 0%, #34C759 48%, #16a34a 100%) !important;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.24),
+            0 10px 24px rgba(52,199,89,.32),
+            0 0 0 1px rgba(134,239,172,.16) !important;
         }
-
         .rbtn.remove{
-          background: linear-gradient(180deg, #ff5f57, #dc2626) !important;
-          box-shadow: 0 10px 25px rgba(220,38,38,.35);
+          background:linear-gradient(180deg, #ff817a 0%, #ff5f57 48%, #dc2626 100%) !important;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.22),
+            0 10px 24px rgba(239,68,68,.28),
+            0 0 0 1px rgba(252,165,165,.14) !important;
         }
-
         .rbtn:active{
-          transform: scale(0.95);
+          transform:scale(.96);
         }
-
-</style>
+      `}</style>
     </div>
   );
 }
