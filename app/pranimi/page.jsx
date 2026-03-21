@@ -22,7 +22,7 @@ import { getClientBalanceByPhone } from '@/lib/clientBalanceDb';
 const BUCKET = 'tepiha-photos';
 
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.5, 3.7, 4.0, 5.0, 6.0, 8.0, 12.0];
-const STAZA_CHIPS = [1.2, 1.5, 1.6, 2.0, 2.4, 2.5, 3.0, 4.0, 5.0];
+const STAZA_CHIPS = [0.5, 0.8, 0.9, 1.2, 1.5, 1.6, 2.0, 2.4, 2.5, 3.0, 4.0, 5.0];
 
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
 const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
