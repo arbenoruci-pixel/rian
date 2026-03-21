@@ -7,11 +7,8 @@ import {
   dbGetActiveCycle,
   dbOpenCycle,
   dbCloseCycle,
-  dbReceiveCycle,
   dbAddCycleMove,
   dbListCycleMoves,
-  dbHasPendingHanded,
-  dbListPendingHanded,
   dbGetCarryoverToday,
   dbListHistoryDays,
   dbListCyclesByDay,
@@ -21,12 +18,17 @@ import {
   listPendingCashPayments,
   applyPendingPaymentToCycle,
   rejectPendingPayment,
-  listWorkerOwedPayments,
   markOwedAsPending,
   markOwedAsAdvance,
 } from "@/lib/arkaCashSync";
 
-import { supabase } from "@/lib/supabaseClient";
+import {
+  listPendingDispatchHandoffs,
+  acceptDispatchHandoff,
+  rejectDispatchHandoff,
+  listWorkerDebtRows,
+} from "@/lib/corporateFinance";
+
 import { budgetAddMove } from "@/lib/companyBudgetDb";
 
 const euro = (n) =>
@@ -126,8 +128,10 @@ export default function CashClient() {
   async function refresh(mode = "ALL") {
     setErr("");
     try {
-      const pending = await dbHasPendingHanded();
-      setPendingHanded(!!pending);
+      const dispatchHandoffs = await listPendingDispatchHandoffs();
+      const safeHandoffs = Array.isArray(dispatchHandoffs) ? dispatchHandoffs : [];
+      setPendingHanded(safeHandoffs.length > 0);
+      setHandedList(safeHandoffs);
 
       const c = await dbGetActiveCycle();
       setCycle(c || null);
@@ -144,9 +148,8 @@ export default function CashClient() {
         setCashCounted(String(Number(expectedCash || 0).toFixed(2)));
       }
 
-      if (mode === "DISPATCH" || tab === "DISPATCH" || pending) {
-        const list = await dbListPendingHanded();
-        setHandedList(Array.isArray(list) ? list : []);
+      if (mode === "DISPATCH" || tab === "DISPATCH" || safeHandoffs.length) {
+        setHandedList(safeHandoffs);
       }
 
       if (hasPin) {
@@ -159,12 +162,12 @@ export default function CashClient() {
       }
 
       // Kthimi i Borxheve
-      if (user?.name) {
+      if (user?.pin) {
         try {
-          const ow = await listWorkerOwedPayments(user.name, 80);
-          const rows = Array.isArray(ow?.rows) ? ow.rows : [];
-          setOwedPays(rows);
-          if (rows.length) setOwedModal(true);
+          const rows = await listWorkerDebtRows(user.pin, 80);
+          const safeRows = Array.isArray(rows) ? rows : [];
+          setOwedPays(safeRows);
+          if (safeRows.length) setOwedModal(true);
         } catch { setOwedPays([]); }
       } else {
         setOwedPays([]);
@@ -398,48 +401,19 @@ export default function CashClient() {
     }
   }
 
-  async function onReceiveCycle(cycle_id) {
-    if (!cycle_id) return;
+  async function onReceiveCycle(handoffId) {
+    if (!handoffId) return;
     setErr("");
     if (!isDispatch) {
-      setErr("VETËM DISPATCH MUND TA PRANOJË (RECEIVE) DORËZIMIN.");
+      setErr("VETËM DISPATCH MUND TA PRANOJË DORËZIMIN.");
       return;
     }
     setBusy(true);
     try {
-      await dbReceiveCycle({ cycle_id, received_by: user?.name || "DISPATCH", received_by_pin: user?.pin || null });
-
-      let c = (histCycles || []).find((x) => x.id === cycle_id) || null;
-      try {
-        const { data: fresh } = await supabase
-          .from('arka_cycles')
-          .select('id,cycle_no,end_cash,expected_cash,cash_counted')
-          .eq('id', cycle_id)
-          .maybeSingle();
-        if (fresh?.id) c = { ...(c || {}), ...fresh };
-      } catch {}
-
-      const amt = Number(c?.end_cash ?? c?.cash_counted ?? c?.expected_cash ?? 0);
-      if (amt > 0) {
-        try {
-          await budgetAddMove({
-            direction: 'IN',
-            amount: amt,
-            reason: 'ARKA_RECEIVED',
-            note: `CYCLE #${c?.cycle_no ?? ''} (RECEIVED)`,
-            source: 'CASH',
-            created_by: user?.name || 'DISPATCH',
-            created_by_name: user?.name || 'UNKNOWN',
-            created_by_pin: user?.pin || null,
-            ref_day_id: cycle_id,
-            ref_type: 'ARKA_CYCLE',
-            external_id: `arka_receive_${cycle_id}`,
-          });
-        } catch (eBudget) {
-          setErr((prev) => prev || (`BUXHETI S'U RUAJT: ${eBudget?.message || String(eBudget)}`));
-        }
-      }
-
+      await acceptDispatchHandoff({
+        handoffId,
+        actor: { pin: user?.pin || null, name: user?.name || null },
+      });
       await refresh("DISPATCH");
     } catch (e) {
       setErr(e?.message || String(e));
@@ -579,15 +553,39 @@ export default function CashClient() {
           {handedList?.length ? handedList.map((h) => (
              <div key={h.id} className="card">
                 <div className="flex-between">
-                   <div className="card-title">CIKLI #{h.cycle_no}</div>
-                   <div className="card-value">{euro(h.cash_counted ?? h.end_cash ?? 0)}</div>
+                   <div className="card-title">HANDOFF #{h.id} — {h.worker_name || h.worker_pin || 'PUNËTORI'}</div>
+                   <div className="card-value">{euro(h.amount || 0)}</div>
                 </div>
-                <div style={{color: '#94A3B8', fontSize: '13px', marginTop: '5px'}}>DATA: {h.day_key}</div>
-                <button className="btn-success" style={{marginTop: '15px', width: '100%'}} disabled={busy || !isDispatch} onClick={() => onReceiveCycle(h.id)}>
-                   ✅ PRANO DORËZIMIN
-                </button>
+                <div style={{color: '#94A3B8', fontSize: '13px', marginTop: '5px'}}>STATUS: {String(h.status || '').toUpperCase()}</div>
+                <div style={{color: '#94A3B8', fontSize: '13px', marginTop: '5px'}}>PAGESA: {(h.cash_handoff_items || []).length}</div>
+                <div style={{ display: 'grid', gap: '10px', marginTop: '15px' }}>
+                  <button className="btn-success" style={{ width: '100%' }} disabled={busy || !isDispatch} onClick={() => onReceiveCycle(h.id)}>
+                    ✅ PRANO DORËZIMIN
+                  </button>
+                  <button
+                    className="btn-outline"
+                    disabled={busy || !isDispatch}
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        await rejectDispatchHandoff({
+                          handoffId: h.id,
+                          actor: { pin: user?.pin || null, name: user?.name || null },
+                          note: 'REFUZUAR NGA DISPATCH',
+                        });
+                        await refresh("DISPATCH");
+                      } catch (e) {
+                        setErr(e?.message || String(e));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    ❌ REFUZO
+                  </button>
+                </div>
              </div>
-          )) : <div className="card text-center" style={{color: '#94A3B8'}}>S'ka asnjë arkë për të pranuar.</div>}
+          )) : <div className="card text-center" style={{color: '#94A3B8'}}>S'KA ASNJË DORËZIM NË PRITJE.</div>}
         </div>
       )}
 
