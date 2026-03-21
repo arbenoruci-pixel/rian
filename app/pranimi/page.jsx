@@ -1658,8 +1658,8 @@ KOMPANIA JONI`;
           </div>
         ))}
         <div className="row btn-row">
-          <button className="btn secondary row-add-btn" onClick={() => addRow('tepiha')}>+ RRESHT</button>
-          <button className="btn secondary row-remove-btn" onClick={() => removeRow('tepiha')}>− RRESHT</button>
+          <button className="btn row-add-btn" onClick={() => addRow('tepiha')}>+ RRESHT</button>
+          <button className="btn row-remove-btn" onClick={() => removeRow('tepiha')}>− RRESHT</button>
         </div>
       </section>
 
@@ -1691,8 +1691,8 @@ KOMPANIA JONI`;
           </div>
         ))}
         <div className="row btn-row">
-          <button className="btn secondary row-add-btn" onClick={() => addRow('staza')}>+ RRESHT</button>
-          <button className="btn secondary row-remove-btn" onClick={() => removeRow('staza')}>− RRESHT</button>
+          <button className="btn row-add-btn" onClick={() => addRow('staza')}>+ RRESHT</button>
+          <button className="btn row-remove-btn" onClick={() => removeRow('staza')}>− RRESHT</button>
         </div>
       </section>
 
