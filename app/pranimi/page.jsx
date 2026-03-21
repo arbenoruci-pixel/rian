@@ -1658,8 +1658,8 @@ KOMPANIA JONI`;
           </div>
         ))}
         <div className="row btn-row">
-          <button className="btn secondary" onClick={() => addRow('tepiha')}>+ RRESHT</button>
-          <button className="btn secondary" onClick={() => removeRow('tepiha')}>− RRESHT</button>
+          <button className="btn secondary row-add-btn" onClick={() => addRow('tepiha')}>+ RRESHT</button>
+          <button className="btn secondary row-remove-btn" onClick={() => removeRow('tepiha')}>− RRESHT</button>
         </div>
       </section>
 
@@ -1691,8 +1691,8 @@ KOMPANIA JONI`;
           </div>
         ))}
         <div className="row btn-row">
-          <button className="btn secondary" onClick={() => addRow('staza')}>+ RRESHT</button>
-          <button className="btn secondary" onClick={() => removeRow('staza')}>− RRESHT</button>
+          <button className="btn secondary row-add-btn" onClick={() => addRow('staza')}>+ RRESHT</button>
+          <button className="btn secondary row-remove-btn" onClick={() => removeRow('staza')}>− RRESHT</button>
         </div>
       </section>
 
@@ -2079,7 +2079,53 @@ KOMPANIA JONI`;
           .apple-close{ width:42px; height:42px; flex-basis:42px; }
           .apple-sheet-actions .btn{ min-height:56px; font-size:18px; }
         }
-      `}</style>
+      `}
+        .row-add-btn{
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.04)),
+            linear-gradient(180deg, rgba(52,199,89,.28) 0%, rgba(22,163,74,.18) 100%);
+          border:1.5px solid rgba(74,222,128,.42);
+          color:#eafff1;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.10),
+            0 8px 18px rgba(22,163,74,.18),
+            0 0 0 1px rgba(52,199,89,.06);
+          backdrop-filter: blur(10px);
+        }
+        .row-add-btn:hover{
+          filter: brightness(1.04);
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.12),
+            0 10px 22px rgba(22,163,74,.22),
+            0 0 0 1px rgba(52,199,89,.08);
+        }
+        .row-add-btn:active{
+          transform: scale(.985);
+        }
+        .row-remove-btn{
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.15), rgba(255,255,255,.04)),
+            linear-gradient(180deg, rgba(255,99,99,.24) 0%, rgba(220,38,38,.16) 100%);
+          border:1.5px solid rgba(252,165,165,.34);
+          color:#fff1f2;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.10),
+            0 8px 18px rgba(220,38,38,.14),
+            0 0 0 1px rgba(248,113,113,.05);
+          backdrop-filter: blur(10px);
+        }
+        .row-remove-btn:hover{
+          filter: brightness(1.04);
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.12),
+            0 10px 22px rgba(220,38,38,.18),
+            0 0 0 1px rgba(248,113,113,.08);
+        }
+        .row-remove-btn:active{
+          transform: scale(.985);
+        }
+
+      </style>
     </div>
   );
 }
