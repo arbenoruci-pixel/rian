@@ -2082,22 +2082,22 @@ KOMPANIA JONI`;
 
         .rbtn{
           width:100%;
-          min-height:56px;
-          border-radius:18px;
+          min-height:46px;
+          border-radius:16px;
           border:none;
           outline:none;
           display:flex;
           align-items:center;
           justify-content:center;
           text-align:center;
-          font-size:16px;
+          font-size:14px;
           font-weight:900;
           letter-spacing:.2px;
-          color:#fff;
+          color:#ffffff;
           -webkit-appearance:none;
           appearance:none;
           -webkit-tap-highlight-color: transparent;
-          transition:transform .14s ease, box-shadow .18s ease, filter .18s ease;
+          transition:transform .14s ease, box-shadow .18s ease, filter .18s ease, opacity .18s ease;
           position:relative;
           overflow:hidden;
         }
@@ -2105,26 +2105,29 @@ KOMPANIA JONI`;
           content:'';
           position:absolute;
           inset:1px;
-          border-radius:17px;
-          background:linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.04));
+          border-radius:15px;
+          background:linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.03));
           pointer-events:none;
         }
         .rbtn.add{
-          background:linear-gradient(180deg, #48df79 0%, #34C759 48%, #16a34a 100%) !important;
+          background:linear-gradient(180deg, #39d98a 0%, #26c66f 55%, #18a957 100%) !important;
           box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.24),
-            0 10px 24px rgba(52,199,89,.32),
-            0 0 0 1px rgba(134,239,172,.16) !important;
+            inset 0 1px 0 rgba(255,255,255,.18),
+            0 6px 16px rgba(24,169,87,.18),
+            0 0 0 1px rgba(97,230,155,.10) !important;
         }
         .rbtn.remove{
-          background:linear-gradient(180deg, #ff817a 0%, #ff5f57 48%, #dc2626 100%) !important;
+          background:linear-gradient(180deg, #ff8a80 0%, #ff6b61 55%, #f04438 100%) !important;
           box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.22),
-            0 10px 24px rgba(239,68,68,.28),
-            0 0 0 1px rgba(252,165,165,.14) !important;
+            inset 0 1px 0 rgba(255,255,255,.16),
+            0 6px 16px rgba(240,68,56,.16),
+            0 0 0 1px rgba(255,138,128,.10) !important;
+        }
+        .rbtn:hover{
+          filter:brightness(1.02);
         }
         .rbtn:active{
-          transform:scale(.96);
+          transform:scale(.97);
         }
       `}</style>
     </div>
