@@ -839,60 +839,87 @@ async function resolveReturnDbId(row) {
       at,
     };
 
-    const prevData = (retOrder?.data && typeof retOrder.data === 'object') ? retOrder.data : {};
+    let fullOrder = null;
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', oid)
+        .single();
+      if (!error && data) fullOrder = data;
+    } catch {}
+
+    const dbData = fullOrder?.data && typeof fullOrder.data === 'object' ? fullOrder.data : {};
+    const prevData = retOrder?.data && typeof retOrder.data === 'object' ? retOrder.data : {};
+    const mergedPrev = { ...dbData, ...prevData };
+
     const preservedName =
+      fullOrder?.client_name ||
       retOrder?.client_name ||
-      prevData?.client_name ||
-      prevData?.client?.name ||
+      mergedPrev?.client_name ||
+      mergedPrev?.client?.name ||
       retOrder?.name ||
       null;
+
     const preservedPhone =
+      fullOrder?.client_phone ||
       retOrder?.client_phone ||
-      prevData?.client_phone ||
-      prevData?.client?.phone ||
+      mergedPrev?.client_phone ||
+      mergedPrev?.client?.phone ||
       retOrder?.phone ||
       null;
+
     const preservedPieces = Number(
+      fullOrder?.pieces ??
       retOrder?.pieces ??
-      prevData?.pieces ??
+      mergedPrev?.pieces ??
+      fullOrder?.qty ??
       retOrder?.qty ??
-      prevData?.qty ??
+      mergedPrev?.qty ??
       0
     ) || 0;
+
     const preservedM2 = Number(
+      fullOrder?.m2_total ??
       retOrder?.m2_total ??
-      prevData?.m2_total ??
+      mergedPrev?.m2_total ??
+      fullOrder?.m2 ??
       retOrder?.m2 ??
-      prevData?.m2 ??
+      mergedPrev?.m2 ??
       0
     ) || 0;
+
     const preservedPrice = Number(
+      fullOrder?.price_total ??
       retOrder?.price_total ??
-      prevData?.price_total ??
+      mergedPrev?.price_total ??
+      fullOrder?.price ??
       retOrder?.price ??
+      mergedPrev?.price ??
       0
     ) || 0;
 
     const nextData = {
-      ...prevData,
+      ...mergedPrev,
       client_name: preservedName,
       client_phone: preservedPhone,
       pieces: preservedPieces,
       m2_total: preservedM2,
       price_total: preservedPrice,
       returnInfo,
-      returnLog: Array.isArray(prevData?.returnLog) ? [entry, ...prevData.returnLog] : [entry],
+      returnLog: Array.isArray(mergedPrev?.returnLog) ? [entry, ...mergedPrev.returnLog] : [entry],
       ready_at: null,
       picked_up_at: null,
       delivered_at: null,
-      ready_location: prevData?.ready_location || retOrder?.ready_location || '',
-      ready_note: prevData?.ready_note || retOrder?.ready_note || '',
+      ready_location: mergedPrev?.ready_location || retOrder?.ready_location || '',
+      ready_note: mergedPrev?.ready_note || retOrder?.ready_note || '',
     };
 
     const updated = {
-      ...retOrder,
-      id: retOrder?.id || oid,
-      db_id: retOrder?.db_id || retOrder?.data?.db_id || oid,
+      ...(fullOrder || {}),
+      ...(retOrder || {}),
+      id: retOrder?.id || fullOrder?.id || oid,
+      db_id: retOrder?.db_id || retOrder?.data?.db_id || fullOrder?.id || oid,
       status: 'pastrim',
       client_name: preservedName,
       client_phone: preservedPhone,
