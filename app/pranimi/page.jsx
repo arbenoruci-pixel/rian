@@ -452,17 +452,6 @@ export default function PranimiPage() {
   const [drafts, setDrafts] = useState([]);
   const [showDraftsSheet, setShowDraftsSheet] = useState(false);
 
-  const uniqueDrafts = useMemo(() => {
-    const sorted = [...(Array.isArray(drafts) ? drafts : [])].sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
-    const byCode = new Map();
-    for (const d of sorted) {
-      const codeNum = Number(d?.code);
-      const key = Number.isFinite(codeNum) && codeNum > 0 ? `code:${codeNum}` : `id:${String(d?.id || '')}`;
-      if (!byCode.has(key)) byCode.set(key, d);
-    }
-    return Array.from(byCode.values());
-  }, [drafts]);
-
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [oldClientDebt, setOldClientDebt] = useState(0);
@@ -757,8 +746,7 @@ export default function PranimiPage() {
       const merged = Array.from(byId.values()).sort((a, b) => Number(b.ts) - Number(a.ts));
       const byCode = new Map();
       for (const d of merged) {
-        const codeNum = Number(d?.code);
-        const key = Number.isFinite(codeNum) && codeNum > 0 ? `code:${codeNum}` : `id:${String(d?.id || '')}`;
+        const key = Number(d?.code) > 0 ? `code:${Number(d.code)}` : `id:${String(d?.id || '')}`;
         if (!byCode.has(key)) byCode.set(key, d);
       }
       setDrafts(Array.from(byCode.values()));
@@ -773,8 +761,7 @@ export default function PranimiPage() {
       const sorted = local.sort((a, b) => Number(b.ts) - Number(a.ts));
       const byCode = new Map();
       for (const d of sorted) {
-        const codeNum = Number(d?.code);
-        const key = Number.isFinite(codeNum) && codeNum > 0 ? `code:${codeNum}` : `id:${String(d?.id || '')}`;
+        const key = Number(d?.code) > 0 ? `code:${Number(d.code)}` : `id:${String(d?.id || '')}`;
         if (!byCode.has(key)) byCode.set(key, d);
       }
       setDrafts(Array.from(byCode.values()));
@@ -1137,7 +1124,7 @@ export default function PranimiPage() {
   }
 
   function applyChip(kind, val, ev) {
-    vibrateTap(15);
+    vibrateTap(30);
     setActiveChipKey(`${kind}:${Number(val)}`);
     if (ev?.currentTarget) bumpEl(ev.currentTarget);
 
@@ -1568,7 +1555,7 @@ KOMPANIA JONI`;
 
         <div className="client-toolbar">
           <button type="button" className="icon-chip search" onClick={() => setShowClientSearch(true)} aria-label="Kërko klient" title="KËRKO KLIENT">
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="icon-svg">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="28" height="28" className="icon-svg">
               <circle cx="11" cy="11" r="5.5" fill="none" stroke="currentColor" strokeWidth="2.2" />
               <path d="M16 16L21 21" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
             </svg>
@@ -1578,15 +1565,15 @@ KOMPANIA JONI`;
             className="icon-chip drafts"
             onClick={openDrafts}
             aria-label="Të pa plotsuarat"
-            title={`TË PA PLOTSUARAT${uniqueDrafts.length > 0 ? ` (${uniqueDrafts.length})` : ''}`}
+            title={`TË PA PLOTSUARAT${drafts.length > 0 ? ` (${drafts.length})` : ''}`}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="icon-svg">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="28" height="28" className="icon-svg">
               <path d="M6 7.5h12M6 12h12M6 16.5h12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
             </svg>
-            {uniqueDrafts.length > 0 ? <span className="header-icon-badge">{uniqueDrafts.length}</span> : null}
+            {drafts.length > 0 ? <span className="header-icon-badge">{drafts.length}</span> : null}
           </button>
           <button type="button" className="icon-chip add" onClick={openWizard} aria-label="Shto klient" title="SHTO KLIENT">
-            <svg viewBox="0 0 64 64" aria-hidden="true" className="icon-svg add-contact-svg">
+            <svg viewBox="0 0 64 64" aria-hidden="true" width="34" height="34" className="icon-svg add-contact-svg">
               <circle cx="24" cy="22" r="10" fill="currentColor" opacity="0.92" />
               <path d="M10 48c1.8-8 8-13 15-13s13.2 5 15 13" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round"/>
               <circle cx="46" cy="42" r="13" fill="none" stroke="currentColor" strokeWidth="5"/>
@@ -1621,7 +1608,7 @@ KOMPANIA JONI`;
             return (
             <button key={v} type="button" className={`chip chip-modern ${isActive ? 'selected' : ''}`} onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('tepiha', v, e)} style={chipStyleForVal(v, isActive)}>
               <span className="chip-text">{v.toFixed(1)}</span>
-              {isActive ? <span className="chip-tick" aria-hidden="true">✓</span> : null}
+              
             </button>
           )})}
         </div>
@@ -1654,7 +1641,7 @@ KOMPANIA JONI`;
             return (
             <button key={v} type="button" className={`chip chip-modern ${isActive ? 'selected' : ''}`} onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('staza', v, e)} style={chipStyleForVal(v, isActive)}>
               <span className="chip-text">{v.toFixed(1)}</span>
-              {isActive ? <span className="chip-tick" aria-hidden="true">✓</span> : null}
+              
             </button>
           )})}
         </div>
@@ -1717,7 +1704,7 @@ KOMPANIA JONI`;
           <div className="payfs-body">
             <div className="card" style={{ marginTop: 0 }}>
               {drafts.length === 0 ? <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>S’ka “të pa plotsuara”.</div> : (
-                uniqueDrafts.map((d) => (
+                drafts.map((d) => (
                   <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                       <div style={{ background: '#16a34a', color: '#0b0b0b', padding: '8px 10px', borderRadius: 10, fontWeight: 900, minWidth: 56, textAlign: 'center' }}>{d.code || '—'}</div>
@@ -1805,7 +1792,7 @@ KOMPANIA JONI`;
               <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label>
               <div className="chip-row">
                 {SHKALLORE_QTY_CHIPS.map((n) => (
-                  <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button>
+                  <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(30); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button>
                 ))}
               </div>
               <input type="number" className="input" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => { const v = e.target.value; setStairsQty(v === '' ? 0 : Number(v)); }} style={{ marginTop: 10 }} />
@@ -1814,7 +1801,7 @@ KOMPANIA JONI`;
               <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label>
               <div className="chip-row">
                 {SHKALLORE_PER_CHIPS.map((v) => (
-                  <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button>
+                  <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(30); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button>
                 ))}
               </div>
               <input type="number" step="0.01" className="input" value={Number(stairsPer || 0) === 0 ? '' : stairsPer} onChange={(e) => { const v = e.target.value; setStairsPer(v === '' ? 0 : Number(v)); }} style={{ marginTop: 10 }} />
@@ -1929,6 +1916,8 @@ KOMPANIA JONI`;
         .client-toolbar{ display:flex; gap:10px; margin-top:8px; }
         .icon-chip{ width:54px; height:54px; border:none; border-radius:999px; background:#f2f2f7; color:#111; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:900; box-shadow:0 10px 26px rgba(0,0,0,0.24); transition:transform .18s ease, box-shadow .18s ease, background .18s ease; }
         .icon-chip:active{ transform:scale(.97); }
+        .icon-chip svg{ width:28px; height:28px; display:block; flex:0 0 28px; overflow:visible; }
+        .icon-chip.add svg{ width:34px; height:34px; flex-basis:34px; }
         .icon-chip.plus{ background:#ffffff; }
         .header-icon-btn{ position:relative; width:42px; height:42px; border:none; border-radius:999px; background:#f2f2f7; color:#111; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:900; box-shadow:0 8px 20px rgba(0,0,0,0.18); transition:transform .18s ease, box-shadow .18s ease, background .18s ease; }
         .header-icon-btn:active{ transform:scale(.97); }
