@@ -1907,14 +1907,14 @@ KOMPANIA JONI`;
         .client-mini.large{ width:44px; height:44px; }
         .row-flash-add{ background:rgba(52,199,89,0.16); border-color:rgba(52,199,89,0.45)!important; box-shadow:0 0 0 1px rgba(52,199,89,0.22), 0 10px 26px rgba(52,199,89,0.12); transition:background .35s ease, border-color .35s ease, opacity .22s ease, transform .22s ease; }
         .row-flash-remove{ background:rgba(255,59,48,0.16); border-color:rgba(255,59,48,0.45)!important; opacity:.25; transform:scale(.985); transition:background .22s ease, border-color .22s ease, opacity .22s ease, transform .22s ease; }
-        .apple-sheet{ width:100%; max-width:430px; border-radius:28px; background:linear-gradient(180deg, #151518 0%, #0c0c0f 100%); border:1px solid rgba(255,255,255,0.10); box-shadow:0 24px 70px rgba(0,0,0,0.48); overflow:hidden; }
-        .apple-sheet.compact{ max-width:420px; }
-        .apple-sheet-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 18px 12px; border-bottom:1px solid rgba(255,255,255,0.08); }
-        .apple-sheet-title{ color:#fff; font-size:18px; font-weight:900; letter-spacing:.02em; }
-        .apple-sheet-sub{ color:rgba(255,255,255,0.55); font-size:11px; font-weight:800; margin-top:2px; letter-spacing:.08em; }
-        .apple-close{ width:38px; height:38px; border:none; border-radius:999px; background:#2c2c2e; color:#fff; font-size:16px; font-weight:900; }
-        .apple-sheet-body{ padding:16px 18px 18px; max-height:68vh; overflow:auto; }
-        .apple-sheet-actions{ display:flex; gap:10px; padding:0 18px 18px; }
+        .apple-sheet{ width:min(100%, 398px); max-width:398px; border-radius:26px; background:linear-gradient(180deg, #151518 0%, #0c0c0f 100%); border:1px solid rgba(255,255,255,0.10); box-shadow:0 24px 70px rgba(0,0,0,0.48); overflow:hidden; }
+        .apple-sheet.compact{ max-width:398px; }
+        .apple-sheet-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:16px 14px 10px; border-bottom:1px solid rgba(255,255,255,0.08); }
+        .apple-sheet-title{ color:#fff; font-size:17px; font-weight:900; letter-spacing:.02em; line-height:1.05; }
+        .apple-sheet-sub{ color:rgba(255,255,255,0.7); font-size:10px; font-weight:800; margin-top:3px; letter-spacing:.08em; }
+        .apple-close{ width:44px; height:44px; flex:0 0 44px; border:none; border-radius:999px; background:#2c2c2e; color:#fff; font-size:18px; font-weight:900; }
+        .apple-sheet-body{ padding:12px 14px 14px; max-height:min(72vh, 620px); overflow:auto; }
+        .apple-sheet-actions{ display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 14px 14px; }
         .apple-sheet-actions .btn{ flex:1; }
         .apple-search-input{ border-radius:20px; }
         .apple-help-text{ font-size:11px; font-weight:800; color:rgba(255,255,255,0.68); letter-spacing:.04em; }
@@ -1961,16 +1961,16 @@ KOMPANIA JONI`;
         .mini-action{ min-height:42px; padding:0 14px; border:none; border-radius:999px; background:#f2f2f7; color:#111; font-size:11px; font-weight:900; letter-spacing:.04em; }
         .client-avatar-fallback{ width:50px; height:50px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#f2f2f7; color:#111; font-size:22px; }
         .client-mini.large{ width:50px; height:50px; border-radius:16px; }
-        .apple-photo-row{ display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:4px; margin-bottom:8px; }
-        .apple-photo-picker{ width:46px; height:46px; border-radius:14px; background:linear-gradient(180deg,#f2f2f7 0%, #e5e5ea 100%); color:#111; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:16px; box-shadow:0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.72); cursor:pointer; }
-        .apple-help-text{ font-size:10px; font-weight:900; color:rgba(255,255,255,0.92); letter-spacing:.03em; }
-        .field-group .label{ font-size:15px; font-weight:900; color:#fff; margin-bottom:8px; display:block; }
-        .field-group .input{ min-height:72px; font-size:28px; font-weight:900; border-radius:22px; }
-        .field-group .row{ align-items:stretch; gap:10px; }
-        .field-group .input.small{ max-width:108px; font-size:24px; }
+        .apple-photo-row{ display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:10px; margin-bottom:8px; }
+        .apple-photo-picker{ width:42px; height:42px; flex:0 0 42px; border-radius:12px; background:linear-gradient(180deg,#f2f2f7 0%, #e5e5ea 100%); color:#111; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:15px; box-shadow:0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.72); cursor:pointer; }
+        .apple-help-text{ font-size:10px; font-weight:900; color:rgba(255,255,255,0.92); letter-spacing:.03em; line-height:1.1; }
+        .field-group .label{ font-size:14px; font-weight:900; color:#fff; margin-bottom:7px; display:block; }
+        .field-group .input{ min-height:64px; width:100%; font-size:22px; font-weight:900; border-radius:20px; }
+        .field-group .row{ display:grid; grid-template-columns:78px minmax(0,1fr); align-items:stretch; gap:8px; }
+        .field-group .input.small{ width:78px; min-width:78px; max-width:78px; padding-left:10px; padding-right:10px; font-size:16px; text-align:center; letter-spacing:0; }
         .chip-row.modern { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
         .chip-modern { min-height:53px; padding:13px 18px; border-radius:18px; font-size:17px; font-weight:900; letter-spacing:0.2px; color:#fff; backdrop-filter:blur(8px); box-shadow:0 12px 22px rgba(0,0,0,0.20), inset 0 1px 0 rgba(255,255,255,0.22); }
-        .camera-btn{ width:34px; min-width:34px; height:34px; border-radius:10px; font-size:14px; box-shadow:0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.6); }
+        .camera-btn{ width:32px; min-width:32px; height:32px; border-radius:10px; font-size:13px; box-shadow:0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.6); }
 
         .wiz-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 16px 12px; border-bottom:1px solid rgba(255,255,255,0.08); }
         .wiz-title{ color:#fff; font-size:18px; font-weight:900; letter-spacing:0.6px; }
@@ -2006,6 +2006,22 @@ KOMPANIA JONI`;
         .footer-bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px)); background: #0b0f14; border-top: 1px solid rgba(255,255,255,0.08); z-index: 1000; }
         .footer-bar .btn { flex: 1; }
         .wrap { padding-bottom: 140px; }
+
+        @media (max-width: 430px){
+          .wiz-backdrop{ padding:10px; align-items:flex-start; }
+          .apple-sheet{ width:100%; max-width:none; margin-top:70px; border-radius:24px; }
+          .apple-sheet.compact{ max-width:none; }
+          .apple-sheet-top{ padding:14px 12px 10px; }
+          .apple-sheet-body{ padding:10px 12px 12px; }
+          .apple-sheet-actions{ padding:0 12px 12px; }
+          .field-group{ margin-top:12px; }
+          .field-group .input{ min-height:60px; font-size:20px; }
+          .field-group .input.small{ width:72px; min-width:72px; max-width:72px; font-size:15px; }
+          .field-group .row{ grid-template-columns:72px minmax(0,1fr); gap:8px; }
+          .apple-photo-row{ margin-bottom:6px; }
+          .apple-close{ width:42px; height:42px; flex-basis:42px; }
+          .apple-sheet-actions .btn{ min-height:56px; font-size:18px; }
+        }
       `}</style>
     </div>
   );
