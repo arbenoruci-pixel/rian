@@ -157,36 +157,36 @@ function extractDigitsFromFilename(name) {
 function chipStyleForVal(v, active) {
   const n = Number(v);
 
-  let a = 'rgba(59,130,246,0.18)';
-  let b = 'rgba(59,130,246,0.06)';
-  let br = 'rgba(59,130,246,0.35)';
+  let a = 'rgba(56,189,248,0.28)';
+  let b = 'rgba(59,130,246,0.14)';
+  let br = 'rgba(125,211,252,0.70)';
 
   if (n >= 5.8) {
-    a = 'rgba(249,115,22,0.20)';
-    b = 'rgba(249,115,22,0.08)';
-    br = 'rgba(249,115,22,0.38)';
+    a = 'rgba(251,146,60,0.28)';
+    b = 'rgba(249,115,22,0.14)';
+    br = 'rgba(253,186,116,0.72)';
   } else if (Math.abs(n - 3.2) < 0.051) {
-    a = 'rgba(239,68,68,0.20)';
-    b = 'rgba(239,68,68,0.08)';
-    br = 'rgba(239,68,68,0.38)';
+    a = 'rgba(248,113,113,0.28)';
+    b = 'rgba(239,68,68,0.14)';
+    br = 'rgba(252,165,165,0.72)';
   } else if (n >= 3.5) {
-    a = 'rgba(236,72,153,0.18)';
-    b = 'rgba(236,72,153,0.06)';
-    br = 'rgba(236,72,153,0.35)';
+    a = 'rgba(244,114,182,0.26)';
+    b = 'rgba(236,72,153,0.12)';
+    br = 'rgba(249,168,212,0.68)';
   } else if (n >= 2.2) {
-    a = 'rgba(245,158,11,0.18)';
-    b = 'rgba(245,158,11,0.06)';
-    br = 'rgba(245,158,11,0.35)';
+    a = 'rgba(250,204,21,0.26)';
+    b = 'rgba(245,158,11,0.12)';
+    br = 'rgba(253,224,71,0.68)';
   } else {
-    a = 'rgba(168,85,247,0.18)';
-    b = 'rgba(168,85,247,0.06)';
-    br = 'rgba(168,85,247,0.35)';
+    a = 'rgba(192,132,252,0.26)';
+    b = 'rgba(168,85,247,0.12)';
+    br = 'rgba(216,180,254,0.68)';
   }
 
   return {
     background: `linear-gradient(180deg, ${a}, ${b})`,
-    border: `1px solid ${br}`,
-    outline: active ? '2px solid rgba(255,255,255,0.22)' : 'none',
+    border: `1.5px solid ${br}`,
+    outline: active ? '2px solid rgba(255,255,255,0.42)' : 'none',
     boxShadow: active
       ? '0 10px 18px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.18)'
       : '0 8px 14px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.14)',
@@ -1529,16 +1529,6 @@ KOMPANIA JONI`;
               <input type="checkbox" checked={offlineMode} onChange={(e) => { const v = e.target.checked; setOfflineMode(v); try { localStorage.setItem(OFFLINE_MODE_KEY, v ? '1' : '0'); } catch {} }} />
               <span style={{ fontWeight: 900, letterSpacing: 0.5 }}>OFFLINE MODE</span>
             </label>
-            <button
-              type="button"
-              className="header-icon-btn"
-              onClick={openDrafts}
-              aria-label="Të pa plotsuarat"
-              title={`TË PA PLOTSUARAT${drafts.length > 0 ? ` (${drafts.length})` : ''}`}
-            >
-              <span aria-hidden="true">📝</span>
-              {drafts.length > 0 ? <span className="header-icon-badge">{drafts.length}</span> : null}
-            </button>
           </div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>{netState.ok ? 'ONLINE' : `LIDHJA: ${netState.reason}`}</div>
         </div>
@@ -1551,11 +1541,21 @@ KOMPANIA JONI`;
         <h2 className="card-title">KLIENTI</h2>
 
         <div className="client-toolbar">
-          <button type="button" className="icon-chip" onClick={() => setShowClientSearch(true)} aria-label="Kërko klient">
-            <span aria-hidden="true">⌕</span>
+          <button type="button" className="icon-chip search" onClick={() => setShowClientSearch(true)} aria-label="Kërko klient" title="KËRKO KLIENT">
+            <span aria-hidden="true">🔎</span>
           </button>
-          <button type="button" className="icon-chip plus" onClick={openWizard} aria-label="Shto klient">
-            <span aria-hidden="true">+</span>
+          <button type="button" className="icon-chip add" onClick={openWizard} aria-label="Shto klient" title="SHTO KLIENT">
+            <span aria-hidden="true">➕</span>
+          </button>
+          <button
+            type="button"
+            className="icon-chip drafts"
+            onClick={openDrafts}
+            aria-label="Të pa plotsuarat"
+            title={`TË PA PLOTSUARAT${drafts.length > 0 ? ` (${drafts.length})` : ''}`}
+          >
+            <span aria-hidden="true">🗂️</span>
+            {drafts.length > 0 ? <span className="header-icon-badge">{drafts.length}</span> : null}
           </button>
         </div>
 
@@ -1563,7 +1563,8 @@ KOMPANIA JONI`;
           <div className="client-selected-card">
             <div className="client-selected-main">
               {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini large" /> : <div className="client-avatar-fallback">👤</div>}
-              <div>
+              <div className="client-selected-copy">
+                <div className="client-code-pill">{`NR ${formatKod(normalizeCode(codeRaw), netState.ok)}`}</div>
                 <div className="client-selected-name">{name || 'KLIENT I RI'}</div>
                 <div className="client-selected-phone">{phone ? `${phonePrefix} ${phone}` : 'PA TELEFON'}</div>
               </div>
@@ -1855,10 +1856,10 @@ KOMPANIA JONI`;
             <div className="apple-sheet-body">
               <div className="apple-photo-row">
                 <label className="apple-photo-picker">
-                  {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="apple-photo-preview" /> : <span>📷</span>}
+                  {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="apple-photo-preview" /> : <span>📸</span>}
                   <input type="file" hidden accept="image/*" onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} />
                 </label>
-                <div className="apple-help-text">SHTO FOTO OPSIONALE</div>
+                <div className="apple-help-text">PREK KËTU PËR FOTO</div>
               </div>
 
               <div className="field-group">
@@ -1943,6 +1944,33 @@ KOMPANIA JONI`;
         .wiz-backdrop{ position:fixed; inset:0; background: rgba(0,0,0,0.72); display:flex; align-items:center; justify-content:center; z-index:9999; padding: 14px; }
         .pill{ border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.9); padding: 10px 12px; border-radius: 14px; font-weight: 900; letter-spacing: 0.4px; font-size: 11px; }
         .wiz-card{ width:100%; max-width:480px; max-height:92vh; overflow:hidden; display:flex; flex-direction:column; border-radius:24px; background:linear-gradient(180deg, #0f141b 0%, #090c10 100%); border:1px solid rgba(255,255,255,0.12); box-shadow: 0 22px 70px rgba(0,0,0,0.48); }
+
+        .client-toolbar{ display:flex; gap:12px; margin-top:10px; align-items:center; flex-wrap:wrap; }
+        .icon-chip{ position:relative; width:58px; height:58px; border:none; border-radius:999px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:900; box-shadow:0 14px 28px rgba(0,0,0,0.26), inset 0 2px 0 rgba(255,255,255,0.72), inset 0 -10px 18px rgba(255,255,255,0.10); transition:transform .18s ease, box-shadow .18s ease, filter .18s ease; }
+        .icon-chip:active{ transform:scale(.965); }
+        .icon-chip.search{ background:linear-gradient(180deg, #eef5ff 0%, #d9eaff 100%); color:#0a66ff; }
+        .icon-chip.add{ background:linear-gradient(180deg, #ebfff1 0%, #d7f9e1 100%); color:#14a44d; }
+        .icon-chip.drafts{ background:linear-gradient(180deg, #fff6d8 0%, #ffe8a3 100%); color:#8a5a00; }
+        .header-icon-btn{ position:relative; width:42px; height:42px; border:none; border-radius:999px; background:linear-gradient(180deg,#fff6d8 0%, #ffe8a3 100%); color:#8a5a00; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:900; box-shadow:0 8px 20px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.7); transition:transform .18s ease, box-shadow .18s ease, background .18s ease; }
+        .client-selected-card{ margin-top:14px; padding:16px; border-radius:22px; background:linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.05)); border:1px solid rgba(255,255,255,0.14); display:flex; align-items:center; justify-content:space-between; gap:12px; }
+        .client-selected-copy{ min-width:0; }
+        .client-code-pill{ display:inline-flex; align-items:center; min-height:28px; padding:0 12px; border-radius:999px; background:linear-gradient(180deg,#3fe07e 0%, #26b85d 100%); color:#fff; font-size:12px; font-weight:900; letter-spacing:.08em; box-shadow:0 10px 22px rgba(52,199,89,0.24), inset 0 1px 0 rgba(255,255,255,0.45); margin-bottom:8px; }
+        .client-selected-name{ font-size:22px; font-weight:900; color:#fff; letter-spacing:.01em; line-height:1.1; }
+        .client-selected-phone{ font-size:17px; font-weight:850; color:#eef2ff; margin-top:6px; letter-spacing:.01em; }
+        .mini-action{ min-height:42px; padding:0 14px; border:none; border-radius:999px; background:#f2f2f7; color:#111; font-size:11px; font-weight:900; letter-spacing:.04em; }
+        .client-avatar-fallback{ width:50px; height:50px; border-radius:999px; display:flex; align-items:center; justify-content:center; background:#f2f2f7; color:#111; font-size:22px; }
+        .client-mini.large{ width:50px; height:50px; }
+        .apple-photo-row{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; margin-bottom:8px; }
+        .apple-photo-picker{ width:58px; height:58px; border-radius:16px; background:linear-gradient(180deg,#f2f2f7 0%, #e5e5ea 100%); color:#111; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:20px; box-shadow:0 10px 22px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.72); cursor:pointer; }
+        .apple-help-text{ font-size:10px; font-weight:900; color:rgba(255,255,255,0.86); letter-spacing:.03em; }
+        .field-group .label{ font-size:15px; font-weight:900; color:#fff; margin-bottom:8px; display:block; }
+        .field-group .input{ min-height:64px; font-size:24px; font-weight:900; border-radius:20px; }
+        .field-group .row{ align-items:stretch; gap:10px; }
+        .field-group .input.small{ max-width:100px; font-size:21px; }
+        .chip-row.modern { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
+        .chip-modern { min-height:48px; padding:12px 16px; border-radius:18px; font-size:16px; font-weight:900; letter-spacing:0.2px; color:#fff; backdrop-filter:blur(8px); box-shadow:0 12px 22px rgba(0,0,0,0.20), inset 0 1px 0 rgba(255,255,255,0.22); }
+        .camera-btn{ width:40px; min-width:40px; height:40px; border-radius:12px; font-size:16px; box-shadow:0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.6); }
+
         .wiz-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 16px 12px; border-bottom:1px solid rgba(255,255,255,0.08); }
         .wiz-title{ color:#fff; font-size:18px; font-weight:900; letter-spacing:0.6px; }
         .wiz-sub{ color:rgba(255,255,255,0.6); font-size:11px; font-weight:800; margin-top:2px; }
