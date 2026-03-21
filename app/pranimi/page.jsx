@@ -1600,17 +1600,14 @@ KOMPANIA JONI`;
               className="client-card-close"
               aria-label="Mbyll klientin"
               title="ANULO KLIENTIN"
-              onClick={async () => {
+              onClick={() => {
                 try { setName(''); } catch {}
                 try { setPhone(''); } catch {}
                 try { setClientPhotoUrl(''); } catch {}
                 try { setOldClientDebt(0); } catch {}
                 try { setClientQuery(''); } catch {}
                 try { setClientHits([]); } catch {}
-                try {
-                  const next = await claimOrReuseCode();
-                  if (next) setCodeRaw(String(next));
-                } catch {}
+                try { setCodeRaw(''); } catch {}
               }}
             >
               ✕
