@@ -1544,7 +1544,7 @@ KOMPANIA JONI`;
 
         <div className="client-toolbar">
           <button type="button" className="icon-chip search" onClick={() => setShowClientSearch(true)} aria-label="Kërko klient" title="KËRKO KLIENT">
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="icon-svg">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="28" height="28" className="icon-svg">
               <circle cx="11" cy="11" r="5.5" fill="none" stroke="currentColor" strokeWidth="2.2" />
               <path d="M16 16L21 21" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
             </svg>
@@ -1556,13 +1556,13 @@ KOMPANIA JONI`;
             aria-label="Të pa plotsuarat"
             title={`TË PA PLOTSUARAT${drafts.length > 0 ? ` (${drafts.length})` : ''}`}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="icon-svg">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="28" height="28" className="icon-svg">
               <path d="M6 7.5h12M6 12h12M6 16.5h12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
             </svg>
             {drafts.length > 0 ? <span className="header-icon-badge">{drafts.length}</span> : null}
           </button>
           <button type="button" className="icon-chip add" onClick={openWizard} aria-label="Shto klient" title="SHTO KLIENT">
-            <svg viewBox="0 0 64 64" aria-hidden="true" className="icon-svg add-contact-svg">
+            <svg viewBox="0 0 64 64" aria-hidden="true" width="34" height="34" className="icon-svg add-contact-svg">
               <circle cx="24" cy="22" r="10" fill="currentColor" opacity="0.92" />
               <path d="M10 48c1.8-8 8-13 15-13s13.2 5 15 13" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round"/>
               <circle cx="46" cy="42" r="13" fill="none" stroke="currentColor" strokeWidth="5"/>
@@ -1905,6 +1905,8 @@ KOMPANIA JONI`;
         .client-toolbar{ display:flex; gap:10px; margin-top:8px; }
         .icon-chip{ width:54px; height:54px; border:none; border-radius:999px; background:#f2f2f7; color:#111; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:900; box-shadow:0 10px 26px rgba(0,0,0,0.24); transition:transform .18s ease, box-shadow .18s ease, background .18s ease; }
         .icon-chip:active{ transform:scale(.97); }
+        .icon-chip svg{ width:28px; height:28px; display:block; flex:0 0 28px; overflow:visible; }
+        .icon-chip.add svg{ width:34px; height:34px; flex-basis:34px; }
         .icon-chip.plus{ background:#ffffff; }
         .header-icon-btn{ position:relative; width:42px; height:42px; border:none; border-radius:999px; background:#f2f2f7; color:#111; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:900; box-shadow:0 8px 20px rgba(0,0,0,0.18); transition:transform .18s ease, box-shadow .18s ease, background .18s ease; }
         .header-icon-btn:active{ transform:scale(.97); }
