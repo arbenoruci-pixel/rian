@@ -748,9 +748,6 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
       setRetOrder(order);
       setRetReason('');
       setRetPhotoUrl('');
-      setRetItems(explodeReturnItems(order));
-      setRetPaidChoice('same');
-      setRetManualM2('');
       setShowReturnSheet(true);
     } catch (e) {
       setRetErr('Gabim gjatë hapjes së kthimit.');
@@ -767,9 +764,6 @@ BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFI
     setRetPhotoUrl('');
     setRetErr('');
     setRetBusy(false);
-    setRetItems([]);
-    setRetPaidChoice('same');
-    setRetManualM2('');
     try { if (returnPhotoInputRef.current) returnPhotoInputRef.current.value = ''; } catch {}
   }
 
@@ -813,132 +807,263 @@ async function resolveReturnDbId(row) {
   async function confirmReturn() {
     setRetBusy(true);
     setRetErr('');
+
+    const oid = await resolveReturnDbId(retOrder);
+    if (!oid) {
+      setRetErr('S'u gjet ID e porosisë për kthim.');
+      setRetBusy(false);
+      alert('❌ S'u gjet porosia për kthim.');
+      return;
+    }
+
+    const reason = (retReason || '').trim();
+    if (!reason) {
+      setRetErr('Shkruaj arsyen e kthimit.');
+      setRetBusy(false);
+      return;
+    }
+
+    const at = Date.now();
+    const entry = {
+      id: `ret_${oid}_${at}`,
+      ts: at,
+      from: 'gati',
+      reason,
+      photoUrl: retPhotoUrl || '',
+    };
+
+    const returnInfo = {
+      active: true,
+      reason,
+      photoUrl: retPhotoUrl || '',
+      at,
+    };
+
+    const prevData = (retOrder?.data && typeof retOrder.data === 'object') ? retOrder.data : {};
+    const preservedName =
+      retOrder?.client_name ||
+      prevData?.client_name ||
+      prevData?.client?.name ||
+      retOrder?.name ||
+      null;
+    const preservedPhone =
+      retOrder?.client_phone ||
+      prevData?.client_phone ||
+      prevData?.client?.phone ||
+      retOrder?.phone ||
+      null;
+    const preservedPieces = Number(
+      retOrder?.pieces ??
+      prevData?.pieces ??
+      retOrder?.qty ??
+      safePieces(retOrder) ??
+      0
+    ) || 0;
+    const preservedM2 = Number(
+      retOrder?.m2_total ??
+      prevData?.m2_total ??
+      retOrder?.m2 ??
+      safeM2(retOrder) ??
+      0
+    ) || 0;
+    const preservedPrice = Number(
+      retOrder?.price_total ??
+      prevData?.price_total ??
+      retOrder?.price ??
+      0
+    ) || 0;
+
+    const nextData = {
+      ...prevData,
+      client_name: preservedName,
+      client_phone: preservedPhone,
+      pieces: preservedPieces,
+      m2_total: preservedM2,
+      price_total: preservedPrice,
+      returnInfo,
+      returnLog: Array.isArray(prevData?.returnLog) ? [entry, ...prevData.returnLog] : [entry],
+      ready_at: null,
+      picked_up_at: null,
+      delivered_at: null,
+      ready_location: prevData?.ready_location || retOrder?.ready_location || '',
+      ready_note: prevData?.ready_note || retOrder?.ready_note || '',
+    };
+
+    const updated = {
+      ...retOrder,
+      id: retOrder?.id || oid,
+      db_id: retOrder?.db_id || retOrder?.data?.db_id || oid,
+      status: 'pastrim',
+      client_name: preservedName,
+      client_phone: preservedPhone,
+      pieces: preservedPieces,
+      m2_total: preservedM2,
+      price_total: preservedPrice,
+      data: nextData,
+      returnInfo,
+      returnLog: nextData.returnLog,
+      ready_at: null,
+      picked_up_at: null,
+      delivered_at: null,
+    };
+
     try {
-      const oid = await resolveReturnDbId(retOrder);
-      if (!oid) {
-        setRetErr("S'u gjet ID e porosisë për kthim.");
-        alert("❌ S'u gjet porosia për kthim.");
-        return;
-      }
-      const reason = (retReason || '').trim();
-      if (!reason) {
-        setRetErr('Shkruaj arsyen e kthimit.');
-        return;
-      }
-      const selected = (retItems || []).filter((x) => x.selected);
-      if (!selected.length) {
-        setRetErr('Zgjidh të paktën një tepih për kthim.');
-        return;
-      }
+      try {
+        await saveOrderLocal(updated);
+      } catch {}
+      try {
+        localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
+      } catch {}
 
-      const { data: fullOrder, error: fetchErr } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('id', oid)
-        .single();
-      if (fetchErr || !fullOrder) {
-        setRetErr('Nuk u gjet porosia në DB.');
-        return;
+      const blob = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(updated)], { type: 'application/json' }) : null;
+      if (blob) {
+        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
       }
 
-      const raw = typeof fullOrder.data === 'string' ? JSON.parse(fullOrder.data || '{}') : (fullOrder.data || {});
-      const orderBase = { ...raw, id: String(fullOrder.id), db_id: fullOrder.id, code: fullOrder.code, client_name: fullOrder.client_name || raw.client_name || raw.client?.name || '', client_phone: fullOrder.client_phone || raw.client_phone || raw.client?.phone || '' };
-
-      const allItems = explodeReturnItems(orderBase);
-      const remaining = allItems.filter((it) => !(retItems || []).some((x) => x.id === it.id && x.selected));
-
-      const returnPack = aggregateReturnItems(selected);
-      const remainPack = aggregateReturnItems(remaining);
-      const totalM2 = computeM2(orderBase);
-      const totalPrice = Number(fullOrder.price_total || raw.price_total || computeTotalEuro(orderBase) || 0);
-      const paidCash = Number(fullOrder.paid_cash || raw.paid_cash || raw.pay?.paid || 0);
-      const returnedM2 = Number(selected.reduce((s, x) => s + Number(x.m2 || 0), 0).toFixed(2));
-      const remainingM2 = Number(remaining.reduce((s, x) => s + Number(x.m2 || 0), 0).toFixed(2));
-      const returnedPrice = totalM2 > 0 ? Number(((totalPrice * returnedM2) / totalM2).toFixed(2)) : 0;
-      const remainingPrice = Number((totalPrice - returnedPrice).toFixed(2));
-      const treatedAsPaid = retPaidChoice === 'paid' || (retPaidChoice === 'same' && paidCash >= totalPrice && totalPrice > 0);
-      const returnPaidCash = treatedAsPaid ? returnedPrice : 0;
-      const remainPaidCash = treatedAsPaid ? Math.max(0, Number((paidCash - returnPaidCash).toFixed(2))) : paidCash;
-      const at = Date.now();
-      const entry = { id: `ret_${oid}_${at}`, ts: at, from: 'gati', reason, photoUrl: retPhotoUrl || '' };
-
-      const returnData = {
-        ...(orderBase.data || raw || {}),
-        ...returnPack,
-        client_name: fullOrder.client_name || orderBase.client_name,
-        client_phone: fullOrder.client_phone || orderBase.client_phone,
-        pieces: selected.length,
-        m2_total: returnedM2,
-        price_total: returnedPrice,
-        paid_cash: returnPaidCash,
-        is_paid_upfront: treatedAsPaid,
-        returnInfo: { active: true, reason, photoUrl: retPhotoUrl || '', at },
-        returnLog: Array.isArray(raw?.returnLog) ? [entry, ...raw.returnLog] : [entry],
-        note: reason,
-        ready_at: null,
-        picked_up_at: null,
-        delivered_at: null,
-      };
-
-      const insertPayload = {
-        status: 'pastrim',
-        code: fullOrder.code,
-        client_name: fullOrder.client_name || orderBase.client_name,
-        client_phone: fullOrder.client_phone || orderBase.client_phone,
-        pieces: selected.length,
-        m2_total: returnedM2,
-        price_total: returnedPrice,
-        paid_cash: returnPaidCash,
-        is_paid_upfront: treatedAsPaid,
-        note: reason,
-        data: returnData,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error: insertErr } = await supabase.from('orders').insert(insertPayload);
-      if (insertErr) throw insertErr;
-
-      const remainStatus = remaining.length ? 'gati' : 'returned';
-      const remainData = {
-        ...raw,
-        ...remainPack,
-        client_name: fullOrder.client_name || orderBase.client_name,
-        client_phone: fullOrder.client_phone || orderBase.client_phone,
-        pieces: remaining.length,
-        m2_total: remainingM2,
-        price_total: Math.max(0, remainingPrice),
-        paid_cash: Math.max(0, remainPaidCash),
-        is_paid_upfront: treatedAsPaid && remainingPrice <= remainPaidCash,
-        ready_at: remaining.length ? (fullOrder.ready_at || raw.ready_at || null) : null,
-        return_parent_last_at: at,
-      };
-
-      const { error: updErr } = await supabase
+      const { error: dbErr } = await supabase
         .from('orders')
         .update({
-          status: remainStatus,
-          pieces: remaining.length,
-          m2_total: remainingM2,
-          price_total: Math.max(0, remainingPrice),
-          paid_cash: Math.max(0, remainPaidCash),
-          client_name: fullOrder.client_name || orderBase.client_name,
-          client_phone: fullOrder.client_phone || orderBase.client_phone,
-          data: remainData,
+          status: 'pastrim',
+          client_name: preservedName,
+          client_phone: preservedPhone,
+          pieces: preservedPieces,
+          m2_total: preservedM2,
+          price_total: preservedPrice,
+          ready_at: null,
+          picked_up_at: null,
+          data: nextData,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', oid);
-      if (updErr) throw updErr;
+        .eq('id', updated.db_id);
+      if (dbErr) throw dbErr;
+
+      try {
+        const blob2 = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(entry)], { type: 'application/json' }) : null;
+        if (blob2) {
+          await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
+            upsert: true,
+            cacheControl: '0',
+            contentType: 'application/json',
+          });
+        }
+      } catch {}
 
       closeReturn();
       await refreshOrders();
-      alert('✅ Kthimi u ruajt me sukses.');
     } catch (e) {
-      console.error(e);
-      setRetErr(e?.message || 'Gabim gjatë kthimit.');
-      alert(`❌ ${e?.message || 'Gabim gjatë kthimit.'}`);
+      try {
+        await queueOp('patch_order_data', {
+          id: updated.db_id || updated.id,
+          data_patch: nextData,
+        });
+      } catch {}
+      setRetErr(e?.message || 'Gabim gjatë ruajtjes së kthimit.');
+      alert('❌ Gabim gjatë ruajtjes së kthimit.');
     } finally {
       setRetBusy(false);
     }
+  }
+
+
+  function openCodeMenu(row) {
+    setMenuOrder(row || null);
+    setShowCodeMenu(true);
+  }
+
+  function closeCodeMenu() {
+    setShowCodeMenu(false);
+    setMenuOrder(null);
+  }
+
+  async function openEditMeasures(row) {
+    try {
+      setEditErr('');
+      setEditBusy(true);
+      let order = null;
+
+      try {
+        const res = await dbFetchOrderById(row.id);
+        order = res?.order || null;
+      } catch {}
+
+      if (!order) {
+        try {
+          const raw = localStorage.getItem(`order_${row.id}`);
+          if (raw) order = JSON.parse(raw);
+        } catch {}
+      }
+
+      if (!order) {
+        try {
+          order = await downloadJsonNoCache(`orders/${row.id}.json`);
+        } catch {}
+      }
+
+      if (!order) throw new Error('ORDER_NOT_FOUND');
+
+      if (!order.id) order.id = row.id;
+      if (!order.db_id) order.db_id = row.id;
+
+      const tList = getTepihaRows(order);
+      const sList = getStazaRows(order);
+
+      setEditOrder(order);
+      setEditTepihaRows(
+        tList.length
+          ? tList.map((x, i) => ({ id: `t${i + 1}`, m2: String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty: String(x?.qty ?? x?.pieces ?? '') }))
+          : [{ id: 't1', m2: '', qty: '' }]
+      );
+      setEditStazaRows(
+        sList.length
+          ? sList.map((x, i) => ({ id: `s${i + 1}`, m2: String(x?.m2 ?? x?.m ?? x?.area ?? ''), qty: String(x?.qty ?? x?.pieces ?? '') }))
+          : [{ id: 's1', m2: '', qty: '' }]
+      );
+      setEditStairsQty(String(getStairsQty(order) || 0));
+      setEditStairsPer(String(getStairsPer(order) || 0.3));
+      setShowEditSheet(true);
+    } catch (e) {
+      setEditErr('Gabim gjatë hapjes së editimit.');
+      alert('❌ Gabim gjatë hapjes së editimit.');
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  function closeEditSheet() {
+    setShowEditSheet(false);
+    setEditOrder(null);
+    setEditErr('');
+    setEditBusy(false);
+    setEditTepihaRows([{ id: 't1', m2: '', qty: '' }]);
+    setEditStazaRows([{ id: 's1', m2: '', qty: '' }]);
+    setEditStairsQty('0');
+    setEditStairsPer('0.3');
+  }
+
+  function addEditRow(kind) {
+    if (kind === 'tepiha') {
+      setEditTepihaRows((prev) => [...prev, { id: `t${prev.length + 1}`, m2: '', qty: '' }]);
+      return;
+    }
+    setEditStazaRows((prev) => [...prev, { id: `s${prev.length + 1}`, m2: '', qty: '' }]);
+  }
+
+  function updateEditRow(kind, id, field, value) {
+    const setter = kind === 'tepiha' ? setEditTepihaRows : setEditStazaRows;
+    setter((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
+  }
+
+  function removeEditRow(kind, id) {
+    const setter = kind === 'tepiha' ? setEditTepihaRows : setEditStazaRows;
+    setter((prev) => {
+      const next = prev.filter((row) => row.id !== id);
+      if (next.length) return next;
+      return [kind === 'tepiha' ? { id: 't1', m2: '', qty: '' } : { id: 's1', m2: '', qty: '' }];
+    });
   }
 
   async function saveEditMeasures() {
@@ -1130,21 +1255,8 @@ async function resolveReturnDbId(row) {
                   </button>
                   <button
                     className="btn primary"
-                    style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      onPayPressStart(o);
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      onPayPressEnd(o);
-                    }}
-                    onPointerCancel={() => {
-                      if (holdTimer.current) clearTimeout(holdTimer.current);
-                    }}
-                    onPointerLeave={() => {
-                      if (holdTimer.current) clearTimeout(holdTimer.current);
-                    }}
+                    style={{ padding: '6px 10px', fontSize: 12 }}
+                    onClick={() => openPay(o)}
                   >
                     💶 PAGUAJ
                   </button>
@@ -1195,6 +1307,17 @@ async function resolveReturnDbId(row) {
                 style={{ width: '100%', padding: 14, fontWeight: 900 }}
               >
                 ✏️ EDITO MASAT
+              </button>
+              <button
+                className="btn secondary"
+                onClick={() => {
+                  const row = menuOrder;
+                  closeCodeMenu();
+                  openReturn(row);
+                }}
+                style={{ width: '100%', padding: 14, fontWeight: 900 }}
+              >
+                ↩️ KTHIM NË PASTRIM
               </button>
             </div>
           </div>
@@ -1327,55 +1450,6 @@ async function resolveReturnDbId(row) {
                     rows={5}
                     style={{ minHeight: 120, resize: 'vertical', paddingTop: 12 }}
                   />
-                </div>
-
-                <div>
-                  <div className="label" style={{ marginBottom: 8 }}>ZGJIDH TEPIHAT QË KTHEHEN</div>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-                    {(retItems || []).map((it) => (
-                      <button
-                        key={it.id}
-                        type="button"
-                        className="btn secondary"
-                        onClick={() => setRetItems((prev) => (prev || []).map((x) => x.id === it.id ? { ...x, selected: !x.selected } : x))}
-                        style={{
-                          padding:'8px 12px',
-                          borderColor: it.selected ? 'rgba(59,130,246,0.7)' : 'rgba(255,255,255,0.14)',
-                          background: it.selected ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.04)',
-                          color:'#fff',
-                          fontWeight:900,
-                        }}
-                      >
-                        {it.selected ? '☑' : '☐'} {Number(it.m2 || 0).toFixed(1)}
-                      </button>
-                    ))}
-                  </div>
-                  <div style={{ marginTop: 10, display:'flex', gap:8, flexWrap:'wrap' }}>
-                    {['1.0','1.2','1.5','1.9','2.0','2.2','2.5','3.0','3.5','3.7','4.0','6.0'].map((chip) => (
-                      <button key={chip} type="button" className="btn secondary" onClick={() => setRetItems((prev) => ([...(prev || []), { id:`m_${Date.now()}_${chip}_${Math.random()}`, kind:'tepiha', m2:Number(chip), selected:true }]))}>{chip}</button>
-                    ))}
-                    <input className="input" inputMode="decimal" placeholder="+ SHTO" value={retManualM2} onChange={(e)=>setRetManualM2(e.target.value)} style={{ maxWidth:110 }} />
-                    <button type="button" className="btn secondary" onClick={() => {
-                      const v = Number(retManualM2 || 0);
-                      if (v > 0) {
-                        setRetItems((prev) => ([...(prev || []), { id:`manual_${Date.now()}`, kind:'tepiha', m2:v, selected:true }]));
-                        setRetManualM2('');
-                      }
-                    }}>SHTO</button>
-                  </div>
-                  <div style={{ marginTop: 10, display:'grid', gap:8 }}>
-                    <div style={{ fontSize:12, color:'rgba(255,255,255,0.8)' }}>PIECES KTHIM: {(retItems || []).filter((x)=>x.selected).length}</div>
-                    <div style={{ fontSize:12, color:'rgba(255,255,255,0.8)' }}>M² KTHIM: {((retItems || []).filter((x)=>x.selected).reduce((s,x)=>s+Number(x.m2||0),0)).toFixed(2)}</div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="label" style={{ marginBottom: 8 }}>A I KA PAGUAR PARA KTHIMIT?</div>
-                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                    <button type="button" className="btn secondary" onClick={() => setRetPaidChoice('paid')} style={{ borderColor: retPaidChoice==='paid' ? 'rgba(34,197,94,0.7)' : undefined }}>PO</button>
-                    <button type="button" className="btn secondary" onClick={() => setRetPaidChoice('unpaid')} style={{ borderColor: retPaidChoice==='unpaid' ? 'rgba(239,68,68,0.7)' : undefined }}>JO</button>
-                    <button type="button" className="btn secondary" onClick={() => setRetPaidChoice('same')} style={{ borderColor: retPaidChoice==='same' ? 'rgba(59,130,246,0.7)' : undefined }}>SI ORIGJINALI</button>
-                  </div>
                 </div>
 
                 <div>
