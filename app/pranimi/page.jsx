@@ -1113,7 +1113,7 @@ export default function PranimiPage() {
   }
 
   function applyChip(kind, val, ev) {
-    vibrateTap(15);
+    vibrateTap(30);
     setActiveChipKey(`${kind}:${Number(val)}`);
     if (ev?.currentTarget) bumpEl(ev.currentTarget);
 
@@ -1597,7 +1597,7 @@ KOMPANIA JONI`;
             return (
             <button key={v} type="button" className={`chip chip-modern ${isActive ? 'selected' : ''}`} onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('tepiha', v, e)} style={chipStyleForVal(v, isActive)}>
               <span className="chip-text">{v.toFixed(1)}</span>
-              {isActive ? <span className="chip-tick" aria-hidden="true">✓</span> : null}
+              
             </button>
           )})}
         </div>
@@ -1630,7 +1630,7 @@ KOMPANIA JONI`;
             return (
             <button key={v} type="button" className={`chip chip-modern ${isActive ? 'selected' : ''}`} onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('staza', v, e)} style={chipStyleForVal(v, isActive)}>
               <span className="chip-text">{v.toFixed(1)}</span>
-              {isActive ? <span className="chip-tick" aria-hidden="true">✓</span> : null}
+              
             </button>
           )})}
         </div>
@@ -1781,7 +1781,7 @@ KOMPANIA JONI`;
               <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label>
               <div className="chip-row">
                 {SHKALLORE_QTY_CHIPS.map((n) => (
-                  <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button>
+                  <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(30); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button>
                 ))}
               </div>
               <input type="number" className="input" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => { const v = e.target.value; setStairsQty(v === '' ? 0 : Number(v)); }} style={{ marginTop: 10 }} />
@@ -1790,7 +1790,7 @@ KOMPANIA JONI`;
               <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label>
               <div className="chip-row">
                 {SHKALLORE_PER_CHIPS.map((v) => (
-                  <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button>
+                  <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(30); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button>
                 ))}
               </div>
               <input type="number" step="0.01" className="input" value={Number(stairsPer || 0) === 0 ? '' : stairsPer} onChange={(e) => { const v = e.target.value; setStairsPer(v === '' ? 0 : Number(v)); }} style={{ marginTop: 10 }} />
