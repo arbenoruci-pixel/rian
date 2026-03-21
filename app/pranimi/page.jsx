@@ -452,6 +452,17 @@ export default function PranimiPage() {
   const [drafts, setDrafts] = useState([]);
   const [showDraftsSheet, setShowDraftsSheet] = useState(false);
 
+  const uniqueDrafts = useMemo(() => {
+    const sorted = [...(Array.isArray(drafts) ? drafts : [])].sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
+    const byCode = new Map();
+    for (const d of sorted) {
+      const codeNum = Number(d?.code);
+      const key = Number.isFinite(codeNum) && codeNum > 0 ? `code:${codeNum}` : `id:${String(d?.id || '')}`;
+      if (!byCode.has(key)) byCode.set(key, d);
+    }
+    return Array.from(byCode.values());
+  }, [drafts]);
+
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [oldClientDebt, setOldClientDebt] = useState(0);
@@ -1565,12 +1576,12 @@ KOMPANIA JONI`;
             className="icon-chip drafts"
             onClick={openDrafts}
             aria-label="Të pa plotsuarat"
-            title={`TË PA PLOTSUARAT${drafts.length > 0 ? ` (${drafts.length})` : ''}`}
+            title={`TË PA PLOTSUARAT${uniqueDrafts.length > 0 ? ` (${uniqueDrafts.length})` : ''}`}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" width="28" height="28" className="icon-svg">
               <path d="M6 7.5h12M6 12h12M6 16.5h12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
             </svg>
-            {drafts.length > 0 ? <span className="header-icon-badge">{drafts.length}</span> : null}
+            {uniqueDrafts.length > 0 ? <span className="header-icon-badge">{uniqueDrafts.length}</span> : null}
           </button>
           <button type="button" className="icon-chip add" onClick={openWizard} aria-label="Shto klient" title="SHTO KLIENT">
             <svg viewBox="0 0 64 64" aria-hidden="true" width="34" height="34" className="icon-svg add-contact-svg">
@@ -1704,7 +1715,7 @@ KOMPANIA JONI`;
           <div className="payfs-body">
             <div className="card" style={{ marginTop: 0 }}>
               {drafts.length === 0 ? <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>S’ka “të pa plotsuara”.</div> : (
-                drafts.map((d) => (
+                uniqueDrafts.map((d) => (
                   <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                       <div style={{ background: '#16a34a', color: '#0b0b0b', padding: '8px 10px', borderRadius: 10, fontWeight: 900, minWidth: 56, textAlign: 'center' }}>{d.code || '—'}</div>
