@@ -1608,6 +1608,11 @@ KOMPANIA JONI`;
                 try { setClientQuery(''); } catch {}
                 try { setClientHits([]); } catch {}
                 try { setCodeRaw(''); } catch {}
+                try {
+                  setTimeout(() => {
+                    try { window.location.reload(); } catch {}
+                  }, 40);
+                } catch {}
               }}
             >
               ✕
