@@ -805,115 +805,126 @@ async function resolveReturnDbId(row) {
 
 
   async function confirmReturn() {
-    if (retBusy) return;
-
     setRetBusy(true);
     setRetErr('');
 
+    const oid = await resolveReturnDbId(retOrder);
+    if (!oid) {
+      setRetErr('S'u gjet ID e porosisë për kthim.');
+      setRetBusy(false);
+      alert('❌ S'u gjet porosia për kthim.');
+      return;
+    }
+
+    const reason = (retReason || '').trim();
+    if (!reason) {
+      setRetErr('Shkruaj arsyen e kthimit.');
+      setRetBusy(false);
+      return;
+    }
+
+    const at = Date.now();
+    const entry = {
+      id: `ret_${oid}_${at}`,
+      ts: at,
+      from: 'gati',
+      reason,
+      photoUrl: retPhotoUrl || '',
+    };
+
+    const returnInfo = {
+      active: true,
+      reason,
+      photoUrl: retPhotoUrl || '',
+      at,
+    };
+
+    const prevData = (retOrder?.data && typeof retOrder.data === 'object') ? retOrder.data : {};
+    const preservedName =
+      retOrder?.client_name ||
+      prevData?.client_name ||
+      prevData?.client?.name ||
+      retOrder?.name ||
+      null;
+    const preservedPhone =
+      retOrder?.client_phone ||
+      prevData?.client_phone ||
+      prevData?.client?.phone ||
+      retOrder?.phone ||
+      null;
+    const preservedPieces = Number(
+      retOrder?.pieces ??
+      prevData?.pieces ??
+      retOrder?.qty ??
+      prevData?.qty ??
+      prevData?.piece_count ??
+      0
+    ) || 0;
+    const preservedM2 = Number(
+      retOrder?.m2_total ??
+      prevData?.m2_total ??
+      retOrder?.m2 ??
+      prevData?.m2 ??
+      prevData?.m2Total ??
+      0
+    ) || 0;
+    const preservedPrice = Number(
+      retOrder?.price_total ??
+      prevData?.price_total ??
+      retOrder?.price ??
+      0
+    ) || 0;
+
+    const nextData = {
+      ...prevData,
+      client_name: preservedName,
+      client_phone: preservedPhone,
+      pieces: preservedPieces,
+      m2_total: preservedM2,
+      price_total: preservedPrice,
+      returnInfo,
+      returnLog: Array.isArray(prevData?.returnLog) ? [entry, ...prevData.returnLog] : [entry],
+      ready_at: null,
+      picked_up_at: null,
+      delivered_at: null,
+      ready_location: prevData?.ready_location || retOrder?.ready_location || '',
+      ready_note: prevData?.ready_note || retOrder?.ready_note || '',
+    };
+
+    const updated = {
+      ...retOrder,
+      id: retOrder?.id || oid,
+      db_id: retOrder?.db_id || retOrder?.data?.db_id || oid,
+      status: 'pastrim',
+      client_name: preservedName,
+      client_phone: preservedPhone,
+      pieces: preservedPieces,
+      m2_total: preservedM2,
+      price_total: preservedPrice,
+      data: nextData,
+      returnInfo,
+      returnLog: nextData.returnLog,
+      ready_at: null,
+      picked_up_at: null,
+      delivered_at: null,
+    };
+
     try {
-      const oid = await resolveReturnDbId(retOrder);
-      if (!oid) {
-        setRetErr("S'u gjet ID e porosisë për kthim.");
-        alert("❌ S'u gjet porosia për kthim.");
-        return;
-      }
-
-      const reason = (retReason || '').trim();
-      if (!reason) {
-        setRetErr('Shkruaj arsyen e kthimit.');
-        return;
-      }
-
-      const at = Date.now();
-      const entry = {
-        id: `ret_${oid}_${at}`,
-        ts: at,
-        from: 'gati',
-        reason,
-        photoUrl: retPhotoUrl || '',
-      };
-
-      const returnInfo = {
-        active: true,
-        reason,
-        photoUrl: retPhotoUrl || '',
-        at,
-      };
-
-      const prevData = (retOrder?.data && typeof retOrder.data === 'object') ? retOrder.data : {};
-      const preservedName =
-        retOrder?.client_name ||
-        prevData?.client_name ||
-        prevData?.client?.name ||
-        retOrder?.name ||
-        null;
-      const preservedPhone =
-        retOrder?.client_phone ||
-        prevData?.client_phone ||
-        prevData?.client?.phone ||
-        retOrder?.phone ||
-        null;
-      const preservedPieces = Number(
-        retOrder?.pieces ??
-        prevData?.pieces ??
-        retOrder?.qty ??
-        safePieces(retOrder) ??
-        0
-      ) || 0;
-      const preservedM2 = Number(
-        retOrder?.m2_total ??
-        prevData?.m2_total ??
-        retOrder?.m2 ??
-        safeM2(retOrder) ??
-        0
-      ) || 0;
-      const preservedPrice = Number(
-        retOrder?.price_total ??
-        prevData?.price_total ??
-        retOrder?.price ??
-        0
-      ) || 0;
-
-      const nextData = {
-        ...prevData,
-        client_name: preservedName,
-        client_phone: preservedPhone,
-        pieces: preservedPieces,
-        m2_total: preservedM2,
-        price_total: preservedPrice,
-        returnInfo,
-        returnLog: Array.isArray(prevData?.returnLog) ? [entry, ...prevData.returnLog] : [entry],
-        ready_at: null,
-        picked_up_at: null,
-        delivered_at: null,
-        ready_location: prevData?.ready_location || retOrder?.ready_location || '',
-        ready_note: prevData?.ready_note || retOrder?.ready_note || '',
-      };
-
-      const updated = {
-        ...retOrder,
-        id: retOrder?.id || oid,
-        db_id: retOrder?.db_id || retOrder?.data?.db_id || oid,
-        status: 'pastrim',
-        client_name: preservedName,
-        client_phone: preservedPhone,
-        pieces: preservedPieces,
-        m2_total: preservedM2,
-        price_total: preservedPrice,
-        data: nextData,
-        returnInfo,
-        returnLog: nextData.returnLog,
-        ready_at: null,
-        picked_up_at: null,
-        delivered_at: null,
-      };
-
       try {
         await saveOrderLocal(updated);
       } catch {}
       try {
         localStorage.setItem(`order_${updated.id}`, JSON.stringify(updated));
       } catch {}
+
+      const blob = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(updated)], { type: 'application/json' }) : null;
+      if (blob) {
+        await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
+          upsert: true,
+          cacheControl: '0',
+          contentType: 'application/json',
+        });
+      }
 
       const { error: dbErr } = await supabase
         .from('orders')
@@ -932,58 +943,32 @@ async function resolveReturnDbId(row) {
         .eq('id', updated.db_id);
       if (dbErr) throw dbErr;
 
-      closeReturn();
+      try {
+        const blob2 = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(entry)], { type: 'application/json' }) : null;
+        if (blob2) {
+          await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
+            upsert: true,
+            cacheControl: '0',
+            contentType: 'application/json',
+          });
+        }
+      } catch {}
 
-      // fire-and-forget extras; do not block UI on uploads/refresh
-      Promise.resolve().then(async () => {
-        try {
-          const blob = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(updated)], { type: 'application/json' }) : null;
-          if (blob) {
-            await supabase.storage.from(BUCKET).upload(`orders/${updated.id}.json`, blob, {
-              upsert: true,
-              cacheControl: '0',
-              contentType: 'application/json',
-            });
-          }
-        } catch {}
-        try {
-          const blob2 = typeof Blob !== 'undefined' ? new Blob([JSON.stringify(entry)], { type: 'application/json' }) : null;
-          if (blob2) {
-            await supabase.storage.from(BUCKET).upload(`returns/${entry.id}.json`, blob2, {
-              upsert: true,
-              cacheControl: '0',
-              contentType: 'application/json',
-            });
-          }
-        } catch {}
-        try {
-          await Promise.race([
-            refreshOrders(),
-            new Promise((resolve) => setTimeout(resolve, 2500)),
-          ]);
-        } catch {}
-      });
+      closeReturn();
+      await refreshOrders();
     } catch (e) {
       try {
         await queueOp('patch_order_data', {
-          id: retOrder?.db_id || retOrder?.id || null,
-          data_patch: {
-            returnInfo: {
-              active: true,
-              reason: (retReason || '').trim(),
-              photoUrl: retPhotoUrl || '',
-              at: Date.now(),
-            },
-          },
+          id: updated.db_id || updated.id,
+          data_patch: nextData,
         });
       } catch {}
       setRetErr(e?.message || 'Gabim gjatë ruajtjes së kthimit.');
-      alert(e?.message ? `❌ ${e.message}` : '❌ Gabim gjatë ruajtjes së kthimit.');
+      alert('❌ Gabim gjatë ruajtjes së kthimit.');
     } finally {
       setRetBusy(false);
     }
   }
-
 
 
   function openCodeMenu(row) {
