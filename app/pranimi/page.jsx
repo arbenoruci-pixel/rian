@@ -2079,7 +2079,40 @@ KOMPANIA JONI`;
           .apple-close{ width:42px; height:42px; flex-basis:42px; }
           .apple-sheet-actions .btn{ min-height:56px; font-size:18px; }
         }
-      `}</style>
+      `}
+        .rbtn{
+          width:100%;
+          height:58px;
+          border-radius:18px;
+          border:none;
+          outline:none;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          font-size:16px;
+          font-weight:900;
+          color:#fff;
+          -webkit-appearance:none;
+          appearance:none;
+          transition:all .15s ease;
+          background:none;
+        }
+
+        .rbtn.add{
+          background: linear-gradient(180deg, #34C759, #16a34a) !important;
+          box-shadow: 0 10px 25px rgba(52,199,89,.35);
+        }
+
+        .rbtn.remove{
+          background: linear-gradient(180deg, #ff5f57, #dc2626) !important;
+          box-shadow: 0 10px 25px rgba(220,38,38,.35);
+        }
+
+        .rbtn:active{
+          transform: scale(0.95);
+        }
+
+</style>
     </div>
   );
 }
