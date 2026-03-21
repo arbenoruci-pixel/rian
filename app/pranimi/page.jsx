@@ -21,8 +21,8 @@ import { getClientBalanceByPhone } from '@/lib/clientBalanceDb';
 
 const BUCKET = 'tepiha-photos';
 
-const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.2, 3.5, 3.7, 6.0];
-const STAZA_CHIPS = [1.5, 2.0, 2.2, 3.0];
+const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.5, 3.7, 4.0, 5.0, 6.0, 8.0, 12.0];
+const STAZA_CHIPS = [1.2, 1.5, 1.6, 2.0, 2.4, 2.5, 3.0, 4.0, 5.0];
 
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
 const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
@@ -155,41 +155,15 @@ function extractDigitsFromFilename(name) {
 }
 
 function chipStyleForVal(v, active) {
-  const n = Number(v);
-
-  let a = 'rgba(59,130,246,0.18)';
-  let b = 'rgba(59,130,246,0.06)';
-  let br = 'rgba(59,130,246,0.35)';
-
-  if (n >= 5.8) {
-    a = 'rgba(249,115,22,0.20)';
-    b = 'rgba(249,115,22,0.08)';
-    br = 'rgba(249,115,22,0.38)';
-  } else if (Math.abs(n - 3.2) < 0.051) {
-    a = 'rgba(239,68,68,0.20)';
-    b = 'rgba(239,68,68,0.08)';
-    br = 'rgba(239,68,68,0.38)';
-  } else if (n >= 3.5) {
-    a = 'rgba(236,72,153,0.18)';
-    b = 'rgba(236,72,153,0.06)';
-    br = 'rgba(236,72,153,0.35)';
-  } else if (n >= 2.2) {
-    a = 'rgba(245,158,11,0.18)';
-    b = 'rgba(245,158,11,0.06)';
-    br = 'rgba(245,158,11,0.35)';
-  } else {
-    a = 'rgba(168,85,247,0.18)';
-    b = 'rgba(168,85,247,0.06)';
-    br = 'rgba(168,85,247,0.35)';
-  }
-
   return {
-    background: `linear-gradient(180deg, ${a}, ${b})`,
-    border: `1px solid ${br}`,
-    outline: active ? '2px solid rgba(255,255,255,0.22)' : 'none',
+    background: '#FFFFFF',
+    color: '#000000',
+    border: active ? '4px solid #00E5FF' : '2px solid #FFFFFF',
+    outline: active ? '4px solid #22C55E' : 'none',
+    outlineOffset: active ? '2px' : '0px',
     boxShadow: active
-      ? '0 10px 18px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.18)'
-      : '0 8px 14px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.14)',
+      ? '0 0 0 3px rgba(34,197,94,0.35), 0 10px 18px rgba(0,0,0,0.38)'
+      : '0 8px 14px rgba(0,0,0,0.30)',
   };
 }
 
@@ -1468,7 +1442,7 @@ KOMPANIA JONI`;
     <div className="wrap">
       {showOfflinePrompt ? (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }}>
-          <div style={{ maxWidth: 520, width: '100%', borderRadius: 14, border: '1px solid rgba(255,255,255,0.12)', background: '#0d0f14', padding: 14 }}>
+          <div style={{ maxWidth: 520, width: '100%', borderRadius: 14, border: '2px solid #FFFFFF', background: '#000000', padding: 14 }}>
             <div style={{ fontWeight: 900, letterSpacing: 1 }}>S’KA LIDHJE</div>
             <div style={{ opacity: 0.85, marginTop: 8, lineHeight: 1.35 }}>
               Interneti ose serveri nuk po përgjigjet. A don me vazhdu në <b>OFFLINE MODE</b> që mos me i humb klientat?
@@ -1633,8 +1607,8 @@ KOMPANIA JONI`;
         <div className="tot-line">M² Total: <strong>{totalM2}</strong></div>
         <div className="tot-line">Copë: <strong>{copeCount}</strong></div>
         <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
-        <div className="tot-line" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 10, paddingTop: 10 }}>Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div>
-        <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>Regjistru n&apos;ARKË: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong></div>
+        <div className="tot-line" style={{ borderTop: '2px solid #FFFFFF', marginTop: 10, paddingTop: 10 }}>Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div>
+        <div className="tot-line" style={{ fontSize: 12, color: '#E0E0E0' }}>Regjistru n&apos;ARKË: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong></div>
         {currentDebt > 0 && <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{currentDebt.toFixed(2)} €</strong></div>}
         {currentChange > 0 && <div className="tot-line">Kthim: <strong style={{ color: '#2563eb' }}>{currentChange.toFixed(2)} €</strong></div>}
       </section>
@@ -1657,12 +1631,12 @@ KOMPANIA JONI`;
           </div>
           <div className="payfs-body">
             <div className="card" style={{ marginTop: 0 }}>
-              {drafts.length === 0 ? <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>S’ka “të pa plotsuara”.</div> : (
+              {drafts.length === 0 ? <div style={{ textAlign: 'center', padding: '18px 0', color: '#E0E0E0' }}>S’ka “të pa plotsuara”.</div> : (
                 drafts.map((d) => (
-                  <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px', borderBottom: '2px solid #FFFFFF' }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                       <div style={{ background: '#16a34a', color: '#0b0b0b', padding: '8px 10px', borderRadius: 10, fontWeight: 900, minWidth: 56, textAlign: 'center' }}>{d.code || '—'}</div>
-                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>
+                      <div style={{ fontSize: 12, color: '#E0E0E0' }}>
                         <div style={{ fontWeight: 800 }}>KODI: {d.code || '—'}</div>
                         <div style={{ opacity: 0.85 }}>{Number(d.m2 || 0).toFixed(2)} m² • {Number(d.euro || 0).toFixed(2)} €</div>
                       </div>
@@ -1690,11 +1664,11 @@ KOMPANIA JONI`;
           <div className="payfs-body">
             <div className="card" style={{ marginTop: 0 }}>
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: 900 }}>AUTO PAS “VAZHDO”</div>
+                <div style={{ fontSize: 12, color: '#E0E0E0', fontWeight: 900 }}>AUTO PAS “VAZHDO”</div>
                 <button className="btn secondary" style={{ padding: '6px 10px', fontSize: 11, borderRadius: 12 }} onClick={toggleAutoMsg}>{autoMsgAfterSave ? 'ON' : 'OFF'}</button>
               </div>
-              <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 10 }}><strong>PREVIEW</strong></div>
-              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.85)', lineHeight: 1.35 }}>{buildStartMessage()}</pre>
+              <div className="tot-line" style={{ fontSize: 12, color: '#E0E0E0', marginTop: 10 }}><strong>PREVIEW</strong></div>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 10, fontSize: 12, color: '#FFFFFF', lineHeight: 1.35 }}>{buildStartMessage()}</pre>
             </div>
             <div className="card">
               <div className="row" style={{ gap: 10 }}>
@@ -1702,7 +1676,7 @@ KOMPANIA JONI`;
                 <button className="btn secondary" style={{ flex: 1 }} onClick={sendViaWhatsApp}>WHATSAPP</button>
                 <button className="btn secondary" style={{ flex: 1 }} onClick={sendViaSMS}>SMS</button>
               </div>
-              <div style={{ marginTop: 12, fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>* Numri i kompanisë në fund: {COMPANY_PHONE_DISPLAY}</div>
+              <div style={{ marginTop: 12, fontSize: 12, color: '#E0E0E0' }}>* Numri i kompanisë në fund: {COMPANY_PHONE_DISPLAY}</div>
             </div>
             <button className="btn secondary" style={{ width: '100%' }} onClick={closeMsgSheet}>MBYLL</button>
           </div>
@@ -1721,7 +1695,7 @@ KOMPANIA JONI`;
               <div style={{ height: 10 }} />
               <label className="label">QMIMI I RI (€ / m²)</label>
               <input type="number" step="0.1" className="input" value={priceTmp} onChange={(e) => setPriceTmp(e.target.value === '' ? '' : Number(e.target.value))} />
-              <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>* Long-press 3 sek te “€ PAGESA” për me ardh këtu.</div>
+              <div style={{ marginTop: 10, fontSize: 12, color: '#E0E0E0' }}>* Long-press 3 sek te “€ PAGESA” për me ardh këtu.</div>
             </div>
           </div>
           <div className="payfs-footer">
@@ -1743,25 +1717,25 @@ KOMPANIA JONI`;
               <button className="btn secondary" onClick={() => setShowStairsSheet(false)}>✕</button>
             </div>
             <div className="field-group" style={{ marginTop: 12 }}>
-              <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>COPE</label>
+              <label className="label" style={{ color: '#E0E0E0' }}>COPE</label>
               <div className="chip-row">
                 {SHKALLORE_QTY_CHIPS.map((n) => (
-                  <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{n}</button>
+                  <button key={n} className="chip" type="button" onClick={() => { setStairsQty(n); vibrateTap(15); }} style={Number(stairsQty) === n ? { outline: '4px solid #22C55E', border: '4px solid #00E5FF', outlineOffset: '2px' } : chipStyleForVal(n, false)}>{n}</button>
                 ))}
               </div>
               <input type="number" className="input" value={stairsQty === 0 ? '' : stairsQty} onChange={(e) => { const v = e.target.value; setStairsQty(v === '' ? 0 : Number(v)); }} style={{ marginTop: 10 }} />
             </div>
             <div className="field-group">
-              <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>m² PËR COPË</label>
+              <label className="label" style={{ color: '#E0E0E0' }}>m² PËR COPË</label>
               <div className="chip-row">
                 {SHKALLORE_PER_CHIPS.map((v) => (
-                  <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '2px solid rgba(255,255,255,0.35)' } : null}>{v}</button>
+                  <button key={v} className="chip" type="button" onClick={() => { setStairsPer(v); vibrateTap(15); }} style={Number(stairsPer) === v ? { outline: '4px solid #22C55E', border: '4px solid #00E5FF', outlineOffset: '2px' } : chipStyleForVal(v, false)}>{v}</button>
                 ))}
               </div>
               <input type="number" step="0.01" className="input" value={Number(stairsPer || 0) === 0 ? '' : stairsPer} onChange={(e) => { const v = e.target.value; setStairsPer(v === '' ? 0 : Number(v)); }} style={{ marginTop: 10 }} />
             </div>
             <div className="field-group">
-              <label className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>FOTO</label>
+              <label className="label" style={{ color: '#E0E0E0' }}>FOTO</label>
               <label className="camera-btn">📷<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} /></label>
               {stairsPhotoUrl && (
                 <div style={{ marginTop: 8 }}>
@@ -1813,7 +1787,7 @@ KOMPANIA JONI`;
             <div className="wiz-body transport-like">
               {wizStep === 1 && (
                 <>
-                  <section className="card wiz-section" style={{padding: 0, overflow: 'hidden', background: '#111', border: '1px solid rgba(255,255,255,0.1)'}}>
+                  <section className="card wiz-section" style={{padding: 0, overflow: 'hidden', background: '#000000', border: '2px solid #FFFFFF'}}>
                     <div style={{display:'grid', gridTemplateColumns:'70px 1fr', padding:16, gap:16, alignItems:'center'}}>
                       <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:4}}>
                         <label style={{width:60, height:60, borderRadius:'50%', background:'#2C2C2E', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', border:'1px solid #333', cursor:'pointer'}}>
@@ -1937,7 +1911,7 @@ KOMPANIA JONI`;
                               {stairsPhotoUrl ? <img src={stairsPhotoUrl} style={{width:'100%', height:'100%', borderRadius:12, objectFit:'cover'}} /> : '📷'}
                               <input type="file" hidden accept="image/*" onChange={(e) => handleStairsPhotoChange(e.target.files?.[0])} />
                             </label>
-                            {stairsPhotoUrl ? <button type="button" className="btn secondary" style={{ marginLeft: 'auto', fontSize: 10, padding: '6px 10px' }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI</button> : null}
+                            {stairsPhotoUrl ? <button type="button" className="btn secondary" style={{ marginLeft: 'auto', fontSize: 16, padding: '10px 14px', minHeight: 55 }} onClick={() => setStairsPhotoUrl('')}>🗑️ FSHI</button> : null}
                           </div>
                         </div>
                       </div>
@@ -1968,10 +1942,10 @@ KOMPANIA JONI`;
                         <div className="wiz-premium-value">{Number(totalEuro || 0).toFixed(2)}</div>
                       </div>
                     </div>
-                    <div className="tot-line" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 14, paddingTop: 12 }}>
+                    <div className="tot-line" style={{ borderTop: '2px solid #FFFFFF', marginTop: 14, paddingTop: 12 }}>
                       Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong>
                     </div>
-                    <div className="tot-line" style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)' }}>
+                    <div className="tot-line" style={{ fontSize: 12, color: '#E0E0E0' }}>
                       Regjistru n&apos;ARKË: <strong>{Number(arkaRecordedPaid || 0).toFixed(2)} €</strong>
                     </div>
                     {currentDebt > 0 && <div className="tot-line">Borxh: <strong style={{ color: '#dc2626' }}>{currentDebt.toFixed(2)} €</strong></div>}
@@ -1991,64 +1965,366 @@ KOMPANIA JONI`;
       ) : null}
 
       <style jsx>{`
-        .client-mini{ width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 6px 14px rgba(0,0,0,0.35); }
-        .cap-mini { margin-top: 8px; padding: 10px 12px; border-radius: 16px; background: #0b0b0b; border: 1px solid rgba(255,255,255,0.1); }
-        .cap-mini-top { display: flex; justify-content: space-between; align-items: baseline; }
-        .cap-mini-title { font-size: 10px; letter-spacing: 0.7px; color: rgba(255,255,255,0.65); font-weight: 900; }
-        .cap-mini-val { font-size: 12px; color: #16a34a; font-weight: 900; }
-        .cap-mini-eta { margin-top: 6px; font-size: 12px; color: rgba(255,255,255,0.85); font-weight: 800; }
-        .chip-row.modern { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-        .chip-modern { padding: 10px 14px; border-radius: 14px; font-weight: 900; letter-spacing: 0.2px; color: rgba(255,255,255,0.92); backdrop-filter: blur(8px); }
-        .chip-modern:active { transform: translateY(1px); }
-        .chip-bump { animation: chipBump 140ms ease-in-out; }
-        @keyframes chipBump { 0% { transform: translateY(0) scale(1); } 40% { transform: translateY(1px) scale(0.98); } 70% { transform: translateY(0) scale(1.02); } 100% { transform: translateY(0) scale(1); } }
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px; }
-        .modal-content { width: 100%; max-width: 420px; padding: 18px; border-radius: 18px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35); background: white; }
-        .modal-content.dark { background: #0b0b0b; color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); }
-        .payfs { position: fixed; inset: 0; z-index: 9999; background: #0b0f14; display: flex; flex-direction: column; }
-        .payfs-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 14px; background: #0b0f14; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-        .payfs-title { color: #fff; font-weight: 900; font-size: 18px; }
-        .payfs-sub { color: rgba(255, 255, 255, 0.72); font-size: 12px; margin-top: 2px; }
-        .payfs-body { flex: 1; overflow: auto; padding: 14px; }
-        .payfs-footer { display: flex; gap: 10px; padding: 12px 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); background: #0b0f14; }
-        .payfs-footer .btn { flex: 1; }
-        .wiz-backdrop{ position:fixed; inset:0; background: rgba(0,0,0,0.72); display:flex; align-items:center; justify-content:center; z-index:9999; padding: 14px; }
-        .pill{ border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.9); padding: 10px 12px; border-radius: 14px; font-weight: 900; letter-spacing: 0.4px; font-size: 11px; }
-        .wiz-card{ width:100%; max-width:480px; max-height:92vh; overflow:hidden; display:flex; flex-direction:column; border-radius:24px; background:linear-gradient(180deg, #0f141b 0%, #090c10 100%); border:1px solid rgba(255,255,255,0.12); box-shadow: 0 22px 70px rgba(0,0,0,0.48); }
-        .wiz-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 16px 12px; border-bottom:1px solid rgba(255,255,255,0.08); }
-        .wiz-title{ color:#fff; font-size:18px; font-weight:900; letter-spacing:0.6px; }
-        .wiz-sub{ color:rgba(255,255,255,0.6); font-size:11px; font-weight:800; margin-top:2px; }
-        .wiz-x{ min-width:42px; height:42px; border:none; border-radius:12px; background:rgba(255,255,255,0.08); color:#fff; font-size:18px; font-weight:900; }
-        .wiz-transport-steps{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:8px; padding:12px 16px 0; }
-        .wiz-step-btn{ min-height:42px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04); color:#fff; font-size:11px; font-weight:800; padding:8px 6px; }
-        .wiz-step-btn.active{ border-color:rgba(14,165,233,.9); background:rgba(14,165,233,.14); }
-        .wiz-step-btn.done{ background:rgba(34,197,94,.14); }
-        .wiz-body.transport-like{ flex:1; overflow:auto; padding:0 16px 16px; }
-        .wiz-section{ margin-top:16px; }
-        .wiz-premium-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
-        .wiz-premium-box{ padding:14px 10px; border-radius:18px; border:1px solid rgba(255,255,255,0.14); background:linear-gradient(180deg, rgba(14,165,233,.18) 0%, rgba(255,255,255,.04) 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 12px 24px rgba(0,0,0,0.24); }
-        .wiz-premium-label{ font-size:10px; color:rgba(255,255,255,0.68); font-weight:900; letter-spacing:0.7px; margin-bottom:8px; }
-        .wiz-premium-value{ font-size:20px; color:#fff; font-weight:900; letter-spacing:0.2px; }
-        .wiz-actions{ display:flex; gap:10px; padding:12px 16px 16px; border-top:1px solid rgba(255,255,255,0.08); background:#0b0f14; }
-        .wiz-actions .btn{ flex:1; }
-        .pill.on{ background: rgba(34,197,94,0.16); border-color: rgba(34,197,94,0.28); color: rgba(255,255,255,0.95); }
-        .wiz-card{ width: min(92vw, 560px); max-height: 88vh; overflow: hidden; background:#0b0f14; border:1px solid rgba(255,255,255,0.14); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.55); display:flex; flex-direction: column; }
-        .wiz-top{ display:flex; align-items:center; justify-content:space-between; padding: 12px 12px 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-        .wiz-title{ font-weight: 900; letter-spacing: .08em; }
-        .wiz-x{ background: transparent; border: 0; color: #fff; font-size: 18px; padding: 8px 10px; }
-        .wiz-steps{ display:flex; gap: 8px; padding: 10px 12px; }
-        .wiz-dot{ width: 28px; height: 28px; border-radius: 999px; display:flex; align-items:center; justify-content:center; font-weight: 900; border: 1px solid rgba(255,255,255,0.22); opacity: .65; }
-        .wiz-dot.on{ opacity: 1; border-color: rgba(34,197,94,0.8); box-shadow: 0 0 0 2px rgba(34,197,94,0.18); }
-        .wiz-body{ flex:1; overflow:auto; padding: 12px; }
-        .wiz-h{ font-weight: 900; letter-spacing: .06em; margin-bottom: 10px; }
-        .wiz-tabs{ display:flex; gap: 8px; margin-bottom: 10px; }
-        .wiz-tab{ flex:1; padding: 10px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: transparent; color: #fff; font-weight: 900; letter-spacing: .06em; opacity: .85; }
-        .wiz-tab.on{ opacity: 1; background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.35); }
-        .wiz-actions{ display:flex; gap: 10px; padding: 12px; border-top: 1px solid rgba(255,255,255,0.08); background: #0b0b0b; }
-        .wiz-actions .btn{ flex:1; }
-        .footer-bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px)); background: #0b0f14; border-top: 1px solid rgba(255,255,255,0.08); z-index: 1000; }
+        .wrap {
+          padding-bottom: 160px;
+          background: #000000;
+          color: #FFFFFF;
+        }
+        .footer-bar {
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          display: flex;
+          gap: 12px;
+          padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+          background: #000000;
+          border-top: 2px solid #FFFFFF;
+          z-index: 1000;
+        }
         .footer-bar .btn { flex: 1; }
-        .wrap { padding-bottom: 140px; }
+
+        .client-mini{
+          width: 42px;
+          height: 42px;
+          border-radius: 999px;
+          object-fit: cover;
+          border: 2px solid #FFFFFF;
+          box-shadow: 0 8px 16px rgba(0,0,0,0.45);
+        }
+
+        .cap-mini {
+          margin-top: 10px;
+          padding: 14px;
+          border-radius: 18px;
+          background: #000000;
+          border: 2px solid #FFFFFF;
+        }
+        .cap-mini-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+        .cap-mini-title { font-size: 14px; letter-spacing: 0.08em; color: #E0E0E0; font-weight: 900; }
+        .cap-mini-val { font-size: 16px; color: #22C55E; font-weight: 900; }
+        .cap-mini-eta { margin-top: 8px; font-size: 16px; color: #FFFFFF; font-weight: 900; }
+
+        .chip-row.modern { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+        .chip-modern,
+        .chip,
+        .pill,
+        .wiz-step-btn,
+        .wiz-tab,
+        .wiz-x {
+          min-height: 55px;
+        }
+        .chip-modern,
+        .chip {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 12px 18px;
+          border-radius: 16px;
+          font-weight: 900;
+          font-size: 20px;
+          letter-spacing: 0.02em;
+          background: #FFFFFF;
+          color: #000000;
+          border: 2px solid #FFFFFF;
+          box-shadow: 0 8px 14px rgba(0,0,0,0.30);
+          backdrop-filter: none;
+        }
+        .chip-modern:active,
+        .chip:active {
+          transform: translateY(1px);
+          border-color: #00E5FF;
+          outline: 4px solid #22C55E;
+          outline-offset: 2px;
+        }
+        .chip-modern:focus-visible,
+        .chip:focus-visible,
+        .btn:focus-visible,
+        .input:focus-visible,
+        .wiz-step-btn:focus-visible,
+        .wiz-tab:focus-visible,
+        .wiz-x:focus-visible {
+          outline: 4px solid #22C55E;
+          outline-offset: 3px;
+        }
+
+        .chip-bump { animation: chipBump 140ms ease-in-out; }
+        @keyframes chipBump {
+          0% { transform: translateY(0) scale(1); }
+          40% { transform: translateY(1px) scale(0.98); }
+          70% { transform: translateY(0) scale(1.02); }
+          100% { transform: translateY(0) scale(1); }
+        }
+
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.82);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          padding: 20px;
+        }
+        .modal-content {
+          width: 100%;
+          max-width: 480px;
+          padding: 20px;
+          border-radius: 22px;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+          background: #000000;
+          color: #FFFFFF;
+          border: 2px solid #FFFFFF;
+        }
+        .modal-content.dark { background: #000000; color: #FFFFFF; border: 2px solid #FFFFFF; }
+
+        .payfs {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          background: #000000;
+          display: flex;
+          flex-direction: column;
+        }
+        .payfs-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 16px;
+          background: #000000;
+          border-bottom: 2px solid #FFFFFF;
+        }
+        .payfs-title { color: #FFFFFF; font-weight: 900; font-size: 24px; }
+        .payfs-sub { color: #E0E0E0; font-size: 16px; margin-top: 4px; font-weight: 900; }
+        .payfs-body { flex: 1; overflow: auto; padding: 16px; }
+        .payfs-footer {
+          display: flex;
+          gap: 12px;
+          padding: 14px 16px;
+          border-top: 2px solid #FFFFFF;
+          background: #000000;
+        }
+        .payfs-footer .btn { flex: 1; }
+
+        .pill {
+          border: 2px solid #FFFFFF;
+          background: #FFFFFF;
+          color: #000000;
+          padding: 12px 14px;
+          border-radius: 16px;
+          font-weight: 900;
+          letter-spacing: 0.04em;
+          font-size: 16px;
+        }
+        .pill.on {
+          background: #FFFFFF;
+          border-color: #00E5FF;
+          color: #000000;
+          outline: 4px solid #22C55E;
+          outline-offset: 2px;
+        }
+
+        .wiz-backdrop{
+          position:fixed;
+          inset:0;
+          background: rgba(0,0,0,0.88);
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          z-index:9999;
+          padding: 14px;
+        }
+        .wiz-card{
+          width: min(96vw, 620px);
+          max-height: 92vh;
+          overflow: hidden;
+          background:#000000;
+          border:2px solid #FFFFFF;
+          border-radius: 18px;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.60);
+          display:flex;
+          flex-direction: column;
+        }
+        .wiz-top{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:12px;
+          padding: 14px;
+          border-bottom: 2px solid #FFFFFF;
+          background: #000000;
+        }
+        .wiz-title{
+          color:#FFFFFF;
+          font-size:24px;
+          font-weight:900;
+          letter-spacing:0.08em;
+        }
+        .wiz-sub{
+          color:#E0E0E0;
+          font-size:15px;
+          font-weight:900;
+          margin-top:4px;
+        }
+        .wiz-x{
+          min-width: 56px;
+          padding: 8px 12px;
+          background: #FFFFFF;
+          border: 2px solid #FFFFFF;
+          border-radius: 16px;
+          color: #000000;
+          font-size: 24px;
+          font-weight: 900;
+        }
+        .wiz-transport-steps{
+          display:grid;
+          grid-template-columns:repeat(5, minmax(0,1fr));
+          gap:10px;
+          padding:14px 14px 0;
+        }
+        .wiz-step-btn{
+          border-radius:16px;
+          border:2px solid #FFFFFF;
+          background:#FFFFFF;
+          color:#000000;
+          font-size:15px;
+          font-weight:900;
+          padding:10px 8px;
+        }
+        .wiz-step-btn.active{
+          border-color:#00E5FF;
+          outline:4px solid #22C55E;
+          outline-offset: 2px;
+        }
+        .wiz-step-btn.done{
+          background:#E0FFE9;
+          border-color:#22C55E;
+        }
+        .wiz-body.transport-like,
+        .wiz-body{
+          flex:1;
+          overflow:auto;
+          padding:14px;
+          background:#000000;
+          color:#FFFFFF;
+        }
+        .wiz-section{ margin-top:16px; }
+        .wiz-premium-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+        .wiz-premium-box{
+          padding:16px 12px;
+          border-radius:18px;
+          border:2px solid #FFFFFF;
+          background:#000000;
+          box-shadow: 0 10px 18px rgba(0,0,0,0.24);
+        }
+        .wiz-premium-label{
+          font-size:14px;
+          color:#E0E0E0;
+          font-weight:900;
+          letter-spacing:0.08em;
+          margin-bottom:8px;
+        }
+        .wiz-premium-value{
+          font-size:28px;
+          color:#FFFFFF;
+          font-weight:900;
+          letter-spacing:0.02em;
+        }
+        .wiz-h{ font-weight: 900; letter-spacing: .06em; margin-bottom: 10px; font-size: 22px; color: #FFFFFF; }
+        .wiz-tabs{ display:flex; gap: 10px; margin-bottom: 12px; }
+        .wiz-tab{
+          flex:1;
+          padding: 10px 12px;
+          border-radius: 16px;
+          border: 2px solid #FFFFFF;
+          background: #FFFFFF;
+          color: #000000;
+          font-weight: 900;
+          font-size: 16px;
+          letter-spacing: .06em;
+          opacity: 1;
+        }
+        .wiz-tab.on{
+          background: #FFFFFF;
+          border-color: #00E5FF;
+          outline: 4px solid #22C55E;
+          outline-offset: 2px;
+        }
+        .wiz-actions{
+          display:flex;
+          gap: 12px;
+          padding: 14px;
+          border-top: 2px solid #FFFFFF;
+          background: #000000;
+        }
+        .wiz-actions .btn{ flex:1; }
+
+        .input,
+        textarea.input,
+        input.input,
+        select.input {
+          width: 100%;
+          min-height: 58px;
+          padding: 14px 16px;
+          border-radius: 16px;
+          border: 2px solid #FFFFFF;
+          background: #000000;
+          color: #FFFFFF;
+          font-size: 20px;
+          font-weight: 900;
+          line-height: 1.2;
+        }
+        textarea.input {
+          min-height: 120px;
+          resize: vertical;
+        }
+        .input::placeholder,
+        textarea.input::placeholder,
+        input.input::placeholder {
+          color: #E0E0E0;
+          opacity: 1;
+        }
+
+        .btn {
+          min-height: 58px;
+          padding: 14px 18px;
+          border-radius: 16px;
+          border: 2px solid #FFFFFF;
+          background: #FFFFFF;
+          color: #000000;
+          font-size: 18px;
+          font-weight: 900;
+          letter-spacing: 0.03em;
+        }
+        .btn.secondary {
+          background: #000000;
+          color: #FFFFFF;
+        }
+        .btn:disabled {
+          opacity: 0.55;
+        }
+
+        .label,
+        .card-title,
+        .tot-line,
+        .muted,
+        small {
+          color: #FFFFFF;
+          font-weight: 900;
+        }
+        .label { font-size: 18px; }
+        .card-title { font-size: 22px; }
+        .tot-line { font-size: 18px; }
+
+        @media (max-width: 640px) {
+          .wiz-transport-steps { grid-template-columns: repeat(5, minmax(0,1fr)); }
+          .wiz-step-btn { font-size: 13px; padding: 8px 4px; }
+          .wiz-premium-value { font-size: 24px; }
+          .chip-modern,
+          .chip,
+          .btn,
+          .input { font-size: 18px; }
+        }
       `}</style>
     </div>
   );
