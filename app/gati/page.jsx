@@ -810,9 +810,9 @@ async function resolveReturnDbId(row) {
 
     const oid = await resolveReturnDbId(retOrder);
     if (!oid) {
-      setRetErr('S'u gjet ID e porosisë për kthim.');
+      setRetErr("S'u gjet ID e porosisë për kthim.");
       setRetBusy(false);
-      alert('❌ S'u gjet porosia për kthim.');
+      alert("❌ S'u gjet porosia për kthim.");
       return;
     }
 
@@ -857,7 +857,6 @@ async function resolveReturnDbId(row) {
       prevData?.pieces ??
       retOrder?.qty ??
       prevData?.qty ??
-      prevData?.piece_count ??
       0
     ) || 0;
     const preservedM2 = Number(
@@ -865,7 +864,6 @@ async function resolveReturnDbId(row) {
       prevData?.m2_total ??
       retOrder?.m2 ??
       prevData?.m2 ??
-      prevData?.m2Total ??
       0
     ) || 0;
     const preservedPrice = Number(
