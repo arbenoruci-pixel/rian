@@ -777,7 +777,10 @@ export default function PranimiPage() {
       const byId = new Map();
       for (const d of [...remote, ...local]) {
         if (!d?.id) continue;
-        if (!byId.has(d.id)) byId.set(d.id, d);
+        const existing = byId.get(d.id);
+        if (!existing || (Number(d.ts || 0) > Number(existing?.ts || 0))) {
+          byId.set(d.id, d);
+        }
       }
       const merged = Array.from(byId.values()).sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
       const byCode = new Map();
