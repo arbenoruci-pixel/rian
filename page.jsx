@@ -2,357 +2,272 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { getActor } from '@/lib/actorSession';
+import { listPendingCashForActor } from '@/lib/arkaCashSync';
+import { submitWorkerCashToDispatch } from '@/lib/corporateFinance';
 import { supabase } from '@/lib/supabaseClient';
-import { ensureBasePool, getActorPin } from '@/lib/baseCodes';
 
-function onlyDigits(v){ return String(v ?? '').replace(/\D+/g,''); }
-function normCode(v){
-  const s = String(v ?? '').trim();
-  if (!s) return { kind:'', raw:'' };
-  if (/^t\d+/i.test(s)) return { kind:'T', raw:'T'+onlyDigits(s) };
-  return { kind:'B', raw: onlyDigits(s) };
+const euro = (n) => `€${Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const MONTH_KEY = () => new Date().toISOString().slice(0, 7);
+
+function HubTile({ href, icon, title, desc, accent = '#0f172a' }) {
+  return (
+    <Link href={href} className="hubTile" style={{ textDecoration: 'none' }}>
+      <div className="hubTileIconWrap" style={{ background: `${accent}12` }}>
+        <div className="hubTileIcon" aria-hidden="true">{icon}</div>
+      </div>
+      <div className="hubTileBody">
+        <div className="hubTileTitle">{title}</div>
+        <div className="hubTileDesc">{desc}</div>
+      </div>
+      <div className="hubTileArrow" aria-hidden="true">›</div>
+    </Link>
+  );
 }
 
-function routeForStatus(status){
-  const s = String(status||'').toLowerCase();
-  if (s === 'pastrim') return '/pastrimi';
-  if (s === 'gati') return '/gati';
-  if (s === 'dorzim' || s === 'dorzuar') return '/marrje-sot';
-  return '/pastrimi';
-}
+export default function ArkaPage() {
+  const [actor, setActor] = useState(null);
+  const [mine, setMine] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [budgetSummary, setBudgetSummary] = useState({ current_balance: 0, total_in: 0, total_out: 0 });
+  const [monthNet, setMonthNet] = useState(0);
+  const [monthHandoffs, setMonthHandoffs] = useState(0);
 
-function getStatusStyle(status) {
-  const s = String(status||'').toLowerCase();
-  if (s === 'gati') return { background: 'rgba(16, 185, 129, 0.15)', color: '#4ade80', border: '1px solid rgba(16, 185, 129, 0.3)' };
-  if (s === 'pastrim') return { background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' };
-  if (s === 'dorzim' || s === 'dorzuar') return { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' };
-  return { background: 'rgba(255,255,255,0.05)', color: '#aaa', border: '1px solid rgba(255,255,255,0.1)' };
-}
+  const role = String(actor?.role || '').trim().toUpperCase();
+  const workerOnly = ['PUNTOR', 'PUNETOR', 'WORKER', 'TRANSPORT'].includes(role);
+  const dispatchOnly = role === 'DISPATCH';
+  const privileged = ['ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(role);
+  const admin = privileged;
+  const canSeeStaff = privileged;
+  const canSeePayroll = privileged;
+  const canSeeExpenses = privileged;
+  const canSeeBudget = privileged;
+  const canSeeCorporate = !!actor?.pin;
 
-// Llogarit sa tepihë ka brenda porosisë
-function computePieces(orderData) {
-  if (!orderData) return 0;
-  const t = Array.isArray(orderData.tepiha) ? orderData.tepiha : (Array.isArray(orderData.tepihaRows) ? orderData.tepihaRows : []);
-  const s = Array.isArray(orderData.staza) ? orderData.staza : (Array.isArray(orderData.stazaRows) ? orderData.stazaRows : []);
-  const tCope = t.reduce((a, b) => a + (Number(b.qty ?? b.pieces) || 0), 0);
-  const sCope = s.reduce((a, b) => a + (Number(b.qty ?? b.pieces) || 0), 0);
-  const shk = Number(orderData.shkallore?.qty) > 0 ? 1 : 0;
-  return tCope + sCope + shk;
-}
-
-async function fetchTransporterNameByPin(pin){
-  try{
-    const p = onlyDigits(pin);
-    if(!p) return '';
-    const { data, error } = await supabase
-      .from('tepiha_users')
-      .select('name,pin')
-      .eq('pin', p)
-      .limit(1);
-    if(error) return '';
-    const row = Array.isArray(data) ? data[0] : (data || null);
-    return String(row?.name || row?.pin || '');
-  }catch{
-    return '';
+  async function refreshMine(a = null) {
+    const act = a || getActor();
+    setActor(act || null);
+    const pin = String(act?.pin || '').trim();
+    if (!pin) {
+      setMine([]);
+      return;
+    }
+    try {
+      const res = await listPendingCashForActor(pin, 200);
+      const items = Array.isArray(res?.items) ? res.items : [];
+      setMine(items.filter((x) => ['PENDING', 'COLLECTED'].includes(String(x?.status || '').toUpperCase())));
+    } catch {
+      setMine([]);
+    }
   }
-}
 
-export default function HomePage() {
-  const router = useRouter();
+  async function refreshFinance() {
+    const monthKey = MONTH_KEY();
+
+    try {
+      const { data, error } = await supabase
+        .from('company_budget_summary')
+        .select('*')
+        .eq('id', 1)
+        .single();
+      if (error) throw error;
+      setBudgetSummary({
+        current_balance: Number(data?.current_balance || 0) || 0,
+        total_in: Number(data?.total_in || 0) || 0,
+        total_out: Number(data?.total_out || 0) || 0,
+      });
+    } catch {
+      setBudgetSummary({ current_balance: 0, total_in: 0, total_out: 0 });
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('company_budget_ledger')
+        .select('direction,amount,category,created_at')
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      const rows = Array.isArray(data) ? data : [];
+      const monthRows = rows.filter((r) => String(r?.created_at || '').slice(0, 7) === monthKey);
+      const ins = monthRows
+        .filter((r) => String(r?.direction || '').toUpperCase() === 'IN')
+        .reduce((sum, r) => sum + (Number(r?.amount || 0) || 0), 0);
+      const outs = monthRows
+        .filter((r) => String(r?.direction || '').toUpperCase() === 'OUT')
+        .reduce((sum, r) => sum + (Number(r?.amount || 0) || 0), 0);
+      setMonthNet(ins - outs);
+      setMonthHandoffs(monthRows.filter((r) => String(r?.category || '').toUpperCase() === 'WORKER_TO_DISPATCH').length);
+    } catch {
+      setMonthNet(0);
+      setMonthHandoffs(0);
+    }
+  }
 
   useEffect(() => {
-    try {
-      const pin = getActorPin();
-      void ensureBasePool(pin, 20);
-    } catch {}
+    void refreshMine();
+    void refreshFinance();
   }, []);
 
-  const [q, setQ] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState('');
-  const [results, setResults] = useState([]);
+  const myTotal = useMemo(() => mine.reduce((sum, x) => sum + (Number(x?.amount || 0) || 0), 0), [mine]);
 
-  const parsed = useMemo(() => normCode(q), [q]);
-
-  async function runSearch(e){
-    e?.preventDefault?.();
-    setErr('');
-    setResults([]);
-
-    const qRaw = String(q || '').trim();
-    const qLower = qRaw.toLowerCase();
-    
-    if (qLower === 'doctor' || qLower === '/doctor') {
-      router.push('/doctor');
-      return;
-    }
-    if (qLower === 'offline' || qLower === '/offline' || qLower === 'offline.html' || qLower === '/offline.html') {
-      router.push('/offline.html');
-      return;
-    }
-
-    const kind = parsed.kind;
-    const raw = parsed.raw;
-
-    if(!raw){
-      setErr('SHKRUAJ KODIN (p.sh. 3 ose T3)');
-      return;
-    }
-
-    setLoading(true);
-    try{
-      if(kind === 'T'){
-        const tcode = String(raw || '').toUpperCase();
-        const { data, error } = await supabase
-          .from('transport_orders')
-          .select('id,client_tcode,status,transport_id,data,updated_at,created_at')
-          .eq('client_tcode', tcode)
-          .order('updated_at', { ascending: false })
-          .order('created_at', { ascending: false })
-          .limit(10);
-
-        if(error) throw new Error(error.message);
-
-        const rows = Array.isArray(data) ? data : [];
-        const out = [];
-        for(const r of rows){
-          const transport_id = r?.transport_id ?? r?.data?.transport_id ?? r?.data?.transportId ?? null;
-          const transporter = transport_id ? await fetchTransporterNameByPin(transport_id) : '';
-          const client = r?.data?.client || r?.data?.klienti || {};
-          out.push({
-            kind:'T',
-            code: String(r?.client_tcode || tcode),
-            status: r?.status || '',
-            name: r?.data?.client_name || client?.name || r?.data?.name || '',
-            phone: r?.data?.client_phone || client?.phone || r?.data?.phone || '',
-            transporter,
-            pieces: computePieces(r?.data),
-            id: r?.id || null,
-          });
-        }
-        setResults(out);
-        return;
-      }
-
-      const n = Number(raw) || 0;
-      if(!(n>0)){
-        setErr('KOD I PAVLEFSHËM.');
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('orders')
-        .select('id,code,status,client_name,client_phone,data,updated_at')
-        .eq('code', n)
-        .order('updated_at', { ascending: false })
-        .limit(10);
-
-      if(error) throw new Error(error.message);
-
-      const rows = Array.isArray(data) ? data : [];
-      const out = [];
-      for(const r of rows){
-        const transport_id = r?.data?.transport_id ?? r?.data?.transportId ?? null;
-        const transporter = transport_id ? await fetchTransporterNameByPin(transport_id) : '';
-        const createdBy = r?.data?._audit?.created_by_name || r?.data?.created_by_name || r?.data?.created_by || null;
-        
-        out.push({
-          kind:'B',
-          code: String(r?.code ?? n),
-          status: r?.status || '',
-          name: r?.client_name || '',
-          phone: r?.client_phone || '',
-          transporter,
-          createdBy,
-          pieces: computePieces(r?.data),
-          id: r?.id || null,
-        });
-      }
-      setResults(out);
-
-    }catch(ex){
-      setErr(String(ex?.message || ex || 'GABIM NE SEARCH'));
-    }finally{
-      setLoading(false);
+  async function onHandoff() {
+    if (!actor?.pin) return alert('MUNGON PIN-I I PËRDORUESIT.');
+    if (myTotal <= 0) return alert('ARKA JOTE ËSHTË 0€');
+    const ok = window.confirm(`A DON ME I DORËZU ${myTotal.toFixed(2)}€ TE DISPATCH?`);
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await submitWorkerCashToDispatch({ actor, note: '' });
+      if (!res?.ok) throw new Error(res?.error || 'DËSHTOI DORËZIMI');
+      await refreshMine(actor);
+      alert('DORËZIMI U DËRGUA TE DISPATCH PËR APROVIM.');
+    } catch (e) {
+      alert(e?.message || 'GABIM GJATË DORËZIMIT.');
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <div className="home-wrap">
-      {/* HEADER */}
-      <header className="header-pro">
-        <div className="header-text">
-          <h1 className="title">TEPIHA <span style={{color: '#3b82f6'}}>PRO</span></h1>
-          <p className="subtitle">Sistemi i Menaxhimit</p>
-        </div>
-      </header>
-
-      {/* SEARCH SECTION */}
-      <section className="search-section">
-        <h2 className="section-title">🔍 KËRKO POROSINË</h2>
-        <form className="search-box" onSubmit={runSearch}>
-          <input
-            className="search-input"
-            value={q}
-            onChange={(e)=>setQ(e.target.value)}
-            placeholder="Shkruaj Kodin (Psh: 3 ose T3)"
-            inputMode="text"
-            autoComplete="off"
-          />
-          <button className="search-btn" type="submit" disabled={loading}>
-            {loading ? '...' : 'KËRKO'}
-          </button>
-        </form>
-
-        {err && <div className="error-msg">{err}</div>}
-
-        {/* REZULTATET E KËRKIMIT */}
-        {results?.length ? (
-          <div className="results-container">
-            {results.map((r, idx) => {
-              const href = (r.kind === 'T')
-                ? (`${r.id ? `/transport/item?id=${encodeURIComponent(String(r.id||''))}` : `/transport/menu`}`)
-                : (`${routeForStatus(r.status)}?q=${encodeURIComponent(String(r.code||''))}`);
-
-              return (
-                <Link key={r.id || idx} href={href + (href.includes('?') ? '&' : '?') + 'nogate=1&from=search'} className="result-card">
-                  <div className="result-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {/* KODI JESHIL PA # */}
-                      <span className="code-badge">{String(r.code||'')}</span>
-                      <span className="status-badge" style={getStatusStyle(r.status)}>
-                        {String(r.status||'PA STATUS').toUpperCase()}
-                      </span>
-                    </div>
-                    {/* SA TEPIHA */}
-                    <div className="pieces-badge">📦 {r.pieces} Copë</div>
-                  </div>
-
-                  <div className="result-body">
-                    <div className="client-name">{String(r.name||'Klient i panjohur')}</div>
-                    {r.phone && <div className="client-phone">📞 {String(r.phone||'')}</div>}
-                  </div>
-
-                  <div className="result-footer">
-                    <div className="workers-info">
-                      {r.createdBy && <div>👤 <span>SJELLË NGA:</span> {String(r.createdBy)}</div>}
-                      {r.transporter && <div style={{color: '#f59e0b'}}>🚚 <span>PRU NGA:</span> {String(r.transporter).toUpperCase()}</div>}
-                    </div>
-                    <div className="go-btn">HAP ➔</div>
-                  </div>
-                </Link>
-              );
-            })}
+    <div className="arkaHubPage">
+      <div className="arkaHubShell">
+        <div className="arkaHubTop">
+          <div>
+            <div className="arkaEyebrow">ARKA / HUB</div>
+            <h1 className="arkaTitle">MENU KRYESORE E ARKËS</h1>
+            <p className="arkaSubtitle">{workerOnly ? 'ARKA JOTE, DORËZIMI TE DISPATCH DHE QASJA NË PANELIN KORPORATË.' : dispatchOnly ? 'PRANIMI I CASH-IT NGA PUNËTORËT DHE QASJA E KONTROLLUAR NË PANELIN KORPORATË.' : 'MENAXHIM I STAFIT, PAYROLL-IT, SHPENZIMEVE DHE BUXHETIT TË KOMPANISË.'}</p>
           </div>
-        ) : null}
-      </section>
-
-      {/* NAVIGATION GRID */}
-      <section className="modules-section">
-        <h2 className="section-title">⚙️ ZGJEDH MODULIN</h2>
-        
-        <div className="modules-grid">
-          <Link href="/pranimi" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa'}}>🧾</div>
-            <div className="mod-info">
-              <div className="mod-title">PRANIMI</div>
-              <div className="mod-sub">Regjistro klientin</div>
-            </div>
-          </Link>
-
-          <Link href="/pastrimi" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(16, 185, 129, 0.15)', color: '#34d399'}}>🧼</div>
-            <div className="mod-info">
-              <div className="mod-title">PASTRIMI</div>
-              <div className="mod-sub">Lista e larjes</div>
-            </div>
-          </Link>
-
-          <Link href="/gati" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24'}}>✅</div>
-            <div className="mod-info">
-              <div className="mod-title">GATI</div>
-              <div className="mod-sub">Gati për dorëzim</div>
-            </div>
-          </Link>
-
-          <Link href="/marrje-sot" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(239, 68, 68, 0.15)', color: '#f87171'}}>📦</div>
-            <div className="mod-info">
-              <div className="mod-title">MARRJE SOT</div>
-              <div className="mod-sub">Porositë e sotme</div>
-            </div>
-          </Link>
-
-          <Link href="/transport" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa'}}>🚚</div>
-            <div className="mod-info">
-              <div className="mod-title">TRANSPORT</div>
-              <div className="mod-sub">Porositë (T-kode)</div>
-            </div>
-          </Link>
-
-          <Link href="/arka" className="mod-card">
-            <div className="mod-icon" style={{background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6'}}>💰</div>
-            <div className="mod-info">
-              <div className="mod-title">ARKA</div>
-              <div className="mod-sub">Mbyllja e ditës</div>
-            </div>
-          </Link>
-
-          <Link href="/fletore" className="mod-card" style={{ gridColumn: '1 / -1' }}>
-            <div className="mod-icon" style={{background: 'rgba(255, 255, 255, 0.1)', color: '#e2e8f0'}}>📒</div>
-            <div className="mod-info">
-              <div className="mod-title">FLETORJA</div>
-              <div className="mod-sub">Arkiva e plotë e porosive dhe detajet</div>
-            </div>
-          </Link>
+          <Link href="/" className="homeBtn">← HOME</Link>
         </div>
-      </section>
 
-      {/* STYLES */}
+        <div className="myArkaCard">
+          <div className="myArkaHead">
+            <div>
+              <div className="myArkaEyebrow">ARKA IME</div>
+              <div className="myArkaName">{actor?.name || 'PËRDORUESI'}</div>
+              <div className="myArkaMeta">PIN: {actor?.pin || '—'} • ROLI: {String(actor?.role || '—').toUpperCase()}</div>
+            </div>
+            <div className="myArkaAmount">{euro(myTotal)}</div>
+          </div>
+          {!admin ? <button className="handoffBtn" disabled={busy || myTotal <= 0} onClick={onHandoff}>DORËZO PARET TE DISPATCH</button> : null}
+          <div className="myArkaList">
+            {mine.length ? mine.slice(0, 6).map((x) => (
+              <div key={x.external_id || x.id} className="myArkaRow">
+                <div>
+                  <div className="myArkaRowTitle">{x.client_name || x.order_code || 'PAGESË CASH'}</div>
+                  <div className="myArkaRowSub">{x.order_code ? `KODI ${x.order_code}` : (x.note || 'PA SHËNIM')}</div>
+                </div>
+                <div className="myArkaRowAmt">{euro(x.amount)}</div>
+              </div>
+            )) : <div className="myArkaEmpty">S’KE PAGESA CASH TË PADORËZUARA.</div>}
+          </div>
+        </div>
+
+        {admin ? (
+          <>
+            <div className="financePreview">
+              <div className="previewCard">
+                <div className="previewLabel">💼 BUXHETI AKTUAL</div>
+                <div className="previewValue">{euro(budgetSummary.current_balance)}</div>
+                <div className="previewHint">LIVE NGA COMPANY_BUDGET_SUMMARY</div>
+              </div>
+              <div className="previewCard">
+                <div className="previewLabel">📈 NETO E MUAJIT</div>
+                <div className="previewValue">{euro(monthNet)}</div>
+                <div className="previewHint">IN − OUT NGA COMPANY_BUDGET_LEDGER PËR {MONTH_KEY()}</div>
+              </div>
+              <div className="previewCard">
+                <div className="previewLabel">🤝 HANDOFFS KËTË MUAJ</div>
+                <div className="previewValue small">{monthHandoffs}</div>
+                <div className="previewHint">NUMRI I PRANIMEVE WORKER → DISPATCH NË LEDGER</div>
+              </div>
+            </div>
+
+            <div className="investCard">
+              <div className="investHead">
+                <div>
+                  <div className="cardEyebrow">🏛️ KORPORATË / 4 NIVELE</div>
+                  <div className="investTitle">PREVIEW I SISTEMIT TË RI FINANCIAR</div>
+                  <div className="investSub">BALANCA E KOMPANISË, TOTAL IN/OUT DHE PANELI I RI PËR DISPATCH / ADMIN.</div>
+                </div>
+                <Link href="/arka/corporate" className="goBudgetBtn">HAP PANELIN</Link>
+              </div>
+              <div className="investMiniGrid">
+                <div className="miniInv">
+                  <div className="miniInvTitle">TOTAL IN</div>
+                  <div className="miniInvMeta">{euro(budgetSummary.total_in)}</div>
+                </div>
+                <div className="miniInv">
+                  <div className="miniInvTitle">TOTAL OUT</div>
+                  <div className="miniInvMeta">{euro(budgetSummary.total_out)}</div>
+                </div>
+                <div className="miniInv">
+                  <div className="miniInvTitle">BALANCA</div>
+                  <div className="miniInvMeta">{euro(budgetSummary.current_balance)}</div>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        <div className="hubGrid">
+          {canSeeStaff ? <HubTile href="/arka/stafi" icon="👥" title="MENAXHIMI I STAFIT" desc="ROLET, PIN-ET DHE STATUSI AKTIV/JOAKTIV." accent="#0f766e" /> : null}
+          {canSeePayroll ? <HubTile href="/arka/payroll" icon="💸" title="PAYROLL & RROGAT" desc="RROGA BAZË, AVANSET, BORXHET DHE SMART PAYROLL." accent="#2563eb" /> : null}
+          {canSeeExpenses ? <HubTile href="/arka/shpenzime" icon="🧾" title="SHPENZIMET" desc="DALJET CASH DHE HISTORIKU I SHPENZIMEVE." accent="#c2410c" /> : null}
+          {canSeeCorporate ? <HubTile href="/arka/corporate" icon="🏛️" title="KORPORATË / 4 NIVELE" desc="PUNËTORI → DISPATCH → KOMPANIA → OWNERS. CASH FLOW I KONTROLLUAR DHE CLEAN." accent="#9333ea" /> : null}
+          {canSeeBudget ? <HubTile href="/arka/buxheti" icon="📊" title="BUXHETI & INVESTIMET" desc="PREVIEW LEGACY / OWNER DASHBOARD. PËRDOR PANELIN KORPORATË SI BURIM KRYESOR." accent="#7c3aed" /> : null}
+        </div>
+      </div>
+
       <style jsx>{`
-        .home-wrap { padding: 16px 14px 40px; background: #070b14; min-height: 100vh; color: #fff; font-family: system-ui, -apple-system, sans-serif; }
-        
-        .header-pro { display: flex; justify-content: flex-start; align-items: center; margin-bottom: 24px; }
-        .header-text .title { font-size: 26px; font-weight: 1000; letter-spacing: -0.5px; margin: 0; line-height: 1.1; }
-        .header-text .subtitle { font-size: 13px; color: rgba(255,255,255,0.6); font-weight: 600; margin-top: 2px; }
-
-        .section-title { font-size: 13px; font-weight: 900; letter-spacing: 1px; color: rgba(255,255,255,0.5); margin-bottom: 12px; margin-left: 4px; }
-        
-        .search-section { margin-bottom: 28px; }
-        .search-box { display: flex; gap: 8px; }
-        .search-input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 14px 16px; color: #fff; font-size: 16px; font-weight: 700; outline: none; transition: 0.2s; }
-        .search-input:focus { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
-        .search-btn { background: #3b82f6; color: #fff; border: none; border-radius: 14px; padding: 0 20px; font-weight: 900; font-size: 14px; letter-spacing: 0.5px; cursor: pointer; }
-        .error-msg { margin-top: 10px; color: #fca5a5; background: rgba(239,68,68,0.15); padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 800; border: 1px solid rgba(239,68,68,0.3); }
-
-        .results-container { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
-        .result-card { background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 16px; text-decoration: none; color: #fff; display: flex; flex-direction: column; gap: 12px; transition: transform 0.1s; }
-        .result-card:active { transform: scale(0.98); background: rgba(255,255,255,0.08); }
-        .result-header { display: flex; justify-content: space-between; align-items: center; }
-        .code-badge { background: #10b981; color: #000; font-size: 18px; font-weight: 900; padding: 4px 12px; border-radius: 8px; letter-spacing: 0.5px; }
-        .status-badge { font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 6px; letter-spacing: 0.5px; }
-        .pieces-badge { font-size: 13px; font-weight: 800; color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 8px; }
-        
-        .result-body { display: flex; flex-direction: column; gap: 4px; }
-        .client-name { font-size: 17px; font-weight: 800; }
-        .client-phone { font-size: 14px; color: rgba(255,255,255,0.6); font-weight: 600; }
-        
-        .result-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; }
-        .workers-info { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: #60a5fa; }
-        .workers-info span { opacity: 0.6; color: #fff; margin-right: 2px; }
-        .go-btn { background: #3b82f6; color: #fff; font-weight: 900; padding: 8px 16px; border-radius: 10px; font-size: 13px; }
-
-        .modules-section { margin-top: 10px; }
-        .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .mod-card { background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 16px; text-decoration: none; color: #fff; display: flex; flex-direction: column; gap: 14px; transition: transform 0.1s, border-color 0.2s; }
-        .mod-card:active { transform: scale(0.96); border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
-        .mod-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
-        .mod-info { display: flex; flex-direction: column; gap: 4px; }
-        .mod-title { font-weight: 900; font-size: 14px; letter-spacing: 0.5px; }
-        .mod-sub { font-size: 11px; font-weight: 600; opacity: 0.5; line-height: 1.3; }
+        .arkaHubPage{min-height:100vh;background:radial-gradient(circle at top left,rgba(59,130,246,.18),transparent 28%),radial-gradient(circle at top right,rgba(16,185,129,.14),transparent 24%),#0b1120;color:#f8fafc;padding:28px 16px 40px;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+        .arkaHubShell{max-width:1120px;margin:0 auto;}
+        .arkaHubTop{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:18px;}
+        .arkaEyebrow{font-size:12px;line-height:1;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:#94a3b8;margin-bottom:10px;}
+        .arkaTitle{margin:0;font-size:clamp(30px,4vw,46px);line-height:.98;letter-spacing:-.05em;font-weight:900;color:#f8fafc;}
+        .arkaSubtitle{margin:12px 0 0;max-width:760px;color:#94a3b8;font-size:15px;line-height:1.55;}
+        .homeBtn{text-decoration:none;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:13px 18px;font-weight:800;box-shadow:0 4px 12px rgba(0,0,0,.22);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease;}
+        .homeBtn:hover{transform:translateY(-1px);box-shadow:0 10px 22px rgba(0,0,0,.3);border-color:rgba(255,255,255,.2);}
+        .myArkaCard{background:linear-gradient(180deg,#0f172a,#111827);color:#fff;border-radius:28px;padding:22px;border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 30px rgba(0,0,0,.24);margin-bottom:20px;}
+        .myArkaHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;}
+        .myArkaEyebrow{font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55);}
+        .myArkaName{margin-top:8px;font-size:24px;font-weight:900;line-height:1;}
+        .myArkaMeta{margin-top:6px;font-size:13px;color:rgba(255,255,255,.62);}
+        .myArkaAmount{font-size:clamp(28px,4vw,42px);font-weight:900;letter-spacing:-.04em;}
+        .handoffBtn{margin-top:16px;width:100%;border:none;border-radius:18px;padding:16px 18px;background:linear-gradient(180deg,#22c55e,#16a34a);color:#fff;font-size:16px;font-weight:900;cursor:pointer;}
+        .handoffBtn:disabled{opacity:.45;cursor:not-allowed;}
+        .myArkaList{margin-top:14px;display:grid;gap:10px;}
+        .myArkaRow{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:11px 12px;border-radius:16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.06);}
+        .myArkaRowTitle{font-size:14px;font-weight:800;}
+        .myArkaRowSub{margin-top:3px;font-size:12px;color:rgba(255,255,255,.58);}
+        .myArkaRowAmt{font-size:16px;font-weight:900;white-space:nowrap;}
+        .myArkaEmpty{padding:12px;border-radius:14px;background:rgba(255,255,255,.05);color:rgba(255,255,255,.72);font-size:13px;}
+        .financePreview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:18px;}
+        .previewCard{position:relative;overflow:hidden;border-radius:24px;padding:18px;background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.12);box-shadow:0 16px 36px rgba(0,0,0,.22);}
+        .previewLabel{font-size:11px;letter-spacing:.16em;font-weight:950;color:#cbd5e1;}
+        .previewValue{margin-top:14px;font-size:38px;font-weight:1000;letter-spacing:-.04em;line-height:1;}
+        .previewValue.small{font-size:28px;}
+        .previewHint{margin-top:10px;font-size:10px;letter-spacing:.14em;color:#94a3b8;font-weight:800;}
+        .investCard{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:24px;padding:18px;margin-bottom:20px;box-shadow:0 16px 36px rgba(0,0,0,.18);}
+        .investHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;}
+        .cardEyebrow{font-size:11px;font-weight:950;letter-spacing:.16em;color:#a78bfa;}
+        .investTitle{margin-top:8px;font-size:24px;line-height:1.02;font-weight:950;letter-spacing:-.03em;}
+        .investSub{margin-top:8px;font-size:12px;letter-spacing:.12em;color:#94a3b8;font-weight:800;}
+        .goBudgetBtn{text-decoration:none;padding:14px 18px;border-radius:16px;background:linear-gradient(180deg,#8b5cf6,#7c3aed);color:#fff;font-weight:900;letter-spacing:.12em;border:1px solid rgba(255,255,255,.12);}
+        .investMiniGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px;}
+        .miniInv,.miniEmpty{border-radius:18px;padding:14px;background:rgba(0,0,0,.26);border:1px solid rgba(255,255,255,.08);}
+        .miniInvTitle{font-size:11px;letter-spacing:.14em;font-weight:950;}
+        .miniInvMeta{margin-top:8px;font-size:11px;letter-spacing:.1em;color:#cbd5e1;}
+        .hubGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
+        .hubTile{display:flex;align-items:center;gap:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:18px;box-shadow:0 14px 28px rgba(0,0,0,.16);transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease;}
+        .hubTile:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.24);box-shadow:0 18px 34px rgba(0,0,0,.22);}
+        .hubTileIconWrap{width:56px;height:56px;border-radius:18px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.08);}
+        .hubTileIcon{font-size:24px;}
+        .hubTileBody{min-width:0;flex:1;}
+        .hubTileTitle{font-size:15px;font-weight:950;letter-spacing:.12em;color:#fff;}
+        .hubTileDesc{margin-top:6px;font-size:12px;line-height:1.45;color:#94a3b8;letter-spacing:.04em;}
+        .hubTileArrow{font-size:26px;color:#cbd5e1;line-height:1;}
+        @media (max-width: 920px){.financePreview,.investMiniGrid,.hubGrid{grid-template-columns:1fr;}.previewValue{font-size:32px;}}
       `}</style>
     </div>
   );
