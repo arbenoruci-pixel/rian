@@ -3,6 +3,7 @@
 // app/arka/cash/CashClient.jsx
 
 import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 import {
   dbGetActiveCycle,
   dbOpenCycle,
@@ -27,6 +28,8 @@ import {
   acceptDispatchHandoff,
   rejectDispatchHandoff,
   listWorkerDebtRows,
+  listCompanyLedger,
+  spendFromCompanyBudget,
 } from "@/lib/corporateFinance";
 
 import { budgetAddMove } from "@/lib/companyBudgetDb";
@@ -73,6 +76,10 @@ export default function CashClient() {
     [user?.role]
   );
   const hasPin = useMemo(() => !!String(user?.pin || "").trim(), [user?.pin]);
+  const canAccessBudget = useMemo(() => {
+    const role = String(user?.role || "").toUpperCase();
+    return role === "DISPATCH" || role === "ADMIN";
+  }, [user?.role]);
 
   const [tab, setTab] = useState("OPEN");
 
@@ -115,6 +122,13 @@ export default function CashClient() {
   const [histCycles, setHistCycles] = useState([]);
   const [histLoading, setHistLoading] = useState(false);
 
+  const [companyBalance, setCompanyBalance] = useState(0);
+  const [companyLedger, setCompanyLedger] = useState([]);
+  const [budgetAmount, setBudgetAmount] = useState("");
+  const [budgetCategory, setBudgetCategory] = useState("RROGË");
+  const [budgetDescription, setBudgetDescription] = useState("");
+  const [budgetBusy, setBudgetBusy] = useState(false);
+
   const sums = useMemo(() => {
     const ins = (moves || [])
       .filter((m) => String(m.type || "").toUpperCase() === "IN")
@@ -129,6 +143,21 @@ export default function CashClient() {
     const opening = Number(cycle?.opening_cash || 0);
     return opening + sums.ins - sums.outs;
   }, [cycle?.opening_cash, sums.ins, sums.outs]);
+
+  async function loadBudgetView() {
+    const { data, error } = await supabase
+      .from("company_budget_summary")
+      .select("current_balance")
+      .eq("id", 1)
+      .single();
+    if (error) throw error;
+
+    setCompanyBalance(Number(data?.current_balance || 0));
+
+    const ledger = await listCompanyLedger(12);
+    const recent = Array.isArray(ledger) ? ledger.filter((x) => String(x?.direction || "").toUpperCase() === "OUT") : [];
+    setCompanyLedger(recent);
+  }
 
   async function refresh(mode = "ALL") {
     setErr("");
@@ -203,6 +232,10 @@ export default function CashClient() {
         } finally {
           setHistLoading(false);
         }
+      }
+
+      if ((mode === "BUXHETI" || tab === "BUXHETI") && canAccessBudget) {
+        await loadBudgetView();
       }
     } catch (e) {
       setErr(e?.message || String(e));
@@ -452,6 +485,32 @@ export default function CashClient() {
     }
   }
 
+  async function onPayBudget() {
+    if (!canAccessBudget) return;
+    setErr("");
+    setBudgetBusy(true);
+    try {
+      const amount = parseEuroInput(budgetAmount);
+      if (Number.isNaN(amount) || amount <= 0) throw new Error("SHUMA DUHET > 0.");
+      if (!String(budgetDescription || "").trim()) throw new Error("PËRSHKRIMI ËSHTË I DETYRUESHËM.");
+
+      await spendFromCompanyBudget({
+        actor: { pin: user?.pin || null, name: user?.name || null },
+        amount,
+        category: budgetCategory || "TJETER",
+        description: String(budgetDescription || "").trim(),
+      });
+
+      setBudgetAmount("");
+      setBudgetDescription("");
+      await loadBudgetView();
+    } catch (e) {
+      setErr(e?.message || String(e));
+    } finally {
+      setBudgetBusy(false);
+    }
+  }
+
   const pendingGroups = useMemo(() => {
     const groups = new Map();
     for (const p of pendingPays || []) {
@@ -479,13 +538,23 @@ export default function CashClient() {
           </div>
         </div>
 
-        <div className="segmented" role="tablist" aria-label="Cash tabs">
+        <div
+          className="segmented"
+          role="tablist"
+          aria-label="Cash tabs"
+          style={{ gridTemplateColumns: `repeat(${canAccessBudget ? 4 : 3}, minmax(0, 1fr))` }}
+        >
           <button className={`seg-btn ${tab === "OPEN" ? "seg-active" : ""}`} onClick={() => setTab("OPEN")}>
             Open
           </button>
           <button className={`seg-btn ${tab === "DISPATCH" ? "seg-active" : ""}`} onClick={() => setTab("DISPATCH")}>
             Dispatch
           </button>
+          {canAccessBudget && (
+            <button className={`seg-btn ${tab === "BUXHETI" ? "seg-active" : ""}`} onClick={() => setTab("BUXHETI")}>
+              Buxheti
+            </button>
+          )}
           <button className={`seg-btn ${tab === "HISTORI" ? "seg-active" : ""}`} onClick={() => setTab("HISTORI")}>
             Histori
           </button>
@@ -712,6 +781,108 @@ export default function CashClient() {
               </div>
             </section>
           )}
+        </div>
+      )}
+
+      {tab === "BUXHETI" && canAccessBudget && (
+        <div className="stack fade-in">
+          <section className="surface spotlight-card">
+            <div className="metric-label">Buxheti aktual i kompanisë</div>
+            <div className="spotlight-value">{euro(companyBalance)}</div>
+            <div className="section-subtitle">
+              Gjendja live nga company_budget_summary për admin dhe dispatch.
+            </div>
+          </section>
+
+          <section className="surface form-card">
+            <div className="section-head">
+              <div>
+                <div className="section-title">Regjistro shpenzim</div>
+                <div className="section-subtitle">
+                  Rroga, fatura, karburant, materiale ose shpenzime të tjera nga kompania.
+                </div>
+              </div>
+            </div>
+
+            <div className="field-row two">
+              <input
+                className="field"
+                value={budgetAmount}
+                onChange={(e) => setBudgetAmount(e.target.value)}
+                inputMode="decimal"
+                placeholder="Shuma (€)"
+              />
+              <select
+                className="field"
+                value={budgetCategory}
+                onChange={(e) => setBudgetCategory(e.target.value)}
+              >
+                <option value="RROGË">Rrogë</option>
+                <option value="FATURË">Faturë</option>
+                <option value="KARBURANT">Karburant</option>
+                <option value="MATERIALE">Materiale</option>
+                <option value="TJETER">Tjetër</option>
+              </select>
+            </div>
+
+            <textarea
+              className="field textarea"
+              rows={3}
+              value={budgetDescription}
+              onChange={(e) => setBudgetDescription(e.target.value)}
+              placeholder="Përshkrimi i shpenzimit"
+            />
+
+            <button className="btn btn-success" disabled={budgetBusy} onClick={onPayBudget}>
+              Paguaj
+            </button>
+          </section>
+
+          <section className="surface ledger-card">
+            <div className="section-head">
+              <div>
+                <div className="section-title">Shpenzimet e fundit</div>
+                <div className="section-subtitle">
+                  Daljet më të fundit nga company_budget_ledger.
+                </div>
+              </div>
+            </div>
+
+            {companyLedger?.length ? (
+              <div className="ledger-list">
+                {companyLedger.map((item) => (
+                  <article key={item.id} className="ledger-item">
+                    <div className="ledger-main">
+                      <div className="ledger-left">
+                        <span className="pill">{String(item.category || "TJETER")}</span>
+                        <div className="ledger-copy">
+                          <div className="ledger-kind">{item.description || "Shpenzim i regjistruar"}</div>
+                          <div className="ledger-note">{item.created_by_name || item.approved_by_name || "Kompania"}</div>
+                        </div>
+                      </div>
+                      <div className="ledger-amount">-{euro(item.amount)}</div>
+                    </div>
+
+                    <div className="ledger-meta">
+                      <span>{item.source_type || "manual"}</span>
+                      <span>
+                        {item.created_at
+                          ? new Date(item.created_at).toLocaleString("sq-AL", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : ""}
+                      </span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">S’ka shpenzime të regjistruara ende.</div>
+            )}
+          </section>
         </div>
       )}
 
@@ -969,7 +1140,6 @@ export default function CashClient() {
 
         .segmented {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 6px;
           background: #111214;
           border: 1px solid rgba(255,255,255,0.06);
