@@ -756,6 +756,9 @@ export default function PastrimiPage() {
             source: 'ORDER_PAY',
             method: 'cash_pay',
             type: 'IN',
+            actor: { pin: pinData.pin, name: pinData.name, role: pinData.role },
+            created_by_pin: pinData.pin,
+            created_by_name: pinData.name,
           });
         }
       } catch (e) {}

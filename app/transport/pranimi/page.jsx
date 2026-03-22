@@ -884,7 +884,13 @@ export default function PranimiPage() {
                   status: 'COLLECTED',
                   order_code: normalizeTcode(codeRaw),
                   source: 'ORDER_PAY',
-                  created_by_pin: actorPin || null
+                  actor: {
+                    pin: actorPin || null,
+                    name: me?.name || me?.full_name || me?.username || null,
+                    role: me?.role || null,
+                  },
+                  created_by_pin: actorPin || null,
+                  created_by_name: me?.name || me?.full_name || me?.username || null,
               });
           }
         } catch(e) {}

@@ -138,7 +138,13 @@ export default function TransportPayPage() {
         order_id: row.id,
         order_code: String(row.code_str || ""),
         client_name: String(row.client_name || ""),
+        actor: {
+          pin: actorPin,
+          name: s?.name || s?.full_name || s?.username || null,
+          role: s?.role || null,
+        },
         created_by_pin: actorPin,
+        created_by_name: s?.name || s?.full_name || s?.username || null,
         note: `TRANSPORT PAGESË ${money(applied)}€ • ${row.client_name || ""} • ${row.code_str || ""}`,
         status: "COLLECTED",
       });
