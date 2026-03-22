@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { ensureBasePool, getActorPin } from '@/lib/baseCodes';
 import SessionDock from '@/components/SessionDock';
+import { getActor } from '@/lib/actorSession';
 
 function onlyDigits(v){ return String(v ?? '').replace(/\D+/g,''); }
 function normCode(v){
@@ -76,6 +77,13 @@ async function fetchTransporterNameByPin(pin){
 
 export default function HomePage() {
   const router = useRouter();
+  const [user, setUser] = useState(null);
+  const role = String(user?.role || '').trim().toUpperCase();
+  const canSeeDispatchBoard = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(role);
+
+  useEffect(() => {
+    try { setUser(getActor() || null); } catch {}
+  }, []);
 
   useEffect(() => {
     try {
@@ -351,6 +359,16 @@ export default function HomePage() {
             </div>
           </Link>
 
+          {canSeeDispatchBoard ? (
+            <Link href="/dispatch" className="mod-card dispatch-card">
+              <div className="mod-icon dispatch-icon">🛰️</div>
+              <div className="mod-info">
+                <div className="mod-title">DISPATCH BOARD</div>
+                <div className="mod-sub">Kulla e kontrollit për flotën, porositë dhe cash-in</div>
+              </div>
+            </Link>
+          ) : null}
+
           <Link href="/fletore" className="mod-card" style={{ gridColumn: '1 / -1' }}>
             <div className="mod-icon" style={{background: 'rgba(255, 255, 255, 0.1)', color: '#e2e8f0'}}>📒</div>
             <div className="mod-info">
@@ -403,6 +421,9 @@ export default function HomePage() {
         .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .mod-card { background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 16px; text-decoration: none; color: #fff; display: flex; flex-direction: column; gap: 14px; transition: transform 0.1s, border-color 0.2s; }
         .mod-card:active { transform: scale(0.96); border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
+        .dispatch-card { background: linear-gradient(145deg, rgba(22,24,33,0.98) 0%, rgba(35,39,58,0.98) 45%, rgba(71,85,105,0.92) 100%); border: 1px solid rgba(148,163,184,0.24); box-shadow: 0 10px 28px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.05); }
+        .dispatch-card:active { background: linear-gradient(145deg, rgba(28,31,43,1) 0%, rgba(44,49,70,1) 50%, rgba(71,85,105,0.98) 100%); border-color: rgba(148,163,184,0.42); }
+        .dispatch-icon { background: linear-gradient(180deg, rgba(129,140,248,0.24), rgba(59,130,246,0.18)); color: #dbeafe; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
         .mod-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
         .mod-info { display: flex; flex-direction: column; gap: 4px; }
         .mod-title { font-weight: 900; font-size: 14px; letter-spacing: 0.5px; }
