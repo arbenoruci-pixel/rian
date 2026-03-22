@@ -732,8 +732,6 @@ export default function PranimiPage() {
   }
   function closeWizard() { setShowWizard(false); }
   function saveClientFromWizard() {
-    try { setName(String(name || '').trim()); } catch {}
-    try { setPhone(String(phone || '').replace(/\D+/g, '')); } catch {}
     try { setShowWizard(false); } catch {}
   }
   function wizNext() { setWizStep((s) => Math.min(5, s + 1)); }
@@ -1021,15 +1019,11 @@ export default function PranimiPage() {
     try {
       if (!oid) return;
       if (!hasStartedWork()) return;
-
       try { if (draftTimer.current) clearTimeout(draftTimer.current); } catch {}
-
       const draft = buildDraftSnapshot();
-
       try { upsertDraftLocal(draft); } catch {}
-      try { void upsertDraftRemote(draft); } catch {}
+      try { await upsertDraftRemote(draft); } catch {}
       try { void refreshDrafts(); } catch {}
-
       const n = Number(normalizeCode(codeRaw));
       if (Number.isFinite(n) && n > 0) {
         try { await markCodeUsed(n, oid); } catch {}
