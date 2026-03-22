@@ -369,6 +369,14 @@ export default function HomePage() {
             </Link>
           ) : null}
 
+          <Link href="/llogaria-ime" className="mod-card account-card">
+            <div className="mod-icon account-icon">👤</div>
+            <div className="mod-info">
+              <div className="mod-title">LLOGARIA IME</div>
+              <div className="mod-sub">Rroga, avanset, borxhet dhe cash-i yt</div>
+            </div>
+          </Link>
+
           <Link href="/fletore" className="mod-card" style={{ gridColumn: '1 / -1' }}>
             <div className="mod-icon" style={{background: 'rgba(255, 255, 255, 0.1)', color: '#e2e8f0'}}>📒</div>
             <div className="mod-info">
@@ -424,6 +432,9 @@ export default function HomePage() {
         .dispatch-card { background: linear-gradient(145deg, rgba(22,24,33,0.98) 0%, rgba(35,39,58,0.98) 45%, rgba(71,85,105,0.92) 100%); border: 1px solid rgba(148,163,184,0.24); box-shadow: 0 10px 28px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.05); }
         .dispatch-card:active { background: linear-gradient(145deg, rgba(28,31,43,1) 0%, rgba(44,49,70,1) 50%, rgba(71,85,105,0.98) 100%); border-color: rgba(148,163,184,0.42); }
         .dispatch-icon { background: linear-gradient(180deg, rgba(129,140,248,0.24), rgba(59,130,246,0.18)); color: #dbeafe; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
+        .account-card { background: linear-gradient(145deg, rgba(24,24,38,0.98) 0%, rgba(34,33,58,0.98) 48%, rgba(59,130,246,0.18) 100%); border: 1px solid rgba(99,102,241,0.26); box-shadow: 0 10px 28px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04); }
+        .account-card:active { background: linear-gradient(145deg, rgba(30,30,46,1) 0%, rgba(40,39,70,1) 52%, rgba(59,130,246,0.24) 100%); border-color: rgba(129,140,248,0.42); }
+        .account-icon { background: linear-gradient(180deg, rgba(99,102,241,0.24), rgba(59,130,246,0.18)); color: #dbeafe; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
         .mod-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
         .mod-info { display: flex; flex-direction: column; gap: 4px; }
         .mod-title { font-weight: 900; font-size: 14px; letter-spacing: 0.5px; }
