@@ -4,22 +4,24 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { budgetAddMove, budgetDeleteMove, budgetListMoves } from '@/lib/companyBudgetDb';
+import { getActor } from '@/lib/actorSession';
+import {
+  addOwnerInvestment,
+  listCompanyLedger,
+  listOwners,
+  repayOwnerInvestment,
+  spendFromCompanyBudget,
+  splitProfitToOwners,
+} from '@/lib/corporateFinance';
 import { isAdmin } from '@/lib/roles';
 
 const euro = (n) => `€${Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const num = (v) => Number(v || 0) || 0;
 
-function parseEuroInput(v) {
+function parseAmount(v) {
   const s = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.');
   const n = Number(s || 0);
   return Number.isFinite(n) ? n : NaN;
-}
-
-function pct(part, total) {
-  const p = Number(part || 0);
-  const t = Number(total || 0);
-  if (!t || t <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((p / t) * 100)));
 }
 
 function monthKeyFromDate(value) {
@@ -28,223 +30,185 @@ function monthKeyFromDate(value) {
   return raw.slice(0, 7);
 }
 
-function readUserFromLs() {
-  try {
-    return JSON.parse(localStorage.getItem('CURRENT_USER_DATA')) || null;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeMove(row = {}) {
+function normalizeLedgerRow(row = {}) {
+  const direction = String(row?.direction || '').toUpperCase();
+  const amount = num(row?.amount);
   return {
     ...row,
-    direction: String(row?.direction || row?.type || '').toUpperCase(),
-    amount: Number(row?.amount || 0) || 0,
-    category: row?.category || 'OTHER',
-    reason: row?.reason || row?.note || '',
-    month_key: row?.month_key || monthKeyFromDate(row?.created_at),
-    status: String(row?.status || 'ACTIVE').toUpperCase(),
+    direction,
+    amount,
+    created_at: row?.created_at || null,
+    category: row?.category || 'TJERA',
+    description: row?.description || '',
+    month_key: monthKeyFromDate(row?.created_at),
   };
 }
 
 export default function CompanyBudgetDashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [splitBusy, setSplitBusy] = useState(false);
-  const [withdrawBusy, setWithdrawBusy] = useState(false);
+  const [actor, setActor] = useState(null);
+  const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
-  const [rows, setRows] = useState([]);
+  const [summary, setSummary] = useState({ current_balance: 0, total_in: 0, total_out: 0 });
+  const [ledger, setLedger] = useState([]);
+  const [owners, setOwners] = useState([]);
   const [investments, setInvestments] = useState([]);
-  const [ownerBalances, setOwnerBalances] = useState([]);
-  const [partners, setPartners] = useState([]);
-  const [liveBudget, setLiveBudget] = useState(0);
-  const [form, setForm] = useState({ type: 'OUT', amount: '', note: '' });
-  const [withdrawForm, setWithdrawForm] = useState({ partner: 'OWNER 1', amount: '' });
+  const [expense, setExpense] = useState({ amount: '', category: 'TJERA', description: '' });
+  const [split, setSplit] = useState({ amount: '', description: 'NDARJE FITIMI MUJOR' });
+  const [investmentForm, setInvestmentForm] = useState({ ownerId: '', amount: '', description: '', mode: 'ADDITIONAL' });
+  const [repayForm, setRepayForm] = useState({ ownerId: '', amount: '', description: '' });
 
+  const canSee = useMemo(() => isAdmin(actor?.role), [actor?.role]);
   const monthKey = useMemo(() => new Date().toISOString().slice(0, 7), []);
-  const canSee = useMemo(() => isAdmin(user?.role), [user?.role]);
 
-  const totals = useMemo(() => {
-    const activeRows = (rows || []).filter((r) => String(r?.status || 'ACTIVE').toUpperCase() === 'ACTIVE');
-    const ins = activeRows.filter((r) => String(r.direction || '').toUpperCase() === 'IN').reduce((a, r) => a + Number(r.amount || 0), 0);
-    const outs = activeRows.filter((r) => String(r.direction || '').toUpperCase() === 'OUT').reduce((a, r) => a + Number(r.amount || 0), 0);
-    return { ins, outs, balance: ins - outs };
-  }, [rows]);
+  const monthRows = useMemo(
+    () => ledger.filter((r) => String(r.month_key || '') === monthKey),
+    [ledger, monthKey],
+  );
 
   const monthProfit = useMemo(() => {
-    const monthRows = (rows || []).filter((r) => String(r.month_key || '') === monthKey && String(r.status || 'ACTIVE').toUpperCase() === 'ACTIVE');
-    const ins = monthRows.filter((r) => String(r.direction || '').toUpperCase() === 'IN').reduce((a, r) => a + Number(r.amount || 0), 0);
-    const outs = monthRows
-      .filter((r) => String(r.direction || '').toUpperCase() === 'OUT')
-      .filter((r) => !['PARTNER', 'PARTNER_WITHDRAW'].includes(String(r.category || '').toUpperCase()))
-      .reduce((a, r) => a + Number(r.amount || 0), 0);
+    const ins = monthRows.filter((r) => r.direction === 'IN').reduce((a, r) => a + r.amount, 0);
+    const outs = monthRows.filter((r) => r.direction === 'OUT').reduce((a, r) => a + r.amount, 0);
     return ins - outs;
-  }, [rows, monthKey]);
+  }, [monthRows]);
 
-  const alreadySplitThisMonth = useMemo(() => {
-    return (rows || []).some((r) => String(r.category || '').toUpperCase() === 'PARTNER' && String(r.month_key || '') === monthKey);
-  }, [rows, monthKey]);
+  const monthOwnerSplit = useMemo(() => {
+    return monthRows
+      .filter((r) => String(r.category || '').toUpperCase() === 'OWNER_PROFIT_SPLIT')
+      .reduce((a, r) => a + r.amount, 0);
+  }, [monthRows]);
 
-  const owners = useMemo(() => {
-    const fallbackPartners = Array.isArray(partners) && partners.length ? partners : [{ name: 'OWNER 1', percentage: 50 }, { name: 'OWNER 2', percentage: 50 }];
-    return fallbackPartners.map((p, idx) => {
-      const found = (ownerBalances || []).find((x) => String(x.partner_name || '').toUpperCase() === String(p.name || '').toUpperCase());
-      return {
-        id: found?.id || idx,
-        name: p.name,
-        percentage: Number(p.percentage || 0),
-        current_balance: Number(found?.current_balance || 0),
-        total_earned: Number(found?.total_earned || 0),
-        total_withdrawn: Number(found?.total_withdrawn || 0),
-      };
-    });
-  }, [ownerBalances, partners]);
-
-  async function loadLiveBudgetFallback() {
-    try {
-      const { data, error } = await supabase.rpc('get_company_budget_live');
-      if (error) throw error;
-      return Number(data || 0) || 0;
-    } catch {
-      return 0;
+  async function loadData(currentActor = null) {
+    const a = currentActor || getActor();
+    if (!a) {
+      router.push('/');
+      return;
     }
-  }
-
-  async function reload() {
+    setActor(a);
     setErr('');
+
     try {
-      const [movesRes, invRes, ownerRes, partnerRes, budgetValue] = await Promise.all([
-        budgetListMoves(500).catch(() => []),
-        supabase.from('investments').select('*').order('created_at', { ascending: false }).then((r) => (r.error ? [] : (r.data || []))).catch(() => []),
-        supabase.from('owner_balances').select('*').order('partner_name', { ascending: true }).then((r) => (r.error ? [] : (r.data || []))).catch(() => []),
-        supabase.from('company_partners').select('*').order('created_at', { ascending: true }).then((r) => (r.error ? [] : (r.data || []))).catch(() => []),
-        loadLiveBudgetFallback(),
+      const [summaryRes, ledgerRes, ownersRes, invRes] = await Promise.all([
+        supabase.from('company_budget_summary').select('*').eq('id', 1).single(),
+        listCompanyLedger(120).catch(() => []),
+        listOwners().catch(() => []),
+        supabase
+          .from('owner_investments')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(80)
+          .then((r) => (r.error ? [] : (r.data || [])))
+          .catch(() => []),
       ]);
 
-      setRows((movesRes || []).map(normalizeMove));
+      if (summaryRes?.error) throw summaryRes.error;
+
+      const nextOwners = Array.isArray(ownersRes) ? ownersRes : [];
+      setSummary(summaryRes.data || { current_balance: 0, total_in: 0, total_out: 0 });
+      setLedger((Array.isArray(ledgerRes) ? ledgerRes : []).map(normalizeLedgerRow));
+      setOwners(nextOwners);
       setInvestments(Array.isArray(invRes) ? invRes : []);
-      setOwnerBalances(Array.isArray(ownerRes) ? ownerRes : []);
-      const nextPartners = Array.isArray(partnerRes) && partnerRes.length ? partnerRes : [{ name: 'OWNER 1', percentage: 50 }, { name: 'OWNER 2', percentage: 50 }];
-      setPartners(nextPartners);
-      setLiveBudget(Number(budgetValue || 0) || 0);
-      setWithdrawForm((f) => ({ ...f, partner: f.partner || nextPartners[0]?.name || 'OWNER 1' }));
+
+      const fallbackOwnerId = nextOwners[0]?.owner_id || nextOwners[0]?.id || '';
+      setInvestmentForm((f) => ({ ...f, ownerId: f.ownerId || fallbackOwnerId }));
+      setRepayForm((f) => ({ ...f, ownerId: f.ownerId || fallbackOwnerId }));
     } catch (e) {
-      setRows([]);
+      setSummary({ current_balance: 0, total_in: 0, total_out: 0 });
+      setLedger([]);
+      setOwners([]);
       setInvestments([]);
-      setOwnerBalances([]);
-      setPartners([{ name: 'OWNER 1', percentage: 50 }, { name: 'OWNER 2', percentage: 50 }]);
-      setLiveBudget(0);
-      setErr(e?.message || 'NUK U MUND TË NGARKOHET DASHBOARD-I.');
+      setErr(e?.message || 'NUK U NGARKUA BUXHETI I KOMPANISË.');
     }
   }
 
   useEffect(() => {
-    const u = readUserFromLs();
-    if (!u) {
-      router.push('/login');
-      return;
-    }
-    setUser(u);
-    void reload();
-  }, [router]);
+    void loadData();
+  }, []);
 
-  async function addMove() {
+  async function actWrap(key, fn, okMsg) {
+    setBusy(key);
     setErr('');
     setInfo('');
-    setBusy(true);
     try {
-      const amt = parseEuroInput(form.amount);
-      if (!Number.isFinite(amt) || amt <= 0) throw new Error('SHUMA DUHET > 0');
-      const type = String(form.type || 'OUT').toUpperCase();
-      if (type !== 'IN' && type !== 'OUT') throw new Error('TIPI DUHET IN/OUT');
-      await budgetAddMove({
-        direction: type,
-        amount: amt,
-        reason: 'MANUAL',
-        note: String(form.note || ''),
-        created_by: user?.name || 'LOCAL',
-        created_by_name: user?.name || 'UNKNOWN',
-        created_by_pin: user?.pin || null,
-      });
-      setForm({ type: 'OUT', amount: '', note: '' });
-      setInfo('LËVIZJA U RUAJT.');
-      await reload();
+      await fn();
+      setInfo(okMsg || 'U RUAJT ME SUKSES.');
+      await loadData(actor);
     } catch (e) {
       setErr(e?.message || String(e));
     } finally {
-      setBusy(false);
+      setBusy('');
     }
   }
 
-  async function del(id) {
-    if (!id) return;
-    setBusy(true);
-    setErr('');
-    setInfo('');
-    try {
-      await budgetDeleteMove(id);
-      setInfo('LËVIZJA U FSHI.');
-      await reload();
-    } catch (e) {
-      setErr(e?.message || String(e));
-    } finally {
-      setBusy(false);
-    }
+  async function doExpense() {
+    const amount = parseAmount(expense.amount);
+    await actWrap(
+      'expense',
+      () => spendFromCompanyBudget({
+        actor,
+        amount,
+        category: expense.category,
+        description: expense.description,
+      }),
+      'SHPENZIMI U REGJISTRUA NË LEDGER.',
+    );
+    setExpense({ amount: '', category: expense.category, description: '' });
   }
 
   async function doSplit() {
-    setErr('');
-    setInfo('');
-    setSplitBusy(true);
-    try {
-      const { data, error } = await supabase.rpc('split_company_profit');
-      if (error) throw error;
-      if (data?.error) throw new Error(String(data.error));
-      setInfo('NDARJA MUJORE U KRYE ME SUKSES.');
-      await reload();
-    } catch (e) {
-      setErr(e?.message || String(e));
-    } finally {
-      setSplitBusy(false);
-    }
+    const amount = parseAmount(split.amount);
+    await actWrap(
+      'split',
+      () => splitProfitToOwners({ actor, totalProfit: amount, description: split.description }),
+      'FITIMI U NDA TE PRONARËT.',
+    );
+    setSplit((s) => ({ ...s, amount: '' }));
   }
 
-  async function doWithdraw() {
-    setErr('');
-    setInfo('');
-    setWithdrawBusy(true);
-    try {
-      const amt = parseEuroInput(withdrawForm.amount);
-      if (!Number.isFinite(amt) || amt <= 0) throw new Error('SHUMA DUHET > 0');
-      const partner = String(withdrawForm.partner || '').trim();
-      if (!partner) throw new Error('ZGJIDH PRONARIN');
-      const { data, error } = await supabase.rpc('owner_withdraw', { p_partner: partner, p_amount: amt });
-      if (error) throw error;
-      if (data?.error) throw new Error(String(data.error));
-      setWithdrawForm((f) => ({ ...f, amount: '' }));
-      setInfo('TËRHEQJA U REGJISTRUA.');
-      await reload();
-    } catch (e) {
-      setErr(e?.message || String(e));
-    } finally {
-      setWithdrawBusy(false);
-    }
+  async function doInvestment() {
+    const amount = parseAmount(investmentForm.amount);
+    await actWrap(
+      'investment',
+      () => addOwnerInvestment({
+        actor,
+        ownerId: investmentForm.ownerId,
+        amount,
+        description: investmentForm.description,
+        investmentType: investmentForm.mode,
+      }),
+      'INVESTIMI U REGJISTRUA.',
+    );
+    setInvestmentForm((s) => ({ ...s, amount: '', description: '' }));
   }
 
-  if (!user) return null;
+  async function doRepay() {
+    const amount = parseAmount(repayForm.amount);
+    await actWrap(
+      'repay',
+      () => repayOwnerInvestment({
+        actor,
+        ownerId: repayForm.ownerId,
+        amount,
+        description: repayForm.description,
+      }),
+      'KTHIMI I INVESTIMIT U REGJISTRUA.',
+    );
+    setRepayForm((s) => ({ ...s, amount: '', description: '' }));
+  }
+
+  if (!actor) return null;
 
   return (
     <div className="pageWrap">
       <div className="topRow">
         <div>
-          <div className="title">PROFIT DASHBOARD</div>
-          <div className="sub">{String(user.name || '').toUpperCase()} • {String(user.role || '').toUpperCase()} • {monthKey}</div>
+          <div className="title">BUXHETI I KOMPANISË</div>
+          <div className="sub">KORPORATË • COMPANY_BUDGET_SUMMARY • COMPANY_BUDGET_LEDGER</div>
         </div>
         <div className="topActions">
-          <button className="ghostBtn" type="button" onClick={() => reload()}>RIFRESKO</button>
+          <button className="ghostBtn" type="button" onClick={() => loadData(actor)}>RIFRESKO</button>
+          <Link className="ghostBtn" href="/arka/corporate">KORPORATË</Link>
           <Link className="ghostBtn" href="/arka">KTHEHU</Link>
         </div>
       </div>
@@ -253,7 +217,7 @@ export default function CompanyBudgetDashboardPage() {
       {info ? <div className="ok">{info}</div> : null}
 
       {!canSee ? (
-        <div className="card">
+        <div className="card premiumCard">
           <div className="cardTitle">VETËM ADMIN / DISPATCH</div>
           <div className="muted">KJO FAQE ËSHTË E MBYLLUR PËR PËRDORUESIT E TJERË.</div>
         </div>
@@ -261,97 +225,147 @@ export default function CompanyBudgetDashboardPage() {
         <>
           <div className="metricsGrid">
             <div className="heroCard live">
-              <div className="metricLabel">💼 BUXHETI LIVE</div>
-              <div className="metricValue">{euro(liveBudget)}</div>
-              <div className="metricHint">GET_COMPANY_BUDGET_LIVE() ME FALLBACK 0</div>
+              <div className="metricLabel">💼 BUXHETI AKTUAL</div>
+              <div className="metricValue">{euro(summary.current_balance)}</div>
+              <div className="metricHint">LEXUAR NGA COMPANY_BUDGET_SUMMARY</div>
             </div>
             <div className="heroCard profit">
               <div className="metricLabel">📈 FITIMI I MUAJIT</div>
               <div className="metricValue">{euro(monthProfit)}</div>
-              <div className="metricHint">IN − SHPENZIME / RROGA PËR {monthKey}</div>
+              <div className="metricHint">IN − OUT PËR {monthKey}</div>
             </div>
             <div className="heroCard splitStatus">
               <div className="metricLabel">🧮 SPLIT I MUAJIT</div>
-              <div className="metricValue small">{alreadySplitThisMonth ? 'I KRYER' : 'NË PRITJE'}</div>
-              <div className="metricHint">{alreadySplitThisMonth ? 'KY MUAJ ËSHTË NDA' : 'MUND TË BËSH NDARJEN MUJORE'}</div>
+              <div className="metricValue small">{monthOwnerSplit > 0 ? 'I KRYER' : 'NË PRITJE'}</div>
+              <div className="metricHint">OWNER_PROFIT_SPLIT KËTË MUAJ: {euro(monthOwnerSplit)}</div>
             </div>
+          </div>
+
+          <div className="splitSummary">
+            <div className="summaryPill"><span>HYRJE TOTALE</span><strong>{euro(summary.total_in)}</strong></div>
+            <div className="summaryPill"><span>DALJE TOTALE</span><strong>{euro(summary.total_out)}</strong></div>
+            <div className="summaryPill accent"><span>BALANCA LIVE</span><strong>{euro(summary.current_balance)}</strong></div>
           </div>
 
           <div className="sectionHeader">BALANCA E PRONARËVE</div>
           <div className="ownersGrid">
-            {owners.map((owner, idx) => (
-              <div key={owner.id || owner.name || idx} className="ownerCard">
-                <div className="ownerTop">
-                  <div>
-                    <div className="ownerName">{String(owner.name || `OWNER ${idx + 1}`).toUpperCase()}</div>
-                    <div className="ownerPct">{Number(owner.percentage || 0)}%</div>
+            {owners.length ? owners.map((owner, idx) => {
+              const id = owner.owner_id || owner.id || idx;
+              const name = owner.owner_name || owner.name || `OWNER ${idx + 1}`;
+              const pct = num(owner.share_percent || owner.percentage);
+              const bal = num(owner.current_balance);
+              const invested = num(owner.total_invested);
+              const repaid = num(owner.total_repaid);
+              const profit = num(owner.total_profit_received);
+              return (
+                <div key={id} className="ownerCard">
+                  <div className="ownerTop">
+                    <div>
+                      <div className="ownerName">{String(name).toUpperCase()}</div>
+                      <div className="ownerPct">{pct}%</div>
+                    </div>
+                    <div className="ownerIcon">👤</div>
                   </div>
-                  <div className="ownerIcon">👤</div>
+                  <div className="ownerBalance">{euro(bal)}</div>
+                  <div className="ownerMetaRow"><span>INVESTUAR</span><strong>{euro(invested)}</strong></div>
+                  <div className="ownerMetaRow"><span>KTHYER</span><strong>{euro(repaid)}</strong></div>
+                  <div className="ownerMetaRow"><span>FITIM</span><strong>{euro(profit)}</strong></div>
                 </div>
-                <div className="ownerBalance">{euro(owner.current_balance)}</div>
-                <div className="ownerMetaRow"><span>FITUAR</span><strong>{euro(owner.total_earned)}</strong></div>
-                <div className="ownerMetaRow"><span>TËRHEQUR</span><strong>{euro(owner.total_withdrawn)}</strong></div>
-              </div>
-            ))}
+              );
+            }) : (
+              <div className="card premiumCard"><div className="muted">S’KA PRONARË AKTIVË.</div></div>
+            )}
           </div>
 
           <div className="twoCols">
             <div className="card premiumCard">
               <div className="cardHeaderLine">
                 <div>
-                  <div className="cardTitle">NDARJA MUJORE E FITIMIT</div>
-                  <div className="muted">SHLYEN KËSTET E INVESTIMEVE AKTIVE DHE NDAN PJESËN E MBETUR SIPAS % SË PRONARËVE.</div>
+                  <div className="cardTitle">SHPENZIM I RI NGA BUXHETI</div>
+                  <div className="muted">REGJISTRON OUT NË COMPANY_BUDGET_LEDGER DHE UL COMPANY_BUDGET_SUMMARY.</div>
                 </div>
-                <button className="primary bigAction" disabled={splitBusy || alreadySplitThisMonth} onClick={doSplit}>
-                  {splitBusy ? 'DUKE KRYER…' : alreadySplitThisMonth ? 'U NDA KËTË MUAJ' : 'KRYEJ NDARJEN MUJORE'}
-                </button>
               </div>
-              <div className="splitSummary">
-                <div className="summaryPill"><span>IN TOTAL</span><strong>{euro(totals.ins)}</strong></div>
-                <div className="summaryPill"><span>OUT TOTAL</span><strong>{euro(totals.outs)}</strong></div>
-                <div className="summaryPill accent"><span>BALANCA LIVE</span><strong>{euro(liveBudget)}</strong></div>
+              <div className="row compactTop">
+                <input className="input" value={expense.amount} onChange={(e) => setExpense((s) => ({ ...s, amount: e.target.value }))} placeholder="SHUMA (€)" inputMode="decimal" />
+                <select className="input" value={expense.category} onChange={(e) => setExpense((s) => ({ ...s, category: e.target.value }))}>
+                  <option value="RROGA">RROGA</option>
+                  <option value="QIRA">QIRA</option>
+                  <option value="RRYMA">RRYMA</option>
+                  <option value="MATERIALE">MATERIALE</option>
+                  <option value="KARBURANT">KARBURANT</option>
+                  <option value="TJERA">TJERA</option>
+                </select>
               </div>
+              <textarea className="input textarea" value={expense.description} onChange={(e) => setExpense((s) => ({ ...s, description: e.target.value }))} placeholder="PËRSHKRIMI I SHPENZIMIT" />
+              <button className="primary" disabled={busy === 'expense'} onClick={doExpense}>{busy === 'expense' ? 'DUKE RUAJTUR…' : 'REGJISTRO SHPENZIM'}</button>
             </div>
 
             <div className="card premiumCard">
-              <div className="cardTitle">TËRHEQJA E PRONARËVE</div>
-              <div className="muted">KJO THËRRET OWNER_WITHDRAW() DHE UL VETËM BALANCËN PERSONALE TE OWNER_BALANCES.</div>
+              <div className="cardTitle">NDARJA E FITIMIT TE PRONARËT</div>
+              <div className="muted">PËRDOR SPLITPROFITTOOWNERS() DHE SHKRUAN NË LEDGER + OWNER_PROFIT_TRANSFERS.</div>
+              <input className="input" value={split.amount} onChange={(e) => setSplit((s) => ({ ...s, amount: e.target.value }))} placeholder="SHUMA E FITIMIT (€)" inputMode="decimal" />
+              <textarea className="input textarea" value={split.description} onChange={(e) => setSplit((s) => ({ ...s, description: e.target.value }))} placeholder="PËRSHKRIMI" />
+              <button className="primary goldAction" disabled={busy === 'split'} onClick={doSplit}>{busy === 'split' ? 'DUKE KRYER…' : 'KRYEJ NDARJEN'}</button>
+            </div>
+          </div>
+
+          <div className="twoCols historyCols">
+            <div className="card premiumCard">
+              <div className="cardTitle">INVESTIM I RI I PRONARIT</div>
               <div className="row compactTop">
-                <select className="input" value={withdrawForm.partner} onChange={(e) => setWithdrawForm((f) => ({ ...f, partner: e.target.value }))}>
-                  {owners.map((owner) => <option key={owner.name} value={owner.name}>{String(owner.name || '').toUpperCase()}</option>)}
+                <select className="input" value={investmentForm.ownerId} onChange={(e) => setInvestmentForm((s) => ({ ...s, ownerId: e.target.value }))}>
+                  {owners.map((owner, idx) => {
+                    const id = owner.owner_id || owner.id || idx;
+                    const name = owner.owner_name || owner.name || `OWNER ${idx + 1}`;
+                    return <option key={id} value={id}>{String(name).toUpperCase()}</option>;
+                  })}
                 </select>
-                <input className="input" value={withdrawForm.amount} onChange={(e) => setWithdrawForm((f) => ({ ...f, amount: e.target.value }))} placeholder="SHUMA (€)" inputMode="decimal" />
+                <select className="input" value={investmentForm.mode} onChange={(e) => setInvestmentForm((s) => ({ ...s, mode: e.target.value }))}>
+                  <option value="INITIAL">INITIAL</option>
+                  <option value="ADDITIONAL">ADDITIONAL</option>
+                </select>
               </div>
-              <button className="primary" disabled={withdrawBusy} onClick={doWithdraw}>{withdrawBusy ? 'DUKE RUAJTUR…' : 'REGJISTRO TËRHEQJEN'}</button>
+              <input className="input" value={investmentForm.amount} onChange={(e) => setInvestmentForm((s) => ({ ...s, amount: e.target.value }))} placeholder="SHUMA (€)" inputMode="decimal" />
+              <textarea className="input textarea" value={investmentForm.description} onChange={(e) => setInvestmentForm((s) => ({ ...s, description: e.target.value }))} placeholder="PËRSHKRIMI I INVESTIMIT" />
+              <button className="primary" disabled={busy === 'investment'} onClick={doInvestment}>{busy === 'investment' ? 'DUKE RUAJTUR…' : 'REGJISTRO INVESTIM'}</button>
+            </div>
+
+            <div className="card premiumCard">
+              <div className="cardTitle">KTHIM I INVESTIMIT</div>
+              <div className="muted">PËRDOR REPAYOWNERINVESTMENT() DHE UL BUXHETIN E KOMPANISË.</div>
+              <select className="input" value={repayForm.ownerId} onChange={(e) => setRepayForm((s) => ({ ...s, ownerId: e.target.value }))}>
+                {owners.map((owner, idx) => {
+                  const id = owner.owner_id || owner.id || idx;
+                  const name = owner.owner_name || owner.name || `OWNER ${idx + 1}`;
+                  return <option key={id} value={id}>{String(name).toUpperCase()}</option>;
+                })}
+              </select>
+              <input className="input" value={repayForm.amount} onChange={(e) => setRepayForm((s) => ({ ...s, amount: e.target.value }))} placeholder="SHUMA (€)" inputMode="decimal" />
+              <textarea className="input textarea" value={repayForm.description} onChange={(e) => setRepayForm((s) => ({ ...s, description: e.target.value }))} placeholder="PËRSHKRIMI I KTHIMIT" />
+              <button className="primary" disabled={busy === 'repay'} onClick={doRepay}>{busy === 'repay' ? 'DUKE RUAJTUR…' : 'REGJISTRO KTHIM'}</button>
             </div>
           </div>
 
           <div className="card premiumCard">
-            <div className="cardTitle">INVESTIMET AKTIVE</div>
-            <div className="muted">EMRI, TOTALI, SA ËSHTË SHLYER DHE SA KA MBETUR ME PROGRESS BAR VIZUAL.</div>
-            {investments.filter((x) => x.is_active !== false).length === 0 ? (
-              <div className="muted">S’KA INVESTIME AKTIVE.</div>
+            <div className="cardTitle">INVESTIMET E FUNDIT</div>
+            {investments.length === 0 ? (
+              <div className="muted">S’KA INVESTIME TË REGJISTRUARA.</div>
             ) : (
               <div className="investList">
-                {investments.filter((x) => x.is_active !== false).map((inv) => {
-                  const total = Number(inv.total_amount || 0) || 0;
-                  const remaining = Number(inv.remaining_amount || 0) || 0;
-                  const paid = Number(inv.paid_amount || Math.max(0, total - remaining)) || 0;
-                  const pr = pct(paid, total);
+                {investments.slice(0, 18).map((inv, idx) => {
+                  const amount = num(inv.amount || inv.total_amount);
+                  const t = String(inv.investment_type || inv.type || 'ADDITIONAL').toUpperCase();
+                  const desc = inv.description || inv.note || 'PA PËRSHKRIM';
                   return (
-                    <div key={inv.id} className="investItem">
+                    <div key={inv.id || idx} className="investItem">
                       <div className="investTop">
                         <div>
-                          <div className="investName">{String(inv.name || inv.title || 'INVESTIM').toUpperCase()}</div>
-                          <div className="investMeta">TOTALI {euro(total)} • KËSTI MUJOR {euro(inv.monthly_allocation)}</div>
+                          <div className="investName">{t}</div>
+                          <div className="investMeta">{String(desc).toUpperCase()}</div>
                         </div>
-                        <div className="investRight">{pr}%</div>
+                        <div className="investRight">{euro(amount)}</div>
                       </div>
-                      <div className="progressTrack"><div className="progressFill" style={{ width: `${pr}%` }} /></div>
-                      <div className="investBottom">
-                        <div><span>SHLYER</span><strong>{euro(paid)}</strong></div>
-                        <div><span>MBETUR</span><strong>{euro(remaining)}</strong></div>
-                      </div>
+                      <div className="tiny">{inv.created_at ? new Date(inv.created_at).toLocaleString('de-DE') : '—'}</div>
                     </div>
                   );
                 })}
@@ -359,45 +373,30 @@ export default function CompanyBudgetDashboardPage() {
             )}
           </div>
 
-          <div className="twoCols historyCols">
-            <div className="card">
-              <div className="cardTitle">SHTO LËVIZJE MANUALE</div>
-              <div className="row compactTop">
-                <select className="input" value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}>
-                  <option value="OUT">OUT (DALJE)</option>
-                  <option value="IN">IN (HYRJE)</option>
-                </select>
-                <input className="input" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="SHUMA (€)" inputMode="decimal" />
-              </div>
-              <input className="input" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="SHËNIM" />
-              <button className="primary" disabled={busy} onClick={addMove}>{busy ? 'DUKE RUAJTUR…' : 'SHTO LËVIZJE'}</button>
-            </div>
-
-            <div className="card">
-              <div className="cardTitle">HISTORIKU I FUNDIT</div>
-              {rows.length === 0 ? (
-                <div className="muted">S’KA LËVIZJE.</div>
-              ) : (
-                <div className="list">
-                  {rows.slice(0, 18).map((r) => (
-                    <div key={r.id} className="item">
-                      <div className="itemTop">
-                        <div>
-                          <div className="strong">{euro(r.amount)} • {String(r.direction || '').toUpperCase()}</div>
-                          <div className="badgeRow">
-                            <span className="miniBadge">{String(r.category || 'OTHER').toUpperCase()}</span>
-                            {r.month_key ? <span className="miniBadge">{String(r.month_key).toUpperCase()}</span> : null}
-                          </div>
+          <div className="card">
+            <div className="cardTitle">HISTORIKU I LEDGER-IT</div>
+            {ledger.length === 0 ? (
+              <div className="muted">S’KA LËVIZJE.</div>
+            ) : (
+              <div className="list">
+                {ledger.slice(0, 30).map((r) => (
+                  <div key={r.id} className="item">
+                    <div className="itemTop">
+                      <div>
+                        <div className="strong">{euro(r.amount)} • {r.direction}</div>
+                        <div className="badgeRow">
+                          <span className="miniBadge">{String(r.category || 'TJERA').toUpperCase()}</span>
+                          {r.month_key ? <span className="miniBadge">{String(r.month_key).toUpperCase()}</span> : null}
                         </div>
-                        <button className="del" disabled={busy} onClick={() => del(r.id)}>FSHI</button>
                       </div>
-                      {r.reason ? <div className="muted">{String(r.reason).toUpperCase()}</div> : null}
-                      {r.created_at ? <div className="tiny">{new Date(r.created_at).toLocaleString('de-DE')}</div> : null}
+                      <div className={r.direction === 'OUT' ? 'pill danger' : 'pill success'}>{r.direction}</div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    {r.description ? <div className="muted">{String(r.description).toUpperCase()}</div> : null}
+                    {r.created_at ? <div className="tiny">{new Date(r.created_at).toLocaleString('de-DE')}</div> : null}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -429,13 +428,12 @@ export default function CompanyBudgetDashboardPage() {
         .ownerMetaRow{display:flex;justify-content:space-between;gap:12px;font-size:10px;letter-spacing:.14em;padding:6px 0;opacity:.88;}
         .ownerMetaRow strong{font-size:11px;}
         .twoCols{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin-bottom:14px;}
-        .historyCols{grid-template-columns:.95fr 1.05fr;}
+        .historyCols{grid-template-columns:1fr 1fr;}
         .card{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);border-radius:18px;padding:15px 15px 14px;}
         .premiumCard{background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.028));box-shadow:0 16px 36px rgba(0,0,0,.22);}
         .cardHeaderLine{display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap;}
         .cardTitle{font-weight:950;letter-spacing:.18em;opacity:.85;font-size:10px;margin-bottom:10px;}
-        .bigAction{min-width:250px;width:auto;padding:14px 18px;}
-        .splitSummary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px;}
+        .splitSummary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px;}
         .summaryPill{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.28);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:6px;}
         .summaryPill span{font-size:10px;letter-spacing:.14em;opacity:.7;font-weight:900;}
         .summaryPill strong{font-size:18px;letter-spacing:.04em;}
@@ -443,7 +441,9 @@ export default function CompanyBudgetDashboardPage() {
         .row{display:flex;gap:10px;}
         .compactTop{margin-top:10px;}
         .input{width:100%;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.16);padding:12px;border-radius:12px;font-size:12px;color:#fff;outline:none;letter-spacing:.08em;font-weight:900;}
+        .textarea{min-height:90px;resize:vertical;}
         .primary{width:100%;margin-top:10px;padding:12px;border-radius:12px;border:1px solid rgba(0,150,255,.35);background:rgba(0,150,255,.12);color:rgba(190,230,255,.95);font-size:10px;font-weight:950;letter-spacing:.16em;opacity:1;}
+        .goldAction{border-color:rgba(255,205,80,.35);background:rgba(255,205,80,.12);color:#ffe7a5;}
         .primary:disabled{opacity:.55;}
         .muted{opacity:.72;padding:6px 0;font-size:10px;letter-spacing:.14em;}
         .investList{display:grid;gap:12px;}
@@ -452,20 +452,17 @@ export default function CompanyBudgetDashboardPage() {
         .investName{font-weight:950;letter-spacing:.12em;font-size:11px;}
         .investMeta{margin-top:6px;opacity:.7;font-size:10px;letter-spacing:.13em;}
         .investRight{font-size:18px;font-weight:1000;letter-spacing:.04em;}
-        .progressTrack{height:12px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin:12px 0 10px;border:1px solid rgba(255,255,255,.06);}
-        .progressFill{height:100%;border-radius:999px;background:linear-gradient(90deg,rgba(0,180,255,.95),rgba(80,220,255,.95));box-shadow:0 0 18px rgba(0,180,255,.35);}
-        .investBottom{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-        .investBottom div{display:flex;justify-content:space-between;gap:12px;font-size:10px;letter-spacing:.14em;}
-        .investBottom strong{font-size:11px;}
         .list{display:grid;gap:10px;max-height:720px;overflow:auto;padding-right:2px;}
         .item{border:1px solid rgba(255,255,255,.10);background:rgba(0,0,0,.35);border-radius:14px;padding:12px;}
         .itemTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
         .strong{font-weight:950;letter-spacing:.12em;font-size:11px;}
         .badgeRow{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;}
         .miniBadge{padding:5px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);font-size:9px;letter-spacing:.12em;font-weight:900;}
+        .pill{padding:6px 10px;border-radius:999px;font-size:10px;letter-spacing:.12em;font-weight:900;border:1px solid transparent;}
+        .pill.success{background:rgba(55,190,120,.14);border-color:rgba(55,190,120,.28);color:#cbffe4;}
+        .pill.danger{background:rgba(255,80,80,.12);border-color:rgba(255,80,80,.28);color:#ffd6d6;}
         .tiny{opacity:.62;font-size:10px;letter-spacing:.10em;margin-top:8px;}
-        .del{border-radius:12px;padding:10px 12px;border:1px solid rgba(255,80,80,.35);background:rgba(255,80,80,.10);font-weight:950;letter-spacing:.14em;font-size:10px;color:#fff;}
-        @media (max-width:980px){.metricsGrid,.ownersGrid,.twoCols,.historyCols,.splitSummary,.investBottom{grid-template-columns:1fr;}.metricValue{font-size:32px;}.ownerBalance{font-size:28px;}.topRow{align-items:flex-start;flex-direction:column;}.topActions{width:100%;}.ghostBtn{flex:1;}}
+        @media (max-width:980px){.metricsGrid,.ownersGrid,.twoCols,.historyCols,.splitSummary{grid-template-columns:1fr;}.metricValue{font-size:32px;}.ownerBalance{font-size:28px;}.topRow{align-items:flex-start;flex-direction:column;}.topActions{width:100%;}.ghostBtn{flex:1;}}
       `}</style>
     </div>
   );
