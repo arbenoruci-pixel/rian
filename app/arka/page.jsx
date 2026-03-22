@@ -28,10 +28,9 @@ export default function ArkaPage() {
   const [actor, setActor] = useState(null);
   const [mine, setMine] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [budgetLive, setBudgetLive] = useState(0);
-  const [monthProfit, setMonthProfit] = useState(0);
-  const [investments, setInvestments] = useState([]);
-  const [splitDone, setSplitDone] = useState(false);
+  const [budgetSummary, setBudgetSummary] = useState({ current_balance: 0, total_in: 0, total_out: 0 });
+  const [monthNet, setMonthNet] = useState(0);
+  const [monthHandoffs, setMonthHandoffs] = useState(0);
 
   const role = String(actor?.role || '').trim().toUpperCase();
   const workerOnly = ['PUNTOR', 'PUNETOR', 'WORKER', 'TRANSPORT'].includes(role);
@@ -64,50 +63,42 @@ export default function ArkaPage() {
   async function refreshFinance() {
     const monthKey = MONTH_KEY();
 
-    let live = 0;
     try {
-      const { data, error } = await supabase.rpc('get_company_budget_live');
+      const { data, error } = await supabase
+        .from('company_budget_summary')
+        .select('*')
+        .eq('id', 1)
+        .single();
       if (error) throw error;
-      live = Number(data || 0) || 0;
+      setBudgetSummary({
+        current_balance: Number(data?.current_balance || 0) || 0,
+        total_in: Number(data?.total_in || 0) || 0,
+        total_out: Number(data?.total_out || 0) || 0,
+      });
     } catch {
-      live = 0;
+      setBudgetSummary({ current_balance: 0, total_in: 0, total_out: 0 });
     }
-    setBudgetLive(live);
 
     try {
       const { data, error } = await supabase
-        .from('company_budget_moves')
-        .select('direction,amount,category,month_key,created_at,status')
+        .from('company_budget_ledger')
+        .select('direction,amount,category,created_at')
         .order('created_at', { ascending: false })
         .limit(500);
       if (error) throw error;
       const rows = Array.isArray(data) ? data : [];
-      const activeRows = rows.filter((r) => String(r?.status || 'ACTIVE').toUpperCase() === 'ACTIVE');
-      const monthRows = activeRows.filter((r) => String(r?.month_key || (r?.created_at || '').slice(0, 7)) === monthKey);
+      const monthRows = rows.filter((r) => String(r?.created_at || '').slice(0, 7) === monthKey);
       const ins = monthRows
         .filter((r) => String(r?.direction || '').toUpperCase() === 'IN')
         .reduce((sum, r) => sum + (Number(r?.amount || 0) || 0), 0);
       const outs = monthRows
         .filter((r) => String(r?.direction || '').toUpperCase() === 'OUT')
-        .filter((r) => !['PARTNER', 'PARTNER_WITHDRAW'].includes(String(r?.category || '').toUpperCase()))
         .reduce((sum, r) => sum + (Number(r?.amount || 0) || 0), 0);
-      setMonthProfit(ins - outs);
-      setSplitDone(monthRows.some((r) => String(r?.category || '').toUpperCase() === 'PARTNER'));
+      setMonthNet(ins - outs);
+      setMonthHandoffs(monthRows.filter((r) => String(r?.category || '').toUpperCase() === 'WORKER_TO_DISPATCH').length);
     } catch {
-      setMonthProfit(0);
-      setSplitDone(false);
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('investments')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setInvestments(Array.isArray(data) ? data : []);
-    } catch {
-      setInvestments([]);
+      setMonthNet(0);
+      setMonthHandoffs(0);
     }
   }
 
@@ -175,46 +166,44 @@ export default function ArkaPage() {
           <>
             <div className="financePreview">
               <div className="previewCard">
-                <div className="previewLabel">💼 BUXHETI LIVE</div>
-                <div className="previewValue">{euro(budgetLive)}</div>
-                <div className="previewHint">GET_COMPANY_BUDGET_LIVE() ME FALLBACK 0</div>
+                <div className="previewLabel">💼 BUXHETI AKTUAL</div>
+                <div className="previewValue">{euro(budgetSummary.current_balance)}</div>
+                <div className="previewHint">LIVE NGA COMPANY_BUDGET_SUMMARY</div>
               </div>
               <div className="previewCard">
-                <div className="previewLabel">📈 FITIMI I MUAJIT</div>
-                <div className="previewValue">{euro(monthProfit)}</div>
-                <div className="previewHint">IN − OUT PËR {MONTH_KEY()}</div>
+                <div className="previewLabel">📈 NETO E MUAJIT</div>
+                <div className="previewValue">{euro(monthNet)}</div>
+                <div className="previewHint">IN − OUT NGA COMPANY_BUDGET_LEDGER PËR {MONTH_KEY()}</div>
               </div>
               <div className="previewCard">
-                <div className="previewLabel">🧮 PARTNER SPLIT</div>
-                <div className={`previewValue ${splitDone ? 'small' : 'small'}`}>{splitDone ? 'I KRYER' : 'NË PRITJE'}</div>
-                <div className="previewHint">KONTROLL MUJOR I NDARJES</div>
+                <div className="previewLabel">🤝 HANDOFFS KËTË MUAJ</div>
+                <div className="previewValue small">{monthHandoffs}</div>
+                <div className="previewHint">NUMRI I PRANIMEVE WORKER → DISPATCH NË LEDGER</div>
               </div>
             </div>
 
             <div className="investCard">
               <div className="investHead">
                 <div>
-                  <div className="cardEyebrow">📊 BUXHETI & INVESTIMET</div>
-                  <div className="investTitle">PAMJE E SHPEJTË E DASHBOARD-IT TË PRONARËVE</div>
-                  <div className="investSub">INVESTIME AKTIVE, BUXHET LIVE DHE NDARJA E FITIMIT.</div>
+                  <div className="cardEyebrow">🏛️ KORPORATË / 4 NIVELE</div>
+                  <div className="investTitle">PREVIEW I SISTEMIT TË RI FINANCIAR</div>
+                  <div className="investSub">BALANCA E KOMPANISË, TOTAL IN/OUT DHE PANELI I RI PËR DISPATCH / ADMIN.</div>
                 </div>
-                <Link href="/arka/buxheti" className="goBudgetBtn">HAP DASHBOARD-IN</Link>
+                <Link href="/arka/corporate" className="goBudgetBtn">HAP PANELIN</Link>
               </div>
               <div className="investMiniGrid">
-                {investments.length ? investments.slice(0, 3).map((inv) => {
-                  const total = Number(inv?.total_amount || 0) || 0;
-                  const remaining = Number(inv?.remaining_amount || 0) || 0;
-                  const paid = Math.max(0, total - remaining);
-                  const progress = total > 0 ? Math.max(0, Math.min(100, Math.round((paid / total) * 100))) : 0;
-                  return (
-                    <div key={inv.id} className="miniInv">
-                      <div className="miniInvTitle">{String(inv?.name || inv?.title || 'INVESTIM').toUpperCase()}</div>
-                      <div className="miniInvMeta">{euro(paid)} / {euro(total)}</div>
-                      <div className="miniTrack"><div className="miniFill" style={{ width: `${progress}%` }} /></div>
-                      <div className="miniInvMeta">MBETUR {euro(remaining)}</div>
-                    </div>
-                  );
-                }) : <div className="miniEmpty">S’KA INVESTIME AKTIVE. DASHBOARD-I I RI ËSHTË TE /ARKA/BUXHETI.</div>}
+                <div className="miniInv">
+                  <div className="miniInvTitle">TOTAL IN</div>
+                  <div className="miniInvMeta">{euro(budgetSummary.total_in)}</div>
+                </div>
+                <div className="miniInv">
+                  <div className="miniInvTitle">TOTAL OUT</div>
+                  <div className="miniInvMeta">{euro(budgetSummary.total_out)}</div>
+                </div>
+                <div className="miniInv">
+                  <div className="miniInvTitle">BALANCA</div>
+                  <div className="miniInvMeta">{euro(budgetSummary.current_balance)}</div>
+                </div>
               </div>
             </div>
           </>
@@ -225,7 +214,7 @@ export default function ArkaPage() {
           {canSeePayroll ? <HubTile href="/arka/payroll" icon="💸" title="PAYROLL & RROGAT" desc="RROGA BAZË, AVANSET, BORXHET DHE SMART PAYROLL." accent="#2563eb" /> : null}
           {canSeeExpenses ? <HubTile href="/arka/shpenzime" icon="🧾" title="SHPENZIMET" desc="DALJET CASH DHE HISTORIKU I SHPENZIMEVE." accent="#c2410c" /> : null}
           {canSeeCorporate ? <HubTile href="/arka/corporate" icon="🏛️" title="KORPORATË / 4 NIVELE" desc="PUNËTORI → DISPATCH → KOMPANIA → OWNERS. CASH FLOW I KONTROLLUAR DHE CLEAN." accent="#9333ea" /> : null}
-          {canSeeBudget ? <HubTile href="/arka/buxheti" icon="📊" title="BUXHETI & INVESTIMET" desc="PROFIT DASHBOARD, INVESTIME, OWNER BALANCES DHE PARTNER SPLIT." accent="#7c3aed" /> : null}
+          {canSeeBudget ? <HubTile href="/arka/buxheti" icon="📊" title="BUXHETI & INVESTIMET" desc="PREVIEW LEGACY / OWNER DASHBOARD. PËRDOR PANELIN KORPORATË SI BURIM KRYESOR." accent="#7c3aed" /> : null}
         </div>
       </div>
 
@@ -268,9 +257,6 @@ export default function ArkaPage() {
         .miniInv,.miniEmpty{border-radius:18px;padding:14px;background:rgba(0,0,0,.26);border:1px solid rgba(255,255,255,.08);}
         .miniInvTitle{font-size:11px;letter-spacing:.14em;font-weight:950;}
         .miniInvMeta{margin-top:8px;font-size:11px;letter-spacing:.1em;color:#cbd5e1;}
-        .miniTrack{height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;border:1px solid rgba(255,255,255,.06);margin:10px 0;}
-        .miniFill{height:100%;border-radius:999px;background:linear-gradient(90deg,#38bdf8,#22d3ee);}
-        .miniEmpty{grid-column:1/-1;color:#94a3b8;font-size:12px;letter-spacing:.12em;}
         .hubGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
         .hubTile{display:flex;align-items:center;gap:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:18px;box-shadow:0 14px 28px rgba(0,0,0,.16);transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease;}
         .hubTile:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.24);box-shadow:0 18px 34px rgba(0,0,0,.22);}
