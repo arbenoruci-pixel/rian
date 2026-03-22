@@ -213,6 +213,7 @@ export default function ArkaPage() {
           {canSeeStaff ? <HubTile href="/arka/stafi" icon="👥" title="MENAXHIMI I STAFIT" desc="ROLET, PIN-ET DHE STATUSI AKTIV/JOAKTIV." accent="#0f766e" /> : null}
           {canSeePayroll ? <HubTile href="/arka/payroll" icon="💸" title="PAYROLL & RROGAT" desc="RROGA BAZË, AVANSET, BORXHET DHE SMART PAYROLL." accent="#2563eb" /> : null}
           {canSeeExpenses ? <HubTile href="/arka/shpenzime" icon="🧾" title="SHPENZIMET" desc="DALJET CASH DHE HISTORIKU I SHPENZIMEVE." accent="#c2410c" /> : null}
+          {(dispatchOnly || admin) ? <HubTile href="/arka/cash" icon="💵" title="CASH CENTER (DISPATCH)" desc="PRANIMI I CASH-IT NGA PUNËTORËT, PAGESAT NË PRITJE DHE DORËZIMET." accent="#10b981" /> : null}
           {canSeeCorporate ? <HubTile href="/arka/corporate" icon="🏛️" title="KORPORATË / 4 NIVELE" desc="PUNËTORI → DISPATCH → KOMPANIA → OWNERS. CASH FLOW I KONTROLLUAR DHE CLEAN." accent="#9333ea" /> : null}
           {canSeeBudget ? <HubTile href="/arka/buxheti" icon="📊" title="BUXHETI & INVESTIMET" desc="PREVIEW LEGACY / OWNER DASHBOARD. PËRDOR PANELIN KORPORATË SI BURIM KRYESOR." accent="#7c3aed" /> : null}
         </div>
