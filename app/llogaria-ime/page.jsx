@@ -252,6 +252,9 @@ export default function LlogariaImePage() {
 
   const history = useMemo(() => buildHistory(payments, handoffs, debtRows), [payments, handoffs, debtRows]);
   const netTone = summary.neto > 0 ? 'ok' : summary.neto < 0 ? 'bad' : 'neutral';
+  const hasTransportBonus = n(summary.bonusTransport) > 0;
+  const hasUshqimBonus = n(summary.bonusUshqim) > 0;
+  const hasAnyBonus = hasTransportBonus || hasUshqimBonus;
   if (!actor?.pin) return null;
 
   return (
@@ -283,22 +286,22 @@ export default function LlogariaImePage() {
         <div className="stack">
           <div className="grid three summaryTopGrid">
             <StatCard label="RROGA BAZË" value={fmt(summary.salary)} sub="Rroga bazë" accent="neutral" />
-            <StatCard label="BONUS TRANSPORT" value={fmt(summary.bonusTransport)} sub="Shtesë transporti" accent="ok" />
-            <StatCard label="BONUS USHQIM" value={fmt(summary.bonusUshqim)} sub="P.sh. 3€/ditë" accent="ok" />
+            {hasTransportBonus ? <StatCard label="BONUS TRANSPORT" value={fmt(summary.bonusTransport)} sub="Shtesë transporti" accent="ok" /> : null}
+            {hasUshqimBonus ? <StatCard label="BONUS USHQIM" value={fmt(summary.bonusUshqim)} sub="P.sh. 3€/ditë" accent="ok" /> : null}
             <StatCard label="AVANSET" value={fmt(summary.advances)} sub="Aktive / manuale" accent="warn" />
             <StatCard label="BORXHI" value={fmt(summary.debt)} sub="Borxh aktual" accent="bad" />
-            <StatCard label="NETO AKTUALE" value={fmt(summary.neto)} sub="Bazë + bonuse - avanse - borxhe" accent={netTone} />
+            <StatCard label="NETO AKTUALE" value={fmt(summary.neto)} sub={hasAnyBonus ? 'Bazë + bonuse - avanse - borxhe' : 'Rroga - avanse - borxhe'} accent={netTone} />
           </div>
           <div className="surface panel">
             <div className="panelHead"><div><h3>GJENDJA AKTUALE</h3><p>Përmbledhje e saktë e rrogës, bonuseve dhe detyrimeve të tua.</p></div></div>
             <div className="detailRows">
               <div className="detailRow"><span>Rroga bazë</span><strong>{fmt(summary.salary)}</strong></div>
-              <div className="detailRow"><span>Bonus transport</span><strong>{fmt(summary.bonusTransport)}</strong></div>
-              <div className="detailRow"><span>Bonus ushqim</span><strong>{fmt(summary.bonusUshqim)}</strong></div>
+              {hasTransportBonus ? <div className="detailRow"><span>Bonus transport</span><strong>{fmt(summary.bonusTransport)}</strong></div> : null}
+              {hasUshqimBonus ? <div className="detailRow"><span>Bonus ushqim</span><strong>{fmt(summary.bonusUshqim)}</strong></div> : null}
               <div className="detailRow"><span>Avans manual</span><strong>{fmt(n(userRow?.avans_manual))}</strong></div>
               <div className="detailRow"><span>Borxh afatgjatë</span><strong>{fmt(n(userRow?.borxh_afatgjat))}</strong></div>
               <div className="detailRow"><span>Lëvizje borxhi/avansi</span><strong>{fmt(summary.debtRowsTotal)}</strong></div>
-              <div className="detailRow totalRow"><span>NETO = RROGA + BONUS TRANSPORT + BONUS USHQIM - AVANSE - BORXHE</span><strong>{fmt(summary.neto)}</strong></div>
+              <div className="detailRow totalRow"><span>{hasAnyBonus ? 'NETO = RROGA + BONUS TRANSPORT + BONUS USHQIM - AVANSE - BORXHE' : 'NETO = RROGA - AVANSE - BORXHE'}</span><strong>{fmt(summary.neto)}</strong></div>
             </div>
           </div>
         </div>
