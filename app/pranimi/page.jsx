@@ -740,14 +740,34 @@ export default function PranimiPage() {
   function wizBack() { setWizStep((s) => Math.max(1, s - 1)); }
 
   async function refreshDrafts() {
+    const mapDraft = (d) => {
+      let totalM2 = 0;
+      (d?.tepihaRows || []).forEach((r) => {
+        totalM2 += (Number(r?.m2) || 0) * (Number(r?.qty) || 0);
+      });
+      (d?.stazaRows || []).forEach((r) => {
+        totalM2 += (Number(r?.m2) || 0) * (Number(r?.qty) || 0);
+      });
+      totalM2 += (Number(d?.stairsQty) || 0) * (Number(d?.stairsPer) || 0);
+
+      const euro = Number((totalM2 * (Number(d?.pricePerM2) || PRICE_DEFAULT)).toFixed(2));
+      const cleanPhone = String(d?.phone || d?.client?.phone || '')
+        .replace(/^\+383\s*/, '')
+        .replace(/\D+/g, '');
+
+      return {
+        id: d?.id,
+        code: Number(d?.codeRaw || d?.code) || 0,
+        name: (d?.name || d?.client?.full_name || `${d?.client?.first_name || ''} ${d?.client?.last_name || ''}`.trim() || '').trim(),
+        phone: cleanPhone,
+        ts: Number(d?.ts) || 0,
+        m2: totalM2,
+        euro,
+      };
+    };
+
     try {
-      const local = readAllDraftsLocal().map((d) => ({
-        id: d.id,
-        code: Number(d.codeRaw || d.code) || 0,
-        name: (d?.name || `${d?.client?.first_name || ''} ${d?.client?.last_name || ''}`.trim() || '').trim(),
-        phone: (d?.phone || d?.client?.phone || '').replace(/^\+383\s*/, ''),
-        ts: Number(d.ts) || 0,
-      }));
+      const local = readAllDraftsLocal().map(mapDraft).filter((d) => d?.id);
 
       let remote = [];
       try {
@@ -761,7 +781,7 @@ export default function PranimiPage() {
         if (!d?.id) continue;
         if (!byId.has(d.id)) byId.set(d.id, d);
       }
-      const merged = Array.from(byId.values()).sort((a, b) => Number(b.ts) - Number(a.ts));
+      const merged = Array.from(byId.values()).sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
       const byCode = new Map();
       for (const d of merged) {
         const key = Number(d?.code) > 0 ? `code:${Number(d.code)}` : `id:${String(d?.id || '')}`;
@@ -769,14 +789,8 @@ export default function PranimiPage() {
       }
       setDrafts(Array.from(byCode.values()));
     } catch {
-      const local = readAllDraftsLocal().map((d) => ({
-        id: d.id,
-        code: Number(d.codeRaw || d.code) || 0,
-        name: (d?.name || `${d?.client?.first_name || ''} ${d?.client?.last_name || ''}`.trim() || '').trim(),
-        phone: (d?.phone || d?.client?.phone || '').replace(/^\+383\s*/, ''),
-        ts: Number(d.ts) || 0,
-      }));
-      const sorted = local.sort((a, b) => Number(b.ts) - Number(a.ts));
+      const local = readAllDraftsLocal().map(mapDraft).filter((d) => d?.id);
+      const sorted = local.sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
       const byCode = new Map();
       for (const d of sorted) {
         const key = Number(d?.code) > 0 ? `code:${Number(d.code)}` : `id:${String(d?.id || '')}`;
@@ -965,15 +979,16 @@ export default function PranimiPage() {
   }, [tepihaRows, stazaRows, stairsQty]);
 
   function buildDraftSnapshot() {
+    const safePhone = String(phone || '').replace(/\D+/g, '');
     return {
       id: oid,
       ts: Date.now(),
       codeRaw,
       name,
-      phone: String(phone || '').replace(/\D+/g, ''),
+      phone: safePhone,
       client: {
         full_name: String(name || '').trim(),
-        phone: phone ? `${phonePrefix}${String(phone).replace(/\D+/g, '')}` : '',
+        phone: safePhone ? `${phonePrefix}${safePhone}` : '',
       },
       clientPhotoUrl,
       tepihaRows,
@@ -1439,7 +1454,7 @@ export default function PranimiPage() {
       setOid(d.id || id);
       setCodeRaw(d.codeRaw || d.code || codeRaw);
       setName(d.name || '');
-      setPhone(String(d.phone || d?.client?.phone || '').replace(/^\+383\s*/, '').replace(/\D+/g, ''));
+      setPhone(String(d?.phone || d?.client?.phone || '').replace(/^\+383\s*/, '').replace(/\D+/g, ''));
       setClientPhotoUrl(d.clientPhotoUrl || '');
 
       setTepihaRows(Array.isArray(d.tepihaRows) && d.tepihaRows.length ? d.tepihaRows.map((r) => ({ ...r, qty: String(r?.qty ?? '0') })) : []);
