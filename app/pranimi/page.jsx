@@ -390,6 +390,8 @@ async function fetchRemoteDraftsSummary() {
       id: d.id,
       ts: d.ts || 0,
       code: formatKod(normalizeCode(d.codeRaw || d.code || ''), true),
+      name: String(d.name || '').trim(),
+      phone: String(d.phone || '').replace(/^\+383\s*/, ''),
       m2: totalM2,
       euro,
     });
@@ -736,9 +738,9 @@ export default function PranimiPage() {
     try {
       const local = readAllDraftsLocal().map((d) => ({
         id: d.id,
-        code: Number(d.code) || 0,
-        name: `${d?.client?.first_name || ''} ${d?.client?.last_name || ''}`.trim(),
-        phone: d?.client?.phone || '',
+        code: Number(d.codeRaw || d.code) || 0,
+        name: (d?.name || `${d?.client?.first_name || ''} ${d?.client?.last_name || ''}`.trim() || '').trim(),
+        phone: (d?.phone || d?.client?.phone || '').replace(/^\+383\s*/, ''),
         ts: Number(d.ts) || 0,
       }));
 
@@ -764,9 +766,9 @@ export default function PranimiPage() {
     } catch {
       const local = readAllDraftsLocal().map((d) => ({
         id: d.id,
-        code: Number(d.code) || 0,
-        name: `${d?.client?.first_name || ''} ${d?.client?.last_name || ''}`.trim(),
-        phone: d?.client?.phone || '',
+        code: Number(d.codeRaw || d.code) || 0,
+        name: (d?.name || `${d?.client?.first_name || ''} ${d?.client?.last_name || ''}`.trim() || '').trim(),
+        phone: (d?.phone || d?.client?.phone || '').replace(/^\+383\s*/, ''),
         ts: Number(d.ts) || 0,
       }));
       const sorted = local.sort((a, b) => Number(b.ts) - Number(a.ts));
@@ -1617,6 +1619,15 @@ KOMPANIA JONI`;
             >
               ✕
             </button>
+            <button
+              type="button"
+              className="client-card-edit"
+              aria-label="Ndrysho klientin"
+              title="NDRYSHO KLIENTIN"
+              onClick={openWizard}
+            >
+              ✎
+            </button>
             <div className="client-selected-main">
               {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini large" /> : <div className="client-avatar-fallback">👤</div>}
               <div className="client-selected-copy">
@@ -1733,14 +1744,16 @@ KOMPANIA JONI`;
           </div>
           <div className="payfs-body">
             <div className="card" style={{ marginTop: 0 }}>
-              {drafts.length === 0 ? <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>S’ka “të pa plotsuara”.</div> : (
+              {uniqueDrafts.length === 0 ? <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>S’ka “të pa plotsuara”.</div> : (
                 uniqueDrafts.map((d) => (
                   <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                       <div style={{ background: '#16a34a', color: '#0b0b0b', padding: '8px 10px', borderRadius: 10, fontWeight: 900, minWidth: 56, textAlign: 'center' }}>{d.code || '—'}</div>
                       <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>
                         <div style={{ fontWeight: 800 }}>KODI: {d.code || '—'}</div>
-                        <div style={{ opacity: 0.85 }}>{Number(d.m2 || 0).toFixed(2)} m² • {Number(d.euro || 0).toFixed(2)} €</div>
+                        <div style={{ opacity: 0.92, fontWeight: 700 }}>{d.name || 'PA EMËR'}</div>
+                        <div style={{ opacity: 0.82 }}>{d.phone ? `${phonePrefix} ${d.phone}` : 'PA TELEFON'}</div>
+                        <div style={{ opacity: 0.78 }}>{Number(d.m2 || 0).toFixed(2)} m² • {Number(d.euro || 0).toFixed(2)} €</div>
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 10 }}>
@@ -2128,6 +2141,30 @@ KOMPANIA JONI`;
         }
         .rbtn:active{
           transform:scale(.97);
+        }
+
+        .client-card-edit{
+          position:absolute;
+          top:12px;
+          right:64px;
+          width:42px;
+          height:42px;
+          border-radius:999px;
+          border:1.5px solid rgba(255,255,255,.18);
+          background:rgba(59,130,246,.16);
+          color:#eaf2ff;
+          font-size:22px;
+          font-weight:900;
+          line-height:1;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          box-shadow:0 8px 20px rgba(37,99,235,.20);
+          z-index:5;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .client-card-edit:active{
+          transform:scale(.96);
         }
       `}</style>
     </div>
