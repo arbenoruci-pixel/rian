@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { removeOrDeactivateUser, setUserActive } from "@/lib/usersDb";
 
 function jparse(s, fallback) {
   try { return JSON.parse(s) ?? fallback; } catch { return fallback; }
@@ -47,10 +48,9 @@ export default function StaffPage() {
   });
 
   const pendingCount = pending.length;
-  const activeCount = useMemo(
-    () => (staff || []).filter((u) => u.is_active !== false).length,
-    [staff]
-  );
+  const activeStaff = useMemo(() => (staff || []).filter((u) => u.is_active !== false), [staff]);
+  const inactiveStaff = useMemo(() => (staff || []).filter((u) => u.is_active === false), [staff]);
+  const activeCount = activeStaff.length;
 
   useEffect(() => {
     const a = jparse(localStorage.getItem("CURRENT_USER_DATA"), null);
@@ -220,6 +220,38 @@ export default function StaffPage() {
     }
   }
 
+  async function handleRemoveStaff(u) {
+    if (!u?.id) return;
+    const label = String(u.name || 'ky punëtor');
+    if (!confirm(`A dëshironi ta hiqni ${label}?\n\nNëse ka histori në databazë, sistemi do ta çaktivizojë automatikisht.`)) return;
+    setActionBusy(true);
+    try {
+      const res = await removeOrDeactivateUser(u.id);
+      if (!res?.ok) throw res?.error || new Error('Veprimi dështoi.');
+      alert(res.mode === 'deleted' ? '✅ Punëtori u fshi plotësisht.' : '✅ Punëtori u çaktivizua (is_active = false).');
+      if (editingId === u.id) setEditingId(null);
+      await reloadAll(false);
+    } catch (e) {
+      alert('GABIM: ' + normalizeDbError(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function handleReactivateStaff(u) {
+    if (!u?.id) return;
+    setActionBusy(true);
+    try {
+      const res = await setUserActive(u.id, true);
+      if (!res?.ok) throw res?.error || new Error('Aktivizimi dështoi.');
+      await reloadAll(false);
+    } catch (e) {
+      alert('GABIM: ' + normalizeDbError(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   return (
     <div className="staffPage">
       <div className="shell">
@@ -316,6 +348,31 @@ export default function StaffPage() {
                 ))}
               </div>
             )}
+
+            {inactiveStaff.length > 0 && (
+              <div className="inactiveWrap">
+                <div className="panelEyebrow">Inactive Staff</div>
+                <div className="stack">
+                  {inactiveStaff.map((u) => (
+                    <div className="staffCard inactiveCard" key={`inactive_${u.id}`}>
+                      <div className="staffMain">
+                        <div className="staffNameRow">
+                          <div className="staffName">{u.name || "Pa emër"}</div>
+                          <span className="statusPill off">JOAKTIV</span>
+                        </div>
+                        <div className="staffMeta">Roli: <strong>{u.role || "—"}</strong></div>
+                        <div className="staffMeta">PIN: <strong>{u.pin || "—"}</strong></div>
+                      </div>
+                      <div className="staffActions">
+                        <button className="reactivateBtn" onClick={() => handleReactivateStaff(u)} disabled={actionBusy}>
+                          ↺ AKTIVIZO
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="panel">
@@ -396,12 +453,12 @@ export default function StaffPage() {
 
             {loading ? (
               <div className="empty">Po lexohet stafi...</div>
-            ) : staff.length === 0 ? (
-              <div className="empty">Nuk ka asnjë anëtar stafi.</div>
+            ) : activeStaff.length === 0 ? (
+              <div className="empty">Nuk ka asnjë anëtar aktiv stafi.</div>
             ) : (
               <div className="stack">
-                {staff.map((u) => (
-                  <div className="staffCard" key={u.id} style={{ opacity: u.is_active === false ? 0.62 : 1 }}>
+                {activeStaff.map((u) => (
+                  <div className="staffCard" key={u.id}>
                     <div className="staffMain">
                       <div className="staffNameRow">
                         <div className="staffName">{u.name || "Pa emër"}</div>
@@ -418,12 +475,40 @@ export default function StaffPage() {
                     </div>
 
                     <div className="staffActions">
-                      <button className="editBtn" onClick={() => startEdit(u)}>
+                      <button className="editBtn" onClick={() => startEdit(u)} disabled={actionBusy}>
                         ✏️ EDITO
+                      </button>
+                      <button className="dangerBtn" onClick={() => handleRemoveStaff(u)} disabled={actionBusy}>
+                        ⛔ FSHI / ÇAKTIVIZO
                       </button>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {inactiveStaff.length > 0 && (
+              <div className="inactiveWrap">
+                <div className="panelEyebrow">Inactive Staff</div>
+                <div className="stack">
+                  {inactiveStaff.map((u) => (
+                    <div className="staffCard inactiveCard" key={`inactive_${u.id}`}>
+                      <div className="staffMain">
+                        <div className="staffNameRow">
+                          <div className="staffName">{u.name || "Pa emër"}</div>
+                          <span className="statusPill off">JOAKTIV</span>
+                        </div>
+                        <div className="staffMeta">Roli: <strong>{u.role || "—"}</strong></div>
+                        <div className="staffMeta">PIN: <strong>{u.pin || "—"}</strong></div>
+                      </div>
+                      <div className="staffActions">
+                        <button className="reactivateBtn" onClick={() => handleReactivateStaff(u)} disabled={actionBusy}>
+                          ↺ AKTIVIZO
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </section>
@@ -630,6 +715,24 @@ export default function StaffPage() {
           margin-top: 14px;
           flex-wrap: wrap;
         }
+        .dangerBtn, .reactivateBtn {
+          min-height: 46px;
+          border-radius: 14px;
+          font-weight: 900;
+          padding: 0 16px;
+        }
+        .dangerBtn {
+          background: #fff1f2;
+          color: #be123c;
+          border: 1px solid #fecdd3;
+        }
+        .reactivateBtn {
+          background: #ecfeff;
+          color: #0f766e;
+          border: 1px solid #a5f3fc;
+        }
+        .inactiveWrap { margin-top: 18px; padding-top: 18px; border-top: 1px dashed #dbe4ef; }
+        .inactiveCard { opacity: .78; }
         .approveBtn {
           flex: 1.2;
           min-height: 52px;

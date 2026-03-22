@@ -116,14 +116,21 @@ function buildHistory(payments, handoffs, debtRows) {
   return items.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 20);
 }
 async function fetchMyUser(pin) {
-  try {
-    const { data, error } = await supabase.from('tepiha_users').select('*').eq('pin', String(pin || '').trim()).limit(1).maybeSingle();
-    if (error) throw error;
-    return data || null;
-  } catch {
-    return null;
+  const cleanPin = String(pin || '').trim();
+  const tables = ['users', 'tepiha_users'];
+  let merged = null;
+  for (const table of tables) {
+    try {
+      const { data, error } = await supabase.from(table).select('*').eq('pin', cleanPin).limit(1).maybeSingle();
+      if (error) throw error;
+      if (data) merged = { ...(merged || {}), ...data };
+    } catch {
+      // ignore per-table failures and keep best effort merge
+    }
   }
+  return merged || null;
 }
+
 async function fetchMyPayments(pin) {
   try {
     const { data, error } = await supabase.from('arka_pending_payments').select('*').eq('created_by_pin', String(pin || '').trim()).order('created_at', { ascending: false }).limit(300);
@@ -212,6 +219,8 @@ export default function LlogariaImePage() {
 
   const summary = useMemo(() => {
     const salary = n(userRow?.salary);
+    const bonusTransport = n(userRow?.bonus_transport);
+    const bonusUshqim = n(userRow?.bonus_ushqim);
     const manualAdvance = n(userRow?.avans_manual);
     const longDebt = n(userRow?.borxh_afatgjat);
     const advancesOnly = (debtRows || []).filter((x) => safeUpper(x.status) === 'ADVANCE').reduce((s, x) => s + amountOf(x), 0);
@@ -219,7 +228,7 @@ export default function LlogariaImePage() {
     const debtRowsTotal = (debtRows || []).reduce((s, row) => s + amountOf(row), 0);
     const advances = Math.max(manualAdvance, advancesOnly || 0, manualAdvance + advancesOnly);
     const debt = Math.max(longDebt, debtOnly || 0, longDebt + debtOnly);
-    const neto = salary - advances - debt;
+    const neto = salary + bonusTransport + bonusUshqim - advances - debt;
 
     const cashToday = (payments || []).filter((x) => isToday(x.created_at)).reduce((s, x) => s + amountOf(x), 0);
     const inHand = (payments || []).filter((x) => ['PENDING', 'COLLECTED'].includes(safeUpper(x.status))).reduce((s, x) => s + amountOf(x), 0);
@@ -235,7 +244,7 @@ export default function LlogariaImePage() {
       return ['DORZIM', 'DORZUAR'].includes(status) && isToday(deliveredAt);
     }).length;
     return {
-      salary, advances, debt, neto, debtRowsTotal, cashToday, inHand, handed,
+      salary, bonusTransport, bonusUshqim, advances, debt, neto, debtRowsTotal, cashToday, inHand, handed,
       active, gati, deliveredToday,
       transportCount: transportOrders.filter((x) => !['DORZIM', 'DORZUAR'].includes(statusOf(x))).length,
     };
@@ -272,19 +281,24 @@ export default function LlogariaImePage() {
       {loading ? <div className="surface loadingCard">DUKE NGARKUAR TË DHËNAT...</div> : null}
       {!loading && tab === 'PERMBLEDHJE' ? (
         <div className="stack">
-          <div className="grid four">
-            <StatCard label="RROGA" value={fmt(summary.salary)} sub="Rroga bazë" accent="neutral" />
+          <div className="grid three summaryTopGrid">
+            <StatCard label="RROGA BAZË" value={fmt(summary.salary)} sub="Rroga bazë" accent="neutral" />
+            <StatCard label="BONUS TRANSPORT" value={fmt(summary.bonusTransport)} sub="Shtesë transporti" accent="ok" />
+            <StatCard label="BONUS USHQIM" value={fmt(summary.bonusUshqim)} sub="P.sh. 3€/ditë" accent="ok" />
             <StatCard label="AVANSET" value={fmt(summary.advances)} sub="Aktive / manuale" accent="warn" />
             <StatCard label="BORXHI" value={fmt(summary.debt)} sub="Borxh aktual" accent="bad" />
-            <StatCard label="NETO AKTUALE" value={fmt(summary.neto)} sub="Rrogë - avanse - borxh" accent={netTone} />
+            <StatCard label="NETO AKTUALE" value={fmt(summary.neto)} sub="Bazë + bonuse - avanse - borxhe" accent={netTone} />
           </div>
           <div className="surface panel">
-            <div className="panelHead"><div><h3>GJENDJA AKTUALE</h3><p>Përmbledhje e shpejtë e rrogës dhe detyrimeve të tua.</p></div></div>
+            <div className="panelHead"><div><h3>GJENDJA AKTUALE</h3><p>Përmbledhje e saktë e rrogës, bonuseve dhe detyrimeve të tua.</p></div></div>
             <div className="detailRows">
-              <div className="detailRow"><span>Rroga e ruajtur</span><strong>{fmt(summary.salary)}</strong></div>
+              <div className="detailRow"><span>Rroga bazë</span><strong>{fmt(summary.salary)}</strong></div>
+              <div className="detailRow"><span>Bonus transport</span><strong>{fmt(summary.bonusTransport)}</strong></div>
+              <div className="detailRow"><span>Bonus ushqim</span><strong>{fmt(summary.bonusUshqim)}</strong></div>
               <div className="detailRow"><span>Avans manual</span><strong>{fmt(n(userRow?.avans_manual))}</strong></div>
               <div className="detailRow"><span>Borxh afatgjatë</span><strong>{fmt(n(userRow?.borxh_afatgjat))}</strong></div>
               <div className="detailRow"><span>Lëvizje borxhi/avansi</span><strong>{fmt(summary.debtRowsTotal)}</strong></div>
+              <div className="detailRow totalRow"><span>NETO = RROGA + BONUS TRANSPORT + BONUS USHQIM - AVANSE - BORXHE</span><strong>{fmt(summary.neto)}</strong></div>
             </div>
           </div>
         </div>
@@ -391,6 +405,9 @@ export default function LlogariaImePage() {
         .historyAmount { font-size: 16px; font-weight: 900; }
         .statusPill { margin-top: 8px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,.08); border-radius: 999px; padding: 6px 10px; font-size: 10px; font-weight: 900; letter-spacing: .8px; }
         .emptyText { color: rgba(255,255,255,.52); font-size: 13px; font-weight: 700; padding: 10px 4px; }
+.totalRow { border-top-color: rgba(99,102,241,.28); margin-top: 4px; padding-top: 14px; }
+        .totalRow span, .totalRow strong { color: #e5e7eb; }
+        .summaryTopGrid :global(.statCard) { min-height: 118px; }
         @media (max-width: 760px) { .grid.three { grid-template-columns: 1fr; } }
       `}</style>
     </div>
