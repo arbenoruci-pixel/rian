@@ -390,8 +390,8 @@ async function fetchRemoteDraftsSummary() {
       id: d.id,
       ts: d.ts || 0,
       code: formatKod(normalizeCode(d.codeRaw || d.code || ''), true),
-      name: String(d.name || '').trim(),
-      phone: String(d.phone || '').replace(/^\+383\s*/, ''),
+      name: String(d.name || d?.client?.full_name || '').trim(),
+      phone: String(d.phone || d?.client?.phone || '').replace(/^\+383\s*/, '').replace(/\D+/g, ''),
       m2: totalM2,
       euro,
     });
@@ -966,6 +966,10 @@ export default function PranimiPage() {
       codeRaw,
       name,
       phone,
+      client: {
+        full_name: String(name || '').trim(),
+        phone: phone ? `${phonePrefix}${String(phone).replace(/\D+/g, '')}` : '',
+      },
       clientPhotoUrl,
       tepihaRows,
       stazaRows,
@@ -1430,7 +1434,7 @@ export default function PranimiPage() {
       setOid(d.id || id);
       setCodeRaw(d.codeRaw || d.code || codeRaw);
       setName(d.name || '');
-      setPhone(d.phone || '');
+      setPhone(String(d.phone || d?.client?.phone || '').replace(/^\+383\s*/, '').replace(/\D+/g, ''));
       setClientPhotoUrl(d.clientPhotoUrl || '');
 
       setTepihaRows(Array.isArray(d.tepihaRows) && d.tepihaRows.length ? d.tepihaRows.map((r) => ({ ...r, qty: String(r?.qty ?? '0') })) : []);
@@ -1619,19 +1623,21 @@ KOMPANIA JONI`;
             >
               ✕
             </button>
-            <button
-              type="button"
-              className="client-card-edit"
-              aria-label="Ndrysho klientin"
-              title="NDRYSHO KLIENTIN"
-              onClick={openWizard}
-            >
-              ✎
-            </button>
             <div className="client-selected-main">
               {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini large" /> : <div className="client-avatar-fallback">👤</div>}
               <div className="client-selected-copy">
-                <div className="client-code-pill">{`NR ${formatKod(normalizeCode(codeRaw), netState.ok)}`}</div>
+                <div className="client-copy-topline">
+                  <div className="client-code-pill">{`NR ${formatKod(normalizeCode(codeRaw), netState.ok)}`}</div>
+                  <button
+                    type="button"
+                    className="client-inline-edit"
+                    aria-label="Ndrysho klientin"
+                    title="NDRYSHO KLIENTIN"
+                    onClick={openWizard}
+                  >
+                    ✎
+                  </button>
+                </div>
                 <div className="client-selected-name">{name || 'KLIENT I RI'}</div>
                 <div className="client-selected-phone">{phone ? `${phonePrefix} ${phone}` : 'PA TELEFON'}</div>
               </div>
@@ -2143,27 +2149,32 @@ KOMPANIA JONI`;
           transform:scale(.97);
         }
 
-        .client-card-edit{
-          position:absolute;
-          top:12px;
-          right:64px;
-          width:42px;
-          height:42px;
+        .client-copy-topline{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:10px;
+          margin-bottom:6px;
+        }
+        .client-inline-edit{
+          min-width:38px;
+          height:38px;
+          padding:0 12px;
           border-radius:999px;
-          border:1.5px solid rgba(255,255,255,.18);
-          background:rgba(59,130,246,.16);
+          border:1.5px solid rgba(255,255,255,.16);
+          background:rgba(59,130,246,.14);
           color:#eaf2ff;
-          font-size:22px;
+          font-size:20px;
           font-weight:900;
           line-height:1;
           display:flex;
           align-items:center;
           justify-content:center;
-          box-shadow:0 8px 20px rgba(37,99,235,.20);
-          z-index:5;
+          box-shadow:0 8px 18px rgba(37,99,235,.18);
           -webkit-tap-highlight-color: transparent;
+          flex-shrink:0;
         }
-        .client-card-edit:active{
+        .client-inline-edit:active{
           transform:scale(.96);
         }
       `}</style>
