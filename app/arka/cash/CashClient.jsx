@@ -40,23 +40,23 @@ function parseEuroInput(v) {
   return Number.isFinite(n) ? n : NaN;
 }
 
-function dayKeyLocal(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 function Modal({ open, title, onClose, children }) {
   if (!open) return null;
   return (
-    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose?.();
+      }}
+    >
       <div className="modal-content">
         <div className="modal-header">
           <div className="modal-title">{title}</div>
-          <button type="button" className="btn-close" onClick={onClose}>✕ MBYLL</button>
+          <button type="button" className="icon-btn" onClick={onClose}>
+            ✕
+          </button>
         </div>
-        <div>{children}</div>
+        <div className="modal-body">{children}</div>
       </div>
     </div>
   );
@@ -68,55 +68,60 @@ export default function CashClient() {
   const [debugInfo, setDebugInfo] = useState(null);
 
   const [user, setUser] = useState(null);
-  const isDispatch = useMemo(() => String(user?.role || "").toUpperCase() === "DISPATCH", [user?.role]);
+  const isDispatch = useMemo(
+    () => String(user?.role || "").toUpperCase() === "DISPATCH",
+    [user?.role]
+  );
   const hasPin = useMemo(() => !!String(user?.pin || "").trim(), [user?.pin]);
 
   const [tab, setTab] = useState("OPEN");
 
   const [cycle, setCycle] = useState(null);
   const [moves, setMoves] = useState([]);
-  const [carry, setCarry] = useState({ carry_cash: 0, carry_source: null, carry_person_pin: null });
+  const [carry, setCarry] = useState({
+    carry_cash: 0,
+    carry_source: null,
+    carry_person_pin: null,
+  });
 
   const [pendingHanded, setPendingHanded] = useState(false);
   const [handedList, setHandedList] = useState([]);
 
-  // OPEN 
   const [openModal, setOpenModal] = useState(false);
   const [openingCash, setOpeningCash] = useState("0");
   const [openingSource, setOpeningSource] = useState("COMPANY");
   const [openingPin, setOpeningPin] = useState("");
 
-  // MOVE
   const [moveType, setMoveType] = useState("OUT");
   const [moveAmount, setMoveAmount] = useState("");
   const [moveNote, setMoveNote] = useState("");
 
-  // CLOSE
   const [closeModal, setCloseModal] = useState(false);
   const [cashCounted, setCashCounted] = useState("");
   const [closeReason, setCloseReason] = useState("");
 
-  // PENDING CASH
   const [pendingPays, setPendingPays] = useState([]);
   const [pendingModal, setPendingModal] = useState(false);
   const [pendingBusy, setPendingBusy] = useState(false);
   const [pendingRejectNote, setPendingRejectNote] = useState("");
 
-  // OWED (BORXH PUNETORI) - E rikthyer 100%
   const [owedPays, setOwedPays] = useState([]);
   const [owedModal, setOwedModal] = useState(false);
   const [owedBusy, setOwedBusy] = useState(false);
   const [owedNote, setOwedNote] = useState("");
 
-  // HISTORI
   const [histDays, setHistDays] = useState([]);
   const [histSelected, setHistSelected] = useState(null);
   const [histCycles, setHistCycles] = useState([]);
   const [histLoading, setHistLoading] = useState(false);
 
   const sums = useMemo(() => {
-    const ins = (moves || []).filter((m) => String(m.type || "").toUpperCase() === "IN").reduce((a, m) => a + Number(m.amount || 0), 0);
-    const outs = (moves || []).filter((m) => String(m.type || "").toUpperCase() === "OUT").reduce((a, m) => a + Number(m.amount || 0), 0);
+    const ins = (moves || [])
+      .filter((m) => String(m.type || "").toUpperCase() === "IN")
+      .reduce((a, m) => a + Number(m.amount || 0), 0);
+    const outs = (moves || [])
+      .filter((m) => String(m.type || "").toUpperCase() === "OUT")
+      .reduce((a, m) => a + Number(m.amount || 0), 0);
     return { ins, outs };
   }, [moves]);
 
@@ -139,8 +144,12 @@ export default function CashClient() {
       if (!c) {
         try {
           const co = await dbGetCarryoverToday();
-          setCarry(co || { carry_cash: 0, carry_source: null, carry_person_pin: null });
-        } catch { setCarry({ carry_cash: 0, carry_source: null, carry_person_pin: null }); }
+          setCarry(
+            co || { carry_cash: 0, carry_source: null, carry_person_pin: null }
+          );
+        } catch {
+          setCarry({ carry_cash: 0, carry_source: null, carry_person_pin: null });
+        }
         setMoves([]);
       } else {
         const list = await dbListCycleMoves(c.id);
@@ -156,19 +165,22 @@ export default function CashClient() {
         try {
           const res = await listPendingCashPayments(80);
           setPendingPays(Array.isArray(res?.items) ? res.items : []);
-        } catch { setPendingPays([]); }
+        } catch {
+          setPendingPays([]);
+        }
       } else {
         setPendingPays([]);
       }
 
-      // Kthimi i Borxheve
       if (user?.pin) {
         try {
           const rows = await listWorkerDebtRows(user.pin, 80);
           const safeRows = Array.isArray(rows) ? rows : [];
           setOwedPays(safeRows);
           if (safeRows.length) setOwedModal(true);
-        } catch { setOwedPays([]); }
+        } catch {
+          setOwedPays([]);
+        }
       } else {
         setOwedPays([]);
       }
@@ -185,8 +197,12 @@ export default function CashClient() {
           if (sel?.id) {
             const cyc = await dbListCyclesByDay(sel.id);
             setHistCycles(Array.isArray(cyc) ? cyc : []);
-          } else { setHistCycles([]); }
-        } finally { setHistLoading(false); }
+          } else {
+            setHistCycles([]);
+          }
+        } finally {
+          setHistLoading(false);
+        }
       }
     } catch (e) {
       setErr(e?.message || String(e));
@@ -194,14 +210,19 @@ export default function CashClient() {
   }
 
   useEffect(() => {
-    try { setUser(JSON.parse(localStorage.getItem("CURRENT_USER_DATA") || "null")); } catch { setUser(null); }
+    try {
+      setUser(JSON.parse(localStorage.getItem("CURRENT_USER_DATA") || "null"));
+    } catch {
+      setUser(null);
+    }
   }, []);
 
-  useEffect(() => { refresh(); }, [tab]);
+  useEffect(() => {
+    refresh();
+  }, [tab]);
 
-  // ALERTS E REJA
   async function applyPending(p) {
-    if (!cycle?.id) return alert('GABIM: HAPE ARKËN SË PARI!');
+    if (!cycle?.id) return alert("GABIM: HAPE ARKËN SË PARI!");
     setPendingBusy(true);
     try {
       const applied = await applyPendingPaymentToCycle({
@@ -212,10 +233,11 @@ export default function CashClient() {
         approved_by_role: user?.role || null,
       });
 
-      if (!applied?.ok) throw new Error(applied?.error || 'Dështoi pranim i pagesës në server!');
+      if (!applied?.ok)
+        throw new Error(applied?.error || "Dështoi pranim i pagesës në server!");
 
       setPendingPays((prev) => (prev || []).filter((x) => x.id !== p.id));
-      alert('✅ Pagesa u pranua në Arkë me sukses!');
+      alert("✅ Pagesa u pranua në Arkë me sukses!");
       refresh();
     } catch (e) {
       alert("❌ GABIM PRANIMI: " + (e.message || String(e)));
@@ -238,10 +260,11 @@ export default function CashClient() {
         reject_note: pendingRejectNote || null,
       });
 
-      if (rejected && rejected.ok === false) throw new Error(rejected.error || "Dështoi shënimi si borxh");
+      if (rejected && rejected.ok === false)
+        throw new Error(rejected.error || "Dështoi shënimi si borxh");
 
       setPendingPays((prev) => (prev || []).filter((x) => x.id !== p.id));
-      alert('⚠️ Pagesa u kalua si BORXH me sukses!');
+      alert("⚠️ Pagesa u kalua si BORXH me sukses!");
     } catch (e) {
       alert("❌ GABIM BORXHI: " + (e.message || String(e)));
     } finally {
@@ -249,7 +272,6 @@ export default function CashClient() {
     }
   }
 
-  // FUNKSIONET ORIGJINALE
   async function onOpenCycle() {
     setErr("");
     if (pendingHanded) {
@@ -260,10 +282,12 @@ export default function CashClient() {
     setBusy(true);
     try {
       const opening_cash = parseEuroInput(openingCash);
-      if (Number.isNaN(opening_cash) || opening_cash < 0) throw new Error("SHUMA S’ËSHTË VALIDE.");
+      if (Number.isNaN(opening_cash) || opening_cash < 0)
+        throw new Error("SHUMA S’ËSHTË VALIDE.");
 
       const src = String(openingSource || "COMPANY").toUpperCase();
-      if (!["COMPANY", "PERSONAL", "OTHER"].includes(src)) throw new Error("BURIMI DUHET: COMPANY / PERSONAL / OTHER.");
+      if (!["COMPANY", "PERSONAL", "OTHER"].includes(src))
+        throw new Error("BURIMI DUHET: COMPANY / PERSONAL / OTHER.");
 
       let opening_person_pin = "";
       if (src === "PERSONAL") {
@@ -280,18 +304,18 @@ export default function CashClient() {
       });
 
       try {
-        if (src === 'COMPANY' && Number(opening_cash || 0) > 0) {
+        if (src === "COMPANY" && Number(opening_cash || 0) > 0) {
           await budgetAddMove({
-            direction: 'OUT',
+            direction: "OUT",
             amount: Number(opening_cash || 0),
-            reason: 'ARKA_OPEN',
-            note: `OPEN CASH → ARKË${opened?.id ? ` (CYCLE ${opened.id})` : ''}`,
-            source: 'CASH',
-            created_by: user?.name || 'LOCAL',
-            created_by_name: user?.name || 'UNKNOWN',
+            reason: "ARKA_OPEN",
+            note: `OPEN CASH → ARKË${opened?.id ? ` (CYCLE ${opened.id})` : ""}`,
+            source: "CASH",
+            created_by: user?.name || "LOCAL",
+            created_by_name: user?.name || "UNKNOWN",
             created_by_pin: user?.pin || null,
             ref_day_id: opened?.id || null,
-            ref_type: 'ARKA_CYCLE',
+            ref_type: "ARKA_CYCLE",
             external_id: opened?.id ? `arka_open_${opened.id}` : null,
           });
         }
@@ -316,18 +340,23 @@ export default function CashClient() {
       if (Number.isNaN(amt) || amt <= 0) throw new Error("SHUMA DUHET > 0.");
 
       const type = String(moveType || "OUT").toUpperCase();
-      const label = type === 'IN' ? 'PREJ KUJ (IN) [KOMPANI/PERSONAL]' : 'KU SHKON (OUT) [KOMPANI/PERSONAL]';
-      const raw = String(window.prompt(label, 'KOMPANI') || '').trim().toUpperCase();
-      const counterparty = raw === 'PERSONAL' ? 'PERSONAL' : 'KOMPANI';
+      const label =
+        type === "IN"
+          ? "PREJ KUJ (IN) [KOMPANI/PERSONAL]"
+          : "KU SHKON (OUT) [KOMPANI/PERSONAL]";
+      const raw = String(window.prompt(label, "KOMPANI") || "").trim().toUpperCase();
+      const counterparty = raw === "PERSONAL" ? "PERSONAL" : "KOMPANI";
 
-      let pin = String(user?.pin || '').trim();
-      if (counterparty === 'PERSONAL') {
-        pin = String(window.prompt('SHKRUAJ PIN (PERSONAL)', pin || '') || '').trim();
-        if (!pin) throw new Error('PIN MUNGON (PERSONAL).');
+      let pin = String(user?.pin || "").trim();
+      if (counterparty === "PERSONAL") {
+        pin = String(window.prompt("SHKRUAJ PIN (PERSONAL)", pin || "") || "").trim();
+        if (!pin) throw new Error("PIN MUNGON (PERSONAL).");
       }
 
       const noteExtra = `${counterparty}`;
-      const note = `${String(moveNote || '')}${String(moveNote || '').trim() ? ' • ' : ''}${noteExtra}`.trim();
+      const note = `${String(moveNote || "")}${
+        String(moveNote || "").trim() ? " • " : ""
+      }${noteExtra}`.trim();
 
       await dbAddCycleMove({
         cycle_id: cycle.id,
@@ -340,21 +369,21 @@ export default function CashClient() {
         created_by_pin: pin || null,
       });
 
-      if (counterparty === 'KOMPANI') {
-        const budDir = type === 'OUT' ? 'IN' : 'OUT';
+      if (counterparty === "KOMPANI") {
+        const budDir = type === "OUT" ? "IN" : "OUT";
         try {
           await budgetAddMove({
             direction: budDir,
             amount: amt,
-            reason: 'ARKA_MANUAL',
+            reason: "ARKA_MANUAL",
             note: `ARKA ${type} • ${note}`,
-            source: 'CASH',
+            source: "CASH",
             created_by: user?.id || null,
             created_by_name: user?.name || null,
             created_by_pin: pin || null,
             ref_day_id: cycle?.id || null,
-            ref_type: 'ARKA_CYCLE',
-            external_id: `arka_manual_${cycle?.id || 'x'}_${Date.now()}`,
+            ref_type: "ARKA_CYCLE",
+            external_id: `arka_manual_${cycle?.id || "x"}_${Date.now()}`,
           });
         } catch {}
       }
@@ -374,7 +403,8 @@ export default function CashClient() {
     setBusy(true);
     try {
       const counted = parseEuroInput(cashCounted);
-      if (Number.isNaN(counted) || counted < 0) throw new Error("CASH COUNTED S’ËSHTË VALIDE.");
+      if (Number.isNaN(counted) || counted < 0)
+        throw new Error("CASH COUNTED S’ËSHTË VALIDE.");
 
       const disc = Number(counted) - Number(expectedCash || 0);
       if (Math.abs(disc) >= 0.01 && !String(closeReason || "").trim()) {
@@ -425,145 +455,233 @@ export default function CashClient() {
   const pendingGroups = useMemo(() => {
     const groups = new Map();
     for (const p of pendingPays || []) {
-      const pin = String(p?.created_by_pin || p?.created_by_name || 'PA_PIN').trim() || 'PA_PIN';
+      const pin = String(p?.created_by_pin || p?.created_by_name || "PA_PIN").trim() || "PA_PIN";
       if (!groups.has(pin)) groups.set(pin, []);
       groups.get(pin).push(p);
     }
-    return Array.from(groups.entries()).map(([pin, items]) => ({ pin, items, total: items.reduce((s, x) => s + Number(x.amount || 0), 0) })).sort((a, b) => a.pin.localeCompare(b.pin));
+    return Array.from(groups.entries())
+      .map(([pin, items]) => ({
+        pin,
+        items,
+        total: items.reduce((s, x) => s + Number(x.amount || 0), 0),
+      }))
+      .sort((a, b) => a.pin.localeCompare(b.pin));
   }, [pendingPays]);
 
   return (
-    <div className="cash-container">
-      {/* TABS */}
-      <div className="tabs">
-        <button className={`tab-btn ${tab === 'OPEN' ? 'tab-active' : 'tab-inactive'}`} onClick={() => setTab("OPEN")}>OPEN (ARKË)</button>
-        <button className={`tab-btn ${tab === 'DISPATCH' ? 'tab-active' : 'tab-inactive'}`} onClick={() => setTab("DISPATCH")}>DISPATCH</button>
-        <button className={`tab-btn ${tab === 'HISTORI' ? 'tab-active' : 'tab-inactive'}`} onClick={() => setTab("HISTORI")}>HISTORI</button>
+    <div className="cash-shell">
+      <div className="cash-topbar">
+        <div className="cash-heading">
+          <div className="eyebrow">Apple dark mode</div>
+          <h1 className="page-title">Cash Center</h1>
+          <div className="page-subtitle">
+            Arka ditore, dispatch handoffs dhe historiku në një pamje të pastër.
+          </div>
+        </div>
+
+        <div className="segmented" role="tablist" aria-label="Cash tabs">
+          <button className={`seg-btn ${tab === "OPEN" ? "seg-active" : ""}`} onClick={() => setTab("OPEN")}>
+            Open
+          </button>
+          <button className={`seg-btn ${tab === "DISPATCH" ? "seg-active" : ""}`} onClick={() => setTab("DISPATCH")}>
+            Dispatch
+          </button>
+          <button className={`seg-btn ${tab === "HISTORI" ? "seg-active" : ""}`} onClick={() => setTab("HISTORI")}>
+            Histori
+          </button>
+        </div>
       </div>
 
-      {err && <div className="error-banner">{err}</div>}
+      {err && <div className="notice notice-error">{err}</div>}
 
       {pendingHanded && !isDispatch && (
-        <div className="alert-banner">
-          <div className="alert-title">ARKA E BLLOKUAR</div>
-          DISPATCH DUHET TË PRANOJË DORËZIMIN PARA SE TË VAZHDONI.
+        <div className="notice notice-warning">
+          <div className="notice-title">Arka është e bllokuar</div>
+          <div className="notice-text">
+            Dispatch duhet ta pranojë dorëzimin para se të vazhdosh.
+          </div>
         </div>
       )}
 
-      {/* OPEN TAB */}
       {tab === "OPEN" && (
-        <div className="fade-in">
+        <div className="stack fade-in">
           {!cycle ? (
-            <div className="card">
-              <div className="card-title">HAP ARKËN E RE</div>
+            <section className="surface hero-card">
+              <div className="section-copy">
+                <div className="eyebrow">Open cycle</div>
+                <div className="section-title">Hap arkën e re</div>
+                <div className="section-subtitle">
+                  Nise ditën me një cikël të ri cash dhe mbaje gjendjen të qartë.
+                </div>
+              </div>
+
               {Number(carry?.carry_cash || 0) > 0 && (
-                 <div className="carryover-box">
-                    <strong>CARRYOVER NGA DJE:</strong> {euro(carry.carry_cash)} ({String(carry.carry_source || "COMPANY").toUpperCase()})
-                 </div>
+                <div className="soft-panel">
+                  <div className="soft-label">Carryover nga dje</div>
+                  <div className="soft-value">{euro(carry.carry_cash)}</div>
+                  <div className="soft-meta">
+                    {String(carry.carry_source || "COMPANY").toUpperCase()}
+                  </div>
+                </div>
               )}
-              <button className="btn-primary" disabled={busy || pendingHanded} onClick={() => setOpenModal(true)}>
-                🔑 HAP ARKËN (OPEN CYCLE)
+
+              <button className="btn btn-primary" disabled={busy || pendingHanded} onClick={() => setOpenModal(true)}>
+                Hap arkën
               </button>
-            </div>
+            </section>
           ) : (
             <>
               {pendingPays?.length > 0 && (
-                <button className="btn-notification" onClick={() => setPendingModal(true)}>
-                  🔔 PAGESA NË PRITJE ({pendingPays.length})
+                <button className="banner-action" onClick={() => setPendingModal(true)}>
+                  <span className="banner-left">
+                    <span className="banner-dot" />
+                    <span>Pagesa në pritje</span>
+                  </span>
+                  <strong>{pendingPays.length}</strong>
                 </button>
               )}
 
-              <div className="grid-2">
-                <div className="card text-center">
-                  <div className="card-title text-green">HYRJE (IN)</div>
-                  <div className="card-value text-green">{euro(sums.ins)}</div>
-                </div>
-                <div className="card text-center">
-                  <div className="card-title text-red">DALJE (OUT)</div>
-                  <div className="card-value text-red">{euro(sums.outs)}</div>
-                </div>
-              </div>
+              <section className="metrics-grid">
+                <article className="surface metric-card">
+                  <div className="metric-label">Hyrje</div>
+                  <div className="metric-value">{euro(sums.ins)}</div>
+                </article>
+                <article className="surface metric-card">
+                  <div className="metric-label">Dalje</div>
+                  <div className="metric-value">{euro(sums.outs)}</div>
+                </article>
+              </section>
 
-              <div className="card text-center highlight-card">
-                 <div className="card-title">PRITET NË ARKË (EXPECTED)</div>
-                 <div className="card-value highlight-value">{euro(expectedCash)}</div>
-              </div>
+              <section className="surface spotlight-card">
+                <div className="metric-label">Pritet në arkë</div>
+                <div className="spotlight-value">{euro(expectedCash)}</div>
+              </section>
 
-              <div className="card">
-                <div className="card-title">SHTO LËVIZJE MANUALISHT</div>
-                <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
-                  <select className="input-field" value={moveType} onChange={(e) => setMoveType(e.target.value)} style={{flex: 1}}>
-                    <option value="IN">IN (Shto)</option>
-                    <option value="OUT">OUT (Nxjerr)</option>
+              <section className="surface form-card">
+                <div className="section-head">
+                  <div>
+                    <div className="section-title">Lëvizje manuale</div>
+                    <div className="section-subtitle">
+                      Shto hyrje ose dalje cash pa prekur motorin e ri korporativ.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="field-row two">
+                  <select className="field" value={moveType} onChange={(e) => setMoveType(e.target.value)}>
+                    <option value="IN">IN · Shto</option>
+                    <option value="OUT">OUT · Nxjerr</option>
                   </select>
-                  <input className="input-field" value={moveAmount} onChange={(e) => setMoveAmount(e.target.value)} inputMode="decimal" placeholder="€ Shuma" style={{flex: 1}} />
+                  <input className="field" value={moveAmount} onChange={(e) => setMoveAmount(e.target.value)} inputMode="decimal" placeholder="Shuma" />
                 </div>
-                <input className="input-field" value={moveNote} onChange={(e) => setMoveNote(e.target.value)} placeholder="Shënim (Opsional)" />
-                <button className="btn-primary" disabled={busy} onClick={onAddMove}>SHTO LËVIZJEN</button>
-              </div>
 
-              <div className="card">
-                <div className="card-title">LËVIZJET E ARKËS</div>
+                <input className="field" value={moveNote} onChange={(e) => setMoveNote(e.target.value)} placeholder="Shënim opsional" />
+
+                <button className="btn btn-secondary" disabled={busy} onClick={onAddMove}>
+                  Shto lëvizjen
+                </button>
+              </section>
+
+              <section className="surface ledger-card">
+                <div className="section-head">
+                  <div>
+                    <div className="section-title">Lëvizjet e arkës</div>
+                    <div className="section-subtitle">
+                      Çdo hyrje dhe dalje e ditës në një pamje të pastër.
+                    </div>
+                  </div>
+                </div>
+
                 {moves?.length ? (
-                  <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+                  <div className="ledger-list">
                     {moves.map((m) => {
-                      const isIN = m.type === 'IN';
-                      const executorName = String(m.created_by_name || m.created_by || "SISTEMI / I PANJOHUR").toUpperCase();
-                      
+                      const isIN = String(m.type || "").toUpperCase() === "IN";
+                      const executorName = String(
+                        m.created_by_name || m.created_by || "Sistemi / i panjohur"
+                      );
+
                       return (
-                        <div key={m.id} style={{ display: "flex", flexDirection: "column", gap: "8px", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", borderRadius: "12px", padding: "12px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                              <span style={{ background: isIN ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: isIN ? '#34d399' : '#f87171', padding: '4px 8px', borderRadius: "6px", fontSize: "11px", fontWeight: 900 }}>
+                        <article key={m.id} className="ledger-item">
+                          <div className="ledger-main">
+                            <div className="ledger-left">
+                              <span className={`pill ${isIN ? "pill-positive" : "pill-negative"}`}>
                                 {String(m.type || "").toUpperCase()}
                               </span>
-                              <span style={{ fontSize: "12px", fontWeight: 700, opacity: 0.8 }}>
-                                {m.source === 'ORDER_PAY' ? 'PAGESË POROSIE' : 'LËVIZJE MANUALE'}
-                              </span>
+                              <div className="ledger-copy">
+                                <div className="ledger-kind">
+                                  {m.source === "ORDER_PAY" ? "Pagesë porosie" : "Lëvizje manuale"}
+                                </div>
+                                <div className="ledger-note">{m.note || "Pa shënim"}</div>
+                              </div>
                             </div>
-                            <div style={{ fontWeight: 900, fontSize: "16px", color: isIN ? '#34d399' : '#f87171' }}>
-                              {isIN ? '+' : '-'}{euro(m.amount)}
-                            </div>
+                            <div className="ledger-amount">{isIN ? "+" : "-"}{euro(m.amount)}</div>
                           </div>
-                          <div style={{ fontSize: "13px", opacity: 0.9, fontWeight: 600 }}>📝 {m.note || 'Pa shënim'}</div>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px", paddingTop: "8px", borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
-                            <div style={{ fontSize: "11px", color: '#60a5fa', fontWeight: 900 }}>👤 NGA: {executorName}</div>
-                            {m.created_at && (
-                              <div style={{ fontSize: "10px", opacity: 0.5, fontWeight: 700 }}>{new Date(m.created_at).toLocaleTimeString('sq-AL', { hour: '2-digit', minute: '2-digit' })}</div>
-                            )}
+
+                          <div className="ledger-meta">
+                            <span>{executorName}</span>
+                            <span>
+                              {m.created_at
+                                ? new Date(m.created_at).toLocaleTimeString("sq-AL", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })
+                                : ""}
+                            </span>
                           </div>
-                        </div>
+                        </article>
                       );
                     })}
                   </div>
-                ) : <div style={{ opacity: 0.75, marginTop: "12px", fontWeight: 600, fontSize: "13px" }}>S’ka asnjë lëvizje sot.</div>}
-              </div>
+                ) : (
+                  <div className="empty-state">S’ka asnjë lëvizje sot.</div>
+                )}
+              </section>
 
-              <button className="btn-danger" onClick={() => { setCashCounted(String(Number(expectedCash || 0).toFixed(2))); setCloseModal(true); }}>
-                🔒 MBYLLE ARKËN (DORËZO)
+              <button
+                className="btn btn-danger"
+                onClick={() => {
+                  setCashCounted(String(Number(expectedCash || 0).toFixed(2)));
+                  setCloseModal(true);
+                }}
+              >
+                Mbylle arkën
               </button>
             </>
           )}
         </div>
       )}
 
-      {/* DISPATCH TAB */}
       {tab === "DISPATCH" && (
-        <div className="fade-in">
-          {handedList?.length ? handedList.map((h) => (
-             <div key={h.id} className="card">
-                <div className="flex-between">
-                   <div className="card-title">HANDOFF #{h.id} — {h.worker_name || h.worker_pin || 'PUNËTORI'}</div>
-                   <div className="card-value">{euro(h.amount || 0)}</div>
+        <div className="stack fade-in">
+          {handedList?.length ? (
+            handedList.map((h) => (
+              <section key={h.id} className="surface dispatch-card">
+                <div className="dispatch-top">
+                  <div>
+                    <div className="eyebrow">Dispatch handoff</div>
+                    <div className="section-title">{h.worker_name || h.worker_pin || "Punëtori"}</div>
+                    <div className="dispatch-meta">Handoff #{h.id}</div>
+                  </div>
+                  <div className="dispatch-amount">{euro(h.amount || 0)}</div>
                 </div>
-                <div style={{color: '#94A3B8', fontSize: '13px', marginTop: '5px'}}>STATUS: {String(h.status || '').toUpperCase()}</div>
-                <div style={{color: '#94A3B8', fontSize: '13px', marginTop: '5px'}}>PAGESA: {(h.cash_handoff_items || []).length}</div>
-                <div style={{ display: 'grid', gap: '10px', marginTop: '15px' }}>
-                  <button className="btn-success" style={{ width: '100%' }} disabled={busy || !isDispatch} onClick={() => onReceiveCycle(h.id)}>
-                    ✅ PRANO DORËZIMIN
+
+                <div className="dispatch-stats">
+                  <div className="soft-panel compact">
+                    <div className="soft-label">Status</div>
+                    <div className="soft-inline">{String(h.status || "").toUpperCase()}</div>
+                  </div>
+                  <div className="soft-panel compact">
+                    <div className="soft-label">Pagesa</div>
+                    <div className="soft-inline">{(h.cash_handoff_items || []).length}</div>
+                  </div>
+                </div>
+
+                <div className="action-grid">
+                  <button className="btn btn-success" disabled={busy || !isDispatch} onClick={() => onReceiveCycle(h.id)}>
+                    Prano dorëzimin
                   </button>
                   <button
-                    className="btn-outline"
+                    className="btn btn-ghost"
                     disabled={busy || !isDispatch}
                     onClick={async () => {
                       setBusy(true);
@@ -571,7 +689,7 @@ export default function CashClient() {
                         await rejectDispatchHandoff({
                           handoffId: h.id,
                           actor: { pin: user?.pin || null, name: user?.name || null },
-                          note: 'REFUZUAR NGA DISPATCH',
+                          note: "REFUZUAR NGA DISPATCH",
                         });
                         await refresh("DISPATCH");
                       } catch (e) {
@@ -581,145 +699,220 @@ export default function CashClient() {
                       }
                     }}
                   >
-                    ❌ REFUZO
+                    Refuzo
                   </button>
                 </div>
-             </div>
-          )) : <div className="card text-center" style={{color: '#94A3B8'}}>S'KA ASNJË DORËZIM NË PRITJE.</div>}
-        </div>
-      )}
-
-      {/* HISTORI TAB */}
-      {tab === "HISTORI" && (
-        <div className="fade-in card">
-           <div className="card-title">ZGJIDH DITËN</div>
-           <div className="grid-2">
-              {histDays.map(d => (
-                 <button key={d.id} className={`btn-outline ${histSelected?.id === d.id ? 'active' : ''}`} onClick={() => setHistSelected(d)}>
-                    {d.day_key}
-                 </button>
-              ))}
-           </div>
-        </div>
-      )}
-
-      {/* MODAL 1: OPEN ARKËN */}
-      <Modal open={openModal} title="HAP ARKËN" onClose={() => setOpenModal(false)}>
-        <div style={{ display: "grid", gap: "10px" }}>
-          <input className="input-field" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} inputMode="decimal" placeholder="CASH FILLESTAR (p.sh. 20)" />
-          <select className="input-field" value={openingSource} onChange={(e) => setOpeningSource(e.target.value)}>
-            <option value="COMPANY">BURIMI: COMPANY</option>
-            <option value="PERSONAL">BURIMI: PERSONAL</option>
-            <option value="OTHER">BURIMI: OTHER</option>
-          </select>
-          {String(openingSource).toUpperCase() === "PERSONAL" && (
-            <input className="input-field" value={openingPin} onChange={(e) => setOpeningPin(e.target.value)} inputMode="numeric" placeholder="PIN I PERSONIT (PERSONAL)" />
+              </section>
+            ))
+          ) : (
+            <section className="surface empty-card">
+              <div className="section-title">Asnjë dorëzim në pritje</div>
+              <div className="section-subtitle">
+                Kur punëtorët dërgojnë cash handoff, do t’i shohësh këtu.
+              </div>
+            </section>
           )}
-          <button className="btn-primary" disabled={busy} onClick={onOpenCycle}>KONFIRMO → HAP</button>
+        </div>
+      )}
+
+      {tab === "HISTORI" && (
+        <div className="stack fade-in">
+          <section className="surface form-card">
+            <div className="section-head">
+              <div>
+                <div className="section-title">Zgjidh ditën</div>
+                <div className="section-subtitle">
+                  Shiko ciklet e mëparshme dhe lëvizjet kryesore të arkës.
+                </div>
+              </div>
+            </div>
+
+            {histLoading ? (
+              <div className="empty-state">Duke ngarkuar historinë...</div>
+            ) : histDays?.length ? (
+              <div className="history-grid">
+                {histDays.map((d) => (
+                  <button
+                    key={d.id}
+                    className={`chip-btn ${histSelected?.id === d.id ? "chip-active" : ""}`}
+                    onClick={() => setHistSelected(d)}
+                  >
+                    {d.day_key}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">S’ka histori akoma.</div>
+            )}
+          </section>
+
+          {histSelected && (
+            <section className="surface ledger-card">
+              <div className="section-head">
+                <div>
+                  <div className="section-title">{histSelected.day_key}</div>
+                  <div className="section-subtitle">Përmbledhje e cikleve të regjistruara.</div>
+                </div>
+              </div>
+
+              {histCycles?.length ? (
+                <div className="group-list">
+                  {histCycles.map((c) => (
+                    <article key={c.id} className="group-card">
+                      <div className="group-head">
+                        <div>
+                          <div className="group-title">Cycle #{c.id}</div>
+                          <div className="group-subtitle">
+                            {c.status || "-"} · {c.opened_by || c.closed_by || "ARKA"}
+                          </div>
+                        </div>
+                        <div className="group-total">{euro(c.cash_counted ?? c.end_cash ?? c.expected_cash ?? 0)}</div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">S’ka cikle për këtë ditë.</div>
+              )}
+            </section>
+          )}
+        </div>
+      )}
+
+      <Modal open={openModal} title="Hap arkën" onClose={() => setOpenModal(false)}>
+        <div className="modal-stack">
+          <div className="modal-note">Vendos cash-in fillestar dhe burimin e tij.</div>
+          <input className="field" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} inputMode="decimal" placeholder="Cash fillestar" />
+          <select className="field" value={openingSource} onChange={(e) => setOpeningSource(e.target.value)}>
+            <option value="COMPANY">Company</option>
+            <option value="PERSONAL">Personal</option>
+            <option value="OTHER">Other</option>
+          </select>
+          {String(openingSource || "").toUpperCase() === "PERSONAL" && (
+            <input className="field" value={openingPin} onChange={(e) => setOpeningPin(e.target.value)} inputMode="numeric" placeholder="PIN i personit" />
+          )}
+          <button className="btn btn-primary" disabled={busy} onClick={onOpenCycle}>
+            Konfirmo hapjen
+          </button>
         </div>
       </Modal>
 
-      {/* MODAL 2: MBYLL ARKËN */}
-      <Modal open={closeModal} title="MBYLLE ARKËN" onClose={() => setCloseModal(false)}>
-         <div style={{ display: "grid", gap: "10px" }}>
-            <div style={{ fontWeight: 950, letterSpacing: "2px", opacity: 0.9, color: "white", marginBottom: "10px" }}>
-              EXPECTED: {euro(expectedCash)}
-            </div>
-            <input className="input-field" value={cashCounted} onChange={(e) => setCashCounted(e.target.value)} inputMode="decimal" placeholder="CASH COUNTED (sa i numrove)" />
-            <textarea className="input-field" value={closeReason} onChange={(e) => setCloseReason(e.target.value)} placeholder="NËSE KA DISKREPANCË — SHKRUJ ARSYEN" rows={3} />
-            <button className="btn-danger" disabled={busy} onClick={onCloseCycle}>KONFIRMO → HANDED</button>
-         </div>
+      <Modal open={closeModal} title="Mbylle arkën" onClose={() => setCloseModal(false)}>
+        <div className="modal-stack">
+          <div className="summary-chip">
+            <span>Expected</span>
+            <strong>{euro(expectedCash)}</strong>
+          </div>
+          <input className="field" value={cashCounted} onChange={(e) => setCashCounted(e.target.value)} inputMode="decimal" placeholder="Cash counted" />
+          <textarea className="field textarea" value={closeReason} onChange={(e) => setCloseReason(e.target.value)} placeholder="Nëse ka diskrepancë, shkruaj arsyen" rows={3} />
+          <button className="btn btn-danger" disabled={busy} onClick={onCloseCycle}>
+            Konfirmo mbylljen
+          </button>
+        </div>
       </Modal>
 
-      {/* MODAL 3: PAGESAT E PRITJES */}
-      <Modal open={pendingModal} title={`PAGESAT NË PRITJE (${pendingPays?.length || 0})`} onClose={() => setPendingModal(false)}>
+      <Modal open={pendingModal} title={`Pagesat në pritje (${pendingPays?.length || 0})`} onClose={() => setPendingModal(false)}>
         {!pendingPays?.length ? (
-          <div style={{ textAlign: 'center', color: '#94A3B8', padding: '20px', fontWeight: 600 }}>S’ka asnjë pagesë të mbetur jashtë arkës! 🎉</div>
+          <div className="empty-state">S’ka asnjë pagesë të mbetur jashtë arkës.</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ fontSize: '13px', color: '#CBD5E1', fontWeight: 500, lineHeight: 1.4 }}>Këto pagesa janë bërë gjatë kohës që arka ishte e mbyllur. A i keni paratë fizikisht?</div>
-            <input className="input-field" value={pendingRejectNote} onChange={(e) => setPendingRejectNote(e.target.value)} placeholder="Shënim për Borxh (Opsional)" />
-            <div style={{ display: "grid", gap: '16px' }}>
+          <div className="modal-stack">
+            <div className="modal-note">
+              Këto pagesa janë bërë gjatë kohës që arka ishte e mbyllur. A i ke paratë fizikisht?
+            </div>
+            <input className="field" value={pendingRejectNote} onChange={(e) => setPendingRejectNote(e.target.value)} placeholder="Shënim për borxh (opsional)" />
+
+            <div className="group-list">
               {pendingGroups.map((g) => (
-                <div key={g.pin} className="pending-group">
-                  <div className="flex-between" style={{ marginBottom: '12px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
-                    <div style={{ fontWeight: 800, color: '#F8FAFC', fontSize: '15px' }}>👤 {g.pin === 'PA_PIN' ? 'TË PANJOHUR' : g.pin}</div>
-                    <div className="text-euro">{euro(g.total)}</div>
+                <article key={g.pin} className="group-card">
+                  <div className="group-head">
+                    <div>
+                      <div className="group-title">{g.pin === "PA_PIN" ? "Të panjohur" : g.pin}</div>
+                      <div className="group-subtitle">Grupuar sipas PIN-it / burimit</div>
+                    </div>
+                    <div className="group-total">{euro(g.total)}</div>
                   </div>
-                  <div style={{ display: "grid", gap: '10px' }}>
+
+                  <div className="item-list">
                     {g.items.map((p) => (
-                      <div key={p.id} className="pending-item">
-                        <div className="flex-between" style={{ marginBottom: '12px' }}>
+                      <div key={p.id} className="item-card">
+                        <div className="item-head">
                           <div>
-                            <strong style={{ fontSize: '15px', color: '#F8FAFC', display: 'block', marginBottom: '2px' }}>Porosia #{String(p.order_code || "").replace("#","")}</strong>
-                            <span style={{ fontSize: '12px', color: '#94A3B8', fontWeight: 600 }}>{String(p.client_name || "Klient i panjohur").toUpperCase()}</span>
+                            <div className="item-title">Porosia #{String(p.order_code || "").replace("#", "")}</div>
+                            <div className="item-subtitle">{String(p.client_name || "Klient i panjohur")}</div>
                           </div>
-                          <div style={{ fontSize: '16px', fontWeight: 900, color: '#F8FAFC' }}>{euro(p.amount)}</div>
+                          <div className="item-amount">{euro(p.amount)}</div>
                         </div>
-                        <div className="btn-grid">
-                          <button className="btn-prano" disabled={pendingBusy} onClick={() => applyPending(p)}>✅ PRANO</button>
-                          <button className="btn-borxh" disabled={pendingBusy} onClick={() => rejectPending(p)}>❌ BORXH</button>
+                        <div className="action-grid">
+                          <button className="btn btn-success" disabled={pendingBusy} onClick={() => applyPending(p)}>
+                            Prano
+                          </button>
+                          <button className="btn btn-ghost" disabled={pendingBusy} onClick={() => rejectPending(p)}>
+                            Borxh
+                          </button>
                         </div>
                       </div>
                     ))}
                   </div>
-                </div>
+                </article>
               ))}
             </div>
           </div>
         )}
       </Modal>
 
-      {/* MODAL 4: BORXHI I PUNËTORIT (I RIKTHYER I GJITHI ME DIZAJNIN E RI) */}
-      <Modal open={owedModal} title={`BORXH I PUNTORIT (${owedPays?.length || 0})`} onClose={() => setOwedModal(false)}>
+      <Modal open={owedModal} title={`Borxhi i punëtorit (${owedPays?.length || 0})`} onClose={() => setOwedModal(false)}>
         {!owedPays?.length ? (
-          <div style={{ textAlign: 'center', color: '#94A3B8', padding: '20px', fontWeight: 600 }}>S’ka asnjë borxh aktiv.</div>
+          <div className="empty-state">S’ka asnjë borxh aktiv.</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ fontSize: '13px', color: '#CBD5E1', fontWeight: 500, lineHeight: 1.4 }}>
-              Këto pagesa janë shënuar si BORXH për ty. Zgjidh nëse i ke dorëzuar paratë apo po i mban si avans:
+          <div className="modal-stack">
+            <div className="modal-note">
+              Këto pagesa janë shënuar si borxh për ty. Zgjidh nëse i ke dorëzuar paratë apo po i mban si avans.
             </div>
-            
-            <input className="input-field" value={owedNote} onChange={(e) => setOwedNote(e.target.value)} placeholder="Shënim (Opsional)" />
+            <input className="field" value={owedNote} onChange={(e) => setOwedNote(e.target.value)} placeholder="Shënim opsional" />
 
-            <div style={{ display: "grid", gap: '12px' }}>
+            <div className="item-list">
               {owedPays.map((p) => (
-                <div key={p.id || p.external_id || p.externalId} className="pending-item">
-                  <div className="flex-between" style={{ marginBottom: '12px' }}>
+                <div key={p.id || p.external_id || p.externalId} className="item-card">
+                  <div className="item-head">
                     <div>
-                      <strong style={{ fontSize: '15px', color: '#F8FAFC', display: 'block', marginBottom: '2px' }}>
-                        #{String(p.order_code || p.code || p.orderCode || "").replace("#", "")}
-                      </strong>
-                      <span style={{ fontSize: '12px', color: '#94A3B8', fontWeight: 600 }}>
-                        {String(p.client_name || p.name || p.clientName || "KLIENT").toUpperCase()}
-                      </span>
+                      <div className="item-title">#{String(p.order_code || p.code || p.orderCode || "").replace("#", "")}</div>
+                      <div className="item-subtitle">{String(p.client_name || p.name || p.clientName || "Klient")}</div>
                     </div>
-                    <div style={{ fontSize: '16px', fontWeight: 900, color: '#F8FAFC' }}>
-                      {euro(p.amount || 0)}
-                    </div>
+                    <div className="item-amount">{euro(p.amount || 0)}</div>
                   </div>
-
-                  <div className="btn-grid">
-                    <button className="btn-primary" style={{backgroundColor: '#F8FAFC', color: '#0F172A'}} disabled={owedBusy} onClick={async () => {
+                  <div className="action-grid">
+                    <button
+                      className="btn btn-primary"
+                      disabled={owedBusy}
+                      onClick={async () => {
                         setOwedBusy(true);
                         try {
                           await markOwedAsPending({ pending: p, actor: user });
                           await refresh();
                           if (owedPays.length <= 1) setOwedModal(false);
-                        } finally { setOwedBusy(false); }
-                      }}>
-                      💵 DORËZOVA PARET
+                        } finally {
+                          setOwedBusy(false);
+                        }
+                      }}
+                    >
+                      Dorëzova paret
                     </button>
 
-                    <button className="btn-outline" style={{backgroundColor: 'rgba(255,255,255,0.05)', color: '#F8FAFC'}} disabled={owedBusy} onClick={async () => {
+                    <button
+                      className="btn btn-ghost"
+                      disabled={owedBusy}
+                      onClick={async () => {
                         setOwedBusy(true);
                         try {
                           await markOwedAsAdvance({ pending: p, actor: user, note: owedNote });
                           await refresh();
                           if (owedPays.length <= 1) setOwedModal(false);
-                        } finally { setOwedBusy(false); }
-                      }}>
-                      💳 PRANO AVANS
+                        } finally {
+                          setOwedBusy(false);
+                        }
+                      }}
+                    >
+                      Prano avans
                     </button>
                   </div>
                 </div>
@@ -729,54 +922,535 @@ export default function CashClient() {
         )}
       </Modal>
 
-      {/* STILI CSS I PASTËR DHE PREMIUM */}
       <style jsx>{`
-        .cash-container { padding: 16px; max-width: 600px; margin: 0 auto; font-family: system-ui, sans-serif; }
-        .tabs { display: flex; gap: 8px; margin-bottom: 20px; background: #0F172A; padding: 6px; border-radius: 16px; border: 1px solid #1E293B; }
-        .tab-btn { flex: 1; padding: 12px 0; border-radius: 12px; font-weight: 800; font-size: 13px; border: none; cursor: pointer; transition: 0.3s; }
-        .tab-active { background: #3B82F6; color: white; box-shadow: 0 4px 10px rgba(59,130,246,0.3); }
-        .tab-inactive { background: transparent; color: #64748B; }
-        .card { background: #1E293B; border-radius: 20px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155; }
-        .highlight-card { background: linear-gradient(135deg, #1E3A8A, #1D4ED8); border: none; }
-        .card-title { font-size: 12px; font-weight: 800; color: #94A3B8; letter-spacing: 1.5px; margin-bottom: 8px; text-transform: uppercase; }
-        .highlight-card .card-title { color: #BFDBFE; }
-        .card-value { font-size: 24px; font-weight: 900; color: #F8FAFC; }
-        .highlight-value { font-size: 28px; color: #FFF; }
-        .carryover-box { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 12px; margin-bottom: 16px; color: #E2E8F0; font-size: 14px; }
-        
-        .btn-primary { width: 100%; background: #3B82F6; color: white; padding: 14px; border-radius: 14px; font-weight: 800; font-size: 14px; letter-spacing: 1px; border: none; cursor: pointer; transition: 0.2s; }
-        .btn-success { background: #10B981; color: white; padding: 14px; border-radius: 14px; font-weight: 800; border: none; cursor: pointer; }
-        .btn-danger { width: 100%; background: #EF4444; color: white; padding: 14px; border-radius: 14px; font-weight: 800; letter-spacing: 1px; border: none; cursor: pointer; }
-        .btn-notification { width: 100%; background: #F59E0B; color: #451A03; padding: 14px; border-radius: 14px; font-weight: 900; letter-spacing: 1px; border: none; cursor: pointer; margin-bottom: 16px; box-shadow: 0 4px 10px rgba(245,158,11,0.2); }
-        .btn-outline { background: transparent; color: #94A3B8; border: 1px solid #334155; padding: 10px; border-radius: 10px; font-weight: 800; cursor: pointer; border: none; }
-        .btn-outline.active { background: #3B82F6; color: white; border-color: #3B82F6; }
-        
-        .input-field { width: 100%; padding: 14px; border-radius: 14px; border: 1px solid #334155; background: #0F172A; color: white; font-weight: 700; font-size: 15px; margin-bottom: 12px; outline: none; box-sizing: border-box; }
-        .input-field:focus { border-color: #3B82F6; }
-        
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .flex-between { display: flex; justify-content: space-between; align-items: center; }
-        .text-green { color: #10B981 !important; }
-        .text-red { color: #EF4444 !important; }
-        .text-center { text-align: center; }
-        
-        .error-banner { background: #7F1D1D; color: #FECACA; padding: 14px; border-radius: 14px; font-weight: 700; margin-bottom: 16px; border: 1px solid #991B1B; }
-        .alert-banner { background: #78350F; color: #FDE68A; padding: 14px; border-radius: 14px; font-weight: 700; margin-bottom: 16px; border: 1px solid #92400E; }
-        
-        /* Modal & Pending Items */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 16px; }
-        .modal-content { width: 100%; max-width: 480px; max-height: 85vh; overflow-y: auto; background: #0F172A; border: 1px solid #334155; border-radius: 24px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .modal-title { font-size: 17px; font-weight: 800; color: #F8FAFC; text-transform: uppercase; }
-        .btn-close { background: #1E293B; color: #94A3B8; border: none; padding: 8px 12px; border-radius: 10px; font-weight: 800; cursor: pointer; }
-        
-        .pending-group { background: #1E293B; border-radius: 16px; padding: 16px; border: 1px solid #334155; }
-        .pending-item { background: #0F172A; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-top: 10px; }
-        .text-euro { font-size: 18px; font-weight: 900; color: #10B981; }
-        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
-        .btn-prano { background: #059669; color: white; font-weight: 800; padding: 12px; border-radius: 10px; border: none; cursor: pointer; transition: 0.2s; }
-        .btn-borxh { background: #DC2626; color: white; font-weight: 800; padding: 12px; border-radius: 10px; border: none; cursor: pointer; transition: 0.2s; }
-        .btn-prano:disabled, .btn-borxh:disabled, .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .cash-shell {
+          min-height: 100%;
+          background: #000000;
+          color: #ffffff;
+          padding: 18px 16px 28px;
+          max-width: 640px;
+          margin: 0 auto;
+          font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        .cash-topbar {
+          display: grid;
+          gap: 16px;
+          margin-bottom: 18px;
+        }
+
+        .cash-heading {
+          display: grid;
+          gap: 6px;
+        }
+
+        .eyebrow {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: rgba(255,255,255,0.42);
+        }
+
+        .page-title {
+          margin: 0;
+          font-size: 34px;
+          line-height: 0.98;
+          letter-spacing: -0.06em;
+          font-weight: 900;
+          color: #ffffff;
+        }
+
+        .page-subtitle {
+          font-size: 14px;
+          line-height: 1.55;
+          color: rgba(255,255,255,0.56);
+        }
+
+        .segmented {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 6px;
+          background: #111214;
+          border: 1px solid rgba(255,255,255,0.06);
+          padding: 6px;
+          border-radius: 999px;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+        }
+
+        .seg-btn {
+          appearance: none;
+          border: none;
+          min-height: 46px;
+          border-radius: 999px;
+          background: transparent;
+          color: rgba(255,255,255,0.58);
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: background .18s ease, color .18s ease, transform .18s ease;
+        }
+
+        .seg-active {
+          background: rgba(255,255,255,0.14);
+          color: #ffffff;
+          box-shadow: 0 8px 20px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.05);
+        }
+
+        .stack {
+          display: grid;
+          gap: 14px;
+        }
+
+        .surface {
+          background: #151518;
+          border: 1px solid rgba(255,255,255,0.05);
+          border-radius: 20px;
+          padding: 18px;
+          box-shadow: 0 14px 34px rgba(0,0,0,0.28);
+        }
+
+        .hero-card,
+        .spotlight-card {
+          padding: 22px;
+        }
+
+        .section-copy,
+        .section-head,
+        .modal-stack,
+        .group-list,
+        .item-list,
+        .ledger-list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .section-title {
+          font-size: 22px;
+          line-height: 1.05;
+          font-weight: 800;
+          letter-spacing: -0.04em;
+          color: #ffffff;
+        }
+
+        .section-subtitle,
+        .modal-note,
+        .dispatch-meta,
+        .ledger-note,
+        .item-subtitle,
+        .group-subtitle,
+        .soft-meta {
+          font-size: 13px;
+          line-height: 1.5;
+          color: rgba(255,255,255,0.58);
+        }
+
+        .soft-panel {
+          background: #0f0f12;
+          border: 1px solid rgba(255,255,255,0.04);
+          border-radius: 18px;
+          padding: 16px;
+          display: grid;
+          gap: 6px;
+        }
+
+        .compact {
+          padding: 14px;
+        }
+
+        .soft-label,
+        .metric-label {
+          font-size: 12px;
+          color: rgba(255,255,255,0.5);
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+
+        .soft-value,
+        .metric-value,
+        .dispatch-amount,
+        .item-amount,
+        .group-total,
+        .spotlight-value {
+          font-size: 32px;
+          line-height: 1;
+          font-weight: 900;
+          letter-spacing: -0.05em;
+          color: #ffffff;
+        }
+
+        .soft-inline {
+          font-size: 18px;
+          font-weight: 800;
+          color: #ffffff;
+        }
+
+        .metrics-grid,
+        .history-grid,
+        .dispatch-stats,
+        .field-row.two,
+        .action-grid {
+          display: grid;
+          gap: 12px;
+        }
+
+        .metrics-grid,
+        .dispatch-stats,
+        .history-grid,
+        .field-row.two,
+        .action-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .metric-card {
+          min-height: 128px;
+          display: grid;
+          align-content: space-between;
+        }
+
+        .spotlight-card {
+          display: grid;
+          gap: 10px;
+        }
+
+        .banner-action {
+          appearance: none;
+          border: 1px solid rgba(255,255,255,0.06);
+          background: #151518;
+          color: #ffffff;
+          min-height: 58px;
+          width: 100%;
+          border-radius: 18px;
+          padding: 0 18px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          font-size: 15px;
+          font-weight: 700;
+          cursor: pointer;
+          box-shadow: 0 14px 34px rgba(0,0,0,0.22);
+        }
+
+        .banner-left {
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .banner-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+          background: #34c759;
+          box-shadow: 0 0 0 6px rgba(52,199,89,0.14);
+          flex: 0 0 auto;
+        }
+
+        .field {
+          width: 100%;
+          min-height: 54px;
+          border-radius: 16px;
+          border: 1px solid rgba(255,255,255,0.06);
+          background: #0f0f12;
+          color: #ffffff;
+          padding: 0 16px;
+          font-size: 15px;
+          font-weight: 650;
+          outline: none;
+          box-sizing: border-box;
+        }
+
+        .textarea {
+          padding-top: 14px;
+          padding-bottom: 14px;
+          min-height: 110px;
+          resize: vertical;
+        }
+
+        .field:focus {
+          border-color: rgba(255,255,255,0.16);
+          box-shadow: 0 0 0 4px rgba(255,255,255,0.05);
+        }
+
+        .btn {
+          appearance: none;
+          border: none;
+          width: 100%;
+          min-height: 54px;
+          border-radius: 16px;
+          padding: 0 16px;
+          font-size: 15px;
+          font-weight: 800;
+          cursor: pointer;
+          transition: transform .16s ease, opacity .16s ease, box-shadow .16s ease;
+        }
+
+        .btn:disabled,
+        .seg-btn:disabled,
+        .chip-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .btn:not(:disabled):active,
+        .seg-btn:not(:disabled):active,
+        .chip-btn:not(:disabled):active {
+          transform: scale(0.99);
+        }
+
+        .btn-primary {
+          background: #ffffff;
+          color: #000000;
+          box-shadow: 0 10px 24px rgba(255,255,255,0.08);
+        }
+
+        .btn-secondary,
+        .btn-ghost {
+          background: rgba(255,255,255,0.06);
+          color: #ffffff;
+          border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .btn-success {
+          background: #34c759;
+          color: #061108;
+          box-shadow: 0 10px 24px rgba(52,199,89,0.2);
+        }
+
+        .btn-danger {
+          background: rgba(255,255,255,0.09);
+          color: #ffffff;
+          border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .ledger-item,
+        .group-card,
+        .item-card {
+          background: #0f0f12;
+          border: 1px solid rgba(255,255,255,0.04);
+          border-radius: 18px;
+          padding: 16px;
+        }
+
+        .ledger-main,
+        .ledger-left,
+        .group-head,
+        .item-head,
+        .dispatch-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .ledger-left {
+          justify-content: flex-start;
+          align-items: flex-start;
+          flex: 1;
+        }
+
+        .ledger-copy {
+          display: grid;
+          gap: 4px;
+        }
+
+        .ledger-kind,
+        .group-title,
+        .item-title {
+          font-size: 15px;
+          font-weight: 800;
+          color: #ffffff;
+        }
+
+        .ledger-amount {
+          font-size: 22px;
+          line-height: 1;
+          font-weight: 900;
+          color: #ffffff;
+          letter-spacing: -0.04em;
+        }
+
+        .ledger-meta {
+          margin-top: 12px;
+          padding-top: 12px;
+          border-top: 1px solid rgba(255,255,255,0.05);
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          font-size: 12px;
+          color: rgba(255,255,255,0.45);
+        }
+
+        .pill {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 28px;
+          padding: 0 10px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 900;
+          letter-spacing: 0.06em;
+          background: rgba(255,255,255,0.06);
+          color: #ffffff;
+          text-transform: uppercase;
+        }
+
+        .pill-positive,
+        .pill-negative {
+          background: rgba(255,255,255,0.08);
+          color: #ffffff;
+        }
+
+        .empty-state,
+        .empty-card {
+          text-align: center;
+          color: rgba(255,255,255,0.55);
+          font-size: 14px;
+          font-weight: 600;
+          padding: 18px 6px;
+        }
+
+        .notice {
+          border-radius: 18px;
+          padding: 14px 16px;
+          margin-bottom: 14px;
+          border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .notice-error {
+          background: rgba(255,255,255,0.08);
+          color: #ffffff;
+        }
+
+        .notice-warning {
+          background: rgba(255,255,255,0.06);
+          color: #ffffff;
+        }
+
+        .notice-title {
+          font-size: 15px;
+          font-weight: 800;
+          margin-bottom: 4px;
+        }
+
+        .notice-text {
+          font-size: 13px;
+          color: rgba(255,255,255,0.68);
+        }
+
+        .summary-chip {
+          border-radius: 18px;
+          background: #0f0f12;
+          border: 1px solid rgba(255,255,255,0.04);
+          padding: 14px 16px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          color: rgba(255,255,255,0.7);
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        .summary-chip strong {
+          font-size: 22px;
+          line-height: 1;
+          letter-spacing: -0.04em;
+          color: #ffffff;
+        }
+
+        .chip-btn {
+          min-height: 46px;
+          border: 1px solid rgba(255,255,255,0.05);
+          background: #0f0f12;
+          color: rgba(255,255,255,0.7);
+          border-radius: 16px;
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .chip-active {
+          background: rgba(255,255,255,0.12);
+          color: #ffffff;
+        }
+
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.82);
+          backdrop-filter: blur(18px);
+          z-index: 9999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+        }
+
+        .modal-content {
+          width: min(100%, 520px);
+          max-height: calc(100vh - 36px);
+          overflow: auto;
+          background: #151518;
+          border: 1px solid rgba(255,255,255,0.06);
+          border-radius: 24px;
+          box-shadow: 0 18px 46px rgba(0,0,0,0.5);
+          padding: 18px;
+        }
+
+        .modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .modal-title {
+          font-size: 20px;
+          font-weight: 800;
+          letter-spacing: -0.04em;
+          color: #ffffff;
+        }
+
+        .icon-btn {
+          appearance: none;
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.05);
+          color: #ffffff;
+          width: 38px;
+          height: 38px;
+          border-radius: 999px;
+          cursor: pointer;
+          font-size: 15px;
+          font-weight: 800;
+        }
+
+        @media (max-width: 560px) {
+          .metrics-grid,
+          .dispatch-stats,
+          .history-grid,
+          .field-row.two,
+          .action-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .page-title {
+            font-size: 30px;
+          }
+
+          .soft-value,
+          .metric-value,
+          .dispatch-amount,
+          .item-amount,
+          .group-total,
+          .spotlight-value {
+            font-size: 28px;
+          }
+        }
       `}</style>
     </div>
   );
