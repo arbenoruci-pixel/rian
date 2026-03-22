@@ -731,6 +731,11 @@ export default function PranimiPage() {
     setShowWizard(true);
   }
   function closeWizard() { setShowWizard(false); }
+  function saveClientFromWizard() {
+    try { setName(String(name || '').trim()); } catch {}
+    try { setPhone(String(phone || '').replace(/\D+/g, '')); } catch {}
+    try { setShowWizard(false); } catch {}
+  }
   function wizNext() { setWizStep((s) => Math.min(5, s + 1)); }
   function wizBack() { setWizStep((s) => Math.max(1, s - 1)); }
 
@@ -965,7 +970,7 @@ export default function PranimiPage() {
       ts: Date.now(),
       codeRaw,
       name,
-      phone,
+      phone: String(phone || '').replace(/\D+/g, ''),
       client: {
         full_name: String(name || '').trim(),
         phone: phone ? `${phonePrefix}${String(phone).replace(/\D+/g, '')}` : '',
@@ -1639,7 +1644,7 @@ KOMPANIA JONI`;
                   </button>
                 </div>
                 <div className="client-selected-name">{name || 'KLIENT I RI'}</div>
-                <div className="client-selected-phone">{phone ? `${phonePrefix} ${phone}` : 'PA TELEFON'}</div>
+                <div className="client-selected-phone">{String(phone || '').replace(/\D+/g, '') ? `${phonePrefix} ${String(phone || '').replace(/\D+/g, '')}` : 'PA TELEFON'}</div>
               </div>
             </div>
           </div>
@@ -1945,7 +1950,7 @@ KOMPANIA JONI`;
                 <label className="label">TELEFONI</label>
                 <div className="row">
                   <input className="input small" value={phonePrefix} readOnly />
-                  <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="44XXXXXX" />
+                  <input className="input" value={phone} onChange={(e) => setPhone(String(e.target.value || '').replace(/\D+/g, ''))} inputMode="numeric" placeholder="44XXXXXX" />
                 </div>
               </div>
 
@@ -1954,7 +1959,7 @@ KOMPANIA JONI`;
 
             <div className="apple-sheet-actions">
               <button type="button" className="btn secondary" onClick={closeWizard}>ANULO</button>
-              <button type="button" className="btn" onClick={closeWizard}>RUAJ KLIENTIN</button>
+              <button type="button" className="btn" onClick={saveClientFromWizard}>RUAJ KLIENTIN</button>
             </div>
           </div>
         </div>
