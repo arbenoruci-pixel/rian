@@ -119,7 +119,13 @@ export default function DispatchPage() {
     (async () => {
       const res = await listUsers();
       if (res?.ok) {
-        const ds = (res.items || []).filter((u) => String(u.role || "").toUpperCase() === "TRANSPORT" && u.is_active !== false);
+        // KËTU ËSHTË BASHKIMI: Merr TRANSPORT dhe HYBRID
+        const ds = (res.items || []).filter((u) => {
+          const roleOk = String(u.role || "").toUpperCase() === "TRANSPORT";
+          const hybridOk = u?.is_hybrid_transport === true;
+          const activeOk = u?.is_active !== false;
+          return activeOk && (roleOk || hybridOk);
+        });
         setDrivers(ds);
         if (ds.length === 1) setDriverId(String(ds[0].id));
       }
