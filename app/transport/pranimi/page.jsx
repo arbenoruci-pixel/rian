@@ -340,6 +340,8 @@ export default function PranimiPage() {
   const [addressDesc, setAddressDesc] = useState('');
   const [gpsLat, setGpsLat] = useState('');
   const [gpsLng, setGpsLng] = useState('');
+  const [gpsStatus, setGpsStatus] = useState('idle'); // idle | loading | success | error
+  const [gpsError, setGpsError] = useState('');
   const [clientQuery, setClientQuery] = useState('');
   const [clientHits, setClientHits] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(false);
@@ -434,7 +436,7 @@ export default function PranimiPage() {
                 try { setPhone((c.phone||'').replace('+383','')); } catch{}
                 setClientPhotoUrl(c.photoUrl||'');
                 setAddressDesc(c.address||''); 
-                if(c.gps){ setGpsLat(c.gps.lat); setGpsLng(c.gps.lng); }
+                if(c.gps){ setGpsLat(c.gps.lat); setGpsLng(c.gps.lng); setGpsStatus('success'); setGpsError(''); }
                 
                 try { setTepihaRows((d.tepiha||[]).map((r,i)=>({...r, id:`t${i}`}))); } catch{}
                 try { setStazaRows((d.staza||[]).map((r,i)=>({...r, id:`s${i}`}))); } catch{}
@@ -652,7 +654,25 @@ export default function PranimiPage() {
       }
   }
   async function handleGetGPS() {
-      navigator.geolocation.getCurrentPosition(p => { setGpsLat(p.coords.latitude); setGpsLng(p.coords.longitude); });
+      if (typeof navigator === 'undefined' || !navigator.geolocation) {
+          setGpsStatus('error');
+          setGpsError('GPS nuk mbështetet në këtë pajisje.');
+          return;
+      }
+      setGpsStatus('loading');
+      setGpsError('');
+      navigator.geolocation.getCurrentPosition(
+        (p) => {
+          setGpsLat(p.coords.latitude);
+          setGpsLng(p.coords.longitude);
+          setGpsStatus('success');
+        },
+        (err) => {
+          setGpsStatus('error');
+          setGpsError(err?.message || 'Nuk u mor lokacioni.');
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      );
   }
   // ✅ FIX: MESAZHI I GATSHËM PËR SMS/VIBER
   function buildStartMessage() {
@@ -741,6 +761,8 @@ export default function PranimiPage() {
       const order = {
           id: oid, ts: Date.now(),
           client: { id: clientId, tcode: tcodeForClient, code_n: clientCodeN, name, phone: phonePrefix+phone, code: tcodeForClient, photoUrl: clientPhotoUrl, address: addressDesc, gps: { lat: gpsLat || null, lng: gpsLng || null } },
+          address: addressDesc || '',
+          location: { lat: gpsLat || null, lng: gpsLng || null },
           tepiha: tepihaRows, staza: stazaRows, shkallore: { qty: stairsQty, per: stairsPer, photoUrl: stairsPhotoUrl },
           pay: { m2: totalM2, euro: totalEuro, paid: clientPaid, rate: pricePerM2, arkaRecordedPaid },
           notes
@@ -774,8 +796,18 @@ export default function PranimiPage() {
           // ⚠️ transport_id është GENERATED ALWAYS (data->>'transport_id').
           // Pra NUK guxojmë me e fut në INSERT/UPDATE (kthen error "cannot insert a non-DEFAULT value...").
           // Board e lexon transport_id nga kolona e gjeneruar, sepse ne e ruajmë gjithmonë te data.transport_id.
-          status: isEdit ? editRowStatus : 'loaded', // ✅ FORCE KAMION (LOADED)
-          data: { ...order, transport_id: tid, created_by_pin: actor?.pin || null, created_by_role: actor?.role || null, gps_lat: gpsLat || null, gps_lng: gpsLng || null }
+          status: isEdit ? editRowStatus : createStatus,
+          address: addressDesc || '',
+          data: {
+            ...order,
+            transport_id: tid,
+            created_by_pin: actor?.pin || null,
+            created_by_role: actor?.role || null,
+            address: addressDesc || '',
+            location: { lat: gpsLat || null, lng: gpsLng || null },
+            gps_lat: gpsLat || null,
+            gps_lng: gpsLng || null
+          }
       };
       // In edit mode, keep original client_tcode/visit_nr (don't overwrite)
       if (isEdit) {
@@ -903,6 +935,7 @@ export default function PranimiPage() {
       setTepihaRows(d.tepihaRows||[]); setStazaRows(d.stazaRows||[]); setClientPaid(d.clientPaid||0);
       setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
       setAddressDesc(d.addressDesc || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || '');
+      setGpsStatus(d.gpsLat || d.gpsLng ? 'success' : 'idle'); setGpsError('');
       setClientPhotoUrl(d.clientPhotoUrl || '');
       setNotes(d.notes || '');
       setCurrentStep(1);
@@ -1046,6 +1079,7 @@ export default function PranimiPage() {
                                     if (c.address) setAddressDesc(c.address);
                                     if (c.gps_lat) setGpsLat(c.gps_lat);
                                     if (c.gps_lng) setGpsLng(c.gps_lng);
+                                    if (c.gps_lat || c.gps_lng) { setGpsStatus('success'); setGpsError(''); }
                                     setClientQuery('');
                                   }}
                                 >
@@ -1064,7 +1098,7 @@ export default function PranimiPage() {
                         </div>
                     )}
                 </div>
-                <div style={{display: 'grid', gridTemplateColumns: '70px 1fr', padding: 16, gap: 16, alignItems: 'center'}}>
+                <div style={{display: 'grid', gridTemplateColumns: '70px 1fr', padding: 16, gap: 16, alignItems: 'start'}}>
                     <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap: 4}}>
                         <label style={{width: 60, height: 60, borderRadius: '50%', background: '#2C2C2E', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #333', cursor: 'pointer'}}>
                             {clientPhotoUrl ? <img src={clientPhotoUrl} style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <span style={{fontSize:24}}>📷</span>}
@@ -1072,11 +1106,23 @@ export default function PranimiPage() {
                         </label>
                         <span style={{fontSize: 9, color: '#666', fontWeight: '700'}}>FOTO</span>
                     </div>
-                    <div style={{display:'flex', flexDirection:'column', gap: 8}}>
-                        <input style={{background:'transparent', border:'none', color:'#fff', fontSize: 20, fontWeight:'700', width:'100%', outline:'none', padding: 0}} placeholder="EMRI MBIEMRI" value={name} onChange={e => setName(e.target.value)} />
-                        <div style={{display:'flex', alignItems:'center', gap: 8}}>
-                            <button onClick={()=>setShowPrefixSheet(true)} style={{background: '#2C2C2E', border: 'none', borderRadius: 6, padding: '4px 8px', color: '#007AFF', fontWeight: '600', fontSize: 14}}>{phonePrefix}</button>
-                            <input style={{background:'transparent', border:'none', color:'#CCC', fontSize: 16, width:'100%', outline:'none', padding: 0}} placeholder="44xxxxxx" type="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+                    <div style={{display:'flex', flexDirection:'column', gap: 10}}>
+                        <div style={{display:'grid', gap: 10}}>
+                          <div>
+                            <div style={{fontSize:11, fontWeight:800, letterSpacing:.4, color:'rgba(255,255,255,.55)', marginBottom:6}}>EMRI I KLIENTIT</div>
+                            <input style={{background:'#1A1A1C', border:'1px solid rgba(255,255,255,.10)', color:'#fff', fontSize: 18, fontWeight:'700', width:'100%', outline:'none', padding:'12px 14px', borderRadius:14}} placeholder="EMRI MBIEMRI" value={name} onChange={e => setName(e.target.value)} />
+                          </div>
+                          <div>
+                            <div style={{fontSize:11, fontWeight:800, letterSpacing:.4, color:'rgba(255,255,255,.55)', marginBottom:6}}>NUMRI I TELEFONIT</div>
+                            <div style={{display:'flex', alignItems:'center', gap: 8}}>
+                                <button onClick={()=>setShowPrefixSheet(true)} style={{background: '#2C2C2E', border: '1px solid rgba(255,255,255,.10)', borderRadius: 12, padding: '12px 10px', color: '#7cc7ff', fontWeight: '800', fontSize: 14}}>{phonePrefix}</button>
+                                <input style={{background:'#1A1A1C', border:'1px solid rgba(255,255,255,.10)', color:'#CCC', fontSize: 16, width:'100%', outline:'none', padding:'12px 14px', borderRadius:14}} placeholder="44xxxxxx" type="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{fontSize:11, fontWeight:800, letterSpacing:.4, color:'rgba(255,255,255,.55)', marginBottom:6}}>KODI I TEPIHUT (T-CODE)</div>
+                            <input readOnly style={{background:'#141416', border:'1px solid rgba(255,255,255,.08)', color:'#8ad0ff', fontSize: 16, width:'100%', outline:'none', padding:'12px 14px', borderRadius:14, fontWeight:900}} value={normalizeTcode(codeRaw)} />
+                          </div>
                         </div>
                     </div>
                 </div>
@@ -1092,35 +1138,42 @@ export default function PranimiPage() {
         {currentStep === 2 && (
           <>
             <section className="card" style={{marginTop:16}}>
-              <h2 className="card-title">ADRESA</h2>
+              <h2 className="card-title">ADRESA & GPS</h2>
               <div style={{display:'grid', gap:12}}>
-                <textarea
-                  className="input"
-                  rows={5}
-                  placeholder="PËRSHKRUAJ ADRESËN, LAGJEN, KATIN, HYRJEN, OBORRIN..."
-                  value={addressDesc}
-                  onChange={e => setAddressDesc(e.target.value)}
-                />
+                <div>
+                  <div style={{fontSize:11, fontWeight:800, letterSpacing:.4, color:'rgba(255,255,255,.55)', marginBottom:6}}>ADRESA</div>
+                  <input
+                    className="input"
+                    placeholder="RRUGA, LAGJJA, HYRJA, KATI..."
+                    value={addressDesc}
+                    onChange={e => setAddressDesc(e.target.value)}
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={handleGetGPS}
+                  disabled={gpsStatus === 'loading'}
                   style={{
                     minHeight: 62,
                     borderRadius: 16,
                     border: '1px solid rgba(255,255,255,0.12)',
-                    background: gpsLat ? 'rgba(34,197,94,.18)' : 'rgba(255,255,255,.05)',
+                    background: gpsStatus === 'success' ? 'rgba(34,197,94,.22)' : 'rgba(255,255,255,.05)',
                     color:'#fff',
                     fontWeight:900,
-                    fontSize:18
+                    fontSize:18,
+                    opacity: gpsStatus === 'loading' ? .8 : 1
                   }}
                 >
-                  📍 {gpsLat ? 'GPS U MOR' : 'MERRE GPS'}
+                  {gpsStatus === 'loading' ? 'Duke kërkuar...' : (gpsStatus === 'success' ? '✅ Lokacioni u ruajt' : '📍 MERR LOKACIONIN (GPS)')}
                 </button>
                 {(gpsLat || gpsLng) && (
                   <div style={{fontSize:12, opacity:.8}}>
                     GPS: {String(gpsLat || '')} {gpsLng ? `• ${String(gpsLng)}` : ''}
                   </div>
                 )}
+                {gpsStatus === 'error' && gpsError ? (
+                  <div style={{fontSize:12, color:'#fca5a5', fontWeight:700}}>GPS: {gpsError}</div>
+                ) : null}
               </div>
             </section>
             <footer className="footer-bar">
