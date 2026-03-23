@@ -46,6 +46,8 @@ export default function StaffPage() {
     is_active: true,
     bonus_transport: 0,
     bonus_ushqim: 0,
+    is_hybrid_transport: false,
+    commission_rate_m2: 0.5,
   });
 
   const pendingCount = pending.length;
@@ -156,6 +158,8 @@ export default function StaffPage() {
       is_active: true,
       bonus_transport: 0,
       bonus_ushqim: 0,
+      is_hybrid_transport: false,
+      commission_rate_m2: 0.5,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -169,6 +173,8 @@ export default function StaffPage() {
       is_active: u.is_active !== false,
       bonus_transport: Number(u.bonus_transport || 0),
       bonus_ushqim: Number(u.bonus_ushqim || 0),
+      is_hybrid_transport: u.is_hybrid_transport === true,
+      commission_rate_m2: Number(u.commission_rate_m2 ?? 0.5),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -183,6 +189,8 @@ export default function StaffPage() {
       is_active: !!editForm.is_active,
       bonus_transport: Number(editForm.bonus_transport || 0),
       bonus_ushqim: Number(editForm.bonus_ushqim || 0),
+      is_hybrid_transport: !!editForm.is_hybrid_transport,
+      commission_rate_m2: Number(editForm.commission_rate_m2 || 0),
     };
 
     try {
@@ -414,6 +422,26 @@ export default function StaffPage() {
                       inputMode="decimal"
                     />
                   </label>
+
+                  <label className="toggleField hybridToggleField">
+                    <span>AKTIVIZO KOMISIONIN E TRANSPORTIT</span>
+                    <input
+                      type="checkbox"
+                      checked={editForm.is_hybrid_transport}
+                      onChange={(e) => setEditForm({ ...editForm, is_hybrid_transport: e.target.checked })}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>KOMISIONI PËR M2 (€)</span>
+                    <input
+                      className="fieldInput"
+                      value={editForm.commission_rate_m2}
+                      onChange={(e) => setEditForm({ ...editForm, commission_rate_m2: e.target.value })}
+                      placeholder="0.50"
+                      inputMode="decimal"
+                    />
+                  </label>
                 </div>
 
                 <div className="editorActions">
@@ -445,6 +473,14 @@ export default function StaffPage() {
                       <div className="staffMeta">
                         PIN: <strong>{u.pin || "—"}</strong>
                       </div>
+                      <div className="staffMeta">
+                        Hybrid transport: <strong>{u.is_hybrid_transport ? "PO" : "JO"}</strong>
+                      </div>
+                      {u.is_hybrid_transport ? (
+                        <div className="staffMeta">
+                          Komisioni / m²: <strong>{Number(u.commission_rate_m2 || 0).toFixed(2)}€</strong>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="staffActions">

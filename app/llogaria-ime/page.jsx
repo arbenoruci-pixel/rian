@@ -78,6 +78,9 @@ function statusOf(order) {
 function amountOf(row) {
   return n(firstDefined(row?.amount, row?.value, row?.total_amount, row?.sum));
 }
+function m2Of(row) {
+  return n(firstDefined(row?.m2_total, row?.total_m2, row?.m2, row?.data?.m2_total, row?.data?.total_m2, row?.data?.m2, row?.pay?.m2_total, row?.pay?.m2));
+}
 function buildHistory(payments, handoffs, debtRows) {
   const items = [];
   (payments || []).forEach((row) => {
@@ -221,6 +224,8 @@ export default function LlogariaImePage() {
     const salary = n(userRow?.salary);
     const bonusTransport = n(userRow?.bonus_transport);
     const bonusUshqim = n(userRow?.bonus_ushqim);
+    const isHybridTransport = userRow?.is_hybrid_transport === true;
+    const commissionRateM2 = n(firstDefined(userRow?.commission_rate_m2, 0.5));
     const manualAdvance = n(userRow?.avans_manual);
     const longDebt = n(userRow?.borxh_afatgjat);
     const advancesOnly = (debtRows || []).filter((x) => safeUpper(x.status) === 'ADVANCE').reduce((s, x) => s + amountOf(x), 0);
@@ -228,7 +233,10 @@ export default function LlogariaImePage() {
     const debtRowsTotal = (debtRows || []).reduce((s, row) => s + amountOf(row), 0);
     const advances = Math.max(manualAdvance, advancesOnly || 0, manualAdvance + advancesOnly);
     const debt = Math.max(longDebt, debtOnly || 0, longDebt + debtOnly);
-    const neto = salary + bonusTransport + bonusUshqim - advances - debt;
+    const deliveredTransportOrders = (transportOrders || []).filter((x) => ['DORZIM', 'DORZUAR'].includes(statusOf(x)));
+    const deliveredTransportM2 = deliveredTransportOrders.reduce((s, row) => s + m2Of(row), 0);
+    const transportCommission = isHybridTransport ? deliveredTransportM2 * commissionRateM2 : 0;
+    const neto = salary + bonusTransport + bonusUshqim + transportCommission - advances - debt;
 
     const cashToday = (payments || []).filter((x) => isToday(x.created_at)).reduce((s, x) => s + amountOf(x), 0);
     const inHand = (payments || []).filter((x) => ['PENDING', 'COLLECTED'].includes(safeUpper(x.status))).reduce((s, x) => s + amountOf(x), 0);
@@ -244,8 +252,23 @@ export default function LlogariaImePage() {
       return ['DORZIM', 'DORZUAR'].includes(status) && isToday(deliveredAt);
     }).length;
     return {
-      salary, bonusTransport, bonusUshqim, advances, debt, neto, debtRowsTotal, cashToday, inHand, handed,
-      active, gati, deliveredToday,
+      salary,
+      bonusTransport,
+      bonusUshqim,
+      isHybridTransport,
+      commissionRateM2,
+      deliveredTransportM2,
+      transportCommission,
+      advances,
+      debt,
+      neto,
+      debtRowsTotal,
+      cashToday,
+      inHand,
+      handed,
+      active,
+      gati,
+      deliveredToday,
       transportCount: transportOrders.filter((x) => !['DORZIM', 'DORZUAR'].includes(statusOf(x))).length,
     };
   }, [userRow, debtRows, payments, handoffs, orders, transportOrders]);
@@ -254,7 +277,8 @@ export default function LlogariaImePage() {
   const netTone = summary.neto > 0 ? 'ok' : summary.neto < 0 ? 'bad' : 'neutral';
   const hasTransportBonus = n(summary.bonusTransport) > 0;
   const hasUshqimBonus = n(summary.bonusUshqim) > 0;
-  const hasAnyBonus = hasTransportBonus || hasUshqimBonus;
+  const hasHybridCommission = summary.isHybridTransport === true;
+  const hasAnyBonus = hasTransportBonus || hasUshqimBonus || hasHybridCommission;
   if (!actor?.pin) return null;
 
   return (
@@ -288,6 +312,7 @@ export default function LlogariaImePage() {
             <StatCard label="RROGA BAZË" value={fmt(summary.salary)} sub="Rroga bazë" accent="neutral" />
             {hasTransportBonus ? <StatCard label="BONUS TRANSPORT" value={fmt(summary.bonusTransport)} sub="Shtesë transporti" accent="ok" /> : null}
             {hasUshqimBonus ? <StatCard label="BONUS USHQIM" value={fmt(summary.bonusUshqim)} sub="P.sh. 3€/ditë" accent="ok" /> : null}
+            {hasHybridCommission ? <StatCard label="KOMISIONI TRANSPORTIT" value={fmt(summary.transportCommission)} sub={`${summary.deliveredTransportM2.toFixed(2)} m² × ${fmt(summary.commissionRateM2)}/m²`} accent="ok" /> : null}
             <StatCard label="AVANSET" value={fmt(summary.advances)} sub="Aktive / manuale" accent="warn" />
             <StatCard label="BORXHI" value={fmt(summary.debt)} sub="Borxh aktual" accent="bad" />
             <StatCard label="NETO AKTUALE" value={fmt(summary.neto)} sub={hasAnyBonus ? 'Bazë + bonuse - avanse - borxhe' : 'Rroga - avanse - borxhe'} accent={netTone} />
@@ -298,10 +323,12 @@ export default function LlogariaImePage() {
               <div className="detailRow"><span>Rroga bazë</span><strong>{fmt(summary.salary)}</strong></div>
               {hasTransportBonus ? <div className="detailRow"><span>Bonus transport</span><strong>{fmt(summary.bonusTransport)}</strong></div> : null}
               {hasUshqimBonus ? <div className="detailRow"><span>Bonus ushqim</span><strong>{fmt(summary.bonusUshqim)}</strong></div> : null}
+              {hasHybridCommission ? <div className="detailRow"><span>Komisioni transportit</span><strong>{fmt(summary.transportCommission)}</strong></div> : null}
+              {hasHybridCommission ? <div className="detailRow"><span>Baza komisioni</span><strong>{summary.deliveredTransportM2.toFixed(2)} m² × {fmt(summary.commissionRateM2)}/m²</strong></div> : null}
               <div className="detailRow"><span>Avans manual</span><strong>{fmt(n(userRow?.avans_manual))}</strong></div>
               <div className="detailRow"><span>Borxh afatgjatë</span><strong>{fmt(n(userRow?.borxh_afatgjat))}</strong></div>
               <div className="detailRow"><span>Lëvizje borxhi/avansi</span><strong>{fmt(summary.debtRowsTotal)}</strong></div>
-              <div className="detailRow totalRow"><span>{hasAnyBonus ? 'NETO = RROGA + BONUS TRANSPORT + BONUS USHQIM - AVANSE - BORXHE' : 'NETO = RROGA - AVANSE - BORXHE'}</span><strong>{fmt(summary.neto)}</strong></div>
+              <div className="detailRow totalRow"><span>{hasAnyBonus ? 'NETO = RROGA + BONUS TRANSPORT + BONUS USHQIM + KOMISION TRANSPORTI - AVANSE - BORXHE' : 'NETO = RROGA - AVANSE - BORXHE'}</span><strong>{fmt(summary.neto)}</strong></div>
             </div>
           </div>
         </div>
