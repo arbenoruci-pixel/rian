@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { APP_DATA_EPOCH } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
 
@@ -153,11 +153,23 @@ function safeUpdateRegistration(registration, source, swUrl = '') {
         source,
         swUrl: String(swUrl || ''),
       });
-      return;
+      return false;
     }
 
-    void registration
-      .update()
+    let updatePromise = null;
+
+    try {
+      updatePromise = registration.update();
+    } catch (error) {
+      logSwEvent('vite_pwa_sw_update_check_throw', {
+        source,
+        swUrl: String(swUrl || ''),
+        message: safeMessage(error, 'update_check_throw'),
+      });
+      return false;
+    }
+
+    Promise.resolve(updatePromise)
       .then(() => {
         logSwEvent('vite_pwa_sw_update_check_ok', {
           source,
@@ -172,19 +184,47 @@ function safeUpdateRegistration(registration, source, swUrl = '') {
           message: safeMessage(error, 'update_check_failed'),
         });
       });
+
+    return true;
   } catch (error) {
-    logSwEvent('vite_pwa_sw_update_check_throw', {
+    logSwEvent('vite_pwa_sw_update_check_outer_error', {
       source,
       swUrl: String(swUrl || ''),
-      message: safeMessage(error, 'update_check_throw'),
+      message: safeMessage(error, 'update_check_outer_error'),
     });
+    return false;
+  }
+}
+
+function safeApplyViteUpdate(updateSW, reloadPage, source) {
+  try {
+    if (typeof updateSW !== 'function') {
+      logSwEvent('vite_pwa_sw_update_apply_missing', { source });
+      return false;
+    }
+
+    Promise.resolve(updateSW(Boolean(reloadPage))).catch((error) => {
+      logSwEvent('vite_pwa_sw_update_apply_error', {
+        source,
+        message: safeMessage(error, 'update_apply_failed'),
+      });
+    });
+
+    return true;
+  } catch (error) {
+    logSwEvent('vite_pwa_sw_update_apply_throw', {
+      source,
+      message: safeMessage(error, 'update_apply_throw'),
+    });
+    return false;
   }
 }
 
 function buildRegisterOptions({
   cancelledRef,
+  registrationRef,
+  updateSWRef,
   installAggressiveUpdateChecks,
-  getApplyUpdate,
   startManualFallback,
 }) {
   const options = {
@@ -194,15 +234,22 @@ function buildRegisterOptions({
       try {
         if (cancelledRef.current) return;
 
+        if (registration && typeof registration.update === 'function') {
+          registrationRef.current = registration;
+        } else {
+          registrationRef.current = null;
+        }
+
         logSwEvent('vite_pwa_sw_registered', {
           swUrl: String(swUrl || ''),
           scope: String(registration?.scope || ''),
+          hasRegistrationUpdate: typeof registration?.update === 'function',
         });
 
         markRuntimeOwnerReady('vite_pwa_sw_registered');
         markRootRuntimeSettled('vite_pwa_sw_registered');
 
-        installAggressiveUpdateChecks(registration, 'virtual_pwa_register', swUrl);
+        installAggressiveUpdateChecks('virtual_pwa_register', swUrl);
       } catch (error) {
         logSwEvent('vite_pwa_sw_registered_callback_error', {
           message: safeMessage(error, 'registered_callback_failed'),
@@ -252,19 +299,7 @@ function buildRegisterOptions({
           );
         } catch {}
 
-        const applyUpdate = getApplyUpdate();
-
-        if (typeof applyUpdate === 'function') {
-          try {
-            void applyUpdate(true);
-          } catch (error) {
-            logSwEvent('vite_pwa_sw_update_apply_error', {
-              message: safeMessage(error, 'update_apply_failed'),
-            });
-          }
-        } else {
-          logSwEvent('vite_pwa_sw_update_apply_missing');
-        }
+        safeApplyViteUpdate(updateSWRef.current, true, 'onNeedRefresh');
       } catch (error) {
         logSwEvent('vite_pwa_sw_need_refresh_callback_error', {
           message: safeMessage(error, 'need_refresh_callback_failed'),
@@ -277,60 +312,115 @@ function buildRegisterOptions({
 }
 
 export default function ServiceWorkerRegister() {
+  const cancelledRef = useRef(false);
+  const registrationRef = useRef(null);
+  const updateSWRef = useRef(null);
+  const cleanupAggressiveUpdateChecksRef = useRef(null);
+
   useEffect(() => {
+    cancelledRef.current = false;
+
     if (!isSupported()) {
       markRuntimeOwnerReady('vite_pwa_sw_not_supported');
       markRootRuntimeSettled('vite_pwa_sw_not_supported');
       return undefined;
     }
 
-    const cancelledRef = { current: false };
-    let cleanupAggressiveUpdateChecks = null;
-    let applyUpdateFromVirtualPwa = null;
     let manualFallbackStarted = false;
 
     const clearAggressiveUpdateChecks = () => {
       try {
-        if (typeof cleanupAggressiveUpdateChecks === 'function') {
-          cleanupAggressiveUpdateChecks();
+        if (typeof cleanupAggressiveUpdateChecksRef.current === 'function') {
+          cleanupAggressiveUpdateChecksRef.current();
         }
       } catch {}
 
-      cleanupAggressiveUpdateChecks = null;
+      cleanupAggressiveUpdateChecksRef.current = null;
     };
 
-    const installAggressiveUpdateChecks = (registration, source, swUrl = '') => {
+    const recoverRegistrationAndUpdate = (source, swUrl = '') => {
       try {
-        clearAggressiveUpdateChecks();
+        if (cancelledRef.current) return;
+        if (typeof navigator.serviceWorker?.getRegistration !== 'function') return;
 
-        if (!registration || typeof registration.update !== 'function') {
-          logSwEvent('vite_pwa_sw_update_registration_missing', {
-            source,
-            swUrl: String(swUrl || ''),
+        Promise.resolve(navigator.serviceWorker.getRegistration())
+          .then((registration) => {
+            try {
+              if (cancelledRef.current) return;
+
+              if (registration && typeof registration.update === 'function') {
+                registrationRef.current = registration;
+                safeUpdateRegistration(registration, `${source}:recovered`, swUrl);
+              } else {
+                logSwEvent('vite_pwa_sw_update_registration_missing_after_recover', {
+                  source,
+                  swUrl: String(swUrl || ''),
+                });
+              }
+            } catch (error) {
+              logSwEvent('vite_pwa_sw_update_recover_handler_error', {
+                source,
+                swUrl: String(swUrl || ''),
+                message: safeMessage(error, 'update_recover_handler_failed'),
+              });
+            }
+          })
+          .catch((error) => {
+            logSwEvent('vite_pwa_sw_update_recover_error', {
+              source,
+              swUrl: String(swUrl || ''),
+              message: safeMessage(error, 'update_recover_failed'),
+            });
           });
+      } catch (error) {
+        logSwEvent('vite_pwa_sw_update_recover_throw', {
+          source,
+          swUrl: String(swUrl || ''),
+          message: safeMessage(error, 'update_recover_throw'),
+        });
+      }
+    };
+
+    const checkForUpdate = (source, reason, swUrl = '') => {
+      try {
+        if (cancelledRef.current) return;
+
+        try {
+          if (document.visibilityState !== 'visible') return;
+        } catch {}
+
+        const registration = registrationRef.current;
+
+        if (registration && typeof registration.update === 'function') {
+          safeUpdateRegistration(registration, `${source}:${reason}`, swUrl);
           return;
         }
 
-        const checkForUpdate = (reason) => {
-          try {
-            if (cancelledRef.current) return;
-            if (document.visibilityState !== 'visible') return;
+        logSwEvent('vite_pwa_sw_update_registration_missing', {
+          source: `${source}:${reason}`,
+          swUrl: String(swUrl || ''),
+          hasUpdateSW: typeof updateSWRef.current === 'function',
+        });
 
-            safeUpdateRegistration(registration, `${source}:${reason}`, swUrl);
-          } catch (error) {
-            logSwEvent('vite_pwa_sw_update_check_handler_error', {
-              source,
-              reason,
-              swUrl: String(swUrl || ''),
-              message: safeMessage(error, 'update_check_handler_failed'),
-            });
-          }
-        };
+        recoverRegistrationAndUpdate(`${source}:${reason}`, swUrl);
+      } catch (error) {
+        logSwEvent('vite_pwa_sw_update_check_handler_error', {
+          source,
+          reason,
+          swUrl: String(swUrl || ''),
+          message: safeMessage(error, 'update_check_handler_failed'),
+        });
+      }
+    };
+
+    const installAggressiveUpdateChecks = (source, swUrl = '') => {
+      try {
+        clearAggressiveUpdateChecks();
 
         const onVisibilityChange = () => {
           try {
             if (document.visibilityState === 'visible') {
-              checkForUpdate('visibilitychange_visible');
+              checkForUpdate(source, 'visibilitychange_visible', swUrl);
             }
           } catch (error) {
             logSwEvent('vite_pwa_sw_visibility_update_error', {
@@ -355,7 +445,7 @@ export default function ServiceWorkerRegister() {
 
         try {
           intervalId = window.setInterval(() => {
-            checkForUpdate('interval_1h');
+            checkForUpdate(source, 'interval_1h', swUrl);
           }, UPDATE_CHECK_INTERVAL_MS);
         } catch (error) {
           logSwEvent('vite_pwa_sw_interval_setup_error', {
@@ -365,13 +455,13 @@ export default function ServiceWorkerRegister() {
           });
         }
 
-        cleanupAggressiveUpdateChecks = () => {
+        cleanupAggressiveUpdateChecksRef.current = () => {
           try {
             document.removeEventListener('visibilitychange', onVisibilityChange);
           } catch {}
 
           try {
-            if (intervalId) {
+            if (intervalId !== null) {
               window.clearInterval(intervalId);
             }
           } catch {}
@@ -380,7 +470,8 @@ export default function ServiceWorkerRegister() {
         logSwEvent('vite_pwa_sw_aggressive_update_checks_installed', {
           source,
           swUrl: String(swUrl || ''),
-          scope: String(registration?.scope || ''),
+          hasRegistrationUpdate: typeof registrationRef.current?.update === 'function',
+          hasUpdateSW: typeof updateSWRef.current === 'function',
           intervalMs: UPDATE_CHECK_INTERVAL_MS,
         });
       } catch (error) {
@@ -391,8 +482,6 @@ export default function ServiceWorkerRegister() {
         });
       }
     };
-
-    const getApplyUpdate = () => applyUpdateFromVirtualPwa;
 
     const startManualFallback = async (reason = 'unknown', originalError = null) => {
       if (manualFallbackStarted || cancelledRef.current) return null;
@@ -411,22 +500,31 @@ export default function ServiceWorkerRegister() {
 
         if (cancelledRef.current) return registration;
 
+        if (registration && typeof registration.update === 'function') {
+          registrationRef.current = registration;
+        } else {
+          registrationRef.current = null;
+        }
+
         logSwEvent('vite_pwa_manual_register_ok', {
           scope: String(registration?.scope || ''),
           active: Boolean(registration?.active),
           waiting: Boolean(registration?.waiting),
           installing: Boolean(registration?.installing),
+          hasRegistrationUpdate: typeof registration?.update === 'function',
         });
 
         markRuntimeOwnerReady('vite_pwa_manual_register_ok');
         markRootRuntimeSettled('vite_pwa_manual_register_ok');
         setOfflineReadyFlag('manual_fallback_register');
 
-        installAggressiveUpdateChecks(registration, 'manual_fallback_register', VITE_SW_URL);
+        installAggressiveUpdateChecks('manual_fallback_register', VITE_SW_URL);
 
         return registration;
       } catch (error) {
         if (cancelledRef.current) return null;
+
+        registrationRef.current = null;
 
         logSwEvent('vite_pwa_manual_register_error', {
           reason: String(reason || 'unknown'),
@@ -450,6 +548,9 @@ export default function ServiceWorkerRegister() {
           const info = await unregisterAllServiceWorkersForKillMode();
 
           if (cancelledRef.current) return;
+
+          registrationRef.current = null;
+          updateSWRef.current = null;
 
           logSwEvent('vite_pwa_sw_kill_mode_active', {
             removed: Number(info?.count || 0),
@@ -482,6 +583,9 @@ export default function ServiceWorkerRegister() {
         } catch (error) {
           if (cancelledRef.current) return;
 
+          updateSWRef.current = null;
+          registrationRef.current = null;
+
           logSwEvent('vite_pwa_virtual_import_error', {
             message: safeMessage(error, 'virtual_pwa_register_import_failed'),
           });
@@ -505,6 +609,9 @@ export default function ServiceWorkerRegister() {
               : null;
 
         if (typeof registerSW !== 'function') {
+          updateSWRef.current = null;
+          registrationRef.current = null;
+
           logSwEvent('vite_pwa_registersw_missing', {
             moduleKeys: virtualPwaModule ? Object.keys(virtualPwaModule).join(',') : '',
           });
@@ -518,8 +625,9 @@ export default function ServiceWorkerRegister() {
 
         const registerOptions = buildRegisterOptions({
           cancelledRef,
+          registrationRef,
+          updateSWRef,
           installAggressiveUpdateChecks,
-          getApplyUpdate,
           startManualFallback,
         });
 
@@ -527,19 +635,23 @@ export default function ServiceWorkerRegister() {
           const result = registerSW(registerOptions || {});
 
           if (typeof result === 'function') {
-            applyUpdateFromVirtualPwa = result;
+            updateSWRef.current = result;
           } else {
-            applyUpdateFromVirtualPwa = null;
+            updateSWRef.current = null;
           }
 
           logSwEvent('vite_pwa_register_call_ok', {
-            hasApplyUpdate: typeof applyUpdateFromVirtualPwa === 'function',
+            hasApplyUpdate: typeof updateSWRef.current === 'function',
+            hasRegistrationUpdate: typeof registrationRef.current?.update === 'function',
           });
 
           markRuntimeOwnerReady('vite_pwa_register_call_ok');
           markRootRuntimeSettled('vite_pwa_register_call_ok');
         } catch (error) {
           if (cancelledRef.current) return;
+
+          updateSWRef.current = null;
+          registrationRef.current = null;
 
           logSwEvent('vite_pwa_register_throw', {
             message: safeMessage(error, 'sw_register_throw'),
@@ -554,6 +666,9 @@ export default function ServiceWorkerRegister() {
         }
       } catch (error) {
         if (cancelledRef.current) return;
+
+        updateSWRef.current = null;
+        registrationRef.current = null;
 
         logSwEvent('vite_pwa_register_outer_error', {
           message: safeMessage(error, 'sw_register_outer_error'),
