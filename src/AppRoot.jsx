@@ -10,7 +10,8 @@ import ChunkLoadRuntime from '@/components/ChunkLoadRuntime.jsx';
 import RootResumeWatchdog from '@/components/RootResumeWatchdog.jsx';
 import ServiceWorkerRegister from '@/components/ServiceWorkerRegister.jsx';
 import { appRoutes } from './generated/routes.generated.jsx';
-import { ACTIVE_ROUTE_REQUEST_KEY, recordRouteDiagEvent, loadLazyModule } from '@/lib/lazyImportRuntime';
+import { ACTIVE_ROUTE_REQUEST_KEY, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
+import { lazyWithReload } from '@/lib/lazyWithReload.jsx';
 import { clearRuntimeTransition, readRuntimeTransition } from '@/lib/rootResumePanic';
 
 function safeParseJson(raw, fallback = null) {
@@ -344,19 +345,88 @@ function CoreRuntimeModule({ name, children }) {
   );
 }
 
-function makeRuntimeLazy(importer, name, retryCount) {
-  return React.lazy(() => loadLazyModule(importer, {
+function normalizeRuntimeLazyModule(mod, name) {
+  if (mod && typeof mod === 'object' && mod.default) return mod;
+
+  const message = `AppRoot runtime lazy module ${name} resolved without a default export`;
+  const error = new TypeError(message);
+  try {
+    error.moduleName = name;
+    error.sourceLayer = 'app_root_runtime_lazy';
+    error.resolvedModuleType = typeof mod;
+    error.resolvedModuleKeys = mod && typeof mod === 'object' ? Object.keys(mod).slice(0, 12) : [];
+  } catch {}
+  throw error;
+}
+
+async function importRuntimeLazyModule(importer, name, retryCount) {
+  const meta = {
+    path: String(window.location?.pathname || '/runtime'),
+    currentPath: String(window.location?.pathname || '/runtime'),
     kind: 'component',
     label: name,
+    moduleName: name,
     moduleId: name,
     requestedModule: name,
     importerHint: name,
     importCaller: 'AppRootRuntime',
     componentName: name,
-    path: '/runtime',
     retryCount,
     importRetryCount: retryCount,
-  }));
+    sourceLayer: 'app_root_runtime_lazy',
+  };
+
+  try {
+    recordRouteDiagEvent('app_root_runtime_lazy_import_start', meta);
+  } catch {}
+
+  try {
+    const mod = normalizeRuntimeLazyModule(await importer(), name);
+    try {
+      recordRouteDiagEvent('app_root_runtime_lazy_import_success', {
+        ...meta,
+        settledAt: new Date().toISOString(),
+      });
+    } catch {}
+    return mod;
+  } catch (error) {
+    try {
+      recordRouteDiagEvent('app_root_runtime_lazy_import_failure', {
+        ...meta,
+        settledAt: new Date().toISOString(),
+        error: {
+          name: String(error?.name || ''),
+          message: String(error?.message || error || ''),
+          stack: String(error?.stack || '').slice(0, 4000),
+          moduleName: String(error?.moduleName || name),
+          sourceLayer: String(error?.sourceLayer || 'app_root_runtime_lazy'),
+          resolvedModuleType: String(error?.resolvedModuleType || ''),
+          resolvedModuleKeys: Array.isArray(error?.resolvedModuleKeys) ? error.resolvedModuleKeys : [],
+        },
+      });
+    } catch {}
+    throw error;
+  }
+}
+
+function makeRuntimeLazy(importer, name, retryCount) {
+  return lazyWithReload(() => importRuntimeLazyModule(importer, name, retryCount), {
+    label: name,
+    moduleId: name,
+    storageKey: `app_root_runtime_lazy:${name}`,
+    sourceLayer: 'app_root_runtime_lazy',
+    reloadWindowMs: 30000,
+    meta: {
+      kind: 'component',
+      moduleName: name,
+      requestedModule: name,
+      importerHint: name,
+      importCaller: 'AppRootRuntime',
+      componentName: name,
+      retryCount,
+      importRetryCount: retryCount,
+    },
+  });
 }
 
 function SafeRuntimeLazy({ name, importer }) {
