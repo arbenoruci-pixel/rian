@@ -146,7 +146,47 @@ function setOfflineReadyFlag(source) {
   } catch {}
 }
 
-function buildRegisterOptions({ cancelledRef, setUpdateInterval, getApplyUpdate, startManualFallback }) {
+function safeUpdateRegistration(registration, source, swUrl = '') {
+  try {
+    if (!registration || typeof registration.update !== 'function') {
+      logSwEvent('vite_pwa_sw_update_registration_missing', {
+        source,
+        swUrl: String(swUrl || ''),
+      });
+      return;
+    }
+
+    void registration
+      .update()
+      .then(() => {
+        logSwEvent('vite_pwa_sw_update_check_ok', {
+          source,
+          swUrl: String(swUrl || ''),
+          scope: String(registration?.scope || ''),
+        });
+      })
+      .catch((error) => {
+        logSwEvent('vite_pwa_sw_update_check_error', {
+          source,
+          swUrl: String(swUrl || ''),
+          message: safeMessage(error, 'update_check_failed'),
+        });
+      });
+  } catch (error) {
+    logSwEvent('vite_pwa_sw_update_check_throw', {
+      source,
+      swUrl: String(swUrl || ''),
+      message: safeMessage(error, 'update_check_throw'),
+    });
+  }
+}
+
+function buildRegisterOptions({
+  cancelledRef,
+  installAggressiveUpdateChecks,
+  getApplyUpdate,
+  startManualFallback,
+}) {
   const options = {
     immediate: true,
 
@@ -162,24 +202,7 @@ function buildRegisterOptions({ cancelledRef, setUpdateInterval, getApplyUpdate,
         markRuntimeOwnerReady('vite_pwa_sw_registered');
         markRootRuntimeSettled('vite_pwa_sw_registered');
 
-        if (registration && typeof registration.update === 'function') {
-          const intervalId = window.setInterval(() => {
-            try {
-              if (document.visibilityState === 'visible') {
-                void registration.update();
-                logSwEvent('vite_pwa_sw_update_check', {
-                  swUrl: String(swUrl || ''),
-                });
-              }
-            } catch (error) {
-              logSwEvent('vite_pwa_sw_update_check_error', {
-                message: safeMessage(error, 'update_check_failed'),
-              });
-            }
-          }, UPDATE_CHECK_INTERVAL_MS);
-
-          setUpdateInterval(intervalId);
-        }
+        installAggressiveUpdateChecks(registration, 'virtual_pwa_register', swUrl);
       } catch (error) {
         logSwEvent('vite_pwa_sw_registered_callback_error', {
           message: safeMessage(error, 'registered_callback_failed'),
@@ -262,17 +285,111 @@ export default function ServiceWorkerRegister() {
     }
 
     const cancelledRef = { current: false };
-    let updateInterval = null;
+    let cleanupAggressiveUpdateChecks = null;
     let applyUpdateFromVirtualPwa = null;
     let manualFallbackStarted = false;
 
-    const setUpdateInterval = (intervalId) => {
+    const clearAggressiveUpdateChecks = () => {
       try {
-        if (updateInterval) {
-          window.clearInterval(updateInterval);
+        if (typeof cleanupAggressiveUpdateChecks === 'function') {
+          cleanupAggressiveUpdateChecks();
         }
-        updateInterval = intervalId;
       } catch {}
+
+      cleanupAggressiveUpdateChecks = null;
+    };
+
+    const installAggressiveUpdateChecks = (registration, source, swUrl = '') => {
+      try {
+        clearAggressiveUpdateChecks();
+
+        if (!registration || typeof registration.update !== 'function') {
+          logSwEvent('vite_pwa_sw_update_registration_missing', {
+            source,
+            swUrl: String(swUrl || ''),
+          });
+          return;
+        }
+
+        const checkForUpdate = (reason) => {
+          try {
+            if (cancelledRef.current) return;
+            if (document.visibilityState !== 'visible') return;
+
+            safeUpdateRegistration(registration, `${source}:${reason}`, swUrl);
+          } catch (error) {
+            logSwEvent('vite_pwa_sw_update_check_handler_error', {
+              source,
+              reason,
+              swUrl: String(swUrl || ''),
+              message: safeMessage(error, 'update_check_handler_failed'),
+            });
+          }
+        };
+
+        const onVisibilityChange = () => {
+          try {
+            if (document.visibilityState === 'visible') {
+              checkForUpdate('visibilitychange_visible');
+            }
+          } catch (error) {
+            logSwEvent('vite_pwa_sw_visibility_update_error', {
+              source,
+              swUrl: String(swUrl || ''),
+              message: safeMessage(error, 'visibility_update_failed'),
+            });
+          }
+        };
+
+        try {
+          document.addEventListener('visibilitychange', onVisibilityChange);
+        } catch (error) {
+          logSwEvent('vite_pwa_sw_visibility_listener_error', {
+            source,
+            swUrl: String(swUrl || ''),
+            message: safeMessage(error, 'visibility_listener_failed'),
+          });
+        }
+
+        let intervalId = null;
+
+        try {
+          intervalId = window.setInterval(() => {
+            checkForUpdate('interval_1h');
+          }, UPDATE_CHECK_INTERVAL_MS);
+        } catch (error) {
+          logSwEvent('vite_pwa_sw_interval_setup_error', {
+            source,
+            swUrl: String(swUrl || ''),
+            message: safeMessage(error, 'interval_setup_failed'),
+          });
+        }
+
+        cleanupAggressiveUpdateChecks = () => {
+          try {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+          } catch {}
+
+          try {
+            if (intervalId) {
+              window.clearInterval(intervalId);
+            }
+          } catch {}
+        };
+
+        logSwEvent('vite_pwa_sw_aggressive_update_checks_installed', {
+          source,
+          swUrl: String(swUrl || ''),
+          scope: String(registration?.scope || ''),
+          intervalMs: UPDATE_CHECK_INTERVAL_MS,
+        });
+      } catch (error) {
+        logSwEvent('vite_pwa_sw_aggressive_update_setup_error', {
+          source,
+          swUrl: String(swUrl || ''),
+          message: safeMessage(error, 'aggressive_update_setup_failed'),
+        });
+      }
     };
 
     const getApplyUpdate = () => applyUpdateFromVirtualPwa;
@@ -305,22 +422,7 @@ export default function ServiceWorkerRegister() {
         markRootRuntimeSettled('vite_pwa_manual_register_ok');
         setOfflineReadyFlag('manual_fallback_register');
 
-        if (registration && typeof registration.update === 'function') {
-          const intervalId = window.setInterval(() => {
-            try {
-              if (document.visibilityState === 'visible') {
-                void registration.update();
-                logSwEvent('vite_pwa_manual_update_check');
-              }
-            } catch (error) {
-              logSwEvent('vite_pwa_manual_update_check_error', {
-                message: safeMessage(error, 'manual_update_check_failed'),
-              });
-            }
-          }, UPDATE_CHECK_INTERVAL_MS);
-
-          setUpdateInterval(intervalId);
-        }
+        installAggressiveUpdateChecks(registration, 'manual_fallback_register', VITE_SW_URL);
 
         return registration;
       } catch (error) {
@@ -416,7 +518,7 @@ export default function ServiceWorkerRegister() {
 
         const registerOptions = buildRegisterOptions({
           cancelledRef,
-          setUpdateInterval,
+          installAggressiveUpdateChecks,
           getApplyUpdate,
           startManualFallback,
         });
@@ -470,11 +572,7 @@ export default function ServiceWorkerRegister() {
 
     return () => {
       cancelledRef.current = true;
-      try {
-        if (updateInterval) {
-          window.clearInterval(updateInterval);
-        }
-      } catch {}
+      clearAggressiveUpdateChecks();
     };
   }, []);
 
