@@ -9,7 +9,7 @@ import { readRuntimeTransition, writeAuthGateTrace, writeRuntimeTransition } fro
 import { recordPersistentTimelineEvent } from '@/lib/lazyImportRuntime';
 import { getStartupIsolationLeftMs, isWithinStartupIsolationWindow, scheduleAfterStartupIsolation } from '@/lib/startupIsolation';
 import { hasTransportSession, readBestActor } from '@/lib/sessionStore';
-const AUTHGATE_VERIFY_TIMEOUT_MS = 500;
+const AUTHGATE_VERIFY_TIMEOUT_MS = 3000;
 const AUTH_RESUME_EVENT_LOG_KEY = 'tepiha_auth_resume_event_log_v1';
 
 function readStoredUser() {
@@ -249,6 +249,113 @@ function logAuthResumeEvent(type, pathname, payload = {}) {
   }, 100);
 }
 
+function readGateCulpritSnapshot(payload = {}) {
+  const checkingDevice = !!payload?.checkingDevice;
+  const redirecting = !!payload?.redirecting;
+  const resumeGate = !!payload?.resumeGate;
+  const swSnapshot = (() => {
+    try {
+      const supported = typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+      const controller = supported ? navigator.serviceWorker.controller : null;
+      return {
+        supported,
+        hasController: !!controller,
+        controllerScriptURL: String(controller?.scriptURL || ''),
+        rootRuntimeSettled: typeof window !== 'undefined' ? window.__TEPIHA_ROOT_RUNTIME_SETTLED__ === true : false,
+        runtimeOwnerReady: typeof window !== 'undefined' ? window.__TEPIHA_RUNTIME_OWNER_READY__ === true : false,
+        startupEpochCheck: typeof window !== 'undefined' ? (window.__TEPIHA_SW_EPOCH_STARTUP_CHECK__ || null) : null,
+      };
+    } catch (error) {
+      return { error: String(error?.message || error || 'sw_snapshot_failed') };
+    }
+  })();
+
+  let culprit = String(payload?.culprit || '').trim();
+  if (!culprit) {
+    if (resumeGate) culprit = 'resumeGate';
+    else if (checkingDevice) culprit = 'AuthGate/Supabase device verification';
+    else if (redirecting) culprit = 'AuthGate router redirect';
+    else if (swSnapshot && swSnapshot.supported && !swSnapshot.rootRuntimeSettled && !swSnapshot.runtimeOwnerReady) culprit = 'Service Worker/runtime owner';
+    else culprit = 'unknown AuthGate/resume gate wait';
+  }
+
+  return {
+    culprit,
+    checkingDevice,
+    redirecting,
+    resumeGate,
+    path: (() => {
+      try { return String(window.location?.pathname || payload?.path || '/'); } catch { return String(payload?.path || '/'); }
+    })(),
+    href: (() => {
+      try { return String(window.location?.href || ''); } catch { return ''; }
+    })(),
+    online: (() => {
+      try { return typeof navigator !== 'undefined' ? navigator.onLine : null; } catch { return null; }
+    })(),
+    visibilityState: (() => {
+      try { return String(document.visibilityState || ''); } catch { return ''; }
+    })(),
+    sw: swSnapshot,
+    ...payload,
+  };
+}
+
+function NetworkVerifyScreen({ reason = '' }) {
+  const wrap = {
+    minHeight: '100vh',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    background: '#05070d',
+    color: '#e8eef6',
+    boxSizing: 'border-box',
+  };
+  const card = {
+    width: '100%',
+    maxWidth: 420,
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 18,
+    background: 'rgba(255,255,255,0.035)',
+    padding: 22,
+    textAlign: 'center',
+    boxShadow: '0 22px 80px rgba(0,0,0,0.38)',
+  };
+  const spinner = {
+    width: 34,
+    height: 34,
+    margin: '0 auto 14px',
+    borderRadius: '50%',
+    border: '3px solid rgba(255,255,255,0.18)',
+    borderTopColor: 'rgba(255,255,255,0.92)',
+    animation: 'tepihaAuthSpin 0.85s linear infinite',
+  };
+  const title = {
+    fontWeight: 900,
+    letterSpacing: '0.02em',
+    fontSize: 15,
+  };
+  const sub = {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 1.35,
+    opacity: 0.72,
+  };
+  return (
+    <div style={wrap} data-authgate-network-wait="1">
+      <style>{`@keyframes tepihaAuthSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      <div style={card}>
+        <div style={spinner} aria-hidden="true" />
+        <div style={title}>Duke verifikuar rrjetin...</div>
+        <div style={sub}>Maksimumi 3 sekonda. Pastaj aplikacioni hapet pa bllokim.</div>
+        {reason ? <div style={{ ...sub, opacity: 0.46 }}>{String(reason)}</div> : null}
+      </div>
+    </div>
+  );
+}
+
 export default function AuthGate({ children }) {
   const router = useRouter();
   const pathname = usePathname() || "/";
@@ -269,7 +376,9 @@ export default function AuthGate({ children }) {
   const lastScheduleSignatureRef = useRef('');
   const lastScheduleAtRef = useRef(0);
   const pendingVisibleEvalRef = useRef(false);
+  const gateTimeoutRef = useRef(null);
   const previousPathRef = useRef(pathname);
+  const [gateTimeoutBypassed, setGateTimeoutBypassed] = useState(null);
 
   const currentPathIsPublic = useMemo(() => isPublicPath(pathname), [pathname]);
 
@@ -285,8 +394,10 @@ export default function AuthGate({ children }) {
   const clearPendingTimers = useCallback(() => {
     try { if (evalTimerRef.current) clearTimeout(evalTimerRef.current); } catch {}
     try { if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current); } catch {}
+    try { if (gateTimeoutRef.current) clearTimeout(gateTimeoutRef.current); } catch {}
     evalTimerRef.current = null;
     redirectTimerRef.current = null;
+    gateTimeoutRef.current = null;
   }, []);
 
   const evaluateGate = useCallback((reason = "effect") => {
@@ -476,6 +587,106 @@ export default function AuthGate({ children }) {
     // This preserves local gate/session logic and login redirect behavior above.
     return;
   }, [clearPendingTimers, pathname, router]);
+
+
+  const bypassBlockingGate = useCallback((reason = 'timeout_guard', payload = {}) => {
+    if (!mountedRef.current) return;
+    clearPendingTimers();
+
+    const detail = readGateCulpritSnapshot({
+      reason,
+      path: pathname,
+      elapsedMs: AUTHGATE_VERIFY_TIMEOUT_MS,
+      maxWaitMs: AUTHGATE_VERIFY_TIMEOUT_MS,
+      source: 'authgate_timeout_guard',
+      ...payload,
+    });
+
+    setCheckingDevice(false);
+    setRedirecting(false);
+    setDeviceApproved(true);
+    setOfflineNoUser(false);
+    setGateTimeoutBypassed({ at: Date.now(), reason, detail });
+    const forcedVisible = forceAppVisible(`authgate_timeout_${reason}`);
+
+    const logPayload = { ...detail, forcedVisible };
+    try { console.error('[TEPIHA][AuthGate] 3s timeout guard bypassed a blocking gate', logPayload); } catch {}
+    try { bootLog('authgate_timeout_bypass', logPayload); } catch {}
+    try { logAuthResumeEvent('authgate_timeout_bypass', pathname, logPayload); } catch {}
+    try {
+      writeAuthGateTrace({
+        path: pathname,
+        at: Date.now(),
+        reason,
+        phase: 'timeout_bypass',
+        source: 'authgate_timeout_guard',
+        redirecting: false,
+        suppressed: false,
+        culprit: detail.culprit,
+        checkingDevice: detail.checkingDevice,
+        resumeGate: detail.resumeGate,
+        maxWaitMs: AUTHGATE_VERIFY_TIMEOUT_MS,
+      });
+    } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent('tepiha:authgate-timeout-bypass', { detail: logPayload }));
+    } catch {}
+  }, [clearPendingTimers, pathname]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const blocking = !!(checkingDevice || redirecting);
+    if (!blocking) {
+      try { if (gateTimeoutRef.current) window.clearTimeout(gateTimeoutRef.current); } catch {}
+      gateTimeoutRef.current = null;
+      return undefined;
+    }
+
+    const startedAt = Date.now();
+    const reason = checkingDevice ? 'checking_device' : 'redirecting';
+    try {
+      bootLog('authgate_blocking_wait_started', {
+        path: pathname,
+        reason,
+        checkingDevice,
+        redirecting,
+        maxWaitMs: AUTHGATE_VERIFY_TIMEOUT_MS,
+      });
+    } catch {}
+
+    try { if (gateTimeoutRef.current) window.clearTimeout(gateTimeoutRef.current); } catch {}
+    gateTimeoutRef.current = window.setTimeout(() => {
+      gateTimeoutRef.current = null;
+      bypassBlockingGate(reason, {
+        startedAt,
+        elapsedMs: Math.max(0, Date.now() - startedAt),
+        checkingDevice,
+        redirecting,
+      });
+    }, AUTHGATE_VERIFY_TIMEOUT_MS);
+
+    return () => {
+      try { if (gateTimeoutRef.current) window.clearTimeout(gateTimeoutRef.current); } catch {}
+      gateTimeoutRef.current = null;
+    };
+  }, [checkingDevice, redirecting, pathname, bypassBlockingGate]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onResumeGateTimeout = (event) => {
+      const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+      bypassBlockingGate('resume_gate_timeout', {
+        ...detail,
+        resumeGate: true,
+        culprit: detail?.culprit || 'resumeGate',
+      });
+      try { evaluateGate('resume_gate_timeout_bypass'); } catch {}
+    };
+    window.addEventListener('tepiha:resume-gate-timeout-bypass', onResumeGateTimeout, { passive: true });
+    return () => {
+      try { window.removeEventListener('tepiha:resume-gate-timeout-bypass', onResumeGateTimeout); } catch {}
+    };
+  }, [bypassBlockingGate, evaluateGate]);
 
   useEffect(() => {
     const previousPath = String(previousPathRef.current || pathname || '/');
@@ -782,8 +993,10 @@ export default function AuthGate({ children }) {
   };
 
   if (!ready) {
-    return null;
+    return <NetworkVerifyScreen reason="authgate_ready_wait" />;
   }
+
+  const lastGateTimeoutBypass = gateTimeoutBypassed;
 
   if (redirecting) {
     return (
@@ -797,14 +1010,7 @@ export default function AuthGate({ children }) {
   }
 
   if (checkingDevice) {
-    return (
-      <div style={wrapStyle}>
-        <div style={{ ...cardStyle, maxWidth: 520 }}>
-          <div style={titleStyle}>DUKE KONTROLLUAR…</div>
-          <div style={subStyle}>Po verifikojmë pajisjen. Ju lutem prisni.</div>
-        </div>
-      </div>
-    );
+    return <NetworkVerifyScreen reason="authgate_device_check" />;
   }
 
   if (deviceApproved === false) {
@@ -855,6 +1061,7 @@ export default function AuthGate({ children }) {
 
   return (
     <>
+      {lastGateTimeoutBypass ? null : null}
       {offlineNoUser ? (
         <div
           style={{

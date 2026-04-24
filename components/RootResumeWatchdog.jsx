@@ -27,7 +27,7 @@ const WATCHED_PATHS = new Set([
 ]);
 
 const SOFT_RECOVER_DELAY_MS = 140;
-const RESUME_STALL_CHECK_MS = 3400;
+const RESUME_STALL_CHECK_MS = 3000;
 const DUPLICATE_WINDOW_MS = 1200;
 const HEALTHY_LOG_WINDOW_MS = 300;
 
@@ -304,6 +304,43 @@ function logRootResumeEvent(type, payload = {}) {
   }, 100);
 }
 
+
+function diagnoseResumeCulprit(health = {}) {
+  let swReady = false;
+  let swSupported = false;
+  let controllerScriptURL = '';
+  try {
+    swSupported = typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+    controllerScriptURL = swSupported ? String(navigator.serviceWorker.controller?.scriptURL || '') : '';
+    swReady = window.__TEPIHA_ROOT_RUNTIME_SETTLED__ === true || window.__TEPIHA_RUNTIME_OWNER_READY__ === true;
+  } catch {}
+
+  if (health?.routeTransitionInFlight) return 'route_transition_in_flight';
+  if (!health?.rootVisible) return 'root_hidden_or_inert';
+  if (!health?.uiReady) return 'route_ui_ready_missing';
+  if (swSupported && !swReady) return 'service_worker_or_runtime_owner_not_settled';
+  if (swSupported && !controllerScriptURL && !swReady) return 'service_worker_ready_wait';
+  return 'unknown_resume_gate_wait';
+}
+
+function emitResumeGateTimeoutBypass(detail = {}) {
+  if (!isBrowser()) return;
+  const payload = {
+    at: Date.now(),
+    source: 'root_resume_watchdog',
+    maxWaitMs: RESUME_STALL_CHECK_MS,
+    ...detail,
+  };
+  try { window.__TEPIHA_RESUME_GATE_TIMEOUT_BYPASS__ = payload; } catch {}
+  try { window.__TEPIHA_RESUME_GATE_BYPASSED__ = true; } catch {}
+  try { window.__TEPIHA_ROOT_RUNTIME_SETTLED__ = true; } catch {}
+  try { window.__TEPIHA_RUNTIME_OWNER_READY__ = true; } catch {}
+  try { document.documentElement?.setAttribute?.('data-resume-gate-bypassed', '1'); } catch {}
+  try { document.body?.setAttribute?.('data-resume-gate-bypassed', '1'); } catch {}
+  try { console.error('[TEPIHA][RootResumeWatchdog] resumeGate timeout bypass after 3s', payload); } catch {}
+  try { window.dispatchEvent(new CustomEvent('tepiha:resume-gate-timeout-bypass', { detail: payload })); } catch {}
+}
+
 function evaluateHealth({ path, resumeAt, uiToken }) {
   const routeAlive = readRouteAliveSnapshot();
   const routeUiAlive = readRouteUiAliveSnapshot();
@@ -545,6 +582,16 @@ export default function RootResumeWatchdog() {
         }
 
         forceRootVisible(`resume_${reason}_stall`);
+        const culprit = diagnoseResumeCulprit(health);
+        emitResumeGateTimeoutBypass({
+          path,
+          reason: String(reason || ''),
+          culprit,
+          token,
+          uiToken,
+          hiddenElapsedMs,
+          health,
+        });
         const routeTransition = readRuntimeTransition();
         const sealedSnapshot = sealRootResumePanicSnapshot({
           reason: 'root_resume_watchdog_stall',
@@ -557,6 +604,8 @@ export default function RootResumeWatchdog() {
           previousBootId: String(routeTransition?.fromBootId || ''),
           routeTransitionInFlight: !!health?.routeTransitionInFlight,
           routeTransition,
+          culprit,
+          timeoutBypassed: true,
           health: {
             ...health,
             hiddenElapsedMs,
@@ -576,6 +625,8 @@ export default function RootResumeWatchdog() {
           uiToken,
           hiddenElapsedMs,
           panicSnapshotSaved: !!sealedSnapshot,
+          culprit,
+          timeoutBypassed: true,
           ...health,
           ...(extra || {}),
         });
@@ -590,6 +641,8 @@ export default function RootResumeWatchdog() {
               uiToken,
               hiddenElapsedMs,
               panicSnapshotSaved: !!sealedSnapshot,
+              culprit,
+              timeoutBypassed: true,
               ...health,
             },
           }));
