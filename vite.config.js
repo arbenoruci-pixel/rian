@@ -64,7 +64,7 @@ export default defineConfig({
         skipWaiting: true,
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [
-          /^\/api(?:\/.*)?$/,
+          /^\/api/,
           /^\/assets\/.*\.map$/,
           /^\/debug(?:\/.*)?$/,
           /^\/diag-lite(?:\/.*)?$/,
