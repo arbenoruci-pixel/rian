@@ -1,5 +1,6 @@
 This package removes leftover Next root files that were causing Vercel to detect Edge Middleware:
 - middleware.ts
+
 - next.config.mjs
 - layout.jsx (root)
 - ServiceWorkerRegister.jsx (root)
