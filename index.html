@@ -1,0 +1,1469 @@
+<!doctype html>
+<html lang="sq" style="background:#05070d;color-scheme:dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <meta name="theme-color" content="#0b0f14" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-24-ROUTE-CONTAINMENT-V1" />
+    <meta name="tepiha-build-id" content="2.0.3-route-containment-v1" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <title>TEPIHA</title>
+    <script>
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-24-ROUTE-CONTAINMENT-V1';
+      window.__TEPIHA_BUILD_ID = '2.0.3-route-containment-v1';
+      window.__TEPIHA_SW_KILL_SWITCH__ = false;
+      window.__TEPIHA_FORCE_NETWORK_MODE__ = false;
+      window.__TEPIHA_DIAG_SYSTEM_ENABLED__ = false;
+      window.__TEPIHA_DIAG_RUNTIME_ENABLED__ = false;
+      window.__TEPIHA_RUNTIME_INCIDENTS_ENABLED__ = true;
+      window.__TEPIHA_SIMPLE_INCIDENTS_ENABLED__ = true;
+      window.__TEPIHA_STARTUP_ISOLATION__ = true;
+      window.__TEPIHA_STARTUP_ISOLATION_WINDOW_MS__ = 4500;
+      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-route-containment-v1';
+      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-v2';
+      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-repair-v2';
+      window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
+      (function(){
+        try {
+          var APP_EPOCH = String(window.__TEPIHA_APP_EPOCH || '');
+          var BUILD_ID = String(window.__TEPIHA_BUILD_ID || '');
+          var INDEX_VERSION = String(window.__TEPIHA_INDEX_SCRIPT_VERSION__ || '');
+          var REPAIR_VERSION = String(window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ || '');
+          var STARTED_AT = Date.now();
+          var LAST_KEY = 'tepiha_pwa_staleness_repair_last_v2';
+          var LOG_KEY = 'tepiha_pwa_staleness_repair_log_v2';
+          var GUARD_KEY = 'tepiha_pwa_staleness_repair_guard_v2';
+          function safeString(value){ try { return String(value == null ? '' : value); } catch(e){ return ''; } }
+          function safeParse(raw, fallback){ try { var parsed = JSON.parse(raw); return parsed == null ? fallback : parsed; } catch(e){ return fallback; } }
+          function nowIso(){ try { return new Date().toISOString(); } catch(e){ return ''; } }
+          function isStandalone(){
+            try {
+              return !!((window.navigator && window.navigator.standalone === true) ||
+                (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches));
+            } catch(e){ return false; }
+          }
+          function forceRepair(){
+            try {
+              var sp = new URLSearchParams(window.location.search || '');
+              return sp.get('pwaRepair') === '1' || sp.get('pwa_repair') === '1' || sp.get('repairPwa') === '1' || localStorage.getItem('tepiha_force_pwa_staleness_repair_v2') === '1';
+            } catch(e){ return false; }
+          }
+          function controllerInfo(){
+            var controller = null;
+            var scriptURL = '';
+            try { controller = navigator.serviceWorker && navigator.serviceWorker.controller; } catch(e) {}
+            try { scriptURL = controller && controller.scriptURL ? String(controller.scriptURL) : ''; } catch(e) {}
+            var epoch = '';
+            try { epoch = String(new URL(scriptURL, window.location.origin).searchParams.get('epoch') || '').trim(); } catch(e) {}
+            return { controller: !!controller, scriptURL: scriptURL, epoch: epoch, epochMismatch: !!(APP_EPOCH && epoch && APP_EPOCH !== epoch) };
+          }
+          function isRuntimeCacheName(key){
+            var value = safeString(key);
+            return /^(assets-|pages-|tepiha-|workbox-|vite-|next-data-)/i.test(value) || /tepiha/i.test(value);
+          }
+          function cacheEpochs(keys){
+            var out = [];
+            try {
+              (keys || []).forEach(function(key){
+                var m = String(key || '').match(/^(?:assets|pages|tepiha|vite|next-data)-(.+)$/i);
+                if (m && m[1]) out.push(m[1]);
+              });
+            } catch(e) {}
+            return out;
+          }
+          async function readCaches(){
+            try { if (!('caches' in window)) return []; var keys = await caches.keys(); return Array.isArray(keys) ? keys : []; } catch(e){ return []; }
+          }
+          function appendLog(entry){
+            try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); } catch(e) {}
+            try { var list = safeParse(localStorage.getItem(LOG_KEY), []); if (!Array.isArray(list)) list = []; list.unshift(entry); localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 20))); } catch(e) {}
+          }
+          function currentIndexAsset(){
+            try {
+              var scripts = Array.prototype.slice.call(document.scripts || []);
+              for (var i = scripts.length - 1; i >= 0; i -= 1) {
+                var src = String(scripts[i] && scripts[i].src || '');
+                if (/\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?|$)/i.test(src) || /\/src\/main\.jsx(?:\?|$)/i.test(src)) return src;
+              }
+            } catch(e) {}
+            return '';
+          }
+          function snapshot(reason, extra){
+            var info = controllerInfo();
+            var base = {
+              reason: safeString(reason || 'startup'),
+              source: 'index_html_pwa_staleness_repair',
+              sourceLayer: 'index_html',
+              version: REPAIR_VERSION,
+              at: nowIso(),
+              ts: Date.now(),
+              elapsedMs: Math.max(0, Date.now() - STARTED_AT),
+              appEpoch: APP_EPOCH,
+              buildId: BUILD_ID,
+              indexScriptVersion: INDEX_VERSION,
+              pwaBootRescueVersion: safeString(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || ''),
+              currentIndexAsset: currentIndexAsset(),
+              standalone: isStandalone(),
+              forceRepair: forceRepair(),
+              href: safeString(window.location && window.location.href),
+              path: safeString(window.location && window.location.pathname),
+              search: safeString(window.location && window.location.search),
+              visibilityState: safeString(document.visibilityState),
+              documentReadyState: safeString(document.readyState),
+              online: !!(navigator && navigator.onLine),
+              serviceWorker: info
+            };
+            if (extra && typeof extra === 'object') { for (var k in extra) base[k] = extra[k]; }
+            return base;
+          }
+          async function unregisterServiceWorkers(){
+            var count = 0;
+            try {
+              if (!(navigator.serviceWorker && navigator.serviceWorker.getRegistrations)) return { count: 0 };
+              var regs = await navigator.serviceWorker.getRegistrations();
+              await Promise.allSettled((Array.isArray(regs) ? regs : []).map(function(reg){
+                count += 1;
+                try { if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e) {}
+                try { if (reg.active) reg.active.postMessage({ type: 'SKIP_WAITING' }); } catch(e) {}
+                try { return reg.unregister(); } catch(e) { return Promise.resolve(false); }
+              }));
+            } catch(e) {}
+            return { count: count };
+          }
+          async function clearRuntimeCaches(){
+            var deleted = [];
+            try {
+              if (!('caches' in window)) return deleted;
+              var keys = await caches.keys();
+              await Promise.allSettled((Array.isArray(keys) ? keys : []).filter(isRuntimeCacheName).map(function(key){
+                deleted.push(key);
+                try { return caches.delete(key); } catch(e) { return Promise.resolve(false); }
+              }));
+            } catch(e) {}
+            return deleted;
+          }
+          function buildReloadUrl(reason){
+            try {
+              var url = new URL(window.location.href);
+              url.searchParams.set('__pwa_repair_v2', safeString(reason || '1'));
+              url.searchParams.set('__html_epoch', APP_EPOCH.slice(0, 90));
+              url.searchParams.set('t', String(Date.now()));
+              return url.toString();
+            } catch(e) { return '/?__pwa_repair_v2=1&t=' + Date.now(); }
+          }
+          async function autoRepair(reason, detail){
+            var guardValue = APP_EPOCH + ':' + safeString(reason || 'repair');
+            try {
+              var existing = sessionStorage.getItem(GUARD_KEY) || '';
+              if (existing === guardValue) {
+                appendLog(snapshot('repair_guard_skip_' + safeString(reason), detail || {}));
+                return false;
+              }
+              sessionStorage.setItem(GUARD_KEY, guardValue);
+            } catch(e) {}
+            var before = snapshot(reason || 'repair_started', detail || {});
+            appendLog(before);
+            var sw = await unregisterServiceWorkers();
+            var deletedCaches = await clearRuntimeCaches();
+            var after = snapshot('repair_completed_reload', { repairReason: reason, unregisteredServiceWorkers: sw.count, deletedCaches: deletedCaches });
+            appendLog(after);
+            try { window.__TEPIHA_PWA_STALENESS_REPAIR_LAST__ = after; } catch(e) {}
+            window.setTimeout(function(){
+              try { window.location.replace(buildReloadUrl(reason)); } catch(e) { try { window.location.href = buildReloadUrl(reason); } catch(err) {} }
+            }, 180);
+            return true;
+          }
+          async function check(){
+            var keys = await readCaches();
+            var epochs = cacheEpochs(keys);
+            var staleRuntimeCaches = (keys || []).filter(function(key){ return isRuntimeCacheName(key) && APP_EPOCH && String(key).indexOf(APP_EPOCH) === -1; });
+            var info = controllerInfo();
+            var cacheMismatch = staleRuntimeCaches.length > 0 && !(keys || []).some(function(key){ return String(key).indexOf(APP_EPOCH) >= 0; });
+            var entry = snapshot('startup_check', { cacheKeys: keys.slice(0, 80), cacheEpochs: epochs.slice(0, 20), staleRuntimeCaches: staleRuntimeCaches.slice(0, 80), cacheMismatch: cacheMismatch });
+            try { window.__TEPIHA_PWA_STALENESS_CHECK__ = entry; } catch(e) {}
+            appendLog(entry);
+            if ((isStandalone() || forceRepair()) && (info.epochMismatch || cacheMismatch)) {
+              await autoRepair(info.epochMismatch ? 'html_sw_epoch_mismatch' : 'html_runtime_cache_mismatch', { cacheKeys: keys.slice(0, 80), staleRuntimeCaches: staleRuntimeCaches.slice(0, 80), cacheMismatch: cacheMismatch });
+            }
+          }
+          window.__TEPIHA_PWA_STALENESS_REPAIR__ = { check: check, autoRepair: autoRepair, snapshot: snapshot, clearRuntimeCaches: clearRuntimeCaches };
+          check().catch(function(error){ appendLog(snapshot('startup_check_error', { message: safeString(error && error.message || error) })); });
+          function syncMarker(){
+            try {
+              var el = document.getElementById('tepiha-build-marker');
+              if (!el) return;
+              var asset = currentIndexAsset();
+              el.setAttribute('data-app-epoch', APP_EPOCH);
+              el.setAttribute('data-build-id', BUILD_ID);
+              el.setAttribute('data-index-script-version', INDEX_VERSION);
+              el.setAttribute('data-pwa-boot-rescue-version', safeString(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || ''));
+              if (asset) el.setAttribute('data-current-index-asset', asset);
+            } catch(e) {}
+          }
+          function hideMarkerSoon(){
+            try {
+              var el = document.getElementById('tepiha-build-marker');
+              if (!el) return;
+              window.setTimeout(function(){ try { el.style.opacity = '0'; el.style.pointerEvents = 'none'; } catch(e) {} }, 1800);
+            } catch(e) {}
+          }
+          try { document.addEventListener('DOMContentLoaded', syncMarker, { once: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:first-ui-ready', hideMarkerSoon, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:route-ui-alive', hideMarkerSoon, { passive: true }); } catch(e) {}
+          try {
+            var observer = new MutationObserver(function(){
+              try {
+                if (document.documentElement.getAttribute('data-ui-ready') === '1' || (document.body && document.body.getAttribute('data-ui-ready') === '1')) hideMarkerSoon();
+              } catch(e) {}
+            });
+            observer.observe(document.documentElement, { attributes: true });
+          } catch(e) {}
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var search = String((window.location && window.location.search) || '');
+          var enableKillScript = /(?:^|[?&])(swkill|debug_sw_kill)=1(?:&|$)/.test(search);
+          if (!enableKillScript) return;
+          var s = document.createElement('script');
+          s.src = '/sw-kill.js';
+          s.async = false;
+          document.head.appendChild(s);
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var untilKey = '__TEPIHA_STARTUP_ISOLATION_UNTIL__';
+          var nextUntil = Date.now() + 4500;
+          try {
+            var existingUntil = Number(sessionStorage.getItem(untilKey) || 0) || 0;
+            if (existingUntil > nextUntil) nextUntil = existingUntil;
+          } catch (e) {}
+          window.__TEPIHA_STARTUP_ISOLATION_UNTIL__ = nextUntil;
+          try { sessionStorage.setItem(untilKey, String(nextUntil)); } catch (e) {}
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var CURRENT_EPOCH = String(window.__TEPIHA_APP_EPOCH || '');
+          var SCRUB_KEYS = [
+            'tepiha_chunk_last_capture_v1',
+            'tepiha_lazy_import_log_v1',
+            'tepiha_last_lazy_import_failure_v1',
+            'tepiha_last_lazy_import_attempt_v1',
+            'tepiha_early_incident_queue_v1',
+            'tepiha_route_transition_v1',
+            'tepiha_active_route_request_v1',
+            'tepiha_root_resume_panic_snapshot_v1'
+          ];
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function readEpochFromValue(value) {
+            try {
+              if (!value) return '';
+              if (Array.isArray(value)) {
+                for (var i = 0; i < value.length; i += 1) {
+                  var itemEpoch = readEpochFromValue(value[i]);
+                  if (itemEpoch) return itemEpoch;
+                }
+                return '';
+              }
+              if (typeof value === 'object') {
+                return String(value.appEpoch || value.swEpoch || value.epoch || value.__appEpoch || '').trim();
+              }
+            } catch (e) {}
+            return '';
+          }
+          function scrubIfEpochMismatch(key) {
+            try {
+              var raw = localStorage.getItem(key);
+              if (!raw) return false;
+              var parsed = safeParse(raw, raw);
+              var storedEpoch = readEpochFromValue(parsed);
+              if (!storedEpoch || !CURRENT_EPOCH || storedEpoch === CURRENT_EPOCH) return false;
+              localStorage.removeItem(key);
+              return true;
+            } catch (e) {
+              return false;
+            }
+          }
+          var scrubbed = [];
+          for (var i = 0; i < SCRUB_KEYS.length; i += 1) {
+            if (scrubIfEpochMismatch(SCRUB_KEYS[i])) scrubbed.push(SCRUB_KEYS[i]);
+          }
+          try {
+            if (scrubbed.length) {
+              window.__TEPIHA_STALE_EPOCH_SCRUB__ = {
+                at: new Date().toISOString(),
+                appEpoch: CURRENT_EPOCH,
+                scrubbedKeys: scrubbed
+              };
+            }
+          } catch (e) {}
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var RESCUE_KEY = 'tepiha_module_boot_rescue_v1';
+          var RESCUE_LOG_KEY = 'tepiha_module_boot_rescue_log_v1';
+          var RESCUE_WINDOW_MS = 120000;
+          var RESCUE_MAX = 2;
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function safeString(value) {
+            try { return String(value || ''); } catch (e) { return ''; }
+          }
+          function currentEpoch() {
+            try { return safeString(window.__TEPIHA_APP_EPOCH || ''); } catch (e) { return ''; }
+          }
+          function pathKey() {
+            try { return safeString((window.location && window.location.pathname) || '/'); } catch (e) { return '/'; }
+          }
+          function isTopLevelIndexAsset(src) {
+            var value = safeString(src);
+            return /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(value) || /\/assets\/index\.[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(value);
+          }
+          function readRescueState() {
+            try {
+              return safeParse(sessionStorage.getItem(RESCUE_KEY), {});
+            } catch (e) {
+              return {};
+            }
+          }
+          function writeRescueState(state) {
+            try { sessionStorage.setItem(RESCUE_KEY, JSON.stringify(state || {})); } catch (e) {}
+          }
+          function appendRescueLog(entry) {
+            try {
+              var list = safeParse(localStorage.getItem(RESCUE_LOG_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(RESCUE_LOG_KEY, JSON.stringify(list.slice(0, 12)));
+            } catch (e) {}
+          }
+          function readNavigationType() {
+            try {
+              var list = performance && typeof performance.getEntriesByType === 'function' ? performance.getEntriesByType('navigation') : [];
+              var nav = list && list[0] ? list[0] : null;
+              return safeString(nav && nav.type || '');
+            } catch (e) {
+              return '';
+            }
+          }
+          function readResumeAgeMs() {
+            try {
+              var hiddenAt = Number(window.__tepihaLastHiddenAt || localStorage.getItem('tepiha_last_hidden_at_v3') || 0) || 0;
+              if (!hiddenAt) return -1;
+              return Math.max(0, Date.now() - hiddenAt);
+            } catch (e) {
+              return -1;
+            }
+          }
+          function readLoadPhase() {
+            var navType = readNavigationType();
+            var resumeAge = readResumeAgeMs();
+            if (resumeAge >= 0 && resumeAge <= 12000) return 'resume_recent';
+            if (navType) return 'navigation_' + navType;
+            return 'initial_load';
+          }
+          function cleanupBeforeRescue() {
+            try {
+              var keys = [
+                'tepiha_chunk_last_capture_v1',
+                'tepiha_lazy_import_log_v1',
+                'tepiha_last_lazy_import_failure_v1',
+                'tepiha_last_lazy_import_attempt_v1',
+                'tepiha_early_incident_queue_v1',
+                'tepiha_route_transition_v1',
+                'tepiha_active_route_request_v1'
+              ];
+              for (var i = 0; i < keys.length; i += 1) {
+                try { localStorage.removeItem(keys[i]); } catch (e) {}
+                try { sessionStorage.removeItem(keys[i]); } catch (e) {}
+              }
+            } catch (e) {}
+            try {
+              if ('caches' in window && typeof window.caches.keys === 'function') {
+                window.caches.keys().then(function(names){
+                  (names || []).forEach(function(name){
+                    try {
+                      if (/^(?:assets|pages|runtime|next-data)-/i.test(String(name || ''))) window.caches.delete(name);
+                    } catch (e) {}
+                  });
+                }).catch(function(){});
+              }
+            } catch (e) {}
+            try {
+              navigator.serviceWorker && navigator.serviceWorker.controller && navigator.serviceWorker.controller.postMessage && navigator.serviceWorker.controller.postMessage({ type: 'PURGE_OLD_CACHES' });
+            } catch (e) {}
+          }
+          function buildRescueUrl() {
+            try {
+              var url = new URL(window.location.href);
+              url.searchParams.set('__asset_bootfix', String(Date.now()));
+              var epoch = currentEpoch();
+              if (epoch) url.searchParams.set('__app_epoch', epoch.slice(0, 80));
+              return url.toString();
+            } catch (e) {
+              return '';
+            }
+          }
+          function shouldAttemptRescue(targetSrc) {
+            var state = readRescueState();
+            var now = Date.now();
+            var samePath = safeString(state.path || '') === pathKey();
+            var sameEpoch = safeString(state.epoch || '') === currentEpoch();
+            var sameAsset = safeString(state.targetSrc || '') === safeString(targetSrc || '');
+            var attempts = Number(state.attempts || 0) || 0;
+            var ageMs = Number(state.at || 0) ? Math.max(0, now - Number(state.at || 0)) : Number.POSITIVE_INFINITY;
+            if (!samePath || !sameEpoch || ageMs > RESCUE_WINDOW_MS) return { ok: true, attempts: 0 };
+            if (sameAsset && attempts >= RESCUE_MAX) return { ok: false, attempts: attempts };
+            return { ok: true, attempts: attempts };
+          }
+          function recordRescueAttempt(detail) {
+            var state = readRescueState();
+            var attempts = Number(state.attempts || 0) || 0;
+            var next = {
+              at: Date.now(),
+              path: pathKey(),
+              epoch: currentEpoch(),
+              targetSrc: safeString(detail && detail.targetSrc || ''),
+              attempts: attempts + 1,
+              lastReason: safeString(detail && detail.reason || 'module_boot_error')
+            };
+            writeRescueState(next);
+            appendRescueLog({
+              at: new Date().toISOString(),
+              path: next.path,
+              epoch: next.epoch,
+              targetSrc: next.targetSrc,
+              attempts: next.attempts,
+              reason: next.lastReason,
+              href: safeString(window.location && window.location.href || ''),
+              baseURI: safeString(document.baseURI || ''),
+              readyState: safeString(document.readyState || ''),
+              visibilityState: safeString(document.visibilityState || ''),
+              online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+              loadPhase: readLoadPhase()
+            });
+            return next;
+          }
+          async function resolveCurrentIndexAsset() {
+            try {
+              var res = await fetch(window.location.pathname + window.location.search, { credentials: 'same-origin', cache: 'reload' });
+              var html = await res.text();
+              var match = html && html.match(/\/assets\/index-[^"'>\s]+\.(?:js|mjs)(?:\?[^"'>\s]*)?/i);
+              return match ? safeString(match[0]) : '';
+            } catch (e) {
+              return '';
+            }
+          }
+          async function tryRescue(detail) {
+            try {
+              if (!detail || !isTopLevelIndexAsset(detail.targetSrc)) return false;
+              var verdict = shouldAttemptRescue(detail.targetSrc);
+              if (!verdict.ok) return false;
+              var latestAsset = await resolveCurrentIndexAsset();
+              try { detail.latestIndexAsset = latestAsset; } catch (e) {}
+              recordRescueAttempt(detail);
+              cleanupBeforeRescue();
+              var targetUrl = buildRescueUrl();
+              if (!targetUrl) return false;
+              window.setTimeout(function(){
+                try { window.location.replace(targetUrl); } catch (e) { try { window.location.href = targetUrl; } catch (err) {} }
+              }, 30);
+              return true;
+            } catch (e) {
+              return false;
+            }
+          }
+          window.__TEPIHA_TRY_MODULE_BOOT_RESCUE__ = tryRescue;
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var STORE_KEY = 'tepiha_root_watchdog_last_v1';
+          var PREHEAL_KEY = 'tepiha_dom_preheal_log_v1';
+          var PREHEAL_LAST_KEY = 'tepiha_dom_preheal_last_v1';
+          var PREHEAL_MAX = 80;
+          function bootId() {
+            try {
+              return String(window.BOOT_ID || sessionStorage.getItem('tepiha_boot_current_id') || localStorage.getItem('tepiha_boot_current_id') || '');
+            } catch (e) {
+              return '';
+            }
+          }
+          function activeRoutePath() {
+            try {
+              return String(window.location && window.location.pathname || '');
+            } catch (e) {
+              return '';
+            }
+          }
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function appendRing(key, entry, max) {
+            try {
+              var list = safeParse(localStorage.getItem(key), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(key, JSON.stringify(list.slice(0, Math.max(8, Number(max) || 80))));
+            } catch (e) {}
+          }
+          function overlayPresent() {
+            try {
+              return !!document.querySelector('[data-overlay="1"],[data-auth-overlay="1"],[data-loading-overlay="1"],[data-route-overlay="1"],.loading-overlay,.route-overlay,.auth-overlay,[data-modal-backdrop="1"],[data-screen-cover="1"],[data-blackout-overlay="1"]');
+            } catch (e) {
+              return false;
+            }
+          }
+          function snapshot(reason) {
+            try {
+              var root = document.getElementById('root') || (document.body && document.body.firstElementChild) || document.body || document.documentElement || null;
+              var cs = root && window.getComputedStyle ? window.getComputedStyle(root) : null;
+              var entry = {
+                type: 'dom_preheal_snapshot',
+                ts: Date.now(),
+                at: new Date().toISOString(),
+                path: activeRoutePath(),
+                activeRoutePath: activeRoutePath(),
+                bootId: bootId(),
+                source: String(reason || 'startup'),
+                sourceLayer: 'index_html',
+                reason: String(reason || 'startup'),
+                visibilityState: String(document.visibilityState || ''),
+                hidden: !!document.hidden,
+                rootExists: !!root,
+                rootId: String(root && root.id || ''),
+                rootTag: String(root && root.tagName || ''),
+                display: String(cs && cs.display || ''),
+                visibility: String(cs && cs.visibility || ''),
+                opacity: String(cs && cs.opacity || ''),
+                pointerEvents: String(cs && cs.pointerEvents || ''),
+                hiddenAttr: !!(root && root.hasAttribute && root.hasAttribute('hidden')),
+                inert: !!(root && root.inert),
+                ariaHidden: String(root && root.getAttribute && root.getAttribute('aria-hidden') || ''),
+                overlayPresent: overlayPresent(),
+                fallbackPresent: !!document.querySelector('[data-route-fallback="1"]')
+              };
+              try { localStorage.setItem(PREHEAL_LAST_KEY, JSON.stringify(entry)); } catch (e) {}
+              appendRing(PREHEAL_KEY, entry, PREHEAL_MAX);
+              try { window.__TEPIHA_LAST_DOM_PREHEAL__ = entry; } catch (e) {}
+              return entry;
+            } catch (e) {
+              return null;
+            }
+          }
+          function repair(node, isRoot) {
+            if (!node || !node.style) return false;
+            var changed = false;
+            try {
+              var cs = window.getComputedStyle(node);
+              if (isRoot && cs.display === 'none') { node.style.display = 'block'; changed = true; }
+              if (cs.visibility === 'hidden') { node.style.visibility = 'visible'; changed = true; }
+              if (parseFloat(cs.opacity || '1') < 0.05) { node.style.opacity = '1'; changed = true; }
+              if (cs.pointerEvents === 'none') { node.style.pointerEvents = 'auto'; changed = true; }
+              if (node.hasAttribute && node.hasAttribute('hidden')) { node.removeAttribute('hidden'); changed = true; }
+            } catch (e) {}
+            return changed;
+          }
+          function run(reason) {
+            try {
+              if (document.visibilityState === 'hidden') return;
+              snapshot(reason);
+              var changed = false;
+              changed = repair(document.documentElement, true) || changed;
+              changed = repair(document.body, true) || changed;
+              var first = document.body && document.body.firstElementChild;
+              changed = repair(first, false) || changed;
+              try { localStorage.setItem(STORE_KEY, JSON.stringify({ at: new Date().toISOString(), reason: reason, changed: changed })); } catch (e) {}
+            } catch (e) {}
+          }
+          setTimeout(function(){ run('startup_60'); }, 60);
+          setTimeout(function(){ run('startup_450'); }, 450);
+          setTimeout(function(){ run('startup_1200'); }, 1200);
+          window.addEventListener('pageshow', function(){ setTimeout(function(){ run('pageshow'); }, 40); }, { passive: true });
+          window.addEventListener('focus', function(){ setTimeout(function(){ run('focus'); }, 40); }, { passive: true });
+          document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') setTimeout(function(){ run('visibility_visible'); }, 40); }, { passive: true });
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var LAST_KEY = 'tepiha_chunk_last_capture_v1';
+          var LOG_KEY = 'tepiha_lazy_import_log_v1';
+          var EARLY_QUEUE_KEY = 'tepiha_early_incident_queue_v1';
+          var EARLY_BOOT_ID_KEY = '__TEPIHA_EARLY_BOOT_ID__';
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function safeString(value) {
+            try { return String(value || ''); } catch (e) { return ''; }
+          }
+          function bootId() {
+            try {
+              var existing = safeString(window.BOOT_ID || sessionStorage.getItem('tepiha_boot_current_id') || localStorage.getItem('tepiha_boot_current_id') || sessionStorage.getItem(EARLY_BOOT_ID_KEY));
+              if (existing) return existing;
+              var created = 'earlyboot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+              try { sessionStorage.setItem(EARLY_BOOT_ID_KEY, created); } catch (e) {}
+              return created;
+            } catch (e) {
+              return 'earlyboot_' + Date.now();
+            }
+          }
+          function extractAssetUrls() {
+            var hits = [];
+            for (var i = 0; i < arguments.length; i += 1) {
+              var value = safeString(arguments[i]);
+              if (!value) continue;
+              var matches = value.match(/https?:\/\/[^\s)"']+|\/_next\/static\/chunks\/[^\s)"']+|\/assets\/[^\s)"']+\.(?:js|mjs)(?:\?[^\s)"']*)?/gi) || [];
+              for (var j = 0; j < matches.length; j += 1) hits.push(String(matches[j] || ''));
+            }
+            var uniq = [];
+            var seen = {};
+            for (var k = 0; k < hits.length; k += 1) {
+              var item = safeString(hits[k]);
+              if (!item || seen[item]) continue;
+              seen[item] = true;
+              uniq.push(item);
+            }
+            return uniq.slice(0, 8);
+          }
+          function navigationType() {
+            try {
+              var list = typeof performance !== 'undefined' && typeof performance.getEntriesByType === 'function' ? performance.getEntriesByType('navigation') : [];
+              var nav = list && list[0] ? list[0] : null;
+              return String((nav && nav.type) || '');
+            } catch (e) {
+              return '';
+            }
+          }
+          function hiddenElapsedMs() {
+            try {
+              var hiddenAt = Number(window.__tepihaLastHiddenAt || localStorage.getItem('tepiha_last_hidden_at_v3') || 0) || 0;
+              if (!hiddenAt) return -1;
+              return Math.max(0, Date.now() - hiddenAt);
+            } catch (e) {
+              return -1;
+            }
+          }
+          function loadPhase() {
+            var hiddenMs = hiddenElapsedMs();
+            if (hiddenMs >= 0 && hiddenMs <= 12000) return 'resume_recent';
+            var navType = navigationType();
+            if (navType) return 'navigation_' + navType;
+            return 'initial_load';
+          }
+          function ctx(extra) {
+            var base = {
+              at: new Date().toISOString(),
+              href: String((window.location && window.location.href) || ''),
+              path: String((window.location && window.location.pathname) || ''),
+              search: String((window.location && window.location.search) || ''),
+              baseURI: String((document && document.baseURI) || ''),
+              readyState: String((document && document.readyState) || ''),
+              visibilityState: String((document && document.visibilityState) || ''),
+              online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+              navigationType: navigationType(),
+              loadPhase: loadPhase(),
+              hiddenElapsedMs: hiddenElapsedMs(),
+              appEpoch: String(window.__TEPIHA_APP_EPOCH || ''),
+              buildId: String(window.__TEPIHA_BUILD_ID || ''),
+              bootId: bootId()
+            };
+            if (extra && typeof extra === 'object') {
+              for (var k in extra) base[k] = extra[k];
+            }
+            return base;
+          }
+          function isChunkLike(message) {
+            return /loading chunk|chunkloaderror|chunk [0-9]+ failed|failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|failed to load module script|module script failed|module script|dynamically imported module|\/assets\/.*\.(?:js|mjs)(?:\?|$)|\/_next\/static\/chunks\//i.test(String(message || ''));
+          }
+          function enqueueEarlyIncident(entry) {
+            try {
+              var list = safeParse(localStorage.getItem(EARLY_QUEUE_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(EARLY_QUEUE_KEY, JSON.stringify(list.slice(0, 12)));
+            } catch (e) {}
+          }
+          function postEarlyIncident(entry) {
+            try {
+              var body = {
+                bootId: safeString(entry.bootId || bootId()),
+                incidentType: safeString(entry.reason || 'early_chunk_capture'),
+                bootRootPath: safeString(entry.path || '/'),
+                currentPath: safeString(entry.path || '/'),
+                currentSearch: safeString(entry.search || ''),
+                startedAt: safeString(entry.at || ''),
+                lastEventAt: safeString(entry.at || ''),
+                lastEventType: safeString(entry.reason || 'early_chunk_capture'),
+                uiReady: false,
+                overlayShown: false,
+                online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+                visibilityState: safeString(entry.visibilityState || ''),
+                swEpoch: safeString(entry.appEpoch || ''),
+                userAgent: typeof navigator !== 'undefined' ? safeString(navigator.userAgent || '') : '',
+                meta: {
+                  source: 'index_html_early_chunk_capture_v2',
+                  capture: entry
+                }
+              };
+              var text = JSON.stringify(body);
+              try {
+                if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+                  navigator.sendBeacon('/api/runtime-incident', new Blob([text], { type: 'application/json' }));
+                }
+              } catch (e) {}
+              try {
+                fetch('/api/runtime-incident', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: text,
+                  keepalive: true,
+                  cache: 'no-store'
+                }).catch(function(){});
+              } catch (e) {}
+            } catch (e) {}
+          }
+          function findPerformanceEntries(assetUrl) {
+            try {
+              if (!assetUrl || typeof performance === 'undefined' || typeof performance.getEntriesByName !== 'function') return [];
+              var list = performance.getEntriesByName(String(assetUrl || '')) || [];
+              var out = [];
+              for (var i = 0; i < list.length; i += 1) {
+                var item = list[i];
+                out.push({
+                  name: String(item && item.name || ''),
+                  entryType: String(item && item.entryType || ''),
+                  initiatorType: String(item && item.initiatorType || ''),
+                  startTime: Number(item && item.startTime || 0) || 0,
+                  duration: Number(item && item.duration || 0) || 0,
+                  transferSize: Number(item && item.transferSize || 0) || 0,
+                  encodedBodySize: Number(item && item.encodedBodySize || 0) || 0,
+                  decodedBodySize: Number(item && item.decodedBodySize || 0) || 0,
+                  responseStatus: Number(item && item.responseStatus || 0) || 0
+                });
+              }
+              return out.slice(0, 4);
+            } catch (e) {
+              return [];
+            }
+          }
+          function persist(reason, extra) {
+            var entry = ctx(extra || {});
+            entry.reason = String(reason || 'chunk_capture');
+            entry.assetUrls = extractAssetUrls(entry.targetSrc, entry.filename, entry.message, entry.stack);
+            entry.assetUrl = entry.assetUrls[0] || String(entry.targetSrc || entry.filename || '');
+            entry.performanceEntries = findPerformanceEntries(entry.assetUrl);
+            try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); } catch (e) {}
+            try {
+              var list = safeParse(localStorage.getItem(LOG_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 24)));
+            } catch (e) {}
+            try { window.__TEPIHA_LAST_CHUNK_CAPTURE__ = entry; } catch (e) {}
+            try { window.dispatchEvent(new CustomEvent('tepiha:chunk-capture', { detail: entry })); } catch (e) {}
+            try { window.dispatchEvent(new CustomEvent('tepiha:simple-incident', { detail: {
+              bootId: safeString(entry.bootId || bootId()),
+              incidentType: safeString(entry.reason || 'early_chunk_capture'),
+              bootRootPath: safeString(entry.path || '/'),
+              currentPath: safeString(entry.path || '/'),
+              currentSearch: safeString(entry.search || ''),
+              startedAt: safeString(entry.at || ''),
+              lastEventAt: safeString(entry.at || ''),
+              lastEventType: safeString(entry.reason || 'early_chunk_capture'),
+              uiReady: false,
+              overlayShown: false,
+              online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+              visibilityState: safeString(entry.visibilityState || ''),
+              swEpoch: safeString(entry.appEpoch || ''),
+              userAgent: typeof navigator !== 'undefined' ? safeString(navigator.userAgent || '') : '',
+              meta: { source: 'index_html_early_chunk_capture_v2', capture: entry }
+            } })); } catch (e) {}
+            enqueueEarlyIncident(entry);
+            postEarlyIncident(entry);
+            return entry;
+          }
+          function isUiReadyForRuntimeFallback() {
+            try {
+              if (window.__TEPIHA_UI_READY === true) return true;
+              if (document.documentElement && document.documentElement.getAttribute('data-ui-ready') === '1') return true;
+              if (document.body && document.body.getAttribute('data-ui-ready') === '1') return true;
+              if (document.querySelector('[data-route-fallback="1"],[data-local-error-boundary="1"]')) return true;
+            } catch (e) {}
+            return false;
+          }
+          function isRuntimeAssetUrl(assetUrl) {
+            var value = safeString(assetUrl || '');
+            if (!value) return false;
+            return /(?:resumeGate|rootResume|RootResume|ChunkLoadRuntime|ServiceWorkerRegister|lazyImportRuntime|rootResumePanic|startupIsolation|bootLog|appEpoch|RouteRenderRescue|PwaWarmup|BootReadyMark|AppRoot)/i.test(value);
+          }
+          function runtimeRepairUrl() {
+            try {
+              var url = new URL('/pwa-repair.html', window.location.origin || window.location.href);
+              url.searchParams.set('from', 'runtime_import_failure');
+              url.searchParams.set('path', safeString(window.location && window.location.pathname || '/'));
+              url.searchParams.set('t', String(Date.now()));
+              return url.toString();
+            } catch (e) {
+              return '/pwa-repair.html?from=runtime_import_failure&t=' + Date.now();
+            }
+          }
+          function recordRuntimeImportFailure(entry) {
+            try {
+              var failure = ctx(entry || {});
+              failure.reason = 'runtime_import_failure_inline_fallback';
+              failure.sourceLayer = 'index_html_inline_runtime_fallback';
+              failure.runtimeModuleSafety = 'inline_no_react_dependency';
+              failure.repairUrl = runtimeRepairUrl();
+              failure.assetUrl = safeString(failure.assetUrl || failure.targetSrc || failure.filename || '');
+              localStorage.setItem('tepiha_app_root_runtime_failure_last_v1', JSON.stringify(failure));
+              var list = safeParse(localStorage.getItem('tepiha_app_root_runtime_failure_log_v1'), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(failure);
+              localStorage.setItem('tepiha_app_root_runtime_failure_log_v1', JSON.stringify(list.slice(0, 40)));
+              try { window.__TEPIHA_LAST_APP_ROOT_RUNTIME_FAILURE__ = failure; } catch (e) {}
+              try {
+                var status = window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ && typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ === 'object'
+                  ? window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__
+                  : { version: 'index-inline-runtime-fallback-v1', criticalMode: 'unknown_before_react', criticalModules: {}, lazyModules: {}, failures: [] };
+                status.failures = Array.isArray(status.failures) ? status.failures : [];
+                status.failures.unshift(failure);
+                status.failures = status.failures.slice(0, 20);
+                status.lastFailure = failure;
+                status.lastUpdatedAt = failure.at;
+                window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = status;
+              } catch (e) {}
+              return failure;
+            } catch (e) {
+              return entry || null;
+            }
+          }
+          function showRuntimeImportFailureFallback(entry) {
+            try {
+              var rawAsset = safeString(entry && (entry.assetUrl || entry.targetSrc || entry.filename) || '');
+              var topIndex = /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(rawAsset);
+              if (topIndex) return false;
+              if (isUiReadyForRuntimeFallback() && !isRuntimeAssetUrl(rawAsset)) return false;
+              if (document.getElementById('tepiha-runtime-import-fallback')) return true;
+              var failure = recordRuntimeImportFailure(entry || {});
+              var repair = safeString(failure && failure.repairUrl || runtimeRepairUrl()).replace(/"/g, '&quot;');
+              var assetHtml = rawAsset ? '<div style="margin-top:8px;color:#94a3b8;font-size:12px;word-break:break-word">ASSET: <b style="color:#e2e8f0">' + rawAsset.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</b></div>' : '';
+              var wrap = document.createElement('div');
+              wrap.id = 'tepiha-runtime-import-fallback';
+              wrap.setAttribute('data-runtime-import-fallback', '1');
+              wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px';
+              wrap.innerHTML = '' +
+                '<div style="width:min(560px,100%);border:1px solid rgba(251,191,36,.35);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
+                  '<div style="font-size:12px;letter-spacing:.16em;color:#fbbf24;font-weight:1000;margin-bottom:8px">INLINE RUNTIME FALLBACK</div>' +
+                  '<div style="font-size:24px;font-weight:1000;line-height:1.08;margin-bottom:8px">RUNTIME MODULE NUK U NGARKUA</div>' +
+                  '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">Një module script dështoi para se runtime rescue të jetë i sigurt. Ky fallback është inline në HTML dhe nuk varet nga React.</div>' +
+                  assetHtml +
+                  '<div style="display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px">' +
+                    '<button id="tepiha-runtime-retry" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">PROVO PËRSËRI</button>' +
+                    '<a href="' + repair + '" style="text-align:center;text-decoration:none;border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">RIPARO APP</a>' +
+                  '</div>' +
+                  '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Nuk prek DB, write flow, outbox, porosi lokale, ose session. Riparimi pastron vetëm SW/runtime cache sipas faqes së repair.</div>' +
+                '</div>';
+              (document.body || document.documentElement).appendChild(wrap);
+              try {
+                var retry = document.getElementById('tepiha-runtime-retry');
+                if (retry) retry.onclick = function(){
+                  try {
+                    var url = new URL(window.location.href);
+                    url.searchParams.set('__runtime_retry', String(Date.now()));
+                    window.location.replace(url.toString());
+                  } catch (e) { window.location.reload(); }
+                };
+              } catch (e) {}
+              return true;
+            } catch (e) {
+              return false;
+            }
+          }
+          window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ = showRuntimeImportFailureFallback;
+          window.__TEPIHA_CHUNK_CAPTURE__ = persist;
+          window.addEventListener('error', function(event){
+            try {
+              var target = event && event.target;
+              var tagName = String((target && target.tagName) || '');
+              var targetSrc = String((target && (target.currentSrc || target.src || target.href)) || '');
+              var targetType = String((target && target.type) || '');
+              var targetRel = String((target && target.rel) || '');
+              var message = String((event && event.message) || '');
+              var stack = String((event && event.error && event.error.stack) || '');
+              var moduleLike = (String(tagName).toUpperCase() === 'SCRIPT' && (String(targetType).toLowerCase() === 'module' || /\/(?:assets|src)\/.*\.(?:js|mjs)(?:\?|$)/i.test(targetSrc))) || (String(tagName).toUpperCase() === 'LINK' && String(targetRel).toLowerCase() === 'modulepreload');
+              if (!moduleLike && !isChunkLike(message) && !isChunkLike(stack) && !isChunkLike(targetSrc)) return;
+              var capture = persist('window_module_error', {
+                tagName: tagName,
+                targetSrc: targetSrc,
+                targetType: targetType,
+                targetRel: targetRel,
+                filename: String((event && event.filename) || ''),
+                lineno: Number((event && event.lineno) || 0) || 0,
+                colno: Number((event && event.colno) || 0) || 0,
+                message: message,
+                stack: stack,
+                moduleTarget: !!moduleLike
+              });
+              try {
+                if (capture && capture.moduleTarget && capture.assetUrl && /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(String(capture.assetUrl || '')) && typeof window.__TEPIHA_TRY_MODULE_BOOT_RESCUE__ === 'function') {
+                  window.__TEPIHA_TRY_MODULE_BOOT_RESCUE__(capture);
+                }
+              } catch (e) {}
+              try {
+                if (capture && (capture.moduleTarget || isRuntimeAssetUrl(capture.assetUrl || capture.targetSrc)) && typeof window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ === 'function') {
+                  window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__(capture);
+                }
+              } catch (e) {}
+            } catch (e) {}
+          }, true);
+          window.addEventListener('unhandledrejection', function(event){
+            try {
+              var reason = event && event.reason;
+              var message = String((reason && reason.message) || reason || '');
+              var stack = String((reason && reason.stack) || '');
+              if (!isChunkLike(message) && !isChunkLike(stack)) return;
+              var capture = persist('chunk_unhandled_rejection', {
+                message: message,
+                stack: stack,
+                name: String((reason && reason.name) || '')
+              });
+              try {
+                if (!isUiReadyForRuntimeFallback() && typeof window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ === 'function') {
+                  window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__(capture);
+                }
+              } catch (e) {}
+            } catch (e) {}
+          }, true);
+        } catch (e) {}
+      })();
+    </script>
+
+    <script id="tepiha-pwa-boot-rescue-v2">
+      (function(){
+        try {
+          var LAST_KEY = 'tepiha_pwa_boot_rescue_last_v1';
+          var LOG_KEY = 'tepiha_pwa_boot_rescue_log_v1';
+          var BOOT_TIMEOUT_MS = 5600;
+          var APP_EPOCH = String(window.__TEPIHA_APP_EPOCH || (document.querySelector('meta[name="tepiha-app-epoch"]') || {}).content || '');
+          var BUILD_ID = String(window.__TEPIHA_BUILD_ID || (document.querySelector('meta[name="tepiha-build-id"]') || {}).content || '');
+          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-v2');
+          var INDEX_VERSION = String(window.__TEPIHA_INDEX_SCRIPT_VERSION__ || '');
+          var startedAt = Date.now();
+
+          function safeString(value) {
+            try { return String(value == null ? '' : value); } catch (e) { return ''; }
+          }
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function nowIso() {
+            try { return new Date().toISOString(); } catch (e) { return ''; }
+          }
+          function isStandalone() {
+            try {
+              return !!(
+                (window.navigator && window.navigator.standalone === true) ||
+                (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches)
+              );
+            } catch (e) {
+              return false;
+            }
+          }
+          function forceEnabled() {
+            try {
+              var sp = new URLSearchParams(window.location.search || '');
+              if (sp.get('pwaBootRescue') === '1') return true;
+              if (sp.get('bootRescue') === '1') return true;
+              return localStorage.getItem('tepiha_force_pwa_boot_rescue_v1') === '1';
+            } catch (e) {
+              return false;
+            }
+          }
+          function shouldArm() {
+            return isStandalone() || forceEnabled();
+          }
+          function readStorage(storage, key, fallback) {
+            try {
+              var raw = storage && storage.getItem ? storage.getItem(key) : null;
+              if (!raw) return fallback;
+              return safeParse(raw, raw);
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function readBootMarkers() {
+            var out = {};
+            var keys = [
+              'tepiha_boot_in_progress',
+              'tepiha_boot_current_id',
+              'tepiha_boot_last_success',
+              'tepiha_boot_last_interrupted',
+              'tepiha_boot_trace_last',
+              'tepiha_route_ui_alive_v1',
+              'tepiha_route_alive_v1',
+              'tepiha_root_watchdog_last_v1',
+              'tepiha_module_boot_rescue_v1',
+              'tepiha_module_boot_rescue_log_v1',
+              'tepiha_dom_preheal_last_v1'
+            ];
+            for (var i = 0; i < keys.length; i += 1) {
+              var key = keys[i];
+              try {
+                var raw = localStorage.getItem(key);
+                if (raw) out[key] = safeParse(raw, raw);
+              } catch (e) {}
+              try {
+                var sraw = sessionStorage.getItem(key);
+                if (sraw) out['session:' + key] = safeParse(sraw, sraw);
+              } catch (e) {}
+            }
+            try {
+              var ss = sessionStorage.getItem('__TEPIHA_EARLY_BOOT_ID__');
+              if (ss) out['session:__TEPIHA_EARLY_BOOT_ID__'] = ss;
+            } catch (e) {}
+            try {
+              var iso = sessionStorage.getItem('__TEPIHA_STARTUP_ISOLATION_UNTIL__');
+              if (iso) out['session:__TEPIHA_STARTUP_ISOLATION_UNTIL__'] = iso;
+            } catch (e) {}
+            return out;
+          }
+          function readChunkMarkers() {
+            return {
+              lastChunkCapture: readStorage(localStorage, 'tepiha_chunk_last_capture_v1', null),
+              lastLazyImportAttempt: readStorage(localStorage, 'tepiha_last_lazy_import_attempt_v1', null),
+              lastLazyImportFailure: readStorage(localStorage, 'tepiha_last_lazy_import_failure_v1', null),
+              lazyImportLog: (function(){
+                var list = readStorage(localStorage, 'tepiha_lazy_import_log_v1', []);
+                return Array.isArray(list) ? list.slice(0, 12) : [];
+              })()
+            };
+          }
+          function findSwEpochFromUrl(url) {
+            try {
+              var parsed = new URL(String(url || ''), window.location.origin);
+              return String(parsed.searchParams.get('epoch') || '').trim();
+            } catch (e) {
+              return '';
+            }
+          }
+          function readSwInfo() {
+            var controller = null;
+            try { controller = navigator.serviceWorker && navigator.serviceWorker.controller; } catch (e) {}
+            var scriptURL = '';
+            try { scriptURL = controller && controller.scriptURL ? String(controller.scriptURL) : ''; } catch (e) {}
+            var swEpoch = findSwEpochFromUrl(scriptURL);
+            return {
+              supported: !!(navigator && navigator.serviceWorker),
+              controller: !!controller,
+              controllerScriptURL: scriptURL,
+              controllerEpoch: swEpoch,
+              appEpoch: APP_EPOCH,
+              epochMismatch: !!(APP_EPOCH && swEpoch && APP_EPOCH !== swEpoch)
+            };
+          }
+          async function readCacheKeys() {
+            try {
+              if (!('caches' in window)) return [];
+              var keys = await caches.keys();
+              return Array.isArray(keys) ? keys.slice(0, 80) : [];
+            } catch (e) {
+              return ['CACHE_KEYS_READ_FAILED: ' + safeString(e && e.message || e)];
+            }
+          }
+          function rootState() {
+            var root = null;
+            var cs = null;
+            try { root = document.getElementById('root'); } catch (e) {}
+            try { cs = root && window.getComputedStyle ? window.getComputedStyle(root) : null; } catch (e) {}
+            return {
+              exists: !!root,
+              childElementCount: root && root.childElementCount ? root.childElementCount : 0,
+              textLength: root && root.textContent ? String(root.textContent).trim().length : 0,
+              display: safeString(cs && cs.display),
+              visibility: safeString(cs && cs.visibility),
+              opacity: safeString(cs && cs.opacity),
+              dataUiReadyHtml: safeString(document.documentElement && document.documentElement.getAttribute('data-ui-ready')),
+              dataUiReadyBody: safeString(document.body && document.body.getAttribute('data-ui-ready')),
+              windowUiReady: window.__TEPIHA_UI_READY === true,
+              firstUiReady: window.__TEPIHA_FIRST_UI_READY === true
+            };
+          }
+          function isUiReady() {
+            try {
+              if (window.__TEPIHA_UI_READY === true) return true;
+              if (window.__TEPIHA_FIRST_UI_READY === true) return true;
+              if (document.documentElement && document.documentElement.getAttribute('data-ui-ready') === '1') return true;
+              if (document.body && document.body.getAttribute('data-ui-ready') === '1') return true;
+              return false;
+            } catch (e) {
+              return false;
+            }
+          }
+          function isRootMeaningfullyVisible() {
+            var state = rootState();
+            if (!state.exists) return false;
+            if (state.display === 'none' || state.visibility === 'hidden' || Number(state.opacity || 1) === 0) return false;
+            return Number(state.childElementCount || 0) > 0 || Number(state.textLength || 0) > 0;
+          }
+          async function buildDiag(reason) {
+            var swInfo = readSwInfo();
+            var cacheKeys = await readCacheKeys();
+            var diag = {
+              reason: safeString(reason || 'pwa_boot_timeout'),
+              source: 'index_html_pwa_boot_rescue',
+              sourceLayer: 'index_html',
+              at: nowIso(),
+              ts: Date.now(),
+              startedAt: startedAt,
+              elapsedMs: Math.max(0, Date.now() - startedAt),
+              href: safeString(window.location && window.location.href),
+              path: safeString(window.location && window.location.pathname),
+              search: safeString(window.location && window.location.search),
+              standalone: isStandalone(),
+              forceEnabled: forceEnabled(),
+              online: !!(navigator && navigator.onLine),
+              visibilityState: safeString(document.visibilityState),
+              documentReadyState: safeString(document.readyState),
+              appEpoch: APP_EPOCH,
+              buildId: BUILD_ID,
+              pwaBootRescueVersion: RESCUE_VERSION,
+              indexScriptVersion: INDEX_VERSION,
+              currentIndexAsset: (function(){ try { var scripts = Array.prototype.slice.call(document.scripts || []); for (var i = scripts.length - 1; i >= 0; i -= 1) { var src = String(scripts[i] && scripts[i].src || ''); if (/\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?|$)/i.test(src) || /\/src\/main\.jsx(?:\?|$)/i.test(src)) return src; } } catch (e) {} return ''; })(),
+              bootId: safeString(window.BOOT_ID || readStorage(sessionStorage, 'tepiha_boot_current_id', '') || readStorage(localStorage, 'tepiha_boot_current_id', '')),
+              serviceWorker: swInfo,
+              cacheKeys: cacheKeys,
+              rootState: rootState(),
+              chunkMarkers: readChunkMarkers(),
+              bootMarkers: readBootMarkers(),
+              userAgent: safeString(navigator && navigator.userAgent)
+            };
+            try {
+              var routeEvent = readStorage(sessionStorage, 'tepiha_route_ui_alive_v1', null) || readStorage(localStorage, 'tepiha_route_ui_alive_v1', null);
+              diag.lastRouteEvent = routeEvent;
+            } catch (e) {}
+            try {
+              diag.lastSyncOfflineEvent = {
+                syncDebugLast: readStorage(localStorage, 'tepiha_sync_debug_last_v1', null),
+                offlineLast: readStorage(localStorage, 'tepiha_offline_last_event_v1', null),
+                pendingQueueCount: (function(){
+                  try {
+                    var keys = Object.keys(localStorage || {});
+                    var count = 0;
+                    for (var i = 0; i < keys.length; i += 1) {
+                      if (/outbox|pending|queue/i.test(keys[i] || '')) count += 1;
+                    }
+                    return count;
+                  } catch (e) { return null; }
+                })()
+              };
+            } catch (e) {}
+            return diag;
+          }
+          function appendLog(entry) {
+            try {
+              var list = safeParse(localStorage.getItem(LOG_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 20)));
+            } catch (e) {}
+            try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); } catch (e) {}
+          }
+          function copyText(text) {
+            return new Promise(function(resolve){
+              try {
+                if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(text).then(function(){ resolve(true); }).catch(function(){ resolve(false); });
+                  return;
+                }
+              } catch (e) {}
+              try {
+                var area = document.createElement('textarea');
+                area.value = text;
+                area.setAttribute('readonly', '');
+                area.style.position = 'fixed';
+                area.style.left = '-9999px';
+                area.style.top = '0';
+                document.body.appendChild(area);
+                area.focus();
+                area.select();
+                var ok = !!document.execCommand('copy');
+                document.body.removeChild(area);
+                resolve(ok);
+              } catch (e) {
+                resolve(false);
+              }
+            });
+          }
+          function setStatus(text) {
+            try {
+              var el = document.getElementById('tepiha-pwa-boot-rescue-status');
+              if (el) el.textContent = safeString(text || '');
+            } catch (e) {}
+          }
+          function fallbackTitleForPath() {
+            try {
+              var path = String(window.location && window.location.pathname || '/').replace(/^\/+/, '').replace(/\/+/g, ' / ');
+              if (!path) return 'TEPIHA';
+              return path.toUpperCase();
+            } catch (e) {
+              return 'TEPIHA';
+            }
+          }
+          function fallbackHtml(swInfo) {
+            var mismatch = swInfo && swInfo.epochMismatch;
+            var updateText = mismatch
+              ? '<div style="margin-top:10px;padding:10px;border:1px solid rgba(251,191,36,.35);border-radius:12px;background:rgba(251,191,36,.08);color:#fde68a;font-weight:800">APP-I KA UPDATE. Hape një herë online për rifreskim ose përdor RIPARO APP.</div>'
+              : '';
+            return '' +
+              '<div data-pwa-boot-rescue="1" style="position:fixed;inset:0;z-index:2147483647;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
+                '<div style="width:min(560px,100%);border:1px solid rgba(255,255,255,.14);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
+                  '<div style="font-size:12px;letter-spacing:.16em;color:#93c5fd;font-weight:900;margin-bottom:8px">PWA BOOT RESCUE V2</div>' +
+                  '<div style="font-size:26px;font-weight:1000;line-height:1.05;margin-bottom:8px">TEPIHA NUK U NIS</div>' +
+                  '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">React nuk u montua në kohë në Homescreen/PWA. Kjo duket si Service Worker / cache / shell-chunk mismatch, jo problem me DB ose të dhënat.</div>' +
+                  '<div style="font-size:13px;color:#94a3b8;margin-bottom:12px">Route: <b style="color:#fff">' + fallbackTitleForPath() + '</b></div>' +
+                  updateText +
+                  '<div id="tepiha-pwa-boot-rescue-status" style="min-height:18px;margin:12px 0;color:#bae6fd;font-size:13px;font-weight:800"></div>' +
+                  '<div style="display:grid;grid-template-columns:1fr;gap:10px">' +
+                    '<button id="tepiha-pwa-rescue-retry" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">PROVO PËRSËRI</button>' +
+                    '<a id="tepiha-pwa-rescue-safari" href="' + safeString(window.location && window.location.href).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="text-align:center;text-decoration:none;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">HAP NË SAFARI</a>' +
+                    '<button id="tepiha-pwa-rescue-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">PASTRO CACHE / RIPARO APP</button>' +
+                    '<button id="tepiha-pwa-rescue-copy" type="button" style="border:1px solid rgba(255,255,255,.18);border-radius:14px;background:rgba(255,255,255,.06);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">COPY BOOT DIAG</button>' +
+                  '</div>' +
+                  '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Riparimi fshin vetëm Service Worker-in, TEPIHA runtime caches dhe marker-at e vjetër të boot/chunk. Nuk fshin session, outbox, porosi lokale, ose cache të të dhënave.</div>' +
+                '</div>' +
+              '</div>';
+          }
+          function cacheBustUrl(extra) {
+            try {
+              var url = new URL(window.location.href);
+              url.searchParams.set('pwa_repair', extra || String(Date.now()));
+              url.searchParams.set('t', String(Date.now()));
+              return url.toString();
+            } catch (e) {
+              return '/?pwa_repair=' + Date.now();
+            }
+          }
+          function clearStaleMarkers() {
+            var localKeys = [
+              'tepiha_chunk_last_capture_v1',
+              'tepiha_lazy_import_log_v1',
+              'tepiha_last_lazy_import_failure_v1',
+              'tepiha_last_lazy_import_attempt_v1',
+              'tepiha_early_incident_queue_v1',
+              'tepiha_route_transition_v1',
+              'tepiha_active_route_request_v1',
+              'tepiha_root_resume_panic_snapshot_v1',
+              'tepiha_root_resume_panic_v1',
+              'tepiha_module_boot_rescue_v1',
+              'tepiha_root_watchdog_last_v1',
+              'tepiha_boot_in_progress'
+            ];
+            var sessionKeys = [
+              'tepiha_boot_in_progress',
+              'tepiha_boot_current_id',
+              'tepiha_route_transition_v1',
+              'tepiha_active_route_request_v1',
+              '__TEPIHA_EARLY_BOOT_ID__',
+              '__TEPIHA_STARTUP_ISOLATION_UNTIL__'
+            ];
+            for (var i = 0; i < localKeys.length; i += 1) {
+              try { localStorage.removeItem(localKeys[i]); } catch (e) {}
+            }
+            for (var j = 0; j < sessionKeys.length; j += 1) {
+              try { sessionStorage.removeItem(sessionKeys[j]); } catch (e) {}
+            }
+          }
+          function isTepihaRuntimeCacheName(key) {
+            var value = safeString(key);
+            return /^(assets-|pages-|tepiha-|workbox-|vite-)/i.test(value) || /tepiha/i.test(value);
+          }
+          async function repairApp() {
+            setStatus('Duke riparuar app-in...');
+            var before = await buildDiag('pwa_repair_started');
+            appendLog(before);
+            try {
+              if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                var regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.allSettled((Array.isArray(regs) ? regs : []).map(function(reg){
+                  try { if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch (e) {}
+                  try { if (reg.active) reg.active.postMessage({ type: 'SKIP_WAITING' }); } catch (e) {}
+                  try { return reg.unregister(); } catch (e) { return Promise.resolve(false); }
+                }));
+              }
+            } catch (e) {}
+            try {
+              if ('caches' in window) {
+                var keys = await caches.keys();
+                await Promise.allSettled((Array.isArray(keys) ? keys : []).filter(isTepihaRuntimeCacheName).map(function(key){
+                  try { return caches.delete(key); } catch (e) { return Promise.resolve(false); }
+                }));
+              }
+            } catch (e) {}
+            clearStaleMarkers();
+            var after = await buildDiag('pwa_repair_completed_reload');
+            appendLog(after);
+            setStatus('Riparimi u krye. Duke rifreskuar...');
+            window.setTimeout(function(){ window.location.replace(cacheBustUrl('1')); }, 250);
+          }
+          async function showFallback(reason) {
+            try {
+              if (document.querySelector('[data-pwa-boot-rescue="1"]')) return;
+              var diag = await buildDiag(reason || 'pwa_boot_timeout');
+              appendLog(diag);
+              window.__TEPIHA_PWA_BOOT_RESCUE_VISIBLE__ = true;
+              try { window.dispatchEvent(new CustomEvent('tepiha:pwa-boot-rescue-visible', { detail: diag })); } catch (e) {}
+              var mount = document.createElement('div');
+              mount.id = 'tepiha-pwa-boot-rescue';
+              mount.innerHTML = fallbackHtml(diag.serviceWorker || {});
+              (document.body || document.documentElement).appendChild(mount);
+              try { document.documentElement.setAttribute('data-pwa-boot-rescue', '1'); } catch (e) {}
+              try {
+                var retry = document.getElementById('tepiha-pwa-rescue-retry');
+                if (retry) retry.onclick = function(){
+                  setStatus('Duke provuar përsëri...');
+                  window.location.replace(cacheBustUrl('retry'));
+                };
+              } catch (e) {}
+              try {
+                var copy = document.getElementById('tepiha-pwa-rescue-copy');
+                if (copy) copy.onclick = async function(){
+                  setStatus('Duke përgatitur boot diag...');
+                  var fresh = await buildDiag('copy_boot_diag');
+                  appendLog(fresh);
+                  var ok = await copyText(JSON.stringify(fresh, null, 2));
+                  setStatus(ok ? 'BOOT DIAG U KOPJUA' : 'COPY DËSHTOI - hape /diag-raw në Safari');
+                };
+              } catch (e) {}
+              try {
+                var repair = document.getElementById('tepiha-pwa-rescue-repair');
+                if (repair) repair.onclick = function(){ repairApp().catch(function(error){ setStatus('Riparimi dështoi: ' + safeString(error && error.message || error)); }); };
+              } catch (e) {}
+            } catch (e) {}
+          }
+          function maybeShowFallback(reason) {
+            try {
+              if (isUiReady()) return;
+              if (!isRootMeaningfullyVisible() || !isUiReady()) {
+                showFallback(reason || 'pwa_boot_timeout').catch(function(){});
+              }
+            } catch (e) {}
+          }
+          function checkSwEpochAtLaunch() {
+            try {
+              var info = readSwInfo();
+              window.__TEPIHA_PWA_SW_EPOCH_CHECK__ = {
+                at: nowIso(),
+                standalone: isStandalone(),
+                appEpoch: APP_EPOCH,
+                controllerEpoch: info.controllerEpoch,
+                controller: info.controller,
+                epochMismatch: info.epochMismatch
+              };
+              if (info.epochMismatch) {
+                appendLog({
+                  source: 'index_html_pwa_boot_rescue',
+                  reason: 'pwa_sw_epoch_mismatch_detected',
+                  at: nowIso(),
+                  ts: Date.now(),
+                  serviceWorker: info,
+                  appEpoch: APP_EPOCH,
+                  buildId: BUILD_ID,
+                  href: safeString(window.location && window.location.href)
+                });
+              }
+              return info;
+            } catch (e) {
+              return null;
+            }
+          }
+
+          var launchSwInfo = checkSwEpochAtLaunch();
+
+          if (launchSwInfo && launchSwInfo.epochMismatch && shouldArm()) {
+            try {
+              window.setTimeout(function(){
+                if (window.__TEPIHA_PWA_STALENESS_REPAIR_LAST__) return;
+                repairApp().catch(function(){
+                  try { if (!isUiReady()) showFallback('pwa_sw_epoch_mismatch_launch').catch(function(){}); } catch (e) {}
+                });
+              }, 250);
+            } catch (e) {}
+          }
+
+          if (!shouldArm()) return;
+
+          if (launchSwInfo && launchSwInfo.epochMismatch) {
+            try {
+              window.setTimeout(function(){
+                if (!isUiReady()) showFallback('pwa_sw_epoch_mismatch_launch').catch(function(){});
+              }, 1600);
+            } catch (e) {}
+          }
+
+          try {
+            window.setTimeout(function(){ maybeShowFallback('pwa_boot_timeout_' + BOOT_TIMEOUT_MS); }, BOOT_TIMEOUT_MS);
+            window.setTimeout(function(){ maybeShowFallback('pwa_boot_timeout_late_9000'); }, 9000);
+            window.addEventListener('pageshow', function(){ window.setTimeout(function(){ if (!isUiReady()) maybeShowFallback('pwa_pageshow_no_ui_ready'); }, BOOT_TIMEOUT_MS); }, { passive: true });
+          } catch (e) {}
+        } catch (e) {}
+      })();
+    </script>
+
+  </head>
+  <body style="background:#05070d;color:#fff">
+    <div
+      id="tepiha-build-marker"
+      data-tepiha-build-marker="1"
+      data-app-epoch="RESET-2026-04-24-ROUTE-CONTAINMENT-V1"
+      data-build-id="2.0.3-route-containment-v1"
+      data-index-script-version="index-html-route-containment-v1"
+      data-pwa-boot-rescue-version="pwa-boot-rescue-v2"
+      style="position:fixed;left:8px;bottom:8px;z-index:2147483000;max-width:calc(100vw - 16px);padding:6px 8px;border-radius:10px;background:rgba(2,6,23,.86);border:1px solid rgba(96,165,250,.35);color:#bfdbfe;font:700 10px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;box-shadow:0 8px 28px rgba(0,0,0,.35);transition:opacity .35s ease"
+    >
+      INDEX V2 • 2.0.3-route-containment-v1<br />
+      RESET-2026-04-24-ROUTE-CONTAINMENT-V1<br />
+      PWA RESCUE V2
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+LOGIN SYSTEM RESTORE
+
+U rikthye sjellja e vjetër e login/home nga projekti Next.js referencë.
+
+U rikthyen këto file nga versioni i vjetër:
+- app/page.jsx
+- components/SessionDock.jsx
+
+Qëllimi:
+- me heq top login/logout buttons që u shtuan më vonë
+- me kthy home login system si më parë
+- me përdor SessionDock-in e vjetër në HOME
+
+Nuk u prek DB.
+Nuk u prekën module të tjera.

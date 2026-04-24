@@ -1,0 +1,43 @@
+PATCH_NOTE_PWA_STALENESS_REPAIR_V2
+
+Qëllimi:
+- Ndreq PWA/Homescreen stale shell problem para route patches.
+- Nuk prek DB, write flow, outbox, Supabase payloads, ose business logic.
+
+Ndryshimet kryesore:
+1. index.html
+   - Epoch i ri: RESET-2026-04-24-PWA-STALENESS-V2
+   - Build ID: 2.0.1-pwa-staleness-v2
+   - Shton marker shumë të hershëm dhe të dukshëm: INDEX V2 / epoch / PWA RESCUE V2.
+   - Shton PWA staleness repair v2 në head para React.
+   - Në Homescreen/PWA, nëse HTML epoch nuk përputhet me SW/cache epoch, unregister SW + clear vetëm runtime caches + reload me cache buster.
+   - PWA Boot Rescue kalon në v2 dhe vazhdon me fallback inline kur React nuk montohet ose root mbetet bosh.
+
+2. components/ServiceWorkerRegister.jsx
+   - Kontrollon controller scriptURL epoch para regjistrimit.
+   - Në mismatch, heq SW + runtime caches dhe rifreskon me query repair.
+   - Cache clearing është i filtruar vetëm për runtime caches.
+
+3. public/sw.js
+   - Shton build label sw-pwa-staleness-v2.
+   - clients.claim() pas activate.
+   - PURGE_RUNTIME_CACHES/GET_SW_STATE support.
+   - Purge i vjetër prek vetëm runtime cache buckets.
+
+4. /diag-raw
+   - Shfaq currentIndexAsset.
+   - Shfaq serviceWorkerControllerScriptURL.
+   - Shfaq cacheKeys.
+   - Shfaq standalone.
+   - Shfaq pwaBootRescueLast/log dhe pwaStalenessRepairLast/log.
+
+5. public/pwa-repair.html
+   - Repair manual pa React/chunks.
+   - Mund të hapet direkt: /pwa-repair.html
+   - Fshin vetëm Service Worker + runtime caches.
+   - Nuk fshin session/outbox/local data.
+
+Si me verifiku:
+- Në Homescreen, nëse sheh markerin “INDEX V2 • 2.0.1-pwa-staleness-v2”, HTML i ri është lexuar.
+- Nëse nuk shfaqet as marker as PWA Boot Rescue fallback, Homescreen po lexon ende HTML të vjetër para këtij patch-i.
+- Hap /pwa-repair.html një herë online, shtyp “PASTRO CACHE / RIPARO APP”, pastaj provo Homescreen prapë.

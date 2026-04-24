@@ -1,0 +1,40 @@
+PATCH: /transport/menu safe route shell
+Date: 2026-04-24
+
+Scope:
+- Narrow patch only for /transport/menu module loading isolation.
+- No database changes.
+- No Supabase write-flow changes.
+- No outbox/offline-sync format changes.
+- No global reload or global cache purge added.
+
+Files changed:
+- src/generated/routes.generated.jsx
+  - /transport/menu now uses eager TransportMenuSafeRouteShell.
+  - Removed direct lazy route dependency on @/app/transport/menu/page.jsx for route boot.
+
+- components/TransportMenuSafeRouteShell.jsx
+  - New eager safe shell for /transport/menu.
+  - Lazy-loads @/app/transport/menu/page.jsx inside local boundary.
+  - Shows local loading panel while inner module imports.
+  - Shows local error panel if inner import fails:
+    TRANSPORT MENU NUK U NGARKUA
+    PROVO PËRSËRI
+    KTHEHU TE TRANSPORT BOARD
+    KTHEHU HOME
+  - Retry remounts/re-imports only the inner module.
+  - No window.location.reload().
+
+- lib/lazyImportRuntime.js
+  - Diagnostic-only additions: userAgent, importRetryCount, retryCount in lazy import attempt/success/failure logs.
+
+- components/LocalErrorBoundary.jsx
+  - Diagnostic-only extraMeta support for local import retry/module metadata.
+
+- lib/localErrorLog.js
+  - Diagnostic-only additions: userAgent, importRetryCount, retryCount, requestedModule, importCaller.
+
+Expected result:
+- If @/app/transport/menu/page.jsx fails to import, only /transport/menu shows a local error panel.
+- Home, login, /transport/board, /diag-raw, and other routes remain functional.
+- Logs preserve route, module, error message, import retry count, userAgent, and appEpoch.

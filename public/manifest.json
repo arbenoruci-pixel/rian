@@ -1,0 +1,18 @@
+{
+  "name": "TEPIHA",
+  "short_name": "TEPIHA",
+  "start_url": "/?pwa_start=RESET-2026-04-24-ROUTE-CONTAINMENT-V1",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ],
+  "id": "/?pwa_id=RESET-2026-04-24-ROUTE-CONTAINMENT-V1",
+  "description": "TEPIHA PWA shell repair build"
+}

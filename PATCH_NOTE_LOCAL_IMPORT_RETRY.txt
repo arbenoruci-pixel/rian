@@ -1,0 +1,35 @@
+PATCH: LOCAL IMPORT RETRY FOR SAFE LAZY ROUTES
+
+Scope:
+- Runtime/UI safety only.
+- No DB changes.
+- No Supabase write-flow changes.
+- No outbox format changes.
+- No business logic changes.
+- No service worker doc-cache changes.
+
+Changed files:
+- components/SafeLazyRouteShell.jsx
+- components/LocalErrorBoundary.jsx
+- lib/localErrorLog.js
+
+Behavior:
+- SafeLazyRouteShell now retries route module import locally before showing the error panel.
+- Retry schedule:
+  1) retry after 300ms
+  2) retry after 1200ms
+  3) if still failing, show local error fallback only for that route
+- No global reload is triggered by this route-level failure.
+- Error panel text is route-specific, e.g. "PASTRIMI NUK U NGARKUA".
+- Error panel says the problem appears to be module loading, not data.
+- Local error log includes failed assets, retry count, retry strategy, and route recovered/not recovered fields.
+- Route diag log records:
+  - safe_route_import_retry_scheduled
+  - safe_route_import_retry_start
+  - safe_route_import_recovered
+  - safe_route_import_retry_exhausted
+
+Verification:
+- npm ci completed successfully.
+- Changed files were parsed/bundled individually with esbuild successfully.
+- npm run build started but did not complete in this environment before timeout during Vite "transforming...".

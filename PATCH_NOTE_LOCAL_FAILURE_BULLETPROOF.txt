@@ -1,0 +1,38 @@
+PATCH: LOCAL FAILURE, JO GLOBAL CRASH
+
+Scope:
+- Runtime + UI safety only.
+- Nuk preku DB schema.
+- Nuk preku write flow.
+- Nuk preku outbox format.
+- Nuk preku business logic.
+
+Ndryshime kryesore:
+1) Shtuar components/SafeLazyRouteShell.jsx
+   - RouteShell eager + inner content lazy.
+   - LocalErrorBoundary rreth inner content.
+   - Suspense fallback lokal.
+   - Retry lokal pa window.location.reload().
+   - Gabimet logohen në tepiha_local_error_last_v1 dhe tepiha_local_error_log_v1.
+   - Fallback-u lokal ka PROVO PËRSËRI, KTHEHU HOME, COPY ERROR / COPY LOG.
+
+2) src/generated/routes.generated.jsx
+   - /gati, /pranimi, /pastrimi, /marrje-sot, /arka dhe route-t kryesore të transportit kaluan në SafeLazyRouteShell.
+   - /, /login, /diag-raw, /offline mbetën core/eager/safe.
+   - /diag-raw tash shfaq localErrorLast dhe localErrorLog.
+   - /diag-raw ka buton COPY LOCAL ERROR LOG.
+
+3) components/LocalErrorBoundary.jsx
+   - copyLog kthen success boolean.
+
+4) components/TransportMenuSafeRouteShell.jsx
+   - Shtuar COPY ERROR / COPY LOG në fallback lokal të /transport/menu.
+
+5) src/AppRoot.jsx
+   - Runtime modules u izoluan në SafeRuntimeLazy:
+     ChunkLoadRuntime, RootResumeWatchdog, ServiceWorkerRegister, OfflineSyncRunner, SyncStarter, RuntimeIncidentUploader, SessionDock.
+   - Nëse një runtime module dështon në import/render, del gabim lokal në runtime boundary dhe nuk rrëzohet route aktual.
+
+Verification:
+- npm run build nuk u krye në këtë ambient sepse node_modules mungojnë dhe vite nuk është i instaluar.
+- npm ci u provua, por u ndal nga timeout në ambient.

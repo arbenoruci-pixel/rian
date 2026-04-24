@@ -1,0 +1,29 @@
+MINIMAL RUNTIME ISOLATION PATCH
+
+Qellimi:
+- me e bo runtime-in real minimal per me testu black screen pa motorat post-boot
+
+Ndryshimet:
+1. src/AppRoot.jsx
+   - heq BootReadyMark nga root
+   - heq ServiceWorkerRegister, OfflineSyncRunner, SyncStarter, SessionDock nga runtime aktiv
+   - len vetem AuthGate, GlobalErrorBoundary, ChunkLoadRuntime, Routes, RuntimeIncidentUploader
+
+2. src/generated/routes.generated.jsx
+   - critical routes kalohen eager (jo lazy):
+     /, /login, /pranimi, /pastrimi, /gati, /marrje-sot, /arka,
+     /transport, /transport/board, /transport/login, /transport/pranimi
+
+3. components/AuthGate.jsx
+   - caktivizohen listener-at post-boot:
+     storage, focus, pageshow, online, visibilitychange
+   - nuk behet startup_isolation_retry nga ai effect
+
+4. app/page.jsx
+   - safe flags default kalohen true per home:
+     disableAuthResume, disableSessionDock, disableHomeCacheRead, disableHomeStats, disableHomePopups
+
+Testi i pare pas deploy-it:
+- stale user / telefon qe s'e ka hap app-in prej kohe
+- home -> pranimi -> pastrimi -> gati
+- background 30s -> resume
