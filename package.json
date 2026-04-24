@@ -9,7 +9,9 @@
     "dev:api": "node server/index.mjs --dev",
     "build": "vite build",
     "preview": "vite preview",
-    "server": "node server/index.mjs"
+    "server": "node server/index.mjs",
+    "cycles": "node tools/viteCircularDependencyPlugin.mjs",
+    "cycles:strict": "CIRCULAR_FAIL=1 node tools/viteCircularDependencyPlugin.mjs --fail"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",

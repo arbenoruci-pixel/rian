@@ -1,10 +1,6 @@
 'use client';
 
 import React from 'react';
-import { bootLog } from '@/lib/bootLog';
-import { recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
-import { exportLocalErrorLogText, pushLocalErrorLog } from '@/lib/localErrorLog';
-import { markRouteAlive, markRouteUiAlive } from '@/lib/routeAlive';
 
 function nowIso() {
   try { return new Date().toISOString(); } catch { return ''; }
@@ -14,12 +10,61 @@ function safePath(fallback = '/') {
   try { return String(window.location?.pathname || fallback || '/'); } catch { return String(fallback || '/'); }
 }
 
-function shallowKey(value) {
-  try { return JSON.stringify(value || []); } catch { return String(value || ''); }
+function safeString(value, fallback = '') {
+  try {
+    if (value === null || value === undefined) return fallback;
+    return String(value);
+  } catch {
+    return fallback;
+  }
 }
 
-function compactMessage(error) {
-  return String(error?.message || error || 'UNKNOWN_LOCAL_ERROR');
+function shallowKey(value) {
+  try { return JSON.stringify(value || []); } catch { return safeString(value, ''); }
+}
+
+function errorName(error) {
+  return safeString(error?.name || 'Error', 'Error');
+}
+
+function errorMessage(error) {
+  return safeString(error?.message || error || 'UNKNOWN_LOCAL_ERROR', 'UNKNOWN_LOCAL_ERROR');
+}
+
+function errorStack(error) {
+  return safeString(error?.stack || '', '');
+}
+
+function componentStack(info) {
+  return safeString(info?.componentStack || '', '');
+}
+
+function isTemporalDeadZoneError(error) {
+  const msg = errorMessage(error);
+  return /Cannot access ['"].+['"] before initialization/i.test(msg)
+    || /before initialization/i.test(msg)
+    || /temporal dead zone/i.test(msg);
+}
+
+function markFallbackVisible(detail) {
+  try { window.__TEPIHA_UI_READY = true; } catch {}
+  try { document?.documentElement?.setAttribute?.('data-ui-ready', '1'); } catch {}
+  try { document?.body?.setAttribute?.('data-ui-ready', '1'); } catch {}
+  try { document?.documentElement?.setAttribute?.('data-local-error-boundary-visible', '1'); } catch {}
+  try { document?.body?.setAttribute?.('data-local-error-boundary-visible', '1'); } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent('tepiha:local-error-boundary-visible', { detail }));
+  } catch {}
+}
+
+function pushInlineErrorLog(payload) {
+  try {
+    const key = 'tepiha_local_error_boundary_visible_v1';
+    const current = JSON.parse(localStorage.getItem(key) || '[]');
+    const next = Array.isArray(current) ? current : [];
+    next.unshift(payload);
+    localStorage.setItem(key, JSON.stringify(next.slice(0, 25)));
+  } catch {}
 }
 
 async function copyText(text) {
@@ -28,9 +73,8 @@ async function copyText(text) {
       await navigator.clipboard.writeText(text);
       return true;
     }
-  } catch {
-    // fallback below
-  }
+  } catch {}
+
   try {
     const el = document.createElement('textarea');
     el.value = text;
@@ -49,87 +93,24 @@ async function copyText(text) {
   }
 }
 
-
-function hasUiReadyAlready() {
-  try {
-    if (window.__TEPIHA_UI_READY === true) return true;
-  } catch {}
-  try {
-    if (document?.documentElement?.getAttribute?.('data-ui-ready') === '1') return true;
-  } catch {}
-  try {
-    if (document?.body?.getAttribute?.('data-ui-ready') === '1') return true;
-  } catch {}
-  return false;
+function PreBlock({ label, children }) {
+  const text = safeString(children, '');
+  if (!text) return null;
+  return (
+    <div style={styles.block}>
+      <div style={styles.blockLabel}>{label}</div>
+      <pre style={styles.pre}>{text}</pre>
+    </div>
+  );
 }
 
-function setUiReadyFallbackFlags() {
-  try { window.__TEPIHA_UI_READY = true; } catch {}
-  try { document?.documentElement?.setAttribute?.('data-ui-ready', '1'); } catch {}
-  try { document?.body?.setAttribute?.('data-ui-ready', '1'); } catch {}
-}
-
-function afterFallbackPaint(fn) {
-  try {
-    window.requestAnimationFrame(() => window.requestAnimationFrame(fn));
-    return;
-  } catch {}
-  try { window.setTimeout(fn, 0); } catch {}
-}
-
-function LocalErrorFallbackVisibleMarker({
-  boundaryKind = 'local',
-  routePath = '/',
-  routeName = '',
-  moduleName = '',
-  moduleId = '',
-  componentName = '',
-  entry = null,
-}) {
-  React.useEffect(() => {
-    const path = String(routePath || safePath('/'));
-    const reason = 'local_error_fallback_visible';
-    const detail = {
-      path,
-      route: path,
-      routePath: path,
-      routeName: String(routeName || ''),
-      moduleName: String(moduleName || moduleId || ''),
-      moduleId: String(moduleId || moduleName || ''),
-      componentName: String(componentName || ''),
-      boundaryKind: String(boundaryKind || 'local'),
-      reason,
-      uiReadySource: reason,
-      sourceLayer: 'local_error_boundary_fallback_visible',
-      localErrorFallbackVisible: true,
-      localErrorId: String(entry?.id || ''),
-      ts: Date.now(),
-      at: nowIso(),
-    };
-
-    afterFallbackPaint(() => {
-      const firstReady = !hasUiReadyAlready();
-      try { markRouteAlive(reason, path); } catch {}
-      try { markRouteUiAlive(reason, path, detail); } catch {}
-      try { recordRouteDiagEvent('route_ui_alive', detail); } catch {}
-      try { recordRouteDiagEvent('route_ui_ready', { ...detail, firstReady }); } catch {}
-      if (firstReady) {
-        setUiReadyFallbackFlags();
-        try { bootLog('first_ui_ready', { ...detail, source: reason, page: path, hidden: document?.visibilityState !== 'visible' }); } catch {}
-        try {
-          window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready', {
-            detail: { ...detail, page: path, source: reason, firstReady: true },
-          }));
-        } catch {}
-      } else {
-        setUiReadyFallbackFlags();
-      }
-      try { bootLog('ui_ready', { ...detail, source: reason, page: path, hidden: document?.visibilityState !== 'visible' }); } catch {}
-      try { bootLog('route_ui_ready', { ...detail, source: reason, page: path, hidden: document?.visibilityState !== 'visible' }); } catch {}
-    });
-  }, [boundaryKind, componentName, entry?.id, moduleId, moduleName, routeName, routePath]);
-
-  return null;
+function MetaBox({ label, value }) {
+  return (
+    <div style={styles.metaBox}>
+      <div style={styles.metaLabel}>{label}</div>
+      <div style={styles.metaValue}>{safeString(value, '—') || '—'}</div>
+    </div>
+  );
 }
 
 const styles = {
@@ -137,126 +118,171 @@ const styles = {
     minHeight: '100vh',
     background: '#05070d',
     color: '#fff',
-    padding: 16,
-    fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
-    display: 'grid',
-    alignItems: 'start',
+    padding: 14,
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif',
+    display: 'block',
   },
   moduleShell: {
     width: '100%',
+    minHeight: 180,
     borderRadius: 16,
-    border: '1px solid rgba(248,113,113,0.34)',
-    background: 'rgba(127,29,29,0.20)',
+    border: '1px solid rgba(248,113,113,0.45)',
+    background: 'rgba(127,29,29,0.24)',
     color: '#fff',
     padding: 12,
-    fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif',
+    display: 'block',
   },
   card: {
     width: '100%',
-    maxWidth: 860,
+    maxWidth: 980,
     margin: '0 auto',
     borderRadius: 18,
-    border: '1px solid rgba(248,113,113,0.32)',
-    background: 'rgba(15,23,42,0.92)',
-    boxShadow: '0 18px 40px rgba(0,0,0,0.35)',
+    border: '1px solid rgba(248,113,113,0.58)',
+    background: 'rgba(15,23,42,0.96)',
+    boxShadow: '0 18px 48px rgba(0,0,0,0.42)',
     padding: 16,
   },
   eyebrow: {
-    color: '#fca5a5',
-    fontSize: 12,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    color: '#fecaca',
+    background: 'rgba(185,28,28,0.26)',
+    border: '1px solid rgba(248,113,113,0.35)',
+    borderRadius: 999,
+    padding: '7px 10px',
+    fontSize: 11,
     fontWeight: 950,
-    letterSpacing: 1.2,
+    letterSpacing: 1,
     textTransform: 'uppercase',
   },
   title: {
-    marginTop: 6,
-    fontSize: 20,
+    marginTop: 12,
+    fontSize: 22,
+    lineHeight: 1.1,
     fontWeight: 950,
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
+  },
+  subtitle: {
+    marginTop: 8,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    lineHeight: 1.45,
+    fontWeight: 750,
+  },
+  tdzHint: {
+    marginTop: 12,
+    borderRadius: 14,
+    border: '1px solid rgba(251,191,36,0.45)',
+    background: 'rgba(120,53,15,0.32)',
+    color: '#fde68a',
+    padding: 12,
+    fontSize: 13,
+    fontWeight: 850,
+    lineHeight: 1.45,
   },
   metaGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
     gap: 8,
-    marginTop: 12,
+    marginTop: 14,
   },
   metaBox: {
+    minWidth: 0,
     borderRadius: 12,
     border: '1px solid rgba(255,255,255,0.10)',
     background: 'rgba(255,255,255,0.05)',
     padding: 10,
-    minWidth: 0,
   },
   metaLabel: {
-    opacity: 0.58,
+    opacity: 0.62,
     fontSize: 10,
-    fontWeight: 850,
+    fontWeight: 900,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   metaValue: {
-    marginTop: 4,
+    marginTop: 5,
     fontSize: 12,
-    fontWeight: 800,
+    fontWeight: 820,
     wordBreak: 'break-word',
   },
   message: {
-    marginTop: 12,
-    borderRadius: 12,
-    border: '1px solid rgba(248,113,113,0.22)',
-    background: 'rgba(248,113,113,0.08)',
-    padding: 10,
+    marginTop: 14,
+    borderRadius: 14,
+    border: '1px solid rgba(248,113,113,0.38)',
+    background: 'rgba(248,113,113,0.10)',
+    padding: 12,
     color: '#fecaca',
-    fontSize: 12,
-    fontWeight: 800,
+    fontSize: 13,
+    fontWeight: 900,
     wordBreak: 'break-word',
     whiteSpace: 'pre-wrap',
   },
-  help: {
+  block: {
     marginTop: 12,
-    borderRadius: 12,
-    border: '1px solid rgba(96,165,250,0.24)',
-    background: 'rgba(30,64,175,0.14)',
-    padding: 10,
-    color: '#dbeafe',
-    fontSize: 12,
-    fontWeight: 850,
-    lineHeight: 1.45,
-  },
-  assetList: {
-    marginTop: 10,
-    borderRadius: 12,
+    borderRadius: 14,
     border: '1px solid rgba(255,255,255,0.12)',
-    background: 'rgba(255,255,255,0.05)',
+    background: 'rgba(2,6,23,0.72)',
+    overflow: 'hidden',
+  },
+  blockLabel: {
+    padding: '9px 10px',
+    color: 'rgba(255,255,255,0.70)',
+    background: 'rgba(255,255,255,0.04)',
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    fontSize: 10,
+    fontWeight: 950,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+  },
+  pre: {
+    margin: 0,
     padding: 10,
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 11,
-    fontWeight: 800,
-    wordBreak: 'break-word',
+    maxHeight: 260,
+    overflow: 'auto',
     whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    color: '#e5e7eb',
+    fontSize: 11,
+    lineHeight: 1.45,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
   },
   actions: {
     display: 'flex',
     gap: 8,
     flexWrap: 'wrap',
-    marginTop: 12,
+    marginTop: 14,
   },
   button: {
     appearance: 'none',
     border: '1px solid rgba(255,255,255,0.16)',
-    background: 'rgba(255,255,255,0.08)',
+    background: 'rgba(255,255,255,0.09)',
     color: '#fff',
     borderRadius: 12,
     padding: '10px 12px',
     fontWeight: 950,
-    letterSpacing: 0.5,
+    letterSpacing: 0.45,
     fontSize: 12,
     textDecoration: 'none',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  primaryButton: {
+    background: 'rgba(220,38,38,0.72)',
+    border: '1px solid rgba(248,113,113,0.60)',
+  },
 };
+
+function LocalErrorFallbackVisibleMarker({ detail }) {
+  React.useEffect(() => {
+    markFallbackVisible(detail);
+    pushInlineErrorLog(detail);
+  }, [detail?.id]);
+  return null;
+}
 
 export default class LocalErrorBoundary extends React.Component {
   constructor(props) {
@@ -264,10 +290,12 @@ export default class LocalErrorBoundary extends React.Component {
     this.state = {
       hasError: false,
       error: null,
-      entry: null,
+      componentStack: '',
       copied: false,
       retryCount: 0,
       resetKey: shallowKey(props?.resetKeys),
+      id: '',
+      at: '',
     };
   }
 
@@ -275,42 +303,61 @@ export default class LocalErrorBoundary extends React.Component {
     return {
       hasError: true,
       error: error || new Error('LOCAL_BOUNDARY_ERROR'),
+      at: nowIso(),
+      id: `local_error_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     };
   }
 
   componentDidCatch(error, info) {
-    const extraMeta = this.props.extraMeta && typeof this.props.extraMeta === 'object' ? this.props.extraMeta : {};
-    const errorMeta = error && typeof error === 'object' && error.__tepihaLocalMeta && typeof error.__tepihaLocalMeta === 'object'
-      ? error.__tepihaLocalMeta
-      : {};
-    const mergedMeta = { ...extraMeta, ...errorMeta };
-    const entry = pushLocalErrorLog(error, info, {
-      boundaryKind: this.props.boundaryKind || this.props.kind || mergedMeta.boundaryKind || 'local',
-      route: this.props.routePath || this.props.path || mergedMeta.route || safePath('/'),
-      routePath: this.props.routePath || this.props.path || mergedMeta.routePath || mergedMeta.path || safePath('/'),
-      routeName: this.props.routeName || mergedMeta.routeName || '',
-      moduleName: this.props.moduleName || this.props.moduleId || mergedMeta.moduleName || mergedMeta.moduleId || '',
-      moduleId: this.props.moduleId || mergedMeta.moduleId || '',
-      componentName: this.props.componentName || this.props.name || mergedMeta.componentName || '',
-      sourceLayer: this.props.sourceLayer || mergedMeta.sourceLayer || 'local_error_boundary',
-      componentStack: info?.componentStack || '',
-      extraMeta: mergedMeta,
-      ...mergedMeta,
-      importRetryCount: mergedMeta.importRetryCount,
-      retryCount: mergedMeta.retryCount,
-      requestedModule: mergedMeta.requestedModule,
-      importCaller: mergedMeta.importCaller,
-    });
-    try { this.props.onError?.(entry, error, info); } catch {}
-    this.setState({ entry });
+    const stack = componentStack(info);
+    const detail = this.buildErrorDetail(error, stack);
+    try { this.props.onError?.(detail, error, info); } catch {}
+    this.setState({ componentStack: stack, id: detail.id, at: detail.at });
   }
 
   componentDidUpdate(prevProps) {
     const prevKey = shallowKey(prevProps?.resetKeys);
     const nextKey = shallowKey(this.props?.resetKeys);
     if (prevKey !== nextKey && this.state.hasError) {
-      this.setState({ hasError: false, error: null, entry: null, copied: false, resetKey: nextKey });
+      this.setState({
+        hasError: false,
+        error: null,
+        componentStack: '',
+        copied: false,
+        resetKey: nextKey,
+        id: '',
+        at: '',
+      });
     }
+  }
+
+  buildErrorDetail(error = this.state.error, stack = this.state.componentStack) {
+    const kind = safeString(this.props.boundaryKind || this.props.kind || 'local', 'local');
+    const routePath = safeString(this.props.routePath || this.props.path || safePath('/'), '/');
+    const routeName = safeString(this.props.routeName || routePath || 'ROUTE', 'ROUTE');
+    const moduleName = safeString(this.props.moduleName || this.props.moduleId || '', '');
+    const componentName = safeString(this.props.componentName || this.props.name || routeName || moduleName || 'COMPONENT', 'COMPONENT');
+    const at = this.state.at || nowIso();
+    const id = this.state.id || `local_error_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    return {
+      id,
+      at,
+      boundaryKind: kind,
+      routePath,
+      routeName,
+      moduleName,
+      componentName,
+      sourceLayer: safeString(this.props.sourceLayer || 'local_error_boundary', 'local_error_boundary'),
+      errorName: errorName(error),
+      errorMessage: errorMessage(error),
+      errorStack: errorStack(error),
+      componentStack: safeString(stack, ''),
+      resetKey: shallowKey(this.props?.resetKeys),
+      isTemporalDeadZoneError: isTemporalDeadZoneError(error),
+      userAgent: safeString(typeof navigator !== 'undefined' ? navigator.userAgent : '', ''),
+      href: safeString(typeof window !== 'undefined' ? window.location?.href : '', ''),
+    };
   }
 
   resetLocal = () => {
@@ -318,16 +365,18 @@ export default class LocalErrorBoundary extends React.Component {
     this.setState((state) => ({
       hasError: false,
       error: null,
-      entry: null,
+      componentStack: '',
       copied: false,
       retryCount: state.retryCount + 1,
       resetKey: shallowKey(this.props?.resetKeys),
+      id: '',
+      at: '',
     }));
   };
 
   copyLog = async () => {
-    const text = exportLocalErrorLogText(this.state.entry);
-    const ok = await copyText(text);
+    const detail = this.buildErrorDetail();
+    const ok = await copyText(JSON.stringify(detail, null, 2));
     this.setState({ copied: !!ok });
     try { window.setTimeout(() => this.setState({ copied: false }), 1500); } catch {}
     return !!ok;
@@ -338,76 +387,69 @@ export default class LocalErrorBoundary extends React.Component {
   };
 
   renderFallback() {
-    const kind = String(this.props.boundaryKind || this.props.kind || 'local');
-    const isRoute = kind === 'route';
-    const routePath = String(this.props.routePath || this.props.path || safePath('/'));
-    const routeName = String(this.props.routeName || routePath || 'ROUTE');
-    const moduleName = String(this.props.moduleName || this.props.moduleId || '');
-    const componentName = String(this.props.componentName || this.props.name || routeName || moduleName || 'COMPONENT');
-    const title = this.props.title || (isRoute ? 'ROUTE ERROR — FAQJA U IZOLUA' : 'LOCAL ERROR — MODULI U IZOLUA');
-    const at = this.state.entry?.timestamp || this.state.entry?.at || nowIso();
-    const message = compactMessage(this.state.error);
-    const showHome = this.props.showHome !== false;
+    const detail = this.buildErrorDetail();
+    const isRoute = detail.boundaryKind === 'route';
     const shellStyle = isRoute ? styles.routeShell : styles.moduleShell;
     const cardStyle = isRoute ? styles.card : { ...styles.card, maxWidth: 'none', margin: 0, padding: 12, boxShadow: 'none' };
-    const helpText = String(this.props.helpText || this.props.errorHint || this.state.entry?.meta?.helpText || '');
-    const failedAssets = Array.isArray(this.state.entry?.failedAssets)
-      ? this.state.entry.failedAssets
-      : (Array.isArray(this.state.entry?.meta?.failedAssets) ? this.state.entry.meta.failedAssets : []);
-    const autoRetryCount = Number(this.state.entry?.autoRetryCount ?? this.state.entry?.meta?.autoRetryCount ?? 0) || 0;
-    const routeRecovered = this.state.entry?.routeRecovered ?? this.state.entry?.meta?.routeRecovered;
-    const repairHref = String(this.props.repairHref || this.state.entry?.repairHref || this.state.entry?.meta?.repairHref || '');
-    const repairLabel = String(this.props.repairLabel || this.state.entry?.repairLabel || this.state.entry?.meta?.repairLabel || 'RIPARO APP');
+    const title = safeString(this.props.title || (isRoute ? 'ROUTE ERROR — FAQJA U IZOLUA' : 'LOCAL ERROR — MODULI U IZOLUA'), 'LOCAL ERROR');
+    const showHome = this.props.showHome !== false;
+    const repairHref = safeString(this.props.repairHref || '', '');
+    const repairLabel = safeString(this.props.repairLabel || 'RIPARO APP', 'RIPARO APP');
+    const helpText = safeString(this.props.helpText || this.props.errorHint || '', '');
 
     const fallback = (
-      <div style={shellStyle} data-local-error-boundary="1" data-local-error-kind={kind} data-local-error-path={routePath}>
-        <LocalErrorFallbackVisibleMarker
-          boundaryKind={kind}
-          routePath={routePath}
-          routeName={routeName}
-          moduleName={moduleName}
-          moduleId={this.props.moduleId || moduleName}
-          componentName={componentName}
-          entry={this.state.entry}
-        />
+      <div
+        style={shellStyle}
+        data-local-error-boundary="1"
+        data-local-error-kind={detail.boundaryKind}
+        data-local-error-path={detail.routePath}
+      >
+        <LocalErrorFallbackVisibleMarker detail={detail} />
         <div style={cardStyle}>
-          <div style={styles.eyebrow}>{title}</div>
-          <div style={styles.title}>{componentName || routeName}</div>
-          <div style={styles.metaGrid}>
-            <div style={styles.metaBox}>
-              <div style={styles.metaLabel}>PATH</div>
-              <div style={styles.metaValue}>{routePath}</div>
-            </div>
-            <div style={styles.metaBox}>
-              <div style={styles.metaLabel}>ROUTE / COMPONENT</div>
-              <div style={styles.metaValue}>{routeName || componentName}</div>
-            </div>
-            <div style={styles.metaBox}>
-              <div style={styles.metaLabel}>MODULE</div>
-              <div style={styles.metaValue}>{moduleName || '—'}</div>
-            </div>
-            <div style={styles.metaBox}>
-              <div style={styles.metaLabel}>TIMESTAMP</div>
-              <div style={styles.metaValue}>{at}</div>
-            </div>
-            <div style={styles.metaBox}>
-              <div style={styles.metaLabel}>LOCAL RETRY</div>
-              <div style={styles.metaValue}>AUTO: {autoRetryCount} · RECOVERED: {String(routeRecovered ?? false)}</div>
-            </div>
+          <div style={styles.eyebrow}>⚠ {title}</div>
+          <div style={styles.title}>{detail.componentName || detail.routeName}</div>
+          <div style={styles.subtitle}>
+            Gabimi u kap lokalisht. App-i nuk duhet të mbetet ekran i zi; ky panel tregon komponentin, mesazhin dhe stack-un që duhet me u ndreq.
           </div>
-          {helpText ? <div style={styles.help}>{helpText}</div> : null}
-          <div style={styles.message}>{message}</div>
-          {failedAssets.length ? (
-            <div style={styles.assetList}>
-              <div style={styles.metaLabel}>FAILED ASSETS</div>
-              {failedAssets.slice(0, 8).map((asset) => <div key={asset}>{asset}</div>)}
+
+          {detail.isTemporalDeadZoneError ? (
+            <div style={styles.tdzHint}>
+              Ky mesazh zakonisht vjen nga circular dependency në Vite/Rollup. Shiko “COMPONENT STACK” dhe pastaj terminalin nga circular-deps scanner për zinxhirin e import-eve.
             </div>
           ) : null}
+
+          {helpText ? <div style={styles.tdzHint}>{helpText}</div> : null}
+
+          <div style={styles.metaGrid}>
+            <MetaBox label="PATH" value={detail.routePath} />
+            <MetaBox label="ROUTE" value={detail.routeName} />
+            <MetaBox label="MODULE" value={detail.moduleName} />
+            <MetaBox label="COMPONENT" value={detail.componentName} />
+            <MetaBox label="SOURCE" value={detail.sourceLayer} />
+            <MetaBox label="TIME" value={detail.at} />
+          </div>
+
+          <div style={styles.message}>
+            {detail.errorName}: {detail.errorMessage}
+          </div>
+
+          <PreBlock label="COMPONENT STACK">
+            {detail.componentStack || 'Nuk erdhi componentStack nga React për këtë gabim.'}
+          </PreBlock>
+          <PreBlock label="ERROR STACK">
+            {detail.errorStack || 'Nuk erdhi error.stack nga browser-i.'}
+          </PreBlock>
+          <PreBlock label="COPY JSON">
+            {JSON.stringify(detail, null, 2)}
+          </PreBlock>
+
           <div style={styles.actions}>
+            <button type="button" style={{ ...styles.button, ...styles.primaryButton }} onClick={this.copyLog}>
+              {this.state.copied ? 'U KOPJUA' : 'COPY ERROR JSON'}
+            </button>
             <button type="button" style={styles.button} onClick={this.resetLocal}>PROVO PËRSËRI</button>
             {showHome ? <button type="button" style={styles.button} onClick={this.goHome}>KTHEHU NË HOME</button> : null}
             {repairHref ? <a style={styles.button} href={repairHref}>{repairLabel}</a> : null}
-            <button type="button" style={styles.button} onClick={this.copyLog}>{this.state.copied ? 'U KOPJUA' : 'COPY ERROR / COPY LOG'}</button>
           </div>
         </div>
       </div>
@@ -417,8 +459,9 @@ export default class LocalErrorBoundary extends React.Component {
       try {
         return this.props.renderFallback({
           error: this.state.error,
-          entry: this.state.entry,
-          message,
+          entry: detail,
+          message: detail.errorMessage,
+          componentStack: detail.componentStack,
           retry: this.resetLocal,
           copyLog: this.copyLog,
           goHome: this.goHome,

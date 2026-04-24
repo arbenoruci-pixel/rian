@@ -1,0 +1,41 @@
+PATCH: Render Error Visibility + Vite Circular Dependency Scanner
+
+Files changed:
+- components/LocalErrorBoundary.jsx
+- vite.config.js
+- package.json
+- tools/viteCircularDependencyPlugin.mjs
+
+What changed:
+1) LocalErrorBoundary now renders a visible red diagnostic panel instead of allowing a black screen.
+   It shows:
+   - error.name
+   - error.message
+   - route path
+   - route/module/component props
+   - React componentStack
+   - browser error.stack
+   - copyable JSON
+   - TDZ/circular dependency hint for "Cannot access X before initialization"
+
+2) LocalErrorBoundary was rewritten with only React as a top-level import.
+   This intentionally avoids importing diagnostic helpers from other project files, because those helpers can themselves participate in circular imports during Vite/Rollup migration.
+
+3) Vite now runs a local circular dependency reporter during dev and build.
+   It requires no new npm dependency.
+   It scans local imports using:
+   - relative imports: ./ and ../
+   - alias imports: @/
+   - static imports
+   - export-from imports
+   - dynamic import('...')
+
+4) Commands:
+   - npm run dev      -> prints cycles on Vite startup and after code changes
+   - npm run build    -> prints cycles during build
+   - npm run cycles   -> scans immediately without starting Vite
+   - CIRCULAR_FAIL=1 npm run build -> fails build if cycles exist
+   - npm run cycles:strict -> fails if cycles exist
+
+Important:
+This patch only exposes and reports the circular imports. It does not automatically break them. Once terminal prints a cycle, fix the cycle by moving shared constants/helpers/types into a third neutral file, or by replacing one side of the loop with a dynamic import where appropriate.

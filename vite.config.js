@@ -1,11 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import circularDependencyReporter, { circularDependencyReporterBuild } from './tools/viteCircularDependencyPlugin.mjs';
 
 const rootDir = path.resolve(__dirname);
 
 export default defineConfig({
   plugins: [
+    circularDependencyReporter({ failOnError: process.env.CIRCULAR_FAIL === '1' }),
+    circularDependencyReporterBuild({ failOnError: process.env.CIRCULAR_FAIL === '1' }),
     react({
       babel: {
         plugins: ['styled-jsx/babel'],
