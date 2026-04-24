@@ -1,0 +1,17 @@
+TEPIHA Circular TDZ Fix V1
+
+Files included:
+- tools/apply-circular-fix.mjs
+- README_CIRCULAR_FIX.md
+
+This patcher edits the existing project files in place and creates `.bak-circular-tdz-v1` backups.
+
+Targeted fix:
+- Breaks static import edge from offlineStore -> baseMasterCache.
+- Breaks static import edges from syncManager -> offlineStore / syncEngine / baseMasterCache / syncRecovery.
+- Breaks static import edge from syncRecovery -> offlineStore.
+- Moves baseMasterCache APP_DATA_EPOCH import from versionGuard to appEpoch.
+
+Run:
+node tools/apply-circular-fix.mjs .
+npm run build
