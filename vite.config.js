@@ -20,7 +20,7 @@ export default defineConfig({
     VitePWA({
       strategies: 'generateSW',
       filename: 'vite-sw.js',
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       injectRegister: null,
       includeAssets: [
         'favicon.ico',
@@ -60,8 +60,10 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,webmanifest,json,woff2}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         cleanupOutdatedCaches: true,
-        clientsClaim: true,
-        skipWaiting: true,
+        // Keep updates passive during an active iOS PWA session.
+        // The waiting worker is activated only after the user presses PËRDITËSO or on a clean launch.
+        clientsClaim: false,
+        skipWaiting: false,
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [
           /^\/api/,

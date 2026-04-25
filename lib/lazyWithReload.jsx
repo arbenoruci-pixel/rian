@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 
 const DEFAULT_RELOAD_WINDOW_MS = 30000;
 const DEFAULT_STORAGE_PREFIX = 'tepiha_lazy_reload_once_v1';
 const LAST_ERROR_KEY = 'tepiha_lazy_reload_last_error_v1';
+const UPDATE_AVAILABLE_KEY = 'tepiha_update_available_v1';
+const UPDATE_AVAILABLE_EVENT = 'tepiha:update-available';
+const MANUAL_UPDATE_TIMEOUT_MS = 15000;
 
 function safeString(value, fallback = '') {
   try {
@@ -80,72 +83,17 @@ function runtimeSnapshot(extra = {}) {
   };
 }
 
-function darkReloadComponentFactory({ title, text, reason, reloadBlocked }) {
-  return function LazyReloadDarkFallback() {
-    return (
-      <div
-        data-lazy-with-reload-fallback="1"
-        data-lazy-with-reload-reason={safeString(reason, 'dynamic_import_failed')}
-        data-lazy-with-reload-blocked={reloadBlocked ? '1' : '0'}
-        style={{
-          minHeight: '100vh',
-          backgroundColor: '#0f172a',
-          color: '#e5e7eb',
-          display: 'grid',
-          placeItems: 'center',
-          padding: 18,
-          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-        }}
-      >
-        <div
-          style={{
-            width: '100%',
-            maxWidth: 560,
-            borderRadius: 20,
-            border: '1px solid rgba(148, 163, 184, 0.35)',
-            backgroundColor: 'rgba(15, 23, 42, 0.96)',
-            boxShadow: '0 22px 55px rgba(0,0,0,0.35)',
-            padding: 18,
-          }}
-        >
-          <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1.1, color: '#93c5fd' }}>
-            APP UPDATE
-          </div>
-          <div style={{ marginTop: 8, fontSize: 22, lineHeight: 1.15, fontWeight: 1000 }}>
-            {title || (reloadBlocked ? 'MODULI NUK U NGARKUA' : 'DUKE RIFRESKUAR APP-IN')}
-          </div>
-          <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.45, color: 'rgba(226,232,240,0.82)', fontWeight: 700 }}>
-            {text || (reloadBlocked
-              ? 'U ndalua reload-i i dytë për të shmangur loop. Mbylle dhe hape aplikacionin përsëri ose përdor RIPARO APP.'
-              : 'U gjet një chunk i vjetër pas deploy-it. App-i po rifreskohet për ta marrë versionin e ri.')}
-          </div>
-          {reloadBlocked ? (
-            <a
-              href="/pwa-repair.html?from=lazy_reload_blocked"
-              style={{
-                display: 'inline-flex',
-                marginTop: 14,
-                minHeight: 42,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 14,
-                padding: '0 14px',
-                backgroundColor: '#2563eb',
-                color: '#fff',
-                textDecoration: 'none',
-                fontWeight: 950,
-              }}
-            >
-              RIPARO APP
-            </a>
-          ) : null}
-        </div>
-      </div>
-    );
-  };
+function dispatchUpdateAvailable(payload) {
+  try {
+    window.__TEPIHA_UPDATE_AVAILABLE__ = payload;
+  } catch {}
+
+  try {
+    window.dispatchEvent(new CustomEvent(UPDATE_AVAILABLE_EVENT, { detail: payload }));
+  } catch {}
 }
 
-export function reloadPageOnce(reason = 'dynamic_import_failed', options = {}) {
+function markUpdateAvailable(reason = 'dynamic_import_failed', options = {}) {
   if (typeof window === 'undefined') {
     return { scheduled: false, blocked: true, reason: 'server_runtime' };
   }
@@ -159,7 +107,7 @@ export function reloadPageOnce(reason = 'dynamic_import_failed', options = {}) {
   const previous = readJson(storage, storageKey, null);
   const previousTs = Number(previous?.ts || 0) || 0;
   const offlineNow = (() => { try { return navigator.onLine === false; } catch { return false; } })();
-  const blocked = offlineNow || !!(previousTs && now - previousTs < windowMs);
+  const duplicateWithinWindow = !!(previousTs && now - previousTs < windowMs);
 
   const payload = runtimeSnapshot({
     reason: safeString(reason, 'dynamic_import_failed'),
@@ -167,33 +115,186 @@ export function reloadPageOnce(reason = 'dynamic_import_failed', options = {}) {
     keySeed: safeString(keySeed, ''),
     reloadWindowMs: windowMs,
     previousTs,
-    blocked,
+    blocked: true,
     offlineNow,
+    duplicateWithinWindow,
+    passiveUpdate: true,
+    autoReloadDisabled: true,
+    manualUpdateOnly: true,
     error: options.error ? normalizeError(options.error) : null,
     meta: options.meta || null,
   });
 
   writeJson(localStorageRef, LAST_ERROR_KEY, payload);
+  writeJson(localStorageRef, UPDATE_AVAILABLE_KEY, payload);
 
-  if (blocked) {
-    return { scheduled: false, blocked: true, offline: offlineNow, storageKey, payload };
+  if (!duplicateWithinWindow) {
+    writeJson(storage, storageKey, payload);
   }
 
-  writeJson(storage, storageKey, payload);
+  dispatchUpdateAvailable(payload);
+
+  return {
+    scheduled: false,
+    blocked: true,
+    passive: true,
+    offline: offlineNow,
+    storageKey,
+    payload,
+  };
+}
+
+function requestManualUpdate(setStatus) {
+  if (typeof window === 'undefined') return;
+
+  const startedAt = safeNow();
+  let escaped = false;
+
+  const setSafeStatus = (text) => {
+    try { if (typeof setStatus === 'function') setStatus(text); } catch {}
+  };
+
+  setSafeStatus('Duke përgatitur përditësimin...');
 
   try {
-    window.setTimeout(() => {
-      try {
-        window.location.reload(true);
-      } catch {
-        try { window.location.reload(); } catch {}
-      }
-    }, Number(options.delayMs ?? 80) || 80);
-  } catch {
-    try { window.location.reload(true); } catch { try { window.location.reload(); } catch {} }
-  }
+    window.sessionStorage?.setItem?.(
+      'tepiha_manual_update_requested_v1',
+      JSON.stringify({ at: new Date(startedAt).toISOString(), ts: startedAt, source: 'lazy_with_reload_banner' }),
+    );
+  } catch {}
 
-  return { scheduled: true, blocked: false, storageKey, payload };
+  const escapeTimer = (() => {
+    try {
+      return window.setTimeout(() => {
+        escaped = true;
+        setSafeStatus('Përditësimi nuk u krye automatikisht. App-i mund të vazhdojë; provo prapë më vonë ose hape nga fillimi.');
+      }, MANUAL_UPDATE_TIMEOUT_MS);
+    } catch {
+      return null;
+    }
+  })();
+
+  const finishWithReload = () => {
+    if (escaped) return;
+    try { if (escapeTimer) window.clearTimeout(escapeTimer); } catch {}
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('__manual_update', String(Date.now()));
+      window.location.replace(url.toString());
+      return;
+    } catch {}
+
+    try { window.location.reload(); } catch {}
+  };
+
+  try {
+    if (navigator.serviceWorker && typeof navigator.serviceWorker.getRegistration === 'function') {
+      Promise.resolve(navigator.serviceWorker.getRegistration())
+        .then((registration) => {
+          try { registration?.waiting?.postMessage?.({ type: 'SKIP_WAITING' }); } catch {}
+          finishWithReload();
+        })
+        .catch(() => finishWithReload());
+      return;
+    }
+  } catch {}
+
+  finishWithReload();
+}
+
+function LazyUpdateAvailableFallback({ payload, reloadBlocked }) {
+  const [status, setStatus] = useState('');
+
+  const detail = useMemo(() => {
+    const label = safeString(payload?.meta?.label || payload?.keySeed || '', 'moduli');
+    const offline = payload?.offlineNow === true;
+    return { label, offline };
+  }, [payload]);
+
+  return (
+    <div
+      data-lazy-with-reload-fallback="1"
+      data-lazy-with-reload-passive="1"
+      data-lazy-with-reload-blocked={reloadBlocked ? '1' : '0'}
+      style={{
+        position: 'fixed',
+        left: 10,
+        right: 10,
+        bottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
+        zIndex: 2147482600,
+        display: 'flex',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: 560,
+          borderRadius: 18,
+          border: '1px solid rgba(96, 165, 250, 0.38)',
+          backgroundColor: 'rgba(15, 23, 42, 0.97)',
+          boxShadow: '0 18px 45px rgba(0,0,0,0.42)',
+          padding: 12,
+          color: '#e5e7eb',
+          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          pointerEvents: 'auto',
+        }}
+      >
+        <div style={{ fontSize: 11, fontWeight: 1000, letterSpacing: 1.1, color: '#93c5fd' }}>
+          VERSION I RI GATI
+        </div>
+        <div style={{ marginTop: 5, fontSize: 15, lineHeight: 1.25, fontWeight: 950 }}>
+          Rifresko kur të kesh kohë.
+        </div>
+        <div style={{ marginTop: 5, fontSize: 12.5, lineHeight: 1.35, color: 'rgba(226,232,240,0.82)', fontWeight: 700 }}>
+          U kap një chunk i vjetër te {detail.label}. App-i nuk po bëhet force-refresh gjatë punës.
+          {detail.offline ? ' Je offline, prandaj përditësimi pret derisa të kesh internet.' : ''}
+        </div>
+        {status ? (
+          <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.35, color: '#bae6fd', fontWeight: 850 }}>
+            {status}
+          </div>
+        ) : null}
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => requestManualUpdate(setStatus)}
+            style={{
+              border: 0,
+              borderRadius: 12,
+              padding: '10px 12px',
+              backgroundColor: '#2563eb',
+              color: '#fff',
+              fontWeight: 1000,
+              fontSize: 13,
+            }}
+          >
+            PËRDITËSO
+          </button>
+          <a
+            href="/"
+            style={{
+              borderRadius: 12,
+              padding: '10px 12px',
+              backgroundColor: 'rgba(255,255,255,0.08)',
+              color: '#fff',
+              textDecoration: 'none',
+              fontWeight: 950,
+              fontSize: 13,
+            }}
+          >
+            HOME
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Kept for compatibility with older callers. It now records “update available” and never force-refreshes.
+export function reloadPageOnce(reason = 'dynamic_import_failed', options = {}) {
+  return markUpdateAvailable(reason, options);
 }
 
 export function lazyWithReload(importer, options = {}) {
@@ -203,7 +304,7 @@ export function lazyWithReload(importer, options = {}) {
     try {
       return await importer();
     } catch (error) {
-      const result = reloadPageOnce('dynamic_import_failed', {
+      const result = markUpdateAvailable('dynamic_import_failed', {
         ...options,
         label,
         error,
@@ -214,13 +315,11 @@ export function lazyWithReload(importer, options = {}) {
         },
       });
 
-      const ReloadingFallback = darkReloadComponentFactory({
-        reason: 'dynamic_import_failed',
-        reloadBlocked: !!result.blocked,
-        title: result.blocked ? 'MODULI NUK U NGARKUA' : 'DUKE RIFRESKUAR APP-IN',
-      });
+      const PassiveUpdateFallback = function PassiveLazyUpdateFallback() {
+        return <LazyUpdateAvailableFallback payload={result.payload} reloadBlocked={!!result.blocked} />;
+      };
 
-      return { default: ReloadingFallback };
+      return { default: PassiveUpdateFallback };
     }
   });
 }
