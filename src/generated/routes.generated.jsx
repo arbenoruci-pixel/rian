@@ -23,13 +23,13 @@ import GatiPageEager from '@/app/gati/page.jsx';
 import MarrjeSotPageEager from '@/app/marrje-sot/page.jsx';
 import PastrimiPageEager from '@/app/pastrimi/page.jsx';
 import PranimiPageEager from '@/app/pranimi/page.jsx';
+import ArkaPuntorPageEager from '@/app/arka/puntor/[pin]/page.jsx';
 
-// V8 core-eager alignment: keep the four daily base routes static/eager so workers do not get stuck behind dynamic route chunks after deploy. Heavy ARKA/TRANSPORT routes stay behind SafeLazyRouteShell.
+// V15 route alignment: keep daily base routes static/eager; keep ARKA worker detail eager to avoid dynamic chunk/default-export lazy failures. Other heavy ARKA/TRANSPORT routes stay behind SafeLazyRouteShell.
 
 const Page0 = lazyRoute(() => import('@/app/arka/buxheti/page.jsx'), '@/app/arka/buxheti/page.jsx');
 const Page1 = lazyRoute(() => import('@/app/arka/obligimet/page.jsx'), '@/app/arka/obligimet/page.jsx');
 const Page3 = lazyRoute(() => import('@/app/arka/payroll/page.jsx'), '@/app/arka/payroll/page.jsx');
-const Page4 = lazyRoute(() => import('@/app/arka/puntor/[pin]/page.jsx'), '@/app/arka/puntor/[pin]/page.jsx');
 const Page5 = lazyRoute(() => import('@/app/arka/stafi/page.jsx'), '@/app/arka/stafi/page.jsx');
 const Page6 = lazyRoute(() => import('@/app/baza/page.jsx'), '@/app/baza/page.jsx');
 const Page7 = lazyRoute(() => import('@/app/debug-lite/page.jsx'), '@/app/debug-lite/page.jsx');
@@ -528,7 +528,7 @@ export const appRoutes = [
   { path: '/arka/obligimet', element: safeLazyElement('/arka/obligimet', () => import('@/app/arka/obligimet/page.jsx'), '@/app/arka/obligimet/page.jsx', 'ARKA OBLIGIMET') },
   { path: '/arka', element: safeLazyElement('/arka', () => import('@/app/arka/page.jsx'), '@/app/arka/page.jsx', 'ARKA') },
   { path: '/arka/payroll', element: safeLazyElement('/arka/payroll', () => import('@/app/arka/payroll/page.jsx'), '@/app/arka/payroll/page.jsx', 'ARKA PAYROLL') },
-  { path: '/arka/puntor/:pin', element: safeLazyElement('/arka/puntor/:pin', () => import('@/app/arka/puntor/[pin]/page.jsx'), '@/app/arka/puntor/[pin]/page.jsx', 'ARKA PUNTOR') },
+  { path: '/arka/puntor/:pin', element: eagerElement(ArkaPuntorPageEager, '/arka/puntor/:pin') },
   { path: '/arka/stafi', element: safeLazyElement('/arka/stafi', () => import('@/app/arka/stafi/page.jsx'), '@/app/arka/stafi/page.jsx', 'ARKA STAFI') },
   { path: '/baza', element: lazyElement(Page6, '/baza') },
   { path: '/debug-lite', element: lazyElement(Page7, '/debug-lite') },

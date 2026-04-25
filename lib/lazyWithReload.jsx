@@ -66,6 +66,47 @@ function normalizeError(error) {
   };
 }
 
+
+function isLikelyReactComponent(value) {
+  if (typeof value === 'function') return true;
+  if (value && typeof value === 'object') {
+    try {
+      const marker = String(value.$$typeof || '');
+      if (marker.includes('react.')) return true;
+    } catch {}
+  }
+  return false;
+}
+
+function createLazyDefaultExportError(meta = {}) {
+  const moduleId = safeString(meta.moduleId || meta.label || meta.storageKey || 'UNKNOWN_MODULE', 'UNKNOWN_MODULE');
+  const error = new Error(`LAZY_MODULE_DEFAULT_EXPORT_MISSING: ${moduleId}`);
+  try { error.name = 'LazyModuleDefaultExportMissing'; } catch {}
+  try { error.code = 'LAZY_MODULE_DEFAULT_EXPORT_MISSING'; } catch {}
+  try {
+    error.__tepihaLazyDefaultExportMissing = true;
+    error.__tepihaLazyModuleMeta = runtimeSnapshot({
+      moduleId,
+      label: safeString(meta.label || moduleId, moduleId),
+      sourceLayer: safeString(meta.sourceLayer || 'lazy_with_reload', 'lazy_with_reload'),
+      importCaller: safeString(meta.importCaller || '', ''),
+    });
+  } catch {}
+  return error;
+}
+
+function normalizeLazyModuleResult(result, meta = {}) {
+  if (isLikelyReactComponent(result)) {
+    return { default: result };
+  }
+
+  if (result && typeof result === 'object' && isLikelyReactComponent(result.default)) {
+    return result;
+  }
+
+  throw createLazyDefaultExportError(meta);
+}
+
 function runtimeSnapshot(extra = {}) {
   const now = safeNow();
   return {
@@ -301,16 +342,30 @@ export function lazyWithReload(importer, options = {}) {
 
   return React.lazy(async () => {
     try {
-      return await importer();
+      const mod = await importer();
+      return normalizeLazyModuleResult(mod, {
+        ...options,
+        label,
+        moduleId: options.moduleId || options.meta?.moduleId || label,
+        sourceLayer: options.sourceLayer || options.meta?.sourceLayer || 'lazy_with_reload',
+        importCaller: options.meta?.importCaller || 'lazyWithReload',
+      });
     } catch (error) {
-      const result = markUpdateAvailable('dynamic_import_failed', {
+      const missingDefaultCode = error?.code === 'SAFE_ROUTE_DEFAULT_EXPORT_MISSING'
+        ? 'SAFE_ROUTE_DEFAULT_EXPORT_MISSING'
+        : (error?.__tepihaLazyDefaultExportMissing || error?.code === 'LAZY_MODULE_DEFAULT_EXPORT_MISSING' ? 'LAZY_MODULE_DEFAULT_EXPORT_MISSING' : '');
+      const isDefaultExportMissing = !!missingDefaultCode;
+      const result = markUpdateAvailable(missingDefaultCode || 'dynamic_import_failed', {
         ...options,
         label,
         error,
         meta: {
           ...(options.meta || {}),
           label,
-          sourceLayer: options.sourceLayer || 'lazy_with_reload',
+          moduleId: options.moduleId || options.meta?.moduleId || label,
+          sourceLayer: options.sourceLayer || options.meta?.sourceLayer || 'lazy_with_reload',
+          defaultExportMissing: isDefaultExportMissing,
+          code: missingDefaultCode || undefined,
         },
       });
 

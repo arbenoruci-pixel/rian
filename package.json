@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.18-vite-localfirst-sync-owner-v14-1",
+  "version": "2.0.19-vite-arka-lazy-hardening-v15",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",

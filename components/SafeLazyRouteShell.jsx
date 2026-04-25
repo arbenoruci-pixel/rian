@@ -82,6 +82,50 @@ function withTimeout(promise, timeoutMs, meta = {}) {
   });
 }
 
+
+function isLikelyReactComponent(value) {
+  if (typeof value === 'function') return true;
+  if (value && typeof value === 'object') {
+    try {
+      const marker = String(value.$$typeof || '');
+      if (marker.includes('react.')) return true;
+    } catch {}
+  }
+  return false;
+}
+
+function createSafeRouteDefaultExportError(meta = {}) {
+  const moduleId = safeString(meta?.moduleId || meta?.requestedModule || meta?.label || 'UNKNOWN_MODULE', 'UNKNOWN_MODULE');
+  const error = new Error(`SAFE_ROUTE_DEFAULT_EXPORT_MISSING: ${moduleId}`);
+  try { error.name = 'SafeRouteDefaultExportMissing'; } catch {}
+  try { error.code = 'SAFE_ROUTE_DEFAULT_EXPORT_MISSING'; } catch {}
+  try {
+    error.__tepihaSafeRouteDefaultExportMissing = true;
+    error.__tepihaLocalMeta = {
+      moduleId,
+      label: safeString(meta?.label || moduleId, moduleId),
+      path: safeString(meta?.path || meta?.route || '', ''),
+      route: safeString(meta?.route || meta?.path || '', ''),
+      componentName: safeString(meta?.componentName || '', ''),
+      sourceLayer: 'safe_lazy_route_shell',
+      ...currentRuntimeContext(),
+    };
+  } catch {}
+  return error;
+}
+
+function normalizeSafeRouteModuleResult(result, meta = {}) {
+  if (isLikelyReactComponent(result)) {
+    return { default: result };
+  }
+
+  if (result && typeof result === 'object' && isLikelyReactComponent(result.default)) {
+    return result;
+  }
+
+  throw createSafeRouteDefaultExportError(meta);
+}
+
 function normalizeError(error) {
   return {
     name: safeString(error?.name, ''),
@@ -155,7 +199,7 @@ async function loadRouteModuleWithLocalRetry(importer, meta = {}) {
       autoRetryCount: attempt,
       maxAutoRetries,
       retryDelayPlanMs: LOCAL_IMPORT_RETRY_DELAYS_MS,
-      importTimeoutMs: LOCAL_IMPORT_TIMEOUT_MS,
+    importTimeoutMs: LOCAL_IMPORT_TIMEOUT_MS,
       importRetryCount: attempt,
       retryCount: Number(meta?.retryCount || 0) || 0,
     };
@@ -179,7 +223,8 @@ async function loadRouteModuleWithLocalRetry(importer, meta = {}) {
     }
 
     try {
-      const mod = await withTimeout(loadLazyModule(importer, attemptMeta), LOCAL_IMPORT_TIMEOUT_MS, attemptMeta);
+      const loaded = await withTimeout(loadLazyModule(importer, attemptMeta), LOCAL_IMPORT_TIMEOUT_MS, attemptMeta);
+      const mod = normalizeSafeRouteModuleResult(loaded, attemptMeta);
       if (attempt > 0) {
         try {
           recordRouteDiagEvent('safe_route_import_recovered', {
@@ -362,7 +407,7 @@ export default function SafeLazyRouteShell({
     manualRetryCount: retryCount,
     maxAutoRetries: LOCAL_IMPORT_RETRY_DELAYS_MS.length,
     retryDelayPlanMs: LOCAL_IMPORT_RETRY_DELAYS_MS,
-      importTimeoutMs: LOCAL_IMPORT_TIMEOUT_MS,
+    importTimeoutMs: LOCAL_IMPORT_TIMEOUT_MS,
   }), [retryCount, safeComponentName, safeModuleId, safeRouteName, safeRoutePath]);
 
   const LazyInner = React.useMemo(() => makeLazyComponent(importer, lazyMeta), [importer, lazyMeta]);
@@ -437,7 +482,7 @@ export default function SafeLazyRouteShell({
         retryStrategy: 'safe_lazy_route_shell_import_retry',
         maxAutoRetries: LOCAL_IMPORT_RETRY_DELAYS_MS.length,
         retryDelayPlanMs: LOCAL_IMPORT_RETRY_DELAYS_MS,
-      importTimeoutMs: LOCAL_IMPORT_TIMEOUT_MS,
+    importTimeoutMs: LOCAL_IMPORT_TIMEOUT_MS,
       }}
     >
       <Suspense
