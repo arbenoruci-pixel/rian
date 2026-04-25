@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import AppRoot from './AppRoot.jsx';
 
 const VITE_PWA_SW_BASENAME = '/vite-sw.js';
+const LEGACY_SW_DETECTED_KEY = 'tepiha_legacy_sw_detected_v1';
 
 function writeRuntimeMarker(key, payload) {
   try {
@@ -14,23 +15,114 @@ function writeRuntimeMarker(key, payload) {
   } catch {}
 }
 
+function safeString(value) {
+  try {
+    return String(value == null ? '' : value);
+  } catch {
+    return '';
+  }
+}
+
+function controllerScriptURL() {
+  try {
+    return safeString(navigator.serviceWorker?.controller?.scriptURL || '');
+  } catch {
+    return '';
+  }
+}
+
+function isLegacySwController(scriptURL) {
+  try {
+    const raw = safeString(scriptURL);
+    if (!raw) return false;
+    if (raw.includes(VITE_PWA_SW_BASENAME)) return false;
+    const url = new URL(raw, window.location.origin);
+    return url.pathname === '/sw.js';
+  } catch {
+    return false;
+  }
+}
+
+function legacyDetectionPayload(source = 'startup') {
+  const scriptURL = controllerScriptURL();
+  const isLegacy = isLegacySwController(scriptURL);
+
+  return {
+    at: new Date().toISOString(),
+    ts: Date.now(),
+    sourceLayer: 'src_main_legacy_sw_bridge_v11',
+    source: String(source || 'startup'),
+    href: safeString(window.location?.href || ''),
+    path: safeString(window.location?.pathname || ''),
+    controllerScriptURL: scriptURL,
+    legacyController: isLegacy,
+    viteController: scriptURL.includes(VITE_PWA_SW_BASENAME),
+    autoReloadDisabled: true,
+    autoRepairDisabled: true,
+    autoUnregisterDisabled: true,
+    autoCachePurgeDisabled: true,
+    manualRepairOnly: true,
+  };
+}
+
+function emitLegacySwDetected(payload) {
+  try {
+    window.__TEPIHA_LEGACY_SW_DETECTED__ = payload;
+  } catch {}
+
+  writeRuntimeMarker(LEGACY_SW_DETECTED_KEY, payload);
+
+  try {
+    window.dispatchEvent(new CustomEvent('tepiha:legacy-sw-detected', { detail: payload }));
+  } catch {}
+}
+
+function detectLegacyServiceWorkerPassively() {
+  if (typeof window === 'undefined') return;
+  if (!('serviceWorker' in navigator)) return;
+
+  const check = (source = 'startup') => {
+    try {
+      const payload = legacyDetectionPayload(source);
+      if (!payload.legacyController) return;
+      emitLegacySwDetected(payload);
+    } catch {}
+  };
+
+  check('startup');
+
+  try {
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      check('controllerchange');
+    });
+  } catch {}
+
+  try {
+    if (document.readyState === 'complete') {
+      window.setTimeout(() => check('load_check'), 0);
+    } else {
+      window.addEventListener('load', () => { window.setTimeout(() => check('load_check'), 0); }, { once: true });
+    }
+  } catch {}
+}
+
 function markManualRepairSuggested(reason, extra = {}) {
   if (typeof window === 'undefined') return;
 
   const payload = {
     at: new Date().toISOString(),
     ts: Date.now(),
-    sourceLayer: 'src_main_manual_repair_v10',
+    sourceLayer: 'src_main_manual_repair_v11',
     reason: String(reason || 'runtime_issue'),
     autoReloadDisabled: true,
     autoRepairDisabled: true,
     manualRepairOnly: true,
-    href: String(window.location?.href || ''),
-    path: String(window.location?.pathname || ''),
+    href: safeString(window.location?.href || ''),
+    path: safeString(window.location?.pathname || ''),
     ...extra,
   };
 
-  writeRuntimeMarker('tepiha_manual_repair_suggested_v10', payload);
+  writeRuntimeMarker('tepiha_manual_repair_suggested_v11', payload);
 
   try {
     window.__TEPIHA_UPDATE_AVAILABLE__ = payload;
@@ -51,9 +143,9 @@ function installVitePreloadPassiveGuard() {
             const raw = event?.payload || event?.reason || null;
             if (!raw) return null;
             return {
-              name: String(raw?.name || ''),
-              message: String(raw?.message || raw || ''),
-              stack: String(raw?.stack || ''),
+              name: safeString(raw?.name || ''),
+              message: safeString(raw?.message || raw || ''),
+              stack: safeString(raw?.stack || ''),
             };
           } catch {
             return null;
@@ -64,136 +156,8 @@ function installVitePreloadPassiveGuard() {
   } catch {}
 }
 
-function isVitePwaRegistration(reg) {
-  try {
-    const urls = [
-      reg?.active?.scriptURL,
-      reg?.waiting?.scriptURL,
-      reg?.installing?.scriptURL,
-    ].map((value) => String(value || ''));
-    return urls.some((url) => url.includes(VITE_PWA_SW_BASENAME));
-  } catch {
-    return false;
-  }
-}
-
-function isLegacyServiceWorkerRegistration(reg) {
-  try {
-    if (!reg || isVitePwaRegistration(reg)) return false;
-
-    const urls = [
-      reg?.active?.scriptURL,
-      reg?.waiting?.scriptURL,
-      reg?.installing?.scriptURL,
-    ].map((value) => String(value || ''));
-
-    if (urls.length === 0) return false;
-
-    return urls.some((url) => {
-      if (!url) return false;
-      if (url.includes('/vite-sw.js')) return false;
-      if (url.includes('/sw.js')) return true;
-      if (url.includes('/_next/')) return true;
-      if (url.includes('next-data-')) return true;
-      if (url.includes('sw-route-containment')) return true;
-      if (url.includes('pwa-staleness')) return true;
-      return false;
-    });
-  } catch {
-    return false;
-  }
-}
-
-function unregisterLegacyServiceWorkersPassively() {
-  if (typeof window === 'undefined') return;
-  if (!('serviceWorker' in navigator)) return;
-
-  const run = async () => {
-    try {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      if (!Array.isArray(regs) || regs.length === 0) return;
-
-      const legacyRegs = regs.filter(isLegacyServiceWorkerRegistration);
-      if (legacyRegs.length === 0) {
-        try {
-          window.localStorage?.setItem?.('tepiha_legacy_sw_unregister_v1', JSON.stringify({
-            at: new Date().toISOString(),
-            href: window.location?.href || '',
-            skipped: true,
-            reason: 'no_legacy_service_worker_found',
-            passiveNoReload: true,
-            activeRegistrations: regs.map((reg) => ({
-              scope: String(reg?.scope || ''),
-              activeScript: String(reg?.active?.scriptURL || ''),
-              waitingScript: String(reg?.waiting?.scriptURL || ''),
-              installingScript: String(reg?.installing?.scriptURL || ''),
-            })),
-          }));
-        } catch {}
-        return;
-      }
-
-      const controllerScript = String(navigator.serviceWorker.controller?.scriptURL || '');
-      const hadLegacyController = controllerScript && !controllerScript.includes(VITE_PWA_SW_BASENAME);
-      const results = [];
-
-      for (const reg of legacyRegs) {
-        try {
-          const scope = String(reg?.scope || '');
-          const activeScript = String(reg?.active?.scriptURL || '');
-          const waitingScript = String(reg?.waiting?.scriptURL || '');
-          const installingScript = String(reg?.installing?.scriptURL || '');
-          const ok = await reg.unregister();
-          results.push({ scope, activeScript, waitingScript, installingScript, unregistered: !!ok });
-        } catch (error) {
-          results.push({ error: String(error?.message || error || 'unregister_failed') });
-        }
-      }
-
-      const payload = {
-        at: new Date().toISOString(),
-        href: window.location?.href || '',
-        hadLegacyController,
-        passiveNoReload: true,
-        manualRepairOnly: true,
-        skippedVitePwa: regs.some(isVitePwaRegistration),
-        results,
-      };
-
-      try {
-        window.localStorage?.setItem?.('tepiha_legacy_sw_unregister_v1', JSON.stringify(payload));
-      } catch {}
-
-      if (hadLegacyController) {
-        markManualRepairSuggested('legacy_service_worker_unregistered_passive_no_reload', {
-          registrations: results,
-        });
-      }
-    } catch (error) {
-      try {
-        window.localStorage?.setItem?.('tepiha_legacy_sw_unregister_error_v1', JSON.stringify({
-          at: new Date().toISOString(),
-          href: window.location?.href || '',
-          passiveNoReload: true,
-          error: String(error?.message || error || 'service_worker_unregister_failed'),
-        }));
-      } catch {}
-    }
-  };
-
-  try {
-    if (document.readyState === 'complete') {
-      window.setTimeout(run, 0);
-    } else {
-      window.addEventListener('load', () => { window.setTimeout(run, 0); }, { once: true });
-    }
-  } catch {
-    void run();
-  }
-}
-
 installVitePreloadPassiveGuard();
-unregisterLegacyServiceWorkersPassively();
+detectLegacyServiceWorkerPassively();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <AppRoot />,

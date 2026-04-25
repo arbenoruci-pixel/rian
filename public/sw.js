@@ -1,153 +1,190 @@
-/* ACTIVE SERVICE WORKER SOURCE OF TRUTH (Vite public asset) */
+/* LEGACY /sw.js BRIDGE — inert compatibility worker for old controllers. */
 /* eslint-disable no-restricted-globals */
 
-const APP_DATA_EPOCH = (() => {
-  try {
-    return String(new URL(self.location.href).searchParams.get('epoch') || 'dev-local').trim() || 'dev-local';
-  } catch {
-    return 'dev-local';
-  }
-})();
-
-const VERSION = APP_DATA_EPOCH;
-const STATIC_CACHE = `assets-${VERSION}`;
-const SW_BUILD_LABEL = 'sw-vite-manual-repair-v10';
+const APP_DATA_EPOCH = 'RESET-2026-04-25-VITE-LEGACY-SW-BRIDGE-V11';
+const APP_VERSION = '2.0.14-vite-legacy-sw-bridge-v11';
+const SW_BUILD_LABEL = 'sw-vite-legacy-sw-bridge-v11';
 const OFFLINE_FALLBACK = '/offline.html';
-const PRECACHE_URLS = [
-  OFFLINE_FALLBACK,
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/apple-touch-icon.png',
-  '/favicon.ico',
-];
+const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v11';
 
-function isSameOrigin(url) {
+function nowIso() {
+  try {
+    return new Date().toISOString();
+  } catch (_) {
+    return '';
+  }
+}
+
+function safeString(value) {
+  try {
+    return String(value == null ? '' : value);
+  } catch (_) {
+    return '';
+  }
+}
+
+function sameOrigin(url) {
   try {
     return new URL(url, self.location.origin).origin === self.location.origin;
-  } catch {
+  } catch (_) {
     return false;
   }
 }
 
-function normalizePath(input) {
+function replyToClient(event, payload) {
   try {
-    const url = new URL(input, self.location.origin);
-    return `${url.pathname}${url.search}`;
-  } catch {
-    return String(input || '').trim();
-  }
-}
+    if (event?.ports?.[0]) {
+      event.ports[0].postMessage(payload);
+      return;
+    }
+  } catch (_) {}
 
-function isStaticAssetPath(pathname = '') {
-  const path = String(pathname || '');
-  if (!path) return false;
-  if (path === OFFLINE_FALLBACK) return true;
-  if (path === '/manifest.json') return true;
-  if (path === '/favicon.ico') return true;
-  if (path === '/icon-192.png') return true;
-  if (path === '/icon-512.png') return true;
-  if (path === '/apple-touch-icon.png') return true;
-  if (path.startsWith('/_next/static/')) return true;
-  if (path.startsWith('/assets/')) return true;
-  return /\.(?:js|css|mjs|png|jpg|jpeg|webp|svg|ico|woff2?|ttf|otf|eot|json|txt|webmanifest)$/i.test(path);
-}
-
-async function putIfOk(cacheName, request, response) {
   try {
-    if (!response || !response.ok) return;
-    const cache = await caches.open(cacheName);
-    await cache.put(request, response.clone());
+    event?.source?.postMessage?.(payload);
   } catch (_) {}
 }
 
-async function purgeOldCaches() {
+function isProtectedModernCache(cacheName) {
+  const key = safeString(cacheName);
+  return (
+    key.startsWith('tepiha-vite-') ||
+    key.startsWith('workbox-') ||
+    key.startsWith('vite-') ||
+    key.startsWith('assets-')
+  );
+}
+
+function isLegacyOnlyCache(cacheName) {
+  const key = safeString(cacheName);
+  if (!key || isProtectedModernCache(key)) return false;
+
+  return (
+    key.startsWith('pages-') ||
+    key.startsWith('next-data-') ||
+    key.startsWith('nextjs-') ||
+    key.startsWith('next-') ||
+    key.startsWith('tepiha-next-') ||
+    key.startsWith('tepiha-legacy-') ||
+    key.startsWith('tepiha-sw-legacy-') ||
+    key.startsWith('legacy-sw-') ||
+    key.startsWith('sw-route-containment') ||
+    key.startsWith('sw-pwa-staleness') ||
+    key.startsWith('pwa-staleness') ||
+    key === LEGACY_OFFLINE_CACHE
+  );
+}
+
+async function precacheOfflineFallbackOnly() {
+  try {
+    const cache = await caches.open(LEGACY_OFFLINE_CACHE);
+    const response = await fetch(OFFLINE_FALLBACK, {
+      credentials: 'same-origin',
+      cache: 'no-cache',
+    });
+    if (response?.ok) await cache.put(OFFLINE_FALLBACK, response.clone());
+  } catch (_) {}
+}
+
+async function purgeLegacyOnlyCaches() {
+  const deleted = [];
+
   try {
     const keys = await caches.keys();
     await Promise.allSettled(
-      keys.map((key) => {
-        if (key.startsWith('pages-')) return caches.delete(key);
-        if (key.startsWith('next-data-')) return caches.delete(key);
-        if (key.startsWith('vite-')) return caches.delete(key);
-        // Keep Vite Workbox runtime caches. Old /sw.js registrations must not erase the active Vite offline cache.
-        if (/^tepiha-(?!vite-)/i.test(key)) return caches.delete(key);
-        if (key.startsWith('assets-') && key !== STATIC_CACHE) return caches.delete(key);
-        return Promise.resolve(false);
-      })
+      (Array.isArray(keys) ? keys : []).map(async (key) => {
+        if (!isLegacyOnlyCache(key)) return false;
+        try {
+          const ok = await caches.delete(key);
+          if (ok) deleted.push(key);
+          return ok;
+        } catch (_) {
+          return false;
+        }
+      }),
     );
   } catch (_) {}
+
+  return deleted;
+}
+
+async function offlineFallbackResponse() {
+  try {
+    const cached = await caches.match(OFFLINE_FALLBACK, { ignoreSearch: true });
+    if (cached) return cached;
+  } catch (_) {}
+
+  try {
+    const response = await fetch(OFFLINE_FALLBACK, {
+      credentials: 'same-origin',
+      cache: 'no-cache',
+    });
+    if (response?.ok) return response;
+  } catch (_) {}
+
+  return new Response('Offline', {
+    status: 503,
+    statusText: 'Offline',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
 }
 
 self.addEventListener('install', (event) => {
-  event.waitUntil((async () => {
-    try {
-      const cache = await caches.open(STATIC_CACHE);
-      await Promise.allSettled(
-        PRECACHE_URLS.map(async (asset) => {
-          try {
-            const response = await fetch(asset, { credentials: 'same-origin', cache: 'no-cache' });
-            if (response?.ok) await cache.put(asset, response.clone());
-          } catch (_) {}
-        })
-      );
-    } catch (_) {}
-  })());
+  event.waitUntil(precacheOfflineFallbackOnly());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
-    await purgeOldCaches();
-    // ALIGN-FASTBOOT-V6: do not claim already-open PWA windows automatically.
-    // Existing sessions keep their current controller until a manual update/clean launch.
-  })());
+  event.waitUntil(Promise.resolve({ ok: true, label: SW_BUILD_LABEL, at: nowIso() }));
 });
 
 self.addEventListener('message', (event) => {
   const data = event?.data || {};
-  const type = String(data?.type || '').trim();
-
-  if (type === 'SKIP_WAITING') {
-    event.waitUntil(self.skipWaiting());
-    return;
-  }
+  const type = safeString(data?.type).trim();
 
   if (type === 'GET_SW_STATE') {
-    try {
-      event?.source?.postMessage?.({
-        type: 'SW_STATE',
-        epoch: APP_DATA_EPOCH,
-        version: VERSION,
-        buildLabel: SW_BUILD_LABEL,
-        staticCache: STATIC_CACHE,
-        locationHref: String(self.location?.href || ''),
-        at: new Date().toISOString(),
-      });
-    } catch (_) {}
+    replyToClient(event, {
+      type: 'SW_STATE',
+      label: SW_BUILD_LABEL,
+      version: APP_VERSION,
+      epoch: APP_DATA_EPOCH,
+      controlledByLegacy: true,
+      locationHref: safeString(self.location?.href),
+      at: nowIso(),
+    });
     return;
   }
 
-  if (type === 'PURGE_RUNTIME_CACHES' || type === 'PURGE_OLD_CACHES') {
-    event.waitUntil(purgeOldCaches());
-    return;
-  }
-
-  if (type === 'WARM_CACHE') {
-    const assets = Array.isArray(data?.assets) ? data.assets : [];
+  if (type === 'PURGE_LEGACY_ONLY_CACHES') {
     event.waitUntil((async () => {
+      const deletedCaches = await purgeLegacyOnlyCaches();
+      replyToClient(event, {
+        type: 'PURGE_LEGACY_ONLY_CACHES_RESULT',
+        ok: true,
+        label: SW_BUILD_LABEL,
+        deletedCaches,
+        protectedModernCachesPreserved: true,
+        at: nowIso(),
+      });
+    })());
+    return;
+  }
+
+  if (type === 'LEGACY_SW_SELF_UNREGISTER') {
+    event.waitUntil((async () => {
+      let ok = false;
+      let error = '';
       try {
-        const cache = await caches.open(STATIC_CACHE);
-        await Promise.allSettled(
-          assets
-            .map((asset) => normalizePath(asset))
-            .filter((asset) => isStaticAssetPath(new URL(asset, self.location.origin).pathname))
-            .map(async (asset) => {
-              try {
-                const response = await fetch(asset, { credentials: 'same-origin', cache: 'no-cache' });
-                if (response?.ok) await cache.put(asset, response.clone());
-              } catch (_) {}
-            })
-        );
-      } catch (_) {}
+        ok = await self.registration.unregister();
+      } catch (err) {
+        error = safeString(err?.message || err || 'legacy_self_unregister_failed');
+      }
+      replyToClient(event, {
+        type: 'LEGACY_SW_SELF_UNREGISTER_RESULT',
+        ok: !!ok,
+        label: SW_BUILD_LABEL,
+        error,
+        noClientReload: true,
+        at: nowIso(),
+      });
     })());
     return;
   }
@@ -156,48 +193,14 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (!request || request.method !== 'GET') return;
+  if (request.mode !== 'navigate') return;
+  if (!sameOrigin(request.url)) return;
 
-  let url;
-  try {
-    url = new URL(request.url);
-  } catch {
-    return;
-  }
-
-  if (!isSameOrigin(url.href)) return;
-
-  if (request.mode === 'navigate') {
-    event.respondWith((async () => {
-      try {
-        return await fetch(request);
-      } catch (_) {
-        try {
-          const offline = await caches.match(OFFLINE_FALLBACK);
-          if (offline) return offline;
-        } catch (_) {}
-        return new Response('Offline', {
-          status: 503,
-          statusText: 'Offline',
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        });
-      }
-    })());
-    return;
-  }
-
-  if (isStaticAssetPath(url.pathname)) {
-    event.respondWith((async () => {
-      const cached = await caches.match(request, { ignoreSearch: false });
-      if (cached) return cached;
-      try {
-        const network = await fetch(request);
-        if (network?.ok) await putIfOk(STATIC_CACHE, request, network);
-        return network;
-      } catch (_) {
-        const fallback = await caches.match(normalizePath(url.pathname), { ignoreSearch: true });
-        if (fallback) return fallback;
-        throw _;
-      }
-    })());
-  }
+  event.respondWith((async () => {
+    try {
+      return await fetch(request);
+    } catch (_) {
+      return offlineFallbackResponse();
+    }
+  })());
 });

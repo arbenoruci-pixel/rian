@@ -9,6 +9,8 @@ const VITE_SW_URL = '/vite-sw.js';
 const PASSIVE_UPDATE_KEY = 'tepiha_update_available_v1';
 const PASSIVE_UPDATE_EVENT = 'tepiha:update-available';
 const MANUAL_UPDATE_TIMEOUT_MS = 15000;
+const LEGACY_SW_DETECTED_EVENT = 'tepiha:legacy-sw-detected';
+const LEGACY_REPAIR_TIMEOUT_MS = 9000;
 
 function isBrowser() {
   return typeof window !== 'undefined' && typeof navigator !== 'undefined';
@@ -187,6 +189,95 @@ function hidePassiveUpdateBanner() {
     if (node && node.parentNode) node.parentNode.removeChild(node);
     try { window.localStorage?.removeItem?.(PASSIVE_UPDATE_KEY); } catch {}
     try { window.sessionStorage?.removeItem?.("tepiha_vite_pwa_update_v1"); } catch {}
+  } catch {}
+}
+
+function isLegacySwScriptURL(scriptURL) {
+  try {
+    const raw = String(scriptURL || '');
+    if (!raw) return false;
+    if (raw.includes(VITE_SW_URL)) return false;
+    const url = new URL(raw, window.location.origin);
+    return url.pathname === '/sw.js';
+  } catch {
+    return false;
+  }
+}
+
+function readLegacyControllerPayload(source = 'service_worker_register') {
+  try {
+    const controller = navigator.serviceWorker?.controller || null;
+    const scriptURL = String(controller?.scriptURL || '');
+    if (!isLegacySwScriptURL(scriptURL)) return null;
+
+    return {
+      at: (() => { try { return new Date().toISOString(); } catch { return ''; } })(),
+      ts: (() => { try { return Date.now(); } catch { return 0; } })(),
+      source: String(source || 'service_worker_register'),
+      sourceLayer: 'vite_pwa_service_worker_register',
+      controllerScriptURL: scriptURL,
+      legacyController: true,
+      appEpoch: APP_DATA_EPOCH,
+      path: (() => { try { return String(window.location?.pathname || ''); } catch { return ''; } })(),
+      href: (() => { try { return String(window.location?.href || ''); } catch { return ''; } })(),
+      autoReloadDisabled: true,
+      autoRepairDisabled: true,
+      autoUnregisterDisabled: true,
+      autoCachePurgeDisabled: true,
+      manualRepairOnly: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function markLegacyDetected(payload) {
+  try { window.__TEPIHA_LEGACY_SW_DETECTED__ = payload; } catch {}
+  try { window.localStorage?.setItem?.('tepiha_legacy_sw_detected_v1', JSON.stringify(payload)); } catch {}
+  try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_detected_v1', JSON.stringify(payload)); } catch {}
+}
+
+function postLegacyControllerMessage(type, detail = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+
+    const finish = (payload) => {
+      if (settled) return;
+      settled = true;
+      try { if (timer) window.clearTimeout(timer); } catch {}
+      resolve(payload || { ok: false, type, timeout: false });
+    };
+
+    try {
+      const controller = navigator.serviceWorker?.controller || null;
+      const scriptURL = String(controller?.scriptURL || '');
+
+      if (!controller || !isLegacySwScriptURL(scriptURL)) {
+        finish({ ok: false, type, skipped: true, reason: 'no_legacy_controller', controllerScriptURL: scriptURL });
+        return;
+      }
+
+      if (typeof MessageChannel === 'function') {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = (event) => finish(event?.data || { ok: true, type });
+        timer = window.setTimeout(() => finish({ ok: false, type, timeout: true }), LEGACY_REPAIR_TIMEOUT_MS);
+        controller.postMessage({ type, manual: true, appEpoch: APP_DATA_EPOCH, ...detail }, [channel.port2]);
+        return;
+      }
+
+      controller.postMessage({ type, manual: true, appEpoch: APP_DATA_EPOCH, ...detail });
+      timer = window.setTimeout(() => finish({ ok: true, type, fireAndForget: true }), 350);
+    } catch (error) {
+      finish({ ok: false, type, error: safeMessage(error, 'legacy_message_failed') });
+    }
+  });
+}
+
+function hideLegacySwBanner() {
+  try {
+    const node = document.getElementById('tepiha-legacy-sw-bridge-banner');
+    if (node && node.parentNode) node.parentNode.removeChild(node);
   } catch {}
 }
 
@@ -510,6 +601,148 @@ export default function ServiceWorkerRegister() {
     try {
       window.localStorage?.removeItem?.(PASSIVE_UPDATE_KEY);
       window.sessionStorage?.removeItem?.("tepiha_vite_pwa_update_v1");
+    } catch {}
+
+    const showLegacySwBanner = (payload = {}) => {
+      try {
+        if (cancelledRef.current) return;
+        if (typeof document === 'undefined') return;
+
+        const currentPayload = payload && payload.legacyController
+          ? payload
+          : readLegacyControllerPayload('legacy_banner_check');
+        if (!currentPayload?.legacyController) {
+          hideLegacySwBanner();
+          return;
+        }
+
+        markLegacyDetected(currentPayload);
+
+        let banner = document.getElementById('tepiha-legacy-sw-bridge-banner');
+        if (!banner) {
+          banner = document.createElement('div');
+          banner.id = 'tepiha-legacy-sw-bridge-banner';
+          banner.setAttribute('data-legacy-sw-bridge-banner', '1');
+          banner.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:2147482600;display:flex;justify-content:center;pointer-events:none;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#e5e7eb';
+          banner.innerHTML = ''
+            + '<div style="width:min(620px,100%);border-radius:18px;border:1px solid rgba(251,191,36,.42);background:rgba(15,23,42,.98);box-shadow:0 18px 45px rgba(0,0,0,.42);padding:12px;pointer-events:auto">'
+            + '<div style="font-size:11px;font-weight:1000;letter-spacing:.12em;color:#fbbf24">RUNTIME I VJETËR</div>'
+            + '<div style="margin-top:5px;font-size:15px;line-height:1.25;font-weight:950">Ky telefon po përdor runtime të vjetër.</div>'
+            + '<div style="margin-top:5px;font-size:12.5px;line-height:1.35;color:rgba(226,232,240,.82);font-weight:750">App-i vazhdon punën. Mund ta riparosh këtë telefon kur të kesh kohë.</div>'
+            + '<div id="tepiha-legacy-sw-bridge-status" style="display:none;margin-top:8px;font-size:12px;line-height:1.35;color:#fde68a;font-weight:850"></div>'
+            + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+            + '<button id="tepiha-legacy-sw-bridge-repair" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:#f59e0b;color:#111827;font-weight:1000;font-size:13px">RIPARO KËTË TELEFON</button>'
+            + '<button id="tepiha-legacy-sw-bridge-later" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:rgba(255,255,255,.08);color:#fff;font-weight:950;font-size:13px">MË VONË</button>'
+            + '</div>'
+            + '</div>';
+          (document.body || document.documentElement).appendChild(banner);
+        }
+
+        try { banner.__TEPIHA_LEGACY_SW_PAYLOAD__ = currentPayload; } catch {}
+
+        const status = document.getElementById('tepiha-legacy-sw-bridge-status');
+        const setStatus = (text) => {
+          try {
+            if (!status) return;
+            status.textContent = String(text || '');
+            status.style.display = text ? 'block' : 'none';
+          } catch {}
+        };
+
+        const later = document.getElementById('tepiha-legacy-sw-bridge-later');
+        if (later && !later.__TEPIHA_BOUND__) {
+          later.__TEPIHA_BOUND__ = true;
+          later.onclick = () => {
+            try { logSwEvent('legacy_sw_bridge_banner_later', currentPayload); } catch {}
+            hideLegacySwBanner();
+          };
+        }
+
+        const repair = document.getElementById('tepiha-legacy-sw-bridge-repair');
+        if (repair && !repair.__TEPIHA_BOUND__) {
+          repair.__TEPIHA_BOUND__ = true;
+          repair.onclick = async () => {
+            try {
+              repair.disabled = true;
+              repair.style.opacity = '0.72';
+            } catch {}
+
+            setStatus('Po riparohet vetëm ky telefon...');
+            try { logSwEvent('legacy_sw_bridge_manual_repair_clicked', currentPayload); } catch {}
+
+            let purgeResult = null;
+            let unregisterResult = null;
+
+            try {
+              purgeResult = await postLegacyControllerMessage('PURGE_LEGACY_ONLY_CACHES', {
+                source: 'legacy_sw_bridge_manual_button',
+              });
+              setStatus('Cache legacy u pastrua. Po çregjistrohet runtime i vjetër...');
+            } catch (error) {
+              purgeResult = { ok: false, error: safeMessage(error, 'legacy_purge_failed') };
+            }
+
+            try {
+              unregisterResult = await postLegacyControllerMessage('LEGACY_SW_SELF_UNREGISTER', {
+                source: 'legacy_sw_bridge_manual_button',
+              });
+            } catch (error) {
+              unregisterResult = { ok: false, error: safeMessage(error, 'legacy_unregister_failed') };
+            }
+
+            const result = {
+              at: (() => { try { return new Date().toISOString(); } catch { return ''; } })(),
+              appEpoch: APP_DATA_EPOCH,
+              purgeResult,
+              unregisterResult,
+              manualReload: true,
+              controllerScriptURL: currentPayload.controllerScriptURL,
+            };
+
+            try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_manual_repair_v11', JSON.stringify(result)); } catch {}
+            try { logSwEvent('legacy_sw_bridge_manual_repair_done', result); } catch {}
+
+            setStatus('Riparimi manual u krye. Po hapet app-i përsëri...');
+            try {
+              window.setTimeout(() => {
+                try {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('__legacy_sw_repair', String(Date.now()));
+                  url.searchParams.set('__epoch', APP_DATA_EPOCH.slice(0, 90));
+                  window.location.replace(url.toString());
+                } catch {
+                  try { window.location.reload(); } catch {}
+                }
+              }, 350);
+            } catch {}
+          };
+        }
+      } catch (error) {
+        logSwEvent('legacy_sw_bridge_banner_error', {
+          message: safeMessage(error, 'legacy_banner_failed'),
+        });
+      }
+    };
+
+    const onLegacySwDetected = (event) => {
+      try {
+        const payload = event?.detail && typeof event.detail === 'object'
+          ? event.detail
+          : readLegacyControllerPayload('legacy_event_without_detail');
+        if (payload?.legacyController) showLegacySwBanner(payload);
+      } catch {}
+    };
+
+    try {
+      window.addEventListener(LEGACY_SW_DETECTED_EVENT, onLegacySwDetected);
+    } catch {}
+
+    try {
+      const initialLegacyPayload = readLegacyControllerPayload('service_worker_register_mount');
+      if (initialLegacyPayload?.legacyController) {
+        logSwEvent('legacy_sw_bridge_detected_passive', initialLegacyPayload);
+        showLegacySwBanner(initialLegacyPayload);
+      }
     } catch {}
 
     const recoverRegistrationAndUpdate = (source, swUrl = '') => {
@@ -888,6 +1121,7 @@ export default function ServiceWorkerRegister() {
       cancelledRef.current = true;
       clearCleanLaunchUpdateCheck();
       try { window.removeEventListener(PASSIVE_UPDATE_EVENT, onPassiveUpdateAvailable); } catch {}
+      try { window.removeEventListener(LEGACY_SW_DETECTED_EVENT, onLegacySwDetected); } catch {}
     };
   }, []);
 
