@@ -75,7 +75,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.mode === 'navigate' && BUSINESS_ROUTE_RE.test(url.pathname),
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'tepiha-vite-business-routes-v1',
+              cacheName: 'tepiha-vite-business-routes-v2',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -90,7 +90,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.destination === 'script' || request.destination === 'style' || url.pathname.startsWith('/assets/'),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-static-assets-v1',
+              cacheName: 'tepiha-vite-static-assets-v2',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -105,7 +105,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-media-v1',
+              cacheName: 'tepiha-vite-media-v2',
               cacheableResponse: {
                 statuses: [0, 200],
               },

@@ -4,9 +4,9 @@ import { useEffect } from 'react';
 import { APP_DATA_EPOCH } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
 
-const WARMUP_VERSION = 'offline-first-warmup-v1';
-const WARMUP_DONE_PREFIX = 'tepiha_offline_first_warmup_done_v1';
-const WARMUP_LAST_KEY = 'tepiha_offline_first_warmup_last_v1';
+const WARMUP_VERSION = 'offline-first-warmup-v2';
+const WARMUP_DONE_PREFIX = 'tepiha_offline_first_warmup_done_v2';
+const WARMUP_LAST_KEY = 'tepiha_offline_first_warmup_last_v2';
 
 const ROUTE_URLS = [
   '/',
@@ -155,6 +155,19 @@ function collectCurrentAssetUrls() {
   return Array.from(new Set(out.filter(Boolean))).slice(0, 80);
 }
 
+function tellServiceWorkerToWarmCache(assets = []) {
+  try {
+    const controller = navigator?.serviceWorker?.controller;
+    if (!controller || typeof controller.postMessage !== 'function') return false;
+    const safeAssets = Array.from(new Set((assets || []).map((asset) => safeString(asset, '')).filter(Boolean))).slice(0, 120);
+    if (!safeAssets.length) return false;
+    controller.postMessage({ type: 'WARM_CACHE', assets: safeAssets, source: WARMUP_VERSION, at: Date.now() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function warmRouteShells(cancelledRef, failures) {
   for (const route of ROUTE_URLS) {
     if (cancelledRef.cancelled || !isOnline()) break;
@@ -170,6 +183,7 @@ async function warmRouteShells(cancelledRef, failures) {
 
 async function warmCurrentAssets(cancelledRef, failures) {
   const assets = collectCurrentAssetUrls();
+  tellServiceWorkerToWarmCache(assets);
   for (const asset of assets) {
     if (cancelledRef.cancelled || !isOnline()) break;
     try {

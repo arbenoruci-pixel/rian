@@ -237,7 +237,7 @@ function getRuntimeStatus() {
   try {
     if (!window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ || typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ !== 'object') {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-route-containment-v1',
+        version: 'app-root-offline-first-v2',
         criticalMode: 'core_bundle_static_import',
         criticalModules: {},
         lazyModules: {},

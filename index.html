@@ -6,15 +6,15 @@
     <meta name="theme-color" content="#0b0f14" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-OFFLINE-FIRST-V1" />
-    <meta name="tepiha-build-id" content="2.0.4-offline-first-v1" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-OFFLINE-FIRST-V2" />
+    <meta name="tepiha-build-id" content="2.0.5-offline-first-v2" />
     <link rel="icon" href="/favicon.ico" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TEPIHA</title>
     <script>
-      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-OFFLINE-FIRST-V1';
-      window.__TEPIHA_BUILD_ID = '2.0.4-offline-first-v1';
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-OFFLINE-FIRST-V2';
+      window.__TEPIHA_BUILD_ID = '2.0.5-offline-first-v2';
       window.__TEPIHA_SW_KILL_SWITCH__ = false;
       window.__TEPIHA_FORCE_NETWORK_MODE__ = false;
       window.__TEPIHA_DIAG_SYSTEM_ENABLED__ = false;
@@ -23,7 +23,7 @@
       window.__TEPIHA_SIMPLE_INCIDENTS_ENABLED__ = true;
       window.__TEPIHA_STARTUP_ISOLATION__ = true;
       window.__TEPIHA_STARTUP_ISOLATION_WINDOW_MS__ = 4500;
-      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-offline-first-v1';
+      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-offline-first-v2';
       window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-v2';
       window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-repair-v2';
       window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
@@ -874,6 +874,9 @@
               var rawAsset = safeString(entry && (entry.assetUrl || entry.targetSrc || entry.filename) || '');
               var topIndex = /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(rawAsset);
               if (topIndex) return false;
+              // OFFLINE-FIRST-V2: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
+              // Inline fullscreen fallback përdoret vetëm për runtime core assets; route/panel chunks i menaxhon React LocalErrorBoundary/SafeLazyRouteShell.
+              if (!isRuntimeAssetUrl(rawAsset)) return false;
               if (isUiReadyForRuntimeFallback() && !isRuntimeAssetUrl(rawAsset)) return false;
               if (document.getElementById('tepiha-runtime-import-fallback')) return true;
               var failure = recordRuntimeImportFailure(entry || {});
@@ -942,7 +945,7 @@
                 }
               } catch (e) {}
               try {
-                if (capture && (capture.moduleTarget || isRuntimeAssetUrl(capture.assetUrl || capture.targetSrc)) && typeof window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ === 'function') {
+                if (capture && isRuntimeAssetUrl(capture.assetUrl || capture.targetSrc) && typeof window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ === 'function') {
                   window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__(capture);
                 }
               } catch (e) {}
@@ -960,7 +963,7 @@
                 name: String((reason && reason.name) || '')
               });
               try {
-                if (!isUiReadyForRuntimeFallback() && typeof window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ === 'function') {
+                if (!isUiReadyForRuntimeFallback() && isRuntimeAssetUrl(capture.assetUrl || capture.targetSrc || capture.filename || message || stack) && typeof window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ === 'function') {
                   window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__(capture);
                 }
               } catch (e) {}
@@ -1453,14 +1456,14 @@
     <div
       id="tepiha-build-marker"
       data-tepiha-build-marker="1"
-      data-app-epoch="RESET-2026-04-25-OFFLINE-FIRST-V1"
-      data-build-id="2.0.4-offline-first-v1"
-      data-index-script-version="index-html-offline-first-v1"
+      data-app-epoch="RESET-2026-04-25-OFFLINE-FIRST-V2"
+      data-build-id="2.0.5-offline-first-v2"
+      data-index-script-version="index-html-offline-first-v2"
       data-pwa-boot-rescue-version="pwa-boot-rescue-v2"
       style="position:fixed;left:8px;bottom:8px;z-index:2147483000;max-width:calc(100vw - 16px);padding:6px 8px;border-radius:10px;background:rgba(2,6,23,.86);border:1px solid rgba(96,165,250,.35);color:#bfdbfe;font:700 10px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;box-shadow:0 8px 28px rgba(0,0,0,.35);transition:opacity .35s ease"
     >
-      INDEX V2 • 2.0.4-offline-first-v1<br />
-      RESET-2026-04-25-OFFLINE-FIRST-V1<br />
+      INDEX V2 • 2.0.5-offline-first-v2<br />
+      RESET-2026-04-25-OFFLINE-FIRST-V2<br />
       PWA RESCUE V2
     </div>
     <div id="root"></div>
