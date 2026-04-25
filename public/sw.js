@@ -1,11 +1,11 @@
 /* LEGACY /sw.js BRIDGE — inert compatibility worker for old controllers. */
 /* eslint-disable no-restricted-globals */
 
-const APP_DATA_EPOCH = 'RESET-2026-04-25-VITE-FAST-HOME-DESIGN-RESTORE-V13';
-const APP_VERSION = '2.0.16-vite-fast-home-design-restore-v13';
-const SW_BUILD_LABEL = 'sw-vite-fast-home-design-restore-v13';
+const APP_DATA_EPOCH = 'RESET-2026-04-25-VITE-LOCALFIRST-SYNC-OWNER-V14-1';
+const APP_VERSION = '2.0.18-vite-localfirst-sync-owner-v14-1';
+const SW_BUILD_LABEL = 'sw-vite-localfirst-writes-v14';
 const OFFLINE_FALLBACK = '/offline.html';
-const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v13';
+const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v14';
 
 function nowIso() {
   try {

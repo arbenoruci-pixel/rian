@@ -6,15 +6,15 @@
     <meta name="theme-color" content="#0b0f14" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-VITE-FAST-HOME-DESIGN-RESTORE-V13" />
-    <meta name="tepiha-build-id" content="2.0.16-vite-fast-home-design-restore-v13" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-VITE-LOCALFIRST-SYNC-OWNER-V14-1" />
+    <meta name="tepiha-build-id" content="2.0.18-vite-localfirst-sync-owner-v14-1" />
     <link rel="icon" href="/favicon.ico" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TEPIHA</title>
     <script>
-      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-VITE-FAST-HOME-DESIGN-RESTORE-V13';
-      window.__TEPIHA_BUILD_ID = '2.0.16-vite-fast-home-design-restore-v13';
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-VITE-LOCALFIRST-SYNC-OWNER-V14-1';
+      window.__TEPIHA_BUILD_ID = '2.0.18-vite-localfirst-sync-owner-v14-1';
       window.__TEPIHA_QUIET_UPDATE_V7 = true;
       try { localStorage.removeItem('tepiha_update_available_v1'); sessionStorage.removeItem('tepiha_vite_pwa_update_v1'); } catch (e) {}
       window.__TEPIHA_SW_KILL_SWITCH__ = false;
@@ -25,11 +25,11 @@
       window.__TEPIHA_SIMPLE_INCIDENTS_ENABLED__ = true;
       window.__TEPIHA_STARTUP_ISOLATION__ = true;
       window.__TEPIHA_STARTUP_ISOLATION_WINDOW_MS__ = 4500;
-      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-fast-home-design-restore-v13';
-      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-fast-home-design-restore-v13';
-      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-fast-home-design-restore-v13';
+      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-localfirst-writes-v14';
+      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-localfirst-writes-v14';
+      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-localfirst-writes-v14';
       window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
-      window.__TEPIHA_NAV_CACHE_STRATEGY__ = 'fast-home-design-restore-v13';
+      window.__TEPIHA_NAV_CACHE_STRATEGY__ = 'localfirst-writes-v14';
       (function(){
         try {
           // V12: cache inventory is passive and delayed until after React has a chance to paint Home.
@@ -407,7 +407,7 @@
             return 'initial_load';
           }
           function recordBeforeRescue(detail) {
-            // VITE-FAST-HOME-DESIGN-RESTORE-V13: module/index asset failures are diagnostic-only.
+            // VITE-LOCALFIRST-WRITES-V14: module/index asset failures are diagnostic-only.
             // Do not purge caches, post SW purge messages, or navigate automatically.
             try {
               var entry = {
@@ -956,7 +956,7 @@
               var rawAsset = safeString(entry && (entry.assetUrl || entry.targetSrc || entry.filename) || '');
               var topIndex = /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(rawAsset);
               if (topIndex) return false;
-              // VITE-FAST-HOME-DESIGN-RESTORE-V13: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
+              // VITE-LOCALFIRST-WRITES-V14: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
               // Inline fullscreen fallback përdoret vetëm për runtime core assets; route/panel chunks i menaxhon React LocalErrorBoundary/SafeLazyRouteShell.
               if (!isRuntimeAssetUrl(rawAsset)) return false;
               if (isUiReadyForRuntimeFallback()) {
@@ -965,7 +965,7 @@
                   window.__TEPIHA_UPDATE_AVAILABLE__ = passiveFailure;
                   sessionStorage.setItem('tepiha_update_available_last_v7', JSON.stringify(passiveFailure));
                 } catch (e) {}
-                // VITE-FAST-HOME-DESIGN-RESTORE-V13: UI is already alive, so keep working and only record diagnostics.
+                // VITE-LOCALFIRST-WRITES-V14: UI is already alive, so keep working and only record diagnostics.
                 return false;
               }
               if (document.getElementById('tepiha-runtime-import-fallback')) return true;
@@ -1090,7 +1090,7 @@
       })();
     </script>
 
-    <script id="tepiha-pwa-boot-rescue-vite-fast-home-design-restore-v13">
+    <script id="tepiha-pwa-boot-rescue-vite-localfirst-writes-v14">
       (function(){
         try {
           var LAST_KEY = 'tepiha_pwa_boot_rescue_last_v1';
@@ -1098,7 +1098,7 @@
           var BOOT_TIMEOUT_MS = 15000;
           var APP_EPOCH = String(window.__TEPIHA_APP_EPOCH || (document.querySelector('meta[name="tepiha-app-epoch"]') || {}).content || '');
           var BUILD_ID = String(window.__TEPIHA_BUILD_ID || (document.querySelector('meta[name="tepiha-build-id"]') || {}).content || '');
-          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-vite-fast-home-design-restore-v13');
+          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-vite-localfirst-writes-v14');
           var INDEX_VERSION = String(window.__TEPIHA_INDEX_SCRIPT_VERSION__ || '');
           var startedAt = Date.now();
 
@@ -1593,7 +1593,7 @@
                 return;
               }
               if (isRootMeaningfullyVisible()) {
-                // VITE-FAST-HOME-DESIGN-RESTORE-V13: në iOS Homescreen disa route shfaqen para se marker-i ui_ready të shkruhet.
+                // VITE-LOCALFIRST-WRITES-V14: në iOS Homescreen disa route shfaqen para se marker-i ui_ready të shkruhet.
                 // Mos e mbulo UI-në reale me rescue vetëm pse mungon marker-i.
                 writeBootRescueSkip('pwa_boot_rescue_skip_root_visible_' + safeString(reason || 'timeout'));
                 return;
@@ -1690,15 +1690,15 @@
     <div
       id="tepiha-build-marker"
       data-tepiha-build-marker="1"
-      data-app-epoch="RESET-2026-04-25-VITE-FAST-HOME-DESIGN-RESTORE-V13"
-      data-build-id="2.0.16-vite-fast-home-design-restore-v13"
-      data-index-script-version="index-html-vite-fast-home-design-restore-v13"
-      data-pwa-boot-rescue-version="pwa-boot-rescue-vite-fast-home-design-restore-v13"
+      data-app-epoch="RESET-2026-04-25-VITE-LOCALFIRST-SYNC-OWNER-V14-1"
+      data-build-id="2.0.18-vite-localfirst-sync-owner-v14-1"
+      data-index-script-version="index-html-vite-localfirst-writes-v14"
+      data-pwa-boot-rescue-version="pwa-boot-rescue-vite-localfirst-writes-v14"
       style="display:none;position:fixed;left:6px;bottom:calc(58px + env(safe-area-inset-bottom, 0px));z-index:2147482500;max-width:calc(100vw - 12px);padding:3px 5px;border-radius:7px;background:rgba(2,6,23,.52);border:1px solid rgba(96,165,250,.22);color:rgba(191,219,254,.72);font:700 7px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.01em;box-shadow:none;pointer-events:none;opacity:.72"
     >
-      INDEX V2 • 2.0.16-vite-fast-home-design-restore-v13<br />
-      RESET-2026-04-25-VITE-FAST-HOME-DESIGN-RESTORE-V13<br />
-      PWA RESCUE V13
+      INDEX V2 • 2.0.18-vite-localfirst-sync-owner-v14-1<br />
+      RESET-2026-04-25-VITE-LOCALFIRST-SYNC-OWNER-V14-1<br />
+      PWA RESCUE V14
     </div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
