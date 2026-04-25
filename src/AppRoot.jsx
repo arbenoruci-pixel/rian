@@ -237,8 +237,8 @@ function getRuntimeStatus() {
   try {
     if (!window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ || typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ !== 'object') {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-pwa-no-stuck-v4',
-        criticalMode: 'core_bundle_static_import',
+        version: 'app-root-vite-align-fastboot-v6',
+        criticalMode: 'home_eager_business_safe_lazy_fastboot',
         criticalModules: {},
         lazyModules: {},
         failures: [],
@@ -251,7 +251,7 @@ function getRuntimeStatus() {
   }
 }
 
-function markRuntimeModule(name, source = 'core_bundle_static_import', extra = {}) {
+function markRuntimeModule(name, source = 'home_eager_business_safe_lazy_fastboot', extra = {}) {
   try {
     const status = getRuntimeStatus();
     if (!status) return;

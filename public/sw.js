@@ -11,7 +11,7 @@ const APP_DATA_EPOCH = (() => {
 
 const VERSION = APP_DATA_EPOCH;
 const STATIC_CACHE = `assets-${VERSION}`;
-const SW_BUILD_LABEL = 'sw-pwa-no-stuck-v4';
+const SW_BUILD_LABEL = 'sw-vite-align-fastboot-v6';
 const OFFLINE_FALLBACK = '/offline.html';
 const PRECACHE_URLS = [
   OFFLINE_FALLBACK,
@@ -96,7 +96,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     await purgeOldCaches();
-    // NO-STUCK-V4: do not claim already-open PWA windows automatically.
+    // ALIGN-FASTBOOT-V6: do not claim already-open PWA windows automatically.
     // Existing sessions keep their current controller until a manual update/clean launch.
   })());
 });

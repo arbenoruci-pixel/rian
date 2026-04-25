@@ -36,4 +36,4 @@ for (const target of targets) {
   await removeTarget(target);
 }
 
-console.log('Next.js dead-remnant cleanup finished.');
+console.log('Next.js dead-remnant cleanup finished. ALIGN-FASTBOOT-V6.');

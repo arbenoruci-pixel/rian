@@ -6,15 +6,15 @@
     <meta name="theme-color" content="#0b0f14" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-PWA-NO-STUCK-V4" />
-    <meta name="tepiha-build-id" content="2.0.7-pwa-no-stuck-v4" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-VITE-ALIGN-FASTBOOT-V6" />
+    <meta name="tepiha-build-id" content="2.0.9-vite-align-fastboot-v6" />
     <link rel="icon" href="/favicon.ico" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TEPIHA</title>
     <script>
-      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-PWA-NO-STUCK-V4';
-      window.__TEPIHA_BUILD_ID = '2.0.7-pwa-no-stuck-v4';
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-VITE-ALIGN-FASTBOOT-V6';
+      window.__TEPIHA_BUILD_ID = '2.0.9-vite-align-fastboot-v6';
       window.__TEPIHA_SW_KILL_SWITCH__ = false;
       window.__TEPIHA_FORCE_NETWORK_MODE__ = false;
       window.__TEPIHA_DIAG_SYSTEM_ENABLED__ = false;
@@ -23,9 +23,9 @@
       window.__TEPIHA_SIMPLE_INCIDENTS_ENABLED__ = true;
       window.__TEPIHA_STARTUP_ISOLATION__ = true;
       window.__TEPIHA_STARTUP_ISOLATION_WINDOW_MS__ = 4500;
-      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-pwa-no-stuck-v4';
-      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-no-stuck-v4';
-      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-v4';
+      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-align-fastboot-v6';
+      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-align-fastboot-v6';
+      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-align-fastboot-v6';
       window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
       (function(){
         try {
@@ -197,7 +197,7 @@
                 autoRepairDisabled: true,
                 autoReloadDisabled: true,
                 manualUpdateOnly: true,
-                noStuckV4: true
+                alignFastbootV6: true
               });
               appendLog(passive);
               try { localStorage.setItem('tepiha_update_available_v1', JSON.stringify(passive)); } catch(e) {}
@@ -887,7 +887,7 @@
               var rawAsset = safeString(entry && (entry.assetUrl || entry.targetSrc || entry.filename) || '');
               var topIndex = /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(rawAsset);
               if (topIndex) return false;
-              // PWA-NO-STUCK-V4: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
+              // VITE-ALIGN-FASTBOOT-V6: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
               // Inline fullscreen fallback përdoret vetëm për runtime core assets; route/panel chunks i menaxhon React LocalErrorBoundary/SafeLazyRouteShell.
               if (!isRuntimeAssetUrl(rawAsset)) return false;
               if (isUiReadyForRuntimeFallback()) {
@@ -1036,7 +1036,7 @@
       })();
     </script>
 
-    <script id="tepiha-pwa-boot-rescue-no-stuck-v4">
+    <script id="tepiha-pwa-boot-rescue-vite-align-fastboot-v6">
       (function(){
         try {
           var LAST_KEY = 'tepiha_pwa_boot_rescue_last_v1';
@@ -1044,7 +1044,7 @@
           var BOOT_TIMEOUT_MS = 15000;
           var APP_EPOCH = String(window.__TEPIHA_APP_EPOCH || (document.querySelector('meta[name="tepiha-app-epoch"]') || {}).content || '');
           var BUILD_ID = String(window.__TEPIHA_BUILD_ID || (document.querySelector('meta[name="tepiha-build-id"]') || {}).content || '');
-          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-no-stuck-v4');
+          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-vite-align-fastboot-v6');
           var INDEX_VERSION = String(window.__TEPIHA_INDEX_SCRIPT_VERSION__ || '');
           var startedAt = Date.now();
 
@@ -1365,7 +1365,7 @@
             return '' +
               '<div data-pwa-boot-rescue="1" style="position:fixed;inset:0;z-index:2147483647;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
                 '<div style="width:min(560px,100%);border:1px solid rgba(255,255,255,.14);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
-                  '<div style="font-size:12px;letter-spacing:.16em;color:#93c5fd;font-weight:900;margin-bottom:8px">PWA BOOT RESCUE NO-STUCK V4</div>' +
+                  '<div style="font-size:12px;letter-spacing:.16em;color:#93c5fd;font-weight:900;margin-bottom:8px">PWA BOOT RESCUE ALIGN FASTBOOT V6</div>' +
                   '<div style="font-size:26px;font-weight:1000;line-height:1.05;margin-bottom:8px">TEPIHA NUK U NIS</div>' +
                   '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">React nuk u montua në kohë në Homescreen/PWA. Kjo duket si Service Worker / cache / shell-chunk mismatch, jo problem me DB ose të dhënat.</div>' +
                   '<div style="font-size:13px;color:#94a3b8;margin-bottom:12px">Route: <b style="color:#fff">' + fallbackTitleForPath() + '</b></div>' +
@@ -1495,7 +1495,7 @@
                 return;
               }
               if (isRootMeaningfullyVisible()) {
-                // PWA-NO-STUCK-V4: në iOS Homescreen disa route shfaqen para se marker-i ui_ready të shkruhet.
+                // VITE-ALIGN-FASTBOOT-V6: në iOS Homescreen disa route shfaqen para se marker-i ui_ready të shkruhet.
                 // Mos e mbulo UI-në reale me rescue vetëm pse mungon marker-i.
                 writeBootRescueSkip('pwa_boot_rescue_skip_root_visible_' + safeString(reason || 'timeout'));
                 return;
@@ -1558,7 +1558,7 @@
                 autoRepairDisabled: true,
                 autoReloadDisabled: true,
                 manualUpdateOnly: true,
-                noStuckV4: true,
+                alignFastbootV6: true,
                 href: safeString(window.location && window.location.href)
               };
               appendLog(passiveLaunch);
@@ -1592,15 +1592,15 @@
     <div
       id="tepiha-build-marker"
       data-tepiha-build-marker="1"
-      data-app-epoch="RESET-2026-04-25-PWA-NO-STUCK-V4"
-      data-build-id="2.0.7-pwa-no-stuck-v4"
-      data-index-script-version="index-html-pwa-no-stuck-v4"
-      data-pwa-boot-rescue-version="pwa-boot-rescue-no-stuck-v4"
+      data-app-epoch="RESET-2026-04-25-VITE-ALIGN-FASTBOOT-V6"
+      data-build-id="2.0.9-vite-align-fastboot-v6"
+      data-index-script-version="index-html-vite-align-fastboot-v6"
+      data-pwa-boot-rescue-version="pwa-boot-rescue-vite-align-fastboot-v6"
       style="position:fixed;left:8px;bottom:8px;z-index:2147483000;max-width:calc(100vw - 16px);padding:6px 8px;border-radius:10px;background:rgba(2,6,23,.86);border:1px solid rgba(96,165,250,.35);color:#bfdbfe;font:700 10px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;box-shadow:0 8px 28px rgba(0,0,0,.35);transition:opacity .35s ease"
     >
-      INDEX V2 • 2.0.7-pwa-no-stuck-v4<br />
-      RESET-2026-04-25-PWA-NO-STUCK-V4<br />
-      PWA RESCUE NO-STUCK V4
+      INDEX V2 • 2.0.9-vite-align-fastboot-v6<br />
+      RESET-2026-04-25-VITE-ALIGN-FASTBOOT-V6<br />
+      PWA RESCUE ALIGN FASTBOOT V6
     </div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>

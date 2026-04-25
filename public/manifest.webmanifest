@@ -1,18 +1,25 @@
 {
   "name": "TEPIHA",
   "short_name": "TEPIHA",
-  "start_url": "/?pwa_start=RESET-2026-04-24-ROUTE-CONTAINMENT-V1",
+  "start_url": "/?pwa_start=RESET-2026-04-25-VITE-ALIGN-FASTBOOT-V6",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0b0f14",
-  "theme_color": "#0b0f14",
+  "background_color": "#05070d",
+  "theme_color": "#05070d",
   "icons": [
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
-  "id": "/?pwa_id=RESET-2026-04-24-ROUTE-CONTAINMENT-V1",
-  "description": "TEPIHA PWA shell repair build"
+  "id": "/?pwa_id=RESET-2026-04-25-VITE-ALIGN-FASTBOOT-V6",
+  "description": "TEPIHA Vite offline PWA - align fastboot v6"
 }
