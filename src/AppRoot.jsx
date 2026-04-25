@@ -237,7 +237,7 @@ function getRuntimeStatus() {
   try {
     if (!window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ || typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ !== 'object') {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-align-fastboot-v6',
+        version: 'app-root-vite-quiet-update-v7',
         criticalMode: 'home_eager_business_safe_lazy_fastboot',
         criticalModules: {},
         lazyModules: {},

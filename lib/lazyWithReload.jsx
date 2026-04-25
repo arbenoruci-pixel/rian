@@ -126,13 +126,12 @@ function markUpdateAvailable(reason = 'dynamic_import_failed', options = {}) {
   });
 
   writeJson(localStorageRef, LAST_ERROR_KEY, payload);
-  writeJson(localStorageRef, UPDATE_AVAILABLE_KEY, payload);
 
   if (!duplicateWithinWindow) {
     writeJson(storage, storageKey, payload);
   }
 
-  dispatchUpdateAvailable(payload);
+  try { window.__TEPIHA_UPDATE_AVAILABLE__ = payload; } catch {}
 
   return {
     scheduled: false,
@@ -217,10 +216,10 @@ function LazyUpdateAvailableFallback({ payload, reloadBlocked }) {
       data-lazy-with-reload-passive="1"
       data-lazy-with-reload-blocked={reloadBlocked ? '1' : '0'}
       style={{
-        position: 'fixed',
+        position: 'static',
         left: 10,
         right: 10,
-        bottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
+        margin: '12px',
         zIndex: 2147482600,
         display: 'flex',
         justifyContent: 'center',
@@ -242,13 +241,13 @@ function LazyUpdateAvailableFallback({ payload, reloadBlocked }) {
         }}
       >
         <div style={{ fontSize: 11, fontWeight: 1000, letterSpacing: 1.1, color: '#93c5fd' }}>
-          VERSION I RI GATI
+          MODULI NUK U NGARKUA
         </div>
         <div style={{ marginTop: 5, fontSize: 15, lineHeight: 1.25, fontWeight: 950 }}>
-          Rifresko kur të kesh kohë.
+          Provo përsëri ose kthehu në Home.
         </div>
         <div style={{ marginTop: 5, fontSize: 12.5, lineHeight: 1.35, color: 'rgba(226,232,240,0.82)', fontWeight: 700 }}>
-          U kap një chunk i vjetër te {detail.label}. App-i nuk po bëhet force-refresh gjatë punës.
+          Moduli {detail.label} nuk u ngarkua. App-i kryesor mbetet aktiv.
           {detail.offline ? ' Je offline, prandaj përditësimi pret derisa të kesh internet.' : ''}
         </div>
         {status ? (
@@ -270,7 +269,7 @@ function LazyUpdateAvailableFallback({ payload, reloadBlocked }) {
               fontSize: 13,
             }}
           >
-            PËRDITËSO
+            RIPROVO
           </button>
           <a
             href="/"

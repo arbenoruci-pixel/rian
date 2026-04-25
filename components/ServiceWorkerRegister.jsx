@@ -34,6 +34,15 @@ function isSwKillMode() {
     return false;
   }
 }
+function shouldShowVisualUpdateBanner() {
+  try {
+    const params = new URLSearchParams(window.location?.search || "");
+    return params.has("showUpdateBanner") || params.has("debugUpdateBanner");
+  } catch {
+    return false;
+  }
+}
+
 
 function safeMessage(error, fallback = 'unknown_error') {
   try {
@@ -166,7 +175,7 @@ function updateAvailablePayload(source = 'unknown', extra = {}) {
   };
 
   try { window.__TEPIHA_UPDATE_AVAILABLE__ = payload; } catch {}
-  try { window.localStorage?.setItem?.(PASSIVE_UPDATE_KEY, JSON.stringify(payload)); } catch {}
+  try { window.sessionStorage?.setItem?.('tepiha_update_available_last_v7', JSON.stringify(payload)); } catch {}
   try { window.dispatchEvent(new CustomEvent(PASSIVE_UPDATE_EVENT, { detail: payload })); } catch {}
 
   return payload;
@@ -176,6 +185,8 @@ function hidePassiveUpdateBanner() {
   try {
     const node = document.getElementById('tepiha-update-available-banner');
     if (node && node.parentNode) node.parentNode.removeChild(node);
+    try { window.localStorage?.removeItem?.(PASSIVE_UPDATE_KEY); } catch {}
+    try { window.sessionStorage?.removeItem?.("tepiha_vite_pwa_update_v1"); } catch {}
   } catch {}
 }
 
@@ -379,6 +390,7 @@ export default function ServiceWorkerRegister() {
 
     const showPassiveUpdateBanner = (payload = {}) => {
       try {
+        if (!shouldShowVisualUpdateBanner()) return;
         if (cancelledRef.current) return;
         if (typeof document === 'undefined') return;
 
@@ -390,8 +402,8 @@ export default function ServiceWorkerRegister() {
           banner.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:2147482500;display:flex;justify-content:center;pointer-events:none;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#e5e7eb';
           banner.innerHTML = ''
             + '<div style="width:min(560px,100%);border-radius:18px;border:1px solid rgba(96,165,250,.38);background:rgba(15,23,42,.97);box-shadow:0 18px 45px rgba(0,0,0,.42);padding:12px;pointer-events:auto">'
-            + '<div style="font-size:11px;font-weight:1000;letter-spacing:.12em;color:#93c5fd">VERSION I RI GATI</div>'
-            + '<div style="margin-top:5px;font-size:15px;line-height:1.25;font-weight:950">Rifresko kur të kesh kohë.</div>'
+            + '<div style="font-size:11px;font-weight:1000;letter-spacing:.12em;color:#93c5fd">UPDATE DEBUG</div>'
+            + '<div style="margin-top:5px;font-size:15px;line-height:1.25;font-weight:950">Përditësim manual.</div>'
             + '<div style="margin-top:5px;font-size:12.5px;line-height:1.35;color:rgba(226,232,240,.82);font-weight:700">App-i vazhdon me versionin aktual. Përditësimi bëhet vetëm kur e shtyp vetë.</div>'
             + '<div id="tepiha-update-available-status" style="display:none;margin-top:8px;font-size:12px;line-height:1.35;color:#bae6fd;font-weight:850"></div>'
             + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
@@ -496,11 +508,8 @@ export default function ServiceWorkerRegister() {
     } catch {}
 
     try {
-      const raw = window.localStorage?.getItem?.(PASSIVE_UPDATE_KEY) || '';
-      const stored = raw ? JSON.parse(raw) : null;
-      if (stored && stored.passiveUpdate === true) {
-        window.setTimeout(() => showPassiveUpdateBanner(stored), 700);
-      }
+      window.localStorage?.removeItem?.(PASSIVE_UPDATE_KEY);
+      window.sessionStorage?.removeItem?.("tepiha_vite_pwa_update_v1");
     } catch {}
 
     const recoverRegistrationAndUpdate = (source, swUrl = '') => {

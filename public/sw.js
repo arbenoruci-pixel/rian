@@ -11,7 +11,7 @@ const APP_DATA_EPOCH = (() => {
 
 const VERSION = APP_DATA_EPOCH;
 const STATIC_CACHE = `assets-${VERSION}`;
-const SW_BUILD_LABEL = 'sw-vite-align-fastboot-v6';
+const SW_BUILD_LABEL = 'sw-vite-quiet-update-v7';
 const OFFLINE_FALLBACK = '/offline.html';
 const PRECACHE_URLS = [
   OFFLINE_FALLBACK,
