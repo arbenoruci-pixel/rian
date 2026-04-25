@@ -15,14 +15,14 @@
         Kjo faqe nuk përdor React. E heq vetëm Service Worker-in dhe runtime caches të TEPIHA-s, pastaj e hap app-in me index të freskët.
       </p>
       <div style="font:700 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:#bfdbfe;background:rgba(15,23,42,.78);border:1px solid rgba(96,165,250,.28);border-radius:12px;padding:10px;margin:12px 0">
-        build: 2.0.6-pwa-bootguard-v3<br />
-        epoch: RESET-2026-04-25-PWA-BOOTGUARD-V3<br />
-        repair: pwa-bootguard-v3
+        build: 2.0.7-pwa-no-stuck-v4<br />
+        epoch: RESET-2026-04-25-PWA-NO-STUCK-V4<br />
+        repair: pwa-no-stuck-v4
       </div>
       <div id="status" style="min-height:22px;margin:12px 0;color:#bae6fd;font-weight:900">Gati për riparim.</div>
       <div style="display:grid;gap:10px">
         <button id="repair" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:14px;font-size:15px;font-weight:1000">PASTRO CACHE / RIPARO APP</button>
-        <a href="/?pwaRepair=1&t=1" style="text-align:center;text-decoration:none;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:14px;font-size:15px;font-weight:1000">HAP APP ME REPAIR FLAG</a>
+        <a href="/?__manual_update=1&t=1" style="text-align:center;text-decoration:none;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:14px;font-size:15px;font-weight:1000">HAP APP</a>
       </div>
       <p style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">
         Nuk fshin session, outbox, porosi lokale, punëtorë, pagesa, ose të dhëna të DB-së.
@@ -32,8 +32,8 @@
   </main>
   <script>
     (function(){
-      var EPOCH = 'RESET-2026-04-25-PWA-BOOTGUARD-V3';
-      var VERSION = '2.0.6-pwa-bootguard-v3';
+      var EPOCH = 'RESET-2026-04-25-PWA-NO-STUCK-V4';
+      var VERSION = '2.0.7-pwa-no-stuck-v4';
       var statusEl = document.getElementById('status');
       var diagEl = document.getElementById('diag');
       function text(value){ try { return String(value == null ? '' : value); } catch(e) { return ''; } }
@@ -96,7 +96,7 @@
         setStatus('U krye. Duke hapur app-in me index të ri...');
         setTimeout(function(){
           var url = new URL('/', window.location.origin);
-          url.searchParams.set('pwaRepair', '1');
+          url.searchParams.set('__manual_update', '1');
           url.searchParams.set('__html_epoch', EPOCH.slice(0, 90));
           url.searchParams.set('t', String(Date.now()));
           window.location.replace(url.toString());

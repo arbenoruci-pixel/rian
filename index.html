@@ -6,15 +6,15 @@
     <meta name="theme-color" content="#0b0f14" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-PWA-BOOTGUARD-V3" />
-    <meta name="tepiha-build-id" content="2.0.6-pwa-bootguard-v3" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-PWA-NO-STUCK-V4" />
+    <meta name="tepiha-build-id" content="2.0.7-pwa-no-stuck-v4" />
     <link rel="icon" href="/favicon.ico" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TEPIHA</title>
     <script>
-      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-PWA-BOOTGUARD-V3';
-      window.__TEPIHA_BUILD_ID = '2.0.6-pwa-bootguard-v3';
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-PWA-NO-STUCK-V4';
+      window.__TEPIHA_BUILD_ID = '2.0.7-pwa-no-stuck-v4';
       window.__TEPIHA_SW_KILL_SWITCH__ = false;
       window.__TEPIHA_FORCE_NETWORK_MODE__ = false;
       window.__TEPIHA_DIAG_SYSTEM_ENABLED__ = false;
@@ -23,9 +23,9 @@
       window.__TEPIHA_SIMPLE_INCIDENTS_ENABLED__ = true;
       window.__TEPIHA_STARTUP_ISOLATION__ = true;
       window.__TEPIHA_STARTUP_ISOLATION_WINDOW_MS__ = 4500;
-      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-pwa-bootguard-v3';
-      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-v3';
-      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-repair-v2';
+      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-pwa-no-stuck-v4';
+      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-no-stuck-v4';
+      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-v4';
       window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
       (function(){
         try {
@@ -151,13 +151,13 @@
           function buildReloadUrl(reason){
             try {
               var url = new URL(window.location.href);
-              url.searchParams.set('__pwa_repair_v2', safeString(reason || '1'));
+              url.searchParams.set('__manual_update', safeString(reason || '1'));
               url.searchParams.set('__html_epoch', APP_EPOCH.slice(0, 90));
               url.searchParams.set('t', String(Date.now()));
               return url.toString();
-            } catch(e) { return '/?__pwa_repair_v2=1&t=' + Date.now(); }
+            } catch(e) { return '/?__manual_update=1&t=' + Date.now(); }
           }
-          async function autoRepair(reason, detail){
+          async function manualStalenessRepair(reason, detail){
             var guardValue = APP_EPOCH + ':' + safeString(reason || 'repair');
             try {
               var existing = sessionStorage.getItem(GUARD_KEY) || '';
@@ -189,10 +189,23 @@
             try { window.__TEPIHA_PWA_STALENESS_CHECK__ = entry; } catch(e) {}
             appendLog(entry);
             if ((isStandalone() || forceRepair()) && (info.epochMismatch || cacheMismatch)) {
-              await autoRepair(info.epochMismatch ? 'html_sw_epoch_mismatch' : 'html_runtime_cache_mismatch', { cacheKeys: keys.slice(0, 80), staleRuntimeCaches: staleRuntimeCaches.slice(0, 80), cacheMismatch: cacheMismatch });
+              var passive = snapshot(info.epochMismatch ? 'html_sw_epoch_mismatch_passive_no_auto_repair' : 'html_runtime_cache_mismatch_passive_no_auto_repair', {
+                cacheKeys: keys.slice(0, 80),
+                staleRuntimeCaches: staleRuntimeCaches.slice(0, 80),
+                cacheMismatch: cacheMismatch,
+                passiveUpdate: true,
+                autoRepairDisabled: true,
+                autoReloadDisabled: true,
+                manualUpdateOnly: true,
+                noStuckV4: true
+              });
+              appendLog(passive);
+              try { localStorage.setItem('tepiha_update_available_v1', JSON.stringify(passive)); } catch(e) {}
+              try { window.__TEPIHA_UPDATE_AVAILABLE__ = passive; } catch(e) {}
+              try { window.dispatchEvent(new CustomEvent('tepiha:update-available', { detail: passive })); } catch(e) {}
             }
           }
-          window.__TEPIHA_PWA_STALENESS_REPAIR__ = { check: check, autoRepair: autoRepair, snapshot: snapshot, clearRuntimeCaches: clearRuntimeCaches };
+          window.__TEPIHA_PWA_STALENESS_REPAIR__ = { check: check, manualRepair: manualStalenessRepair, snapshot: snapshot, clearRuntimeCaches: clearRuntimeCaches };
           check().catch(function(error){ appendLog(snapshot('startup_check_error', { message: safeString(error && error.message || error) })); });
           function syncMarker(){
             try {
@@ -874,7 +887,7 @@
               var rawAsset = safeString(entry && (entry.assetUrl || entry.targetSrc || entry.filename) || '');
               var topIndex = /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(rawAsset);
               if (topIndex) return false;
-              // PWA-BOOTGUARD-V3: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
+              // PWA-NO-STUCK-V4: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
               // Inline fullscreen fallback përdoret vetëm për runtime core assets; route/panel chunks i menaxhon React LocalErrorBoundary/SafeLazyRouteShell.
               if (!isRuntimeAssetUrl(rawAsset)) return false;
               if (isUiReadyForRuntimeFallback()) {
@@ -1023,7 +1036,7 @@
       })();
     </script>
 
-    <script id="tepiha-pwa-boot-rescue-v3">
+    <script id="tepiha-pwa-boot-rescue-no-stuck-v4">
       (function(){
         try {
           var LAST_KEY = 'tepiha_pwa_boot_rescue_last_v1';
@@ -1031,7 +1044,7 @@
           var BOOT_TIMEOUT_MS = 15000;
           var APP_EPOCH = String(window.__TEPIHA_APP_EPOCH || (document.querySelector('meta[name="tepiha-app-epoch"]') || {}).content || '');
           var BUILD_ID = String(window.__TEPIHA_BUILD_ID || (document.querySelector('meta[name="tepiha-build-id"]') || {}).content || '');
-          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-v3');
+          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-no-stuck-v4');
           var INDEX_VERSION = String(window.__TEPIHA_INDEX_SCRIPT_VERSION__ || '');
           var startedAt = Date.now();
 
@@ -1352,7 +1365,7 @@
             return '' +
               '<div data-pwa-boot-rescue="1" style="position:fixed;inset:0;z-index:2147483647;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
                 '<div style="width:min(560px,100%);border:1px solid rgba(255,255,255,.14);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
-                  '<div style="font-size:12px;letter-spacing:.16em;color:#93c5fd;font-weight:900;margin-bottom:8px">PWA BOOT RESCUE V3</div>' +
+                  '<div style="font-size:12px;letter-spacing:.16em;color:#93c5fd;font-weight:900;margin-bottom:8px">PWA BOOT RESCUE NO-STUCK V4</div>' +
                   '<div style="font-size:26px;font-weight:1000;line-height:1.05;margin-bottom:8px">TEPIHA NUK U NIS</div>' +
                   '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">React nuk u montua në kohë në Homescreen/PWA. Kjo duket si Service Worker / cache / shell-chunk mismatch, jo problem me DB ose të dhënat.</div>' +
                   '<div style="font-size:13px;color:#94a3b8;margin-bottom:12px">Route: <b style="color:#fff">' + fallbackTitleForPath() + '</b></div>' +
@@ -1437,7 +1450,7 @@
             clearStaleMarkers();
             var after = await buildDiag('pwa_repair_completed_reload');
             appendLog(after);
-            setStatus('Riparimi u krye. Duke rifreskuar...');
+            setStatus('Riparimi u krye. Po hapet app-i...');
             window.setTimeout(function(){ window.location.replace(cacheBustUrl('1')); }, 250);
           }
           async function showFallback(reason) {
@@ -1482,7 +1495,7 @@
                 return;
               }
               if (isRootMeaningfullyVisible()) {
-                // PWA-BOOTGUARD-V3: në iOS Homescreen disa route shfaqen para se marker-i ui_ready të shkruhet.
+                // PWA-NO-STUCK-V4: në iOS Homescreen disa route shfaqen para se marker-i ui_ready të shkruhet.
                 // Mos e mbulo UI-në reale me rescue vetëm pse mungon marker-i.
                 writeBootRescueSkip('pwa_boot_rescue_skip_root_visible_' + safeString(reason || 'timeout'));
                 return;
@@ -1533,12 +1546,25 @@
 
           if (launchSwInfo && launchSwInfo.epochMismatch && shouldArm()) {
             try {
-              window.setTimeout(function(){
-                if (window.__TEPIHA_PWA_STALENESS_REPAIR_LAST__) return;
-                repairApp().catch(function(){
-                  try { if (!isUiReady()) showFallback('pwa_sw_epoch_mismatch_launch').catch(function(){}); } catch (e) {}
-                });
-              }, 250);
+              var passiveLaunch = {
+                source: 'index_html_pwa_boot_rescue',
+                reason: 'pwa_sw_epoch_mismatch_passive_no_auto_repair',
+                at: nowIso(),
+                ts: Date.now(),
+                serviceWorker: launchSwInfo,
+                appEpoch: APP_EPOCH,
+                buildId: BUILD_ID,
+                passiveUpdate: true,
+                autoRepairDisabled: true,
+                autoReloadDisabled: true,
+                manualUpdateOnly: true,
+                noStuckV4: true,
+                href: safeString(window.location && window.location.href)
+              };
+              appendLog(passiveLaunch);
+              try { localStorage.setItem('tepiha_update_available_v1', JSON.stringify(passiveLaunch)); } catch (e) {}
+              try { window.__TEPIHA_UPDATE_AVAILABLE__ = passiveLaunch; } catch (e) {}
+              try { window.dispatchEvent(new CustomEvent('tepiha:update-available', { detail: passiveLaunch })); } catch (e) {}
             } catch (e) {}
           }
 
@@ -1566,15 +1592,15 @@
     <div
       id="tepiha-build-marker"
       data-tepiha-build-marker="1"
-      data-app-epoch="RESET-2026-04-25-PWA-BOOTGUARD-V3"
-      data-build-id="2.0.6-pwa-bootguard-v3"
-      data-index-script-version="index-html-pwa-bootguard-v3"
-      data-pwa-boot-rescue-version="pwa-boot-rescue-v3"
+      data-app-epoch="RESET-2026-04-25-PWA-NO-STUCK-V4"
+      data-build-id="2.0.7-pwa-no-stuck-v4"
+      data-index-script-version="index-html-pwa-no-stuck-v4"
+      data-pwa-boot-rescue-version="pwa-boot-rescue-no-stuck-v4"
       style="position:fixed;left:8px;bottom:8px;z-index:2147483000;max-width:calc(100vw - 16px);padding:6px 8px;border-radius:10px;background:rgba(2,6,23,.86);border:1px solid rgba(96,165,250,.35);color:#bfdbfe;font:700 10px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;box-shadow:0 8px 28px rgba(0,0,0,.35);transition:opacity .35s ease"
     >
-      INDEX V2 • 2.0.6-pwa-bootguard-v3<br />
-      RESET-2026-04-25-PWA-BOOTGUARD-V3<br />
-      PWA RESCUE V3
+      INDEX V2 • 2.0.7-pwa-no-stuck-v4<br />
+      RESET-2026-04-25-PWA-NO-STUCK-V4<br />
+      PWA RESCUE NO-STUCK V4
     </div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>

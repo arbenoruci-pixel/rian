@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { APP_DATA_EPOCH } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
 
-const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS = 1400;
 const VITE_SW_URL = '/vite-sw.js';
 const PASSIVE_UPDATE_KEY = 'tepiha_update_available_v1';
 const PASSIVE_UPDATE_EVENT = 'tepiha:update-available';
@@ -257,7 +257,7 @@ function buildRegisterOptions({
   cancelledRef,
   registrationRef,
   updateSWRef,
-  installAggressiveUpdateChecks,
+  installCleanLaunchUpdateCheck,
   startManualFallback,
   showPassiveUpdateBanner,
 }) {
@@ -283,7 +283,7 @@ function buildRegisterOptions({
         markRuntimeOwnerReady('vite_pwa_sw_registered');
         markRootRuntimeSettled('vite_pwa_sw_registered');
 
-        installAggressiveUpdateChecks('virtual_pwa_register', swUrl);
+        installCleanLaunchUpdateCheck('virtual_pwa_register', swUrl);
       } catch (error) {
         logSwEvent('vite_pwa_sw_registered_callback_error', {
           message: safeMessage(error, 'registered_callback_failed'),
@@ -354,7 +354,7 @@ export default function ServiceWorkerRegister() {
   const cancelledRef = useRef(false);
   const registrationRef = useRef(null);
   const updateSWRef = useRef(null);
-  const cleanupAggressiveUpdateChecksRef = useRef(null);
+  const cleanupCleanLaunchUpdateCheckRef = useRef(null);
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -367,14 +367,14 @@ export default function ServiceWorkerRegister() {
 
     let manualFallbackStarted = false;
 
-    const clearAggressiveUpdateChecks = () => {
+    const clearCleanLaunchUpdateCheck = () => {
       try {
-        if (typeof cleanupAggressiveUpdateChecksRef.current === 'function') {
-          cleanupAggressiveUpdateChecksRef.current();
+        if (typeof cleanupCleanLaunchUpdateCheckRef.current === 'function') {
+          cleanupCleanLaunchUpdateCheckRef.current();
         }
       } catch {}
 
-      cleanupAggressiveUpdateChecksRef.current = null;
+      cleanupCleanLaunchUpdateCheckRef.current = null;
     };
 
     const showPassiveUpdateBanner = (payload = {}) => {
@@ -495,6 +495,14 @@ export default function ServiceWorkerRegister() {
       window.addEventListener(PASSIVE_UPDATE_EVENT, onPassiveUpdateAvailable);
     } catch {}
 
+    try {
+      const raw = window.localStorage?.getItem?.(PASSIVE_UPDATE_KEY) || '';
+      const stored = raw ? JSON.parse(raw) : null;
+      if (stored && stored.passiveUpdate === true) {
+        window.setTimeout(() => showPassiveUpdateBanner(stored), 700);
+      }
+    } catch {}
+
     const recoverRegistrationAndUpdate = (source, swUrl = '') => {
       try {
         if (cancelledRef.current) return;
@@ -570,72 +578,96 @@ export default function ServiceWorkerRegister() {
       }
     };
 
-    const installAggressiveUpdateChecks = (source, swUrl = '') => {
+    const readNavigationType = () => {
       try {
-        clearAggressiveUpdateChecks();
+        const entries = typeof performance?.getEntriesByType === 'function'
+          ? performance.getEntriesByType('navigation')
+          : [];
+        return String(entries?.[0]?.type || 'navigate');
+      } catch {
+        return 'navigate';
+      }
+    };
 
-        const onVisibilityChange = () => {
+    const isManualUpdateLaunch = () => {
+      try {
+        const sp = new URLSearchParams(window.location?.search || '');
+        if (sp.has('__manual_update')) return true;
+        if (sp.get('pwaRepair') === '1' || sp.get('pwa_repair') === '1' || sp.get('repairPwa') === '1') return true;
+      } catch {}
+
+      try {
+        const raw = window.sessionStorage?.getItem?.('tepiha_manual_update_requested_v1') || '';
+        if (raw) return true;
+      } catch {}
+
+      return false;
+    };
+
+    const shouldRunCleanLaunchUpdateCheck = () => {
+      try {
+        if (cancelledRef.current) return false;
+        if (document.visibilityState && document.visibilityState !== 'visible') return false;
+      } catch {}
+
+      if (isManualUpdateLaunch()) return true;
+
+      const navType = readNavigationType();
+      if (navType === 'back_forward') return false;
+
+      try {
+        const key = `tepiha_clean_launch_sw_update_check_v4:${APP_DATA_EPOCH}`;
+        if (window.sessionStorage?.getItem?.(key) === '1') return false;
+        window.sessionStorage?.setItem?.(key, '1');
+      } catch {}
+
+      return navType === 'navigate' || navType === 'reload' || navType === '';
+    };
+
+    const installCleanLaunchUpdateCheck = (source, swUrl = '') => {
+      try {
+        clearCleanLaunchUpdateCheck();
+
+        let timerId = null;
+        const allowed = shouldRunCleanLaunchUpdateCheck();
+
+        if (allowed) {
           try {
-            if (document.visibilityState === 'visible') {
-              checkForUpdate(source, 'visibilitychange_visible', swUrl);
-            }
+            timerId = window.setTimeout(() => {
+              checkForUpdate(source, isManualUpdateLaunch() ? 'manual_update_launch_once' : 'clean_launch_once', swUrl);
+            }, CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS);
           } catch (error) {
-            logSwEvent('vite_pwa_sw_visibility_update_error', {
+            logSwEvent('vite_pwa_sw_clean_launch_timer_error', {
               source,
               swUrl: String(swUrl || ''),
-              message: safeMessage(error, 'visibility_update_failed'),
+              message: safeMessage(error, 'clean_launch_timer_failed'),
             });
           }
-        };
-
-        try {
-          document.addEventListener('visibilitychange', onVisibilityChange);
-        } catch (error) {
-          logSwEvent('vite_pwa_sw_visibility_listener_error', {
-            source,
-            swUrl: String(swUrl || ''),
-            message: safeMessage(error, 'visibility_listener_failed'),
-          });
         }
 
-        let intervalId = null;
-
-        try {
-          intervalId = window.setInterval(() => {
-            checkForUpdate(source, 'interval_1h', swUrl);
-          }, UPDATE_CHECK_INTERVAL_MS);
-        } catch (error) {
-          logSwEvent('vite_pwa_sw_interval_setup_error', {
-            source,
-            swUrl: String(swUrl || ''),
-            message: safeMessage(error, 'interval_setup_failed'),
-          });
-        }
-
-        cleanupAggressiveUpdateChecksRef.current = () => {
+        cleanupCleanLaunchUpdateCheckRef.current = () => {
           try {
-            document.removeEventListener('visibilitychange', onVisibilityChange);
-          } catch {}
-
-          try {
-            if (intervalId !== null) {
-              window.clearInterval(intervalId);
-            }
+            if (timerId !== null) window.clearTimeout(timerId);
           } catch {}
         };
 
-        logSwEvent('vite_pwa_sw_passive_update_checks_installed', {
+        logSwEvent('vite_pwa_sw_clean_launch_update_check_ready', {
           source,
           swUrl: String(swUrl || ''),
+          allowed,
+          navigationType: readNavigationType(),
+          manualUpdateLaunch: isManualUpdateLaunch(),
           hasRegistrationUpdate: typeof registrationRef.current?.update === 'function',
           hasUpdateSW: typeof updateSWRef.current === 'function',
-          intervalMs: UPDATE_CHECK_INTERVAL_MS,
+          delayMs: CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS,
+          noVisibilityUpdateChecks: true,
+          noIntervalUpdateChecks: true,
         });
       } catch (error) {
-        logSwEvent('vite_pwa_sw_passive_update_setup_error', {
+        logSwEvent('vite_pwa_sw_clean_launch_update_setup_error', {
           source,
           swUrl: String(swUrl || ''),
-          message: safeMessage(error, 'passive_update_setup_failed'),
+          message: safeMessage(error, 'clean_launch_update_setup_failed'),
         });
       }
     };
@@ -675,7 +707,7 @@ export default function ServiceWorkerRegister() {
         markRootRuntimeSettled('vite_pwa_manual_register_ok');
         setOfflineReadyFlag('manual_fallback_register');
 
-        installAggressiveUpdateChecks('manual_fallback_register', VITE_SW_URL);
+        installCleanLaunchUpdateCheck('manual_fallback_register', VITE_SW_URL);
 
         return registration;
       } catch (error) {
@@ -784,7 +816,7 @@ export default function ServiceWorkerRegister() {
           cancelledRef,
           registrationRef,
           updateSWRef,
-          installAggressiveUpdateChecks,
+          installCleanLaunchUpdateCheck,
           startManualFallback,
           showPassiveUpdateBanner,
         });
@@ -845,7 +877,7 @@ export default function ServiceWorkerRegister() {
 
     return () => {
       cancelledRef.current = true;
-      clearAggressiveUpdateChecks();
+      clearCleanLaunchUpdateCheck();
       try { window.removeEventListener(PASSIVE_UPDATE_EVENT, onPassiveUpdateAvailable); } catch {}
     };
   }, []);
