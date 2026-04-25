@@ -50,7 +50,7 @@ function legacyDetectionPayload(source = 'startup') {
   return {
     at: new Date().toISOString(),
     ts: Date.now(),
-    sourceLayer: 'src_main_legacy_sw_bridge_v11',
+    sourceLayer: 'src_main_legacy_sw_bridge_v12',
     source: String(source || 'startup'),
     href: safeString(window.location?.href || ''),
     path: safeString(window.location?.pathname || ''),
@@ -112,7 +112,7 @@ function markManualRepairSuggested(reason, extra = {}) {
   const payload = {
     at: new Date().toISOString(),
     ts: Date.now(),
-    sourceLayer: 'src_main_manual_repair_v11',
+    sourceLayer: 'src_main_manual_repair_v12',
     reason: String(reason || 'runtime_issue'),
     autoReloadDisabled: true,
     autoRepairDisabled: true,
@@ -122,7 +122,7 @@ function markManualRepairSuggested(reason, extra = {}) {
     ...extra,
   };
 
-  writeRuntimeMarker('tepiha_manual_repair_suggested_v11', payload);
+  writeRuntimeMarker('tepiha_manual_repair_suggested_v12', payload);
 
   try {
     window.__TEPIHA_UPDATE_AVAILABLE__ = payload;

@@ -4,16 +4,13 @@ import { useEffect } from 'react';
 import { APP_DATA_EPOCH } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
 
-const WARMUP_VERSION = 'offline-first-warmup-v3-networkfirst-v9';
+const WARMUP_VERSION = 'offline-first-warmup-v4-fast-home-v12';
 const WARMUP_DONE_PREFIX = 'tepiha_offline_first_warmup_done_v2';
 const WARMUP_LAST_KEY = 'tepiha_offline_first_warmup_last_v2';
 
 const ROUTE_URLS = [
-  '/',
-  '/pranimi',
-  '/pastrimi',
-  '/gati',
-  '/marrje-sot',
+  // V12: do not warm Home or the eager daily routes before/around first paint.
+  // Warmup is background convenience only for lazy secondary surfaces.
   '/arka',
   '/transport',
   '/transport/menu',
@@ -21,8 +18,7 @@ const ROUTE_URLS = [
 ];
 
 const MODULE_WARMERS = [
-  // V8: base daily routes are static/eager in routes.generated.jsx, so do not dynamically import
-  // them again during warmup. This avoids background chunk pressure on iOS PWA.
+  // V12: keep daily business routes eager and avoid warming runtime modules here.
   ['ARKA', () => import('@/app/arka/page.jsx')],
   ['TRANSPORT_HOME', () => import('@/app/transport/page.jsx')],
   ['TRANSPORT_MENU', () => import('@/app/transport/menu/page.jsx')],
@@ -30,10 +26,6 @@ const MODULE_WARMERS = [
   ['SMART_SMS_MODAL', () => import('@/components/SmartSmsModal.jsx')],
   ['POS_MODAL', () => import('@/components/PosModal.jsx')],
   ['RACK_LOCATION_MODAL', () => import('@/components/RackLocationModal.jsx')],
-  ['OFFLINE_SYNC_RUNNER', () => import('@/components/OfflineSyncRunner.jsx')],
-  ['SYNC_STARTER', () => import('@/components/SyncStarter.jsx')],
-  ['RUNTIME_INCIDENT_UPLOADER', () => import('@/components/RuntimeIncidentUploader.jsx')],
-  ['SESSION_DOCK', () => import('@/components/SessionDock.jsx')],
 ];
 
 function safeString(value, fallback = '') {
@@ -60,6 +52,60 @@ function isVisible() {
     return true;
   }
 }
+function isSafeMode() {
+  try {
+    if (typeof window === 'undefined') return true;
+    if (window.__TEPIHA_HOME_SAFE_MODE__ === true) return true;
+    const sp = new URLSearchParams(window.location?.search || '');
+    if (sp.get('homeSafeMode') === '1' || sp.get('safeMode') === '1') return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function networkLooksWeak() {
+  try {
+    const conn = navigator?.connection || navigator?.mozConnection || navigator?.webkitConnection;
+    if (!conn) return false;
+    if (conn.saveData === true) return true;
+    const effective = String(conn.effectiveType || '').toLowerCase();
+    return effective === 'slow-2g' || effective === '2g';
+  } catch {
+    return false;
+  }
+}
+
+function waitForHomeReadyOrTimeout(cancelledRef, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') return resolve(false);
+    let done = false;
+    let timer = 0;
+    const finish = (reason) => {
+      if (done) return;
+      done = true;
+      try { window.clearTimeout(timer); } catch {}
+      try { window.removeEventListener('tepiha:first-ui-ready', onReady, true); } catch {}
+      try { window.removeEventListener('tepiha:route-ui-alive', onReady, true); } catch {}
+      resolve(reason);
+    };
+    const onReady = (event) => {
+      if (cancelledRef.cancelled) return finish('cancelled');
+      const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+      const path = String(detail?.path || window.location?.pathname || '/');
+      if (path === '/') finish('home_route_ui_ready');
+    };
+    try {
+      if (window.__TEPIHA_HOME_STATIC_SHELL_RENDERED__ === true || window.__TEPIHA_UI_READY === true) {
+        return finish('already_ready');
+      }
+    } catch {}
+    try { window.addEventListener('tepiha:first-ui-ready', onReady, true); } catch {}
+    try { window.addEventListener('tepiha:route-ui-alive', onReady, true); } catch {}
+    timer = window.setTimeout(() => finish('timeout'), Math.max(800, Number(timeoutMs) || 5000));
+  });
+}
+
 
 function sleep(ms) {
   return new Promise((resolve) => {
@@ -227,14 +273,26 @@ export default function OfflineFirstWarmup() {
         }
       } catch {}
 
+      if (isSafeMode()) {
+        writeWarmupStatus('skip_safe_mode', { buildKey });
+        return;
+      }
+
       const ready = await waitForReadyToWarm(cancelledRef);
       if (!ready || cancelledRef.cancelled) return;
 
-      await sleep(4200);
+      const homeReadyReason = await waitForHomeReadyOrTimeout(cancelledRef, 5000);
+      if (cancelledRef.cancelled) return;
+
+      await sleep(5200);
       if (cancelledRef.cancelled || !isOnline() || !isVisible()) return;
+      if (networkLooksWeak()) {
+        writeWarmupStatus('skip_weak_network', { buildKey, homeReadyReason });
+        return;
+      }
 
       const failures = [];
-      writeWarmupStatus('start', { buildKey, routes: ROUTE_URLS.length, modules: MODULE_WARMERS.length });
+      writeWarmupStatus('start', { buildKey, routes: ROUTE_URLS.length, modules: MODULE_WARMERS.length, homeReadyReason });
 
       await warmCurrentAssets(cancelledRef, failures);
       await warmRouteShells(cancelledRef, failures);

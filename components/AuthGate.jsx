@@ -9,7 +9,7 @@ import { readRuntimeTransition, writeAuthGateTrace, writeRuntimeTransition } fro
 import { recordPersistentTimelineEvent } from '@/lib/lazyImportRuntime';
 import { getStartupIsolationLeftMs, isWithinStartupIsolationWindow, scheduleAfterStartupIsolation } from '@/lib/startupIsolation';
 import { hasTransportSession, readBestActor } from '@/lib/sessionStore';
-const AUTHGATE_VERIFY_TIMEOUT_MS = 3000;
+const AUTHGATE_VERIFY_TIMEOUT_MS = 1000;
 const AUTH_RESUME_EVENT_LOG_KEY = 'tepiha_auth_resume_event_log_v1';
 
 function readStoredUser() {
@@ -349,7 +349,7 @@ function NetworkVerifyScreen({ reason = '' }) {
       <div style={card}>
         <div style={spinner} aria-hidden="true" />
         <div style={title}>Duke verifikuar rrjetin...</div>
-        <div style={sub}>Maksimumi 3 sekonda. Pastaj aplikacioni hapet pa bllokim.</div>
+        <div style={sub}>Maksimumi 1 sekondë. Pastaj aplikacioni hapet pa bllokim.</div>
         {reason ? <div style={{ ...sub, opacity: 0.46 }}>{String(reason)}</div> : null}
       </div>
     </div>

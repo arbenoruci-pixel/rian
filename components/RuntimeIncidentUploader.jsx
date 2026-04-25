@@ -18,6 +18,25 @@ function incidentsEnabled() {
   } catch {}
   return true;
 }
+function isOnline() {
+  try {
+    return typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+  } catch {
+    return true;
+  }
+}
+
+function isSafeMode() {
+  try {
+    if (!isBrowser()) return false;
+    if (window.__TEPIHA_HOME_SAFE_MODE__ === true) return true;
+    const sp = new URLSearchParams(window.location?.search || '');
+    return sp.get('safeMode') === '1' || sp.get('homeSafeMode') === '1';
+  } catch {
+    return false;
+  }
+}
+
 
 function safeParse(raw, fallback) {
   try {
@@ -191,9 +210,12 @@ function buildErrorPayload(kind, errorLike) {
 export default function RuntimeIncidentUploader() {
   useEffect(() => {
     if (!incidentsEnabled()) return undefined;
+    if (isSafeMode()) return undefined;
+    if (!isOnline()) return undefined;
 
     let disposed = false;
     let readyTimer = 0;
+    let startupDelayTimer = 0;
 
     const markReadySoon = () => {
       try {
@@ -251,9 +273,12 @@ export default function RuntimeIncidentUploader() {
       await postIncident(buildChunkCapturePayload(detail));
     };
 
-    markReadySoon();
-    void flushPending();
-    void flushEarlyQueue();
+    startupDelayTimer = window.setTimeout(() => {
+      if (disposed || !isOnline() || isSafeMode()) return;
+      markReadySoon();
+      void flushPending();
+      void flushEarlyQueue();
+    }, 700);
 
     try { window.addEventListener('tepiha:simple-incident', onSimpleIncident); } catch {}
     try { window.addEventListener('tepiha:chunk-capture', onChunkCapture); } catch {}
@@ -262,6 +287,7 @@ export default function RuntimeIncidentUploader() {
 
     return () => {
       disposed = true;
+      try { window.clearTimeout(startupDelayTimer); } catch {}
       try { window.clearTimeout(readyTimer); } catch {}
       try { window.removeEventListener('tepiha:simple-incident', onSimpleIncident); } catch {}
       try { window.removeEventListener('tepiha:chunk-capture', onChunkCapture); } catch {}

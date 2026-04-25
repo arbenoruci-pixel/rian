@@ -6,10 +6,6 @@ import AuthGate from '@/components/AuthGate';
 import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import DeferredMount from '@/components/DeferredMount';
-import ChunkLoadRuntime from '@/components/ChunkLoadRuntime.jsx';
-import RootResumeWatchdog from '@/components/RootResumeWatchdog.jsx';
-import ServiceWorkerRegister from '@/components/ServiceWorkerRegister.jsx';
-import OfflineFirstWarmup from '@/components/OfflineFirstWarmup.jsx';
 import { appRoutes } from './generated/routes.generated.jsx';
 import { ACTIVE_ROUTE_REQUEST_KEY, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
 import { lazyWithReload } from '@/lib/lazyWithReload.jsx';
@@ -237,7 +233,7 @@ function getRuntimeStatus() {
   try {
     if (!window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ || typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ !== 'object') {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-quiet-update-v7',
+        version: 'app-root-vite-fast-home-v12',
         criticalMode: 'home_eager_business_safe_lazy_fastboot',
         criticalModules: {},
         lazyModules: {},
@@ -517,42 +513,42 @@ export default function AppRoot() {
       <RouteRequestTracker />
       <GlobalErrorBoundary>
         <AuthGate>
-          <CoreRuntimeModule name="ChunkLoadRuntime">
-            <ChunkLoadRuntime />
-          </CoreRuntimeModule>
-          <CoreRuntimeModule name="RootResumeWatchdog">
-            <RootResumeWatchdog />
-          </CoreRuntimeModule>
-
-          <DeferredMount delay={650} idle wakeSafe wakeBufferMs={1200}>
-            <CoreRuntimeModule name="ServiceWorkerRegister">
-              <ServiceWorkerRegister />
-            </CoreRuntimeModule>
-          </DeferredMount>
-
-          <DeferredMount delay={1800} idle wakeSafe wakeBufferMs={2200}>
-            <RuntimeBoundary name="OfflineFirstWarmup" source="lazy_chunk">
-              <OfflineFirstWarmup />
-            </RuntimeBoundary>
-          </DeferredMount>
-
-          <DeferredMount delay={1100} idle wakeSafe wakeBufferMs={1800}>
-            <SafeRuntimeLazy name="OfflineSyncRunner" importer={() => import('@/components/OfflineSyncRunner.jsx')} />
-            <SafeRuntimeLazy name="SyncStarter" importer={() => import('@/components/SyncStarter.jsx')} />
-          </DeferredMount>
-
           <Routes>
             {appRoutes.map((route) => (
               <Route key={route.path} path={route.path} element={route.element} />
             ))}
           </Routes>
 
-          <DeferredMount delay={900} idle wakeSafe wakeBufferMs={1800}>
+          <DeferredMount delay={1500} idle wakeSafe wakeBufferMs={350} waitForOwnerSignal={false}>
+            <SafeRuntimeLazy name="ChunkLoadRuntime" importer={() => import('@/components/ChunkLoadRuntime.jsx')} />
+          </DeferredMount>
+
+          <DeferredMount delay={2000} idle wakeSafe wakeBufferMs={450} waitForOwnerSignal={false}>
+            <SafeRuntimeLazy name="RootResumeWatchdog" importer={() => import('@/components/RootResumeWatchdog.jsx')} />
+          </DeferredMount>
+
+          <DeferredMount delay={2100} idle wakeSafe wakeBufferMs={500} waitForOwnerSignal={false} runtimeOwner>
+            <SafeRuntimeLazy name="ServiceWorkerRegister" importer={() => import('@/components/ServiceWorkerRegister.jsx')} />
+          </DeferredMount>
+
+          <DeferredMount delay={3600} idle wakeSafe wakeBufferMs={700} waitForOwnerSignal={false}>
+            <SafeRuntimeLazy name="OfflineSyncRunner" importer={() => import('@/components/OfflineSyncRunner.jsx')} />
+          </DeferredMount>
+
+          <DeferredMount delay={3900} idle wakeSafe wakeBufferMs={700} waitForOwnerSignal={false}>
+            <SafeRuntimeLazy name="SyncStarter" importer={() => import('@/components/SyncStarter.jsx')} />
+          </DeferredMount>
+
+          <DeferredMount delay={4500} idle wakeSafe wakeBufferMs={900} waitForOwnerSignal={false}>
             <SafeRuntimeLazy name="RuntimeIncidentUploader" importer={() => import('@/components/RuntimeIncidentUploader.jsx')} />
           </DeferredMount>
 
-          <DeferredMount delay={800} idle wakeSafe wakeBufferMs={1200}>
+          <DeferredMount delay={2800} idle wakeSafe wakeBufferMs={500} waitForOwnerSignal={false}>
             <SafeRuntimeLazy name="SessionDock" importer={() => import('@/components/SessionDock.jsx')} />
+          </DeferredMount>
+
+          <DeferredMount delay={5600} idle wakeSafe wakeBufferMs={1200} waitForOwnerSignal={false}>
+            <SafeRuntimeLazy name="OfflineFirstWarmup" importer={() => import('@/components/OfflineFirstWarmup.jsx')} />
           </DeferredMount>
         </AuthGate>
       </GlobalErrorBoundary>

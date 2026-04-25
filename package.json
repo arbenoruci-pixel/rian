@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.14-vite-legacy-sw-bridge-v11",
+  "version": "2.0.15-vite-fast-home-v12",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",

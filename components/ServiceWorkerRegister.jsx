@@ -699,7 +699,7 @@ export default function ServiceWorkerRegister() {
               controllerScriptURL: currentPayload.controllerScriptURL,
             };
 
-            try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_manual_repair_v11', JSON.stringify(result)); } catch {}
+            try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_manual_repair_v12', JSON.stringify(result)); } catch {}
             try { logSwEvent('legacy_sw_bridge_manual_repair_done', result); } catch {}
 
             setStatus('Riparimi manual u krye. Po hapet app-i përsëri...');
