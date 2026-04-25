@@ -369,6 +369,45 @@ export function lazyWithReload(importer, options = {}) {
         },
       });
 
+      const wantsSilentFallback = options.silentFallback === true
+        || options.silent === true
+        || options.silentRuntimeModule === true
+        || options.meta?.silentRuntimeModule === true;
+
+      if (wantsSilentFallback) {
+        const SilentLazyUpdateFallback = function SilentLazyUpdateFallback() {
+          const calledRef = React.useRef(false);
+          React.useEffect(() => {
+            if (calledRef.current) return;
+            calledRef.current = true;
+            try {
+              options.onSilentFailure?.(result.payload, error);
+            } catch {}
+            try {
+              const entry = {
+                at: new Date().toISOString(),
+                ts: Date.now(),
+                label,
+                moduleId: options.moduleId || options.meta?.moduleId || label,
+                sourceLayer: options.sourceLayer || options.meta?.sourceLayer || 'lazy_with_reload',
+                silentRuntimeModule: true,
+                reason: missingDefaultCode || 'dynamic_import_failed',
+                payload: result.payload || null,
+              };
+              window.__TEPIHA_LAST_SILENT_LAZY_FAILURE__ = entry;
+              const key = 'tepiha_silent_lazy_failure_log_v1';
+              const list = JSON.parse(window.localStorage?.getItem?.(key) || '[]');
+              const next = [entry, ...((Array.isArray(list) ? list : []).filter(Boolean))].slice(0, 40);
+              window.localStorage?.setItem?.(key, JSON.stringify(next));
+              window.dispatchEvent(new CustomEvent('tepiha:silent-lazy-failure', { detail: entry }));
+            } catch {}
+          }, []);
+          return null;
+        };
+
+        return { default: SilentLazyUpdateFallback };
+      }
+
       const PassiveUpdateFallback = function PassiveLazyUpdateFallback() {
         return <LazyUpdateAvailableFallback payload={result.payload} reloadBlocked={!!result.blocked} />;
       };

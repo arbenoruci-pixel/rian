@@ -5,6 +5,7 @@ import '@/phone-safearea.css';
 import AuthGate from '@/components/AuthGate';
 import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
+import OfflineSyncRunner from '@/components/OfflineSyncRunner.jsx';
 import DeferredMount from '@/components/DeferredMount';
 import { appRoutes } from './generated/routes.generated.jsx';
 import { ACTIVE_ROUTE_REQUEST_KEY, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
@@ -16,6 +17,56 @@ try {
     window.__TEPIHA_ALLOW_BROWSER_OFFLINE_RUNTIME__ = true;
   }
 } catch {}
+
+const RUNTIME_MODULE_DISABLED_KEY = 'tepiha_runtime_module_disabled_v1';
+const RUNTIME_MODULE_RETRY_DELAY_MS = 15000;
+const RUNTIME_MODULE_MAX_SILENT_RETRIES = 1;
+
+function readRuntimeModuleDisabledMap() {
+  try {
+    if (typeof window === 'undefined') return {};
+    const raw = window.sessionStorage?.getItem?.(RUNTIME_MODULE_DISABLED_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isRuntimeModuleDisabled(name) {
+  try {
+    const key = String(name || '').trim();
+    if (!key) return false;
+    const map = readRuntimeModuleDisabledMap();
+    return !!map[key];
+  } catch {
+    return false;
+  }
+}
+
+function markRuntimeModuleDisabled(name, reason = 'runtime_module_disabled', extra = {}) {
+  try {
+    if (typeof window === 'undefined') return null;
+    const key = String(name || '').trim();
+    if (!key) return null;
+    const map = readRuntimeModuleDisabledMap();
+    const entry = {
+      name: key,
+      reason: String(reason || 'runtime_module_disabled'),
+      at: new Date().toISOString(),
+      ts: Date.now(),
+      path: String(window.location?.pathname || '/'),
+      ...extra,
+    };
+    map[key] = entry;
+    window.sessionStorage?.setItem?.(RUNTIME_MODULE_DISABLED_KEY, JSON.stringify(map));
+    try { window.dispatchEvent(new CustomEvent('tepiha:runtime-module-disabled', { detail: entry })); } catch {}
+    try { recordRouteDiagEvent('app_root_runtime_module_disabled', entry); } catch {}
+    return entry;
+  } catch {
+    return null;
+  }
+}
 
 function safeParseJson(raw, fallback = null) {
   try {
@@ -305,12 +356,15 @@ function recordRuntimeFailure(name, error, source = 'core_bundle_static_import',
 
 function RuntimeBoundary({ name, source = 'core_bundle_static_import', children }) {
   const handleError = React.useCallback((entry, error) => {
-    recordRuntimeFailure(name, error, source, { localErrorEntry: entry });
+    recordRuntimeFailure(name, error, source, {
+      localErrorEntry: entry,
+      silentRuntimeModule: true,
+    });
   }, [name, source]);
 
   return (
     <LocalErrorBoundary
-      boundaryKind="module"
+      boundaryKind="runtime"
       routePath="/runtime"
       routeName="APP RUNTIME"
       moduleName={name}
@@ -318,10 +372,8 @@ function RuntimeBoundary({ name, source = 'core_bundle_static_import', children 
       componentName={name}
       sourceLayer={source === 'lazy_chunk' ? 'app_root_runtime_lazy' : 'app_root_runtime_core'}
       showHome={false}
-      repairHref="/pwa-repair.html?from=runtime_import_failure"
-      repairLabel="RIPARO APP"
-      helpText="Ky është runtime safety module. Gabimi izolohet lokalisht që Home/routes të vazhdojnë sa më shumë që është e mundur."
       onError={handleError}
+      renderFallback={() => null}
     >
       {children}
     </LocalErrorBoundary>
@@ -412,13 +464,16 @@ async function importRuntimeLazyModule(importer, name, retryCount) {
   }
 }
 
-function makeRuntimeLazy(importer, name, retryCount) {
+function makeRuntimeLazy(importer, name, retryCount, onSilentFailure) {
   return lazyWithReload(() => importRuntimeLazyModule(importer, name, retryCount), {
     label: name,
     moduleId: name,
     storageKey: `app_root_runtime_lazy:${name}`,
     sourceLayer: 'app_root_runtime_lazy',
     reloadWindowMs: 30000,
+    silentFallback: true,
+    silentRuntimeModule: true,
+    onSilentFailure,
     meta: {
       kind: 'component',
       moduleName: name,
@@ -428,34 +483,38 @@ function makeRuntimeLazy(importer, name, retryCount) {
       componentName: name,
       retryCount,
       importRetryCount: retryCount,
+      silentRuntimeModule: true,
     },
   });
 }
 
 function SafeRuntimeLazy({ name, importer }) {
   const [retryCount, setRetryCount] = React.useState(0);
+  const [disabled, setDisabled] = React.useState(() => isRuntimeModuleDisabled(name));
   const autoRetryRef = React.useRef(0);
   const timersRef = React.useRef([]);
-  const LazyRuntime = React.useMemo(() => makeRuntimeLazy(importer, name, retryCount), [importer, name, retryCount]);
-  const handleRetry = React.useCallback(() => {
-    autoRetryRef.current = 0;
-    setRetryCount((value) => Number(value || 0) + 1);
-  }, []);
-  const handleError = React.useCallback((entry, error) => {
-    const autoRetryCount = Number(autoRetryRef.current || 0) || 0;
-    recordRuntimeFailure(name, error, 'lazy_chunk', {
-      localErrorEntry: entry,
+
+  const disableForSession = React.useCallback((reason, extra = {}) => {
+    markRuntimeModuleDisabled(name, reason, {
       retryCount,
       importRetryCount: retryCount,
-      autoRetryCount,
-      assetUrl: String(entry?.assetUrl || entry?.resolvedAssetUrl || entry?.meta?.assetUrl || entry?.meta?.resolvedAssetUrl || ''),
+      autoRetryCount: autoRetryRef.current,
+      ...extra,
     });
-    const delays = [300, 1200];
-    if (autoRetryCount >= delays.length) return;
-    const delay = delays[autoRetryCount];
+    setDisabled(true);
+  }, [name, retryCount]);
+
+  const scheduleSilentRetryOrDisable = React.useCallback((reason, extra = {}) => {
+    const autoRetryCount = Number(autoRetryRef.current || 0) || 0;
+    if (autoRetryCount >= RUNTIME_MODULE_MAX_SILENT_RETRIES) {
+      disableForSession(`${reason || 'runtime_module_failure'}_after_retry`, extra);
+      return;
+    }
+
     autoRetryRef.current = autoRetryCount + 1;
+    const delay = RUNTIME_MODULE_RETRY_DELAY_MS;
     try {
-      recordRouteDiagEvent('app_root_runtime_lazy_auto_retry_scheduled', {
+      recordRouteDiagEvent('app_root_runtime_silent_retry_scheduled', {
         path: String(window.location?.pathname || '/'),
         moduleName: name,
         sourceLayer: 'app_root_runtime_lazy',
@@ -463,13 +522,56 @@ function SafeRuntimeLazy({ name, importer }) {
         nextRetryCount: retryCount + 1,
         autoRetryCount: autoRetryRef.current,
         delayMs: delay,
+        reason,
+        ...extra,
       });
     } catch {}
+
     const timer = window.setTimeout(() => {
       setRetryCount((value) => Number(value || 0) + 1);
     }, delay);
     timersRef.current.push(timer);
-  }, [name, retryCount]);
+  }, [disableForSession, name, retryCount]);
+
+  const handleRetry = React.useCallback(() => {
+    autoRetryRef.current = 0;
+    setDisabled(false);
+    setRetryCount((value) => Number(value || 0) + 1);
+  }, []);
+
+  const handleSilentImportFailure = React.useCallback((payload, error) => {
+    const normalizedError = error || payload?.error || payload?.payload?.error || new Error(`Runtime module ${name} failed to import`);
+    recordRuntimeFailure(name, normalizedError, 'lazy_chunk', {
+      silentRuntimeModule: true,
+      lazyImportPayload: payload || null,
+      retryCount,
+      importRetryCount: retryCount,
+      autoRetryCount: autoRetryRef.current,
+    });
+    scheduleSilentRetryOrDisable('runtime_lazy_import_failure', {
+      lazyImportPayload: payload || null,
+    });
+  }, [name, retryCount, scheduleSilentRetryOrDisable]);
+
+  const handleError = React.useCallback((entry, error) => {
+    recordRuntimeFailure(name, error, 'lazy_chunk', {
+      localErrorEntry: entry,
+      silentRuntimeModule: true,
+      retryCount,
+      importRetryCount: retryCount,
+      autoRetryCount: autoRetryRef.current,
+      assetUrl: String(entry?.assetUrl || entry?.resolvedAssetUrl || entry?.meta?.assetUrl || entry?.meta?.resolvedAssetUrl || ''),
+    });
+    scheduleSilentRetryOrDisable('runtime_render_failure', {
+      localErrorEntry: entry,
+      assetUrl: String(entry?.assetUrl || entry?.resolvedAssetUrl || entry?.meta?.assetUrl || entry?.meta?.resolvedAssetUrl || ''),
+    });
+  }, [name, retryCount, scheduleSilentRetryOrDisable]);
+
+  const LazyRuntime = React.useMemo(
+    () => makeRuntimeLazy(importer, name, retryCount, handleSilentImportFailure),
+    [handleSilentImportFailure, importer, name, retryCount],
+  );
 
   React.useEffect(() => () => {
     try { timersRef.current.forEach((timer) => window.clearTimeout(timer)); } catch {}
@@ -477,13 +579,19 @@ function SafeRuntimeLazy({ name, importer }) {
   }, []);
 
   React.useEffect(() => {
-    markRuntimeModule(name, 'lazy_chunk', { retryCount });
-  }, [name, retryCount]);
+    if (disabled) return;
+    markRuntimeModule(name, 'lazy_chunk', {
+      retryCount,
+      silentRuntimeModule: true,
+    });
+  }, [disabled, name, retryCount]);
+
+  if (disabled) return null;
 
   return (
     <RuntimeBoundary name={name} source="lazy_chunk">
       <LocalErrorBoundary
-        boundaryKind="module"
+        boundaryKind="runtime"
         routePath="/runtime"
         routeName="APP RUNTIME"
         moduleName={name}
@@ -494,10 +602,8 @@ function SafeRuntimeLazy({ name, importer }) {
         resetKeys={[name, retryCount]}
         onRetry={handleRetry}
         onError={handleError}
-        repairHref="/pwa-repair.html?from=runtime_import_failure"
-        repairLabel="RIPARO APP"
-        helpText="Ky runtime modul është jo-kritik dhe u izolua lokalisht. Provohet automatikisht pas 300ms dhe 1200ms; pastaj mbetet fallback lokal."
-        extraMeta={{ moduleName: name, moduleId: name, importCaller: 'AppRootRuntime', retryCount, importRetryCount: retryCount, autoRetryCount: autoRetryRef.current }}
+        renderFallback={() => null}
+        extraMeta={{ moduleName: name, moduleId: name, importCaller: 'AppRootRuntime', retryCount, importRetryCount: retryCount, autoRetryCount: autoRetryRef.current, silentRuntimeModule: true }}
       >
         <React.Suspense fallback={null}>
           <LazyRuntime />
@@ -506,6 +612,7 @@ function SafeRuntimeLazy({ name, importer }) {
     </RuntimeBoundary>
   );
 }
+
 
 export default function AppRoot() {
   return (
@@ -532,7 +639,9 @@ export default function AppRoot() {
           </DeferredMount>
 
           <DeferredMount delay={3600} idle wakeSafe wakeBufferMs={700} waitForOwnerSignal={false}>
-            <SafeRuntimeLazy name="OfflineSyncRunner" importer={() => import('@/components/OfflineSyncRunner.jsx')} />
+            <CoreRuntimeModule name="OfflineSyncRunner">
+              <OfflineSyncRunner />
+            </CoreRuntimeModule>
           </DeferredMount>
 
           <DeferredMount delay={3900} idle wakeSafe wakeBufferMs={700} waitForOwnerSignal={false}>
