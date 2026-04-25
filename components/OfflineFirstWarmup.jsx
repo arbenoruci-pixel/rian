@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { APP_DATA_EPOCH } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
 
-const WARMUP_VERSION = 'offline-first-warmup-v3-core-eager-v8';
+const WARMUP_VERSION = 'offline-first-warmup-v3-networkfirst-v9';
 const WARMUP_DONE_PREFIX = 'tepiha_offline_first_warmup_done_v2';
 const WARMUP_LAST_KEY = 'tepiha_offline_first_warmup_last_v2';
 

@@ -11,7 +11,7 @@ const APP_DATA_EPOCH = (() => {
 
 const VERSION = APP_DATA_EPOCH;
 const STATIC_CACHE = `assets-${VERSION}`;
-const SW_BUILD_LABEL = 'sw-vite-core-eager-v8';
+const SW_BUILD_LABEL = 'sw-vite-networkfirst-v9';
 const OFFLINE_FALLBACK = '/offline.html';
 const PRECACHE_URLS = [
   OFFLINE_FALLBACK,
@@ -69,7 +69,8 @@ async function purgeOldCaches() {
         if (key.startsWith('pages-')) return caches.delete(key);
         if (key.startsWith('next-data-')) return caches.delete(key);
         if (key.startsWith('vite-')) return caches.delete(key);
-        if (key.startsWith('tepiha-')) return caches.delete(key);
+        // Keep Vite Workbox runtime caches. Old /sw.js registrations must not erase the active Vite offline cache.
+        if (/^tepiha-(?!vite-)/i.test(key)) return caches.delete(key);
         if (key.startsWith('assets-') && key !== STATIC_CACHE) return caches.delete(key);
         return Promise.resolve(false);
       })
