@@ -13,6 +13,7 @@ import {
 import useRouteAlive from '@/lib/routeAlive';
 
 const LOCAL_IMPORT_RETRY_DELAYS_MS = [300, 1200];
+const LOCAL_IMPORT_TIMEOUT_MS = 9000;
 
 function safeString(value, fallback = '') {
   try {
@@ -60,6 +61,24 @@ function currentRuntimeContext() {
 function sleep(ms) {
   return new Promise((resolve) => {
     try { window.setTimeout(resolve, Math.max(0, Number(ms) || 0)); } catch { resolve(); }
+  });
+}
+
+function withTimeout(promise, timeoutMs, meta = {}) {
+  if (typeof window === 'undefined') return promise;
+  let timer = 0;
+  const timeout = new Promise((_, reject) => {
+    try {
+      timer = window.setTimeout(() => {
+        const error = new Error('SAFE_ROUTE_IMPORT_TIMEOUT: ' + String(meta?.moduleId || meta?.path || 'route'));
+        try { error.name = 'SafeRouteImportTimeout'; } catch {}
+        try { error.__tepihaImportTimeout = true; } catch {}
+        reject(error);
+      }, Math.max(3000, Number(timeoutMs) || LOCAL_IMPORT_TIMEOUT_MS));
+    } catch {}
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    try { window.clearTimeout(timer); } catch {}
   });
 }
 
@@ -136,6 +155,7 @@ async function loadRouteModuleWithLocalRetry(importer, meta = {}) {
       autoRetryCount: attempt,
       maxAutoRetries,
       retryDelayPlanMs: LOCAL_IMPORT_RETRY_DELAYS_MS,
+      importTimeoutMs: LOCAL_IMPORT_TIMEOUT_MS,
       importRetryCount: attempt,
       retryCount: Number(meta?.retryCount || 0) || 0,
     };
@@ -159,7 +179,7 @@ async function loadRouteModuleWithLocalRetry(importer, meta = {}) {
     }
 
     try {
-      const mod = await loadLazyModule(importer, attemptMeta);
+      const mod = await withTimeout(loadLazyModule(importer, attemptMeta), LOCAL_IMPORT_TIMEOUT_MS, attemptMeta);
       if (attempt > 0) {
         try {
           recordRouteDiagEvent('safe_route_import_recovered', {
@@ -342,6 +362,7 @@ export default function SafeLazyRouteShell({
     manualRetryCount: retryCount,
     maxAutoRetries: LOCAL_IMPORT_RETRY_DELAYS_MS.length,
     retryDelayPlanMs: LOCAL_IMPORT_RETRY_DELAYS_MS,
+      importTimeoutMs: LOCAL_IMPORT_TIMEOUT_MS,
   }), [retryCount, safeComponentName, safeModuleId, safeRouteName, safeRoutePath]);
 
   const LazyInner = React.useMemo(() => makeLazyComponent(importer, lazyMeta), [importer, lazyMeta]);
@@ -396,7 +417,7 @@ export default function SafeLazyRouteShell({
       componentName={safeComponentName}
       sourceLayer="safe_lazy_route_shell"
       title={`${displayTitle} NUK U NGARKUA`}
-      helpText="Problemi duket te ngarkimi i modulit, jo te të dhënat. Provo përsëri. Nëse përsëritet, përdor RIPARO APP."
+      helpText="Problemi duket te ngarkimi i modulit lokal, jo te të dhënat. Provo përsëri ose kthehu në Home. Nëse përsëritet, përdor RIPARO APP."
       repairHref="/pwa-repair.html?from=route_import_failure"
       repairLabel="RIPARO APP"
       resetKeys={[safeRoutePath, safeModuleId, retryCount]}
@@ -416,6 +437,7 @@ export default function SafeLazyRouteShell({
         retryStrategy: 'safe_lazy_route_shell_import_retry',
         maxAutoRetries: LOCAL_IMPORT_RETRY_DELAYS_MS.length,
         retryDelayPlanMs: LOCAL_IMPORT_RETRY_DELAYS_MS,
+      importTimeoutMs: LOCAL_IMPORT_TIMEOUT_MS,
       }}
     >
       <Suspense

@@ -19,8 +19,12 @@ import LoginPageEager from '@/app/login/page.jsx';
 import OfflinePageEager from '@/app/offline/page.jsx';
 import HomePageEager from '@/app/page.jsx';
 import TransportLoginPageEager from '@/app/transport/login/page.jsx';
+import GatiPageEager from '@/app/gati/page.jsx';
+import MarrjeSotPageEager from '@/app/marrje-sot/page.jsx';
+import PastrimiPageEager from '@/app/pastrimi/page.jsx';
+import PranimiPageEager from '@/app/pranimi/page.jsx';
 
-// Fastboot alignment: keep only shell/login/offline pages eager. Heavy business routes load via SafeLazyRouteShell after Home paints.
+// V8 core-eager alignment: keep the four daily base routes static/eager so workers do not get stuck behind dynamic route chunks after deploy. Heavy ARKA/TRANSPORT routes stay behind SafeLazyRouteShell.
 
 const Page0 = lazyRoute(() => import('@/app/arka/buxheti/page.jsx'), '@/app/arka/buxheti/page.jsx');
 const Page1 = lazyRoute(() => import('@/app/arka/obligimet/page.jsx'), '@/app/arka/obligimet/page.jsx');
@@ -534,16 +538,16 @@ export const appRoutes = [
   { path: '/diag-lite', element: lazyElement(Page11, '/diag-lite') },
   { path: '/dispatch', element: lazyElement(Page12, '/dispatch') },
   { path: '/fletore', element: lazyElement(Page13, '/fletore') },
-  { path: '/gati', element: safeLazyElement('/gati', () => import('@/app/gati/page.jsx'), '@/app/gati/page.jsx', 'GATI') },
+  { path: '/gati', element: eagerElement(GatiPageEager, '/gati') },
   { path: '/k/:id', element: lazyElement(Page15, '/k/:id') },
   { path: '/llogaria-ime', element: lazyElement(Page16, '/llogaria-ime') },
   { path: '/login', element: eagerElement(LoginPageEager, '/login') },
-  { path: '/marrje-sot', element: safeLazyElement('/marrje-sot', () => import('@/app/marrje-sot/page.jsx'), '@/app/marrje-sot/page.jsx', 'MARRJE SOT') },
+  { path: '/marrje-sot', element: eagerElement(MarrjeSotPageEager, '/marrje-sot') },
   { path: '/offline', element: eagerElement(OfflinePageEager, '/offline') },
   { path: '/', element: eagerElement(HomePageEager, '/') },
-  { path: '/pastrimi', element: safeLazyElement('/pastrimi', () => import('@/app/pastrimi/page.jsx'), '@/app/pastrimi/page.jsx', 'PASTRIMI') },
+  { path: '/pastrimi', element: eagerElement(PastrimiPageEager, '/pastrimi') },
   { path: '/porosit', element: lazyElement(Page22, '/porosit') },
-  { path: '/pranimi', element: safeLazyElement('/pranimi', () => import('@/app/pranimi/page.jsx'), '@/app/pranimi/page.jsx', 'PRANIMI') },
+  { path: '/pranimi', element: eagerElement(PranimiPageEager, '/pranimi') },
   { path: '/restore', element: lazyElement(Page24, '/restore') },
   { path: '/search', element: lazyElement(Page25, '/search') },
   { path: '/transport/board', element: safeLazyElement('/transport/board', () => import('@/app/transport/board/page.jsx'), '@/app/transport/board/page.jsx', 'TRANSPORT BOARD') },

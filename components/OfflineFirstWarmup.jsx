@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { APP_DATA_EPOCH } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
 
-const WARMUP_VERSION = 'offline-first-warmup-v2';
+const WARMUP_VERSION = 'offline-first-warmup-v3-core-eager-v8';
 const WARMUP_DONE_PREFIX = 'tepiha_offline_first_warmup_done_v2';
 const WARMUP_LAST_KEY = 'tepiha_offline_first_warmup_last_v2';
 
@@ -21,10 +21,8 @@ const ROUTE_URLS = [
 ];
 
 const MODULE_WARMERS = [
-  ['PRANIMI', () => import('@/app/pranimi/page.jsx')],
-  ['PASTRIMI', () => import('@/app/pastrimi/page.jsx')],
-  ['GATI', () => import('@/app/gati/page.jsx')],
-  ['MARRJE_SOT', () => import('@/app/marrje-sot/page.jsx')],
+  // V8: base daily routes are static/eager in routes.generated.jsx, so do not dynamically import
+  // them again during warmup. This avoids background chunk pressure on iOS PWA.
   ['ARKA', () => import('@/app/arka/page.jsx')],
   ['TRANSPORT_HOME', () => import('@/app/transport/page.jsx')],
   ['TRANSPORT_MENU', () => import('@/app/transport/menu/page.jsx')],
@@ -232,7 +230,7 @@ export default function OfflineFirstWarmup() {
       const ready = await waitForReadyToWarm(cancelledRef);
       if (!ready || cancelledRef.cancelled) return;
 
-      await sleep(2600);
+      await sleep(4200);
       if (cancelledRef.cancelled || !isOnline() || !isVisible()) return;
 
       const failures = [];
