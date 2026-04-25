@@ -9,10 +9,17 @@ import DeferredMount from '@/components/DeferredMount';
 import ChunkLoadRuntime from '@/components/ChunkLoadRuntime.jsx';
 import RootResumeWatchdog from '@/components/RootResumeWatchdog.jsx';
 import ServiceWorkerRegister from '@/components/ServiceWorkerRegister.jsx';
+import OfflineFirstWarmup from '@/components/OfflineFirstWarmup.jsx';
 import { appRoutes } from './generated/routes.generated.jsx';
 import { ACTIVE_ROUTE_REQUEST_KEY, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
 import { lazyWithReload } from '@/lib/lazyWithReload.jsx';
 import { clearRuntimeTransition, readRuntimeTransition } from '@/lib/rootResumePanic';
+
+try {
+  if (typeof window !== 'undefined') {
+    window.__TEPIHA_ALLOW_BROWSER_OFFLINE_RUNTIME__ = true;
+  }
+} catch {}
 
 function safeParseJson(raw, fallback = null) {
   try {
@@ -521,6 +528,12 @@ export default function AppRoot() {
             <CoreRuntimeModule name="ServiceWorkerRegister">
               <ServiceWorkerRegister />
             </CoreRuntimeModule>
+          </DeferredMount>
+
+          <DeferredMount delay={1800} idle wakeSafe wakeBufferMs={2200}>
+            <RuntimeBoundary name="OfflineFirstWarmup" source="lazy_chunk">
+              <OfflineFirstWarmup />
+            </RuntimeBoundary>
           </DeferredMount>
 
           <DeferredMount delay={1100} idle wakeSafe wakeBufferMs={1800}>

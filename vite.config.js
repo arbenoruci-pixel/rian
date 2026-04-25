@@ -73,10 +73,9 @@ export default defineConfig({
         runtimeCaching: [
           {
             urlPattern: ({ request, url }) => request.mode === 'navigate' && BUSINESS_ROUTE_RE.test(url.pathname),
-            handler: 'NetworkFirst',
+            handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'tepiha-vite-business-routes-v1',
-              networkTimeoutSeconds: 3,
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -89,7 +88,7 @@ export default defineConfig({
           },
           {
             urlPattern: ({ request, url }) => request.destination === 'script' || request.destination === 'style' || url.pathname.startsWith('/assets/'),
-            handler: 'StaleWhileRevalidate',
+            handler: 'CacheFirst',
             options: {
               cacheName: 'tepiha-vite-static-assets-v1',
               cacheableResponse: {

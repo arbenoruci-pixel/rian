@@ -158,7 +158,8 @@ export function reloadPageOnce(reason = 'dynamic_import_failed', options = {}) {
   const now = safeNow();
   const previous = readJson(storage, storageKey, null);
   const previousTs = Number(previous?.ts || 0) || 0;
-  const blocked = !!(previousTs && now - previousTs < windowMs);
+  const offlineNow = (() => { try { return navigator.onLine === false; } catch { return false; } })();
+  const blocked = offlineNow || !!(previousTs && now - previousTs < windowMs);
 
   const payload = runtimeSnapshot({
     reason: safeString(reason, 'dynamic_import_failed'),
@@ -167,6 +168,7 @@ export function reloadPageOnce(reason = 'dynamic_import_failed', options = {}) {
     reloadWindowMs: windowMs,
     previousTs,
     blocked,
+    offlineNow,
     error: options.error ? normalizeError(options.error) : null,
     meta: options.meta || null,
   });
@@ -174,7 +176,7 @@ export function reloadPageOnce(reason = 'dynamic_import_failed', options = {}) {
   writeJson(localStorageRef, LAST_ERROR_KEY, payload);
 
   if (blocked) {
-    return { scheduled: false, blocked: true, storageKey, payload };
+    return { scheduled: false, blocked: true, offline: offlineNow, storageKey, payload };
   }
 
   writeJson(storage, storageKey, payload);

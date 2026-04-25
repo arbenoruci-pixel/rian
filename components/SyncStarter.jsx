@@ -146,21 +146,21 @@ export default function SyncStarter() {
             visibleDelayMs: 1800,
             idleDelayMs: 1200,
             idleTimeoutMs: 4000,
-            intervalMs: 45000,
+            intervalMs: 5 * 60 * 1000,
             debounceMs: 1800,
             wakeDebounceMs: 2600,
             triggerDebounceMs: 2200,
-            minGapMs: 8000,
+            minGapMs: 60000,
           }
         : {
             visibleDelayMs: 4000,
             idleDelayMs: 1800,
             idleTimeoutMs: 5000,
-            intervalMs: 60000,
+            intervalMs: 5 * 60 * 1000,
             debounceMs: 2600,
             wakeDebounceMs: 5200,
             triggerDebounceMs: 4500,
-            minGapMs: 20000,
+            minGapMs: 60000,
           };
 
       bootLog('syncstarter_mount', {

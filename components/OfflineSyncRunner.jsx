@@ -12,12 +12,12 @@ import { supabase } from '@/lib/supabaseClient';
 import { getStartupIsolationLeftMs, isWithinStartupIsolationWindow } from '@/lib/startupIsolation';
 
 const DEBOUNCE_MS = 900;
-const MIN_GAP_MS = 10000;
-const FOLLOWUP_RETRY_MS = 10000;
+const MIN_GAP_MS = 60000;
+const FOLLOWUP_RETRY_MS = 5 * 60 * 1000;
 const MANUAL_MIN_GAP_MS = 3200;
-const HEARTBEAT_MS = 45000;
+const HEARTBEAT_MS = 5 * 60 * 1000;
 const HOT_ROUTE_BOOT_SUPPRESS_MS = 12000;
-const HOT_ROUTE_SLOW_RETRY_MS = 15000;
+const HOT_ROUTE_SLOW_RETRY_MS = 5 * 60 * 1000;
 const NO_PENDING_QUIET_MS = 15000;
 const SAME_REASON_DEDUPE_MS = 1200;
 const PASSIVE_REASON_DEDUPE_MS = 2600;
@@ -696,7 +696,7 @@ export default function OfflineSyncRunner() {
           if (stillPending > 0 && canRunNow()) {
             const slowPath = !!res?.locked || !!res?.networkStop || !!res?.offline;
             const currentPath = getCurrentPathname();
-            const slowDelayMs = isHotInteractivePath(currentPath) ? HOT_ROUTE_SLOW_RETRY_MS : 7000;
+            const slowDelayMs = isHotInteractivePath(currentPath) ? HOT_ROUTE_SLOW_RETRY_MS : FOLLOWUP_RETRY_MS;
             scheduleRetry(
               slowPath ? `followup_slow:${fireReason}` : `followup_pending:${fireReason}`,
               slowPath ? slowDelayMs : FOLLOWUP_RETRY_MS
@@ -708,7 +708,7 @@ export default function OfflineSyncRunner() {
         } catch (error) {
           bootLog('offline_sync_runner_fail', { reason: fireReason, error: error?.message || String(error || '') });
           const currentPath = getCurrentPathname();
-          scheduleRetry(`followup_error:${fireReason}`, isHotInteractivePath(currentPath) ? HOT_ROUTE_SLOW_RETRY_MS : 7000);
+          scheduleRetry(`followup_error:${fireReason}`, isHotInteractivePath(currentPath) ? HOT_ROUTE_SLOW_RETRY_MS : FOLLOWUP_RETRY_MS);
         } finally {
           lastRunAtRef.current = Date.now();
           runningRef.current = false;
