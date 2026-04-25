@@ -6,15 +6,15 @@
     <meta name="theme-color" content="#0b0f14" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-VITE-NETWORKFIRST-V9" />
-    <meta name="tepiha-build-id" content="2.0.12-vite-networkfirst-v9" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-25-VITE-MANUAL-REPAIR-V10" />
+    <meta name="tepiha-build-id" content="2.0.13-vite-manual-repair-v10" />
     <link rel="icon" href="/favicon.ico" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TEPIHA</title>
     <script>
-      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-VITE-NETWORKFIRST-V9';
-      window.__TEPIHA_BUILD_ID = '2.0.12-vite-networkfirst-v9';
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-25-VITE-MANUAL-REPAIR-V10';
+      window.__TEPIHA_BUILD_ID = '2.0.13-vite-manual-repair-v10';
       window.__TEPIHA_QUIET_UPDATE_V7 = true;
       try { localStorage.removeItem('tepiha_update_available_v1'); sessionStorage.removeItem('tepiha_vite_pwa_update_v1'); } catch (e) {}
       window.__TEPIHA_SW_KILL_SWITCH__ = false;
@@ -25,23 +25,30 @@
       window.__TEPIHA_SIMPLE_INCIDENTS_ENABLED__ = true;
       window.__TEPIHA_STARTUP_ISOLATION__ = true;
       window.__TEPIHA_STARTUP_ISOLATION_WINDOW_MS__ = 4500;
-      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-networkfirst-v9';
-      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-networkfirst-v9';
-      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-networkfirst-v9';
+      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-manual-repair-v10';
+      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-manual-repair-v10';
+      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-manual-repair-v10';
       window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
-      window.__TEPIHA_NAV_CACHE_STRATEGY__ = 'networkfirst-v9';
+      window.__TEPIHA_NAV_CACHE_STRATEGY__ = 'manual-repair-v10';
       (function(){
         try {
+          // MANUAL-REPAIR-V10: startup cache work is diagnostic-only.
+          // Do not delete runtime/business caches before React first paint.
           if (!('caches' in window) || !window.caches || typeof window.caches.keys !== 'function') return;
-          var KEEP = ['tepiha-vite-business-routes-v9', 'tepiha-vite-static-assets-v9', 'tepiha-vite-media-v9'];
-          var RE = /^(?:tepiha-vite-business-routes|tepiha-vite-static-assets|tepiha-vite-media)-v\d+$/i;
           window.caches.keys().then(function(keys){
-            (keys || []).forEach(function(key){
-              try {
-                var name = String(key || '');
-                if (RE.test(name) && KEEP.indexOf(name) === -1) window.caches.delete(name);
-              } catch (e) {}
-            });
+            try {
+              var entry = {
+                at: new Date().toISOString(),
+                source: 'index_html_startup_cache_inventory',
+                appEpoch: String(window.__TEPIHA_APP_EPOCH || ''),
+                buildId: String(window.__TEPIHA_BUILD_ID || ''),
+                cacheKeys: Array.isArray(keys) ? keys.slice(0, 80) : [],
+                autoCachePurgeDisabled: true,
+                manualRepairOnly: true
+              };
+              window.__TEPIHA_STARTUP_CACHE_INVENTORY__ = entry;
+              localStorage.setItem('tepiha_startup_cache_inventory_v1', JSON.stringify(entry));
+            } catch (e) {}
           }).catch(function(){});
         } catch (e) {}
       })();
@@ -215,7 +222,7 @@
                 autoRepairDisabled: true,
                 autoReloadDisabled: true,
                 manualUpdateOnly: true,
-                networkFirstV9: true
+                manualRepairV10: true
               });
               appendLog(passive);
               try { sessionStorage.setItem('tepiha_update_available_last_v7', JSON.stringify(passive)); } catch(e) {}
@@ -415,37 +422,33 @@
             if (navType) return 'navigation_' + navType;
             return 'initial_load';
           }
-          function cleanupBeforeRescue() {
+          function recordBeforeRescue(detail) {
+            // MANUAL-REPAIR-V10: module/index asset failures are diagnostic-only.
+            // Do not purge caches, post SW purge messages, or navigate automatically.
             try {
-              var keys = [
-                'tepiha_chunk_last_capture_v1',
-                'tepiha_lazy_import_log_v1',
-                'tepiha_last_lazy_import_failure_v1',
-                'tepiha_last_lazy_import_attempt_v1',
-                'tepiha_early_incident_queue_v1',
-                'tepiha_route_transition_v1',
-                'tepiha_active_route_request_v1'
-              ];
-              for (var i = 0; i < keys.length; i += 1) {
-                try { localStorage.removeItem(keys[i]); } catch (e) {}
-                try { sessionStorage.removeItem(keys[i]); } catch (e) {}
-              }
-            } catch (e) {}
-            try {
-              if ('caches' in window && typeof window.caches.keys === 'function') {
-                window.caches.keys().then(function(names){
-                  (names || []).forEach(function(name){
-                    try {
-                      if (/^(?:assets|pages|runtime|next-data|tepiha-vite-business-routes|tepiha-vite-static-assets|tepiha-vite-media)-/i.test(String(name || ''))) window.caches.delete(name);
-                    } catch (e) {}
-                  });
-                }).catch(function(){});
-              }
-            } catch (e) {}
-            try {
-              navigator.serviceWorker && navigator.serviceWorker.controller && navigator.serviceWorker.controller.postMessage && navigator.serviceWorker.controller.postMessage({ type: 'PURGE_OLD_CACHES' });
-            } catch (e) {}
+              var entry = {
+                at: new Date().toISOString(),
+                source: 'index_html_module_boot_rescue_manual_only',
+                appEpoch: currentEpoch(),
+                path: pathKey(),
+                href: safeString(window.location && window.location.href || ''),
+                targetSrc: safeString(detail && (detail.targetSrc || detail.assetUrl || detail.filename) || ''),
+                reason: safeString(detail && detail.reason || 'module_boot_error'),
+                autoRepairDisabled: true,
+                autoReloadDisabled: true,
+                autoCachePurgeDisabled: true,
+                manualRepairOnly: true
+              };
+              try { sessionStorage.setItem('tepiha_module_boot_rescue_manual_v10', JSON.stringify(entry)); } catch (e) {}
+              try { localStorage.setItem('tepiha_module_boot_rescue_last_v1', JSON.stringify(entry)); } catch (e) {}
+              appendRescueLog(entry);
+              try { window.__TEPIHA_MODULE_BOOT_RESCUE_MANUAL__ = entry; } catch (e) {}
+              return entry;
+            } catch (e) {
+              return null;
+            }
           }
+
           function buildRescueUrl() {
             try {
               var url = new URL(window.location.href);
@@ -507,20 +510,79 @@
               return '';
             }
           }
+          function escapeHtml(value) {
+            return safeString(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          }
+          function showManualModuleBootPanel(detail) {
+            try {
+              if (document.getElementById('tepiha-module-boot-manual-panel')) return true;
+              var asset = safeString(detail && (detail.targetSrc || detail.assetUrl || detail.filename) || '');
+              var wrap = document.createElement('div');
+              wrap.id = 'tepiha-module-boot-manual-panel';
+              wrap.setAttribute('data-module-boot-manual-panel', '1');
+              wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px';
+              wrap.innerHTML = ''
+                + '<div style="width:min(560px,100%);border:1px solid rgba(251,191,36,.35);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">'
+                + '<div style="font-size:12px;letter-spacing:.16em;color:#fbbf24;font-weight:1000;margin-bottom:8px">MANUAL REPAIR V10</div>'
+                + '<div style="font-size:24px;font-weight:1000;line-height:1.08;margin-bottom:8px">APP-I KA NEVOJË PËR VEPRIM MANUAL</div>'
+                + '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">U kap një module/index asset që nuk u ngarkua. App-i nuk rifreskohet vetë dhe nuk pastron cache automatikisht.</div>'
+                + (asset ? '<div style="margin-top:8px;color:#94a3b8;font-size:12px;word-break:break-word">ASSET: <b style="color:#e2e8f0">' + escapeHtml(asset) + '</b></div>' : '')
+                + '<div id="tepiha-module-boot-manual-status" style="min-height:18px;margin:12px 0;color:#bae6fd;font-size:13px;font-weight:800"></div>'
+                + '<div style="display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px">'
+                + '<button id="tepiha-module-boot-retry" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">PROVO PËRSËRI</button>'
+                + '<button id="tepiha-module-boot-offline" type="button" style="border:0;border-radius:14px;background:rgba(34,197,94,.16);color:#bbf7d0;padding:13px 14px;font-size:15px;font-weight:1000">VAZHDO OFFLINE</button>'
+                + '<button id="tepiha-module-boot-home" type="button" style="border:0;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">KTHEHU HOME</button>'
+                + '<button id="tepiha-module-boot-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">RIPARO KËTË TELEFON</button>'
+                + '</div>'
+                + '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Butonat punojnë vetëm kur i prek user-i. Riparimi manual nuk prek DB, orders, outbox, pagesa, ose sync payload.</div>'
+                + '</div>';
+              (document.body || document.documentElement).appendChild(wrap);
+              var status = document.getElementById('tepiha-module-boot-manual-status');
+              function setStatus(text) { try { if (status) status.textContent = safeString(text || ''); } catch (e) {} }
+              try {
+                var retry = document.getElementById('tepiha-module-boot-retry');
+                if (retry) retry.onclick = function(){
+                  setStatus('Po provohet përsëri vetëm pas klikimit manual...');
+                  var targetUrl = buildRescueUrl() || '/?__manual_update=' + Date.now();
+                  window.setTimeout(function(){
+                    try { window.location.replace(targetUrl); } catch (e) { try { window.location.href = targetUrl; } catch (err) {} }
+                  }, 80);
+                };
+              } catch (e) {}
+              try {
+                var offline = document.getElementById('tepiha-module-boot-offline');
+                if (offline) offline.onclick = function(){
+                  try { sessionStorage.setItem('tepiha_continue_offline_manual_v10', '1'); } catch (e) {}
+                  try { wrap.parentNode && wrap.parentNode.removeChild(wrap); } catch (e) {}
+                };
+              } catch (e) {}
+              try {
+                var home = document.getElementById('tepiha-module-boot-home');
+                if (home) home.onclick = function(){
+                  var url = '/?__manual_home=' + Date.now();
+                  try { window.location.href = url; } catch (e) {}
+                };
+              } catch (e) {}
+              try {
+                var repair = document.getElementById('tepiha-module-boot-repair');
+                if (repair) repair.onclick = function(){
+                  var url = '/pwa-repair.html?from=module_boot_failure&path=' + encodeURIComponent(pathKey()) + '&t=' + Date.now();
+                  try { window.location.href = url; } catch (e) {}
+                };
+              } catch (e) {}
+              return true;
+            } catch (e) {
+              return false;
+            }
+          }
           async function tryRescue(detail) {
             try {
               if (!detail || !isTopLevelIndexAsset(detail.targetSrc)) return false;
-              var verdict = shouldAttemptRescue(detail.targetSrc);
-              if (!verdict.ok) return false;
               var latestAsset = await resolveCurrentIndexAsset();
               try { detail.latestIndexAsset = latestAsset; } catch (e) {}
               recordRescueAttempt(detail);
-              cleanupBeforeRescue();
-              var targetUrl = buildRescueUrl();
-              if (!targetUrl) return false;
-              window.setTimeout(function(){
-                try { window.location.replace(targetUrl); } catch (e) { try { window.location.href = targetUrl; } catch (err) {} }
-              }, 30);
+              recordBeforeRescue(detail);
+              showManualModuleBootPanel(detail);
               return true;
             } catch (e) {
               return false;
@@ -905,7 +967,7 @@
               var rawAsset = safeString(entry && (entry.assetUrl || entry.targetSrc || entry.filename) || '');
               var topIndex = /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(rawAsset);
               if (topIndex) return false;
-              // VITE-NETWORKFIRST-V9: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
+              // VITE-MANUAL-REPAIR-V10: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
               // Inline fullscreen fallback përdoret vetëm për runtime core assets; route/panel chunks i menaxhon React LocalErrorBoundary/SafeLazyRouteShell.
               if (!isRuntimeAssetUrl(rawAsset)) return false;
               if (isUiReadyForRuntimeFallback()) {
@@ -913,53 +975,9 @@
                 try {
                   window.__TEPIHA_UPDATE_AVAILABLE__ = passiveFailure;
                   sessionStorage.setItem('tepiha_update_available_last_v7', JSON.stringify(passiveFailure));
-                  // V7 quiet: no visual update event dispatch.
                 } catch (e) {}
-                // VITE-NETWORKFIRST-V9: keep this silent; no repeated bottom banner.
+                // MANUAL-REPAIR-V10: UI is already alive, so keep working and only record diagnostics.
                 return false;
-                if (!document.getElementById('tepiha-runtime-passive-update-banner')) {
-                  var passive = document.createElement('div');
-                  passive.id = 'tepiha-runtime-passive-update-banner';
-                  passive.setAttribute('data-runtime-passive-update-banner', '1');
-                  passive.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:2147482500;display:flex;justify-content:center;pointer-events:none;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#e5e7eb';
-                  passive.innerHTML = ''
-                    + '<div style="width:min(560px,100%);border-radius:18px;border:1px solid rgba(96,165,250,.38);background:rgba(15,23,42,.97);box-shadow:0 18px 45px rgba(0,0,0,.42);padding:12px;pointer-events:auto">'
-                    + '<div style="font-size:11px;font-weight:1000;letter-spacing:.12em;color:#93c5fd">UPDATE DEBUG</div>'
-                    + '<div style="margin-top:5px;font-size:15px;line-height:1.25;font-weight:950">Përditësim manual.</div>'
-                    + '<div style="margin-top:5px;font-size:12.5px;line-height:1.35;color:rgba(226,232,240,.82);font-weight:700">Një runtime chunk i ri/vjetër nuk u ngarkua, por UI ekzistuese po lihet aktive.</div>'
-                    + '<div id="tepiha-runtime-passive-update-status" style="display:none;margin-top:8px;font-size:12px;line-height:1.35;color:#bae6fd;font-weight:850"></div>'
-                    + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
-                    + '<button id="tepiha-runtime-passive-update-now" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:#2563eb;color:#fff;font-weight:1000;font-size:13px">PËRDITËSO</button>'
-                    + '<button id="tepiha-runtime-passive-update-later" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:rgba(255,255,255,.08);color:#fff;font-weight:950;font-size:13px">MË VONË</button>'
-                    + '</div></div>';
-                  (document.body || document.documentElement).appendChild(passive);
-                  try {
-                    var status = document.getElementById('tepiha-runtime-passive-update-status');
-                    var later = document.getElementById('tepiha-runtime-passive-update-later');
-                    var now = document.getElementById('tepiha-runtime-passive-update-now');
-                    if (later) later.onclick = function(){ try { passive.parentNode && passive.parentNode.removeChild(passive); } catch(e) {} };
-                    if (now) now.onclick = function(){
-                      try { if (status) { status.style.display = 'block'; status.textContent = 'Duke përgatitur përditësimin...'; } } catch(e) {}
-                      var escaped = false;
-                      try { window.setTimeout(function(){ escaped = true; try { if (status) status.textContent = 'Përditësimi nuk u krye automatikisht. App-i mund të vazhdojë; provo prapë më vonë ose hape nga fillimi.'; } catch(e) {} }, 15000); } catch(e) {}
-                      try {
-                        if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
-                          navigator.serviceWorker.getRegistration().then(function(reg){
-                            try { if (reg && reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(e) {}
-                            if (!escaped) {
-                              var url = new URL(window.location.href);
-                              url.searchParams.set('__manual_update', String(Date.now()));
-                              window.location.replace(url.toString());
-                            }
-                          }).catch(function(){ if (!escaped) window.location.reload(); });
-                          return;
-                        }
-                      } catch(e) {}
-                      try { if (!escaped) window.location.reload(); } catch(e) {}
-                    };
-                  } catch (e) {}
-                }
-                return true;
               }
               if (document.getElementById('tepiha-runtime-import-fallback')) return true;
               var failure = recordRuntimeImportFailure(entry || {});
@@ -975,21 +993,36 @@
                   '<div style="font-size:24px;font-weight:1000;line-height:1.08;margin-bottom:8px">RUNTIME MODULE NUK U NGARKUA</div>' +
                   '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">Një module script dështoi para se runtime rescue të jetë i sigurt. Ky fallback është inline në HTML dhe nuk varet nga React.</div>' +
                   assetHtml +
+                  '<div id="tepiha-runtime-manual-status" style="min-height:18px;margin:12px 0 0;color:#bae6fd;font-size:13px;font-weight:800"></div>' +
                   '<div style="display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px">' +
                     '<button id="tepiha-runtime-retry" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">PROVO PËRSËRI</button>' +
-                    '<a href="' + repair + '" style="text-align:center;text-decoration:none;border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">RIPARO APP</a>' +
+                    '<button id="tepiha-runtime-offline" type="button" style="border:0;border-radius:14px;background:rgba(34,197,94,.16);color:#bbf7d0;padding:13px 14px;font-size:15px;font-weight:1000">VAZHDO OFFLINE</button>' +
+                    '<button id="tepiha-runtime-home" type="button" style="border:0;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">KTHEHU HOME</button>' +
+                    '<a href="' + repair + '" style="text-align:center;text-decoration:none;border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">RIPARO KËTË TELEFON</a>' +
                   '</div>' +
                   '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Nuk prek DB, write flow, outbox, porosi lokale, ose session. Riparimi pastron vetëm SW/runtime cache sipas faqes së repair.</div>' +
                 '</div>';
               (document.body || document.documentElement).appendChild(wrap);
               try {
+                var runtimeStatus = document.getElementById('tepiha-runtime-manual-status');
+                function setRuntimeStatus(text) { try { if (runtimeStatus) runtimeStatus.textContent = safeString(text || ''); } catch(e) {} }
                 var retry = document.getElementById('tepiha-runtime-retry');
                 if (retry) retry.onclick = function(){
+                  setRuntimeStatus('Po provohet përsëri vetëm pas klikimit manual...');
                   try {
                     var url = new URL(window.location.href);
                     url.searchParams.set('__runtime_retry', String(Date.now()));
                     window.location.replace(url.toString());
-                  } catch (e) { window.location.reload(); }
+                  } catch (e) { try { window.location.reload(); } catch(err) {} }
+                };
+                var offline = document.getElementById('tepiha-runtime-offline');
+                if (offline) offline.onclick = function(){
+                  try { sessionStorage.setItem('tepiha_continue_offline_manual_v10', '1'); } catch(e) {}
+                  try { wrap.parentNode && wrap.parentNode.removeChild(wrap); } catch(e) {}
+                };
+                var home = document.getElementById('tepiha-runtime-home');
+                if (home) home.onclick = function(){
+                  try { window.location.href = '/?__manual_home=' + Date.now(); } catch(e) {}
                 };
               } catch (e) {}
               return true;
@@ -1056,7 +1089,7 @@
       })();
     </script>
 
-    <script id="tepiha-pwa-boot-rescue-vite-networkfirst-v9">
+    <script id="tepiha-pwa-boot-rescue-vite-manual-repair-v10">
       (function(){
         try {
           var LAST_KEY = 'tepiha_pwa_boot_rescue_last_v1';
@@ -1064,7 +1097,7 @@
           var BOOT_TIMEOUT_MS = 15000;
           var APP_EPOCH = String(window.__TEPIHA_APP_EPOCH || (document.querySelector('meta[name="tepiha-app-epoch"]') || {}).content || '');
           var BUILD_ID = String(window.__TEPIHA_BUILD_ID || (document.querySelector('meta[name="tepiha-build-id"]') || {}).content || '');
-          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-vite-networkfirst-v9');
+          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-vite-manual-repair-v10');
           var INDEX_VERSION = String(window.__TEPIHA_INDEX_SCRIPT_VERSION__ || '');
           var startedAt = Date.now();
 
@@ -1383,9 +1416,9 @@
               ? '<div style="margin-top:10px;padding:10px;border:1px solid rgba(251,191,36,.35);border-radius:12px;background:rgba(251,191,36,.08);color:#fde68a;font-weight:800">APP-I KA UPDATE. Hape një herë online për rifreskim ose përdor RIPARO APP.</div>'
               : '';
             return '' +
-              '<div data-pwa-boot-rescue="1" style="display:none !important;position:fixed;inset:0;z-index:2147483647;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
+              '<div data-pwa-boot-rescue="1" style="position:fixed;inset:0;z-index:2147483647;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
                 '<div style="width:min(560px,100%);border:1px solid rgba(255,255,255,.14);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
-                  '<div style="font-size:12px;letter-spacing:.16em;color:#93c5fd;font-weight:900;margin-bottom:8px">PWA BOOT RESCUE ALIGN FASTBOOT V6</div>' +
+                  '<div style="font-size:12px;letter-spacing:.16em;color:#93c5fd;font-weight:900;margin-bottom:8px">PWA BOOT RESCUE MANUAL REPAIR V10</div>' +
                   '<div style="font-size:26px;font-weight:1000;line-height:1.05;margin-bottom:8px">TEPIHA NUK U NIS</div>' +
                   '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">React nuk u montua në kohë në Homescreen/PWA. Kjo duket si Service Worker / cache / shell-chunk mismatch, jo problem me DB ose të dhënat.</div>' +
                   '<div style="font-size:13px;color:#94a3b8;margin-bottom:12px">Route: <b style="color:#fff">' + fallbackTitleForPath() + '</b></div>' +
@@ -1393,8 +1426,9 @@
                   '<div id="tepiha-pwa-boot-rescue-status" style="min-height:18px;margin:12px 0;color:#bae6fd;font-size:13px;font-weight:800"></div>' +
                   '<div style="display:grid;grid-template-columns:1fr;gap:10px">' +
                     '<button id="tepiha-pwa-rescue-retry" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">PROVO PËRSËRI</button>' +
-                    '<a id="tepiha-pwa-rescue-safari" href="' + safeString(window.location && window.location.href).replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="text-align:center;text-decoration:none;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">HAP NË SAFARI</a>' +
-                    '<button id="tepiha-pwa-rescue-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">PASTRO CACHE / RIPARO APP</button>' +
+                    '<button id="tepiha-pwa-rescue-offline" type="button" style="border:0;border-radius:14px;background:rgba(34,197,94,.16);color:#bbf7d0;padding:13px 14px;font-size:15px;font-weight:1000">VAZHDO OFFLINE</button>' +
+                    '<button id="tepiha-pwa-rescue-home" type="button" style="border:0;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">KTHEHU HOME</button>' +
+                    '<button id="tepiha-pwa-rescue-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">RIPARO KËTË TELEFON</button>' +
                     '<button id="tepiha-pwa-rescue-copy" type="button" style="border:1px solid rgba(255,255,255,.18);border-radius:14px;background:rgba(255,255,255,.06);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">COPY BOOT DIAG</button>' +
                   '</div>' +
                   '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Riparimi fshin vetëm Service Worker-in, TEPIHA runtime caches dhe marker-at e vjetër të boot/chunk. Nuk fshin session, outbox, porosi lokale, ose cache të të dhënave.</div>' +
@@ -1493,6 +1527,20 @@
                 };
               } catch (e) {}
               try {
+                var offline = document.getElementById('tepiha-pwa-rescue-offline');
+                if (offline) offline.onclick = function(){
+                  try { sessionStorage.setItem('tepiha_continue_offline_manual_v10', '1'); } catch (e) {}
+                  try { var node = document.getElementById('tepiha-pwa-boot-rescue'); node && node.parentNode && node.parentNode.removeChild(node); } catch (e) {}
+                  try { document.documentElement.removeAttribute('data-pwa-boot-rescue'); } catch (e) {}
+                };
+              } catch (e) {}
+              try {
+                var home = document.getElementById('tepiha-pwa-rescue-home');
+                if (home) home.onclick = function(){
+                  try { window.location.href = '/?__manual_home=' + Date.now(); } catch (e) {}
+                };
+              } catch (e) {}
+              try {
                 var copy = document.getElementById('tepiha-pwa-rescue-copy');
                 if (copy) copy.onclick = async function(){
                   setStatus('Duke përgatitur boot diag...');
@@ -1515,7 +1563,7 @@
                 return;
               }
               if (isRootMeaningfullyVisible()) {
-                // VITE-NETWORKFIRST-V9: në iOS Homescreen disa route shfaqen para se marker-i ui_ready të shkruhet.
+                // VITE-MANUAL-REPAIR-V10: në iOS Homescreen disa route shfaqen para se marker-i ui_ready të shkruhet.
                 // Mos e mbulo UI-në reale me rescue vetëm pse mungon marker-i.
                 writeBootRescueSkip('pwa_boot_rescue_skip_root_visible_' + safeString(reason || 'timeout'));
                 return;
@@ -1578,7 +1626,7 @@
                 autoRepairDisabled: true,
                 autoReloadDisabled: true,
                 manualUpdateOnly: true,
-                networkFirstV9: true,
+                manualRepairV10: true,
                 href: safeString(window.location && window.location.href)
               };
               appendLog(passiveLaunch);
@@ -1612,14 +1660,14 @@
     <div
       id="tepiha-build-marker"
       data-tepiha-build-marker="1"
-      data-app-epoch="RESET-2026-04-25-VITE-NETWORKFIRST-V9"
-      data-build-id="2.0.12-vite-networkfirst-v9"
-      data-index-script-version="index-html-vite-networkfirst-v9"
-      data-pwa-boot-rescue-version="pwa-boot-rescue-vite-networkfirst-v9"
+      data-app-epoch="RESET-2026-04-25-VITE-MANUAL-REPAIR-V10"
+      data-build-id="2.0.13-vite-manual-repair-v10"
+      data-index-script-version="index-html-vite-manual-repair-v10"
+      data-pwa-boot-rescue-version="pwa-boot-rescue-vite-manual-repair-v10"
       style="display:block;position:fixed;left:6px;bottom:calc(58px + env(safe-area-inset-bottom, 0px));z-index:2147482500;max-width:calc(100vw - 12px);padding:3px 5px;border-radius:7px;background:rgba(2,6,23,.52);border:1px solid rgba(96,165,250,.22);color:rgba(191,219,254,.72);font:700 7px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.01em;box-shadow:none;pointer-events:none;opacity:.72"
     >
-      INDEX V2 • 2.0.12-vite-networkfirst-v9<br />
-      RESET-2026-04-25-VITE-NETWORKFIRST-V9<br />
+      INDEX V2 • 2.0.13-vite-manual-repair-v10<br />
+      RESET-2026-04-25-VITE-MANUAL-REPAIR-V10<br />
       PWA RESCUE NETWORKFIRST V9
     </div>
     <div id="root"></div>

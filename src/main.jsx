@@ -1,29 +1,68 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import AppRoot from './AppRoot.jsx';
-import { reloadPageOnce } from '@/lib/lazyWithReload.jsx';
 
-function installVitePreloadReloadGuard() {
+const VITE_PWA_SW_BASENAME = '/vite-sw.js';
+
+function writeRuntimeMarker(key, payload) {
+  try {
+    window.localStorage?.setItem?.(key, JSON.stringify(payload));
+  } catch {}
+
+  try {
+    window.sessionStorage?.setItem?.(key, JSON.stringify(payload));
+  } catch {}
+}
+
+function markManualRepairSuggested(reason, extra = {}) {
+  if (typeof window === 'undefined') return;
+
+  const payload = {
+    at: new Date().toISOString(),
+    ts: Date.now(),
+    sourceLayer: 'src_main_manual_repair_v10',
+    reason: String(reason || 'runtime_issue'),
+    autoReloadDisabled: true,
+    autoRepairDisabled: true,
+    manualRepairOnly: true,
+    href: String(window.location?.href || ''),
+    path: String(window.location?.pathname || ''),
+    ...extra,
+  };
+
+  writeRuntimeMarker('tepiha_manual_repair_suggested_v10', payload);
+
+  try {
+    window.__TEPIHA_UPDATE_AVAILABLE__ = payload;
+    window.dispatchEvent(new CustomEvent('tepiha:update-available', { detail: payload }));
+  } catch {}
+}
+
+function installVitePreloadPassiveGuard() {
   if (typeof window === 'undefined') return;
 
   try {
     window.addEventListener('vite:preloadError', (event) => {
       try { event?.preventDefault?.(); } catch {}
-      reloadPageOnce('vite_preload_error', {
-        storageKey: 'vite-preload-error',
-        reloadWindowMs: 30000,
-        delayMs: 60,
-        error: event?.payload || event?.reason || null,
-        meta: {
-          sourceLayer: 'main_vite_preload_error',
-          eventType: 'vite:preloadError',
-        },
+      markManualRepairSuggested('vite_preload_error_passive_no_reload', {
+        eventType: 'vite:preloadError',
+        error: (() => {
+          try {
+            const raw = event?.payload || event?.reason || null;
+            if (!raw) return null;
+            return {
+              name: String(raw?.name || ''),
+              message: String(raw?.message || raw || ''),
+              stack: String(raw?.stack || ''),
+            };
+          } catch {
+            return null;
+          }
+        })(),
       });
     });
   } catch {}
 }
-
-const VITE_PWA_SW_BASENAME = '/vite-sw.js';
 
 function isVitePwaRegistration(reg) {
   try {
@@ -65,7 +104,7 @@ function isLegacyServiceWorkerRegistration(reg) {
   }
 }
 
-function unregisterLegacyServiceWorkers() {
+function unregisterLegacyServiceWorkersPassively() {
   if (typeof window === 'undefined') return;
   if (!('serviceWorker' in navigator)) return;
 
@@ -82,6 +121,7 @@ function unregisterLegacyServiceWorkers() {
             href: window.location?.href || '',
             skipped: true,
             reason: 'no_legacy_service_worker_found',
+            passiveNoReload: true,
             activeRegistrations: regs.map((reg) => ({
               scope: String(reg?.scope || ''),
               activeScript: String(reg?.active?.scriptURL || ''),
@@ -110,25 +150,23 @@ function unregisterLegacyServiceWorkers() {
         }
       }
 
+      const payload = {
+        at: new Date().toISOString(),
+        href: window.location?.href || '',
+        hadLegacyController,
+        passiveNoReload: true,
+        manualRepairOnly: true,
+        skippedVitePwa: regs.some(isVitePwaRegistration),
+        results,
+      };
+
       try {
-        window.localStorage?.setItem?.('tepiha_legacy_sw_unregister_v1', JSON.stringify({
-          at: new Date().toISOString(),
-          href: window.location?.href || '',
-          hadLegacyController,
-          skippedVitePwa: regs.some(isVitePwaRegistration),
-          results,
-        }));
+        window.localStorage?.setItem?.('tepiha_legacy_sw_unregister_v1', JSON.stringify(payload));
       } catch {}
 
       if (hadLegacyController) {
-        reloadPageOnce('legacy_service_worker_unregistered', {
-          storageKey: 'legacy-service-worker-unregistered',
-          reloadWindowMs: 30000,
-          delayMs: 120,
-          meta: {
-            sourceLayer: 'main_legacy_sw_cleanup',
-            registrations: results,
-          },
+        markManualRepairSuggested('legacy_service_worker_unregistered_passive_no_reload', {
+          registrations: results,
         });
       }
     } catch (error) {
@@ -136,6 +174,7 @@ function unregisterLegacyServiceWorkers() {
         window.localStorage?.setItem?.('tepiha_legacy_sw_unregister_error_v1', JSON.stringify({
           at: new Date().toISOString(),
           href: window.location?.href || '',
+          passiveNoReload: true,
           error: String(error?.message || error || 'service_worker_unregister_failed'),
         }));
       } catch {}
@@ -149,12 +188,12 @@ function unregisterLegacyServiceWorkers() {
       window.addEventListener('load', () => { window.setTimeout(run, 0); }, { once: true });
     }
   } catch {
-    run();
+    void run();
   }
 }
 
-installVitePreloadReloadGuard();
-unregisterLegacyServiceWorkers();
+installVitePreloadPassiveGuard();
+unregisterLegacyServiceWorkersPassively();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <AppRoot />,
