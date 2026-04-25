@@ -5,7 +5,7 @@ import Link, { useRouter } from '@/lib/routerCompat.jsx';
 import { APP_VERSION } from '@/lib/appEpoch';
 import useRouteAlive, { markRouteUiAlive } from '@/lib/routeAlive';
 
-const HOME_FAST_BOOT_VERSION = 'home-fast-boot-v12';
+const HOME_FAST_BOOT_VERSION = 'home-fast-boot-design-restore-v13';
 
 function isOnlineNow() {
   try {
@@ -34,25 +34,26 @@ function primarySearchHref(value) {
   const raw = normalizeSearch(value);
   if (!raw) return '';
   if (isTransportCode(raw)) {
-    return `/transport/item?code=${encodeURIComponent(normalizeTransportCode(raw))}&from=home_search_fast_v12`;
+    return `/transport/item?code=${encodeURIComponent(normalizeTransportCode(raw))}&from=home_search_fast_v13`;
   }
-  return `/search?q=${encodeURIComponent(raw)}&from=home_fast_v12`;
+  return `/search?q=${encodeURIComponent(raw)}&from=home_fast_v13`;
 }
 
-const MAIN_MODULES = [
-  { href: '/pranimi', title: 'PRANIMI', subtitle: 'HYRJE E RE', eager: true },
-  { href: '/pastrimi', title: 'PASTRIMI', subtitle: 'LISTA E PUNËS', eager: true },
-  { href: '/gati', title: 'GATI', subtitle: 'GATI PËR MARRJE', eager: true },
-  { href: '/marrje-sot', title: 'MARRJE SOT', subtitle: 'DORËZIME', eager: true },
-  { href: '/arka', title: 'ARKA', subtitle: 'FINANCA', eager: false },
-  { href: '/transport', title: 'TRANSPORT', subtitle: 'POROSI TRANSPORTI', eager: false },
-];
+function StatusPill({ online }) {
+  return (
+    <div className="status-pill" data-online={online ? '1' : '0'}>
+      <span className="status-dot" />
+      {online ? 'ONLINE' : 'OFFLINE'}
+    </div>
+  );
+}
 
 export default function HomePage() {
-  useRouteAlive('home_fast_boot_v12');
+  useRouteAlive('home_fast_boot_design_restore_v13');
   const router = useRouter();
   const renderedAtRef = useRef(Date.now());
   const readyMarkedRef = useRef(false);
+  const debugHoldTimerRef = useRef(null);
   const [online, setOnline] = useState(isOnlineNow);
   const [q, setQ] = useState('');
 
@@ -60,11 +61,13 @@ export default function HomePage() {
     try {
       window.__TEPIHA_HOME_FAST_BOOT_VERSION__ = HOME_FAST_BOOT_VERSION;
       window.__TEPIHA_HOME_STATIC_SHELL_RENDERED__ = true;
-      window.__TEPIHA_HOME_COUNTS_MODE__ = 'placeholder_only_v12';
+      window.__TEPIHA_HOME_COUNTS_MODE__ = 'no_blocking_counts_v13';
       window.__TEPIHA_HOME_INTERACTIVE__ = true;
       window.__TEPIHA_HOME_INTERACTIVE_AT__ = Date.now();
+      document?.documentElement?.setAttribute?.('data-home-ui-alive', '1');
+      document?.body?.setAttribute?.('data-home-ui-alive', '1');
       window.dispatchEvent(new CustomEvent('tepiha:home-interactive', {
-        detail: { version: HOME_FAST_BOOT_VERSION, at: Date.now(), staticShell: true },
+        detail: { version: HOME_FAST_BOOT_VERSION, at: Date.now(), restoredDesign: true },
       }));
     } catch {}
   }, []);
@@ -78,7 +81,7 @@ export default function HomePage() {
       try {
         markRouteUiAlive(label, '/', {
           version: HOME_FAST_BOOT_VERSION,
-          sourceLayer: 'home_fast_boot_v12',
+          sourceLayer: 'home_fast_boot_design_restore_v13',
           msFromRender: Math.max(0, Date.now() - Number(renderedAtRef.current || Date.now())),
           ...extra,
         });
@@ -94,7 +97,7 @@ export default function HomePage() {
         if (cancelled || readyMarkedRef.current) return;
         readyMarkedRef.current = true;
         mark('route_first_interactive', { stage: 'raf_2' });
-        mark('route_ui_ready', { stage: 'static_home_ready' });
+        mark('route_ui_ready', { stage: 'restored_static_home_ready' });
       });
     });
 
@@ -115,6 +118,7 @@ export default function HomePage() {
       try { window.removeEventListener('online', update); } catch {}
       try { window.removeEventListener('offline', update); } catch {}
       try { document.removeEventListener('visibilitychange', update); } catch {}
+      try { if (debugHoldTimerRef.current) window.clearTimeout(debugHoldTimerRef.current); } catch {}
     };
   }, []);
 
@@ -127,175 +131,184 @@ export default function HomePage() {
     router.push(href);
   };
 
+  const openGatiSafe = () => {
+    router.push('/gati');
+  };
+
+  const startDebugHiddenPress = () => {
+    try {
+      if (debugHoldTimerRef.current) window.clearTimeout(debugHoldTimerRef.current);
+      debugHoldTimerRef.current = window.setTimeout(() => {
+        router.push('/diag-raw');
+      }, 1200);
+    } catch {}
+  };
+
+  const cancelDebugHiddenPress = () => {
+    try {
+      if (debugHoldTimerRef.current) window.clearTimeout(debugHoldTimerRef.current);
+      debugHoldTimerRef.current = null;
+    } catch {}
+  };
+
   return (
-    <main style={styles.wrap} data-home-fast-boot="v12" data-home-counts="placeholder">
-      <section style={styles.header}>
-        <div>
-          <div style={styles.kicker}>TEPIHA</div>
-          <h1 style={styles.title}>PANELI I PUNËS</h1>
+    <div className="home-wrap" data-home-fast-boot="v13" data-home-design="restored">
+      <header className="header-pro">
+        <div className="header-text">
+          <h1
+            className="title"
+            onTouchStart={startDebugHiddenPress}
+            onTouchEnd={cancelDebugHiddenPress}
+            onTouchCancel={cancelDebugHiddenPress}
+            onPointerDown={startDebugHiddenPress}
+            onPointerUp={cancelDebugHiddenPress}
+            onPointerLeave={cancelDebugHiddenPress}
+            onContextMenu={(event) => event.preventDefault()}
+            style={{ cursor: 'default' }}
+          >TEPIHA <span style={{ color: '#3b82f6' }}>PRO</span></h1>
         </div>
-        <div style={styles.statusPill} data-online={online ? '1' : '0'}>
-          <span style={{ ...styles.statusDot, background: online ? '#22c55e' : '#f59e0b' }} />
-          {online ? 'ONLINE' : 'OFFLINE'}
-        </div>
+        <StatusPill online={online} />
+      </header>
+
+      <section className="search-section">
+        <h2 className="section-title">🔍 KËRKO POROSINË</h2>
+        <form className="search-box" onSubmit={submitSearch}>
+          <input
+            className="search-input"
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+            placeholder="Shkruaj kodin, emrin ose telefonin"
+            inputMode="text"
+            autoComplete="off"
+          />
+          <button className="search-btn" type="submit" disabled={!searchHref}>KËRKO</button>
+        </form>
       </section>
 
-      <form onSubmit={submitSearch} style={styles.searchBox}>
-        <input
-          value={q}
-          onChange={(event) => setQ(event.target.value)}
-          placeholder="KËRKO KOD / EMËR / TEL"
-          inputMode="search"
-          autoComplete="off"
-          style={styles.searchInput}
-        />
-        <button type="submit" style={styles.searchButton} disabled={!searchHref}>KËRKO</button>
-      </form>
+      <section className="modules-section">
+        <h2 className="section-title">⚙️ ZGJEDH MODULIN</h2>
 
-      <section style={styles.grid} aria-label="Modulet kryesore">
-        {MAIN_MODULES.map((item) => (
-          <Link key={item.href} href={item.href} prefetch={false} style={styles.card}>
-            <span style={styles.cardTitle}>{item.title}</span>
-            <span style={styles.cardSubtitle}>{item.subtitle}</span>
-            <span style={styles.countLine}>COUNT: —</span>
+        <div className="modules-grid">
+          <Link href="/pranimi?fresh=1" prefetch={false} className="mod-card">
+            <div className="mod-icon icon-pranimi">🧾</div>
+            <div className="mod-info">
+              <div className="mod-title">PRANIMI</div>
+              <div className="mod-sub">Regjistro klientin</div>
+            </div>
           </Link>
-        ))}
+
+          <Link href="/pastrimi" prefetch={false} className="mod-card">
+            <div className="mod-icon icon-pastrimi">🧼</div>
+            <div className="mod-info">
+              <div className="mod-title">PASTRIMI</div>
+              <div className="mod-sub">Lista e larjes</div>
+            </div>
+          </Link>
+
+          <div
+            className="mod-card"
+            role="link"
+            tabIndex={0}
+            aria-label="GATI"
+            onClick={openGatiSafe}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openGatiSafe();
+              }
+            }}
+          >
+            <div className="mod-icon icon-gati">✅</div>
+            <div className="mod-info">
+              <div className="mod-title">GATI</div>
+              <div className="mod-sub">Gati për dorëzim</div>
+            </div>
+          </div>
+
+          <Link href="/marrje-sot" prefetch={false} className="mod-card">
+            <div className="mod-icon icon-marrje">📦</div>
+            <div className="mod-info">
+              <div className="mod-title">MARRJE SOT</div>
+              <div className="mod-sub">Porositë e sotme</div>
+            </div>
+          </Link>
+
+          <Link href="/transport" prefetch={false} className="mod-card">
+            <div className="mod-icon icon-transport">🚚</div>
+            <div className="mod-info">
+              <div className="mod-title">TRANSPORT</div>
+              <div className="mod-sub">Porositë (T-kode)</div>
+            </div>
+          </Link>
+
+          <Link href="/arka" prefetch={false} className="mod-card">
+            <div className="mod-icon icon-arka">💰</div>
+            <div className="mod-info">
+              <div className="mod-title">ARKA</div>
+              <div className="mod-sub">Mbyllja e ditës</div>
+            </div>
+          </Link>
+
+          <Link href="/llogaria-ime" prefetch={false} className="mod-card account-card">
+            <div className="mod-icon account-icon">👤</div>
+            <div className="mod-info">
+              <div className="mod-title">LLOGARIA IME</div>
+              <div className="mod-sub">Rroga, avanset, borxhet dhe cash-i yt</div>
+            </div>
+          </Link>
+
+          <Link href="/fletore" prefetch={false} className="mod-card fletore-card">
+            <div className="mod-icon icon-fletore">📒</div>
+            <div className="mod-info">
+              <div className="mod-title">FLETORJA</div>
+              <div className="mod-sub">Arkiva e plotë e porosive dhe detajet</div>
+            </div>
+          </Link>
+        </div>
       </section>
 
-      <section style={styles.footer}>
-        <span>{APP_VERSION}</span>
-        <span>{HOME_FAST_BOOT_VERSION}</span>
-      </section>
-    </main>
+      <div className="version-foot">{APP_VERSION}</div>
+
+      <style jsx>{`
+        .home-wrap { padding: 16px 14px 40px; background: #070b14; min-height: 100vh; color: #fff; font-family: system-ui, -apple-system, sans-serif; box-sizing: border-box; }
+
+        .header-pro { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 24px; }
+        .header-text .title { font-size: 26px; font-weight: 1000; letter-spacing: -0.5px; margin: 0; line-height: 1.1; }
+        .status-pill { display: inline-flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.045); color: rgba(255,255,255,0.74); font-size: 10px; font-weight: 900; letter-spacing: 0.08em; white-space: nowrap; }
+        .status-dot { width: 8px; height: 8px; border-radius: 999px; background: #f59e0b; display: inline-block; }
+        .status-pill[data-online="1"] .status-dot { background: #22c55e; }
+
+        .section-title { font-size: 13px; font-weight: 900; letter-spacing: 1px; color: rgba(255,255,255,0.5); margin-bottom: 12px; margin-left: 4px; }
+
+        .search-section { margin-bottom: 28px; }
+        .search-box { display: flex; gap: 8px; }
+        .search-input { flex: 1; min-width: 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 14px 16px; color: #fff; font-size: 16px; font-weight: 700; outline: none; transition: 0.2s; box-sizing: border-box; }
+        .search-input:focus { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
+        .search-btn { background: #3b82f6; color: #fff; border: none; border-radius: 14px; padding: 0 20px; font-weight: 900; font-size: 14px; letter-spacing: 0.5px; cursor: pointer; }
+        .search-btn:disabled { opacity: 0.45; cursor: default; }
+
+        .modules-section { margin-top: 10px; }
+        .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .mod-card { background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 16px; text-decoration: none; color: #fff; display: flex; flex-direction: column; gap: 14px; transition: transform 0.1s, border-color 0.2s; outline: none; min-height: 112px; box-sizing: border-box; }
+        .mod-card:active { transform: scale(0.96); border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
+        .mod-card:focus-visible { border-color: rgba(96,165,250,0.7); }
+        .mod-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .icon-pranimi { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .icon-pastrimi { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+        .icon-gati { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+        .icon-marrje { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+        .icon-transport { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+        .icon-arka { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
+        .icon-fletore { background: rgba(255, 255, 255, 0.1); color: #e2e8f0; }
+        .mod-info { display: flex; flex-direction: column; gap: 4px; }
+        .mod-title { font-weight: 900; font-size: 14px; letter-spacing: 0.5px; }
+        .mod-sub { font-size: 11px; font-weight: 600; opacity: 0.5; line-height: 1.3; }
+        .account-card { background: linear-gradient(145deg, rgba(24,24,38,0.98) 0%, rgba(34,33,58,0.98) 48%, rgba(59,130,246,0.18) 100%); border: 1px solid rgba(99,102,241,0.26); box-shadow: 0 10px 28px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04); }
+        .account-card:active { background: linear-gradient(145deg, rgba(30,30,46,1) 0%, rgba(40,39,70,1) 52%, rgba(59,130,246,0.24) 100%); border-color: rgba(129,140,248,0.42); }
+        .account-icon { background: linear-gradient(180deg, rgba(99,102,241,0.24), rgba(59,130,246,0.18)); color: #dbeafe; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
+        .fletore-card { grid-column: 1 / -1; min-height: 96px; }
+        .version-foot { margin-top: 14px; color: rgba(203,213,225,0.42); font-size: 9px; font-weight: 800; letter-spacing: 0.04em; text-align: right; }
+      `}</style>
+    </div>
   );
 }
-
-const styles = {
-  wrap: {
-    minHeight: '100vh',
-    boxSizing: 'border-box',
-    padding: 'calc(18px + env(safe-area-inset-top, 0px)) 14px calc(18px + env(safe-area-inset-bottom, 0px))',
-    background: 'radial-gradient(circle at top, rgba(37,99,235,.18), transparent 34%), #05070d',
-    color: '#f8fafc',
-    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 14,
-  },
-  kicker: {
-    fontSize: 12,
-    lineHeight: 1,
-    letterSpacing: '0.18em',
-    fontWeight: 1000,
-    color: '#93c5fd',
-  },
-  title: {
-    margin: '6px 0 0',
-    fontSize: 27,
-    lineHeight: 1.02,
-    fontWeight: 1000,
-    letterSpacing: '-0.03em',
-  },
-  statusPill: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 7,
-    padding: '8px 10px',
-    borderRadius: 999,
-    border: '1px solid rgba(255,255,255,.12)',
-    background: 'rgba(15,23,42,.78)',
-    fontSize: 11,
-    fontWeight: 1000,
-    letterSpacing: '0.08em',
-    whiteSpace: 'nowrap',
-  },
-  statusDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 999,
-    display: 'inline-block',
-  },
-  searchBox: {
-    display: 'grid',
-    gridTemplateColumns: '1fr auto',
-    gap: 8,
-    margin: '10px 0 14px',
-  },
-  searchInput: {
-    minWidth: 0,
-    height: 48,
-    borderRadius: 15,
-    border: '1px solid rgba(255,255,255,.13)',
-    background: 'rgba(255,255,255,.07)',
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 900,
-    padding: '0 13px',
-    outline: 'none',
-    boxSizing: 'border-box',
-  },
-  searchButton: {
-    height: 48,
-    border: 0,
-    borderRadius: 15,
-    background: '#2563eb',
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: 1000,
-    padding: '0 14px',
-    letterSpacing: '0.06em',
-  },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: 10,
-  },
-  card: {
-    minHeight: 104,
-    borderRadius: 19,
-    border: '1px solid rgba(255,255,255,.11)',
-    background: 'linear-gradient(180deg, rgba(255,255,255,.085), rgba(255,255,255,.045))',
-    boxShadow: '0 16px 42px rgba(0,0,0,.24)',
-    color: '#fff',
-    textDecoration: 'none',
-    padding: 14,
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-    boxSizing: 'border-box',
-  },
-  cardTitle: {
-    fontSize: 18,
-    lineHeight: 1.08,
-    fontWeight: 1000,
-    letterSpacing: '-0.02em',
-  },
-  cardSubtitle: {
-    marginTop: 6,
-    fontSize: 11,
-    color: 'rgba(226,232,240,.70)',
-    fontWeight: 900,
-    letterSpacing: '0.08em',
-  },
-  countLine: {
-    marginTop: 10,
-    fontSize: 11,
-    color: '#fbbf24',
-    fontWeight: 1000,
-    letterSpacing: '0.06em',
-  },
-  footer: {
-    marginTop: 14,
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 8,
-    color: 'rgba(203,213,225,.58)',
-    fontSize: 10,
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-  },
-};
