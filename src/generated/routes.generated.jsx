@@ -131,6 +131,11 @@ function RouteLifecycleProbe({ path, label, kind = 'route', sourceLayer = 'route
       const detailPath = normalizeDetailPath(detail, actualPathRef.current || actualPath);
       if (detailPath !== (actualPathRef.current || actualPath)) return;
       readyLoggedRef.current = true;
+      try { window.__TEPIHA_UI_READY = true; } catch {}
+      try { window.__TEPIHA_FIRST_UI_READY = true; } catch {}
+      try { document.documentElement?.setAttribute?.('data-ui-ready', '1'); } catch {}
+      try { document.body?.setAttribute?.('data-ui-ready', '1'); } catch {}
+      try { window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready', { detail: { ...detail, path: detailPath, uiReadySource: String(uiReadySource || 'unknown') } })); } catch {}
       recordRouteDiagEvent('route_ui_ready', {
         ...base,
         uiReadySource: String(uiReadySource || 'unknown'),
@@ -146,6 +151,7 @@ function RouteLifecycleProbe({ path, label, kind = 'route', sourceLayer = 'route
       interactiveRaf = window.requestAnimationFrame(() => {
         interactiveTimer = window.setTimeout(() => {
           recordRouteDiagEvent('route_first_interactive', base);
+          markReady('route_first_interactive_timer', { path: actualPathRef.current || actualPath });
         }, 0);
       });
     });
