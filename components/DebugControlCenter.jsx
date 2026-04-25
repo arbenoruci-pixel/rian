@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import Link from '@/lib/routerCompat.jsx';
+import { usePathname, useRouter } from '@/lib/routerCompat.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import { clearDiagConfig, getDiagConfig, setDiagConfig } from '@/lib/diagMode';
 import { clearRadar, getRadarSnapshot, exportDebugText } from '@/lib/sensor';

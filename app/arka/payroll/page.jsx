@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import Link from "@/lib/routerCompat.jsx";
+import { useRouter } from "@/lib/routerCompat.jsx";
 import { supabase } from "@/lib/supabaseClient";
 import { listPendingPaymentRecords } from "@/lib/arkaService";
 import { deleteUserRecord, listUserRecords, updateUserRecord } from "@/lib/usersService";

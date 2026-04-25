@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { getErrorMessage } from '@/lib/uiSafety';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import { getTransportSession, setTransportSession } from '@/lib/transportAuth';
 import { findUserByPin } from '@/lib/usersDb';
 import { LS_USER, LS_SESSION, clearAllSessionState } from '@/lib/sessionStore';

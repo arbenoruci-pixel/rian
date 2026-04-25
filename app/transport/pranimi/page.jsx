@@ -4,7 +4,7 @@ import { reserveTransportCode } from '@/lib/transportCodes';
 import { normalizePhoneDigits } from '@/lib/transport/clientCodes';
 import { upsertTransportClient } from '@/lib/transport/transportDb';
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import { supabase } from '@/lib/supabaseClient';
 import { getPendingOps } from '@/lib/offlineStore';
 import { getTransportSession, getTransportContext } from '@/lib/transportAuth';

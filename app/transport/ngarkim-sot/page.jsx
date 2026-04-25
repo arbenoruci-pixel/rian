@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/routerCompat.jsx';
 import { trackRender } from '@/lib/sensor';
 
 // NGARKIM SOT – CHECKLIST (safe client-only page)

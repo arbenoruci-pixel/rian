@@ -128,10 +128,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': rootDir,
-      'next/link': path.resolve(rootDir, 'src/shims/next-link.jsx'),
-      'next/navigation': path.resolve(rootDir, 'src/shims/next-navigation.js'),
-      'next/dynamic': path.resolve(rootDir, 'src/shims/next-dynamic.jsx'),
-      'next/script': path.resolve(rootDir, 'src/shims/next-script.jsx'),
     },
   },
   server: {

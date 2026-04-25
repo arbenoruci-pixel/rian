@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/routerCompat.jsx";
 import { trackRender } from '@/lib/sensor';
 import { getTransportSession } from '@/lib/transportAuth';
 

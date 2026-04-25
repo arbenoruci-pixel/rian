@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/lib/routerCompat.jsx";
 import { trackRender } from '@/lib/sensor';
 
 const MENU_ITEMS = [

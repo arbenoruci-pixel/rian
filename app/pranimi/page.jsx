@@ -8,7 +8,7 @@ import {
 } from '@/lib/baseCodes';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/routerCompat.jsx';
 import { supabase } from '@/lib/supabaseClient';
 import { listOrderRecords, upsertOrderRecord, updateOrderRecord } from '@/lib/ordersService';
 import { fetchOrdersFromDb, fetchClientsFromDb } from '@/lib/ordersDb';

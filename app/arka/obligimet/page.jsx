@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/lib/routerCompat.jsx';
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/routerCompat.jsx';
 import { getActor } from '@/lib/actorSession';
 import { listUserRecords } from '@/lib/usersService';
 import { supabase } from '@/lib/supabaseClient';

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/lib/routerCompat.jsx";
 import { downloadPdf } from "@/lib/downloadPdf";
 import { getActor } from "@/lib/actorSession";
 import { getTransportSession } from "@/lib/transportAuth";

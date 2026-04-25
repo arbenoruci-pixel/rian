@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams } from '@/lib/routerCompat.jsx';
 import { fetchOrderByIdSafe, findLatestOrderByCode, resolveOrderById, updateOrderData, updateOrderGps } from '@/lib/ordersService';
 import { extractPieces, extractTotal } from '@/lib/smartSms';
 

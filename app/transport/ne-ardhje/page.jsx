@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/routerCompat.jsx";
 
 export default function NeArdhjeRedirect() {
   const router = useRouter();

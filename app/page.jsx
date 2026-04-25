@@ -1,8 +1,8 @@
 'use client';
 
 import { Component, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import Link from '@/lib/routerCompat.jsx';
+import { useRouter } from '@/lib/routerCompat.jsx';
 import useRouteAlive, { markRouteUiAlive } from '@/lib/routeAlive';
 import { bootLog } from '@/lib/bootLog';
 import { getActor } from '@/lib/actorSession';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/lib/routerCompat.jsx';
 import { bootLog, bootMarkReady, bootSnapshot } from '@/lib/bootLog';
 
 function scheduleAfterPaint(fn) {

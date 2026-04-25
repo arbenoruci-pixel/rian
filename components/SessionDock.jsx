@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { bootLog } from '@/lib/bootLog';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter } from '@/lib/routerCompat.jsx';
 
 const REFRESH_EVERY_MS = 5 * 60 * 60 * 1000;
 

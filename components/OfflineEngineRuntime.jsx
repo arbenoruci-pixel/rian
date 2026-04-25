@@ -1,8 +1,8 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
-import { usePathname } from 'next/navigation';
+import dynamic from '@/lib/dynamicCompat.jsx';
+import { usePathname } from '@/lib/routerCompat.jsx';
 import DeferredMount from '@/components/DeferredMount';
 
 const ServiceWorkerRegister = dynamic(() => import('@/components/ServiceWorkerRegister'), { ssr: false });

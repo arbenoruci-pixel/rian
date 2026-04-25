@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter } from "@/lib/routerCompat.jsx";
 import { getDeviceId } from "@/lib/deviceId";
 import { canLoginOffline, cacheApprovedLogin } from "@/lib/deviceApprovalsCache";
 import { bootLog } from '@/lib/bootLog';

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/routerCompat.jsx';
 import { supabase } from '@/lib/supabaseClient';
 import { getAllOrdersLocal, saveOrdersLocal } from '@/lib/offlineStore';
 import useRouteAlive from '@/lib/routeAlive';

@@ -3,7 +3,7 @@
 // Ky file nuk është entry point aktiv i runtime-it të ri.
 // Mbahet vetëm si wrapper i qartë historik për redirect te /arka.
 
-import { redirect } from 'next/navigation';
+import { redirect } from '@/lib/routerCompat.jsx';
 
 export default function RedirectToArka() {
   redirect('/arka');

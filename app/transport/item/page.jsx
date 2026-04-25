@@ -1,8 +1,8 @@
 "use client";
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "@/lib/routerCompat.jsx";
+import { useRouter, useSearchParams } from "@/lib/routerCompat.jsx";
 import RackLocationModal from "@/components/RackLocationModal";
 import { fetchRackMapFromDb, normalizeRackSlots } from "@/lib/rackLocations";
 import { getTransportSession } from "@/lib/transportAuth";

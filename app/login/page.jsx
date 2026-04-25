@@ -1,7 +1,7 @@
 "use client";
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "@/lib/routerCompat.jsx";
 import { getDeviceId } from "@/lib/deviceId";
 import { cacheApprovedLogin, canLoginOffline } from "@/lib/deviceApprovalsCache";
 import { LS_SESSION, LS_USER, LS_TRANSPORT, clearAllSessionState, persistMainSession, readTransportSession } from "@/lib/sessionStore";

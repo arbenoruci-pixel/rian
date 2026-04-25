@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/routerCompat.jsx";
 
 // Inbox is unified into /transport/board (email-style).
 export default function TransportInboxRedirect() {

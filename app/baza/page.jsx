@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/lib/routerCompat.jsx';
 
 export default function BazaMenuPage() {
   return (

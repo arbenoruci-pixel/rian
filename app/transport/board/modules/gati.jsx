@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import Link from '@/lib/routerCompat.jsx';
 import { updateTransportOrderById } from '@/lib/transportOrdersDb';
 import { supabase } from '@/lib/supabaseClient';
 import { ui } from '@/lib/transport/board/ui';

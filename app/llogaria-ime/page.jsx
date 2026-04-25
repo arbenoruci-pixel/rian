@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useRouter } from '@/lib/routerCompat.jsx';
+import Link from '@/lib/routerCompat.jsx';
 import { getActor } from '@/lib/actorSession';
 import { listWorkerDebtRows } from '@/lib/corporateFinance';
 import { listWorkerHandoffs, listWorkerPendingPayments } from '@/lib/arkaService';

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { Suspense } from 'react';
-import Link from 'next/link';
+import Link from '@/lib/routerCompat.jsx';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import { loadLazyModule, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
 import useRouteAlive from '@/lib/routeAlive';

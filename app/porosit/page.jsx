@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams } from '@/lib/routerCompat.jsx';
 import { supabase } from '@/lib/supabaseClient';
 import { bootLog, bootMarkReady } from '@/lib/bootLog';
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/lib/routerCompat.jsx';
 
 export default function OfflineEngineGate({ children }) {
   const pathname = usePathname();

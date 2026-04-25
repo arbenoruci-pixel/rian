@@ -4,8 +4,8 @@ export const dynamic = 'force-dynamic';
 
 
 import React, { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import Link from '@/lib/routerCompat.jsx';
+import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabaseClient';
 import { getTransportSession, setTransportSession } from '@/lib/transportAuth';
 import { canAccessTransportAdmin } from '@/lib/roles';

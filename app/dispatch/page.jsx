@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/lib/routerCompat.jsx";
 import { getOrderTable } from "@/lib/orderSource";
 import { createOrderRecord, listMixedOrderRecords, updateOrderData, updateOrderRecord } from "@/lib/ordersService";
 import { listUsers } from "@/lib/usersDb";

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "@/lib/routerCompat.jsx";
 import { fetchTransportOrderById, updateTransportOrderById } from '@/lib/transportOrdersDb';
 import { getTransportSession } from "@/lib/transportAuth";
 import { recordCashMove } from "@/lib/arkaCashSync";

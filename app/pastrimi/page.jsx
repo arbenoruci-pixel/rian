@@ -1,8 +1,8 @@
 'use client';
 
 import React, { Suspense, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
+import Link from '@/lib/routerCompat.jsx';
 import { supabase } from '@/lib/supabaseClient';
 import { fetchOrderDataById, fetchOrderByIdSafe, listMixedOrderRecords, transitionOrderStatus } from '@/lib/ordersService';
 import { getAllOrdersLocal, saveOrderLocal } from '@/lib/offlineStore';

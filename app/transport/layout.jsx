@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter } from '@/lib/routerCompat.jsx';
 import { getTransportSession } from '@/lib/transportAuth';
 import TransportSyncStarter from '@/components/transport/TransportSyncStarter';
 

@@ -8,8 +8,8 @@
 // MOS E PËRDORE SI source of truth për startup/runtime patches.
 
 import './globals.css';
-import dynamic from 'next/dynamic';
-import Script from 'next/script';
+import dynamic from '@/lib/dynamicCompat.jsx';
+import Script from '@/lib/scriptCompat.jsx';
 import AuthGate from '@/components/AuthGate';
 import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
 import DeferredMount from '@/components/DeferredMount';
