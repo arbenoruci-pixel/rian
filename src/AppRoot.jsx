@@ -400,8 +400,20 @@ function CoreRuntimeModule({ name, children }) {
   );
 }
 
+function isRuntimeReactComponent(value) {
+  if (typeof value === 'function') return true;
+  if (value && typeof value === 'object') {
+    try {
+      const marker = String(value.$$typeof || '');
+      if (marker.includes('react.')) return true;
+    } catch {}
+  }
+  return false;
+}
+
 function normalizeRuntimeLazyModule(mod, name) {
-  if (mod && typeof mod === 'object' && mod.default) return mod;
+  if (isRuntimeReactComponent(mod)) return { default: mod };
+  if (mod && typeof mod === 'object' && isRuntimeReactComponent(mod.default)) return mod;
 
   const message = `AppRoot runtime lazy module ${name} resolved without a default export`;
   const error = new TypeError(message);
@@ -472,6 +484,7 @@ function makeRuntimeLazy(importer, name, retryCount, onSilentFailure) {
     sourceLayer: 'app_root_runtime_lazy',
     reloadWindowMs: 30000,
     silentFallback: true,
+    silent: true,
     silentRuntimeModule: true,
     onSilentFailure,
     meta: {

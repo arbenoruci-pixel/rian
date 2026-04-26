@@ -38,6 +38,28 @@ function getLocalStorage() {
   }
 }
 
+const SILENT_RUNTIME_MODULE_LABELS = new Set([
+  'ChunkLoadRuntime',
+  'RootResumeWatchdog',
+  'ServiceWorkerRegister',
+  'SyncStarter',
+  'RuntimeIncidentUploader',
+  'SessionDock',
+  'OfflineFirstWarmup',
+]);
+
+function isSilentRuntimeModuleLabel(value) {
+  try {
+    const text = safeString(value || '', '').trim();
+    if (!text) return false;
+    if (SILENT_RUNTIME_MODULE_LABELS.has(text)) return true;
+    const tail = text.split(/[\\/]/).pop().replace(/\.(jsx?|tsx?)$/i, '');
+    return SILENT_RUNTIME_MODULE_LABELS.has(tail);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeReloadKey(value) {
   return safeString(value || 'unknown', 'unknown')
     .replace(/[^a-zA-Z0-9:_./-]+/g, '_')
@@ -251,6 +273,12 @@ function LazyUpdateAvailableFallback({ payload, reloadBlocked }) {
     return { label, offline };
   }, [payload]);
 
+  // Runtime/background modules must never render worker-facing cards.
+  // Route/page modules still use the visible fallback below.
+  if (isSilentRuntimeModuleLabel(detail.label) || payload?.meta?.silentRuntimeModule === true) {
+    return null;
+  }
+
   return (
     <div
       data-lazy-with-reload-fallback="1"
@@ -372,7 +400,12 @@ export function lazyWithReload(importer, options = {}) {
       const wantsSilentFallback = options.silentFallback === true
         || options.silent === true
         || options.silentRuntimeModule === true
-        || options.meta?.silentRuntimeModule === true;
+        || options.meta?.silentRuntimeModule === true
+        || isSilentRuntimeModuleLabel(label)
+        || isSilentRuntimeModuleLabel(options.moduleId)
+        || isSilentRuntimeModuleLabel(options.meta?.moduleName)
+        || isSilentRuntimeModuleLabel(options.meta?.requestedModule)
+        || isSilentRuntimeModuleLabel(options.meta?.componentName);
 
       if (wantsSilentFallback) {
         const SilentLazyUpdateFallback = function SilentLazyUpdateFallback() {

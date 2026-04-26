@@ -24,8 +24,9 @@ import MarrjeSotPageEager from '@/app/marrje-sot/page.jsx';
 import PastrimiPageEager from '@/app/pastrimi/page.jsx';
 import PranimiPageEager from '@/app/pranimi/page.jsx';
 import ArkaPuntorPageEager from '@/app/arka/puntor/[pin]/page.jsx';
+import ArkaPageEager from '@/app/arka/page.jsx';
 
-// V15 route alignment: keep daily base routes static/eager; keep ARKA worker detail eager to avoid dynamic chunk/default-export lazy failures. Other heavy ARKA/TRANSPORT routes stay behind SafeLazyRouteShell.
+// V18 route alignment: keep daily base routes static/eager; keep ARKA main + worker detail eager to avoid dynamic chunk/default-export lazy failures. Other heavy ARKA/TRANSPORT routes stay behind SafeLazyRouteShell.
 
 const Page0 = lazyRoute(() => import('@/app/arka/buxheti/page.jsx'), '@/app/arka/buxheti/page.jsx');
 const Page1 = lazyRoute(() => import('@/app/arka/obligimet/page.jsx'), '@/app/arka/obligimet/page.jsx');
@@ -527,7 +528,7 @@ export const appRoutes = [
   { path: '/diag-raw', element: eagerElement(DiagRawPage, '/diag-raw') },
   { path: '/arka/buxheti', element: safeLazyElement('/arka/buxheti', () => import('@/app/arka/buxheti/page.jsx'), '@/app/arka/buxheti/page.jsx', 'ARKA BUXHETI') },
   { path: '/arka/obligimet', element: safeLazyElement('/arka/obligimet', () => import('@/app/arka/obligimet/page.jsx'), '@/app/arka/obligimet/page.jsx', 'ARKA OBLIGIMET') },
-  { path: '/arka', element: safeLazyElement('/arka', () => import('@/app/arka/page.jsx'), '@/app/arka/page.jsx', 'ARKA') },
+  { path: '/arka', element: eagerElement(ArkaPageEager, '/arka') },
   { path: '/arka/payroll', element: safeLazyElement('/arka/payroll', () => import('@/app/arka/payroll/page.jsx'), '@/app/arka/payroll/page.jsx', 'ARKA PAYROLL') },
   { path: '/arka/puntor/:pin', element: eagerElement(ArkaPuntorPageEager, '/arka/puntor/:pin') },
   { path: '/arka/stafi', element: safeLazyElement('/arka/stafi', () => import('@/app/arka/stafi/page.jsx'), '@/app/arka/stafi/page.jsx', 'ARKA STAFI') },

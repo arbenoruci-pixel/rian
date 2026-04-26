@@ -2598,11 +2598,11 @@ BORXHI PAS: ${remaining.toFixed(2)}€
 
       <section className="card" style={{ padding: '10px' }}>
         {!loading ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, padding: '8px 10px', borderRadius: 12, border: '1px solid rgba(59,130,246,.28)', background: 'rgba(59,130,246,.10)', color: '#bfdbfe', fontSize: 12, fontWeight: 800 }}>
-            <span>{visibleOrders.length > 0 ? `Po përdoren të dhënat lokale • ${localModeNotice} • refresh background` : `Po përdoren të dhënat lokale • ${localModeNotice} • lista lokale është bosh`}</span>
-            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-              <button type="button" onClick={() => scheduleRefreshOrders(0, { source: 'manual_local_status_refresh', force: true })} style={{ border: '0', borderRadius: 9, background: '#2563eb', color: '#fff', padding: '6px 8px', fontWeight: 900 }}>Rifresko</button>
-              <button type="button" onClick={() => { enablePastrimiSafeOfflineMode('pastrimi_continue_offline_button'); setLocalModeNotice('SAFE_OFFLINE'); setLoading(false); }} style={{ border: '1px solid rgba(34,197,94,.38)', borderRadius: 9, background: 'rgba(34,197,94,.14)', color: '#bbf7d0', padding: '6px 8px', fontWeight: 900 }}>Vazhdo offline</button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, padding: '8px 10px', borderRadius: 12, border: '1px solid rgba(59,130,246,.28)', background: 'rgba(59,130,246,.10)', color: '#bfdbfe', fontSize: 12, fontWeight: 800, flexWrap: 'wrap', maxWidth: '100%', overflow: 'hidden' }}>
+            <span style={{ flex: '1 1 220px', minWidth: 0, overflowWrap: 'anywhere', lineHeight: 1.3 }}>{visibleOrders.length > 0 ? `Po përdoren të dhënat lokale • ${localModeNotice} • refresh background` : `Po përdoren të dhënat lokale • ${localModeNotice} • lista lokale është bosh`}</span>
+            <div style={{ display: 'flex', gap: 6, flex: '1 1 180px', justifyContent: 'flex-end', flexWrap: 'wrap', minWidth: 0 }}>
+              <button type="button" onClick={() => scheduleRefreshOrders(0, { source: 'manual_local_status_refresh', force: true })} style={{ border: '0', borderRadius: 9, background: '#2563eb', color: '#fff', padding: '6px 8px', fontWeight: 900, flex: '0 1 auto', maxWidth: '100%' }}>Rifresko</button>
+              <button type="button" onClick={() => { enablePastrimiSafeOfflineMode('pastrimi_continue_offline_button'); setLocalModeNotice('SAFE_OFFLINE'); setLoading(false); }} style={{ border: '1px solid rgba(34,197,94,.38)', borderRadius: 9, background: 'rgba(34,197,94,.14)', color: '#bbf7d0', padding: '6px 8px', fontWeight: 900, flex: '0 1 auto', maxWidth: '100%' }}>Vazhdo offline</button>
             </div>
           </div>
         ) : null}
