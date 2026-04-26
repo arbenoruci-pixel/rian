@@ -57,7 +57,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,webmanifest,json,woff2}'],
+        globPatterns: ['**/*.{js,css,ico,png,svg,webp,webmanifest,json,woff2}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         cleanupOutdatedCaches: false,
         // Keep updates passive during an active iOS PWA session.
@@ -77,7 +77,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.mode === 'navigate' && BUSINESS_ROUTE_RE.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'tepiha-vite-business-routes-v26',
+              cacheName: 'tepiha-vite-business-routes-v27',
               networkTimeoutSeconds: 4,
               cacheableResponse: {
                 statuses: [0, 200],
@@ -94,7 +94,7 @@ export default defineConfig({
             // PATCH N/V26: keep cached hashed chunks available while checking the network in background.
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'tepiha-vite-static-assets-v26',
+              cacheName: 'tepiha-vite-static-assets-v27',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -109,7 +109,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-media-v26',
+              cacheName: 'tepiha-vite-media-v27',
               cacheableResponse: {
                 statuses: [0, 200],
               },

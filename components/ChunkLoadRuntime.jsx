@@ -7,9 +7,9 @@ import { pushLocalErrorLog } from '@/lib/localErrorLog';
 import { getLastChunkCapture, getLastLazyImportFailure, getLastLazyImportAttempt, isProbablyChunkLikeMessage, recordChunkCapture, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
 
 const CONTROLLED_RECOVERY_EVENT = 'tepiha:sw-controlled-recovery-request';
-const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23';
-const APP_VERSION = '2.0.28-vite-hard-refresh-failopen-v23';
-const V23_DIAG_CLEAR_KEY = 'tepiha_diag_clear_epoch_v23';
+const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-BULLETPROOF-RUNTIME-V27';
+const APP_VERSION = '2.0.32-vite-bulletproof-runtime-v27';
+const V27_DIAG_CLEAR_KEY = 'tepiha_diag_clear_epoch_v27';
 
 const OPTIONAL_MODULEPRELOAD_PATTERNS = [
   /(?:^|\/|-)reconcile-[^/]*\.(?:js|mjs)(?:\?|$)/i,
@@ -258,10 +258,10 @@ function clearRouteDiagModulepreloadOnly() {
   }
 }
 
-function clearOldV8V17DiagnosticMarkersOnce() {
+function clearOldRuntimeDiagnosticMarkersOnce() {
   if (!isBrowser()) return;
   try {
-    const previous = safeJson(window.localStorage?.getItem(V23_DIAG_CLEAR_KEY) || 'null', null);
+    const previous = safeJson(window.localStorage?.getItem(V27_DIAG_CLEAR_KEY) || 'null', null);
     if (previous?.epoch === APP_DATA_EPOCH) return;
   } catch {}
 
@@ -293,7 +293,7 @@ function clearOldV8V17DiagnosticMarkersOnce() {
   }
   try { if (clearRouteDiagModulepreloadOnly()) cleared.push('tepiha_route_diag_log_v1:modulepreload_only'); } catch {}
   try {
-    window.localStorage?.setItem(V23_DIAG_CLEAR_KEY, JSON.stringify({
+    window.localStorage?.setItem(V27_DIAG_CLEAR_KEY, JSON.stringify({
       epoch: APP_DATA_EPOCH,
       version: APP_VERSION,
       at: new Date().toISOString(),
@@ -384,7 +384,7 @@ function shouldSuppressUnhandledOptionalFailure(reason) {
 export default function ChunkLoadRuntime() {
   useEffect(() => {
     if (!isBrowser()) return undefined;
-    clearOldV8V17DiagnosticMarkersOnce();
+    clearOldRuntimeDiagnosticMarkersOnce();
 
     const onLazyImportFailure = (event) => {
       const detail = event?.detail && typeof event.detail === 'object' ? event.detail : null;

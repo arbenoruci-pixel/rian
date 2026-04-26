@@ -158,8 +158,30 @@ function RouteLifecycleProbe({ path, label, kind = 'route', sourceLayer = 'route
       });
     };
 
-    const onFirstUiReady = (event) => markReady('tepiha:first-ui-ready', event?.detail && typeof event.detail === 'object' ? event.detail : {});
-    const onRouteUiAlive = (event) => markReady('tepiha:route-ui-alive', event?.detail && typeof event.detail === 'object' ? event.detail : {});
+    const isShellOnlyReadyDetail = (detail = {}) => {
+      try {
+        const labelText = String(detail?.label || detail?.source || detail?.uiReadySource || '');
+        return detail?.shellOnly === true || detail?.noUiReady === true || labelText.startsWith('safe_shell:') || labelText === 'safe_lazy_route_shell';
+      } catch {
+        return false;
+      }
+    };
+    const onFirstUiReady = (event) => {
+      const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+      if (isShellOnlyReadyDetail(detail)) {
+        recordRouteDiagEvent('route_shell_ready_ignored', { ...base, detail, shellOnly: true, patch: 'PATCH_O_V27_shell_not_route_ready' });
+        return;
+      }
+      markReady('tepiha:first-ui-ready', detail);
+    };
+    const onRouteUiAlive = (event) => {
+      const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+      if (isShellOnlyReadyDetail(detail)) {
+        recordRouteDiagEvent('route_shell_alive_ignored', { ...base, detail, shellOnly: true, patch: 'PATCH_O_V27_shell_not_route_ready' });
+        return;
+      }
+      markReady('tepiha:route-ui-alive', detail);
+    };
 
     paintRaf = window.requestAnimationFrame(() => {
       recordRouteDiagEvent('route_first_paint', base);

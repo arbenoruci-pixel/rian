@@ -164,6 +164,19 @@ function RouteRequestTracker() {
       const detail = event?.detail && typeof event.detail === 'object' ? event.detail : null;
       if (!detail) return;
       const routeDiagType = String(detail?.type || '');
+      const shellOnlyRouteReady = detail?.shellOnly === true || detail?.noUiReady === true || String(detail?.label || detail?.source || '').startsWith('safe_shell:');
+      if (routeDiagType === 'route_ui_ready' && shellOnlyRouteReady) {
+        try {
+          recordRouteDiagEvent('route_transition_shell_ready_ignored', {
+            ...detail,
+            shellOnly: true,
+            noUiReady: true,
+            sourceLayer: 'app_root',
+            patch: 'PATCH_O_V27_shell_not_route_ready',
+          });
+        } catch {}
+        return;
+      }
       // PATCH M / V25: component_mount / first_paint / first_interactive are
       // diagnostic only. They no longer clear transitionInFlight because they
       // can happen while the page is still waiting for data.

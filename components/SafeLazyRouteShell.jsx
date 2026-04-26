@@ -10,7 +10,7 @@ import {
   loadLazyModule,
   recordRouteDiagEvent,
 } from '@/lib/lazyImportRuntime';
-import useRouteAlive from '@/lib/routeAlive';
+import { markRouteAlive } from '@/lib/routeAlive';
 
 const LOCAL_IMPORT_RETRY_DELAYS_MS = [300, 1200];
 const LOCAL_IMPORT_TIMEOUT_MS = 9000;
@@ -389,7 +389,32 @@ export default function SafeLazyRouteShell({
   const displayTitle = safeString(safeComponentName || safeRouteName || safeRoutePath, 'FAQJA').toUpperCase();
   const [retryCount, setRetryCount] = React.useState(0);
 
-  useRouteAlive(`safe_shell:${safeRoutePath}`);
+  React.useEffect(() => {
+    try {
+      markRouteAlive(`safe_shell:${safeRoutePath}`, safeRoutePath);
+      recordRouteDiagEvent('safe_route_shell_visible', {
+        path: safeRoutePath,
+        currentPath: safeRoutePath,
+        routeName: safeRouteName,
+        moduleId: safeModuleId,
+        componentName: safeComponentName,
+        shellOnly: true,
+        noUiReady: true,
+        sourceLayer: 'safe_lazy_route_shell',
+        patch: 'PATCH_O_V27_shell_visible_not_route_ready',
+      });
+      window.dispatchEvent(new CustomEvent('tepiha:safe-route-shell-visible', {
+        detail: {
+          path: safeRoutePath,
+          routeName: safeRouteName,
+          moduleId: safeModuleId,
+          shellOnly: true,
+          noUiReady: true,
+          source: 'safe_lazy_route_shell',
+        },
+      }));
+    } catch {}
+  }, [safeComponentName, safeModuleId, safeRouteName, safeRoutePath]);
 
   const lazyMeta = React.useMemo(() => ({
     kind: 'route',

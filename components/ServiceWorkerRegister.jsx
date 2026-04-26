@@ -574,9 +574,9 @@ export default function ServiceWorkerRegister() {
               if (escaped) return;
               escaped = true;
               try { if (escapeTimer) window.clearTimeout(escapeTimer); } catch {}
-              setStatus('PATCH M V25: versioni i ri u përgatit pa reload automatik. Mbylle/hape app-in manualisht kur të kesh kohë.');
+              setStatus('PATCH O V27: versioni i ri u përgatit pa reload automatik. Mbylle/hape app-in manualisht kur të kesh kohë.');
               try {
-                logSwEvent('vite_pwa_sw_manual_update_no_auto_reload_v25', {
+                logSwEvent('vite_pwa_sw_manual_update_passive_v27', {
                   noReload: true,
                   manualOnly: true,
                 });
@@ -584,22 +584,36 @@ export default function ServiceWorkerRegister() {
             };
 
             try {
-              if (typeof updateSWRef.current === 'function') {
-                safeApplyViteUpdate(updateSWRef.current, false, 'manual_update_banner_no_reload_v25');
-                try { window.setTimeout(finishWithReload, 900); } catch { finishWithReload(); }
-                return;
+              const reg = registrationRef.current;
+              if (reg && typeof reg.update === 'function') {
+                safeUpdateRegistration(reg, 'manual_update_banner_passive_v27', VITE_SW_URL);
+              } else {
+                logSwEvent('vite_pwa_sw_manual_update_registration_missing_v27', {
+                  noUpdateSWApply: true,
+                  noSkipWaiting: true,
+                  noReload: true,
+                  source: 'manual_update_banner',
+                });
               }
-            } catch {}
-
-            try {
-              logSwEvent('vite_pwa_sw_manual_update_waiting_no_skipwaiting_v25', {
+            } catch (error) {
+              logSwEvent('vite_pwa_sw_manual_update_registration_check_error_v27', {
+                noUpdateSWApply: true,
                 noSkipWaiting: true,
                 noReload: true,
+                message: safeMessage(error, 'manual_update_passive_check_failed'),
+              });
+            }
+
+            try {
+              logSwEvent('vite_pwa_sw_manual_update_waiting_no_skipwaiting_v27', {
+                noSkipWaiting: true,
+                noReload: true,
+                noUpdateSWApply: true,
                 source: 'manual_update_banner',
               });
             } catch {}
 
-            finishWithReload();
+            try { window.setTimeout(finishWithReload, 900); } catch { finishWithReload(); }
           };
         }
       } catch (error) {
