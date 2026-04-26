@@ -59,7 +59,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,webmanifest,json,woff2}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
-        cleanupOutdatedCaches: true,
+        cleanupOutdatedCaches: false,
         // Keep updates passive during an active iOS PWA session.
         // The waiting worker is activated only after the user presses PËRDITËSO or on a clean launch.
         clientsClaim: false,
@@ -77,7 +77,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.mode === 'navigate' && BUSINESS_ROUTE_RE.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'tepiha-vite-business-routes-v21',
+              cacheName: 'tepiha-vite-business-routes-v23',
               networkTimeoutSeconds: 4,
               cacheableResponse: {
                 statuses: [0, 200],
@@ -93,7 +93,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.destination === 'script' || request.destination === 'style' || url.pathname.startsWith('/assets/'),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-static-assets-v21',
+              cacheName: 'tepiha-vite-static-assets-v23',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -108,7 +108,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-media-v21',
+              cacheName: 'tepiha-vite-media-v23',
               cacheableResponse: {
                 statuses: [0, 200],
               },

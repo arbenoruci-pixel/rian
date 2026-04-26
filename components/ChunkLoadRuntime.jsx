@@ -7,9 +7,9 @@ import { pushLocalErrorLog } from '@/lib/localErrorLog';
 import { getLastChunkCapture, getLastLazyImportFailure, getLastLazyImportAttempt, isProbablyChunkLikeMessage, recordChunkCapture, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
 
 const CONTROLLED_RECOVERY_EVENT = 'tepiha:sw-controlled-recovery-request';
-const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-PASTRIMI-PRELOAD-NONFATAL-V22';
-const APP_VERSION = '2.0.27-vite-pastrimi-preload-nonfatal-v22';
-const V22_DIAG_CLEAR_KEY = 'tepiha_diag_clear_epoch_v22';
+const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23';
+const APP_VERSION = '2.0.28-vite-hard-refresh-failopen-v23';
+const V23_DIAG_CLEAR_KEY = 'tepiha_diag_clear_epoch_v23';
 
 const OPTIONAL_MODULEPRELOAD_PATTERNS = [
   /(?:^|\/|-)reconcile-[^/]*\.(?:js|mjs)(?:\?|$)/i,
@@ -261,7 +261,7 @@ function clearRouteDiagModulepreloadOnly() {
 function clearOldV8V17DiagnosticMarkersOnce() {
   if (!isBrowser()) return;
   try {
-    const previous = safeJson(window.localStorage?.getItem(V22_DIAG_CLEAR_KEY) || 'null', null);
+    const previous = safeJson(window.localStorage?.getItem(V23_DIAG_CLEAR_KEY) || 'null', null);
     if (previous?.epoch === APP_DATA_EPOCH) return;
   } catch {}
 
@@ -293,7 +293,7 @@ function clearOldV8V17DiagnosticMarkersOnce() {
   }
   try { if (clearRouteDiagModulepreloadOnly()) cleared.push('tepiha_route_diag_log_v1:modulepreload_only'); } catch {}
   try {
-    window.localStorage?.setItem(V22_DIAG_CLEAR_KEY, JSON.stringify({
+    window.localStorage?.setItem(V23_DIAG_CLEAR_KEY, JSON.stringify({
       epoch: APP_DATA_EPOCH,
       version: APP_VERSION,
       at: new Date().toISOString(),
@@ -308,8 +308,8 @@ function shouldTreatAsNonfatalModulepreload(meta = {}, routePath = currentPath()
   const src = safeString(meta.resolvedTargetSrc || meta.targetSrc || meta.filename || '');
   const routeOk = isPastrimiOrGatiRoute(routePath);
   if (routeOk && looksLikeOptionalHelperAsset(src)) return 'optional_helper_chunk';
-  if (routeOk && routeUiReady) return 'route_ui_ready_modulepreload';
-  if (routeUiReady && looksLikeOptionalHelperAsset(src)) return 'ui_ready_optional_helper';
+  if (routeUiReady) return routeOk ? 'route_ui_ready_modulepreload' : 'ui_ready_modulepreload_global';
+  if (looksLikeOptionalHelperAsset(src)) return routeOk ? 'optional_helper_chunk' : 'optional_helper_chunk_global';
   return false;
 }
 

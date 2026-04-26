@@ -24,7 +24,7 @@ try {
   }
 } catch {}
 
-const APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER = 'tepiha_runtime_diag_cleanup_done_RESET-2026-04-26-VITE-STATIC-RUNTIME-V21';
+const APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER = 'tepiha_runtime_diag_cleanup_done_RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23';
 const OLD_RUNTIME_DIAG_KEYS = [
   'tepiha_app_root_runtime_failure_log_v1',
   'tepiha_app_root_runtime_failure_last_v1',
@@ -32,7 +32,7 @@ const OLD_RUNTIME_DIAG_KEYS = [
   'tepiha_runtime_module_disabled_v1',
 ];
 
-function clearStaleRuntimeDiagnosticsForV21() {
+function clearStaleRuntimeDiagnosticsForV23() {
   try {
     if (typeof window === 'undefined') return;
     const marker = window.localStorage?.getItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER)
@@ -47,7 +47,7 @@ function clearStaleRuntimeDiagnosticsForV21() {
     try { window.__TEPIHA_LAST_APP_ROOT_RUNTIME_FAILURE__ = null; } catch {}
     try {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-static-runtime-v21',
+        version: 'app-root-vite-hard-refresh-failopen-v23',
         criticalMode: 'static_runtime_deferred_no_lazy_chunks',
         criticalModules: {},
         lazyModules: {},
@@ -59,17 +59,17 @@ function clearStaleRuntimeDiagnosticsForV21() {
     try { window.localStorage?.setItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER, '1'); } catch {}
     try { window.sessionStorage?.setItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER, '1'); } catch {}
     try {
-      recordRouteDiagEvent('app_root_runtime_diag_cleanup_v21', {
+      recordRouteDiagEvent('app_root_runtime_diag_cleanup_v23', {
         path: String(window.location?.pathname || '/'),
         sourceLayer: 'app_root',
-        appEpoch: 'RESET-2026-04-26-VITE-STATIC-RUNTIME-V21',
+        appEpoch: 'RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23',
         removedKeys: OLD_RUNTIME_DIAG_KEYS,
       });
     } catch {}
   } catch {}
 }
 
-clearStaleRuntimeDiagnosticsForV21();
+clearStaleRuntimeDiagnosticsForV23();
 
 function safeParseJson(raw, fallback = null) {
   try {
@@ -287,7 +287,7 @@ function getRuntimeStatus() {
   try {
     if (!window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ || typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ !== 'object') {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-static-runtime-v21',
+        version: 'app-root-vite-hard-refresh-failopen-v23',
         criticalMode: 'static_runtime_deferred_no_lazy_chunks',
         criticalModules: {},
         lazyModules: {},

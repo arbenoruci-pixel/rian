@@ -165,11 +165,29 @@ try {
   document.documentElement?.setAttribute?.('data-react-ready', '1');
 } catch {}
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <AppRoot />,
-);
-
 try {
-  window.__TEPIHA_REACT_RENDER_CALLED__ = true;
-  window.dispatchEvent(new CustomEvent('tepiha:react-render-called', { detail: { at: Date.now() } }));
-} catch {}
+  const mountNode = document.getElementById('root');
+  if (!mountNode) throw new Error('ROOT_NODE_MISSING');
+  ReactDOM.createRoot(mountNode).render(
+    <AppRoot />,
+  );
+  try {
+    window.__TEPIHA_REACT_RENDER_CALLED__ = true;
+    window.dispatchEvent(new CustomEvent('tepiha:react-render-called', { detail: { at: Date.now() } }));
+  } catch {}
+} catch (error) {
+  try {
+    window.__TEPIHA_REACT_MOUNT_ERROR__ = {
+      at: new Date().toISOString(),
+      message: safeString(error?.message || error),
+      stack: safeString(error?.stack || ''),
+      sourceLayer: 'src_main_react_mount',
+      failOpen: true,
+    };
+  } catch {}
+  try {
+    if (typeof window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__ === 'function') {
+      window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__('react_mount_error', window.__TEPIHA_REACT_MOUNT_ERROR__ || {});
+    }
+  } catch {}
+}

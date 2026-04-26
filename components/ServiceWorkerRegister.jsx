@@ -48,10 +48,9 @@ function shouldSkipUpdateChecksForSafeMode() {
 function shouldShowVisualUpdateBanner() {
   try {
     const params = new URLSearchParams(window.location?.search || "");
-    return params.has("showUpdateBanner") || params.has("debugUpdateBanner");
-  } catch {
-    return false;
-  }
+    if (params.has("hideUpdateBanner")) return false;
+  } catch {}
+  return true;
 }
 
 
@@ -511,9 +510,9 @@ export default function ServiceWorkerRegister() {
           banner.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:2147482500;display:flex;justify-content:center;pointer-events:none;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#e5e7eb';
           banner.innerHTML = ''
             + '<div style="width:min(560px,100%);border-radius:18px;border:1px solid rgba(96,165,250,.38);background:rgba(15,23,42,.97);box-shadow:0 18px 45px rgba(0,0,0,.42);padding:12px;pointer-events:auto">'
-            + '<div style="font-size:11px;font-weight:1000;letter-spacing:.12em;color:#93c5fd">UPDATE DEBUG</div>'
-            + '<div style="margin-top:5px;font-size:15px;line-height:1.25;font-weight:950">Përditësim manual.</div>'
-            + '<div style="margin-top:5px;font-size:12.5px;line-height:1.35;color:rgba(226,232,240,.82);font-weight:700">App-i vazhdon me versionin aktual. Përditësimi bëhet vetëm kur e shtyp vetë.</div>'
+            + '<div style="font-size:11px;font-weight:1000;letter-spacing:.12em;color:#93c5fd">VERSION I RI GATI</div>'
+            + '<div style="margin-top:5px;font-size:15px;line-height:1.25;font-weight:950">Përditësim gati.</div>'
+            + '<div style="margin-top:5px;font-size:12.5px;line-height:1.35;color:rgba(226,232,240,.82);font-weight:700">App-i vazhdon normalisht. Përditësimi bëhet vetëm kur e shtyp vetë.</div>'
             + '<div id="tepiha-update-available-status" style="display:none;margin-top:8px;font-size:12px;line-height:1.35;color:#bae6fd;font-weight:850"></div>'
             + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
             + '<button id="tepiha-update-available-now" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:#2563eb;color:#fff;font-weight:1000;font-size:13px">PËRDITËSO</button>'
