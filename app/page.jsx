@@ -142,24 +142,8 @@ export default function HomePage() {
       const rows = Array.isArray(result?.results) ? result.results : [];
       setSearchResults(rows);
       setSearchMeta(result || null);
-      if (rows.length === 1 && rows[0]?.href) {
-        const status = String(rows[0]?.status || '').trim().toLowerCase();
-        const knownStage = rows[0]?.kind === 'TRANSPORT' || [
-          'pranim',
-          'pranimi',
-          'pastrim',
-          'pastrimi',
-          'cleaning',
-          'gati',
-          'ready',
-          'marrje',
-          'marrje_sot',
-          'dorzim',
-          'dorzuar',
-          'delivered',
-        ].includes(status);
-        if (knownStage) router.push(rows[0].href);
-      }
+      // H1 inline search: keep results visible on Home.
+      // Navigation happens only after the worker taps HAP.
     } catch (error) {
       if (searchSeqRef.current !== seq) return;
       setSearchResults([]);

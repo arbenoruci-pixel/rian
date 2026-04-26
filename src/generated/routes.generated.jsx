@@ -25,6 +25,7 @@ import PastrimiPageEager from '@/app/pastrimi/page.jsx';
 import PranimiPageEager from '@/app/pranimi/page.jsx';
 import ArkaPuntorPageEager from '@/app/arka/puntor/[pin]/page.jsx';
 import ArkaPageEager from '@/app/arka/page.jsx';
+import SearchPageEager from '@/app/search/page.jsx';
 
 // V18 route alignment: keep daily base routes static/eager; keep ARKA main + worker detail eager to avoid dynamic chunk/default-export lazy failures. Other heavy ARKA/TRANSPORT routes stay behind SafeLazyRouteShell.
 
@@ -44,7 +45,6 @@ const Page15 = lazyRoute(() => import('@/app/k/[id]/page.jsx'), '@/app/k/[id]/pa
 const Page16 = lazyRoute(() => import('@/app/llogaria-ime/page.jsx'), '@/app/llogaria-ime/page.jsx');
 const Page22 = lazyRoute(() => import('@/app/porosit/page.jsx'), '@/app/porosit/page.jsx');
 const Page24 = lazyRoute(() => import('@/app/restore/page.jsx'), '@/app/restore/page.jsx');
-const Page25 = lazyRoute(() => import('@/app/search/page.jsx'), '@/app/search/page.jsx');
 const Page27 = lazyRoute(() => import('@/app/transport/fletore/page.jsx'), '@/app/transport/fletore/page.jsx');
 const Page28 = lazyRoute(() => import('@/app/transport/gati/page.jsx'), '@/app/transport/gati/page.jsx');
 const Page29 = lazyRoute(() => import('@/app/transport/inbox/page.jsx'), '@/app/transport/inbox/page.jsx');
@@ -551,7 +551,7 @@ export const appRoutes = [
   { path: '/porosit', element: lazyElement(Page22, '/porosit') },
   { path: '/pranimi', element: eagerElement(PranimiPageEager, '/pranimi') },
   { path: '/restore', element: lazyElement(Page24, '/restore') },
-  { path: '/search', element: lazyElement(Page25, '/search') },
+  { path: '/search', element: eagerElement(SearchPageEager, '/search') },
   { path: '/transport/board', element: safeLazyElement('/transport/board', () => import('@/app/transport/board/page.jsx'), '@/app/transport/board/page.jsx', 'TRANSPORT BOARD') },
   { path: '/transport/fletore', element: safeLazyElement('/transport/fletore', () => import('@/app/transport/fletore/page.jsx'), '@/app/transport/fletore/page.jsx', 'TRANSPORT FLETORE') },
   { path: '/transport/gati', element: safeLazyElement('/transport/gati', () => import('@/app/transport/gati/page.jsx'), '@/app/transport/gati/page.jsx', 'TRANSPORT GATI') },
