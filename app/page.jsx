@@ -6,7 +6,7 @@ import { APP_VERSION } from '@/lib/appEpoch';
 import useRouteAlive, { markRouteUiAlive } from '@/lib/routeAlive';
 import { buildHomeSearchHref, searchHomeLocalFirst } from '@/lib/homeSearch';
 
-const HOME_FAST_BOOT_VERSION = 'home-inline-search-v19';
+const HOME_FAST_BOOT_VERSION = 'home-old-search-restore-v20';
 
 function isOnlineNow() {
   try {
@@ -34,8 +34,24 @@ function ResultBadge({ kind }) {
   return <span className={`result-kind result-kind-${safeKind.toLowerCase()}`}>{safeKind}</span>;
 }
 
+function getStatusStyle(status) {
+  const safe = String(status || '').toLowerCase();
+  if (safe === 'gati') return { background: 'rgba(16,185,129,0.15)', color: '#4ade80', border: '1px solid rgba(16,185,129,0.3)' };
+  if (safe === 'pastrim' || safe === 'pranim') return { background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' };
+  if (safe === 'dorzim' || safe === 'dorzuar' || safe === 'delivered') return { background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' };
+  return { background: 'rgba(255,255,255,0.05)', color: '#aaa', border: '1px solid rgba(255,255,255,0.1)' };
+}
+
+function isBaseResult(result) {
+  return String(result?.kind || '').toUpperCase() !== 'TRANSPORT';
+}
+
+function cleanClientCode(value) {
+  return String(value || '').replace(/^#+/, '').trim();
+}
+
 export default function HomePage() {
-  useRouteAlive('home_inline_search_v19');
+  useRouteAlive('home_old_search_restore_v20');
   const router = useRouter();
   const renderedAtRef = useRef(Date.now());
   const readyMarkedRef = useRef(false);
@@ -52,13 +68,13 @@ export default function HomePage() {
     try {
       window.__TEPIHA_HOME_FAST_BOOT_VERSION__ = HOME_FAST_BOOT_VERSION;
       window.__TEPIHA_HOME_STATIC_SHELL_RENDERED__ = true;
-      window.__TEPIHA_HOME_COUNTS_MODE__ = 'no_blocking_counts_v19';
+      window.__TEPIHA_HOME_COUNTS_MODE__ = 'no_blocking_counts_v20';
       window.__TEPIHA_HOME_INTERACTIVE__ = true;
       window.__TEPIHA_HOME_INTERACTIVE_AT__ = Date.now();
       document?.documentElement?.setAttribute?.('data-home-ui-alive', '1');
       document?.body?.setAttribute?.('data-home-ui-alive', '1');
       window.dispatchEvent(new CustomEvent('tepiha:home-interactive', {
-        detail: { version: HOME_FAST_BOOT_VERSION, at: Date.now(), restoredDesign: true, inlineSearch: true },
+        detail: { version: HOME_FAST_BOOT_VERSION, at: Date.now(), restoredDesign: true, oldSearchRestored: true },
       }));
     } catch {}
   }, []);
@@ -72,7 +88,7 @@ export default function HomePage() {
       try {
         markRouteUiAlive(label, '/', {
           version: HOME_FAST_BOOT_VERSION,
-          sourceLayer: 'home_inline_search_v19',
+          sourceLayer: 'home_old_search_restore_v20',
           msFromRender: Math.max(0, Date.now() - Number(renderedAtRef.current || Date.now())),
           ...extra,
         });
@@ -156,6 +172,35 @@ export default function HomePage() {
     router.push(href);
   };
 
+
+  const handleCreateNewForClient = (result, event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const name = String(result?.name || '').trim();
+    const phone = String(result?.phone || '').trim();
+    const code = cleanClientCode(result?.code || '');
+    const handoff = {
+      source: 'home_old_search',
+      clientId: result?.clientId || result?.id || null,
+      lastOrderId: result?.id || null,
+      clientCode: code,
+      code,
+      code_n: Number(code) || null,
+      name,
+      phone,
+      lastStatus: String(result?.status || '').trim(),
+      createdAt: Date.now(),
+    };
+    try { window.sessionStorage?.setItem('tepiha_existing_client_handoff_v1', JSON.stringify(handoff)); } catch {}
+    const params = new URLSearchParams();
+    if (name) params.set('name', name);
+    if (phone) params.set('phone', phone);
+    if (code) params.set('code', code);
+    params.set('from', 'home_old_search');
+    params.set('existingClient', '1');
+    router.push(`/pranimi?${params.toString()}`);
+  };
+
   const openGatiSafe = () => {
     router.push('/gati');
   };
@@ -177,7 +222,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="home-wrap" data-home-fast-boot="v19" data-home-design="restored">
+    <div className="home-wrap" data-home-fast-boot="v20" data-home-design="restored">
       <header className="header-pro">
         <div className="header-text">
           <h1
@@ -222,24 +267,58 @@ export default function HomePage() {
             {searching ? <div className="search-note">Duke kërkuar lokalisht...</div> : null}
             {!searching && searchMessage ? <div className="search-note search-empty">{searchMessage}</div> : null}
             {!searching && results.length ? (
-              <div className="search-results">
-                {results.map((result, index) => (
-                  <div className="search-result-row" key={`${result.kind || 'BASE'}-${result.id || result.code || index}-${index}`}>
-                    <div className="result-main">
-                      <div className="result-topline">
-                        <ResultBadge kind={result.kind} />
-                        <span className="result-code">{result.code || '—'}</span>
-                        {result.status ? <span className="result-status">{String(result.status).toUpperCase()}</span> : null}
+              <div className="results-container">
+                {results.map((result, index) => {
+                  const isTransport = String(result?.kind || '').toUpperCase() === 'TRANSPORT';
+                  return (
+                    <div
+                      className="result-card"
+                      key={`${result.kind || 'BASE'}-${result.id || result.code || index}-${index}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openSearchResult(result)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          openSearchResult(result);
+                        }
+                      }}
+                    >
+                      <div className="result-header">
+                        <div className="result-badges-left">
+                          <span className={isTransport ? 'code-badge transport-code-badge' : 'code-badge'}>{result.code || '—'}</span>
+                          <span className="status-badge" style={getStatusStyle(result.status)}>
+                            {String(result.status || (isTransport ? 'TRANSPORT' : 'PA STATUS')).toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="pieces-badge">📦 {Number(result.pieces || 0) || 0} Copë</div>
                       </div>
-                      <div className="result-name">{result.name || 'Pa emër'}</div>
-                      <div className="result-meta">
-                        {result.phone ? <span>📞 {result.phone}</span> : null}
-                        {result.pieces ? <span>📦 {result.pieces} copë</span> : null}
+
+                      <div className="result-body">
+                        <div className="client-name">{result.name || 'Klient i panjohur'}</div>
+                        {result.phone ? <div className="client-phone">📞 {result.phone}</div> : null}
+                      </div>
+
+                      <div className="result-footer">
+                        <div className="workers-info">
+                          {result.createdBy ? <div>👤 <span>SJELLË NGA:</span> {String(result.createdBy)}</div> : null}
+                          {result.transporter ? <div className="transport-worker">🚚 <span>PRU NGA:</span> {String(result.transporter).toUpperCase()}</div> : null}
+                          {isTransport ? <div className="transport-worker">🚚 <span>TRANSPORT</span></div> : null}
+                        </div>
+                        <div className="result-actions">
+                          {isBaseResult(result) ? (
+                            <button className="new-order-btn" type="button" onClick={(event) => handleCreateNewForClient(result, event)}>
+                              ➕ KRIJO POROSI TË RE PËR KËTË KLIENT
+                            </button>
+                          ) : null}
+                          <button className="go-btn" type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openSearchResult(result); }}>
+                            HAP ➔
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <button className="open-result-btn" type="button" onClick={() => openSearchResult(result)}>HAP</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
           </div>
@@ -364,6 +443,28 @@ export default function HomePage() {
         .result-name { font-size: 14px; font-weight: 950; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .result-meta { display: flex; gap: 8px; flex-wrap: wrap; color: rgba(226,232,240,0.64); font-size: 11px; font-weight: 800; margin-top: 2px; }
         .open-result-btn { border: 0; border-radius: 12px; background: #2563eb; color: #fff; font-size: 12px; font-weight: 1000; padding: 10px 13px; }
+
+
+        .results-container { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .result-card { background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; padding: 16px; text-decoration: none; color: #fff; display: flex; flex-direction: column; gap: 12px; transition: transform 0.1s; cursor: pointer; outline: none; }
+        .result-card:active { transform: scale(0.98); background: rgba(255,255,255,0.08); }
+        .result-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .result-badges-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .code-badge { background: #10b981; color: #000; font-size: 18px; font-weight: 900; padding: 4px 12px; border-radius: 8px; letter-spacing: 0.5px; }
+        .transport-code-badge { background: #8b5cf6; color: #fff; }
+        .status-badge { font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 6px; letter-spacing: 0.5px; }
+        .pieces-badge { font-size: 13px; font-weight: 800; color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 8px; white-space: nowrap; }
+        .result-body { display: flex; flex-direction: column; gap: 4px; }
+        .client-name { font-size: 17px; font-weight: 800; }
+        .client-phone { font-size: 14px; color: rgba(255,255,255,0.6); font-weight: 600; }
+        .result-footer { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; }
+        .workers-info { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: #60a5fa; min-width: 0; }
+        .workers-info span { opacity: 0.6; color: #fff; margin-right: 2px; }
+        .transport-worker { color: #f59e0b; }
+        .result-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+        .new-order-btn { background: linear-gradient(180deg, rgba(16,185,129,0.22), rgba(16,185,129,0.12)); color: #d1fae5; border: 1px solid rgba(16,185,129,0.45); border-radius: 12px; padding: 10px 12px; font-size: 11px; font-weight: 900; letter-spacing: 0.2px; text-align: center; cursor: pointer; max-width: 240px; }
+        .go-btn { background: #3b82f6; color: #fff; font-weight: 900; padding: 8px 16px; border-radius: 10px; font-size: 13px; border: 0; cursor: pointer; }
+        @media (max-width: 430px) { .result-footer { flex-direction: column; align-items: stretch; } .result-actions { align-items: stretch; } .new-order-btn, .go-btn { width: 100%; max-width: none; } }
 
         .modules-section { margin-top: 10px; }
         .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

@@ -1,9 +1,9 @@
 /* LEGACY /sw.js BRIDGE — inert compatibility worker for old controllers. */
 /* eslint-disable no-restricted-globals */
 
-const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-HOME-INLINE-SEARCH-V19';
-const APP_VERSION = '2.0.24-vite-home-inline-search-v19';
-const SW_BUILD_LABEL = 'sw-vite-home-inline-search-v19';
+const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-OLD-HOME-SEARCH-V20';
+const APP_VERSION = '2.0.25-vite-old-home-search-v20';
+const SW_BUILD_LABEL = 'sw-vite-old-home-search-v20';
 const OFFLINE_FALLBACK = '/offline.html';
 const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v19';
 
