@@ -7,6 +7,19 @@ import { pushLocalErrorLog } from '@/lib/localErrorLog';
 import { getLastChunkCapture, getLastLazyImportFailure, getLastLazyImportAttempt, isProbablyChunkLikeMessage, recordChunkCapture, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
 
 const CONTROLLED_RECOVERY_EVENT = 'tepiha:sw-controlled-recovery-request';
+const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-PASTRIMI-PRELOAD-NONFATAL-V22';
+const APP_VERSION = '2.0.27-vite-pastrimi-preload-nonfatal-v22';
+const V22_DIAG_CLEAR_KEY = 'tepiha_diag_clear_epoch_v22';
+
+const OPTIONAL_MODULEPRELOAD_PATTERNS = [
+  /(?:^|\/|-)reconcile-[^/]*\.(?:js|mjs)(?:\?|$)/i,
+  /(?:^|\/|-)tombstones-[^/]*\.(?:js|mjs)(?:\?|$)/i,
+  /(?:^|\/|-)RackLocationModal-[^/]*\.(?:js|mjs)(?:\?|$)/i,
+  /(?:^|\/|-)transportOrdersDb-[^/]*\.(?:js|mjs)(?:\?|$)/i,
+  /(?:^|\/|-)optional[^/]*\.(?:js|mjs)(?:\?|$)/i,
+  /(?:^|\/|-)helper[^/]*\.(?:js|mjs)(?:\?|$)/i,
+];
+
 function isBrowser() {
   return typeof window !== 'undefined';
 }
@@ -27,6 +40,10 @@ function emitSimpleIncident(incidentType, meta = {}) {
   } catch {
     // ignore
   }
+}
+
+function safeString(value) {
+  try { return String(value || ''); } catch { return ''; }
 }
 
 function safeTargetMeta(event) {
@@ -126,26 +143,69 @@ function isModuleScriptTarget(meta = {}) {
   return false;
 }
 
-function isOptionalReconcileAssetError(meta = {}, lastAttempt = null) {
+function safeJson(raw, fallback = null) {
   try {
-    const values = [
-      meta?.targetSrc,
-      meta?.filename,
-      meta?.resolvedTargetSrc,
-      meta?.message,
-      lastAttempt?.requestedModule,
-      lastAttempt?.importerHint,
-      lastAttempt?.label,
-      lastAttempt?.moduleName,
-      lastAttempt?.importCaller,
-    ].map((value) => String(value || '')).join(' ');
-
-    return /\/assets\/reconcile-[^/]*\.js(?:\?|$|\s)/i.test(values)
-      || /(?:^|\s|['"])@?\/?lib\/reconcile\//i.test(values)
-      || /(?:^|\s|['"])@\/lib\/reconcile\//i.test(values);
+    const parsed = JSON.parse(raw);
+    return parsed == null ? fallback : parsed;
   } catch {
-    return false;
+    return fallback;
   }
+}
+
+function normalizePath(path) {
+  const p = safeString(path || '/').split('?')[0].replace(/\/+$/, '') || '/';
+  return p;
+}
+
+function currentPath() {
+  try { return normalizePath(window.location?.pathname || '/'); } catch { return '/'; }
+}
+
+function isPastrimiOrGatiRoute(path) {
+  const p = normalizePath(path);
+  return p === '/pastrimi' || p === '/gati';
+}
+
+function isModulePreloadLink(meta = {}) {
+  return String(meta.tagName || '').toUpperCase() === 'LINK' && String(meta.targetRel || '').toLowerCase() === 'modulepreload';
+}
+
+function looksLikeOptionalHelperAsset(value) {
+  const text = safeString(value);
+  if (!text) return false;
+  return OPTIONAL_MODULEPRELOAD_PATTERNS.some((rx) => rx.test(text));
+}
+
+function readRouteUiReadyForPath(path) {
+  const wanted = normalizePath(path || currentPath());
+  try {
+    if (window.__TEPIHA_UI_READY === true || window.__TEPIHA_FIRST_UI_READY === true) return true;
+  } catch {}
+  try {
+    const alive = window.__TEPIHA_ROUTE_UI_ALIVE__;
+    if (alive && typeof alive === 'object') {
+      const p = normalizePath(alive.path || alive.currentPath || '');
+      if (p && p === wanted) return true;
+    }
+  } catch {}
+  try {
+    const p = normalizePath(window.__TEPIHA_ROUTE_UI_ALIVE_PATH__ || '');
+    if (p && p === wanted) return true;
+  } catch {}
+  try {
+    const stored = safeJson(window.sessionStorage?.getItem('tepiha_route_ui_alive_v1') || 'null', null);
+    const p = normalizePath(stored?.path || stored?.currentPath || '');
+    if (p && p === wanted) return true;
+  } catch {}
+  try {
+    const attrPath = normalizePath(document?.documentElement?.getAttribute?.('data-route-ui-alive-path') || document?.body?.getAttribute?.('data-route-ui-alive-path') || '');
+    if (attrPath && attrPath === wanted) return true;
+  } catch {}
+  try {
+    const docReady = document?.documentElement?.getAttribute?.('data-ui-ready') === '1' || document?.body?.getAttribute?.('data-ui-ready') === '1';
+    if (docReady) return true;
+  } catch {}
+  return false;
 }
 
 function chunkMetaFromErrorLike(errorLike, extra = {}) {
@@ -167,7 +227,7 @@ function logLocalModuleLoadError(errorLike, meta = {}) {
   try {
     pushLocalErrorLog(errorLike || meta?.message || 'MODULE_LOAD_ERROR', { componentStack: '' }, {
       boundaryKind: 'module_load',
-      routePath: (() => { try { return String(window.location?.pathname || '/'); } catch { return '/'; } })(),
+      routePath: currentPath(),
       routeName: 'RUNTIME MODULE LOAD',
       moduleName: String(meta?.requestedModule || meta?.lazyLabel || meta?.moduleName || meta?.incidentType || meta?.sourceLayer || 'ChunkLoadRuntime'),
       componentName: String(meta?.componentName || meta?.lazyLabel || 'ChunkLoadRuntime'),
@@ -177,13 +237,168 @@ function logLocalModuleLoadError(errorLike, meta = {}) {
   } catch {}
 }
 
+function clearRouteDiagModulepreloadOnly() {
+  try {
+    const key = 'tepiha_route_diag_log_v1';
+    const raw = window.localStorage?.getItem(key);
+    if (!raw) return false;
+    const list = safeJson(raw, []);
+    if (!Array.isArray(list)) return false;
+    const kept = list.filter((item) => {
+      const type = safeString(item?.type || item?.eventType || item?.data?.type || '');
+      const sourceLayer = safeString(item?.sourceLayer || item?.data?.sourceLayer || '');
+      const incident = safeString(item?.incidentType || item?.data?.incidentType || '');
+      const text = `${type} ${sourceLayer} ${incident}`;
+      return !/modulepreload|window_module_error|chunk_load_runtime|app_root_runtime|lazy_import_failure/i.test(text);
+    });
+    window.localStorage.setItem(key, JSON.stringify(kept.slice(0, 80)));
+    return kept.length !== list.length;
+  } catch {
+    return false;
+  }
+}
+
+function clearOldV8V17DiagnosticMarkersOnce() {
+  if (!isBrowser()) return;
+  try {
+    const previous = safeJson(window.localStorage?.getItem(V22_DIAG_CLEAR_KEY) || 'null', null);
+    if (previous?.epoch === APP_DATA_EPOCH) return;
+  } catch {}
+
+  const localKeys = [
+    'tepiha_chunk_last_capture_v1',
+    'tepiha_last_lazy_import_attempt_v1',
+    'tepiha_last_lazy_import_failure_v1',
+    'tepiha_lazy_import_log_v1',
+    'tepiha_app_root_runtime_failure_last_v1',
+    'tepiha_app_root_runtime_failure_log_v1',
+    'tepiha_runtime_import_failure_last_v1',
+    'tepiha_runtime_import_failure_log_v1',
+  ];
+  const sessionKeys = [
+    'tepiha_module_boot_rescue_v1',
+  ];
+  const cleared = [];
+  for (const key of localKeys) {
+    try {
+      if (window.localStorage?.getItem(key) != null) cleared.push(key);
+      window.localStorage?.removeItem(key);
+    } catch {}
+  }
+  for (const key of sessionKeys) {
+    try {
+      if (window.sessionStorage?.getItem(key) != null) cleared.push(`session:${key}`);
+      window.sessionStorage?.removeItem(key);
+    } catch {}
+  }
+  try { if (clearRouteDiagModulepreloadOnly()) cleared.push('tepiha_route_diag_log_v1:modulepreload_only'); } catch {}
+  try {
+    window.localStorage?.setItem(V22_DIAG_CLEAR_KEY, JSON.stringify({
+      epoch: APP_DATA_EPOCH,
+      version: APP_VERSION,
+      at: new Date().toISOString(),
+      cleared,
+      scope: 'diagnostic_only_no_orders_outbox_indexeddb',
+    }));
+  } catch {}
+}
+
+function shouldTreatAsNonfatalModulepreload(meta = {}, routePath = currentPath(), routeUiReady = false) {
+  if (!isModulePreloadLink(meta)) return false;
+  const src = safeString(meta.resolvedTargetSrc || meta.targetSrc || meta.filename || '');
+  const routeOk = isPastrimiOrGatiRoute(routePath);
+  if (routeOk && looksLikeOptionalHelperAsset(src)) return 'optional_helper_chunk';
+  if (routeOk && routeUiReady) return 'route_ui_ready_modulepreload';
+  if (routeUiReady && looksLikeOptionalHelperAsset(src)) return 'ui_ready_optional_helper';
+  return false;
+}
+
+function stopNonfatalWindowError(event) {
+  try { event?.stopImmediatePropagation?.(); } catch {}
+  try { event?.stopPropagation?.(); } catch {}
+  try { event?.preventDefault?.(); } catch {}
+}
+
+function diagnosticNonfatalModulepreload(meta = {}) {
+  try {
+    recordRouteDiagEvent('modulepreload_asset_error_nonfatal', {
+      ...meta,
+      sourceLayer: 'chunk_load_runtime',
+      severity: 'nonfatal_optional_modulepreload',
+      noRepair: true,
+      noReload: true,
+      noRouteFailure: true,
+      noUiError: true,
+    });
+  } catch {}
+  try {
+    bootLog('nonfatal_optional_modulepreload', {
+      ...meta,
+      severity: 'nonfatal_optional_modulepreload',
+      sourceLayer: 'chunk_load_runtime',
+    });
+  } catch {}
+  try {
+    window.__TEPIHA_LAST_NONFATAL_MODULEPRELOAD__ = {
+      ...meta,
+      at: new Date().toISOString(),
+      severity: 'nonfatal_optional_modulepreload',
+    };
+  } catch {}
+}
+
+function shouldSuppressLazyOptionalFailure(detail = {}) {
+  const routePath = currentPath();
+  const routeUiReady = readRouteUiReadyForPath(routePath);
+  if (!isPastrimiOrGatiRoute(routePath) && !routeUiReady) return false;
+  const text = [
+    detail?.message,
+    detail?.error?.message,
+    detail?.assetUrl,
+    detail?.targetSrc,
+    detail?.requestedModule,
+    detail?.moduleName,
+    detail?.label,
+    detail?.lazyLabel,
+  ].map(safeString).join(' ');
+  if (!looksLikeOptionalHelperAsset(text)) return false;
+  return { routePath, routeUiReady, reason: routeUiReady ? 'ui_ready_optional_lazy_failure' : 'optional_lazy_helper_failure' };
+}
+
+function shouldSuppressUnhandledOptionalFailure(reason) {
+  const routePath = currentPath();
+  const routeUiReady = readRouteUiReadyForPath(routePath);
+  if (!routeUiReady || !isPastrimiOrGatiRoute(routePath)) return false;
+  const lastAttempt = getLastLazyImportAttempt();
+  const text = [
+    reason?.message,
+    reason?.stack,
+    lastAttempt?.requestedModule,
+    lastAttempt?.label,
+    lastAttempt?.importCaller,
+  ].map(safeString).join(' ');
+  if (!looksLikeOptionalHelperAsset(text)) return false;
+  return { routePath, routeUiReady, reason: 'ui_ready_optional_unhandled_failure', lastAttempt };
+}
+
 export default function ChunkLoadRuntime() {
   useEffect(() => {
     if (!isBrowser()) return undefined;
+    clearOldV8V17DiagnosticMarkersOnce();
 
     const onLazyImportFailure = (event) => {
       const detail = event?.detail && typeof event.detail === 'object' ? event.detail : null;
       if (!detail) return;
+      const optional = shouldSuppressLazyOptionalFailure(detail);
+      if (optional) {
+        diagnosticNonfatalModulepreload({
+          incidentType: 'lazy_import_failure_nonfatal_optional',
+          ...optional,
+          detail,
+          message: safeString(detail?.message || detail?.error?.message || 'LAZY_IMPORT_FAILURE'),
+        });
+        return;
+      }
       try { pushGlobalError('ui/lazy_import_failure', detail?.message || 'LAZY_IMPORT_FAILURE', detail); } catch {}
       try { bootLog('lazy_import_failure', detail); } catch {}
       try { emitSimpleIncident('lazy_import_failure', detail); } catch {}
@@ -200,35 +415,11 @@ export default function ChunkLoadRuntime() {
       if (!chunkLike) return;
       const lastAttempt = getLastLazyImportAttempt();
       const resolvedTargetSrc = resolveAssetUrl(meta.targetSrc || meta.filename || '');
-      const routePath = (() => { try { return String(window.location?.pathname || ''); } catch { return ''; } })();
+      const routePath = currentPath();
       const previousPath = readPreviousPath();
-
-      if (isOptionalReconcileAssetError({ ...meta, resolvedTargetSrc }, lastAttempt)) {
-        try {
-          recordRouteDiagEvent('optional_reconcile_modulepreload_error_suppressed', {
-            path: routePath,
-            currentPath: routePath,
-            previousPath,
-            targetSrc: String(meta.targetSrc || ''),
-            targetRel: String(meta.targetRel || ''),
-            resolvedAssetUrl: resolvedTargetSrc,
-            importCaller: String(lastAttempt?.importCaller || ''),
-            label: String(lastAttempt?.label || ''),
-            requestedModule: String(lastAttempt?.requestedModule || ''),
-            sourceLayer: 'chunk_load_runtime',
-            message: String(meta.message || ''),
-            navigationType: readNavigationType(),
-            hiddenElapsedMs: readHiddenElapsedMs(),
-            moduleLoadPhase: readModuleLoadPhase(),
-            performanceEntries: readPerformanceEntriesByName(resolvedTargetSrc),
-            optionalHelper: true,
-          });
-        } catch {}
-        try { bootLog('optional_reconcile_modulepreload_error_suppressed', { targetSrc: String(meta.targetSrc || ''), resolvedAssetUrl: resolvedTargetSrc, path: routePath }); } catch {}
-        return;
-      }
-
-      const capture = recordChunkCapture('window_module_error', {
+      const routeUiReady = readRouteUiReadyForPath(routePath);
+      const nonfatalReason = shouldTreatAsNonfatalModulepreload({ ...meta, resolvedTargetSrc }, routePath, routeUiReady);
+      const baseCapture = {
         ...meta,
         moduleTarget,
         resolvedTargetSrc,
@@ -246,27 +437,46 @@ export default function ChunkLoadRuntime() {
         navigationType: readNavigationType(),
         hiddenElapsedMs: readHiddenElapsedMs(),
         moduleLoadPhase: readModuleLoadPhase(),
+        routeUiReady,
         performanceEntries: readPerformanceEntriesByName(resolvedTargetSrc),
+      };
+      const capture = recordChunkCapture(nonfatalReason ? 'nonfatal_optional_modulepreload' : 'window_module_error', {
+        ...baseCapture,
+        severity: nonfatalReason ? 'nonfatal_optional_modulepreload' : 'fatal_candidate',
+        nonfatalReason: nonfatalReason || '',
+        noRepair: !!nonfatalReason,
+        noReload: !!nonfatalReason,
+        noRouteFailure: !!nonfatalReason,
+        noUiError: !!nonfatalReason,
       });
+      const diagMeta = {
+        path: routePath,
+        currentPath: routePath,
+        previousPath,
+        targetSrc: String(meta.targetSrc || ''),
+        targetRel: String(meta.targetRel || ''),
+        resolvedAssetUrl: resolvedTargetSrc,
+        importCaller: String(lastAttempt?.importCaller || ''),
+        label: String(lastAttempt?.label || ''),
+        requestedModule: String(lastAttempt?.requestedModule || ''),
+        sourceLayer: 'chunk_load_runtime',
+        message: String(meta.message || ''),
+        navigationType: readNavigationType(),
+        hiddenElapsedMs: readHiddenElapsedMs(),
+        moduleLoadPhase: readModuleLoadPhase(),
+        routeUiReady,
+        severity: nonfatalReason ? 'nonfatal_optional_modulepreload' : 'fatal_candidate',
+        nonfatalReason: nonfatalReason || '',
+        performanceEntries: readPerformanceEntriesByName(resolvedTargetSrc),
+      };
       try {
-        recordRouteDiagEvent('modulepreload_asset_error', {
-          path: routePath,
-          currentPath: routePath,
-          previousPath,
-          targetSrc: String(meta.targetSrc || ''),
-          targetRel: String(meta.targetRel || ''),
-          resolvedAssetUrl: resolvedTargetSrc,
-          importCaller: String(lastAttempt?.importCaller || ''),
-          label: String(lastAttempt?.label || ''),
-          requestedModule: String(lastAttempt?.requestedModule || ''),
-          sourceLayer: 'chunk_load_runtime',
-          message: String(meta.message || ''),
-          navigationType: readNavigationType(),
-          hiddenElapsedMs: readHiddenElapsedMs(),
-          moduleLoadPhase: readModuleLoadPhase(),
-          performanceEntries: readPerformanceEntriesByName(resolvedTargetSrc),
-        });
+        recordRouteDiagEvent(nonfatalReason ? 'modulepreload_asset_error_nonfatal' : 'modulepreload_asset_error', diagMeta);
       } catch {}
+      if (nonfatalReason) {
+        stopNonfatalWindowError(event);
+        diagnosticNonfatalModulepreload(capture || diagMeta);
+        return;
+      }
       try { pushGlobalError('ui/window_module_error', meta.message || 'WINDOW_MODULE_ERROR', capture || meta); } catch {}
       try { bootLog('window_module_error', capture || meta); } catch {}
       try { emitSimpleIncident('window_module_error', capture || meta); } catch {}
@@ -279,6 +489,24 @@ export default function ChunkLoadRuntime() {
       const stack = String(reason?.stack || '');
       const chunkLike = isChunkLoadLikeError(reason) || isProbablyChunkLikeMessage(message) || isProbablyChunkLikeMessage(stack);
       if (!chunkLike) return;
+      const optional = shouldSuppressUnhandledOptionalFailure(reason);
+      if (optional) {
+        try { event?.preventDefault?.(); } catch {}
+        const capture = recordChunkCapture('nonfatal_optional_unhandled_rejection', {
+          message,
+          stack,
+          name: String(reason?.name || ''),
+          ...optional,
+          severity: 'nonfatal_optional_modulepreload',
+          sourceLayer: 'chunk_load_runtime',
+          noRepair: true,
+          noReload: true,
+          noRouteFailure: true,
+          noUiError: true,
+        });
+        diagnosticNonfatalModulepreload(capture || optional);
+        return;
+      }
       const capture = recordChunkCapture('chunk_unhandled_rejection', {
         message,
         stack,

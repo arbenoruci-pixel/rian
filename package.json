@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.26-vite-static-runtime-v21",
+  "version": "2.0.27-vite-pastrimi-preload-nonfatal-v22",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",

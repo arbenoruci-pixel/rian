@@ -1,0 +1,73 @@
+PATCH J — Pastrimi/Gati modulepreload nonfatal runtime guard
+Version: 2.0.27-vite-pastrimi-preload-nonfatal-v22
+Epoch: RESET-2026-04-26-VITE-PASTRIMI-PRELOAD-NONFATAL-V22
+
+Scope:
+- Runtime diagnostics only.
+- No DB changes.
+- No Supabase schema changes.
+- No orders/outbox format changes.
+- No payment/status logic changes.
+- No Home search or Home design changes.
+- No Pastrimi -> Gati business logic changes.
+
+Changed files:
+- components/ChunkLoadRuntime.jsx
+- lib/appEpoch.js
+- package.json
+- tools/apply-patch-j-v22.cjs
+
+What changed in ChunkLoadRuntime:
+1. LINK rel=modulepreload errors for /pastrimi and /gati are classified as nonfatal when the asset is an optional/helper chunk:
+   - reconcile-*.js
+   - tombstones-*.js
+   - RackLocationModal-*.js
+   - transportOrdersDb-*.js
+   - optional/helper chunks
+2. If the current route already has UI-ready evidence, modulepreload link errors are diagnostic-only.
+3. Nonfatal modulepreload errors are logged as:
+   - severity: nonfatal_optional_modulepreload
+   - event: modulepreload_asset_error_nonfatal
+   - noRepair: true
+   - noReload: true
+   - noRouteFailure: true
+   - noUiError: true
+4. Nonfatal modulepreload errors do not call:
+   - pushGlobalError
+   - emitSimpleIncident as fatal
+   - local module error fallback
+   - repair/reload/recovery
+5. Optional lazy/import failures after UI-ready on /pastrimi or /gati are also diagnostic-only.
+6. V22 first boot clears only old diagnostic markers/logs:
+   - tepiha_chunk_last_capture_v1
+   - tepiha_last_lazy_import_attempt_v1
+   - tepiha_last_lazy_import_failure_v1
+   - tepiha_lazy_import_log_v1
+   - tepiha_app_root_runtime_failure_last_v1
+   - tepiha_app_root_runtime_failure_log_v1
+   - modulepreload/chunk/app-root entries inside route diag log
+
+Important safety rule:
+- No orders, local orders, outbox, pending payments, Supabase data, IndexedDB data, or business records are deleted.
+
+Pastrimi optional imports:
+- Existing Pastrimi structure already keeps reconcile/tombstones behind safe async wrappers with fallback merge/continue behavior.
+- RackLocationModal remains lazy/Suspense-based and does not block first render.
+- This patch does not change Pastrimi -> Gati transition logic.
+
+Acceptance checks:
+1. Code path in /pastrimi that calls reload/replace/cache heal:
+   - apply-patch-j-v22.cjs neutralizes triggerFatalCacheHeal if present.
+   - The patch itself introduces no reload/replace/cache-delete/SW-unregister path.
+2. reconcile-* and tombstones-*:
+   - Treated as optional/nonfatal in ChunkLoadRuntime.
+3. modulepreload after route UI-ready:
+   - Treated as nonfatal diagnostic-only.
+4. Can ChunkLoadRuntime trigger restart from /pastrimi modulepreload error:
+   - No.
+5. Pastrimi no-infinite-loading:
+   - Not changed.
+6. Pastrimi -> Gati local-first:
+   - Not changed.
+7. DB/orders/outbox/payment/status:
+   - Not touched.
