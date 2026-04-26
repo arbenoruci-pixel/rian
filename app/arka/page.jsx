@@ -109,6 +109,16 @@ function isOfflineBrowser() {
   }
 }
 
+function withArkaTimeout(promise, label = 'arka_task', timeoutMs = 4200) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}_timeout_v26`)), Math.max(800, Number(timeoutMs || 0) || 4200));
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => {
+    try { if (timer) clearTimeout(timer); } catch {}
+  });
+}
+
 function readStoredJson(key) {
   try {
     if (typeof window === 'undefined') return null;
@@ -278,34 +288,34 @@ async function loadManagerBulkSnapshots(workerRows = []) {
   };
 
   const [paymentRows, extraCreatedRows, extraTargetedRows, handoffRows] = await Promise.all([
-    listPendingPaymentRecords({
+    withArkaTimeout(listPendingPaymentRecords({
       select: MANAGER_PAYMENT_SELECT,
       in: { created_by_pin: uniquePins },
       orderBy: 'created_at',
       ascending: false,
       limit: paymentsLimit,
-    }).catch((err) => swallowToEmpty('payments', err)),
-    listPendingPaymentRecords({
+    }), 'manager_payments', 4200).catch((err) => swallowToEmpty('payments', err)),
+    withArkaTimeout(listPendingPaymentRecords({
       select: MANAGER_PAYMENT_SELECT,
       in: { type: ['TIMA', 'EXPENSE', 'MEAL_PAYMENT', 'MEAL_COVERED'], created_by_pin: uniquePins },
       orderBy: 'created_at',
       ascending: false,
       limit: extrasLimit,
-    }).catch((err) => swallowToEmpty('extras_created', err)),
-    listPendingPaymentRecords({
+    }), 'manager_extras_created', 4200).catch((err) => swallowToEmpty('extras_created', err)),
+    withArkaTimeout(listPendingPaymentRecords({
       select: MANAGER_PAYMENT_SELECT,
       in: { type: ['TIMA', 'EXPENSE', 'MEAL_PAYMENT', 'MEAL_COVERED'], handed_by_pin: uniquePins },
       orderBy: 'created_at',
       ascending: false,
       limit: extrasLimit,
-    }).catch((err) => swallowToEmpty('extras_targeted', err)),
-    listCashHandoffRecords({
+    }), 'manager_extras_targeted', 4200).catch((err) => swallowToEmpty('extras_targeted', err)),
+    withArkaTimeout(listCashHandoffRecords({
       select: MANAGER_HANDOFF_SELECT,
       in: { worker_pin: uniquePins },
       orderBy: 'submitted_at',
       ascending: false,
       limit: handoffsLimit,
-    }).catch((err) => swallowToEmpty('handoffs', err)),
+    }), 'manager_handoffs', 4200).catch((err) => swallowToEmpty('handoffs', err)),
   ]);
 
   for (const row of Array.isArray(paymentRows) ? paymentRows : []) {
@@ -698,10 +708,10 @@ export default function ArkaPageV3() {
     };
 
     const [payments, extras, handoffs, mealStaff] = await Promise.all([
-      listWorkerPendingPayments(pin, WORKER_PAYMENTS_LIMIT).catch((err) => swallowToEmpty('payments', err)),
-      listWorkerArkaExtras(pin, WORKER_EXTRAS_LIMIT).catch((err) => swallowToEmpty('extras', err)),
-      listWorkerHandoffs(pin, WORKER_HANDOFFS_LIMIT).catch((err) => swallowToEmpty('handoffs', err)),
-      listMealStaffOptions({ excludePin: pin }).catch((err) => swallowToEmpty('meal_staff', err)),
+      withArkaTimeout(listWorkerPendingPayments(pin, WORKER_PAYMENTS_LIMIT), 'worker_payments', 4200).catch((err) => swallowToEmpty('payments', err)),
+      withArkaTimeout(listWorkerArkaExtras(pin, WORKER_EXTRAS_LIMIT), 'worker_extras', 4200).catch((err) => swallowToEmpty('extras', err)),
+      withArkaTimeout(listWorkerHandoffs(pin, WORKER_HANDOFFS_LIMIT), 'worker_handoffs', 4200).catch((err) => swallowToEmpty('handoffs', err)),
+      withArkaTimeout(listMealStaffOptions({ excludePin: pin }), 'meal_staff', 4200).catch((err) => swallowToEmpty('meal_staff', err)),
     ]);
 
     if (hadErrors) {
@@ -737,7 +747,7 @@ export default function ArkaPageV3() {
     setWorkerSnapshot(null);
     setMealOptions([]);
     try {
-      const staff = await listTodayWorkers();
+      const staff = await withArkaTimeout(listTodayWorkers(), 'today_workers', 4200);
       const workerRows = (Array.isArray(staff) ? staff : []).filter((row) => roleIsWorker(row?.role));
       const { paymentsByPin, extrasByPin, handoffsByPin, hadErrors } = await loadManagerBulkSnapshots(workerRows);
       if (hadErrors) throw new Error('Load failed');
@@ -780,8 +790,8 @@ export default function ArkaPageV3() {
         return [];
       };
       const [handoffs, expenses] = await Promise.all([
-        listPendingDispatchHandoffs(MANAGER_SECONDARY_LIMIT, MANAGER_PENDING_HANDOFF_SELECT).catch((err) => swallowToEmpty('handoffs', err)),
-        listPendingExpenseApprovals(MANAGER_SECONDARY_LIMIT, MANAGER_PENDING_EXPENSE_SELECT).catch((err) => swallowToEmpty('expenses', err)),
+        withArkaTimeout(listPendingDispatchHandoffs(MANAGER_SECONDARY_LIMIT, MANAGER_PENDING_HANDOFF_SELECT), 'pending_dispatch_handoffs', 4200).catch((err) => swallowToEmpty('handoffs', err)),
+        withArkaTimeout(listPendingExpenseApprovals(MANAGER_SECONDARY_LIMIT, MANAGER_PENDING_EXPENSE_SELECT), 'pending_expense_approvals', 4200).catch((err) => swallowToEmpty('expenses', err)),
       ]);
       if (hadErrors) {
         const cached = readStoredJson(ARKA_MANAGER_CACHE_KEY);
@@ -863,6 +873,23 @@ export default function ArkaPageV3() {
     const showBlockingLoading = runPrimary && !(livePrimaryReady || cachedPrimary);
 
     reloadInFlightRef.current = true;
+    const reloadWatchdog = (() => {
+      try {
+        return window.setTimeout(() => {
+          try {
+            if (!reloadInFlightRef.current) return;
+            reloadInFlightRef.current = false;
+            setLoading(false);
+            setSecondaryLoading(false);
+            const restored = applyCachedBootState(act);
+            setError((prev) => prev || (restored ? '' : 'ARKA PO VAZHDON ME SAFE STATE. RRJETI U VONUA.'));
+            try { window.dispatchEvent(new CustomEvent('tepiha:force-route-settled', { detail: { path: '/arka', source: 'arka_reload_watchdog_v26' } })); } catch {}
+          } catch {}
+        }, 6500);
+      } catch {
+        return null;
+      }
+    })();
     lastReloadAtRef.current = now;
     if (showBlockingLoading) setLoading(true);
     setError('');
@@ -880,6 +907,7 @@ export default function ArkaPageV3() {
       errorCooldownUntilRef.current = Date.now() + ERROR_COOLDOWN_MS;
       setError(e?.message || 'NUK U NGARKUA ARKA.');
     } finally {
+      try { if (reloadWatchdog) window.clearTimeout(reloadWatchdog); } catch {}
       if (showBlockingLoading) setLoading(false);
       reloadInFlightRef.current = false;
     }

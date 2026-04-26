@@ -30,8 +30,9 @@ function isSwKillMode() {
 
   try {
     return (
-      window.__TEPIHA_SW_KILL_SWITCH__ === true ||
-      window.__TEPIHA_FORCE_NETWORK_MODE__ === true
+      (window.__TEPIHA_SW_KILL_SWITCH__ === true || window.__TEPIHA_FORCE_NETWORK_MODE__ === true) &&
+      window.__TEPIHA_SW_KILL_SWITCH_EPOCH__ === APP_DATA_EPOCH &&
+      window.__TEPIHA_SW_KILL_CONFIRM__ === 'YES'
     );
   } catch {
     return false;
@@ -136,11 +137,11 @@ async function unregisterAllServiceWorkersForKillMode() {
   await Promise.allSettled(
     safeRegs.map(async (reg) => {
       try {
-        reg?.waiting?.postMessage?.({ type: 'SKIP_WAITING' });
+        reg?.waiting?.postMessage?.({ type: 'SKIP_WAITING', manual: true });
       } catch {}
 
       try {
-        reg?.active?.postMessage?.({ type: 'SKIP_WAITING' });
+        reg?.active?.postMessage?.({ type: 'SKIP_WAITING', manual: true });
       } catch {}
 
       try {
@@ -697,6 +698,7 @@ export default function ServiceWorkerRegister() {
             try {
               purgeResult = await postLegacyControllerMessage('PURGE_LEGACY_ONLY_CACHES', {
                 source: 'legacy_sw_bridge_manual_button',
+                manual: true,
               });
               setStatus('Cache legacy u pastrua. Po çregjistrohet runtime i vjetër...');
             } catch (error) {
@@ -706,6 +708,7 @@ export default function ServiceWorkerRegister() {
             try {
               unregisterResult = await postLegacyControllerMessage('LEGACY_SW_SELF_UNREGISTER', {
                 source: 'legacy_sw_bridge_manual_button',
+                manual: true,
               });
             } catch (error) {
               unregisterResult = { ok: false, error: safeMessage(error, 'legacy_unregister_failed') };
@@ -720,12 +723,12 @@ export default function ServiceWorkerRegister() {
               controllerScriptURL: currentPayload.controllerScriptURL,
             };
 
-            try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_manual_repair_v12', JSON.stringify(result)); } catch {}
+            try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_manual_repair_v26', JSON.stringify(result)); } catch {}
             try { logSwEvent('legacy_sw_bridge_manual_repair_done', result); } catch {}
 
-            setStatus('PATCH M V25: riparimi manual u regjistrua pa reload automatik. Mbylle/hape app-in manualisht nëse ende sheh problem.');
+            setStatus('PATCH N V26: riparimi manual u regjistrua pa reload automatik. Mbylle/hape app-in manualisht nëse ende sheh problem.');
             try {
-              logSwEvent('legacy_sw_bridge_manual_repair_no_auto_reload_v25', {
+              logSwEvent('legacy_sw_bridge_manual_repair_no_auto_reload_v26', {
                 noReload: true,
                 noLocationReplace: true,
                 manualOnly: true,

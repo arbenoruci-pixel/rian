@@ -292,7 +292,7 @@ function OrderTrackingPageInner() {
             <div style={styles.stateEmoji}>⚠️</div>
             <div style={styles.stateTitle}>Nuk u ngarkua porosia</div>
             <div style={styles.stateText}>{error}</div>
-            <button style={{ marginTop: 14, padding: '12px 16px', borderRadius: 12, background: '#0A84FF', color: '#fff', border: 'none', fontWeight: 900, cursor: 'pointer' }} onClick={() => window.location.assign(window.location.pathname + window.location.search)}>RIPROVO</button>
+            <button style={{ marginTop: 14, padding: '12px 16px', borderRadius: 12, background: '#0A84FF', color: '#fff', border: 'none', fontWeight: 900, cursor: 'pointer' }} onClick={() => { setError(''); setLoading(true); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('tepiha:k-page-soft-retry')); } catch {} setLoading(false); }, 120); }}>RIPROVO</button>
           </div>
         ) : (
           <>

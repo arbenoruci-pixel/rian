@@ -1,9 +1,9 @@
 /* LEGACY /sw.js BRIDGE — inert compatibility worker for old controllers. */
 /* eslint-disable no-restricted-globals */
 
-const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-STATIC-RUNTIME-V21';
-const APP_VERSION = '2.0.26-vite-static-runtime-v21';
-const SW_BUILD_LABEL = 'sw-vite-static-runtime-v21';
+const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-FINAL-HARDENING-V26';
+const APP_VERSION = '2.0.31-vite-final-hardening-v26';
+const SW_BUILD_LABEL = 'sw-vite-final-hardening-v26';
 const OFFLINE_FALLBACK = '/offline.html';
 const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v19';
 
@@ -154,6 +154,10 @@ self.addEventListener('message', (event) => {
   }
 
   if (type === 'PURGE_LEGACY_ONLY_CACHES') {
+    if (data?.manual !== true) {
+      replyToClient(event, { type: 'PURGE_LEGACY_ONLY_CACHES_RESULT', ok: false, label: SW_BUILD_LABEL, error: 'manual_true_required_v26', protectedModernCachesPreserved: true, at: nowIso() });
+      return;
+    }
     event.waitUntil((async () => {
       const deletedCaches = await purgeLegacyOnlyCaches();
       replyToClient(event, {
@@ -169,6 +173,10 @@ self.addEventListener('message', (event) => {
   }
 
   if (type === 'LEGACY_SW_SELF_UNREGISTER') {
+    if (data?.manual !== true) {
+      replyToClient(event, { type: 'LEGACY_SW_SELF_UNREGISTER_RESULT', ok: false, label: SW_BUILD_LABEL, error: 'manual_true_required_v26', noClientReload: true, at: nowIso() });
+      return;
+    }
     event.waitUntil((async () => {
       let ok = false;
       let error = '';

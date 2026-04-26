@@ -1,5 +1,5 @@
 (function () {
-  var EPOCH = 'RESET-2026-04-22-SW-KILL-V1';
+  var EPOCH = 'RESET-2026-04-26-VITE-FINAL-HARDENING-V26';
   var FLAG = '__TEPIHA_SW_KILL_SWITCH__';
   var DONE_KEY = '__tepiha_sw_kill_done__' + EPOCH;
   var RELOAD_KEY = '__tepiha_sw_kill_reload_once__' + EPOCH;
@@ -8,11 +8,11 @@
   var explicitKillRequested = false;
   try {
     var qs = new URLSearchParams((window.location && window.location.search) || '');
-    explicitKillRequested = qs.get('__sw_kill') === EPOCH;
+    explicitKillRequested = qs.get('__sw_kill') === EPOCH && qs.get('__sw_kill_confirm') === 'YES';
   } catch (_) {}
 
   var globalKillRequested = false;
-  try { globalKillRequested = window[FLAG] === true || window.__TEPIHA_FORCE_NETWORK_MODE__ === true; } catch (_) {}
+  try { globalKillRequested = (window[FLAG] === true || window.__TEPIHA_FORCE_NETWORK_MODE__ === true) && window.__TEPIHA_SW_KILL_SWITCH_EPOCH__ === EPOCH && window.__TEPIHA_SW_KILL_CONFIRM__ === 'YES'; } catch (_) {}
   var shouldKill = explicitKillRequested || globalKillRequested;
 
   if (!shouldKill) {
@@ -32,10 +32,10 @@
     await Promise.allSettled((regs || []).map(function (reg) {
       return (async function () {
         try {
-          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING', manual: true });
         } catch (_) {}
         try {
-          if (reg.active) reg.active.postMessage({ type: 'SKIP_WAITING' });
+          if (reg.active) reg.active.postMessage({ type: 'SKIP_WAITING', manual: true });
         } catch (_) {}
         try {
           await reg.unregister();
@@ -45,18 +45,25 @@
     return { count: (regs || []).length };
   }
 
+  function isAllowedKillCache(key) {
+    try {
+      var value = String(key || '');
+      return /^(pages-|next-data-|nextjs-|next-|tepiha-next-|tepiha-legacy-|tepiha-sw-legacy-|legacy-sw-|sw-route-containment|sw-pwa-staleness|pwa-staleness)/i.test(value)
+        || /^tepiha-vite-(business-routes|static-assets|media)-v(1[0-9]|2[0-5])$/i.test(value)
+        || /^workbox-precache-.*tepiha/i.test(value);
+    } catch (_) { return false; }
+  }
+
   async function clearCaches() {
     if (!('caches' in window)) return { count: 0, keys: [] };
     var keys = [];
+    var deleted = [];
     try { keys = await window.caches.keys(); } catch (_) { keys = []; }
-    await Promise.allSettled((keys || []).map(function (key) {
-      try {
-        return window.caches.delete(key);
-      } catch (_) {
-        return Promise.resolve(false);
-      }
+    await Promise.allSettled((keys || []).filter(isAllowedKillCache).map(function (key) {
+      try { deleted.push(key); return window.caches.delete(key); }
+      catch (_) { return Promise.resolve(false); }
     }));
-    return { count: (keys || []).length, keys: keys || [] };
+    return { count: deleted.length, keys: deleted };
   }
 
   function clearStorageMarkers() {

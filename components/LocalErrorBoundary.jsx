@@ -383,7 +383,12 @@ export default class LocalErrorBoundary extends React.Component {
   };
 
   goHome = () => {
-    try { window.location.assign('/'); } catch {}
+    try {
+      window.history.pushState({}, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return;
+    } catch {}
+    try { window.dispatchEvent(new CustomEvent('tepiha:soft-home-request', { detail: { source: 'LocalErrorBoundary' } })); } catch {}
   };
 
   renderFallback() {
