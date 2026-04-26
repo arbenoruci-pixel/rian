@@ -238,15 +238,18 @@ function requestManualUpdate(setStatus) {
 
   const finishWithReload = () => {
     if (escaped) return;
+    escaped = true;
     try { if (escapeTimer) window.clearTimeout(escapeTimer); } catch {}
+    setSafeStatus('Versioni i ri u kërkua, por PATCH L V24 nuk bën reload automatik. Mbylle/hape manualisht kur të kesh kohë.');
     try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('__manual_update', String(Date.now()));
-      window.location.replace(url.toString());
-      return;
+      window.__TEPIHA_LAZY_WITH_RELOAD_AUTO_RELOAD_DISABLED__ = true;
+      window.sessionStorage?.setItem?.('tepiha_lazy_with_reload_no_auto_reload_v24', JSON.stringify({
+        at: new Date().toISOString(),
+        ts: Date.now(),
+        noReload: true,
+        manualOnly: true,
+      }));
     } catch {}
-
-    try { window.location.reload(); } catch {}
   };
 
   try {

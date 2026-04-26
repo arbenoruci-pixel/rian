@@ -104,10 +104,16 @@ function RouteFallback({ path, label = '' }) {
   return (
     <div
       data-route-fallback="1"
+      data-visible-stuck-candidate="1"
       data-route-fallback-path={String(path || '')}
       style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#05070d', color: '#fff', fontWeight: 800 }}
     >
-      DUKE HAPUR…
+      <div>DUKE HAPUR…</div>
+      <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <a href="/" style={{ color: '#bfdbfe', fontWeight: 900 }}>HOME</a>
+        <a href="/pastrimi" style={{ color: '#bfdbfe', fontWeight: 900 }}>PASTRIMI</a>
+        <a href="/gati" style={{ color: '#bfdbfe', fontWeight: 900 }}>GATI</a>
+      </div>
     </div>
   );
 }

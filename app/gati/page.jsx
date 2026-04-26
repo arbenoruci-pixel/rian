@@ -844,10 +844,19 @@ function aggregateReturnPieces(items) {
   res.staza = Array.from(mapS.entries()).map(([m2, qty]) => ({ m2: Number(m2), qty }));
   return res;
 }
-function triggerFatalCacheHeal() {
-  console.error('Fatal Cache Error Detected. Auto-healing...');
-  try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
-  try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
+function triggerFatalCacheHeal(error = null) {
+  try {
+    console.warn('PATCH L V24: GATI fatal cache heal is diagnostic-only; preserving offline queue and local orders.', error || '');
+    if (typeof window !== 'undefined') {
+      window.localStorage?.setItem?.('tepiha_gati_cache_heal_suppressed_v1', JSON.stringify({
+        at: new Date().toISOString(),
+        ts: Date.now(),
+        message: String(error?.message || error || ''),
+        noOrdersTouch: true,
+        noOutboxTouch: true,
+      }));
+    }
+  } catch {}
 }
 
 function isPersistedDbLikeId(raw) {

@@ -571,14 +571,15 @@ export default function ServiceWorkerRegister() {
 
             const finishWithReload = () => {
               if (escaped) return;
+              escaped = true;
               try { if (escapeTimer) window.clearTimeout(escapeTimer); } catch {}
+              setStatus('PATCH L V24: update u përgatit, por reload automatik është i ndalur. Mbylle/hape manualisht kur të kesh kohë.');
               try {
-                const url = new URL(window.location.href);
-                url.searchParams.set('__manual_update', String(Date.now()));
-                window.location.replace(url.toString());
-                return;
+                logSwEvent('vite_pwa_sw_manual_update_no_auto_reload_v24', {
+                  noReload: true,
+                  manualOnly: true,
+                });
               } catch {}
-              try { window.location.reload(); } catch {}
             };
 
             try {

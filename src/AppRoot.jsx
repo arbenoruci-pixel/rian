@@ -24,7 +24,7 @@ try {
   }
 } catch {}
 
-const APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER = 'tepiha_runtime_diag_cleanup_done_RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23';
+const APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER = 'tepiha_runtime_diag_cleanup_done_RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24';
 const OLD_RUNTIME_DIAG_KEYS = [
   'tepiha_app_root_runtime_failure_log_v1',
   'tepiha_app_root_runtime_failure_last_v1',
@@ -47,7 +47,7 @@ function clearStaleRuntimeDiagnosticsForV23() {
     try { window.__TEPIHA_LAST_APP_ROOT_RUNTIME_FAILURE__ = null; } catch {}
     try {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-hard-refresh-failopen-v23',
+        version: 'app-root-vite-global-loop-kill-v24',
         criticalMode: 'static_runtime_deferred_no_lazy_chunks',
         criticalModules: {},
         lazyModules: {},
@@ -62,7 +62,7 @@ function clearStaleRuntimeDiagnosticsForV23() {
       recordRouteDiagEvent('app_root_runtime_diag_cleanup_v23', {
         path: String(window.location?.pathname || '/'),
         sourceLayer: 'app_root',
-        appEpoch: 'RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23',
+        appEpoch: 'RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24',
         removedKeys: OLD_RUNTIME_DIAG_KEYS,
       });
     } catch {}
@@ -162,7 +162,10 @@ function RouteRequestTracker() {
   React.useEffect(() => {
     const onRouteDiag = (event) => {
       const detail = event?.detail && typeof event.detail === 'object' ? event.detail : null;
-      if (!detail || String(detail?.type || '') !== 'route_ui_ready') return;
+      if (!detail) return;
+      const routeDiagType = String(detail?.type || '');
+      const routeSettleTypes = new Set(['route_ui_ready', 'route_first_interactive', 'route_first_paint', 'route_component_mount']);
+      if (!routeSettleTypes.has(routeDiagType)) return;
       const livePath = String(location?.pathname || '/');
       const detailPath = String(detail?.currentPath || detail?.path || '');
       if (!detailPath || detailPath !== livePath) {
@@ -180,7 +183,7 @@ function RouteRequestTracker() {
           ...current,
           transitionInFlight: false,
           settledAt,
-          settledReason: 'route_ui_ready',
+          settledReason: routeDiagType === 'route_ui_ready' ? 'route_ui_ready' : `route_soft_settled_${routeDiagType}`,
           currentPath: livePath,
           path: livePath,
         } : {
@@ -189,7 +192,7 @@ function RouteRequestTracker() {
           previousPath: String(previousRef.current?.path || ''),
           transitionInFlight: false,
           settledAt,
-          settledReason: 'route_ui_ready',
+          settledReason: routeDiagType === 'route_ui_ready' ? 'route_ui_ready' : `route_soft_settled_${routeDiagType}`,
         };
       } catch {
         nextRequest = {
@@ -198,7 +201,7 @@ function RouteRequestTracker() {
           previousPath: String(previousRef.current?.path || ''),
           transitionInFlight: false,
           settledAt,
-          settledReason: 'route_ui_ready',
+          settledReason: routeDiagType === 'route_ui_ready' ? 'route_ui_ready' : `route_soft_settled_${routeDiagType}`,
         };
       }
 
@@ -208,13 +211,13 @@ function RouteRequestTracker() {
 
       const previousTransition = readRuntimeTransition();
       const cleared = clearRuntimeTransition({
-        reason: 'route_ui_ready',
+        reason: routeDiagType === 'route_ui_ready' ? 'route_ui_ready' : `route_soft_settled_${routeDiagType}`,
         path: livePath,
         fromPath: String(previousTransition?.fromPath || nextRequest?.previousPath || ''),
         toPath: livePath,
       });
 
-      recordRouteDiagEvent('route_transition_cleared', {
+      recordRouteDiagEvent(routeDiagType === 'route_ui_ready' ? 'route_transition_cleared' : 'route_transition_soft_cleared', {
         path: livePath,
         currentPath: livePath,
         previousPath: String(previousTransition?.fromPath || nextRequest?.previousPath || ''),
@@ -278,6 +281,50 @@ function RouteRequestTracker() {
 
     recordRouteDiagEvent('route_request_start', payload);
     previousRef.current = { path, search };
+
+    const settleIfStillCurrent = (delayMs, reason) => window.setTimeout(() => {
+      try {
+        const livePath = String(window.location?.pathname || '/');
+        const current = window.__TEPIHA_ACTIVE_ROUTE_REQUEST__ && typeof window.__TEPIHA_ACTIVE_ROUTE_REQUEST__ === 'object'
+          ? window.__TEPIHA_ACTIVE_ROUTE_REQUEST__
+          : readActiveRouteRequestSnapshot();
+        if (!current || current.token !== token || livePath !== path || current.transitionInFlight === false) return;
+        const settledAt = Date.now();
+        const next = {
+          ...current,
+          path: livePath,
+          currentPath: livePath,
+          transitionInFlight: false,
+          settledAt,
+          settledReason: String(reason || 'route_soft_settled_timeout'),
+          failOpenSoftSettled: true,
+        };
+        writeActiveRouteRequestSnapshot(next);
+        const previousTransition = readRuntimeTransition();
+        const cleared = clearRuntimeTransition({
+          reason: String(reason || 'route_soft_settled_timeout'),
+          path: livePath,
+          fromPath: String(previousTransition?.fromPath || previousPath || ''),
+          toPath: livePath,
+        });
+        recordRouteDiagEvent('route_transition_soft_timeout_cleared', {
+          path: livePath,
+          currentPath: livePath,
+          previousPath: String(previousTransition?.fromPath || previousPath || ''),
+          transitionInFlight: false,
+          clearedTransition: cleared,
+          reason: String(reason || 'route_soft_settled_timeout'),
+          sourceLayer: 'app_root',
+        });
+      } catch {}
+    }, delayMs);
+
+    const softSettleFast = settleIfStillCurrent(1200, 'route_soft_settled_1200ms');
+    const softSettleSlow = settleIfStillCurrent(3600, 'route_soft_settled_3600ms');
+    return () => {
+      try { window.clearTimeout(softSettleFast); } catch {}
+      try { window.clearTimeout(softSettleSlow); } catch {}
+    };
   }, [location?.key, location?.pathname, location?.search]);
 
   return null;
@@ -287,7 +334,7 @@ function getRuntimeStatus() {
   try {
     if (!window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ || typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ !== 'object') {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-hard-refresh-failopen-v23',
+        version: 'app-root-vite-global-loop-kill-v24',
         criticalMode: 'static_runtime_deferred_no_lazy_chunks',
         criticalModules: {},
         lazyModules: {},

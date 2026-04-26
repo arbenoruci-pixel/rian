@@ -961,7 +961,7 @@ function yieldToMainThread() {
 
 function triggerFatalCacheHeal(error = null) {
   try {
-    console.warn('Pastrimi refresh failed; preserving local orders/outbox and using local fallback.', error || '');
+    console.warn('PATCH L V24: Pastrimi cache heal is diagnostic-only; preserving local orders/outbox and using local fallback.', error || '');
     if (typeof window !== 'undefined') {
       window.localStorage?.setItem?.('tepiha_pastrimi_refresh_preserved_local_v1', JSON.stringify({
         at: new Date().toISOString(),
@@ -1194,6 +1194,23 @@ function PastrimiPageInner() {
   });
   const [readyCountHint, setReadyCountHint] = useState(null);
 
+  function markPastrimiFailOpenReady(reason = 'local_first_ready', count = 0) {
+    try { window.__TEPIHA_UI_READY = true; } catch {}
+    try { window.__TEPIHA_FIRST_UI_READY = true; } catch {}
+    try { document.documentElement?.setAttribute?.('data-ui-ready', '1'); } catch {}
+    try { document.body?.setAttribute?.('data-ui-ready', '1'); } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive', {
+        detail: { source: 'pastrimi_fail_open_local_first', path: '/pastrimi', page: 'pastrimi', reason: String(reason || ''), count: Number(count || 0) }
+      }));
+    } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent('tepiha:force-route-settled', {
+        detail: { source: 'pastrimi_fail_open_local_first', path: '/pastrimi', reason: String(reason || ''), count: Number(count || 0) }
+      }));
+    } catch {}
+  }
+
   useEffect(() => {
     if (loading) return;
     if (!isDocumentVisible()) return;
@@ -1261,7 +1278,8 @@ function PastrimiPageInner() {
     hiddenSearchBootRef.current = hiddenBoot;
     visibleSearchRecoveryRef.current = false;
     if (hiddenBoot) {
-      setLoading(true);
+      setLoading(false);
+      markPastrimiFailOpenReady('search_hidden_boot_cache_no_block', 0);
       void recoverNow('search_hidden_boot_cache', { skipNetwork: true });
     } else {
       void recoverNow('search_visible_boot_cache', { skipNetwork: true });
@@ -1439,6 +1457,8 @@ function PastrimiPageInner() {
   useEffect(() => {
     const localRows = buildImmediatePastrimLocalRows();
     applyPastrimiRowsLocalFirst(localRows, localRows.length ? 'LOCAL_FIRST_BOOT' : 'LOCAL_FIRST_EMPTY');
+    markPastrimiFailOpenReady(localRows.length ? 'LOCAL_FIRST_BOOT' : 'LOCAL_FIRST_EMPTY', localRows.length);
+    setLoading(false);
 
     const loadingGuard = window.setTimeout(() => {
       setLoading(false);
@@ -1486,6 +1506,31 @@ function PastrimiPageInner() {
       deferredPersistToken.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (!loading) return undefined;
+    const timer = window.setTimeout(() => {
+      try {
+        const currentRows = buildImmediatePastrimLocalRows();
+        if (currentRows.length > 0) {
+          applyPastrimiRowsLocalFirst(currentRows, 'VISIBLE_STUCK_LOCAL_FALLBACK', { visibleStuck: true });
+          setReadyCountHint(currentRows.length);
+        }
+        setLoading(false);
+        markPastrimiFailOpenReady('visible_stuck_loading_timeout', currentRows.length);
+        writePastrimiLoadingTimeoutMarker({
+          source: 'visible_stuck_loading_watchdog',
+          cacheSourceUsed: currentRows.length > 0 ? 'local_cache' : 'empty_local',
+          localRowCount: currentRows.length,
+          remoteTimeout: true,
+          noGlobalBlock: true,
+        });
+      } catch {
+        try { setLoading(false); } catch {}
+      }
+    }, 2800);
+    return () => { try { window.clearTimeout(timer); } catch {} };
+  }, [loading]);
 
   // FIX: Realtime me mbrojtje nga crash
   useEffect(() => {
@@ -2597,8 +2642,7 @@ BORXHI PAS: ${remaining.toFixed(2)}€
                 const cleared = clearBaseMasterCacheScope(['pastrim', 'pastrimi']);
                 clearPageSnapshot('pastrimi');
                 purgeZombieLocalArtifacts(cleared?.removedIds || []);
-                setOrders([]);
-                setLoading(true);
+                setLoading(false);
                 await refreshOrders({ force: true, source: 'manual_clear_scope_pastrim' });
               } catch (e) {
                 console.error('[pastrimi] scoped clear cache failed', e);
@@ -2620,7 +2664,7 @@ BORXHI PAS: ${remaining.toFixed(2)}€
 
       <section className="card" style={{ padding: '10px' }}>
         {!loading && exactSearchMode && visibleOrders.length === 0 ? <p style={{ textAlign: 'center' }}>Po e hapim porosinë nga kërkimi...</p> : null}
-        {loading ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p> : (visibleOrders.length === 0 ? <p style={{ textAlign: 'center', color: 'rgba(255,255,255,.72)' }}>Nuk ka porosi në PASTRIMI.</p> : 
+        {loading && visibleOrders.length === 0 ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar nga cache...</p> : (visibleOrders.length === 0 ? <p style={{ textAlign: 'center', color: 'rgba(255,255,255,.72)' }}>Nuk ka porosi në PASTRIMI.</p> : 
           visibleOrders.map(o => {
               if (!o || !o.id) return null;
               // SHTUAR: Përmirësimi i Kodit

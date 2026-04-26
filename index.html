@@ -6,15 +6,15 @@
     <meta name="theme-color" content="#0b0f14" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="tepiha-app-epoch" content="RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23" />
-    <meta name="tepiha-build-id" content="2.0.28-vite-hard-refresh-failopen-v23" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24" />
+    <meta name="tepiha-build-id" content="2.0.29-vite-global-loop-kill-v24" />
     <link rel="icon" href="/favicon.ico" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TEPIHA</title>
     <script>
-      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23';
-      window.__TEPIHA_BUILD_ID = '2.0.28-vite-hard-refresh-failopen-v23';
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24';
+      window.__TEPIHA_BUILD_ID = '2.0.29-vite-global-loop-kill-v24';
       window.__TEPIHA_QUIET_UPDATE_V7 = true;
       try { localStorage.removeItem('tepiha_update_available_v1'); sessionStorage.removeItem('tepiha_vite_pwa_update_v1'); } catch (e) {}
       window.__TEPIHA_SW_KILL_SWITCH__ = false;
@@ -25,9 +25,9 @@
       window.__TEPIHA_SIMPLE_INCIDENTS_ENABLED__ = true;
       window.__TEPIHA_STARTUP_ISOLATION__ = true;
       window.__TEPIHA_STARTUP_ISOLATION_WINDOW_MS__ = 4500;
-      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-hard-refresh-failopen-v23';
-      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-hard-refresh-failopen-v23';
-      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-hard-refresh-failopen-v23';
+      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-global-loop-kill-v24';
+      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-global-loop-kill-v24';
+      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-global-loop-kill-v24';
       window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
       window.__TEPIHA_NAV_CACHE_STRATEGY__ = 'static-runtime-v21';
       (function(){
@@ -178,14 +178,11 @@
             var before = snapshot(reason || 'repair_started', detail || {});
             appendLog(before);
             var legacyBridge = await requestLegacyBridgeRepair();
-            var deletedCaches = await clearRuntimeCaches();
-            var after = snapshot('repair_completed_reload', { repairReason: reason, legacyBridge: legacyBridge, deletedLegacyCaches: deletedCaches, modernViteCachesPreserved: true });
+            var deletedCaches = [];
+            var after = snapshot('repair_completed_no_reload_v24', { repairReason: reason, legacyBridge: legacyBridge, deletedLegacyCaches: deletedCaches, modernViteCachesPreserved: true, noAutoReload: true, noRuntimeCacheDelete: true });
             appendLog(after);
             try { window.__TEPIHA_PWA_STALENESS_REPAIR_LAST__ = after; } catch(e) {}
-            window.setTimeout(function(){
-              try { window.location.replace(buildReloadUrl(reason)); } catch(e) { try { window.location.href = buildReloadUrl(reason); } catch(err) {} }
-            }, 180);
-            return true;
+            return false;
           }
           async function check(){
             var keys = await readCaches();
@@ -1094,10 +1091,10 @@
     <style id="tepiha-hard-refresh-failopen-style-v23">
       html,body{min-height:100%;background:#05070d}#tepiha-hard-refresh-failopen-shell{position:fixed;inset:0;z-index:2147483645;background:linear-gradient(180deg,#05070d,#07111f);color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}#tepiha-hard-refresh-failopen-shell *{box-sizing:border-box}#tepiha-hard-refresh-failopen-shell .tepiha-safe-card{width:min(620px,100%);border:1px solid rgba(96,165,250,.32);border-radius:22px;background:rgba(15,23,42,.96);box-shadow:0 24px 70px rgba(0,0,0,.52);padding:18px}#tepiha-hard-refresh-failopen-shell .tepiha-safe-kicker{color:#93c5fd;font-size:11px;font-weight:1000;letter-spacing:.16em;text-transform:uppercase}#tepiha-hard-refresh-failopen-shell .tepiha-safe-title{margin-top:8px;font-size:26px;line-height:1.05;font-weight:1000;letter-spacing:-.02em}#tepiha-hard-refresh-failopen-shell .tepiha-safe-body{margin-top:8px;color:#cbd5e1;font-size:14px;line-height:1.45;font-weight:700}#tepiha-hard-refresh-failopen-shell .tepiha-safe-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px}#tepiha-hard-refresh-failopen-shell .tepiha-safe-link{display:flex;align-items:center;justify-content:center;min-height:54px;border-radius:16px;text-decoration:none;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);font-weight:1000;letter-spacing:.04em}#tepiha-hard-refresh-failopen-shell .tepiha-safe-link.primary{background:linear-gradient(180deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.45)}#tepiha-hard-refresh-failopen-shell .tepiha-safe-foot{margin-top:12px;color:#64748b;font-size:12px;line-height:1.35;font-weight:750}#tepiha-hard-refresh-failopen-shell .tepiha-safe-status{margin-top:10px;color:#bae6fd;font-size:12px;font-weight:900;word-break:break-word}@media(max-width:460px){#tepiha-hard-refresh-failopen-shell .tepiha-safe-grid{grid-template-columns:1fr}#tepiha-hard-refresh-failopen-shell .tepiha-safe-title{font-size:23px}}
     </style>
-    <script id="tepiha-hard-refresh-failopen-v23">
-      (function(){try{var VERSION='failopen-v23';var APP_EPOCH=String(window.__TEPIHA_APP_EPOCH||'RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23');var BUILD_ID=String(window.__TEPIHA_BUILD_ID||'2.0.28-vite-hard-refresh-failopen-v23');var LOG_KEY='tepiha_hard_refresh_failopen_log_v23';var LAST_KEY='tepiha_hard_refresh_failopen_last_v23';function ss(v){try{return String(v==null?'':v)}catch(e){return''}}function iso(){try{return new Date().toISOString()}catch(e){return''}}function sp(raw,fb){try{var p=JSON.parse(raw);return p==null?fb:p}catch(e){return fb}}function log(entry){try{localStorage.setItem(LAST_KEY,JSON.stringify(entry));var list=sp(localStorage.getItem(LOG_KEY),[]);if(!Array.isArray(list))list=[];list.unshift(entry);localStorage.setItem(LOG_KEY,JSON.stringify(list.slice(0,40)))}catch(e){}}function rootVisible(){try{var root=document.getElementById('root');if(!root)return false;var cs=window.getComputedStyle?window.getComputedStyle(root):null;if(cs&&(cs.display==='none'||cs.visibility==='hidden'||Number(cs.opacity||1)===0))return false;var textLen=root.textContent?String(root.textContent).trim().length:0;return(root.childElementCount||0)>0||textLen>0}catch(e){return false}}function uiReady(){try{if(window.__TEPIHA_UI_READY===true||window.__TEPIHA_FIRST_UI_READY===true)return true}catch(e){}try{if(document.documentElement&&document.documentElement.getAttribute('data-ui-ready')==='1')return true}catch(e){}try{if(document.body&&document.body.getAttribute('data-ui-ready')==='1')return true}catch(e){}return false}function href(path){try{var u=new URL(path,window.location.origin);u.searchParams.set('__failopen',VERSION);return u.pathname+u.search}catch(e){return path}}function hide(reason){try{var node=document.getElementById('tepiha-hard-refresh-failopen-shell');if(node&&node.parentNode)node.parentNode.removeChild(node);document.documentElement.removeAttribute('data-failopen-shell-visible');if(document.body)document.body.removeAttribute('data-failopen-shell-visible');log({at:iso(),ts:Date.now(),source:'hard_refresh_failopen_hide',reason:ss(reason||'ui_ready'),appEpoch:APP_EPOCH,buildId:BUILD_ID})}catch(e){}}function removeOld(){try{['#tepiha-module-boot-manual-panel','#tepiha-runtime-import-fallback','#tepiha-pwa-boot-rescue','#tepiha-chunk-heal-fallback'].forEach(function(sel){try{var n=document.querySelector(sel);if(n&&n.parentNode)n.parentNode.removeChild(n)}catch(e){}});try{document.documentElement.removeAttribute('data-pwa-boot-rescue')}catch(e){}}catch(e){}}function mark(reason){try{window.__TEPIHA_FAIL_OPEN_SHELL_VISIBLE__=true;window.__TEPIHA_UI_READY=true;window.__TEPIHA_FIRST_UI_READY=true}catch(e){}try{document.documentElement.setAttribute('data-ui-ready','1');document.documentElement.setAttribute('data-failopen-shell-visible','1')}catch(e){}try{if(document.body){document.body.setAttribute('data-ui-ready','1');document.body.setAttribute('data-failopen-shell-visible','1')}}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready',{detail:{source:'hard_refresh_failopen_shell',reason:ss(reason||'')}}))}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive',{detail:{source:'hard_refresh_failopen_shell',path:window.location.pathname||'/',reason:ss(reason||'')}}))}catch(e){}}function show(reason,detail){try{if(uiReady()&&!document.getElementById('tepiha-hard-refresh-failopen-shell'))return false;if(document.getElementById('tepiha-hard-refresh-failopen-shell'))return true;removeOld();var entry={at:iso(),ts:Date.now(),source:'hard_refresh_failopen_show',reason:ss(reason||'boot_timeout'),detail:detail||null,appEpoch:APP_EPOCH,buildId:BUILD_ID,href:ss(window.location&&window.location.href),path:ss(window.location&&window.location.pathname),readyState:ss(document.readyState),visibilityState:ss(document.visibilityState),online:(function(){try{return navigator.onLine}catch(e){return null}})(),noDbTouch:true,noOrdersTouch:true,noOutboxTouch:true,noReload:true,noRepair:true};log(entry);mark(reason);var mount=document.createElement('div');mount.id='tepiha-hard-refresh-failopen-shell';mount.setAttribute('data-hard-refresh-failopen-shell','1');mount.innerHTML='<div class="tepiha-safe-card"><div class="tepiha-safe-kicker">SAFE MODE • HARD REFRESH FAIL-OPEN</div><div class="tepiha-safe-title">APP-I NUK U BLLOKUA</div><div class="tepiha-safe-body">Një pjesë e JavaScript-it nuk u ngarkua pas refresh/update. Kjo faqe hapet pa DB dhe pa prekur porositë, outbox-in, pagesat, ose IndexedDB. Zgjidh një modul poshtë.</div><div class="tepiha-safe-grid"><a class="tepiha-safe-link primary" href="'+href('/pranimi')+'">PRANIMI</a><a class="tepiha-safe-link" href="'+href('/pastrimi')+'">PASTRIMI</a><a class="tepiha-safe-link" href="'+href('/gati')+'">GATI</a><a class="tepiha-safe-link" href="'+href('/arka')+'">ARKA</a><a class="tepiha-safe-link" href="'+href('/transport')+'">TRANSPORT</a><a class="tepiha-safe-link" href="'+href('/')+'">HOME</a></div><div id="tepiha-failopen-status" class="tepiha-safe-status">Reason: '+ss(reason||'boot_timeout').replace(/</g,'&lt;')+'</div><div class="tepiha-safe-foot">Nëse një modul nuk hapet, kthehu këtu dhe hap modulin tjetër. Refresh automatik, cache delete dhe SW unregister janë të çaktivizuara në këtë safe shell.</div></div>';(document.body||document.documentElement).appendChild(mount);return true}catch(e){return false}}window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__=show;window.__TEPIHA_HIDE_FAIL_OPEN_SHELL__=hide;function check(reason){try{if(uiReady()){if(rootVisible())hide('ui_ready_'+ss(reason||''));return}show(reason||'boot_timeout')}catch(e){}}try{window.addEventListener('tepiha:first-ui-ready',function(){if(rootVisible())hide('first_ui_ready')},{passive:true});window.addEventListener('tepiha:route-ui-alive',function(){if(rootVisible())hide('route_ui_alive')},{passive:true});window.addEventListener('tepiha:react-render-called',function(){window.setTimeout(function(){if(rootVisible())hide('react_render_called')},250)},{passive:true});window.addEventListener('error',function(event){try{var target=event&&event.target;var tag=ss(target&&target.tagName).toUpperCase();var rel=ss(target&&target.rel).toLowerCase();var msg=ss(event&&event.message||'');if((tag==='SCRIPT'||(tag==='LINK'&&rel==='modulepreload')||/module|chunk|dynamically imported/i.test(msg))&&!rootVisible())window.setTimeout(function(){check('asset_or_module_error')},600)}catch(e){}},true);window.addEventListener('unhandledrejection',function(event){try{var msg=ss(event&&event.reason&&(event.reason.message||event.reason.stack)||event&&event.reason||'');if(/chunk|module|dynamically imported|importing a module script/i.test(msg)&&!rootVisible())window.setTimeout(function(){check('module_unhandled_rejection')},600)}catch(e){}},true);window.addEventListener('pageshow',function(){window.setTimeout(function(){check('pageshow_check')},2600)},{passive:true});window.setTimeout(function(){check('boot_timeout_3200')},3200);window.setTimeout(function(){check('boot_timeout_6500')},6500)}catch(e){}}catch(e){}})();
+    <script id="tepiha-hard-refresh-global-loop-kill-v24">
+      (function(){try{var VERSION='global-loop-kill-v24';var APP_EPOCH=String(window.__TEPIHA_APP_EPOCH||'RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24');var BUILD_ID=String(window.__TEPIHA_BUILD_ID||'2.0.29-vite-global-loop-kill-v24');var LOG_KEY='tepiha_hard_refresh_failopen_log_v23';var LAST_KEY='tepiha_hard_refresh_failopen_last_v23';function ss(v){try{return String(v==null?'':v)}catch(e){return''}}function iso(){try{return new Date().toISOString()}catch(e){return''}}function sp(raw,fb){try{var p=JSON.parse(raw);return p==null?fb:p}catch(e){return fb}}function log(entry){try{localStorage.setItem(LAST_KEY,JSON.stringify(entry));var list=sp(localStorage.getItem(LOG_KEY),[]);if(!Array.isArray(list))list=[];list.unshift(entry);localStorage.setItem(LOG_KEY,JSON.stringify(list.slice(0,40)))}catch(e){}}function rootVisible(){try{var root=document.getElementById('root');if(!root)return false;var cs=window.getComputedStyle?window.getComputedStyle(root):null;if(cs&&(cs.display==='none'||cs.visibility==='hidden'||Number(cs.opacity||1)===0))return false;var textLen=root.textContent?String(root.textContent).trim().length:0;return(root.childElementCount||0)>0||textLen>0}catch(e){return false}}function uiReady(){try{if(window.__TEPIHA_UI_READY===true||window.__TEPIHA_FIRST_UI_READY===true)return true}catch(e){}try{if(document.documentElement&&document.documentElement.getAttribute('data-ui-ready')==='1')return true}catch(e){}try{if(document.body&&document.body.getAttribute('data-ui-ready')==='1')return true}catch(e){}return false}function href(path){try{var u=new URL(path,window.location.origin);u.searchParams.set('__failopen',VERSION);return u.pathname+u.search}catch(e){return path}}function hide(reason){try{var node=document.getElementById('tepiha-hard-refresh-failopen-shell');if(node&&node.parentNode)node.parentNode.removeChild(node);document.documentElement.removeAttribute('data-failopen-shell-visible');if(document.body)document.body.removeAttribute('data-failopen-shell-visible');log({at:iso(),ts:Date.now(),source:'hard_refresh_failopen_hide',reason:ss(reason||'ui_ready'),appEpoch:APP_EPOCH,buildId:BUILD_ID})}catch(e){}}function removeOld(){try{['#tepiha-module-boot-manual-panel','#tepiha-runtime-import-fallback','#tepiha-pwa-boot-rescue','#tepiha-chunk-heal-fallback'].forEach(function(sel){try{var n=document.querySelector(sel);if(n&&n.parentNode)n.parentNode.removeChild(n)}catch(e){}});try{document.documentElement.removeAttribute('data-pwa-boot-rescue')}catch(e){}}catch(e){}}function mark(reason){try{window.__TEPIHA_FAIL_OPEN_SHELL_VISIBLE__=true;window.__TEPIHA_UI_READY=true;window.__TEPIHA_FIRST_UI_READY=true}catch(e){}try{document.documentElement.setAttribute('data-ui-ready','1');document.documentElement.setAttribute('data-failopen-shell-visible','1')}catch(e){}try{if(document.body){document.body.setAttribute('data-ui-ready','1');document.body.setAttribute('data-failopen-shell-visible','1')}}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready',{detail:{source:'hard_refresh_failopen_shell',reason:ss(reason||'')}}))}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive',{detail:{source:'hard_refresh_failopen_shell',path:window.location.pathname||'/',reason:ss(reason||'')}}))}catch(e){}}function show(reason,detail){try{if(uiReady()&&!document.getElementById('tepiha-hard-refresh-failopen-shell'))return false;if(document.getElementById('tepiha-hard-refresh-failopen-shell'))return true;removeOld();var entry={at:iso(),ts:Date.now(),source:'hard_refresh_failopen_show',reason:ss(reason||'boot_timeout'),detail:detail||null,appEpoch:APP_EPOCH,buildId:BUILD_ID,href:ss(window.location&&window.location.href),path:ss(window.location&&window.location.pathname),readyState:ss(document.readyState),visibilityState:ss(document.visibilityState),online:(function(){try{return navigator.onLine}catch(e){return null}})(),noDbTouch:true,noOrdersTouch:true,noOutboxTouch:true,noReload:true,noRepair:true};log(entry);mark(reason);var mount=document.createElement('div');mount.id='tepiha-hard-refresh-failopen-shell';mount.setAttribute('data-hard-refresh-failopen-shell','1');mount.innerHTML='<div class="tepiha-safe-card"><div class="tepiha-safe-kicker">SAFE MODE • HARD REFRESH FAIL-OPEN</div><div class="tepiha-safe-title">APP-I NUK U BLLOKUA</div><div class="tepiha-safe-body">Një pjesë e JavaScript-it nuk u ngarkua pas refresh/update. Kjo faqe hapet pa DB dhe pa prekur porositë, outbox-in, pagesat, ose IndexedDB. Zgjidh një modul poshtë.</div><div class="tepiha-safe-grid"><a class="tepiha-safe-link primary" href="'+href('/pranimi')+'">PRANIMI</a><a class="tepiha-safe-link" href="'+href('/pastrimi')+'">PASTRIMI</a><a class="tepiha-safe-link" href="'+href('/gati')+'">GATI</a><a class="tepiha-safe-link" href="'+href('/arka')+'">ARKA</a><a class="tepiha-safe-link" href="'+href('/transport')+'">TRANSPORT</a><a class="tepiha-safe-link" href="'+href('/')+'">HOME</a></div><div id="tepiha-failopen-status" class="tepiha-safe-status">Reason: '+ss(reason||'boot_timeout').replace(/</g,'&lt;')+'</div><div class="tepiha-safe-foot">Nëse një modul nuk hapet, kthehu këtu dhe hap modulin tjetër. Refresh automatik, cache delete dhe SW unregister janë të çaktivizuara në këtë safe shell.</div></div>';(document.body||document.documentElement).appendChild(mount);return true}catch(e){return false}}window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__=show;window.__TEPIHA_HIDE_FAIL_OPEN_SHELL__=hide;function check(reason){try{if(uiReady()){if(rootVisible())hide('ui_ready_'+ss(reason||''));return}show(reason||'boot_timeout')}catch(e){}}try{window.addEventListener('tepiha:first-ui-ready',function(){if(rootVisible())hide('first_ui_ready')},{passive:true});window.addEventListener('tepiha:route-ui-alive',function(){if(rootVisible())hide('route_ui_alive')},{passive:true});window.addEventListener('tepiha:react-render-called',function(){window.setTimeout(function(){if(rootVisible())hide('react_render_called')},250)},{passive:true});window.addEventListener('error',function(event){try{var target=event&&event.target;var tag=ss(target&&target.tagName).toUpperCase();var rel=ss(target&&target.rel).toLowerCase();var msg=ss(event&&event.message||'');if((tag==='SCRIPT'||(tag==='LINK'&&rel==='modulepreload')||/module|chunk|dynamically imported/i.test(msg))&&!rootVisible())window.setTimeout(function(){check('asset_or_module_error')},600)}catch(e){}},true);window.addEventListener('unhandledrejection',function(event){try{var msg=ss(event&&event.reason&&(event.reason.message||event.reason.stack)||event&&event.reason||'');if(/chunk|module|dynamically imported|importing a module script/i.test(msg)&&!rootVisible())window.setTimeout(function(){check('module_unhandled_rejection')},600)}catch(e){}},true);window.addEventListener('pageshow',function(){window.setTimeout(function(){check('pageshow_check')},2600)},{passive:true});window.setTimeout(function(){check('boot_timeout_3200')},3200);window.setTimeout(function(){check('boot_timeout_6500')},6500)}catch(e){}}catch(e){}})();
     </script>
-    <script id="tepiha-pwa-boot-rescue-vite-hard-refresh-failopen-v23">
+    <script id="tepiha-pwa-boot-rescue-vite-global-loop-kill-v24">
       (function(){
         try {
           var LAST_KEY = 'tepiha_pwa_boot_rescue_last_v1';
@@ -1105,7 +1102,7 @@
           var BOOT_TIMEOUT_MS = 5500;
           var APP_EPOCH = String(window.__TEPIHA_APP_EPOCH || (document.querySelector('meta[name="tepiha-app-epoch"]') || {}).content || '');
           var BUILD_ID = String(window.__TEPIHA_BUILD_ID || (document.querySelector('meta[name="tepiha-build-id"]') || {}).content || '');
-          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-vite-hard-refresh-failopen-v23');
+          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-vite-global-loop-kill-v24');
           var INDEX_VERSION = String(window.__TEPIHA_INDEX_SCRIPT_VERSION__ || '');
           var startedAt = Date.now();
 
@@ -1586,21 +1583,10 @@
             setStatus('Riparim manual: Service Worker + cache buckets, pa prekur orders/outbox...');
             var before = await buildDiag('pwa_repair_started');
             appendLog(before);
-            var legacyBridge = {
-              purge: await postLegacyMessage('PURGE_LEGACY_ONLY_CACHES'),
-              unregister: await postLegacyMessage('LEGACY_SW_SELF_UNREGISTER')
-            };
-            var unregisteredServiceWorkers = await unregisterAllServiceWorkersManual();
+            var legacyBridge = { purge: { skipped: true, patch: 'L_V24_no_auto_repair' }, unregister: { skipped: true, patch: 'L_V24_no_auto_repair' } };
+            var unregisteredServiceWorkers = [];
             var deletedLegacyCaches = [];
-            try {
-              if ('caches' in window) {
-                var keys = await caches.keys();
-                await Promise.allSettled((Array.isArray(keys) ? keys : []).filter(isTepihaRuntimeCacheName).map(function(key){
-                  deletedLegacyCaches.push(key);
-                  try { return caches.delete(key); } catch (e) { return Promise.resolve(false); }
-                }));
-              }
-            } catch (e) {}
+            try { window.__TEPIHA_PWA_REPAIR_CACHE_DELETE_DISABLED_V24__ = true; } catch (e) {}
             clearStaleMarkers();
             var after = await buildDiag('pwa_repair_completed_reload');
             try {
@@ -1611,8 +1597,7 @@
               after.localOrdersOutboxPreserved = true;
             } catch (e) {}
             appendLog(after);
-            setStatus('Riparimi manual u krye pa fshirë orders/outbox. Po hapet app-i...');
-            window.setTimeout(function(){ window.location.replace(cacheBustUrl('1')); }, 250);
+            setStatus('PATCH L V24: repair u regjistrua pa fshirje dhe pa reload automatik. Mbylle/hape manualisht nëse do.');
           }
           async function showFallback(reason) {
             try {
@@ -1631,7 +1616,7 @@
                 var retry = document.getElementById('tepiha-pwa-rescue-retry');
                 if (retry) retry.onclick = function(){
                   setStatus('Duke provuar përsëri...');
-                  window.location.replace(cacheBustUrl('retry'));
+                  setStatus('PATCH L V24: retry automatik u ndal. Hape manualisht nga Home nëse do.')
                 };
               } catch (e) {}
               try {
@@ -1763,19 +1748,64 @@
       })();
     </script>
 
+  
+    <script id="tepiha-visible-stuck-watchdog-v24">
+      (function(){
+        try {
+          var VERSION = 'visible-stuck-watchdog-v24';
+          var LOG_KEY = 'tepiha_visible_stuck_watchdog_log_v24';
+          var LAST_KEY = 'tepiha_visible_stuck_watchdog_last_v24';
+          function ss(v){ try { return String(v == null ? '' : v); } catch(e){ return ''; } }
+          function iso(){ try { return new Date().toISOString(); } catch(e){ return ''; } }
+          function parse(raw, fb){ try { var x = JSON.parse(raw); return x == null ? fb : x; } catch(e){ return fb; } }
+          function log(entry){ try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); var list=parse(localStorage.getItem(LOG_KEY), []); if(!Array.isArray(list)) list=[]; list.unshift(entry); localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0,40))); } catch(e){} }
+          function root(){ try { return document.getElementById('root') || document.body || document.documentElement; } catch(e){ return null; } }
+          function text(){ var r=root(); try { return ss(r && r.textContent || '').slice(0,1800); } catch(e){ return ''; } }
+          function blocking(){
+            var t=text();
+            try { if (document.querySelector('[data-route-fallback="1"],[data-visible-stuck-candidate="1"],[data-global-loading="1"],[data-loading-overlay="1"]')) return true; } catch(e){}
+            return /(DUKE\s+HAPUR|Duke\s+u\s+ngarkuar|DUKE\s+RIFRESKUAR|PO\s+RIDREJTOHESH|LOADING|Loading)/i.test(t);
+          }
+          function show(reason){
+            try {
+              if (document.getElementById('tepiha-visible-stuck-panel-v24')) return true;
+              if (!blocking()) return false;
+              var entry={at:iso(),ts:Date.now(),source:VERSION,reason:ss(reason||'visible_stuck'),href:ss(location&&location.href),path:ss(location&&location.pathname),text:text().slice(0,360),noReload:true,noCacheDelete:true,noSwUnregister:true};
+              log(entry);
+              var panel=document.createElement('div');
+              panel.id='tepiha-visible-stuck-panel-v24';
+              panel.setAttribute('data-visible-stuck-panel','1');
+              panel.style.cssText='position:fixed;left:10px;right:10px;bottom:10px;z-index:2147483647;background:#07111f;color:#fff;border:1px solid rgba(96,165,250,.45);border-radius:18px;padding:12px;box-shadow:0 18px 48px rgba(0,0,0,.45);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial';
+              panel.innerHTML='<div style="font-size:12px;font-weight:1000;letter-spacing:.08em;color:#bfdbfe">APP SAFE MODE</div><div style="font-size:16px;font-weight:1000;margin-top:3px">U NDAL GLOBAL LOOP</div><div style="font-size:13px;opacity:.82;margin-top:4px;line-height:1.35">Ekrani duket i bllokuar në loading. Nuk po bëhet reload, cache delete, ose SW unregister. Hape një modul nga këtu.</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><a href="/" style="color:#fff;background:#2563eb;padding:9px 10px;border-radius:12px;text-decoration:none;font-weight:900">HOME</a><a href="/pastrimi" style="color:#fff;background:#334155;padding:9px 10px;border-radius:12px;text-decoration:none;font-weight:900">PASTRIMI</a><a href="/gati" style="color:#fff;background:#334155;padding:9px 10px;border-radius:12px;text-decoration:none;font-weight:900">GATI</a><a href="/arka" style="color:#fff;background:#334155;padding:9px 10px;border-radius:12px;text-decoration:none;font-weight:900">ARKA</a><button id="tepiha-visible-stuck-close-v24" type="button" style="color:#fff;background:transparent;border:1px solid rgba(255,255,255,.25);padding:9px 10px;border-radius:12px;font-weight:900">MBYLLE</button></div>';
+              (document.body||document.documentElement).appendChild(panel);
+              try { document.getElementById('tepiha-visible-stuck-close-v24').onclick=function(){ try { panel.remove(); } catch(e){} }; } catch(e){}
+              try { window.dispatchEvent(new CustomEvent('tepiha:visible-stuck-watchdog', { detail: entry })); } catch(e){}
+              return true;
+            } catch(e){ return false; }
+          }
+          function check(reason){ try { if (blocking()) show(reason); } catch(e){} }
+          window.__TEPIHA_VISIBLE_STUCK_WATCHDOG__={show:show,check:check,version:VERSION};
+          setTimeout(function(){ check('timeout_6500'); },6500);
+          setTimeout(function(){ check('timeout_11000'); },11000);
+          try { window.addEventListener('tepiha:pastrimi-loading-timeout', function(){ setTimeout(function(){ check('pastrimi_loading_timeout_event'); },300); }, {passive:true}); } catch(e){}
+          try { window.addEventListener('pageshow', function(){ setTimeout(function(){ check('pageshow_visible_stuck'); },3500); }, {passive:true}); } catch(e){}
+        } catch(e) {}
+      })();
+    </script>
+
   </head>
   <body style="background:#05070d;color:#fff">
     <div
       id="tepiha-build-marker"
       data-tepiha-build-marker="1"
-      data-app-epoch="RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23"
-      data-build-id="2.0.28-vite-hard-refresh-failopen-v23"
-      data-index-script-version="index-html-vite-hard-refresh-failopen-v23"
-      data-pwa-boot-rescue-version="pwa-boot-rescue-vite-hard-refresh-failopen-v23"
+      data-app-epoch="RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24"
+      data-build-id="2.0.29-vite-global-loop-kill-v24"
+      data-index-script-version="index-html-vite-global-loop-kill-v24"
+      data-pwa-boot-rescue-version="pwa-boot-rescue-vite-global-loop-kill-v24"
       style="display:none;position:fixed;left:6px;bottom:calc(58px + env(safe-area-inset-bottom, 0px));z-index:2147482500;max-width:calc(100vw - 12px);padding:3px 5px;border-radius:7px;background:rgba(2,6,23,.52);border:1px solid rgba(96,165,250,.22);color:rgba(191,219,254,.72);font:700 7px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.01em;box-shadow:none;pointer-events:none;opacity:.72"
     >
-      INDEX FAILOPEN • 2.0.28-vite-hard-refresh-failopen-v23<br />
-      RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23<br />
+      INDEX FAILOPEN • 2.0.29-vite-global-loop-kill-v24<br />
+      RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24<br />
       FAILOPEN V23
     </div>
     <div id="root"></div>
