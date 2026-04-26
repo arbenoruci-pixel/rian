@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.22-vite-runtime-arka-main-v18",
+  "version": "2.0.23-vite-pastrimi-banner-compact-v18-1",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",

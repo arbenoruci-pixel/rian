@@ -2562,11 +2562,33 @@ BORXHI PAS: ${remaining.toFixed(2)}€
   }, [orders, exactSearchMode, exactRecoveredRow, openId, deferredSearch]);
 
   const streamPct = Math.min(100, (Number(streamPastrimM2 || 0) / STREAM_MAX_M2) * 100);
+  const pastrimiSourceBadge = /SYNC|REMOTE|DB|SUPABASE/i.test(String(localModeNotice || '')) ? 'SYNC' : 'LOCAL';
 
   return (
     <div className="wrap">
       <header className="header-row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <div><h1 className="title" style={{ margin: 0 }}>PASTRIMI</h1></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <h1 className="title" style={{ margin: 0 }}>PASTRIMI</h1>
+          <span
+            aria-label={`Burimi i të dhënave: ${pastrimiSourceBadge}`}
+            title={pastrimiSourceBadge === 'LOCAL' ? 'TË DHËNA LOKALE' : 'SYNC'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: 20,
+              padding: '2px 7px',
+              borderRadius: 999,
+              border: pastrimiSourceBadge === 'LOCAL' ? '1px solid rgba(59,130,246,.35)' : '1px solid rgba(34,197,94,.35)',
+              background: pastrimiSourceBadge === 'LOCAL' ? 'rgba(59,130,246,.12)' : 'rgba(34,197,94,.12)',
+              color: pastrimiSourceBadge === 'LOCAL' ? '#bfdbfe' : '#bbf7d0',
+              fontSize: 10,
+              fontWeight: 900,
+              letterSpacing: '.04em',
+              lineHeight: 1,
+            }}
+          >{pastrimiSourceBadge}</span>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto' }}>
           <button
             onClick={async () => {
@@ -2597,17 +2619,8 @@ BORXHI PAS: ${remaining.toFixed(2)}€
       <input className="input" placeholder="🔎 Kërko emrin ose kodin..." value={search} onChange={e => setSearch(e.target.value)} />
 
       <section className="card" style={{ padding: '10px' }}>
-        {!loading ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, padding: '8px 10px', borderRadius: 12, border: '1px solid rgba(59,130,246,.28)', background: 'rgba(59,130,246,.10)', color: '#bfdbfe', fontSize: 12, fontWeight: 800, flexWrap: 'wrap', maxWidth: '100%', overflow: 'hidden' }}>
-            <span style={{ flex: '1 1 220px', minWidth: 0, overflowWrap: 'anywhere', lineHeight: 1.3 }}>{visibleOrders.length > 0 ? `Po përdoren të dhënat lokale • ${localModeNotice} • refresh background` : `Po përdoren të dhënat lokale • ${localModeNotice} • lista lokale është bosh`}</span>
-            <div style={{ display: 'flex', gap: 6, flex: '1 1 180px', justifyContent: 'flex-end', flexWrap: 'wrap', minWidth: 0 }}>
-              <button type="button" onClick={() => scheduleRefreshOrders(0, { source: 'manual_local_status_refresh', force: true })} style={{ border: '0', borderRadius: 9, background: '#2563eb', color: '#fff', padding: '6px 8px', fontWeight: 900, flex: '0 1 auto', maxWidth: '100%' }}>Rifresko</button>
-              <button type="button" onClick={() => { enablePastrimiSafeOfflineMode('pastrimi_continue_offline_button'); setLocalModeNotice('SAFE_OFFLINE'); setLoading(false); }} style={{ border: '1px solid rgba(34,197,94,.38)', borderRadius: 9, background: 'rgba(34,197,94,.14)', color: '#bbf7d0', padding: '6px 8px', fontWeight: 900, flex: '0 1 auto', maxWidth: '100%' }}>Vazhdo offline</button>
-            </div>
-          </div>
-        ) : null}
         {!loading && exactSearchMode && visibleOrders.length === 0 ? <p style={{ textAlign: 'center' }}>Po e hapim porosinë nga kërkimi...</p> : null}
-        {loading ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p> : (visibleOrders.length === 0 ? <p style={{ textAlign: 'center', color: 'rgba(255,255,255,.72)' }}>Nuk ka porosi në PASTRIMI në cache lokale.</p> : 
+        {loading ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p> : (visibleOrders.length === 0 ? <p style={{ textAlign: 'center', color: 'rgba(255,255,255,.72)' }}>Nuk ka porosi në PASTRIMI.</p> : 
           visibleOrders.map(o => {
               if (!o || !o.id) return null;
               // SHTUAR: Përmirësimi i Kodit
