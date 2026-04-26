@@ -8,7 +8,13 @@ export function useRouter() {
     replace: (to) => navigate(to, { replace: true }),
     back: () => window.history.back(),
     forward: () => window.history.forward(),
-    refresh: () => window.location.reload(),
+    refresh: () => {
+      try {
+        window.dispatchEvent(new CustomEvent('tepiha:router-refresh-requested', {
+          detail: { source: 'next-navigation-shim', noReload: true, at: new Date().toISOString() }
+        }));
+      } catch {}
+    },
     prefetch: async () => {},
   }), [navigate]);
 }
@@ -29,7 +35,14 @@ export function useParams() {
 
 export function redirect(to) {
   if (typeof window !== 'undefined') {
-    window.location.replace(String(to || '/'));
+    const target = String(to || '/');
+    try {
+      window.dispatchEvent(new CustomEvent('tepiha:router-redirect-requested', {
+        detail: { source: 'next-navigation-shim', target, noBrowserReplace: true, at: new Date().toISOString() }
+      }));
+      window.history?.replaceState?.(window.history.state || {}, '', target);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+    } catch {}
   }
   return null;
 }

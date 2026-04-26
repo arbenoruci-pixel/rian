@@ -61,6 +61,23 @@ function badgeFromHistory(row) {
 }
 
 const AUTH_REPAIR_WAIT_MS = 1800;
+const DB_TIMEOUT_MS = 3500;
+function withTimeout(promise, ms = DB_TIMEOUT_MS, label = 'db_timeout') {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(label);
+        err.code = 'TEPIHA_TIMEOUT';
+        reject(err);
+      }, ms);
+    }),
+  ]).finally(() => {
+    try { if (timer) clearTimeout(timer); } catch {}
+  });
+}
+
 
 export default function PayrollPage() {
   const router = useRouter();
@@ -129,13 +146,13 @@ export default function PayrollPage() {
   async function reloadAll(isSilent = false) {
     if (!isSilent) setLoading(true);
     try {
-      const st = await listUserRecords({ orderBy: "name", ascending: true, eq: { is_active: true } });
+      const st = await withTimeout(listUserRecords({ orderBy: "name", ascending: true, eq: { is_active: true } }), DB_TIMEOUT_MS, 'arka_payroll_users_timeout');
       setStaff((st || []).filter((u) => u?.is_active !== false));
 
-      const rawDebts = await listPendingPaymentRecords({
+      const rawDebts = await withTimeout(listPendingPaymentRecords({
         select: "amount, created_by_name",
         in: { status: ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"] },
-      });
+      }), DB_TIMEOUT_MS, 'arka_payroll_debts_timeout');
 
       const dMap = {};
       (rawDebts || []).forEach((d) => {
@@ -146,7 +163,9 @@ export default function PayrollPage() {
       });
       setDebtsMap(dMap);
     } catch (err) {
-      alert("GABIM: " + normalizeDbError(err));
+      if (!isSilent) {
+        console.warn('PATCH M V25: ARKA/PAYROLL DB timeout/failure; fail-open instead of stuck loader.', err);
+      }
     } finally {
       if (!isSilent) setLoading(false);
     }

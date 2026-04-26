@@ -1181,6 +1181,7 @@ function PastrimiPageInner() {
 
   const [orders, setOrders] = useState(() => buildImmediatePastrimLocalRows());
   const [exactRecoveredRow, setExactRecoveredRow] = useState(null);
+  const [exactSearchTimedOut, setExactSearchTimedOut] = useState(false);
   const [loading, setLoading] = useState(false);
   const [localModeNotice, setLocalModeNotice] = useState('LOCAL_INIT');
   const [search, setSearch] = useState('');
@@ -1254,8 +1255,11 @@ function PastrimiPageInner() {
       hiddenSearchBootRef.current = false;
       visibleSearchRecoveryRef.current = false;
       setExactRecoveredRow(null);
+      setExactSearchTimedOut(false);
       return () => { alive = false; };
     }
+
+    setExactSearchTimedOut(false);
 
     const recoverNow = async (reason, opts = {}) => {
       const row = await recoverExactPastrimRow(openId, opts);
@@ -1299,8 +1303,36 @@ function PastrimiPageInner() {
 
     if (!hiddenBoot) onVisible();
 
+    const exactSearchFailOpenTimer = window.setTimeout(() => {
+      if (!alive) return;
+      try {
+        const localRows = buildImmediatePastrimLocalRows();
+        const hasExact = localRows.some((row) => String(row?.id || '').trim() === openId || String(row?.dbId || '').trim() === openId);
+        if (!hasExact && !exactRecoveredRow) {
+          setExactSearchTimedOut(true);
+          setLoading(false);
+          if (localRows.length > 0) {
+            applyPastrimiRowsLocalFirst(localRows, 'EXACT_SEARCH_TIMEOUT_LOCAL_LIST', { exactSearchTimeout: true, openId });
+          }
+          markPastrimiFailOpenReady('exact_search_timeout_local_fail_open', localRows.length);
+          try {
+            window.localStorage?.setItem?.('tepiha_pastrimi_exact_search_timeout_v25', JSON.stringify({
+              at: new Date().toISOString(),
+              ts: Date.now(),
+              openId,
+              localRowCount: localRows.length,
+              noGlobalBlock: true,
+            }));
+          } catch {}
+        }
+      } catch {
+        try { setExactSearchTimedOut(true); setLoading(false); } catch {}
+      }
+    }, 2600);
+
     return () => {
       alive = false;
+      try { window.clearTimeout(exactSearchFailOpenTimer); } catch {}
       try { document.removeEventListener('visibilitychange', onVisible); } catch {}
       try { window.removeEventListener('pageshow', onVisible); } catch {}
       try { window.removeEventListener('focus', onVisible); } catch {}
@@ -2584,7 +2616,7 @@ BORXHI PAS: ${remaining.toFixed(2)}€
   const visibleOrders = useMemo(() => {
     const list = Array.isArray(orders) ? orders : [];
 
-    if (exactSearchMode && openId) {
+    if (exactSearchMode && openId && !exactSearchTimedOut) {
       const exactList = list.filter((o) => {
         return String(o?.id || '').trim() === openId || String(o?.dbId || '').trim() === openId;
       });
@@ -2593,6 +2625,10 @@ BORXHI PAS: ${remaining.toFixed(2)}€
         return [exactRecoveredRow];
       }
       return [];
+    }
+
+    if (exactSearchMode && exactSearchTimedOut) {
+      return list;
     }
 
     const rawSearch = String(deferredSearch || '');
@@ -2604,7 +2640,7 @@ BORXHI PAS: ${remaining.toFixed(2)}€
       const code = normalizeCode(o?.code || '');
       return name.includes(s) || code.includes(scode);
     });
-  }, [orders, exactSearchMode, exactRecoveredRow, openId, deferredSearch]);
+  }, [orders, exactSearchMode, exactSearchTimedOut, exactRecoveredRow, openId, deferredSearch]);
 
   const streamPct = Math.min(100, (Number(streamPastrimM2 || 0) / STREAM_MAX_M2) * 100);
   const pastrimiSourceBadge = /SYNC|REMOTE|DB|SUPABASE/i.test(String(localModeNotice || '')) ? 'SYNC' : 'LOCAL';
@@ -2663,7 +2699,7 @@ BORXHI PAS: ${remaining.toFixed(2)}€
       <input className="input" placeholder="🔎 Kërko emrin ose kodin..." value={search} onChange={e => setSearch(e.target.value)} />
 
       <section className="card" style={{ padding: '10px' }}>
-        {!loading && exactSearchMode && visibleOrders.length === 0 ? <p style={{ textAlign: 'center' }}>Po e hapim porosinë nga kërkimi...</p> : null}
+        {!loading && exactSearchMode && !exactSearchTimedOut && visibleOrders.length === 0 ? <p data-visible-stuck-candidate="1" style={{ textAlign: 'center' }}>DUKE HAPUR NGA KËRKIMI... Nëse nuk gjendet shpejt, lista lokale hapet vetë.</p> : null}
         {loading && visibleOrders.length === 0 ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar nga cache...</p> : (visibleOrders.length === 0 ? <p style={{ textAlign: 'center', color: 'rgba(255,255,255,.72)' }}>Nuk ka porosi në PASTRIMI.</p> : 
           visibleOrders.map(o => {
               if (!o || !o.id) return null;

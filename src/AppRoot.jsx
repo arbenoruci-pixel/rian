@@ -24,7 +24,7 @@ try {
   }
 } catch {}
 
-const APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER = 'tepiha_runtime_diag_cleanup_done_RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24';
+const APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER = 'tepiha_runtime_diag_cleanup_done_RESET-2026-04-26-VITE-ROUTE-READINESS-V25';
 const OLD_RUNTIME_DIAG_KEYS = [
   'tepiha_app_root_runtime_failure_log_v1',
   'tepiha_app_root_runtime_failure_last_v1',
@@ -47,7 +47,7 @@ function clearStaleRuntimeDiagnosticsForV23() {
     try { window.__TEPIHA_LAST_APP_ROOT_RUNTIME_FAILURE__ = null; } catch {}
     try {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-global-loop-kill-v24',
+        version: 'app-root-vite-route-readiness-v25',
         criticalMode: 'static_runtime_deferred_no_lazy_chunks',
         criticalModules: {},
         lazyModules: {},
@@ -62,7 +62,7 @@ function clearStaleRuntimeDiagnosticsForV23() {
       recordRouteDiagEvent('app_root_runtime_diag_cleanup_v23', {
         path: String(window.location?.pathname || '/'),
         sourceLayer: 'app_root',
-        appEpoch: 'RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24',
+        appEpoch: 'RESET-2026-04-26-VITE-ROUTE-READINESS-V25',
         removedKeys: OLD_RUNTIME_DIAG_KEYS,
       });
     } catch {}
@@ -164,7 +164,10 @@ function RouteRequestTracker() {
       const detail = event?.detail && typeof event.detail === 'object' ? event.detail : null;
       if (!detail) return;
       const routeDiagType = String(detail?.type || '');
-      const routeSettleTypes = new Set(['route_ui_ready', 'route_first_interactive', 'route_first_paint', 'route_component_mount']);
+      // PATCH M / V25: component_mount / first_paint / first_interactive are
+      // diagnostic only. They no longer clear transitionInFlight because they
+      // can happen while the page is still waiting for data.
+      const routeSettleTypes = new Set(['route_ui_ready']);
       if (!routeSettleTypes.has(routeDiagType)) return;
       const livePath = String(location?.pathname || '/');
       const detailPath = String(detail?.currentPath || detail?.path || '');
@@ -227,9 +230,60 @@ function RouteRequestTracker() {
       });
     };
 
+    const onForceSettled = (event) => {
+      try {
+        const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+        const livePath = String(location?.pathname || window.location?.pathname || '/');
+        const detailPath = String(detail?.path || detail?.currentPath || livePath);
+        if (detailPath !== livePath) return;
+        const settledAt = Date.now();
+        const current = window.__TEPIHA_ACTIVE_ROUTE_REQUEST__ && typeof window.__TEPIHA_ACTIVE_ROUTE_REQUEST__ === 'object'
+          ? window.__TEPIHA_ACTIVE_ROUTE_REQUEST__
+          : readActiveRouteRequestSnapshot();
+        const nextRequest = current ? {
+          ...current,
+          path: livePath,
+          currentPath: livePath,
+          transitionInFlight: false,
+          settledAt,
+          settledReason: String(detail?.reason || 'force_route_settled'),
+          forcedRouteSettled: true,
+          source: String(detail?.source || 'force_route_settled'),
+        } : {
+          path: livePath,
+          currentPath: livePath,
+          previousPath: String(previousRef.current?.path || ''),
+          transitionInFlight: false,
+          settledAt,
+          settledReason: String(detail?.reason || 'force_route_settled'),
+          forcedRouteSettled: true,
+          source: String(detail?.source || 'force_route_settled'),
+        };
+        writeActiveRouteRequestSnapshot(nextRequest);
+        const previousTransition = readRuntimeTransition();
+        const cleared = clearRuntimeTransition({
+          reason: String(detail?.reason || 'force_route_settled'),
+          path: livePath,
+          fromPath: String(previousTransition?.fromPath || nextRequest?.previousPath || ''),
+          toPath: livePath,
+        });
+        recordRouteDiagEvent('route_transition_force_cleared', {
+          path: livePath,
+          currentPath: livePath,
+          previousPath: String(previousTransition?.fromPath || nextRequest?.previousPath || ''),
+          transitionInFlight: false,
+          clearedTransition: cleared,
+          sourceLayer: 'app_root',
+          patch: 'PATCH_M_V25_route_readiness',
+          forceDetail: detail,
+        });
+      } catch {}
+    };
     try { window.addEventListener('tepiha:route-diag', onRouteDiag, true); } catch {}
+    try { window.addEventListener('tepiha:force-route-settled', onForceSettled, true); } catch {}
     return () => {
       try { window.removeEventListener('tepiha:route-diag', onRouteDiag, true); } catch {}
+      try { window.removeEventListener('tepiha:force-route-settled', onForceSettled, true); } catch {}
     };
   }, [location?.pathname]);
 
@@ -334,7 +388,7 @@ function getRuntimeStatus() {
   try {
     if (!window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ || typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ !== 'object') {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-global-loop-kill-v24',
+        version: 'app-root-vite-route-readiness-v25',
         criticalMode: 'static_runtime_deferred_no_lazy_chunks',
         criticalModules: {},
         lazyModules: {},

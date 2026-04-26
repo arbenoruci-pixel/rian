@@ -10,6 +10,23 @@ import { getStartupIsolationLeftMs, isWithinStartupIsolationWindow } from '@/lib
 
 const DAY_QUERY_LIMIT = 80;
 const PICKUP_EVENT_NAME = 'tepiha:pickup-committed';
+const DB_TIMEOUT_MS = 3500;
+
+function withTimeout(promise, ms = DB_TIMEOUT_MS, label = 'db_timeout') {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(label);
+        err.code = 'TEPIHA_TIMEOUT';
+        reject(err);
+      }, ms);
+    }),
+  ]).finally(() => {
+    try { if (timer) clearTimeout(timer); } catch {}
+  });
+}
 
 function todayKey() {
   const d = new Date();
@@ -275,7 +292,7 @@ function MarrjeSotList({ online, loading, error, filtered }) {
   }
 
   if (loading) {
-    return <div style={cardStyle}>DUKE LEXUAR NGA DB...</div>;
+    return <div data-visible-stuck-candidate="1" style={cardStyle}>DUKE LEXUAR NGA DB... Nëse rrjeti nuk përgjigjet, cache lokale hapet vetë.</div>;
   }
 
   if (error && filtered.length === 0) {
@@ -398,7 +415,7 @@ export default function MarrjeSotPage() {
       let list = [];
       if (onlineNow && !preferLocal) {
         try {
-          list = await fetchRowsForDate(dateToLoad);
+          list = await withTimeout(fetchRowsForDate(dateToLoad), DB_TIMEOUT_MS, 'marrje_sot_db_timeout');
         } catch (err) {
           console.error('Marrje Sot DB failed, switching to local cache:', err);
           list = await warmLocalPromise;
@@ -498,13 +515,42 @@ export default function MarrjeSotPage() {
 
   useEffect(() => {
     if (!hydrated || !dateKey || !loading) return undefined;
-    const timer = setTimeout(() => {
+    let alive = true;
+    const timer = setTimeout(async () => {
+      if (!alive) return;
       if (latestDateRef.current !== dateKey) return;
       if (!firstLoadSettledRef.current) {
-        setError((prev) => prev || 'PO PRITET RRJETI...');
+        try {
+          const localRows = await Promise.race([
+            buildRowsFromLocal(dateKey),
+            new Promise((resolve) => setTimeout(() => resolve([]), 700)),
+          ]);
+          if (!alive || latestDateRef.current !== dateKey) return;
+          if (Array.isArray(localRows) && localRows.length > 0) {
+            setRows(localRows);
+            setError('RRJETI DËSHTOI. PO SHFAQET CACHE LOKALE.');
+          } else {
+            setError('RRJETI DËSHTOI. NUK U GJET CACHE LOKALE PËR SOT.');
+          }
+        } catch {
+          if (!alive) return;
+          setError('RRJETI DËSHTOI. HAPE HOME OSE PROVO PËRSËRI.');
+        }
+        firstLoadSettledRef.current = true;
+        inFlightRef.current = false;
+        queuedRef.current = false;
+        setLoading(false);
+        try {
+          window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive', {
+            detail: { source: 'marrje_sot_visible_stuck_guard_v25', path: '/marrje-sot', reason: 'db_timeout_fail_open' }
+          }));
+          window.dispatchEvent(new CustomEvent('tepiha:force-route-settled', {
+            detail: { source: 'marrje_sot_visible_stuck_guard_v25', path: '/marrje-sot', reason: 'db_timeout_fail_open' }
+          }));
+        } catch {}
       }
     }, 2200);
-    return () => clearTimeout(timer);
+    return () => { alive = false; clearTimeout(timer); };
   }, [dateKey, hydrated, loading]);
 
   useEffect(() => {

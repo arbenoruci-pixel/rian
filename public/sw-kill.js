@@ -124,12 +124,10 @@
 
     setTimeout(function () {
       try {
-        var url = new URL(window.location.href);
-        url.searchParams.set('__sw_kill', EPOCH);
-        window.location.replace(url.toString());
-      } catch (_) {
-        try { window.location.reload(); } catch (_) {}
-      }
+        window.dispatchEvent(new CustomEvent('tepiha:sw-kill-completed-no-reload', {
+          detail: { epoch: EPOCH, noAutoReload: true, at: new Date().toISOString() }
+        }));
+      } catch (_) {}
     }, 80);
   }
 

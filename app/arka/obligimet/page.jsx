@@ -22,6 +22,23 @@ const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximum
 const WORKER_ROLES = new Set(['PUNTOR', 'PUNETOR', 'WORKER', 'TRANSPORT']);
 const MANAGER_ROLES = new Set(['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN']);
 const AUTH_REPAIR_WAIT_MS = 1800;
+const DB_TIMEOUT_MS = 3500;
+function withTimeout(promise, ms = DB_TIMEOUT_MS, label = 'db_timeout') {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(label);
+        err.code = 'TEPIHA_TIMEOUT';
+        reject(err);
+      }, ms);
+    }),
+  ]).finally(() => {
+    try { if (timer) clearTimeout(timer); } catch {}
+  });
+}
+
 
 function euro(v) { return `€${MONEY.format(Number(v || 0) || 0)}`; }
 function n(v) { const x = Number(v || 0); return Number.isFinite(x) ? x : 0; }
@@ -162,15 +179,22 @@ export default function ArkaObligimetPage() {
     setLoading(true);
     try {
       const [users, summaryRes, ledgerRes, fixed] = await Promise.all([
-        listUserRecords({ orderBy: 'name', ascending: true }).catch(() => []),
-        supabase.from('company_budget_summary').select('id,current_balance,total_in,total_out').eq('id', 1).maybeSingle(),
-        supabase.from('company_budget_ledger').select('id,direction,amount,category,description,created_at').gte('created_at', monthStartIso()).order('created_at', { ascending: false }).limit(240),
-        loadFixedExpenses(actor),
+        withTimeout(listUserRecords({ orderBy: 'name', ascending: true }).catch(() => []), DB_TIMEOUT_MS, 'arka_obligimet_users_timeout'),
+        withTimeout(supabase.from('company_budget_summary').select('id,current_balance,total_in,total_out').eq('id', 1).maybeSingle(), DB_TIMEOUT_MS, 'arka_obligimet_summary_timeout'),
+        withTimeout(supabase.from('company_budget_ledger').select('id,direction,amount,category,description,created_at').gte('created_at', monthStartIso()).order('created_at', { ascending: false }).limit(240), DB_TIMEOUT_MS, 'arka_obligimet_ledger_timeout'),
+        withTimeout(loadFixedExpenses(actor), DB_TIMEOUT_MS, 'arka_obligimet_fixed_timeout'),
       ]);
       setStaff(Array.isArray(users) ? users : []);
       setSummaryRow(summaryRes?.data || null);
       setLedger(Array.isArray(ledgerRes?.data) ? ledgerRes.data : []);
       setFixedExpenses(Array.isArray(fixed) ? fixed : []);
+    } catch (e) {
+      console.warn('PATCH M V25: ARKA/OBLIGIMET DB timeout/failure; using local-safe state.', e);
+      setStaff([]);
+      setSummaryRow(null);
+      setLedger([]);
+      setFixedExpenses(readFixedExpenses());
+      setUsingDb(false);
     } finally {
       setLoading(false);
     }

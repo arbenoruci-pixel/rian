@@ -92,15 +92,8 @@
             }));
           }
         } catch(e) {}
-        await buildDiag('manual_pwa_repair_completed_reload', { before: before, removedServiceWorkers: regs.length, deletedCaches: deleted });
-        setStatus('U krye. Duke hapur app-in me index të ri...');
-        setTimeout(function(){
-          var url = new URL('/', window.location.origin);
-          url.searchParams.set('__manual_update', '1');
-          url.searchParams.set('__html_epoch', EPOCH.slice(0, 90));
-          url.searchParams.set('t', String(Date.now()));
-          window.location.replace(url.toString());
-        }, 250);
+        await buildDiag('manual_pwa_repair_completed_no_auto_reload_v25', { before: before, removedServiceWorkers: regs.length, deletedCaches: deleted, noAutoReload: true });
+        setStatus('U krye pa reload automatik. Mbylle/hape app-in manualisht kur të jesh gati.');
       }
       document.getElementById('repair').onclick = function(){ repair().catch(function(error){ setStatus('Gabim: ' + text(error && error.message || error)); }); };
       buildDiag('manual_repair_page_loaded_auto_disabled');

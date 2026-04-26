@@ -573,9 +573,9 @@ export default function ServiceWorkerRegister() {
               if (escaped) return;
               escaped = true;
               try { if (escapeTimer) window.clearTimeout(escapeTimer); } catch {}
-              setStatus('PATCH L V24: update u përgatit, por reload automatik është i ndalur. Mbylle/hape manualisht kur të kesh kohë.');
+              setStatus('PATCH M V25: versioni i ri u përgatit pa reload automatik. Mbylle/hape app-in manualisht kur të kesh kohë.');
               try {
-                logSwEvent('vite_pwa_sw_manual_update_no_auto_reload_v24', {
+                logSwEvent('vite_pwa_sw_manual_update_no_auto_reload_v25', {
                   noReload: true,
                   manualOnly: true,
                 });
@@ -584,15 +584,18 @@ export default function ServiceWorkerRegister() {
 
             try {
               if (typeof updateSWRef.current === 'function') {
-                safeApplyViteUpdate(updateSWRef.current, true, 'manual_update_banner');
+                safeApplyViteUpdate(updateSWRef.current, false, 'manual_update_banner_no_reload_v25');
                 try { window.setTimeout(finishWithReload, 900); } catch { finishWithReload(); }
                 return;
               }
             } catch {}
 
             try {
-              const registration = registrationRef.current;
-              registration?.waiting?.postMessage?.({ type: 'SKIP_WAITING' });
+              logSwEvent('vite_pwa_sw_manual_update_waiting_no_skipwaiting_v25', {
+                noSkipWaiting: true,
+                noReload: true,
+                source: 'manual_update_banner',
+              });
             } catch {}
 
             finishWithReload();
@@ -720,18 +723,13 @@ export default function ServiceWorkerRegister() {
             try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_manual_repair_v12', JSON.stringify(result)); } catch {}
             try { logSwEvent('legacy_sw_bridge_manual_repair_done', result); } catch {}
 
-            setStatus('Riparimi manual u krye. Po hapet app-i përsëri...');
+            setStatus('PATCH M V25: riparimi manual u regjistrua pa reload automatik. Mbylle/hape app-in manualisht nëse ende sheh problem.');
             try {
-              window.setTimeout(() => {
-                try {
-                  const url = new URL(window.location.href);
-                  url.searchParams.set('__legacy_sw_repair', String(Date.now()));
-                  url.searchParams.set('__epoch', APP_DATA_EPOCH.slice(0, 90));
-                  window.location.replace(url.toString());
-                } catch {
-                  try { window.location.reload(); } catch {}
-                }
-              }, 350);
+              logSwEvent('legacy_sw_bridge_manual_repair_no_auto_reload_v25', {
+                noReload: true,
+                noLocationReplace: true,
+                manualOnly: true,
+              });
             } catch {}
           };
         }

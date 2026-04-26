@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.29-vite-global-loop-kill-v24",
+  "version": "2.0.30-vite-route-readiness-v25",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",

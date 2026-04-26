@@ -38,7 +38,14 @@ export function useRouter() {
     back: () => navigate(-1),
     forward: () => navigate(1),
     refresh: () => {
-      try { window.location.reload(); } catch {}
+      // PATCH M / V25: Next.js router.refresh() shim must never hard reload
+      // the Vite PWA. Emit a diagnostic event and let page-level refresh logic
+      // decide what to do.
+      try {
+        window.dispatchEvent(new CustomEvent('tepiha:router-refresh-requested', {
+          detail: { source: 'routerCompat', noReload: true, at: new Date().toISOString() }
+        }));
+      } catch {}
     },
     prefetch: async () => {},
   }), [navigate]);
@@ -61,7 +68,13 @@ export function useParams() {
 export function redirect(to) {
   const target = normalizeTo(to, '/');
   if (typeof window !== 'undefined') {
-    try { window.location.replace(target); } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent('tepiha:router-redirect-requested', {
+        detail: { source: 'routerCompat', target, noBrowserReplace: true, at: new Date().toISOString() }
+      }));
+      window.history?.replaceState?.(window.history.state || {}, '', target);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+    } catch {}
   }
   return null;
 }

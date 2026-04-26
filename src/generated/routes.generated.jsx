@@ -165,8 +165,16 @@ function RouteLifecycleProbe({ path, label, kind = 'route', sourceLayer = 'route
       recordRouteDiagEvent('route_first_paint', base);
       interactiveRaf = window.requestAnimationFrame(() => {
         interactiveTimer = window.setTimeout(() => {
-          recordRouteDiagEvent('route_first_interactive', base);
-          markReady('route_first_interactive_timer', { path: actualPathRef.current || actualPath });
+          recordRouteDiagEvent('route_first_interactive', {
+            ...base,
+            diagnosticOnly: true,
+            noUiReady: true,
+            patch: 'PATCH_M_V25_route_readiness',
+          });
+          // PATCH M / V25: first paint/interactive means the route bundle rendered,
+          // not that the page data/UI is truly ready. Only page-owned events
+          // (tepiha:first-ui-ready / tepiha:route-ui-alive / DOM data-ui-ready)
+          // may mark route_ui_ready.
         }, 0);
       });
     });

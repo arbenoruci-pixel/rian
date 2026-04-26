@@ -30,6 +30,23 @@ function normalizeDbError(errLike) {
 }
 
 const AUTH_REPAIR_WAIT_MS = 1800;
+const DB_TIMEOUT_MS = 3500;
+function withTimeout(promise, ms = DB_TIMEOUT_MS, label = 'db_timeout') {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(label);
+        err.code = 'TEPIHA_TIMEOUT';
+        reject(err);
+      }, ms);
+    }),
+  ]).finally(() => {
+    try { if (timer) clearTimeout(timer); } catch {}
+  });
+}
+
 
 export default function StaffPage() {
   const router = useRouter();
@@ -100,14 +117,14 @@ export default function StaffPage() {
     if (!isSilent) setLoading(true);
 
     try {
-      const st = await listUserRecords({ orderBy: "name", ascending: true, eq: { is_active: true } });
+      const st = await withTimeout(listUserRecords({ orderBy: "name", ascending: true, eq: { is_active: true } }), DB_TIMEOUT_MS, 'arka_stafi_users_timeout');
       setStaff((st || []).filter((u) => u?.is_active !== false));
 
-      const { data: rawDevices, error: devErr } = await supabase
+      const { data: rawDevices, error: devErr } = await withTimeout(supabase
         .from("tepiha_user_devices")
         .select("*")
         .eq("is_approved", false)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false }), DB_TIMEOUT_MS, 'arka_stafi_devices_timeout');
 
       if (devErr) throw devErr;
 
@@ -124,7 +141,9 @@ export default function StaffPage() {
       setPending(hydrated);
     } catch (err) {
       console.error("Gabim sinkronizimi:", err);
-      alert("GABIM: " + normalizeDbError(err));
+      if (!isSilent) {
+        console.warn('PATCH M V25: ARKA/STAFI DB timeout/failure; fail-open instead of stuck loader.', err);
+      }
     } finally {
       if (!isSilent) setLoading(false);
     }
