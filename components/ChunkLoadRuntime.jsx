@@ -126,6 +126,28 @@ function isModuleScriptTarget(meta = {}) {
   return false;
 }
 
+function isOptionalReconcileAssetError(meta = {}, lastAttempt = null) {
+  try {
+    const values = [
+      meta?.targetSrc,
+      meta?.filename,
+      meta?.resolvedTargetSrc,
+      meta?.message,
+      lastAttempt?.requestedModule,
+      lastAttempt?.importerHint,
+      lastAttempt?.label,
+      lastAttempt?.moduleName,
+      lastAttempt?.importCaller,
+    ].map((value) => String(value || '')).join(' ');
+
+    return /\/assets\/reconcile-[^/]*\.js(?:\?|$|\s)/i.test(values)
+      || /(?:^|\s|['"])@?\/?lib\/reconcile\//i.test(values)
+      || /(?:^|\s|['"])@\/lib\/reconcile\//i.test(values);
+  } catch {
+    return false;
+  }
+}
+
 function chunkMetaFromErrorLike(errorLike, extra = {}) {
   const message = String(errorLike?.message || errorLike || '');
   const stack = String(errorLike?.stack || '');
@@ -180,6 +202,32 @@ export default function ChunkLoadRuntime() {
       const resolvedTargetSrc = resolveAssetUrl(meta.targetSrc || meta.filename || '');
       const routePath = (() => { try { return String(window.location?.pathname || ''); } catch { return ''; } })();
       const previousPath = readPreviousPath();
+
+      if (isOptionalReconcileAssetError({ ...meta, resolvedTargetSrc }, lastAttempt)) {
+        try {
+          recordRouteDiagEvent('optional_reconcile_modulepreload_error_suppressed', {
+            path: routePath,
+            currentPath: routePath,
+            previousPath,
+            targetSrc: String(meta.targetSrc || ''),
+            targetRel: String(meta.targetRel || ''),
+            resolvedAssetUrl: resolvedTargetSrc,
+            importCaller: String(lastAttempt?.importCaller || ''),
+            label: String(lastAttempt?.label || ''),
+            requestedModule: String(lastAttempt?.requestedModule || ''),
+            sourceLayer: 'chunk_load_runtime',
+            message: String(meta.message || ''),
+            navigationType: readNavigationType(),
+            hiddenElapsedMs: readHiddenElapsedMs(),
+            moduleLoadPhase: readModuleLoadPhase(),
+            performanceEntries: readPerformanceEntriesByName(resolvedTargetSrc),
+            optionalHelper: true,
+          });
+        } catch {}
+        try { bootLog('optional_reconcile_modulepreload_error_suppressed', { targetSrc: String(meta.targetSrc || ''), resolvedAssetUrl: resolvedTargetSrc, path: routePath }); } catch {}
+        return;
+      }
+
       const capture = recordChunkCapture('window_module_error', {
         ...meta,
         moduleTarget,

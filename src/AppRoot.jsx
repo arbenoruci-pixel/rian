@@ -6,10 +6,16 @@ import AuthGate from '@/components/AuthGate';
 import GlobalErrorBoundary from '@/components/GlobalErrorBoundary';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import OfflineSyncRunner from '@/components/OfflineSyncRunner.jsx';
+import ChunkLoadRuntime from '@/components/ChunkLoadRuntime.jsx';
+import RootResumeWatchdog from '@/components/RootResumeWatchdog.jsx';
+import ServiceWorkerRegister from '@/components/ServiceWorkerRegister.jsx';
+import SyncStarter from '@/components/SyncStarter.jsx';
+import RuntimeIncidentUploader from '@/components/RuntimeIncidentUploader.jsx';
+import SessionDock from '@/components/SessionDock.jsx';
+import OfflineFirstWarmup from '@/components/OfflineFirstWarmup.jsx';
 import DeferredMount from '@/components/DeferredMount';
 import { appRoutes } from './generated/routes.generated.jsx';
 import { ACTIVE_ROUTE_REQUEST_KEY, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
-import { lazyWithReload } from '@/lib/lazyWithReload.jsx';
 import { clearRuntimeTransition, readRuntimeTransition } from '@/lib/rootResumePanic';
 
 try {
@@ -18,55 +24,52 @@ try {
   }
 } catch {}
 
-const RUNTIME_MODULE_DISABLED_KEY = 'tepiha_runtime_module_disabled_v1';
-const RUNTIME_MODULE_RETRY_DELAY_MS = 15000;
-const RUNTIME_MODULE_MAX_SILENT_RETRIES = 1;
+const APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER = 'tepiha_runtime_diag_cleanup_done_RESET-2026-04-26-VITE-STATIC-RUNTIME-V21';
+const OLD_RUNTIME_DIAG_KEYS = [
+  'tepiha_app_root_runtime_failure_log_v1',
+  'tepiha_app_root_runtime_failure_last_v1',
+  'tepiha_silent_lazy_failure_log_v1',
+  'tepiha_runtime_module_disabled_v1',
+];
 
-function readRuntimeModuleDisabledMap() {
+function clearStaleRuntimeDiagnosticsForV21() {
   try {
-    if (typeof window === 'undefined') return {};
-    const raw = window.sessionStorage?.getItem?.(RUNTIME_MODULE_DISABLED_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
+    if (typeof window === 'undefined') return;
+    const marker = window.localStorage?.getItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER)
+      || window.sessionStorage?.getItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER);
+    if (marker === '1') return;
+
+    OLD_RUNTIME_DIAG_KEYS.forEach((key) => {
+      try { window.localStorage?.removeItem?.(key); } catch {}
+      try { window.sessionStorage?.removeItem?.(key); } catch {}
+    });
+
+    try { window.__TEPIHA_LAST_APP_ROOT_RUNTIME_FAILURE__ = null; } catch {}
+    try {
+      window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
+        version: 'app-root-vite-static-runtime-v21',
+        criticalMode: 'static_runtime_deferred_no_lazy_chunks',
+        criticalModules: {},
+        lazyModules: {},
+        failures: [],
+        lastUpdatedAt: new Date().toISOString(),
+        staleRuntimeDiagCleanup: true,
+      };
+    } catch {}
+    try { window.localStorage?.setItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER, '1'); } catch {}
+    try { window.sessionStorage?.setItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER, '1'); } catch {}
+    try {
+      recordRouteDiagEvent('app_root_runtime_diag_cleanup_v21', {
+        path: String(window.location?.pathname || '/'),
+        sourceLayer: 'app_root',
+        appEpoch: 'RESET-2026-04-26-VITE-STATIC-RUNTIME-V21',
+        removedKeys: OLD_RUNTIME_DIAG_KEYS,
+      });
+    } catch {}
+  } catch {}
 }
 
-function isRuntimeModuleDisabled(name) {
-  try {
-    const key = String(name || '').trim();
-    if (!key) return false;
-    const map = readRuntimeModuleDisabledMap();
-    return !!map[key];
-  } catch {
-    return false;
-  }
-}
-
-function markRuntimeModuleDisabled(name, reason = 'runtime_module_disabled', extra = {}) {
-  try {
-    if (typeof window === 'undefined') return null;
-    const key = String(name || '').trim();
-    if (!key) return null;
-    const map = readRuntimeModuleDisabledMap();
-    const entry = {
-      name: key,
-      reason: String(reason || 'runtime_module_disabled'),
-      at: new Date().toISOString(),
-      ts: Date.now(),
-      path: String(window.location?.pathname || '/'),
-      ...extra,
-    };
-    map[key] = entry;
-    window.sessionStorage?.setItem?.(RUNTIME_MODULE_DISABLED_KEY, JSON.stringify(map));
-    try { window.dispatchEvent(new CustomEvent('tepiha:runtime-module-disabled', { detail: entry })); } catch {}
-    try { recordRouteDiagEvent('app_root_runtime_module_disabled', entry); } catch {}
-    return entry;
-  } catch {
-    return null;
-  }
-}
+clearStaleRuntimeDiagnosticsForV21();
 
 function safeParseJson(raw, fallback = null) {
   try {
@@ -284,8 +287,8 @@ function getRuntimeStatus() {
   try {
     if (!window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ || typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ !== 'object') {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-fast-home-v12',
-        criticalMode: 'home_eager_business_safe_lazy_fastboot',
+        version: 'app-root-vite-static-runtime-v21',
+        criticalMode: 'static_runtime_deferred_no_lazy_chunks',
         criticalModules: {},
         lazyModules: {},
         failures: [],
@@ -302,7 +305,7 @@ function markRuntimeModule(name, source = 'home_eager_business_safe_lazy_fastboo
   try {
     const status = getRuntimeStatus();
     if (!status) return;
-    const bucket = source === 'lazy_chunk' ? 'lazyModules' : 'criticalModules';
+    const bucket = 'criticalModules';
     status[bucket] = status[bucket] && typeof status[bucket] === 'object' ? status[bucket] : {};
     status[bucket][name] = {
       name,
@@ -324,7 +327,7 @@ function recordRuntimeFailure(name, error, source = 'core_bundle_static_import',
       name,
       moduleName: name,
       source,
-      sourceLayer: source === 'lazy_chunk' ? 'app_root_runtime_lazy' : 'app_root_runtime_core',
+      sourceLayer: 'app_root_runtime_core',
       message: String(error?.message || error || 'runtime_module_failure'),
       stack: String(error?.stack || ''),
       at: new Date().toISOString(),
@@ -370,7 +373,7 @@ function RuntimeBoundary({ name, source = 'core_bundle_static_import', children 
       moduleName={name}
       moduleId={name}
       componentName={name}
-      sourceLayer={source === 'lazy_chunk' ? 'app_root_runtime_lazy' : 'app_root_runtime_core'}
+      sourceLayer="app_root_runtime_core"
       showHome={false}
       onError={handleError}
       renderFallback={() => null}
@@ -400,231 +403,6 @@ function CoreRuntimeModule({ name, children }) {
   );
 }
 
-function isRuntimeReactComponent(value) {
-  if (typeof value === 'function') return true;
-  if (value && typeof value === 'object') {
-    try {
-      const marker = String(value.$$typeof || '');
-      if (marker.includes('react.')) return true;
-    } catch {}
-  }
-  return false;
-}
-
-function normalizeRuntimeLazyModule(mod, name) {
-  if (isRuntimeReactComponent(mod)) return { default: mod };
-  if (mod && typeof mod === 'object' && isRuntimeReactComponent(mod.default)) return mod;
-
-  const message = `AppRoot runtime lazy module ${name} resolved without a default export`;
-  const error = new TypeError(message);
-  try {
-    error.moduleName = name;
-    error.sourceLayer = 'app_root_runtime_lazy';
-    error.resolvedModuleType = typeof mod;
-    error.resolvedModuleKeys = mod && typeof mod === 'object' ? Object.keys(mod).slice(0, 12) : [];
-  } catch {}
-  throw error;
-}
-
-async function importRuntimeLazyModule(importer, name, retryCount) {
-  const meta = {
-    path: String(window.location?.pathname || '/runtime'),
-    currentPath: String(window.location?.pathname || '/runtime'),
-    kind: 'component',
-    label: name,
-    moduleName: name,
-    moduleId: name,
-    requestedModule: name,
-    importerHint: name,
-    importCaller: 'AppRootRuntime',
-    componentName: name,
-    retryCount,
-    importRetryCount: retryCount,
-    sourceLayer: 'app_root_runtime_lazy',
-  };
-
-  try {
-    recordRouteDiagEvent('app_root_runtime_lazy_import_start', meta);
-  } catch {}
-
-  try {
-    const mod = normalizeRuntimeLazyModule(await importer(), name);
-    try {
-      recordRouteDiagEvent('app_root_runtime_lazy_import_success', {
-        ...meta,
-        settledAt: new Date().toISOString(),
-      });
-    } catch {}
-    return mod;
-  } catch (error) {
-    try {
-      recordRouteDiagEvent('app_root_runtime_lazy_import_failure', {
-        ...meta,
-        settledAt: new Date().toISOString(),
-        error: {
-          name: String(error?.name || ''),
-          message: String(error?.message || error || ''),
-          stack: String(error?.stack || '').slice(0, 4000),
-          moduleName: String(error?.moduleName || name),
-          sourceLayer: String(error?.sourceLayer || 'app_root_runtime_lazy'),
-          resolvedModuleType: String(error?.resolvedModuleType || ''),
-          resolvedModuleKeys: Array.isArray(error?.resolvedModuleKeys) ? error.resolvedModuleKeys : [],
-        },
-      });
-    } catch {}
-    throw error;
-  }
-}
-
-function makeRuntimeLazy(importer, name, retryCount, onSilentFailure) {
-  return lazyWithReload(() => importRuntimeLazyModule(importer, name, retryCount), {
-    label: name,
-    moduleId: name,
-    storageKey: `app_root_runtime_lazy:${name}`,
-    sourceLayer: 'app_root_runtime_lazy',
-    reloadWindowMs: 30000,
-    silentFallback: true,
-    silent: true,
-    silentRuntimeModule: true,
-    onSilentFailure,
-    meta: {
-      kind: 'component',
-      moduleName: name,
-      requestedModule: name,
-      importerHint: name,
-      importCaller: 'AppRootRuntime',
-      componentName: name,
-      retryCount,
-      importRetryCount: retryCount,
-      silentRuntimeModule: true,
-    },
-  });
-}
-
-function SafeRuntimeLazy({ name, importer }) {
-  const [retryCount, setRetryCount] = React.useState(0);
-  const [disabled, setDisabled] = React.useState(() => isRuntimeModuleDisabled(name));
-  const autoRetryRef = React.useRef(0);
-  const timersRef = React.useRef([]);
-
-  const disableForSession = React.useCallback((reason, extra = {}) => {
-    markRuntimeModuleDisabled(name, reason, {
-      retryCount,
-      importRetryCount: retryCount,
-      autoRetryCount: autoRetryRef.current,
-      ...extra,
-    });
-    setDisabled(true);
-  }, [name, retryCount]);
-
-  const scheduleSilentRetryOrDisable = React.useCallback((reason, extra = {}) => {
-    const autoRetryCount = Number(autoRetryRef.current || 0) || 0;
-    if (autoRetryCount >= RUNTIME_MODULE_MAX_SILENT_RETRIES) {
-      disableForSession(`${reason || 'runtime_module_failure'}_after_retry`, extra);
-      return;
-    }
-
-    autoRetryRef.current = autoRetryCount + 1;
-    const delay = RUNTIME_MODULE_RETRY_DELAY_MS;
-    try {
-      recordRouteDiagEvent('app_root_runtime_silent_retry_scheduled', {
-        path: String(window.location?.pathname || '/'),
-        moduleName: name,
-        sourceLayer: 'app_root_runtime_lazy',
-        retryCount,
-        nextRetryCount: retryCount + 1,
-        autoRetryCount: autoRetryRef.current,
-        delayMs: delay,
-        reason,
-        ...extra,
-      });
-    } catch {}
-
-    const timer = window.setTimeout(() => {
-      setRetryCount((value) => Number(value || 0) + 1);
-    }, delay);
-    timersRef.current.push(timer);
-  }, [disableForSession, name, retryCount]);
-
-  const handleRetry = React.useCallback(() => {
-    autoRetryRef.current = 0;
-    setDisabled(false);
-    setRetryCount((value) => Number(value || 0) + 1);
-  }, []);
-
-  const handleSilentImportFailure = React.useCallback((payload, error) => {
-    const normalizedError = error || payload?.error || payload?.payload?.error || new Error(`Runtime module ${name} failed to import`);
-    recordRuntimeFailure(name, normalizedError, 'lazy_chunk', {
-      silentRuntimeModule: true,
-      lazyImportPayload: payload || null,
-      retryCount,
-      importRetryCount: retryCount,
-      autoRetryCount: autoRetryRef.current,
-    });
-    scheduleSilentRetryOrDisable('runtime_lazy_import_failure', {
-      lazyImportPayload: payload || null,
-    });
-  }, [name, retryCount, scheduleSilentRetryOrDisable]);
-
-  const handleError = React.useCallback((entry, error) => {
-    recordRuntimeFailure(name, error, 'lazy_chunk', {
-      localErrorEntry: entry,
-      silentRuntimeModule: true,
-      retryCount,
-      importRetryCount: retryCount,
-      autoRetryCount: autoRetryRef.current,
-      assetUrl: String(entry?.assetUrl || entry?.resolvedAssetUrl || entry?.meta?.assetUrl || entry?.meta?.resolvedAssetUrl || ''),
-    });
-    scheduleSilentRetryOrDisable('runtime_render_failure', {
-      localErrorEntry: entry,
-      assetUrl: String(entry?.assetUrl || entry?.resolvedAssetUrl || entry?.meta?.assetUrl || entry?.meta?.resolvedAssetUrl || ''),
-    });
-  }, [name, retryCount, scheduleSilentRetryOrDisable]);
-
-  const LazyRuntime = React.useMemo(
-    () => makeRuntimeLazy(importer, name, retryCount, handleSilentImportFailure),
-    [handleSilentImportFailure, importer, name, retryCount],
-  );
-
-  React.useEffect(() => () => {
-    try { timersRef.current.forEach((timer) => window.clearTimeout(timer)); } catch {}
-    timersRef.current = [];
-  }, []);
-
-  React.useEffect(() => {
-    if (disabled) return;
-    markRuntimeModule(name, 'lazy_chunk', {
-      retryCount,
-      silentRuntimeModule: true,
-    });
-  }, [disabled, name, retryCount]);
-
-  if (disabled) return null;
-
-  return (
-    <RuntimeBoundary name={name} source="lazy_chunk">
-      <LocalErrorBoundary
-        boundaryKind="runtime"
-        routePath="/runtime"
-        routeName="APP RUNTIME"
-        moduleName={name}
-        moduleId={name}
-        componentName={name}
-        sourceLayer="app_root_runtime_lazy"
-        showHome={false}
-        resetKeys={[name, retryCount]}
-        onRetry={handleRetry}
-        onError={handleError}
-        renderFallback={() => null}
-        extraMeta={{ moduleName: name, moduleId: name, importCaller: 'AppRootRuntime', retryCount, importRetryCount: retryCount, autoRetryCount: autoRetryRef.current, silentRuntimeModule: true }}
-      >
-        <React.Suspense fallback={null}>
-          <LazyRuntime />
-        </React.Suspense>
-      </LocalErrorBoundary>
-    </RuntimeBoundary>
-  );
-}
 
 
 export default function AppRoot() {
@@ -640,15 +418,27 @@ export default function AppRoot() {
           </Routes>
 
           <DeferredMount delay={1500} idle wakeSafe wakeBufferMs={350} waitForOwnerSignal={false}>
-            <SafeRuntimeLazy name="ChunkLoadRuntime" importer={() => import('@/components/ChunkLoadRuntime.jsx')} />
+            <CoreRuntimeModule name="ChunkLoadRuntime">
+              <ChunkLoadRuntime />
+            </CoreRuntimeModule>
           </DeferredMount>
 
           <DeferredMount delay={2000} idle wakeSafe wakeBufferMs={450} waitForOwnerSignal={false}>
-            <SafeRuntimeLazy name="RootResumeWatchdog" importer={() => import('@/components/RootResumeWatchdog.jsx')} />
+            <CoreRuntimeModule name="RootResumeWatchdog">
+              <RootResumeWatchdog />
+            </CoreRuntimeModule>
           </DeferredMount>
 
           <DeferredMount delay={2100} idle wakeSafe wakeBufferMs={500} waitForOwnerSignal={false} runtimeOwner>
-            <SafeRuntimeLazy name="ServiceWorkerRegister" importer={() => import('@/components/ServiceWorkerRegister.jsx')} />
+            <CoreRuntimeModule name="ServiceWorkerRegister">
+              <ServiceWorkerRegister />
+            </CoreRuntimeModule>
+          </DeferredMount>
+
+          <DeferredMount delay={2800} idle wakeSafe wakeBufferMs={500} waitForOwnerSignal={false}>
+            <CoreRuntimeModule name="SessionDock">
+              <SessionDock />
+            </CoreRuntimeModule>
           </DeferredMount>
 
           <DeferredMount delay={3600} idle wakeSafe wakeBufferMs={700} waitForOwnerSignal={false}>
@@ -658,19 +448,21 @@ export default function AppRoot() {
           </DeferredMount>
 
           <DeferredMount delay={3900} idle wakeSafe wakeBufferMs={700} waitForOwnerSignal={false}>
-            <SafeRuntimeLazy name="SyncStarter" importer={() => import('@/components/SyncStarter.jsx')} />
+            <CoreRuntimeModule name="SyncStarter">
+              <SyncStarter />
+            </CoreRuntimeModule>
           </DeferredMount>
 
           <DeferredMount delay={4500} idle wakeSafe wakeBufferMs={900} waitForOwnerSignal={false}>
-            <SafeRuntimeLazy name="RuntimeIncidentUploader" importer={() => import('@/components/RuntimeIncidentUploader.jsx')} />
-          </DeferredMount>
-
-          <DeferredMount delay={2800} idle wakeSafe wakeBufferMs={500} waitForOwnerSignal={false}>
-            <SafeRuntimeLazy name="SessionDock" importer={() => import('@/components/SessionDock.jsx')} />
+            <CoreRuntimeModule name="RuntimeIncidentUploader">
+              <RuntimeIncidentUploader />
+            </CoreRuntimeModule>
           </DeferredMount>
 
           <DeferredMount delay={5600} idle wakeSafe wakeBufferMs={1200} waitForOwnerSignal={false}>
-            <SafeRuntimeLazy name="OfflineFirstWarmup" importer={() => import('@/components/OfflineFirstWarmup.jsx')} />
+            <CoreRuntimeModule name="OfflineFirstWarmup">
+              <OfflineFirstWarmup />
+            </CoreRuntimeModule>
           </DeferredMount>
         </AuthGate>
       </GlobalErrorBoundary>
