@@ -2,7 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link, { useRouter } from '@/lib/routerCompat.jsx';
-import { APP_VERSION } from '@/lib/appEpoch';
+import { APP_DATA_EPOCH, APP_VERSION } from '@/lib/appEpoch';
+import { searchHomeLocal } from '@/lib/homeSearch';
 import useRouteAlive, { markRouteUiAlive } from '@/lib/routeAlive';
 
 const HOME_FAST_BOOT_VERSION = 'home-fast-boot-design-restore-v13';
@@ -13,30 +14,6 @@ function isOnlineNow() {
   } catch {
     return true;
   }
-}
-
-function normalizeSearch(value) {
-  return String(value || '').trim();
-}
-
-function isTransportCode(value) {
-  const raw = normalizeSearch(value).replace(/\s+/g, '').toUpperCase();
-  return /^T\d+$/.test(raw);
-}
-
-function normalizeTransportCode(value) {
-  const raw = normalizeSearch(value).replace(/\s+/g, '').toUpperCase();
-  const digits = raw.replace(/^T+/i, '').replace(/\D+/g, '');
-  return digits ? `T${digits}` : raw;
-}
-
-function primarySearchHref(value) {
-  const raw = normalizeSearch(value);
-  if (!raw) return '';
-  if (isTransportCode(raw)) {
-    return `/transport/item?code=${encodeURIComponent(normalizeTransportCode(raw))}&from=home_search_fast_v13`;
-  }
-  return `/search?q=${encodeURIComponent(raw)}&from=home_fast_v13`;
 }
 
 function StatusPill({ online }) {
@@ -54,8 +31,14 @@ export default function HomePage() {
   const renderedAtRef = useRef(Date.now());
   const readyMarkedRef = useRef(false);
   const debugHoldTimerRef = useRef(null);
+  const searchSeqRef = useRef(0);
   const [online, setOnline] = useState(isOnlineNow);
   const [q, setQ] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchSubmitted, setSearchSubmitted] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchMeta, setSearchMeta] = useState(null);
+  const [searchError, setSearchError] = useState('');
 
   useEffect(() => {
     try {
@@ -122,13 +105,83 @@ export default function HomePage() {
     };
   }, []);
 
-  const searchHref = useMemo(() => primarySearchHref(q), [q]);
+  const queryReady = useMemo(() => String(q || '').trim().length > 0, [q]);
 
-  const submitSearch = (event) => {
-    event?.preventDefault?.();
-    const href = primarySearchHref(q);
+  const clearSearch = () => {
+    setQ('');
+    setSearchSubmitted(false);
+    setSearchResults([]);
+    setSearchMeta(null);
+    setSearchError('');
+  };
+
+  const openSearchResult = (result) => {
+    const href = String(result?.href || '').trim();
     if (!href) return;
     router.push(href);
+  };
+
+  const submitSearch = async (event) => {
+    event?.preventDefault?.();
+    const raw = String(q || '').trim();
+    if (!raw || searching) return;
+
+    const seq = searchSeqRef.current + 1;
+    searchSeqRef.current = seq;
+    setSearching(true);
+    setSearchSubmitted(true);
+    setSearchError('');
+
+    try {
+      const result = await searchHomeLocal(raw, {
+        appVersion: APP_VERSION,
+        epoch: APP_DATA_EPOCH,
+        limit: 12,
+      });
+      if (searchSeqRef.current !== seq) return;
+      const rows = Array.isArray(result?.results) ? result.results : [];
+      setSearchResults(rows);
+      setSearchMeta(result || null);
+      if (rows.length === 1 && rows[0]?.href) {
+        const status = String(rows[0]?.status || '').trim().toLowerCase();
+        const knownStage = rows[0]?.kind === 'TRANSPORT' || [
+          'pranim',
+          'pranimi',
+          'pastrim',
+          'pastrimi',
+          'cleaning',
+          'gati',
+          'ready',
+          'marrje',
+          'marrje_sot',
+          'dorzim',
+          'dorzuar',
+          'delivered',
+        ].includes(status);
+        if (knownStage) router.push(rows[0].href);
+      }
+    } catch (error) {
+      if (searchSeqRef.current !== seq) return;
+      setSearchResults([]);
+      setSearchMeta(null);
+      setSearchError('Kërkimi lokal nuk u krye. Provo përsëri.');
+      try {
+        window.localStorage.setItem('tepiha_home_search_last_v1', JSON.stringify({
+          query: raw,
+          normalizedQuery: null,
+          timestamp: new Date().toISOString(),
+          baseLocalCount: 0,
+          transportLocalCount: 0,
+          resultsCount: 0,
+          error: String(error?.message || error),
+          online: typeof navigator === 'undefined' ? true : navigator.onLine !== false,
+          appVersion: APP_VERSION,
+          epoch: APP_DATA_EPOCH,
+        }));
+      } catch {}
+    } finally {
+      if (searchSeqRef.current === seq) setSearching(false);
+    }
   };
 
   const openGatiSafe = () => {
@@ -176,13 +229,65 @@ export default function HomePage() {
           <input
             className="search-input"
             value={q}
-            onChange={(event) => setQ(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              setQ(next);
+              if (!String(next || '').trim()) {
+                setSearchSubmitted(false);
+                setSearchResults([]);
+                setSearchMeta(null);
+                setSearchError('');
+              }
+            }}
             placeholder="Shkruaj kodin, emrin ose telefonin"
             inputMode="text"
             autoComplete="off"
           />
-          <button className="search-btn" type="submit" disabled={!searchHref}>KËRKO</button>
+          {q ? (
+            <button className="search-clear" type="button" onClick={clearSearch} aria-label="Pastro kërkimin">×</button>
+          ) : null}
+          <button className="search-btn" type="submit" disabled={!queryReady || searching}>{searching ? '...' : 'KËRKO'}</button>
         </form>
+
+        {searchSubmitted ? (
+          <div className="search-results-panel">
+            <div className="search-results-head">
+              <span>{searching ? 'DUKE KËRKUAR LOKALISHT…' : `${searchResults.length} REZULTAT${searchResults.length === 1 ? '' : 'E'}`}</span>
+              <span className="search-source-badge">LOCAL</span>
+            </div>
+
+            {searchError ? <div className="search-empty">{searchError}</div> : null}
+
+            {!searching && !searchError && searchResults.length === 0 ? (
+              <div className="search-empty">
+                Nuk u gjet asnjë porosi lokale. Provo me emër, tel, kod ose T-code.
+                {searchMeta ? (
+                  <span className="search-counts">BASE {searchMeta.baseLocalCount || 0} • TRANSPORT {searchMeta.transportLocalCount || 0}</span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {searchResults.length > 0 ? (
+              <div className="search-results-list">
+                {searchResults.map((item, index) => (
+                  <button
+                    key={`${item.kind}-${item.id || item.code || index}`}
+                    className="search-result-row"
+                    type="button"
+                    onClick={() => openSearchResult(item)}
+                  >
+                    <span className={`result-kind ${item.kind === 'TRANSPORT' ? 'transport' : 'base'}`}>{item.kind}</span>
+                    <span className="result-main">
+                      <span className="result-title">{item.code || '—'} • {String(item.name || 'PA EMËR').toUpperCase()}</span>
+                      <span className="result-sub">{item.phone ? `${item.phone} • ` : ''}{String(item.status || '').toUpperCase()}</span>
+                    </span>
+                    <span className="result-open">HAP</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="modules-section">
@@ -284,8 +389,31 @@ export default function HomePage() {
         .search-box { display: flex; gap: 8px; }
         .search-input { flex: 1; min-width: 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 14px 16px; color: #fff; font-size: 16px; font-weight: 700; outline: none; transition: 0.2s; box-sizing: border-box; }
         .search-input:focus { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
-        .search-btn { background: #3b82f6; color: #fff; border: none; border-radius: 14px; padding: 0 20px; font-weight: 900; font-size: 14px; letter-spacing: 0.5px; cursor: pointer; }
+        .search-btn { background: #3b82f6; color: #fff; border: none; border-radius: 14px; padding: 0 20px; font-weight: 900; font-size: 14px; letter-spacing: 0.5px; cursor: pointer; min-width: 78px; }
         .search-btn:disabled { opacity: 0.45; cursor: default; }
+        .search-clear { width: 42px; min-width: 42px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); border-radius: 14px; font-size: 24px; line-height: 1; font-weight: 900; cursor: pointer; }
+        .search-results-panel { margin-top: 10px; border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; background: rgba(15,23,42,0.78); padding: 10px; box-shadow: 0 14px 36px rgba(0,0,0,0.22); box-sizing: border-box; max-width: 100%; overflow: hidden; }
+        .search-results-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: rgba(255,255,255,0.58); font-size: 10px; font-weight: 1000; letter-spacing: 0.08em; margin-bottom: 8px; }
+        .search-source-badge { color: #bbf7d0; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.22); border-radius: 999px; padding: 4px 7px; white-space: nowrap; }
+        .search-empty { color: rgba(255,255,255,0.76); font-size: 13px; font-weight: 750; line-height: 1.35; padding: 6px 2px 2px; }
+        .search-counts { display: block; color: rgba(255,255,255,0.42); font-size: 10px; font-weight: 900; letter-spacing: 0.04em; margin-top: 6px; }
+        .search-results-list { display: grid; gap: 7px; }
+        .search-result-row { width: 100%; display: flex; align-items: center; gap: 9px; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; background: rgba(255,255,255,0.045); color: #fff; padding: 9px; text-align: left; cursor: pointer; box-sizing: border-box; }
+        .search-result-row:active { transform: scale(0.99); background: rgba(255,255,255,0.07); }
+        .result-kind { width: 76px; min-width: 76px; text-align: center; border-radius: 999px; padding: 5px 6px; font-size: 9px; font-weight: 1000; letter-spacing: 0.06em; box-sizing: border-box; }
+        .result-kind.base { background: rgba(59,130,246,0.14); color: #bfdbfe; border: 1px solid rgba(96,165,250,0.22); }
+        .result-kind.transport { background: rgba(239,68,68,0.14); color: #fecaca; border: 1px solid rgba(248,113,113,0.24); }
+        .result-main { min-width: 0; flex: 1; display: grid; gap: 2px; }
+        .result-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; font-size: 13px; font-weight: 950; }
+        .result-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.5); font-size: 11px; font-weight: 800; }
+        .result-open { color: #93c5fd; font-size: 10px; font-weight: 1000; letter-spacing: 0.06em; white-space: nowrap; }
+        @media (max-width: 380px) {
+          .search-box { gap: 6px; }
+          .search-input { padding: 13px 12px; font-size: 15px; }
+          .search-btn { min-width: 70px; padding: 0 12px; }
+          .result-kind { width: 68px; min-width: 68px; font-size: 8px; }
+          .result-open { display: none; }
+        }
 
         .modules-section { margin-top: 10px; }
         .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
