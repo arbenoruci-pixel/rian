@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { bootMarkReady, bootSnapshot, bootReadLastInterrupted, bootClearLastInterrupted } from '@/lib/bootLog';
+import { isSafeModeDisabledUntil, isTepihaSafeModeActive } from '@/lib/safeMode';
 
 const SENT_KEY = 'tepiha_simple_incident_sent_v2';
 const EARLY_QUEUE_KEY = 'tepiha_early_incident_queue_v1';
@@ -29,9 +30,8 @@ function isOnline() {
 function isSafeMode() {
   try {
     if (!isBrowser()) return false;
-    if (window.__TEPIHA_HOME_SAFE_MODE__ === true) return true;
-    const sp = new URLSearchParams(window.location?.search || '');
-    return sp.get('safeMode') === '1' || sp.get('homeSafeMode') === '1';
+    if (isSafeModeDisabledUntil('disableRuntimeUploadsUntil')) return true;
+    return isTepihaSafeModeActive();
   } catch {
     return false;
   }

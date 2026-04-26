@@ -1,11 +1,11 @@
 /* LEGACY /sw.js BRIDGE — inert compatibility worker for old controllers. */
 /* eslint-disable no-restricted-globals */
 
-const APP_DATA_EPOCH = 'RESET-2026-04-25-VITE-SILENT-RUNTIME-V16';
-const APP_VERSION = '2.0.20-vite-silent-runtime-v16';
-const SW_BUILD_LABEL = 'sw-vite-silent-runtime-v16';
+const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-PWA-PASTRIMI-SAFE-V17';
+const APP_VERSION = '2.0.21-vite-pwa-pastrimi-safe-v17';
+const SW_BUILD_LABEL = 'sw-vite-pwa-pastrimi-safe-v17';
 const OFFLINE_FALLBACK = '/offline.html';
-const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v16';
+const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v17';
 
 function nowIso() {
   try {

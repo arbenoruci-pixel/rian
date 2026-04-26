@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { APP_DATA_EPOCH } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
+import { isSafeModeDisabledUntil, isTepihaSafeModeActive } from '@/lib/safeMode';
 
 const WARMUP_VERSION = 'offline-first-warmup-v4-fast-home-v12';
 const WARMUP_DONE_PREFIX = 'tepiha_offline_first_warmup_done_v2';
@@ -55,10 +56,8 @@ function isVisible() {
 function isSafeMode() {
   try {
     if (typeof window === 'undefined') return true;
-    if (window.__TEPIHA_HOME_SAFE_MODE__ === true) return true;
-    const sp = new URLSearchParams(window.location?.search || '');
-    if (sp.get('homeSafeMode') === '1' || sp.get('safeMode') === '1') return true;
-    return false;
+    if (isSafeModeDisabledUntil('disableWarmupUntil')) return true;
+    return isTepihaSafeModeActive();
   } catch {
     return true;
   }

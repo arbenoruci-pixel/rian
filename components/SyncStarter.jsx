@@ -5,6 +5,7 @@ import { startSyncLoop } from '@/lib/syncBootstrap';
 import { bootLog } from '@/lib/bootLog';
 import { isTransportPath } from '@/lib/transportCore/scope';
 import { getStartupIsolationLeftMs, isWithinStartupIsolationWindow, scheduleAfterStartupIsolation } from '@/lib/startupIsolation';
+import { isSafeModeDisabledUntil, safeModeLeftMs } from '@/lib/safeMode';
 
 function waitForVisibleStable(delayMs = 0) {
   return new Promise((resolve) => {
@@ -123,6 +124,10 @@ export default function SyncStarter() {
     const standalone = isStandaloneLike();
 
     const start = () => {
+      if (isSafeModeDisabledUntil('disableSyncUntil')) {
+        bootLog('syncstarter_skip_safe_mode', { path: mountPath, standalone, leftMs: safeModeLeftMs('disableSyncUntil') });
+        return;
+      }
       const offlineRuntimeOwnsLoop = shouldRunOfflineRuntime(mountPath);
       const transportScopedRoute = isTransportPath(mountPath);
 

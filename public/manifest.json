@@ -1,7 +1,7 @@
 {
   "name": "TEPIHA",
   "short_name": "TEPIHA",
-  "start_url": "/?pwa_start=RESET-2026-04-25-VITE-SILENT-RUNTIME-V16",
+  "start_url": "/?pwa_start=RESET-2026-04-26-VITE-PWA-PASTRIMI-SAFE-V17",
   "scope": "/",
   "display": "standalone",
   "background_color": "#05070d",
@@ -20,6 +20,6 @@
       "purpose": "any maskable"
     }
   ],
-  "id": "/?pwa_id=RESET-2026-04-25-VITE-SILENT-RUNTIME-V16",
-  "description": "TEPIHA Vite offline PWA - arka lazy hardening v15"
+  "id": "/?pwa_id=RESET-2026-04-26-VITE-PWA-PASTRIMI-SAFE-V17",
+  "description": "TEPIHA Vite offline PWA - PWA/Pastrimi safe rescue v17"
 }

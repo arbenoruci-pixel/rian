@@ -196,6 +196,9 @@ const STREAM_MAX_M2 = 450;
 const PASRTRIMI_EDIT_TO_PRANIMI_KEY = 'tepiha_pastrim_edit_to_pranimi_v1';
 const PASRTRIMI_EDIT_TO_PRANIMI_BACKUP_KEY = 'tepiha_pastrim_edit_to_pranimi_backup_v1';
 const PASRTRIMI_FETCH_LIMIT = 48;
+const PASRTRIMI_INITIAL_LOCAL_TIMEOUT_MS = 2200;
+const PASRTRIMI_REMOTE_REFRESH_TIMEOUT_MS = 3500;
+const PASTRIMI_LOADING_TIMEOUT_MARKER_KEY = 'tepiha_pastrimi_loading_timeout_v1';
 const PASRTRIMI_REFRESH_MIN_GAP_MS = 2200;
 const PASRTRIMI_LOCAL_PERSIST_LIMIT = 36;
 const PASRTRIMI_LOCAL_PERSIST_MIN_GAP_MS = 10000;
@@ -665,6 +668,76 @@ function dedupePastrimRows(rows = []) {
   return Array.from(map.values());
 }
 
+function swControllerScriptURL() {
+  try { return String(navigator?.serviceWorker?.controller?.scriptURL || ''); } catch { return ''; }
+}
+
+function writePastrimiLoadingTimeoutMarker(payload = {}) {
+  try {
+    if (typeof window === 'undefined') return null;
+    const entry = {
+      at: new Date().toISOString(),
+      ts: Date.now(),
+      route: '/pastrimi',
+      online: typeof navigator !== 'undefined' ? navigator.onLine !== false : null,
+      appVersion: String(window.__TEPIHA_BUILD_ID || ''),
+      epoch: String(window.__TEPIHA_APP_EPOCH || ''),
+      swControllerScriptURL: swControllerScriptURL(),
+      ...payload,
+    };
+    window.localStorage?.setItem?.(PASTRIMI_LOADING_TIMEOUT_MARKER_KEY, JSON.stringify(entry));
+    try { window.dispatchEvent(new CustomEvent('tepiha:pastrimi-loading-timeout', { detail: entry })); } catch {}
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+function enablePastrimiSafeOfflineMode(reason = 'pastrimi_continue_offline') {
+  try {
+    if (typeof window === 'undefined') return null;
+    const now = Date.now();
+    const entry = {
+      at: new Date().toISOString(),
+      ts: now,
+      source: 'pastrimi_local_first_status',
+      reason,
+      disableSyncUntil: now + 90000,
+      disableUpdateChecksUntil: now + 90000,
+      disableWarmupUntil: now + 90000,
+      disableRuntimeUploadsUntil: now + 90000,
+      expiresAt: now + 90000,
+      path: '/pastrimi',
+      appVersion: String(window.__TEPIHA_BUILD_ID || ''),
+      epoch: String(window.__TEPIHA_APP_EPOCH || ''),
+    };
+    try { window.sessionStorage?.setItem?.('tepiha_safe_mode_v1', JSON.stringify(entry)); } catch {}
+    try { window.localStorage?.setItem?.('tepiha_safe_mode_v1', JSON.stringify(entry)); } catch {}
+    try { window.__TEPIHA_HOME_SAFE_MODE__ = true; } catch {}
+    return entry;
+  } catch {
+    return null;
+  }
+}
+function buildImmediatePastrimLocalRows() {
+  try {
+    const snapshotRows = readPastrimRowsFromPageSnapshot();
+    const masterRows = (readPastrimRowsFromBaseMasterCache() || []).map((row) => normalizeRenderableOrderRow(row));
+    const pendingRows = buildPendingOutboxPastrimRows().map((row) => normalizeRenderableOrderRow(row));
+    const rows = dedupePastrimRows([
+      ...(Array.isArray(snapshotRows) ? snapshotRows : []),
+      ...(Array.isArray(masterRows) ? masterRows : []),
+      ...(Array.isArray(pendingRows) ? pendingRows : []),
+    ])
+      .filter((row) => shouldShowTransportBridgeInPastrim(row))
+      .filter((row) => Number(row?.cope || 0) > 0 || Number(row?.m2 || 0) > 0 || String(row?.name || '').trim() !== '')
+      .sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
 async function buildPastrimFallbackRows(trace = null, diagEnabled = false) {
   const pageSnapshotRows = readPastrimRowsFromPageSnapshot();
   const masterCacheRows = dedupePastrimRows([...(Array.isArray(pageSnapshotRows) ? pageSnapshotRows : []), ...(readPastrimRowsFromBaseMasterCache() || []).map((row) => normalizeRenderableOrderRow(row))]);
@@ -886,10 +959,17 @@ function yieldToMainThread() {
   });
 }
 
-function triggerFatalCacheHeal() {
-  console.error('Fatal Cache Error Detected. Auto-healing...');
-  try { localStorage.removeItem('tepiha_offline_queue_v1'); } catch {}
-  try { localStorage.removeItem('tepiha_local_orders_v1'); } catch {}
+function triggerFatalCacheHeal(error = null) {
+  try {
+    console.warn('Pastrimi refresh failed; preserving local orders/outbox and using local fallback.', error || '');
+    if (typeof window !== 'undefined') {
+      window.localStorage?.setItem?.('tepiha_pastrimi_refresh_preserved_local_v1', JSON.stringify({
+        at: new Date().toISOString(),
+        ts: Date.now(),
+        message: String(error?.message || error || ''),
+      }));
+    }
+  } catch {}
 }
 
 function isPersistedDbLikeId(raw) {
@@ -1099,9 +1179,10 @@ function PastrimiPageInner() {
   const hiddenSearchBootRef = useRef(false);
   const visibleSearchRecoveryRef = useRef(false);
 
-  const [orders, setOrders] = useState([]);
+  const [orders, setOrders] = useState(() => buildImmediatePastrimLocalRows());
   const [exactRecoveredRow, setExactRecoveredRow] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [localModeNotice, setLocalModeNotice] = useState('LOCAL_INIT');
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [, startListTransition] = useTransition();
@@ -1255,6 +1336,31 @@ function PastrimiPageInner() {
   const deferredPersistTimer = useRef(null);
   const deferredPersistToken = useRef(0);
 
+  function applyPastrimiRowsLocalFirst(rows = [], source = 'LOCAL_FIRST', extra = {}) {
+    const cleanRows = dedupePastrimRows((Array.isArray(rows) ? rows : []).map((row) => normalizeRenderableOrderRow(row)))
+      .filter((row) => shouldShowTransportBridgeInPastrim(row))
+      .filter((row) => Number(row?.cope || 0) > 0 || Number(row?.m2 || 0) > 0 || String(row?.name || '').trim() !== '')
+      .sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
+    const streamTotal = cleanRows.reduce((sum, row) => sum + (Number(row?.m2) || 0), 0);
+    setReadyCountHint(cleanRows.length);
+    startListTransition(() => {
+      setOrders(cleanRows);
+      setStreamPastrimM2(Number(streamTotal.toFixed(2)));
+    });
+    setLocalModeNotice(source);
+    setDebugInfo({
+      source,
+      dbCount: Number(extra?.dbCount || 0),
+      localCount: cleanRows.length,
+      online: typeof navigator !== 'undefined' ? navigator.onLine !== false : null,
+      lastError: extra?.lastError || null,
+      ts: Date.now(),
+    });
+    setLoading(false);
+    return cleanRows;
+  }
+
+
   useEffect(() => {
     readyPlaceOpenRef.current = !!readyPlaceSheet;
   }, [readyPlaceSheet]);
@@ -1331,6 +1437,23 @@ function PastrimiPageInner() {
   }, []);
 
   useEffect(() => {
+    const localRows = buildImmediatePastrimLocalRows();
+    applyPastrimiRowsLocalFirst(localRows, localRows.length ? 'LOCAL_FIRST_BOOT' : 'LOCAL_FIRST_EMPTY');
+
+    const loadingGuard = window.setTimeout(() => {
+      setLoading(false);
+      const currentRows = buildImmediatePastrimLocalRows();
+      if (currentRows.length > 0) {
+        applyPastrimiRowsLocalFirst(currentRows, 'LOCAL_TIMEOUT_FALLBACK', { remoteTimeout: true });
+      }
+      writePastrimiLoadingTimeoutMarker({
+        source: 'mount_loading_guard',
+        cacheSourceUsed: currentRows.length > 0 ? 'local_cache' : 'empty_local',
+        localRowCount: currentRows.length,
+        remoteTimeout: true,
+      });
+    }, PASRTRIMI_INITIAL_LOCAL_TIMEOUT_MS);
+
     const bootIfNeeded = () => {
       if (didBootLoadRef.current) return;
       if (exactSearchMode && !isDocumentVisible()) {
@@ -1352,6 +1475,7 @@ function PastrimiPageInner() {
     return () => {
       try { document.removeEventListener('visibilitychange', onVisibilityBoot); } catch {}
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      try { window.clearTimeout(loadingGuard); } catch {}
       if (refreshTimeout.current) clearTimeout(refreshTimeout.current);
       if (rackRefreshTimer.current) clearTimeout(rackRefreshTimer.current);
       if (readyPlaceWarmTimer.current) clearTimeout(readyPlaceWarmTimer.current);
@@ -1577,7 +1701,7 @@ function PastrimiPageInner() {
     didBootLoadRef.current = true;
     lastRefreshStartedAt.current = startedAt;
     lastRefreshSource.current = source;
-    if (!Array.isArray(orders) || orders.length === 0) setLoading(true);
+    if (!Array.isArray(orders) || orders.length === 0) setLoading(false);
     try {
       const diagEnabled = isDiagEnabled();
       const trace = diagEnabled ? [] : null;
@@ -1592,7 +1716,7 @@ function PastrimiPageInner() {
       let masterCacheRows = (readPastrimRowsFromBaseMasterCache() || []).map((row) => normalizeRenderableOrderRow(row));
       if (!Array.isArray(masterCacheRows) || masterCacheRows.length === 0) {
         try {
-          const hydratedCache = await ensureFreshBaseMasterCache();
+          const hydratedCache = await withTimeout(ensureFreshBaseMasterCache(), 1200);
           masterCacheRows = (readPastrimRowsFromBaseMasterCache(hydratedCache) || []).map((row) => normalizeRenderableOrderRow(row));
         } catch {}
       }
@@ -1658,7 +1782,7 @@ function PastrimiPageInner() {
             },
           },
         }).then((rows) => rows.map((x) => ({ ...x, _table: undefined }))),
-      ]));
+      ]), PASRTRIMI_REMOTE_REFRESH_TIMEOUT_MS);
 
       const localRows = await getAllOrdersLocal().catch(() => []);
       const cacheCleanup = reconcileBaseMasterCacheScope({
@@ -1851,10 +1975,22 @@ function PastrimiPageInner() {
     } catch (e) {
       if (refreshSignal?.aborted) return;
       console.error('refreshOrders failed:', e);
-      triggerFatalCacheHeal();
+      triggerFatalCacheHeal(e);
+      const immediateRows = buildImmediatePastrimLocalRows();
+      const isTimeout = /TIMEOUT|AbortError|timeout/i.test(String(e?.message || e || ''));
+      writePastrimiLoadingTimeoutMarker({
+        source,
+        cacheSourceUsed: immediateRows.length > 0 ? 'local_cache' : 'empty_local',
+        localRowCount: immediateRows.length,
+        remoteTimeout: isTimeout,
+        error: String(e?.message || e || ''),
+      });
       const diagEnabled = isDiagEnabled();
       const trace = diagEnabled ? [] : null;
-      const fallbackRows = await buildPastrimFallbackRows(trace, diagEnabled).catch(() => []);
+      const fallbackRows = dedupePastrimRows([
+        ...immediateRows,
+        ...((await buildPastrimFallbackRows(trace, diagEnabled).catch(() => [])) || []),
+      ]).filter((row) => shouldShowTransportBridgeInPastrim(row));
       const fallbackTotal = (Array.isArray(fallbackRows) ? fallbackRows : []).reduce((sum, row) => sum + (Number(row?.m2) || 0), 0);
       if (fallbackRows.length > 0) {
         setReadyCountHint(fallbackRows.length);
@@ -2461,8 +2597,17 @@ BORXHI PAS: ${remaining.toFixed(2)}€
       <input className="input" placeholder="🔎 Kërko emrin ose kodin..." value={search} onChange={e => setSearch(e.target.value)} />
 
       <section className="card" style={{ padding: '10px' }}>
+        {!loading ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, padding: '8px 10px', borderRadius: 12, border: '1px solid rgba(59,130,246,.28)', background: 'rgba(59,130,246,.10)', color: '#bfdbfe', fontSize: 12, fontWeight: 800 }}>
+            <span>{visibleOrders.length > 0 ? `Po përdoren të dhënat lokale • ${localModeNotice} • refresh background` : `Po përdoren të dhënat lokale • ${localModeNotice} • lista lokale është bosh`}</span>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button type="button" onClick={() => scheduleRefreshOrders(0, { source: 'manual_local_status_refresh', force: true })} style={{ border: '0', borderRadius: 9, background: '#2563eb', color: '#fff', padding: '6px 8px', fontWeight: 900 }}>Rifresko</button>
+              <button type="button" onClick={() => { enablePastrimiSafeOfflineMode('pastrimi_continue_offline_button'); setLocalModeNotice('SAFE_OFFLINE'); setLoading(false); }} style={{ border: '1px solid rgba(34,197,94,.38)', borderRadius: 9, background: 'rgba(34,197,94,.14)', color: '#bbf7d0', padding: '6px 8px', fontWeight: 900 }}>Vazhdo offline</button>
+            </div>
+          </div>
+        ) : null}
         {!loading && exactSearchMode && visibleOrders.length === 0 ? <p style={{ textAlign: 'center' }}>Po e hapim porosinë nga kërkimi...</p> : null}
-        {loading ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p> : 
+        {loading ? <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p> : (visibleOrders.length === 0 ? <p style={{ textAlign: 'center', color: 'rgba(255,255,255,.72)' }}>Nuk ka porosi në PASTRIMI në cache lokale.</p> : 
           visibleOrders.map(o => {
               if (!o || !o.id) return null;
               // SHTUAR: Përmirësimi i Kodit
@@ -2512,7 +2657,7 @@ BORXHI PAS: ${remaining.toFixed(2)}€
                   </button>
                 </div>
               </div>
-            )})}
+            )}))}
       </section>
 
 

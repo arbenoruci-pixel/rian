@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { APP_DATA_EPOCH } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
+import { isSafeModeDisabledUntil, safeModeLeftMs } from '@/lib/safeMode';
 
 const CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS = 1400;
 const VITE_SW_URL = '/vite-sw.js';
@@ -32,6 +33,14 @@ function isSwKillMode() {
       window.__TEPIHA_SW_KILL_SWITCH__ === true ||
       window.__TEPIHA_FORCE_NETWORK_MODE__ === true
     );
+  } catch {
+    return false;
+  }
+}
+
+function shouldSkipUpdateChecksForSafeMode() {
+  try {
+    return isSafeModeDisabledUntil('disableUpdateChecksUntil');
   } catch {
     return false;
   }
@@ -283,6 +292,15 @@ function hideLegacySwBanner() {
 
 function safeUpdateRegistration(registration, source, swUrl = '') {
   try {
+    if (shouldSkipUpdateChecksForSafeMode()) {
+      logSwEvent('vite_pwa_sw_update_check_skip_safe_mode', {
+        source,
+        swUrl: String(swUrl || ''),
+        leftMs: safeModeLeftMs('disableUpdateChecksUntil'),
+      });
+      return false;
+    }
+
     if (!registration || typeof registration.update !== 'function') {
       logSwEvent('vite_pwa_sw_update_registration_missing', {
         source,
@@ -791,6 +809,15 @@ export default function ServiceWorkerRegister() {
     const checkForUpdate = (source, reason, swUrl = '') => {
       try {
         if (cancelledRef.current) return;
+        if (shouldSkipUpdateChecksForSafeMode()) {
+          logSwEvent('vite_pwa_sw_update_check_skip_safe_mode', {
+            source,
+            reason,
+            swUrl: String(swUrl || ''),
+            leftMs: safeModeLeftMs('disableUpdateChecksUntil'),
+          });
+          return;
+        }
 
         try {
           if (document.visibilityState !== 'visible') return;
@@ -869,6 +896,15 @@ export default function ServiceWorkerRegister() {
     const installCleanLaunchUpdateCheck = (source, swUrl = '') => {
       try {
         clearCleanLaunchUpdateCheck();
+        if (shouldSkipUpdateChecksForSafeMode()) {
+          logSwEvent('vite_pwa_sw_clean_launch_update_skip_safe_mode', {
+            source,
+            swUrl: String(swUrl || ''),
+            leftMs: safeModeLeftMs('disableUpdateChecksUntil'),
+          });
+          cleanupCleanLaunchUpdateCheckRef.current = () => {};
+          return;
+        }
 
         let timerId = null;
         const allowed = shouldRunCleanLaunchUpdateCheck();

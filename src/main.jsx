@@ -159,6 +159,17 @@ function installVitePreloadPassiveGuard() {
 installVitePreloadPassiveGuard();
 detectLegacyServiceWorkerPassively();
 
+try {
+  window.__TEPIHA_REACT_READY__ = true;
+  window.__TEPIHA_REACT_MOUNT_STARTED_AT__ = Date.now();
+  document.documentElement?.setAttribute?.('data-react-ready', '1');
+} catch {}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <AppRoot />,
 );
+
+try {
+  window.__TEPIHA_REACT_RENDER_CALLED__ = true;
+  window.dispatchEvent(new CustomEvent('tepiha:react-render-called', { detail: { at: Date.now() } }));
+} catch {}

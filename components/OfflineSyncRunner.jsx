@@ -10,6 +10,7 @@ import { repairPendingBaseCreateOps } from '@/lib/syncRecovery';
 import { isDiagEnabled } from '@/lib/diagMode';
 import { supabase } from '@/lib/supabaseClient';
 import { getStartupIsolationLeftMs, isWithinStartupIsolationWindow } from '@/lib/startupIsolation';
+import { isSafeModeDisabledUntil, safeModeLeftMs } from '@/lib/safeMode';
 
 const DEBOUNCE_MS = 900;
 const MIN_GAP_MS = 60000;
@@ -29,6 +30,7 @@ const RECENT_RECOVERY_GLOBAL_KEY = '__TEPIHA_RECENT_RECOVERED_BY_OID__';
 function canRunNow() {
   try {
     if (typeof window === 'undefined') return false;
+    if (isSafeModeDisabledUntil('disableSyncUntil')) return false;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
     if (typeof document !== 'undefined' && document.hidden) return false;
     return true;
@@ -508,6 +510,23 @@ export default function OfflineSyncRunner() {
         if (cancelled) return;
         setBootAttempt((value) => value + 1);
       }, Math.max(100, getStartupIsolationLeftMs() + 80));
+      return () => {
+        cancelled = true;
+        if (isolationTimer) window.clearTimeout(isolationTimer);
+      };
+    }
+
+    if (isSafeModeDisabledUntil('disableSyncUntil')) {
+      const leftMs = Math.max(900, safeModeLeftMs('disableSyncUntil') + 250);
+      bootLog('offline_sync_runner_skip_safe_mode', {
+        path: getCurrentPathname(),
+        leftMs,
+        bootAttempt,
+      });
+      isolationTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        setBootAttempt((value) => value + 1);
+      }, leftMs);
       return () => {
         cancelled = true;
         if (isolationTimer) window.clearTimeout(isolationTimer);

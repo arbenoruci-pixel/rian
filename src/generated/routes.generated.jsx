@@ -333,6 +333,7 @@ function DiagRawPage() {
         const list = safeRead('tepiha_pwa_boot_rescue_log_v1', []);
         return Array.isArray(list) ? list.slice(0, 30) : [];
       })(),
+      pastrimiLoadingTimeout: safeRead('tepiha_pastrimi_loading_timeout_v1', null),
       pwaSwEpochCheck: (() => { try { return window.__TEPIHA_PWA_SW_EPOCH_CHECK__ || null; } catch { return null; } })(),
       lastChunkCapture: safeRead('tepiha_chunk_last_capture_v1', null),
       lastLazyImportAttempt: safeRead('tepiha_last_lazy_import_attempt_v1', null),
