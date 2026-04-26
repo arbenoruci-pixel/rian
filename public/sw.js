@@ -3,9 +3,9 @@
 
 const APP_DATA_EPOCH = 'RESET-2026-04-26-VITE-HOME-INLINE-SEARCH-V19';
 const APP_VERSION = '2.0.24-vite-home-inline-search-v19';
-const SW_BUILD_LABEL = 'sw-vite-pwa-pastrimi-safe-v17';
+const SW_BUILD_LABEL = 'sw-vite-home-inline-search-v19';
 const OFFLINE_FALLBACK = '/offline.html';
-const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v17';
+const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v19';
 
 function nowIso() {
   try {

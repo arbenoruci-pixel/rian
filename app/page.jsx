@@ -2,11 +2,11 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link, { useRouter } from '@/lib/routerCompat.jsx';
-import { APP_DATA_EPOCH, APP_VERSION } from '@/lib/appEpoch';
-import { searchHomeLocal } from '@/lib/homeSearch';
+import { APP_VERSION } from '@/lib/appEpoch';
 import useRouteAlive, { markRouteUiAlive } from '@/lib/routeAlive';
+import { buildHomeSearchHref, searchHomeLocalFirst } from '@/lib/homeSearch';
 
-const HOME_FAST_BOOT_VERSION = 'home-fast-boot-design-restore-v13';
+const HOME_FAST_BOOT_VERSION = 'home-inline-search-v19';
 
 function isOnlineNow() {
   try {
@@ -14,6 +14,10 @@ function isOnlineNow() {
   } catch {
     return true;
   }
+}
+
+function cleanSearch(value) {
+  return String(value || '').trim();
 }
 
 function StatusPill({ online }) {
@@ -25,32 +29,36 @@ function StatusPill({ online }) {
   );
 }
 
+function ResultBadge({ kind }) {
+  const safeKind = String(kind || '').toUpperCase() === 'TRANSPORT' ? 'TRANSPORT' : 'BASE';
+  return <span className={`result-kind result-kind-${safeKind.toLowerCase()}`}>{safeKind}</span>;
+}
+
 export default function HomePage() {
-  useRouteAlive('home_fast_boot_design_restore_v13');
+  useRouteAlive('home_inline_search_v19');
   const router = useRouter();
   const renderedAtRef = useRef(Date.now());
   const readyMarkedRef = useRef(false);
   const debugHoldTimerRef = useRef(null);
-  const searchSeqRef = useRef(0);
+  const searchTokenRef = useRef(0);
   const [online, setOnline] = useState(isOnlineNow);
   const [q, setQ] = useState('');
   const [searching, setSearching] = useState(false);
-  const [searchSubmitted, setSearchSubmitted] = useState(false);
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchMeta, setSearchMeta] = useState(null);
-  const [searchError, setSearchError] = useState('');
+  const [didSearch, setDidSearch] = useState(false);
+  const [results, setResults] = useState([]);
+  const [searchMessage, setSearchMessage] = useState('');
 
   useEffect(() => {
     try {
       window.__TEPIHA_HOME_FAST_BOOT_VERSION__ = HOME_FAST_BOOT_VERSION;
       window.__TEPIHA_HOME_STATIC_SHELL_RENDERED__ = true;
-      window.__TEPIHA_HOME_COUNTS_MODE__ = 'no_blocking_counts_v13';
+      window.__TEPIHA_HOME_COUNTS_MODE__ = 'no_blocking_counts_v19';
       window.__TEPIHA_HOME_INTERACTIVE__ = true;
       window.__TEPIHA_HOME_INTERACTIVE_AT__ = Date.now();
       document?.documentElement?.setAttribute?.('data-home-ui-alive', '1');
       document?.body?.setAttribute?.('data-home-ui-alive', '1');
       window.dispatchEvent(new CustomEvent('tepiha:home-interactive', {
-        detail: { version: HOME_FAST_BOOT_VERSION, at: Date.now(), restoredDesign: true },
+        detail: { version: HOME_FAST_BOOT_VERSION, at: Date.now(), restoredDesign: true, inlineSearch: true },
       }));
     } catch {}
   }, []);
@@ -64,7 +72,7 @@ export default function HomePage() {
       try {
         markRouteUiAlive(label, '/', {
           version: HOME_FAST_BOOT_VERSION,
-          sourceLayer: 'home_fast_boot_design_restore_v13',
+          sourceLayer: 'home_inline_search_v19',
           msFromRender: Math.max(0, Date.now() - Number(renderedAtRef.current || Date.now())),
           ...extra,
         });
@@ -105,67 +113,47 @@ export default function HomePage() {
     };
   }, []);
 
-  const queryReady = useMemo(() => String(q || '').trim().length > 0, [q]);
-
-  const clearSearch = () => {
-    setQ('');
-    setSearchSubmitted(false);
-    setSearchResults([]);
-    setSearchMeta(null);
-    setSearchError('');
-  };
-
-  const openSearchResult = (result) => {
-    const href = String(result?.href || '').trim();
-    if (!href) return;
-    router.push(href);
-  };
+  const hasQuery = useMemo(() => cleanSearch(q).length > 0, [q]);
 
   const submitSearch = async (event) => {
     event?.preventDefault?.();
-    const raw = String(q || '').trim();
-    if (!raw || searching) return;
-
-    const seq = searchSeqRef.current + 1;
-    searchSeqRef.current = seq;
+    const query = cleanSearch(q);
+    if (!query || searching) return;
+    const token = Date.now();
+    searchTokenRef.current = token;
     setSearching(true);
-    setSearchSubmitted(true);
-    setSearchError('');
-
+    setDidSearch(true);
+    setSearchMessage('');
     try {
-      const result = await searchHomeLocal(raw, {
-        appVersion: APP_VERSION,
-        epoch: APP_DATA_EPOCH,
-        limit: 12,
-      });
-      if (searchSeqRef.current !== seq) return;
-      const rows = Array.isArray(result?.results) ? result.results : [];
-      setSearchResults(rows);
-      setSearchMeta(result || null);
-      // H1 inline search: keep results visible on Home.
-      // Navigation happens only after the worker taps HAP.
+      const response = await searchHomeLocalFirst(query);
+      if (searchTokenRef.current !== token) return;
+      const nextResults = Array.isArray(response?.results) ? response.results : [];
+      setResults(nextResults);
+      if (!nextResults.length) {
+        setSearchMessage('Nuk u gjet asnjë porosi lokale. Provo me emër, tel, kod ose T-code.');
+      }
     } catch (error) {
-      if (searchSeqRef.current !== seq) return;
-      setSearchResults([]);
-      setSearchMeta(null);
-      setSearchError('Kërkimi lokal nuk u krye. Provo përsëri.');
-      try {
-        window.localStorage.setItem('tepiha_home_search_last_v1', JSON.stringify({
-          query: raw,
-          normalizedQuery: null,
-          timestamp: new Date().toISOString(),
-          baseLocalCount: 0,
-          transportLocalCount: 0,
-          resultsCount: 0,
-          error: String(error?.message || error),
-          online: typeof navigator === 'undefined' ? true : navigator.onLine !== false,
-          appVersion: APP_VERSION,
-          epoch: APP_DATA_EPOCH,
-        }));
-      } catch {}
+      if (searchTokenRef.current !== token) return;
+      setResults([]);
+      setSearchMessage(String(error?.message || error || 'Kërkimi lokal nuk u krye. Provo përsëri.'));
     } finally {
-      if (searchSeqRef.current === seq) setSearching(false);
+      if (searchTokenRef.current === token) setSearching(false);
     }
+  };
+
+  const clearSearch = () => {
+    searchTokenRef.current = Date.now();
+    setQ('');
+    setResults([]);
+    setDidSearch(false);
+    setSearchMessage('');
+    setSearching(false);
+  };
+
+  const openSearchResult = (result) => {
+    const href = buildHomeSearchHref(result);
+    if (!href) return;
+    router.push(href);
   };
 
   const openGatiSafe = () => {
@@ -189,7 +177,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="home-wrap" data-home-fast-boot="v13" data-home-design="restored">
+    <div className="home-wrap" data-home-fast-boot="v19" data-home-design="restored">
       <header className="header-pro">
         <div className="header-text">
           <h1
@@ -214,59 +202,43 @@ export default function HomePage() {
             className="search-input"
             value={q}
             onChange={(event) => {
-              const next = event.target.value;
-              setQ(next);
-              if (!String(next || '').trim()) {
-                setSearchSubmitted(false);
-                setSearchResults([]);
-                setSearchMeta(null);
-                setSearchError('');
-              }
+              setQ(event.target.value);
+              if (!String(event.target.value || '').trim()) clearSearch();
             }}
             placeholder="Shkruaj kodin, emrin ose telefonin"
             inputMode="text"
             autoComplete="off"
           />
-          {q ? (
+          {hasQuery ? (
             <button className="search-clear" type="button" onClick={clearSearch} aria-label="Pastro kërkimin">×</button>
           ) : null}
-          <button className="search-btn" type="submit" disabled={!queryReady || searching}>{searching ? '...' : 'KËRKO'}</button>
+          <button className="search-btn" type="submit" disabled={!hasQuery || searching}>
+            {searching ? '...' : 'KËRKO'}
+          </button>
         </form>
 
-        {searchSubmitted ? (
-          <div className="search-results-panel">
-            <div className="search-results-head">
-              <span>{searching ? 'DUKE KËRKUAR LOKALISHT…' : `${searchResults.length} REZULTAT${searchResults.length === 1 ? '' : 'E'}`}</span>
-              <span className="search-source-badge">LOCAL</span>
-            </div>
-
-            {searchError ? <div className="search-empty">{searchError}</div> : null}
-
-            {!searching && !searchError && searchResults.length === 0 ? (
-              <div className="search-empty">
-                Nuk u gjet asnjë porosi lokale. Provo me emër, tel, kod ose T-code.
-                {searchMeta ? (
-                  <span className="search-counts">BASE {searchMeta.baseLocalCount || 0} • TRANSPORT {searchMeta.transportLocalCount || 0}</span>
-                ) : null}
-              </div>
-            ) : null}
-
-            {searchResults.length > 0 ? (
-              <div className="search-results-list">
-                {searchResults.map((item, index) => (
-                  <button
-                    key={`${item.kind}-${item.id || item.code || index}`}
-                    className="search-result-row"
-                    type="button"
-                    onClick={() => openSearchResult(item)}
-                  >
-                    <span className={`result-kind ${item.kind === 'TRANSPORT' ? 'transport' : 'base'}`}>{item.kind}</span>
-                    <span className="result-main">
-                      <span className="result-title">{item.code || '—'} • {String(item.name || 'PA EMËR').toUpperCase()}</span>
-                      <span className="result-sub">{item.phone ? `${item.phone} • ` : ''}{String(item.status || '').toUpperCase()}</span>
-                    </span>
-                    <span className="result-open">HAP</span>
-                  </button>
+        {(didSearch || results.length > 0 || searchMessage) ? (
+          <div className="inline-search-panel">
+            {searching ? <div className="search-note">Duke kërkuar lokalisht...</div> : null}
+            {!searching && searchMessage ? <div className="search-note search-empty">{searchMessage}</div> : null}
+            {!searching && results.length ? (
+              <div className="search-results">
+                {results.map((result, index) => (
+                  <div className="search-result-row" key={`${result.kind || 'BASE'}-${result.id || result.code || index}-${index}`}>
+                    <div className="result-main">
+                      <div className="result-topline">
+                        <ResultBadge kind={result.kind} />
+                        <span className="result-code">{result.code || '—'}</span>
+                        {result.status ? <span className="result-status">{String(result.status).toUpperCase()}</span> : null}
+                      </div>
+                      <div className="result-name">{result.name || 'Pa emër'}</div>
+                      <div className="result-meta">
+                        {result.phone ? <span>📞 {result.phone}</span> : null}
+                        {result.pieces ? <span>📦 {result.pieces} copë</span> : null}
+                      </div>
+                    </div>
+                    <button className="open-result-btn" type="button" onClick={() => openSearchResult(result)}>HAP</button>
+                  </div>
                 ))}
               </div>
             ) : null}
@@ -370,34 +342,28 @@ export default function HomePage() {
         .section-title { font-size: 13px; font-weight: 900; letter-spacing: 1px; color: rgba(255,255,255,0.5); margin-bottom: 12px; margin-left: 4px; }
 
         .search-section { margin-bottom: 28px; }
-        .search-box { display: flex; gap: 8px; }
+        .search-box { display: flex; gap: 8px; align-items: stretch; }
         .search-input { flex: 1; min-width: 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 14px 16px; color: #fff; font-size: 16px; font-weight: 700; outline: none; transition: 0.2s; box-sizing: border-box; }
         .search-input:focus { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
-        .search-btn { background: #3b82f6; color: #fff; border: none; border-radius: 14px; padding: 0 20px; font-weight: 900; font-size: 14px; letter-spacing: 0.5px; cursor: pointer; min-width: 78px; }
+        .search-btn { background: #3b82f6; color: #fff; border: none; border-radius: 14px; padding: 0 18px; font-weight: 900; font-size: 14px; letter-spacing: 0.5px; cursor: pointer; min-width: 82px; }
         .search-btn:disabled { opacity: 0.45; cursor: default; }
-        .search-clear { width: 42px; min-width: 42px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); border-radius: 14px; font-size: 24px; line-height: 1; font-weight: 900; cursor: pointer; }
-        .search-results-panel { margin-top: 10px; border: 1px solid rgba(255,255,255,0.08); border-radius: 18px; background: rgba(15,23,42,0.78); padding: 10px; box-shadow: 0 14px 36px rgba(0,0,0,0.22); box-sizing: border-box; max-width: 100%; overflow: hidden; }
-        .search-results-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: rgba(255,255,255,0.58); font-size: 10px; font-weight: 1000; letter-spacing: 0.08em; margin-bottom: 8px; }
-        .search-source-badge { color: #bbf7d0; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.22); border-radius: 999px; padding: 4px 7px; white-space: nowrap; }
-        .search-empty { color: rgba(255,255,255,0.76); font-size: 13px; font-weight: 750; line-height: 1.35; padding: 6px 2px 2px; }
-        .search-counts { display: block; color: rgba(255,255,255,0.42); font-size: 10px; font-weight: 900; letter-spacing: 0.04em; margin-top: 6px; }
-        .search-results-list { display: grid; gap: 7px; }
-        .search-result-row { width: 100%; display: flex; align-items: center; gap: 9px; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; background: rgba(255,255,255,0.045); color: #fff; padding: 9px; text-align: left; cursor: pointer; box-sizing: border-box; }
-        .search-result-row:active { transform: scale(0.99); background: rgba(255,255,255,0.07); }
-        .result-kind { width: 76px; min-width: 76px; text-align: center; border-radius: 999px; padding: 5px 6px; font-size: 9px; font-weight: 1000; letter-spacing: 0.06em; box-sizing: border-box; }
-        .result-kind.base { background: rgba(59,130,246,0.14); color: #bfdbfe; border: 1px solid rgba(96,165,250,0.22); }
-        .result-kind.transport { background: rgba(239,68,68,0.14); color: #fecaca; border: 1px solid rgba(248,113,113,0.24); }
-        .result-main { min-width: 0; flex: 1; display: grid; gap: 2px; }
-        .result-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; font-size: 13px; font-weight: 950; }
-        .result-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.5); font-size: 11px; font-weight: 800; }
-        .result-open { color: #93c5fd; font-size: 10px; font-weight: 1000; letter-spacing: 0.06em; white-space: nowrap; }
-        @media (max-width: 380px) {
-          .search-box { gap: 6px; }
-          .search-input { padding: 13px 12px; font-size: 15px; }
-          .search-btn { min-width: 70px; padding: 0 12px; }
-          .result-kind { width: 68px; min-width: 68px; font-size: 8px; }
-          .result-open { display: none; }
-        }
+        .search-clear { width: 44px; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; background: rgba(255,255,255,0.06); color: #e5e7eb; font-size: 24px; font-weight: 900; }
+
+        .inline-search-panel { margin-top: 10px; border: 1px solid rgba(59,130,246,0.28); border-radius: 16px; background: rgba(10,16,31,0.96); padding: 10px; box-shadow: 0 12px 28px rgba(0,0,0,0.25); }
+        .search-note { color: rgba(226,232,240,0.82); font-size: 12px; font-weight: 800; line-height: 1.35; padding: 8px; }
+        .search-empty { color: #fbbf24; }
+        .search-results { display: flex; flex-direction: column; gap: 8px; }
+        .search-result-row { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 10px; border-radius: 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+        .result-main { min-width: 0; flex: 1; }
+        .result-topline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+        .result-kind { font-size: 9px; font-weight: 1000; letter-spacing: 0.08em; padding: 3px 6px; border-radius: 999px; }
+        .result-kind-base { background: rgba(59,130,246,0.16); color: #93c5fd; border: 1px solid rgba(59,130,246,0.28); }
+        .result-kind-transport { background: rgba(168,85,247,0.16); color: #d8b4fe; border: 1px solid rgba(168,85,247,0.28); }
+        .result-code { font-size: 14px; font-weight: 1000; color: #fff; }
+        .result-status { font-size: 9px; font-weight: 900; color: rgba(255,255,255,0.58); }
+        .result-name { font-size: 14px; font-weight: 950; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .result-meta { display: flex; gap: 8px; flex-wrap: wrap; color: rgba(226,232,240,0.64); font-size: 11px; font-weight: 800; margin-top: 2px; }
+        .open-result-btn { border: 0; border-radius: 12px; background: #2563eb; color: #fff; font-size: 12px; font-weight: 1000; padding: 10px 13px; }
 
         .modules-section { margin-top: 10px; }
         .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
