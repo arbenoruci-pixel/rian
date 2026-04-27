@@ -6,15 +6,15 @@
     <meta name="theme-color" content="#0b0f14" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="tepiha-app-epoch" content="RESET-2026-04-27-VITE-TRUE-UI-READY-V32" />
-    <meta name="tepiha-build-id" content="2.0.38-vite-true-ui-ready-v32" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32" />
+    <meta name="tepiha-build-id" content="2.0.39-vite-true-ui-ready-diag-v32" />
     <link rel="icon" href="/favicon.ico" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TEPIHA</title>
     <script>
-      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-27-VITE-TRUE-UI-READY-V32';
-      window.__TEPIHA_BUILD_ID = '2.0.38-vite-true-ui-ready-v32';
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32';
+      window.__TEPIHA_BUILD_ID = '2.0.39-vite-true-ui-ready-diag-v32';
       window.__TEPIHA_QUIET_UPDATE_V7 = true;
       try { localStorage.removeItem('tepiha_update_available_v1'); sessionStorage.removeItem('tepiha_vite_pwa_update_v1'); } catch (e) {}
       window.__TEPIHA_SW_KILL_SWITCH__ = false;
@@ -30,6 +30,175 @@
       window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-update-quarantine-v29';
       window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
       window.__TEPIHA_NAV_CACHE_STRATEGY__ = 'update-quarantine-v29';
+
+      (function(){
+        try {
+          var BB_VERSION = 'smart-visual-blackbox-v32diag';
+          var EVENTS_KEY = 'tepiha_blackbox_events_v32diag';
+          var TRACE_KEY = 'tepiha_last_boot_trace_v32diag';
+          var VISUAL_LAST_KEY = 'tepiha_last_visual_incident_v32diag';
+          var VISUAL_LOG_KEY = 'tepiha_visual_incident_log_v32diag';
+          var STARTED_AT = Date.now();
+          var MAX_EVENTS = 90;
+          function ss(v){ try { return String(v == null ? '' : v); } catch(e){ return ''; } }
+          function iso(){ try { return new Date().toISOString(); } catch(e){ return ''; } }
+          function parse(raw, fb){ try { var out = JSON.parse(raw); return out == null ? fb : out; } catch(e){ return fb; } }
+          function isStandalone(){
+            try {
+              return !!((navigator && navigator.standalone === true) ||
+                (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches));
+            } catch(e){ return false; }
+          }
+          function controllerScriptURL(){ try { return ss(navigator.serviceWorker && navigator.serviceWorker.controller && navigator.serviceWorker.controller.scriptURL); } catch(e){ return ''; } }
+          function visibleChildrenCount(root){
+            try {
+              if (!root || !root.children) return 0;
+              var count = 0;
+              for (var i = 0; i < root.children.length; i++) {
+                var el = root.children[i];
+                if (!el) continue;
+                var cs = window.getComputedStyle ? window.getComputedStyle(el) : null;
+                if (cs && (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity || 1) === 0)) continue;
+                var rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+                if (rect && (rect.width > 0 || rect.height > 0)) count++;
+                else if ((el.textContent || '').trim().length > 0) count++;
+              }
+              return count;
+            } catch(e){ return 0; }
+          }
+          function snapshot(){
+            var root = null;
+            try { root = document.getElementById('root'); } catch(e) {}
+            var txt = '';
+            var html = '';
+            try { txt = root && root.innerText ? String(root.innerText).trim() : (root && root.textContent ? String(root.textContent).trim() : ''); } catch(e) { txt = ''; }
+            try { html = root && root.innerHTML ? String(root.innerHTML) : ''; } catch(e) { html = ''; }
+            return {
+              at: iso(),
+              ts: Date.now(),
+              sinceStartMs: Date.now() - STARTED_AT,
+              version: BB_VERSION,
+              path: ss(window.location && window.location.pathname),
+              href: ss(window.location && window.location.href),
+              appEpoch: ss(window.__TEPIHA_APP_EPOCH),
+              buildId: ss(window.__TEPIHA_BUILD_ID),
+              standalone: isStandalone(),
+              online: (function(){ try { return navigator.onLine; } catch(e){ return null; } })(),
+              visibilityState: ss(document.visibilityState),
+              readyState: ss(document.readyState),
+              controllerScriptURL: controllerScriptURL(),
+              rootExists: !!root,
+              rootTextLength: txt.length,
+              rootHtmlLength: html.length,
+              rootChildCount: root && root.childElementCount ? root.childElementCount : 0,
+              visibleChildrenCount: visibleChildrenCount(root),
+              buttonsCount: (function(){ try { return root ? root.querySelectorAll('button,[role="button"]').length : 0; } catch(e){ return 0; } })(),
+              linksCount: (function(){ try { return root ? root.querySelectorAll('a[href]').length : 0; } catch(e){ return 0; } })(),
+              inputsCount: (function(){ try { return root ? root.querySelectorAll('input,textarea,select').length : 0; } catch(e){ return 0; } })(),
+              htmlUiReady: ss(document.documentElement && document.documentElement.getAttribute('data-ui-ready')),
+              bodyUiReady: ss(document.body && document.body.getAttribute('data-ui-ready')),
+              uiReadySource: ss((document.documentElement && document.documentElement.getAttribute('data-ui-ready-source')) || (document.body && document.body.getAttribute('data-ui-ready-source')) || window.__TEPIHA_LAST_UI_READY_SOURCE__),
+              reactRenderCalled: window.__TEPIHA_REACT_RENDER_CALLED__ === true,
+              appRootMounted: window.__TEPIHA_APPROOT_MOUNTED__ === true,
+              uiReady: window.__TEPIHA_UI_READY__ === true,
+              firstUiReady: window.__TEPIHA_FIRST_UI_READY__ === true,
+              routeStarted: ss(window.__TEPIHA_LAST_ROUTE_STARTED__ || ''),
+              routeVisible: ss(window.__TEPIHA_LAST_ROUTE_VISIBLE__ || '')
+            };
+          }
+          function classify(snap){
+            try {
+              var hasMeaningfulText = Number(snap.rootTextLength || 0) >= 12;
+              var hasControls = Number(snap.buttonsCount || 0) + Number(snap.linksCount || 0) + Number(snap.inputsCount || 0) > 0;
+              var hasVisibleChildren = Number(snap.visibleChildrenCount || 0) > 0;
+              var reactStarted = snap.reactRenderCalled || snap.appRootMounted;
+              var markedReady = snap.uiReady || snap.firstUiReady || snap.htmlUiReady === '1' || snap.bodyUiReady === '1';
+              if (!snap.rootExists) return 'root_missing';
+              if (!reactStarted && !hasMeaningfulText && !hasControls) return 'pre_react_blank_candidate';
+              if (reactStarted && !hasMeaningfulText && !hasControls && !hasVisibleChildren) return 'post_react_blank_candidate';
+              if (markedReady && !hasMeaningfulText && !hasControls) return 'false_ui_ready_candidate';
+              if (reactStarted && Number(snap.rootHtmlLength || 0) < 40 && !hasControls) return 'root_nearly_empty_after_react';
+              return 'ok_or_not_blank';
+            } catch(e){ return 'classify_failed'; }
+          }
+          function saveVisualIncident(entry){
+            try { localStorage.setItem(VISUAL_LAST_KEY, JSON.stringify(entry)); } catch(e) {}
+            try {
+              var list = parse(localStorage.getItem(VISUAL_LOG_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(VISUAL_LOG_KEY, JSON.stringify(list.slice(0, 30)));
+            } catch(e) {}
+          }
+          function persist(entry){
+            try {
+              var list = parse(localStorage.getItem(EVENTS_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.push(entry);
+              if (list.length > MAX_EVENTS) list = list.slice(list.length - MAX_EVENTS);
+              localStorage.setItem(EVENTS_KEY, JSON.stringify(list));
+              localStorage.setItem(TRACE_KEY, JSON.stringify({ at: iso(), ts: Date.now(), version: BB_VERSION, count: list.length, last: entry, recent: list.slice(-25) }));
+            } catch(e) {}
+          }
+          function log(name, details){
+            var snap = snapshot();
+            var entry = { name: ss(name || 'event'), details: details || null, snapshot: snap, classification: classify(snap) };
+            persist(entry);
+            try { window.__TEPIHA_BLACKBOX_LAST__ = entry; } catch(e) {}
+            if (/blank|false_ui_ready|root_missing|route_visible_timeout|resource_error|global_error|unhandled_rejection/i.test(entry.name) || entry.classification !== 'ok_or_not_blank') {
+              saveVisualIncident(entry);
+            }
+            return entry;
+          }
+          function check(name){
+            var entry = log(name || 'visual_check', null);
+            if (entry.classification === 'post_react_blank_candidate' || entry.classification === 'false_ui_ready_candidate' || entry.classification === 'root_nearly_empty_after_react' || entry.classification === 'root_missing') {
+              saveVisualIncident(entry);
+              try { window.dispatchEvent(new CustomEvent('tepiha:blackbox-visual-incident', { detail: entry })); } catch(e) {}
+            }
+            return entry;
+          }
+          window.__TEPIHA_BLACKBOX__ = { version: BB_VERSION, log: log, snapshot: snapshot, classifyBlankScreen: classify, check: check };
+          log('index_loaded', { diagnosticOnly: true, noDbTouch: true, noReload: true });
+          try { window.addEventListener('error', function(event){
+            var target = event && event.target;
+            var tag = ss(target && target.tagName).toUpperCase();
+            var src = ss((target && (target.src || target.href)) || '');
+            if (target && (tag === 'SCRIPT' || tag === 'LINK' || tag === 'IMG')) log('resource_error', { tag: tag, src: src, rel: ss(target && target.rel), message: ss(event && event.message) });
+            else log('global_error', { message: ss(event && event.message), filename: ss(event && event.filename), lineno: event && event.lineno, colno: event && event.colno });
+          }, true); } catch(e) {}
+          try { window.addEventListener('unhandledrejection', function(event){
+            log('unhandled_rejection', { reason: ss(event && event.reason && (event.reason.message || event.reason.stack) || event && event.reason) });
+          }, true); } catch(e) {}
+          try { window.addEventListener('tepiha:react-render-called', function(e){ log('react_render_called_event', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:approot-mounted', function(e){ log('approot_mounted_event', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:first-ui-ready', function(e){ log('first_real_ui_ready_event', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:route-ui-alive', function(e){ log('route_ui_alive_event', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:post-react-blank-screen-fallback', function(e){ log('post_react_safe_screen_shown', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try {
+            window.setTimeout(function(){ check('visual_check_1500ms'); }, 1500);
+            window.setTimeout(function(){ check('visual_check_3500ms'); }, 3500);
+            window.setTimeout(function(){ check('visual_check_7000ms'); }, 7000);
+            window.setTimeout(function(){ check('visual_check_12000ms'); }, 12000);
+          } catch(e) {}
+          try {
+            var lastMeaningful = 0;
+            var obs = new MutationObserver(function(){
+              var snap = snapshot();
+              if (snap.rootTextLength >= 12 || snap.buttonsCount || snap.linksCount || snap.inputsCount || snap.visibleChildrenCount) lastMeaningful = Date.now();
+              if ((snap.reactRenderCalled || snap.appRootMounted) && lastMeaningful && Date.now() - lastMeaningful > 700 && snap.rootTextLength < 6 && snap.buttonsCount === 0 && snap.linksCount === 0) {
+                log('root_became_blank_after_render', { lastMeaningfulAt: lastMeaningful });
+              }
+            });
+            window.setTimeout(function(){
+              try { var root = document.getElementById('root'); if (root) obs.observe(root, { childList: true, subtree: true, characterData: true }); } catch(e) {}
+            }, 0);
+            window.setTimeout(function(){ try { obs.disconnect(); } catch(e) {} }, 18000);
+          } catch(e) {}
+        } catch(e) {}
+      })();
       (function(){
         try {
           // V12: cache inventory is passive and delayed until after React has a chance to paint Home.
@@ -1075,7 +1244,7 @@
       html,body{min-height:100%;background:#05070d}#tepiha-hard-refresh-failopen-shell{position:fixed;inset:0;z-index:2147483645;background:linear-gradient(180deg,#05070d,#07111f);color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}#tepiha-hard-refresh-failopen-shell *{box-sizing:border-box}#tepiha-hard-refresh-failopen-shell .tepiha-safe-card{width:min(620px,100%);border:1px solid rgba(96,165,250,.32);border-radius:22px;background:rgba(15,23,42,.96);box-shadow:0 24px 70px rgba(0,0,0,.52);padding:18px}#tepiha-hard-refresh-failopen-shell .tepiha-safe-kicker{color:#93c5fd;font-size:11px;font-weight:1000;letter-spacing:.16em;text-transform:uppercase}#tepiha-hard-refresh-failopen-shell .tepiha-safe-title{margin-top:8px;font-size:26px;line-height:1.05;font-weight:1000;letter-spacing:-.02em}#tepiha-hard-refresh-failopen-shell .tepiha-safe-body{margin-top:8px;color:#cbd5e1;font-size:14px;line-height:1.45;font-weight:700}#tepiha-hard-refresh-failopen-shell .tepiha-safe-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px}#tepiha-hard-refresh-failopen-shell .tepiha-safe-link{display:flex;align-items:center;justify-content:center;min-height:54px;border-radius:16px;text-decoration:none;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);font-weight:1000;letter-spacing:.04em}#tepiha-hard-refresh-failopen-shell .tepiha-safe-link.primary{background:linear-gradient(180deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.45)}#tepiha-hard-refresh-failopen-shell .tepiha-safe-foot{margin-top:12px;color:#64748b;font-size:12px;line-height:1.35;font-weight:750}#tepiha-hard-refresh-failopen-shell .tepiha-safe-status{margin-top:10px;color:#bae6fd;font-size:12px;font-weight:900;word-break:break-word}@media(max-width:460px){#tepiha-hard-refresh-failopen-shell .tepiha-safe-grid{grid-template-columns:1fr}#tepiha-hard-refresh-failopen-shell .tepiha-safe-title{font-size:23px}}
     </style>
     <script id="tepiha-hard-refresh-bulletproof-runtime-v27">
-      (function(){try{var VERSION='bulletproof-runtime-v27';var APP_EPOCH=String(window.__TEPIHA_APP_EPOCH||'RESET-2026-04-27-VITE-TRUE-UI-READY-V32');var BUILD_ID=String(window.__TEPIHA_BUILD_ID||'2.0.38-vite-true-ui-ready-v32');var LOG_KEY='tepiha_hard_refresh_failopen_log_v27';var LAST_KEY='tepiha_hard_refresh_failopen_last_v27';function ss(v){try{return String(v==null?'':v)}catch(e){return''}}function iso(){try{return new Date().toISOString()}catch(e){return''}}function sp(raw,fb){try{var p=JSON.parse(raw);return p==null?fb:p}catch(e){return fb}}function log(entry){try{localStorage.setItem(LAST_KEY,JSON.stringify(entry));var list=sp(localStorage.getItem(LOG_KEY),[]);if(!Array.isArray(list))list=[];list.unshift(entry);localStorage.setItem(LOG_KEY,JSON.stringify(list.slice(0,40)))}catch(e){}}function rootVisible(){try{var root=document.getElementById('root');if(!root)return false;var cs=window.getComputedStyle?window.getComputedStyle(root):null;if(cs&&(cs.display==='none'||cs.visibility==='hidden'||Number(cs.opacity||1)===0))return false;var textLen=root.textContent?String(root.textContent).trim().length:0;return(root.childElementCount||0)>0||textLen>0}catch(e){return false}}function uiReady(){try{if(window.__TEPIHA_UI_READY===true||window.__TEPIHA_FIRST_UI_READY===true)return true}catch(e){}try{if(document.documentElement&&document.documentElement.getAttribute('data-ui-ready')==='1')return true}catch(e){}try{if(document.body&&document.body.getAttribute('data-ui-ready')==='1')return true}catch(e){}return false}function href(path){try{var u=new URL(path,window.location.origin);u.searchParams.set('__failopen',VERSION);return u.pathname+u.search}catch(e){return path}}function hide(reason){try{var node=document.getElementById('tepiha-hard-refresh-failopen-shell');if(node&&node.parentNode)node.parentNode.removeChild(node);document.documentElement.removeAttribute('data-failopen-shell-visible');if(document.body)document.body.removeAttribute('data-failopen-shell-visible');log({at:iso(),ts:Date.now(),source:'hard_refresh_failopen_hide',reason:ss(reason||'ui_ready'),appEpoch:APP_EPOCH,buildId:BUILD_ID})}catch(e){}}function removeOld(){try{['#tepiha-module-boot-manual-panel','#tepiha-runtime-import-fallback','#tepiha-pwa-boot-rescue','#tepiha-chunk-heal-fallback'].forEach(function(sel){try{var n=document.querySelector(sel);if(n&&n.parentNode)n.parentNode.removeChild(n)}catch(e){}});try{document.documentElement.removeAttribute('data-pwa-boot-rescue')}catch(e){}}catch(e){}}function mark(reason){try{window.__TEPIHA_FAIL_OPEN_SHELL_VISIBLE__=true;window.__TEPIHA_UI_READY=true;window.__TEPIHA_FIRST_UI_READY=true}catch(e){}try{document.documentElement.setAttribute('data-ui-ready','1');document.documentElement.setAttribute('data-failopen-shell-visible','1')}catch(e){}try{if(document.body){document.body.setAttribute('data-ui-ready','1');document.body.setAttribute('data-failopen-shell-visible','1')}}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready',{detail:{source:'hard_refresh_failopen_shell',reason:ss(reason||'')}}))}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive',{detail:{source:'hard_refresh_failopen_shell',path:window.location.pathname||'/',reason:ss(reason||'')}}))}catch(e){}}function show(reason,detail){try{if(uiReady()&&!document.getElementById('tepiha-hard-refresh-failopen-shell'))return false;if(document.getElementById('tepiha-hard-refresh-failopen-shell'))return true;removeOld();var entry={at:iso(),ts:Date.now(),source:'hard_refresh_failopen_show',reason:ss(reason||'boot_timeout'),detail:detail||null,appEpoch:APP_EPOCH,buildId:BUILD_ID,href:ss(window.location&&window.location.href),path:ss(window.location&&window.location.pathname),readyState:ss(document.readyState),visibilityState:ss(document.visibilityState),online:(function(){try{return navigator.onLine}catch(e){return null}})(),noDbTouch:true,noOrdersTouch:true,noOutboxTouch:true,noReload:true,noRepair:true};log(entry);mark(reason);var mount=document.createElement('div');mount.id='tepiha-hard-refresh-failopen-shell';mount.setAttribute('data-hard-refresh-failopen-shell','1');mount.innerHTML='<div class="tepiha-safe-card"><div class="tepiha-safe-kicker">SAFE MODE • HARD REFRESH FAIL-OPEN</div><div class="tepiha-safe-title">APP-I NUK U BLLOKUA</div><div class="tepiha-safe-body">Një pjesë e JavaScript-it nuk u ngarkua pas refresh/update. Kjo faqe hapet pa DB dhe pa prekur porositë, outbox-in, pagesat, ose IndexedDB. Zgjidh një modul poshtë.</div><div class="tepiha-safe-grid"><a class="tepiha-safe-link primary" href="'+href('/pranimi')+'">PRANIMI</a><a class="tepiha-safe-link" href="'+href('/pastrimi')+'">PASTRIMI</a><a class="tepiha-safe-link" href="'+href('/gati')+'">GATI</a><a class="tepiha-safe-link" href="'+href('/arka')+'">ARKA</a><a class="tepiha-safe-link" href="'+href('/transport')+'">TRANSPORT</a><a class="tepiha-safe-link" href="'+href('/')+'">HOME</a></div><div id="tepiha-failopen-status" class="tepiha-safe-status">Reason: '+ss(reason||'boot_timeout').replace(/</g,'&lt;')+'</div><div class="tepiha-safe-foot">Nëse një modul nuk hapet, kthehu këtu dhe hap modulin tjetër. Refresh automatik, cache delete dhe SW unregister janë të çaktivizuara në këtë safe shell.</div></div>';(document.body||document.documentElement).appendChild(mount);return true}catch(e){return false}}window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__=show;window.__TEPIHA_HIDE_FAIL_OPEN_SHELL__=hide;function check(reason){try{if(uiReady()){if(rootVisible())hide('ui_ready_'+ss(reason||''));return}show(reason||'boot_timeout')}catch(e){}}try{window.addEventListener('tepiha:first-ui-ready',function(){if(rootVisible())hide('first_ui_ready')},{passive:true});window.addEventListener('tepiha:route-ui-alive',function(){if(rootVisible())hide('route_ui_alive')},{passive:true});window.addEventListener('tepiha:react-render-called',function(){window.setTimeout(function(){if(rootVisible())hide('react_render_called')},250)},{passive:true});window.addEventListener('error',function(event){try{var target=event&&event.target;var tag=ss(target&&target.tagName).toUpperCase();var rel=ss(target&&target.rel).toLowerCase();var msg=ss(event&&event.message||'');if((tag==='SCRIPT'||(tag==='LINK'&&rel==='modulepreload')||/module|chunk|dynamically imported/i.test(msg))&&!rootVisible())window.setTimeout(function(){check('asset_or_module_error')},600)}catch(e){}},true);window.addEventListener('unhandledrejection',function(event){try{var msg=ss(event&&event.reason&&(event.reason.message||event.reason.stack)||event&&event.reason||'');if(/chunk|module|dynamically imported|importing a module script/i.test(msg)&&!rootVisible())window.setTimeout(function(){check('module_unhandled_rejection')},600)}catch(e){}},true);window.addEventListener('pageshow',function(){window.setTimeout(function(){check('pageshow_check')},2600)},{passive:true});window.setTimeout(function(){check('boot_timeout_3200')},3200);window.setTimeout(function(){check('boot_timeout_6500')},6500)}catch(e){}}catch(e){}})();
+      (function(){try{var VERSION='bulletproof-runtime-v27';var APP_EPOCH=String(window.__TEPIHA_APP_EPOCH||'RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32');var BUILD_ID=String(window.__TEPIHA_BUILD_ID||'2.0.39-vite-true-ui-ready-diag-v32');var LOG_KEY='tepiha_hard_refresh_failopen_log_v27';var LAST_KEY='tepiha_hard_refresh_failopen_last_v27';function ss(v){try{return String(v==null?'':v)}catch(e){return''}}function iso(){try{return new Date().toISOString()}catch(e){return''}}function sp(raw,fb){try{var p=JSON.parse(raw);return p==null?fb:p}catch(e){return fb}}function log(entry){try{localStorage.setItem(LAST_KEY,JSON.stringify(entry));var list=sp(localStorage.getItem(LOG_KEY),[]);if(!Array.isArray(list))list=[];list.unshift(entry);localStorage.setItem(LOG_KEY,JSON.stringify(list.slice(0,40)))}catch(e){}}function rootVisible(){try{var root=document.getElementById('root');if(!root)return false;var cs=window.getComputedStyle?window.getComputedStyle(root):null;if(cs&&(cs.display==='none'||cs.visibility==='hidden'||Number(cs.opacity||1)===0))return false;var textLen=root.textContent?String(root.textContent).trim().length:0;return(root.childElementCount||0)>0||textLen>0}catch(e){return false}}function uiReady(){try{if(window.__TEPIHA_UI_READY===true||window.__TEPIHA_FIRST_UI_READY===true)return true}catch(e){}try{if(document.documentElement&&document.documentElement.getAttribute('data-ui-ready')==='1')return true}catch(e){}try{if(document.body&&document.body.getAttribute('data-ui-ready')==='1')return true}catch(e){}return false}function href(path){try{var u=new URL(path,window.location.origin);u.searchParams.set('__failopen',VERSION);return u.pathname+u.search}catch(e){return path}}function hide(reason){try{var node=document.getElementById('tepiha-hard-refresh-failopen-shell');if(node&&node.parentNode)node.parentNode.removeChild(node);document.documentElement.removeAttribute('data-failopen-shell-visible');if(document.body)document.body.removeAttribute('data-failopen-shell-visible');log({at:iso(),ts:Date.now(),source:'hard_refresh_failopen_hide',reason:ss(reason||'ui_ready'),appEpoch:APP_EPOCH,buildId:BUILD_ID})}catch(e){}}function removeOld(){try{['#tepiha-module-boot-manual-panel','#tepiha-runtime-import-fallback','#tepiha-pwa-boot-rescue','#tepiha-chunk-heal-fallback'].forEach(function(sel){try{var n=document.querySelector(sel);if(n&&n.parentNode)n.parentNode.removeChild(n)}catch(e){}});try{document.documentElement.removeAttribute('data-pwa-boot-rescue')}catch(e){}}catch(e){}}function mark(reason){try{window.__TEPIHA_FAIL_OPEN_SHELL_VISIBLE__=true;window.__TEPIHA_UI_READY=true;window.__TEPIHA_FIRST_UI_READY=true}catch(e){}try{document.documentElement.setAttribute('data-ui-ready','1');document.documentElement.setAttribute('data-failopen-shell-visible','1')}catch(e){}try{if(document.body){document.body.setAttribute('data-ui-ready','1');document.body.setAttribute('data-failopen-shell-visible','1')}}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready',{detail:{source:'hard_refresh_failopen_shell',reason:ss(reason||'')}}))}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive',{detail:{source:'hard_refresh_failopen_shell',path:window.location.pathname||'/',reason:ss(reason||'')}}))}catch(e){}}function show(reason,detail){try{if(uiReady()&&!document.getElementById('tepiha-hard-refresh-failopen-shell'))return false;if(document.getElementById('tepiha-hard-refresh-failopen-shell'))return true;removeOld();var entry={at:iso(),ts:Date.now(),source:'hard_refresh_failopen_show',reason:ss(reason||'boot_timeout'),detail:detail||null,appEpoch:APP_EPOCH,buildId:BUILD_ID,href:ss(window.location&&window.location.href),path:ss(window.location&&window.location.pathname),readyState:ss(document.readyState),visibilityState:ss(document.visibilityState),online:(function(){try{return navigator.onLine}catch(e){return null}})(),noDbTouch:true,noOrdersTouch:true,noOutboxTouch:true,noReload:true,noRepair:true};log(entry);mark(reason);var mount=document.createElement('div');mount.id='tepiha-hard-refresh-failopen-shell';mount.setAttribute('data-hard-refresh-failopen-shell','1');mount.innerHTML='<div class="tepiha-safe-card"><div class="tepiha-safe-kicker">SAFE MODE • HARD REFRESH FAIL-OPEN</div><div class="tepiha-safe-title">APP-I NUK U BLLOKUA</div><div class="tepiha-safe-body">Një pjesë e JavaScript-it nuk u ngarkua pas refresh/update. Kjo faqe hapet pa DB dhe pa prekur porositë, outbox-in, pagesat, ose IndexedDB. Zgjidh një modul poshtë.</div><div class="tepiha-safe-grid"><a class="tepiha-safe-link primary" href="'+href('/pranimi')+'">PRANIMI</a><a class="tepiha-safe-link" href="'+href('/pastrimi')+'">PASTRIMI</a><a class="tepiha-safe-link" href="'+href('/gati')+'">GATI</a><a class="tepiha-safe-link" href="'+href('/arka')+'">ARKA</a><a class="tepiha-safe-link" href="'+href('/transport')+'">TRANSPORT</a><a class="tepiha-safe-link" href="'+href('/')+'">HOME</a></div><div id="tepiha-failopen-status" class="tepiha-safe-status">Reason: '+ss(reason||'boot_timeout').replace(/</g,'&lt;')+'</div><div class="tepiha-safe-foot">Nëse një modul nuk hapet, kthehu këtu dhe hap modulin tjetër. Refresh automatik, cache delete dhe SW unregister janë të çaktivizuara në këtë safe shell.</div></div>';(document.body||document.documentElement).appendChild(mount);return true}catch(e){return false}}window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__=show;window.__TEPIHA_HIDE_FAIL_OPEN_SHELL__=hide;function check(reason){try{if(uiReady()){if(rootVisible())hide('ui_ready_'+ss(reason||''));return}show(reason||'boot_timeout')}catch(e){}}try{window.addEventListener('tepiha:first-ui-ready',function(){if(rootVisible())hide('first_ui_ready')},{passive:true});window.addEventListener('tepiha:route-ui-alive',function(){if(rootVisible())hide('route_ui_alive')},{passive:true});window.addEventListener('tepiha:react-render-called',function(){window.setTimeout(function(){if(rootVisible())hide('react_render_called')},250)},{passive:true});window.addEventListener('error',function(event){try{var target=event&&event.target;var tag=ss(target&&target.tagName).toUpperCase();var rel=ss(target&&target.rel).toLowerCase();var msg=ss(event&&event.message||'');if((tag==='SCRIPT'||(tag==='LINK'&&rel==='modulepreload')||/module|chunk|dynamically imported/i.test(msg))&&!rootVisible())window.setTimeout(function(){check('asset_or_module_error')},600)}catch(e){}},true);window.addEventListener('unhandledrejection',function(event){try{var msg=ss(event&&event.reason&&(event.reason.message||event.reason.stack)||event&&event.reason||'');if(/chunk|module|dynamically imported|importing a module script/i.test(msg)&&!rootVisible())window.setTimeout(function(){check('module_unhandled_rejection')},600)}catch(e){}},true);window.addEventListener('pageshow',function(){window.setTimeout(function(){check('pageshow_check')},2600)},{passive:true});window.setTimeout(function(){check('boot_timeout_3200')},3200);window.setTimeout(function(){check('boot_timeout_6500')},6500)}catch(e){}}catch(e){}})();
     </script>
     <script id="tepiha-pwa-boot-rescue-vite-bulletproof-runtime-v27">
       (function(){
@@ -1747,22 +1916,22 @@
     <div
       id="tepiha-build-marker"
       data-tepiha-build-marker="1"
-      data-app-epoch="RESET-2026-04-27-VITE-TRUE-UI-READY-V32"
-      data-build-id="2.0.38-vite-true-ui-ready-v32"
+      data-app-epoch="RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32"
+      data-build-id="2.0.39-vite-true-ui-ready-diag-v32"
       data-index-script-version="index-html-vite-true-ui-ready-v32"
       data-pwa-boot-rescue-version="pwa-boot-rescue-vite-bulletproof-runtime-v27"
       style="display:none;position:fixed;left:6px;bottom:calc(58px + env(safe-area-inset-bottom, 0px));z-index:2147482500;max-width:calc(100vw - 12px);padding:3px 5px;border-radius:7px;background:rgba(2,6,23,.52);border:1px solid rgba(96,165,250,.22);color:rgba(191,219,254,.72);font:700 7px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.01em;box-shadow:none;pointer-events:none;opacity:.72"
     >
-      INDEX FAILOPEN • 2.0.38-vite-true-ui-ready-v32<br />
-      RESET-2026-04-27-VITE-TRUE-UI-READY-V32<br />
+      INDEX FAILOPEN • 2.0.39-vite-true-ui-ready-diag-v32<br />
+      RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32<br />
       TRUE UI READY V32
     </div>
     <div id="root"></div>
     <script id="tepiha-pre-react-black-screen-fallback-v29">
       (function(){
         try {
-          var APP_EPOCH = 'RESET-2026-04-27-VITE-TRUE-UI-READY-V32';
-          var BUILD_ID = '2.0.38-vite-true-ui-ready-v32';
+          var APP_EPOCH = 'RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32';
+          var BUILD_ID = '2.0.39-vite-true-ui-ready-diag-v32';
           var LAST_KEY = 'tepiha_pre_react_black_screen_last';
           var LOG_KEY = 'tepiha_pre_react_black_screen_log';
           function ss(v){ try { return String(v == null ? '' : v); } catch(e) { return ''; } }
@@ -1819,8 +1988,8 @@
     <script id="tepiha-post-react-blank-screen-watchdog-v32">
       (function(){
         try {
-          var APP_EPOCH = 'RESET-2026-04-27-VITE-TRUE-UI-READY-V32';
-          var BUILD_ID = '2.0.38-vite-true-ui-ready-v32';
+          var APP_EPOCH = 'RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32';
+          var BUILD_ID = '2.0.39-vite-true-ui-ready-diag-v32';
           var LAST_KEY = 'tepiha_post_react_blank_screen_last';
           var LOG_KEY = 'tepiha_post_react_blank_screen_log';
           function ss(v){ try { return String(v == null ? '' : v); } catch(e) { return ''; } }

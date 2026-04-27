@@ -523,6 +523,7 @@ function CoreRuntimeModule({ name, children }) {
 function AppRootMountedMarker() {
   React.useEffect(() => {
     try { window.__TEPIHA_APPROOT_MOUNTED__ = true; } catch {}
+    try { window.__TEPIHA_BLACKBOX__?.log?.('approot_mounted', { source: 'AppRootMountedMarker', patch: 'v32diag' }); } catch {}
     try { window.__TEPIHA_APPROOT_MOUNTED_AT__ = Date.now(); } catch {}
     try { document.documentElement?.setAttribute?.('data-approot-mounted', '1'); } catch {}
     try { document.body?.setAttribute?.('data-approot-mounted', '1'); } catch {}

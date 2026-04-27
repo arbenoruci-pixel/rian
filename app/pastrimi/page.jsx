@@ -1212,19 +1212,14 @@ function PastrimiPageInner() {
   const [readyCountHint, setReadyCountHint] = useState(null);
 
   function markPastrimiFailOpenReady(reason = 'local_first_ready', count = 0) {
-    try { window.__TEPIHA_UI_READY = true; } catch {}
-    try { window.__TEPIHA_FIRST_UI_READY = true; } catch {}
-    try { document.documentElement?.setAttribute?.('data-ui-ready', '1'); } catch {}
-    try { document.body?.setAttribute?.('data-ui-ready', '1'); } catch {}
+    const detail = { source: 'pastrimi_fail_open_local_first', path: '/pastrimi', page: 'pastrimi', reason: String(reason || ''), count: Number(count || 0) };
+    try { markRealUiReady('pastrimi_fail_open_local_first'); } catch {}
+    try { window.__TEPIHA_BLACKBOX__?.log?.('pastrimi_fail_open_ready', detail); } catch {}
     try {
-      window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive', {
-        detail: { source: 'pastrimi_fail_open_local_first', path: '/pastrimi', page: 'pastrimi', reason: String(reason || ''), count: Number(count || 0) }
-      }));
+      window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive', { detail }));
     } catch {}
     try {
-      window.dispatchEvent(new CustomEvent('tepiha:force-route-settled', {
-        detail: { source: 'pastrimi_fail_open_local_first', path: '/pastrimi', reason: String(reason || ''), count: Number(count || 0) }
-      }));
+      window.dispatchEvent(new CustomEvent('tepiha:force-route-settled', { detail }));
     } catch {}
   }
 

@@ -2,6 +2,12 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import AppRoot from './AppRoot.jsx';
 
+function blackboxLog(name, details = null) {
+  try { window.__TEPIHA_BLACKBOX__?.log?.(name, details); } catch {}
+}
+
+blackboxLog('main_module_loaded', { source: 'src/main.jsx', patch: 'v32diag' });
+
 const VITE_PWA_SW_BASENAME = '/vite-sw.js';
 const LEGACY_SW_DETECTED_KEY = 'tepiha_legacy_sw_detected_v1';
 
@@ -24,6 +30,7 @@ function safeString(value) {
 }
 
 function markReactRenderCalled(source = 'src_main_render_called_v32') {
+  blackboxLog('react_render_called', { source, patch: 'v32diag' });
   try { window.__TEPIHA_REACT_RENDER_CALLED__ = true; } catch {}
   try { window.__TEPIHA_REACT_RENDER_CALLED_AT__ = Date.now(); } catch {}
   try { window.__TEPIHA_REACT_RENDER_CALLED_SOURCE__ = source; } catch {}
