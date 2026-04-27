@@ -715,7 +715,7 @@ const ui = {
 
 export default function TransportItemPage() {
   return (
-    <Suspense fallback={<V33PageOpenFallback />}>
+    <Suspense fallback={null}>
       <TransportItemPageInner />
     </Suspense>
   );

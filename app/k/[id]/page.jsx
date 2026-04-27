@@ -830,7 +830,7 @@ const styles = {
 };
 export default function OrderTrackingPage() {
   return (
-    <Suspense fallback={<V33PageOpenFallback />}>
+    <Suspense fallback={null}>
       <OrderTrackingPageInner />
     </Suspense>
   );

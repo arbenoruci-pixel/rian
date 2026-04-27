@@ -328,7 +328,7 @@ const ui = {
 };
 export default function TransportPayPage() {
   return (
-    <Suspense fallback={<V33PageOpenFallback />}>
+    <Suspense fallback={null}>
       <TransportPayPageInner />
     </Suspense>
   );

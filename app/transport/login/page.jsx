@@ -164,7 +164,7 @@ function TransportLoginPageInner() {
 }
 export default function TransportLoginPage() {
   return (
-    <Suspense fallback={<V33PageOpenFallback />}>
+    <Suspense fallback={null}>
       <TransportLoginPageInner />
     </Suspense>
   );

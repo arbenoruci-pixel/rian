@@ -166,7 +166,7 @@ function SearchPageInner() {
 
 export default function SearchPage() {
   return (
-    <Suspense fallback={<V33PageOpenFallback />}>
+    <Suspense fallback={null}>
       <SearchPageInner />
     </Suspense>
   );

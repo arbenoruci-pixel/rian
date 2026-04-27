@@ -1890,7 +1890,7 @@ function PranimiPageInner() {
 }
 export default function PranimiPage() {
   return (
-    <Suspense fallback={<V33PageOpenFallback />}>
+    <Suspense fallback={null}>
       <PranimiPageInner />
     </Suspense>
   );

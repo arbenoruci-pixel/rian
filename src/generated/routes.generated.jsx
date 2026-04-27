@@ -158,99 +158,15 @@ function RouteLifecycleProbe({ path, label, kind = 'route', sourceLayer = 'route
       });
     };
 
-    const isShellOnlyReadyDetail = (detail = {}) => {
-      try {
-        const labelText = String(detail?.label || detail?.source || detail?.uiReadySource || '');
-        return detail?.shellOnly === true || detail?.noUiReady === true || labelText.startsWith('safe_shell:') || labelText === 'safe_lazy_route_shell';
-      } catch {
-        return false;
-      }
-    };
-    const isTrustedRealUiReadyDetail = (detail = {}) => {
-      try {
-        if (detail?.patch === 'true_ui_ready_v32') return true;
-        const source = String(detail?.uiReadySource || detail?.source || window.__TEPIHA_LAST_UI_READY_SOURCE__ || '').trim();
-        if (!source) return false;
-        const htmlSource = String(document.documentElement?.dataset?.uiReadySource || '').trim();
-        const bodySource = String(document.body?.dataset?.uiReadySource || '').trim();
-        return source === htmlSource || source === bodySource;
-      } catch {
-        return false;
-      }
-    };
-    const readRootVisualSnapshot = () => {
-      try {
-        const root = document.getElementById('root') || document.getElementById('__next') || document.body;
-        if (!root) return { meaningful: false, reason: 'missing_root' };
-        if (root.querySelector?.('[data-safe-route-loading="1"]')) return { meaningful: false, reason: 'safe_route_loading_shell' };
-        const style = window.getComputedStyle ? window.getComputedStyle(root) : null;
-        if (style && (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) === 0)) {
-          return { meaningful: false, reason: 'root_hidden' };
-        }
-        const text = String(root.innerText || root.textContent || '').replace(/\s+/g, ' ').trim();
-        const controls = root.querySelectorAll ? root.querySelectorAll('button,a[href],input,select,textarea,[role="button"]').length : 0;
-        const visibleChildren = root.children ? root.children.length : 0;
-        const meaningful = visibleChildren > 0 && (text.length >= 12 || controls > 0);
-        return { meaningful, rootTextLength: text.length, controlCount: controls, visibleChildren };
-      } catch (error) {
-        return { meaningful: false, reason: 'snapshot_error', message: String(error?.message || error || '') };
-      }
-    };
-    const maybeMarkDomVerifiedReady = (reason = 'dom_verified') => {
-      if (readyLoggedRef.current) return;
-      const snapshot = readRootVisualSnapshot();
-      if (!snapshot.meaningful) {
-        recordRouteDiagEvent('route_dom_visual_not_ready_logged_only', { ...base, reason, snapshot, patch: 'readiness_chain_v33' });
-        return;
-      }
-      markReady('dom_verified_route_content_v33', {
-        path: actualPathRef.current || actualPath,
-        reason,
-        domVerified: true,
-        uiReadySource: 'dom_verified_route_content_v33',
-        patch: 'readiness_chain_v33',
-        snapshot,
-      });
-    };
-    const onFirstUiReady = (event) => {
-      const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
-      if (isShellOnlyReadyDetail(detail)) {
-        recordRouteDiagEvent('route_shell_ready_ignored', { ...base, detail, shellOnly: true, patch: 'PATCH_O_V27_shell_not_route_ready' });
-        return;
-      }
-      if (!isTrustedRealUiReadyDetail(detail)) {
-        recordRouteDiagEvent('route_first_ui_ready_untrusted_logged_only', { ...base, detail, patch: 'readiness_chain_v33' });
-        return;
-      }
-      markReady('tepiha:first-ui-ready', detail);
-    };
-    const onRouteUiAlive = (event) => {
-      const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
-      if (isShellOnlyReadyDetail(detail)) {
-        recordRouteDiagEvent('route_shell_alive_ignored', { ...base, detail, shellOnly: true, patch: 'PATCH_O_V27_shell_not_route_ready' });
-        return;
-      }
-      if (!isTrustedRealUiReadyDetail(detail)) {
-        recordRouteDiagEvent('route_ui_alive_untrusted_logged_only', { ...base, detail, patch: 'readiness_chain_v33' });
-        return;
-      }
-      markReady('tepiha:route-ui-alive', detail);
-    };
+    const onFirstUiReady = (event) => markReady('tepiha:first-ui-ready', event?.detail && typeof event.detail === 'object' ? event.detail : {});
+    const onRouteUiAlive = (event) => markReady('tepiha:route-ui-alive', event?.detail && typeof event.detail === 'object' ? event.detail : {});
 
     paintRaf = window.requestAnimationFrame(() => {
       recordRouteDiagEvent('route_first_paint', base);
       interactiveRaf = window.requestAnimationFrame(() => {
         interactiveTimer = window.setTimeout(() => {
-          recordRouteDiagEvent('route_first_interactive', {
-            ...base,
-            diagnosticOnly: true,
-            noUiReady: true,
-            patch: 'PATCH_V27_1_route_readiness',
-          });
-          // PATCH V27.1: first paint/interactive means the route bundle rendered,
-          // not that the page data/UI is truly ready. V33 only marks route ready
-          // here after DOM verification confirms real visible content.
-          try { maybeMarkDomVerifiedReady('first_interactive_dom_verify'); } catch {}
+          recordRouteDiagEvent('route_first_interactive', base);
+          markReady('route_first_interactive_timer', { path: actualPathRef.current || actualPath });
         }, 0);
       });
     });
@@ -263,21 +179,7 @@ function RouteLifecycleProbe({ path, label, kind = 'route', sourceLayer = 'route
         try {
           const domReady = document.documentElement?.getAttribute?.('data-ui-ready') === '1' || document.body?.getAttribute?.('data-ui-ready') === '1';
           if (!domReady) return;
-          const htmlSource = String(document.documentElement?.dataset?.uiReadySource || '').trim();
-          const bodySource = String(document.body?.dataset?.uiReadySource || '').trim();
-          const uiReadySource = htmlSource || bodySource || '';
-          const detail = { path: actualPathRef.current || actualPath, uiReadySource, domReady: true };
-          if (!uiReadySource) {
-            recordRouteDiagEvent('route_dom_data_ui_ready_untrusted_logged_only', { ...base, detail, patch: 'readiness_chain_v33' });
-            maybeMarkDomVerifiedReady('dom_data_ui_ready_without_source');
-            return;
-          }
-          if (!isTrustedRealUiReadyDetail(detail)) {
-            recordRouteDiagEvent('route_dom_data_ui_ready_untrusted_source_logged_only', { ...base, detail, patch: 'readiness_chain_v33' });
-            maybeMarkDomVerifiedReady('dom_data_ui_ready_untrusted_source');
-            return;
-          }
-          markReady('dom_data_ui_ready', detail);
+          markReady('dom_data_ui_ready', { path: actualPathRef.current || actualPath });
         } catch {
           // ignore
         }
