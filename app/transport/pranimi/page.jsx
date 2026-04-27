@@ -18,6 +18,20 @@ import { fetchTransportOrderById, listTransportOrders, searchTransportClientCand
 import { buildSmsLink } from '@/lib/smartSms';
 import { trackRender } from '@/lib/sensor';
 import useRouteAlive from '@/lib/routeAlive';
+
+function V33PageOpenFallback() {
+  return (
+    <div style={{ minHeight: '100vh', background: '#05070d', color: '#fff', display: 'grid', placeItems: 'center', padding: 24, fontFamily: '-apple-system,BlinkMacSystemFont,Roboto,sans-serif' }}>
+      <div style={{ width: 'min(420px, 100%)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 20, background: 'rgba(255,255,255,0.06)', padding: 20, textAlign: 'center' }}>
+        <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 1 }}>DUKE HAPUR…</div>
+        <div style={{ marginTop: 14, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <a href="/" style={{ color: '#fff', textDecoration: 'none', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 12, padding: '10px 14px', fontWeight: 900 }}>HOME</a>
+          <a href="/diag-raw" style={{ color: '#fff', textDecoration: 'none', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 12, padding: '10px 14px', fontWeight: 900 }}>DIAG RAW</a>
+        </div>
+      </div>
+    </div>
+  );
+}
 const BUCKET = 'tepiha-photos';
 const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.5, 3.7, 4.0, 5.0, 6.0, 8.0, 12.0];
 const STAZA_CHIPS = [0.5, 0.8, 0.9, 1.2, 1.5, 1.6, 2.0, 2.4, 2.5, 3.0, 4.0, 5.0];
@@ -1876,7 +1890,7 @@ function PranimiPageInner() {
 }
 export default function PranimiPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<V33PageOpenFallback />}>
       <PranimiPageInner />
     </Suspense>
   );

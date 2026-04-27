@@ -7,6 +7,20 @@ import { findLatestOrderByCode } from "@/lib/ordersService";
 import { normalizeCode } from "@/lib/baseCodes";
 import { normTCode } from "@/lib/transport/transportDb";
 
+function V33PageOpenFallback() {
+  return (
+    <div style={{ minHeight: '100vh', background: '#05070d', color: '#fff', display: 'grid', placeItems: 'center', padding: 24, fontFamily: '-apple-system,BlinkMacSystemFont,Roboto,sans-serif' }}>
+      <div style={{ width: 'min(420px, 100%)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 20, background: 'rgba(255,255,255,0.06)', padding: 20, textAlign: 'center' }}>
+        <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 1 }}>DUKE HAPUR…</div>
+        <div style={{ marginTop: 14, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <a href="/" style={{ color: '#fff', textDecoration: 'none', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 12, padding: '10px 14px', fontWeight: 900 }}>HOME</a>
+          <a href="/diag-raw" style={{ color: '#fff', textDecoration: 'none', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 12, padding: '10px 14px', fontWeight: 900 }}>DIAG RAW</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function isTCode(v) {
   const s = String(v ?? "").trim();
   return /^t\s*\d+/i.test(s) || s.toUpperCase().startsWith("T");
@@ -152,7 +166,7 @@ function SearchPageInner() {
 
 export default function SearchPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<V33PageOpenFallback />}>
       <SearchPageInner />
     </Suspense>
   );
