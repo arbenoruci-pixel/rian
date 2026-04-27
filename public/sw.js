@@ -1,9 +1,9 @@
 /* LEGACY /sw.js BRIDGE — inert compatibility worker for old controllers. */
 /* eslint-disable no-restricted-globals */
 
-const APP_DATA_EPOCH = 'RESET-2026-04-27-VITE-SUPABASE-GUARD-V28';
-const APP_VERSION = '2.0.34-vite-supabase-guard-v28';
-const SW_BUILD_LABEL = 'sw-vite-supabase-guard-v28';
+const APP_DATA_EPOCH = 'RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29';
+const APP_VERSION = '2.0.35-vite-update-quarantine-v29';
+const SW_BUILD_LABEL = 'sw-vite-update-quarantine-v29';
 const OFFLINE_FALLBACK = '/offline.html';
 const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v19';
 
@@ -86,25 +86,7 @@ async function precacheOfflineFallbackOnly() {
 }
 
 async function purgeLegacyOnlyCaches() {
-  const deleted = [];
-
-  try {
-    const keys = await caches.keys();
-    await Promise.allSettled(
-      (Array.isArray(keys) ? keys : []).map(async (key) => {
-        if (!isLegacyOnlyCache(key)) return false;
-        try {
-          const ok = await caches.delete(key);
-          if (ok) deleted.push(key);
-          return ok;
-        } catch (_) {
-          return false;
-        }
-      }),
-    );
-  } catch (_) {}
-
-  return deleted;
+  return [];
 }
 
 async function offlineFallbackResponse() {
@@ -154,46 +136,28 @@ self.addEventListener('message', (event) => {
   }
 
   if (type === 'PURGE_LEGACY_ONLY_CACHES') {
-    if (data?.manual !== true) {
-      replyToClient(event, { type: 'PURGE_LEGACY_ONLY_CACHES_RESULT', ok: false, label: SW_BUILD_LABEL, error: 'manual_true_required_v28_1', protectedModernCachesPreserved: true, at: nowIso() });
-      return;
-    }
-    event.waitUntil((async () => {
-      const deletedCaches = await purgeLegacyOnlyCaches();
-      replyToClient(event, {
-        type: 'PURGE_LEGACY_ONLY_CACHES_RESULT',
-        ok: true,
-        label: SW_BUILD_LABEL,
-        deletedCaches,
-        protectedModernCachesPreserved: true,
-        at: nowIso(),
-      });
-    })());
+    replyToClient(event, {
+      type: 'PURGE_LEGACY_ONLY_CACHES_RESULT',
+      ok: false,
+      skipped: true,
+      label: SW_BUILD_LABEL,
+      reason: 'update_flow_quarantine_v29_no_cache_delete',
+      protectedModernCachesPreserved: true,
+      at: nowIso(),
+    });
     return;
   }
 
   if (type === 'LEGACY_SW_SELF_UNREGISTER') {
-    if (data?.manual !== true) {
-      replyToClient(event, { type: 'LEGACY_SW_SELF_UNREGISTER_RESULT', ok: false, label: SW_BUILD_LABEL, error: 'manual_true_required_v28_1', noClientReload: true, at: nowIso() });
-      return;
-    }
-    event.waitUntil((async () => {
-      let ok = false;
-      let error = '';
-      try {
-        ok = await self.registration.unregister();
-      } catch (err) {
-        error = safeString(err?.message || err || 'legacy_self_unregister_failed');
-      }
-      replyToClient(event, {
-        type: 'LEGACY_SW_SELF_UNREGISTER_RESULT',
-        ok: !!ok,
-        label: SW_BUILD_LABEL,
-        error,
-        noClientReload: true,
-        at: nowIso(),
-      });
-    })());
+    replyToClient(event, {
+      type: 'LEGACY_SW_SELF_UNREGISTER_RESULT',
+      ok: false,
+      skipped: true,
+      label: SW_BUILD_LABEL,
+      reason: 'update_flow_quarantine_v29_no_sw_unregister',
+      noClientReload: true,
+      at: nowIso(),
+    });
     return;
   }
 });

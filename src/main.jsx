@@ -23,6 +23,18 @@ function safeString(value) {
   }
 }
 
+function markUiReady(source = 'src_main') {
+  try { window.__TEPIHA_UI_READY__ = true; } catch {}
+  try { window.__TEPIHA_FIRST_UI_READY__ = true; } catch {}
+  try { document.documentElement?.setAttribute?.('data-ui-ready', '1'); } catch {}
+  try { document.body?.setAttribute?.('data-ui-ready', '1'); } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready', {
+      detail: { source, at: Date.now(), patch: 'update_quarantine_v29' },
+    }));
+  } catch {}
+}
+
 function controllerScriptURL() {
   try {
     return safeString(navigator.serviceWorker?.controller?.scriptURL || '');
@@ -171,6 +183,7 @@ try {
   ReactDOM.createRoot(mountNode).render(
     <AppRoot />,
   );
+  markUiReady('src_main_render_called_v29');
   try {
     window.__TEPIHA_REACT_RENDER_CALLED__ = true;
     window.dispatchEvent(new CustomEvent('tepiha:react-render-called', { detail: { at: Date.now() } }));

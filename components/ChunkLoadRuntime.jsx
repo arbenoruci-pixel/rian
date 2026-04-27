@@ -7,8 +7,8 @@ import { pushLocalErrorLog } from '@/lib/localErrorLog';
 import { getLastChunkCapture, getLastLazyImportFailure, getLastLazyImportAttempt, isProbablyChunkLikeMessage, recordChunkCapture, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
 
 const CONTROLLED_RECOVERY_EVENT = 'tepiha:sw-controlled-recovery-request';
-const APP_DATA_EPOCH = 'RESET-2026-04-27-VITE-SUPABASE-GUARD-V28';
-const APP_VERSION = '2.0.34-vite-supabase-guard-v28';
+const APP_DATA_EPOCH = 'RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29';
+const APP_VERSION = '2.0.35-vite-update-quarantine-v29';
 const V28_DIAG_CLEAR_KEY = 'tepiha_diag_clear_epoch_v28';
 
 const OPTIONAL_MODULEPRELOAD_PATTERNS = [

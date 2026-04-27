@@ -61,7 +61,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         cleanupOutdatedCaches: false,
         // Keep updates passive during an active iOS PWA session.
-        // The waiting worker is activated only after the user presses PËRDITËSO or on a clean launch.
+        // The waiting worker is not activated from the app UI during an active session.
         clientsClaim: false,
         skipWaiting: false,
         navigateFallback: '/index.html',

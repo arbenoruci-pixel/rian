@@ -1,0 +1,21 @@
+PATCH V29 — UPDATE FLOW QUARANTINE + PRE-REACT FALLBACK
+
+Version: 2.0.35-vite-update-quarantine-v29
+Epoch: RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29
+
+Scope:
+- Quarantined visual update button: it now shows information only.
+- No updateSW apply, skipWaiting, clients.claim, reload, cache delete, or SW unregister from update UI.
+- ServiceWorkerRegister remains passive: registration + passive registration.update checks only.
+- Legacy/manual repair UI paths are non-destructive in this patch.
+- Added pre-React black-screen fallback inside #root after 2500ms with HOME, PRANIMI, PASTRIMI, GATI, DIAG RAW.
+- Added uiReady markers from src/main.jsx and AppRoot.
+
+Not touched:
+- DB schema / Supabase tables
+- orders payload / outbox format
+- payment/status logic
+- Pastrimi -> Gati flow
+- ARKA calculations
+- business localStorage keys
+- IndexedDB

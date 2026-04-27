@@ -122,37 +122,14 @@ function reportInlineIncident(type, error, extra = {}) {
 }
 
 async function unregisterAllServiceWorkersForKillMode() {
-  if (!isSupported()) return { count: 0 };
-
-  let regs = [];
-
-  try {
-    regs = await navigator.serviceWorker.getRegistrations();
-  } catch {
-    regs = [];
-  }
-
-  const safeRegs = Array.isArray(regs) ? regs : [];
-
-  await Promise.allSettled(
-    safeRegs.map(async (reg) => {
-      try {
-        reg?.waiting?.postMessage?.({ type: 'SKIP_WAITING', manual: true });
-      } catch {}
-
-      try {
-        reg?.active?.postMessage?.({ type: 'SKIP_WAITING', manual: true });
-      } catch {}
-
-      try {
-        if (typeof reg?.unregister === 'function') {
-          await reg.unregister();
-        }
-      } catch {}
-    }),
-  );
-
-  return { count: safeRegs.length };
+  return {
+    count: 0,
+    skipped: true,
+    reason: 'update_flow_quarantine_v29_no_sw_unregister',
+    noSkipWaiting: true,
+    noCacheDelete: true,
+    noReload: true,
+  };
 }
 
 function setOfflineReadyFlag(source) {
@@ -247,6 +224,18 @@ function markLegacyDetected(payload) {
 }
 
 function postLegacyControllerMessage(type, detail = {}) {
+  return Promise.resolve({
+    ok: false,
+    type: safeMessage(type, 'unknown'),
+    skipped: true,
+    reason: 'update_flow_quarantine_v29_no_controller_postmessage',
+    noCacheDelete: true,
+    noSwUnregister: true,
+    noSkipWaiting: true,
+    noReload: true,
+    detailSource: safeMessage(detail?.source || '', ''),
+  });
+}) {
   return new Promise((resolve) => {
     let settled = false;
     let timer = null;
@@ -351,26 +340,18 @@ function safeUpdateRegistration(registration, source, swUrl = '') {
 
 function safeApplyViteUpdate(updateSW, reloadPage, source) {
   try {
-    if (typeof updateSW !== 'function') {
-      logSwEvent('vite_pwa_sw_update_apply_missing', { source });
-      return false;
-    }
-
-    Promise.resolve(updateSW(Boolean(reloadPage))).catch((error) => {
-      logSwEvent('vite_pwa_sw_update_apply_error', {
-        source,
-        message: safeMessage(error, 'update_apply_failed'),
-      });
-    });
-
-    return true;
-  } catch (error) {
-    logSwEvent('vite_pwa_sw_update_apply_throw', {
+    logSwEvent('vite_pwa_sw_update_apply_quarantined_v29', {
       source,
-      message: safeMessage(error, 'update_apply_throw'),
+      hasUpdateSW: typeof updateSW === 'function',
+      requestedReloadPage: Boolean(reloadPage),
+      noUpdateSWApply: true,
+      noSkipWaiting: true,
+      noReload: true,
+      noCacheDelete: true,
+      noSwUnregister: true,
     });
-    return false;
-  }
+  } catch {}
+  return false;
 }
 
 function buildRegisterOptions({
@@ -512,11 +493,11 @@ export default function ServiceWorkerRegister() {
           banner.innerHTML = ''
             + '<div style="width:min(560px,100%);border-radius:18px;border:1px solid rgba(96,165,250,.38);background:rgba(15,23,42,.97);box-shadow:0 18px 45px rgba(0,0,0,.42);padding:12px;pointer-events:auto">'
             + '<div style="font-size:11px;font-weight:1000;letter-spacing:.12em;color:#93c5fd">VERSION I RI GATI</div>'
-            + '<div style="margin-top:5px;font-size:15px;line-height:1.25;font-weight:950">Përditësim gati.</div>'
-            + '<div style="margin-top:5px;font-size:12.5px;line-height:1.35;color:rgba(226,232,240,.82);font-weight:700">App-i vazhdon normalisht. Përditësimi bëhet vetëm kur e shtyp vetë.</div>'
+            + '<div style="margin-top:5px;font-size:15px;line-height:1.25;font-weight:950">Version i ri është gati.</div>'
+            + '<div style="margin-top:5px;font-size:12.5px;line-height:1.35;color:rgba(226,232,240,.82);font-weight:700">Mbylle app-in komplet dhe hape prap kur nuk je në punë aktive.</div>'
             + '<div id="tepiha-update-available-status" style="display:none;margin-top:8px;font-size:12px;line-height:1.35;color:#bae6fd;font-weight:850"></div>'
             + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
-            + '<button id="tepiha-update-available-now" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:#2563eb;color:#fff;font-weight:1000;font-size:13px">PËRDITËSO</button>'
+            + '<button id="tepiha-update-available-now" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:#2563eb;color:#fff;font-weight:1000;font-size:13px">UDHËZIM</button>'
             + '<button id="tepiha-update-available-later" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:rgba(255,255,255,.08);color:#fff;font-weight:950;font-size:13px">MË VONË</button>'
             + '</div>'
             + '</div>';
@@ -548,72 +529,18 @@ export default function ServiceWorkerRegister() {
           now.__TEPIHA_BOUND__ = true;
           now.onclick = () => {
             try {
-              logSwEvent('vite_pwa_sw_manual_update_clicked', {
+              logSwEvent('vite_pwa_sw_manual_update_click_quarantined_v29', {
                 hasApplyUpdate: typeof updateSWRef.current === 'function',
                 hasRegistration: Boolean(registrationRef.current),
-              });
-            } catch {}
-
-            setStatus('Duke përgatitur përditësimin...');
-
-            let escaped = false;
-            let escapeTimer = null;
-            try {
-              escapeTimer = window.setTimeout(() => {
-                escaped = true;
-                setStatus('Përditësimi nuk u krye automatikisht. App-i mund të vazhdojë; provo prapë më vonë ose hape nga fillimi.');
-                try {
-                  logSwEvent('vite_pwa_sw_manual_update_timeout_escape', {
-                    timeoutMs: MANUAL_UPDATE_TIMEOUT_MS,
-                  });
-                } catch {}
-              }, MANUAL_UPDATE_TIMEOUT_MS);
-            } catch {}
-
-            const finishWithReload = () => {
-              if (escaped) return;
-              escaped = true;
-              try { if (escapeTimer) window.clearTimeout(escapeTimer); } catch {}
-              setStatus('PATCH O V27: versioni i ri u përgatit pa reload automatik. Mbylle/hape app-in manualisht kur të kesh kohë.');
-              try {
-                logSwEvent('vite_pwa_sw_manual_update_passive_v27', {
-                  noReload: true,
-                  manualOnly: true,
-                });
-              } catch {}
-            };
-
-            try {
-              const reg = registrationRef.current;
-              if (reg && typeof reg.update === 'function') {
-                safeUpdateRegistration(reg, 'manual_update_banner_passive_v27', VITE_SW_URL);
-              } else {
-                logSwEvent('vite_pwa_sw_manual_update_registration_missing_v27', {
-                  noUpdateSWApply: true,
-                  noSkipWaiting: true,
-                  noReload: true,
-                  source: 'manual_update_banner',
-                });
-              }
-            } catch (error) {
-              logSwEvent('vite_pwa_sw_manual_update_registration_check_error_v27', {
                 noUpdateSWApply: true,
+                noRegistrationUpdateFromButton: true,
                 noSkipWaiting: true,
                 noReload: true,
-                message: safeMessage(error, 'manual_update_passive_check_failed'),
-              });
-            }
-
-            try {
-              logSwEvent('vite_pwa_sw_manual_update_waiting_no_skipwaiting_v27', {
-                noSkipWaiting: true,
-                noReload: true,
-                noUpdateSWApply: true,
-                source: 'manual_update_banner',
+                noCacheDelete: true,
+                noSwUnregister: true,
               });
             } catch {}
-
-            try { window.setTimeout(finishWithReload, 900); } catch { finishWithReload(); }
+            setStatus('Version i ri është gati. Mbylle app-in komplet dhe hape prap kur nuk je në punë aktive. Nuk u bë reload, cache delete, skipWaiting ose SW unregister.');
           };
         }
       } catch (error) {
@@ -664,10 +591,10 @@ export default function ServiceWorkerRegister() {
             + '<div style="width:min(620px,100%);border-radius:18px;border:1px solid rgba(251,191,36,.42);background:rgba(15,23,42,.98);box-shadow:0 18px 45px rgba(0,0,0,.42);padding:12px;pointer-events:auto">'
             + '<div style="font-size:11px;font-weight:1000;letter-spacing:.12em;color:#fbbf24">RUNTIME I VJETËR</div>'
             + '<div style="margin-top:5px;font-size:15px;line-height:1.25;font-weight:950">Ky telefon po përdor runtime të vjetër.</div>'
-            + '<div style="margin-top:5px;font-size:12.5px;line-height:1.35;color:rgba(226,232,240,.82);font-weight:750">App-i vazhdon punën. Mund ta riparosh këtë telefon kur të kesh kohë.</div>'
+            + '<div style="margin-top:5px;font-size:12.5px;line-height:1.35;color:rgba(226,232,240,.82);font-weight:750">App-i vazhdon punën. Mbylle/hape manualisht kur nuk je në punë aktive.</div>'
             + '<div id="tepiha-legacy-sw-bridge-status" style="display:none;margin-top:8px;font-size:12px;line-height:1.35;color:#fde68a;font-weight:850"></div>'
             + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
-            + '<button id="tepiha-legacy-sw-bridge-repair" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:#f59e0b;color:#111827;font-weight:1000;font-size:13px">RIPARO KËTË TELEFON</button>'
+            + '<button id="tepiha-legacy-sw-bridge-repair" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:#f59e0b;color:#111827;font-weight:1000;font-size:13px">UDHËZIM</button>'
             + '<button id="tepiha-legacy-sw-bridge-later" type="button" style="border:0;border-radius:12px;padding:10px 12px;background:rgba(255,255,255,.08);color:#fff;font-weight:950;font-size:13px">MË VONË</button>'
             + '</div>'
             + '</div>';
@@ -699,53 +626,17 @@ export default function ServiceWorkerRegister() {
           repair.__TEPIHA_BOUND__ = true;
           repair.onclick = async () => {
             try {
-              repair.disabled = true;
-              repair.style.opacity = '0.72';
+              repair.disabled = false;
+              repair.style.opacity = '1';
             } catch {}
-
-            setStatus('Po riparohet vetëm ky telefon...');
-            try { logSwEvent('legacy_sw_bridge_manual_repair_clicked', currentPayload); } catch {}
-
-            let purgeResult = null;
-            let unregisterResult = null;
-
+            setStatus('Runtime i vjetër u detektua. Mbylle app-in komplet dhe hape prap kur nuk je në punë aktive. PATCH V29 nuk bën cache delete, unregister, skipWaiting ose reload.');
             try {
-              purgeResult = await postLegacyControllerMessage('PURGE_LEGACY_ONLY_CACHES', {
-                source: 'legacy_sw_bridge_manual_button',
-                manual: true,
-              });
-              setStatus('Cache legacy u pastrua. Po çregjistrohet runtime i vjetër...');
-            } catch (error) {
-              purgeResult = { ok: false, error: safeMessage(error, 'legacy_purge_failed') };
-            }
-
-            try {
-              unregisterResult = await postLegacyControllerMessage('LEGACY_SW_SELF_UNREGISTER', {
-                source: 'legacy_sw_bridge_manual_button',
-                manual: true,
-              });
-            } catch (error) {
-              unregisterResult = { ok: false, error: safeMessage(error, 'legacy_unregister_failed') };
-            }
-
-            const result = {
-              at: (() => { try { return new Date().toISOString(); } catch { return ''; } })(),
-              appEpoch: APP_DATA_EPOCH,
-              purgeResult,
-              unregisterResult,
-              manualReload: true,
-              controllerScriptURL: currentPayload.controllerScriptURL,
-            };
-
-            try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_manual_repair_v27_1', JSON.stringify(result)); } catch {}
-            try { logSwEvent('legacy_sw_bridge_manual_repair_done', result); } catch {}
-
-            setStatus('PATCH V27.1: riparimi manual u regjistrua pa reload automatik. Mbylle/hape app-in manualisht nëse ende sheh problem.');
-            try {
-              logSwEvent('legacy_sw_bridge_manual_repair_no_auto_reload_v27_1', {
+              logSwEvent('legacy_sw_bridge_manual_repair_quarantined_v29', {
+                ...currentPayload,
+                noCacheDelete: true,
+                noSwUnregister: true,
+                noSkipWaiting: true,
                 noReload: true,
-                noLocationReplace: true,
-                manualOnly: true,
               });
             } catch {}
           };

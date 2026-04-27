@@ -519,9 +519,26 @@ function CoreRuntimeModule({ name, children }) {
 
 
 
+
+function UiReadyMarker() {
+  React.useEffect(() => {
+    try { window.__TEPIHA_UI_READY__ = true; } catch {}
+    try { window.__TEPIHA_FIRST_UI_READY__ = true; } catch {}
+    try { document.documentElement?.setAttribute?.('data-ui-ready', '1'); } catch {}
+    try { document.body?.setAttribute?.('data-ui-ready', '1'); } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready', {
+        detail: { source: 'app_root_mounted_v29', at: Date.now(), patch: 'update_quarantine_v29' },
+      }));
+    } catch {}
+  }, []);
+  return null;
+}
+
 export default function AppRoot() {
   return (
     <BrowserRouter>
+      <UiReadyMarker />
       <RouteRequestTracker />
       <GlobalErrorBoundary>
         <AuthGate>

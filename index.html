@@ -6,15 +6,15 @@
     <meta name="theme-color" content="#0b0f14" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="tepiha-app-epoch" content="RESET-2026-04-27-VITE-SUPABASE-GUARD-V28" />
-    <meta name="tepiha-build-id" content="2.0.34-vite-supabase-guard-v28" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29" />
+    <meta name="tepiha-build-id" content="2.0.35-vite-update-quarantine-v29" />
     <link rel="icon" href="/favicon.ico" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TEPIHA</title>
     <script>
-      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-27-VITE-SUPABASE-GUARD-V28';
-      window.__TEPIHA_BUILD_ID = '2.0.34-vite-supabase-guard-v28';
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29';
+      window.__TEPIHA_BUILD_ID = '2.0.35-vite-update-quarantine-v29';
       window.__TEPIHA_QUIET_UPDATE_V7 = true;
       try { localStorage.removeItem('tepiha_update_available_v1'); sessionStorage.removeItem('tepiha_vite_pwa_update_v1'); } catch (e) {}
       window.__TEPIHA_SW_KILL_SWITCH__ = false;
@@ -25,11 +25,11 @@
       window.__TEPIHA_SIMPLE_INCIDENTS_ENABLED__ = true;
       window.__TEPIHA_STARTUP_ISOLATION__ = true;
       window.__TEPIHA_STARTUP_ISOLATION_WINDOW_MS__ = 4500;
-      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-bulletproof-runtime-v27';
-      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-bulletproof-runtime-v27';
-      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-bulletproof-runtime-v27';
+      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-update-quarantine-v29';
+      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-update-quarantine-v29';
+      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-update-quarantine-v29';
       window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
-      window.__TEPIHA_NAV_CACHE_STRATEGY__ = 'static-runtime-v21';
+      window.__TEPIHA_NAV_CACHE_STRATEGY__ = 'update-quarantine-v29';
       (function(){
         try {
           // V12: cache inventory is passive and delayed until after React has a chance to paint Home.
@@ -121,40 +121,13 @@
             try { if (!('caches' in window)) return []; var keys = await caches.keys(); return Array.isArray(keys) ? keys : []; } catch(e){ return []; }
           }
           async function postLegacyMessage(type){
-            try {
-              var controller = navigator.serviceWorker && navigator.serviceWorker.controller;
-              var scriptURL = controller && controller.scriptURL ? String(controller.scriptURL) : '';
-              if (!controller || !isLegacyControllerScriptURL(scriptURL)) return { ok: false, skipped: true, reason: 'no_legacy_controller', type: type, controllerScriptURL: scriptURL };
-              if (typeof MessageChannel === 'function') {
-                return await new Promise(function(resolve){
-                  var done = false;
-                  function finish(payload){ if (done) return; done = true; try { clearTimeout(timer); } catch(e) {} resolve(payload || { ok: true, type: type }); }
-                  var channel = new MessageChannel();
-                  var timer = setTimeout(function(){ finish({ ok: false, timeout: true, type: type }); }, 9000);
-                  channel.port1.onmessage = function(ev){ finish(ev && ev.data || { ok: true, type: type }); };
-                  controller.postMessage({ type: type, manual: true, appEpoch: APP_EPOCH, source: 'index_html_manual_repair_v12' }, [channel.port2]);
-                });
-              }
-              controller.postMessage({ type: type, manual: true, appEpoch: APP_EPOCH, source: 'index_html_manual_repair_v12' });
-              return { ok: true, type: type, fireAndForget: true };
-            } catch(e){ return { ok: false, type: type, error: safeString(e && e.message || e) }; }
+            return { ok: false, skipped: true, type: safeString(type || ''), reason: 'update_flow_quarantine_v29_no_controller_postmessage', noCacheDelete: true, noSwUnregister: true, noSkipWaiting: true, noReload: true };
           }
           async function requestLegacyBridgeRepair(){
-            var purge = await postLegacyMessage('PURGE_LEGACY_ONLY_CACHES');
-            var unregisterResult = await postLegacyMessage('LEGACY_SW_SELF_UNREGISTER');
-            return { purge: purge, unregister: unregisterResult };
+            return { purge: { skipped: true, reason: 'update_flow_quarantine_v29_no_cache_delete' }, unregister: { skipped: true, reason: 'update_flow_quarantine_v29_no_sw_unregister' } };
           }
           async function manualOnlyClearRuntimeCachesV271(){
-            var deleted = [];
-            try {
-              if (!('caches' in window)) return deleted;
-              var keys = await caches.keys();
-              await Promise.allSettled((Array.isArray(keys) ? keys : []).filter(isRuntimeCacheName).map(function(key){
-                deleted.push(key);
-                try { return caches.delete(key); } catch(e) { return Promise.resolve(false); }
-              }));
-            } catch(e) {}
-            return deleted;
+            return [];
           }
           function buildReloadUrl(reason){
             try {
@@ -513,7 +486,7 @@
                 + '<button id="tepiha-module-boot-retry" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">PROVO PËRSËRI</button>'
                 + '<button id="tepiha-module-boot-offline" type="button" style="border:0;border-radius:14px;background:rgba(34,197,94,.16);color:#bbf7d0;padding:13px 14px;font-size:15px;font-weight:1000">VAZHDO OFFLINE</button>'
                 + '<button id="tepiha-module-boot-home" type="button" style="border:0;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">HAP SAFARI</button>'
-                + '<button id="tepiha-module-boot-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">RIPARO KËTË TELEFON</button>'
+                + '<button id="tepiha-module-boot-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">UDHËZIM PËR VERSIONIN</button>'
                 + '</div>'
                 + '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Butonat punojnë vetëm kur i prek user-i. Riparimi manual nuk prek DB, orders, outbox, pagesa, ose sync payload.</div>'
                 + '</div>';
@@ -555,7 +528,7 @@
                       return;
                     }
                   } catch (e) {}
-                  setStatus('PATCH O V27: fallback repair nuk bën më location.replace. Hape public/pwa-repair.html vetëm manualisht nëse duhet.');
+                  setStatus('PATCH V29: fallback repair është vetëm informues. Mbylle/hape app-in manualisht kur nuk je në punë aktive.');
                 };
               } catch (e) {}
               return true;
@@ -1031,7 +1004,7 @@
                       return;
                     }
                   } catch(e) {}
-                  setRuntimeStatus('PATCH O V27: fallback repair nuk bën më location.replace. Hape public/pwa-repair.html vetëm manualisht nëse duhet.');
+                  setRuntimeStatus('PATCH V29: fallback repair është vetëm informues. Mbylle/hape app-in manualisht kur nuk je në punë aktive.');
                 };
               } catch (e) {}
               return true;
@@ -1102,7 +1075,7 @@
       html,body{min-height:100%;background:#05070d}#tepiha-hard-refresh-failopen-shell{position:fixed;inset:0;z-index:2147483645;background:linear-gradient(180deg,#05070d,#07111f);color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}#tepiha-hard-refresh-failopen-shell *{box-sizing:border-box}#tepiha-hard-refresh-failopen-shell .tepiha-safe-card{width:min(620px,100%);border:1px solid rgba(96,165,250,.32);border-radius:22px;background:rgba(15,23,42,.96);box-shadow:0 24px 70px rgba(0,0,0,.52);padding:18px}#tepiha-hard-refresh-failopen-shell .tepiha-safe-kicker{color:#93c5fd;font-size:11px;font-weight:1000;letter-spacing:.16em;text-transform:uppercase}#tepiha-hard-refresh-failopen-shell .tepiha-safe-title{margin-top:8px;font-size:26px;line-height:1.05;font-weight:1000;letter-spacing:-.02em}#tepiha-hard-refresh-failopen-shell .tepiha-safe-body{margin-top:8px;color:#cbd5e1;font-size:14px;line-height:1.45;font-weight:700}#tepiha-hard-refresh-failopen-shell .tepiha-safe-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px}#tepiha-hard-refresh-failopen-shell .tepiha-safe-link{display:flex;align-items:center;justify-content:center;min-height:54px;border-radius:16px;text-decoration:none;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);font-weight:1000;letter-spacing:.04em}#tepiha-hard-refresh-failopen-shell .tepiha-safe-link.primary{background:linear-gradient(180deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.45)}#tepiha-hard-refresh-failopen-shell .tepiha-safe-foot{margin-top:12px;color:#64748b;font-size:12px;line-height:1.35;font-weight:750}#tepiha-hard-refresh-failopen-shell .tepiha-safe-status{margin-top:10px;color:#bae6fd;font-size:12px;font-weight:900;word-break:break-word}@media(max-width:460px){#tepiha-hard-refresh-failopen-shell .tepiha-safe-grid{grid-template-columns:1fr}#tepiha-hard-refresh-failopen-shell .tepiha-safe-title{font-size:23px}}
     </style>
     <script id="tepiha-hard-refresh-bulletproof-runtime-v27">
-      (function(){try{var VERSION='bulletproof-runtime-v27';var APP_EPOCH=String(window.__TEPIHA_APP_EPOCH||'RESET-2026-04-27-VITE-SUPABASE-GUARD-V28');var BUILD_ID=String(window.__TEPIHA_BUILD_ID||'2.0.34-vite-supabase-guard-v28');var LOG_KEY='tepiha_hard_refresh_failopen_log_v27';var LAST_KEY='tepiha_hard_refresh_failopen_last_v27';function ss(v){try{return String(v==null?'':v)}catch(e){return''}}function iso(){try{return new Date().toISOString()}catch(e){return''}}function sp(raw,fb){try{var p=JSON.parse(raw);return p==null?fb:p}catch(e){return fb}}function log(entry){try{localStorage.setItem(LAST_KEY,JSON.stringify(entry));var list=sp(localStorage.getItem(LOG_KEY),[]);if(!Array.isArray(list))list=[];list.unshift(entry);localStorage.setItem(LOG_KEY,JSON.stringify(list.slice(0,40)))}catch(e){}}function rootVisible(){try{var root=document.getElementById('root');if(!root)return false;var cs=window.getComputedStyle?window.getComputedStyle(root):null;if(cs&&(cs.display==='none'||cs.visibility==='hidden'||Number(cs.opacity||1)===0))return false;var textLen=root.textContent?String(root.textContent).trim().length:0;return(root.childElementCount||0)>0||textLen>0}catch(e){return false}}function uiReady(){try{if(window.__TEPIHA_UI_READY===true||window.__TEPIHA_FIRST_UI_READY===true)return true}catch(e){}try{if(document.documentElement&&document.documentElement.getAttribute('data-ui-ready')==='1')return true}catch(e){}try{if(document.body&&document.body.getAttribute('data-ui-ready')==='1')return true}catch(e){}return false}function href(path){try{var u=new URL(path,window.location.origin);u.searchParams.set('__failopen',VERSION);return u.pathname+u.search}catch(e){return path}}function hide(reason){try{var node=document.getElementById('tepiha-hard-refresh-failopen-shell');if(node&&node.parentNode)node.parentNode.removeChild(node);document.documentElement.removeAttribute('data-failopen-shell-visible');if(document.body)document.body.removeAttribute('data-failopen-shell-visible');log({at:iso(),ts:Date.now(),source:'hard_refresh_failopen_hide',reason:ss(reason||'ui_ready'),appEpoch:APP_EPOCH,buildId:BUILD_ID})}catch(e){}}function removeOld(){try{['#tepiha-module-boot-manual-panel','#tepiha-runtime-import-fallback','#tepiha-pwa-boot-rescue','#tepiha-chunk-heal-fallback'].forEach(function(sel){try{var n=document.querySelector(sel);if(n&&n.parentNode)n.parentNode.removeChild(n)}catch(e){}});try{document.documentElement.removeAttribute('data-pwa-boot-rescue')}catch(e){}}catch(e){}}function mark(reason){try{window.__TEPIHA_FAIL_OPEN_SHELL_VISIBLE__=true;window.__TEPIHA_UI_READY=true;window.__TEPIHA_FIRST_UI_READY=true}catch(e){}try{document.documentElement.setAttribute('data-ui-ready','1');document.documentElement.setAttribute('data-failopen-shell-visible','1')}catch(e){}try{if(document.body){document.body.setAttribute('data-ui-ready','1');document.body.setAttribute('data-failopen-shell-visible','1')}}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready',{detail:{source:'hard_refresh_failopen_shell',reason:ss(reason||'')}}))}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive',{detail:{source:'hard_refresh_failopen_shell',path:window.location.pathname||'/',reason:ss(reason||'')}}))}catch(e){}}function show(reason,detail){try{if(uiReady()&&!document.getElementById('tepiha-hard-refresh-failopen-shell'))return false;if(document.getElementById('tepiha-hard-refresh-failopen-shell'))return true;removeOld();var entry={at:iso(),ts:Date.now(),source:'hard_refresh_failopen_show',reason:ss(reason||'boot_timeout'),detail:detail||null,appEpoch:APP_EPOCH,buildId:BUILD_ID,href:ss(window.location&&window.location.href),path:ss(window.location&&window.location.pathname),readyState:ss(document.readyState),visibilityState:ss(document.visibilityState),online:(function(){try{return navigator.onLine}catch(e){return null}})(),noDbTouch:true,noOrdersTouch:true,noOutboxTouch:true,noReload:true,noRepair:true};log(entry);mark(reason);var mount=document.createElement('div');mount.id='tepiha-hard-refresh-failopen-shell';mount.setAttribute('data-hard-refresh-failopen-shell','1');mount.innerHTML='<div class="tepiha-safe-card"><div class="tepiha-safe-kicker">SAFE MODE • HARD REFRESH FAIL-OPEN</div><div class="tepiha-safe-title">APP-I NUK U BLLOKUA</div><div class="tepiha-safe-body">Një pjesë e JavaScript-it nuk u ngarkua pas refresh/update. Kjo faqe hapet pa DB dhe pa prekur porositë, outbox-in, pagesat, ose IndexedDB. Zgjidh një modul poshtë.</div><div class="tepiha-safe-grid"><a class="tepiha-safe-link primary" href="'+href('/pranimi')+'">PRANIMI</a><a class="tepiha-safe-link" href="'+href('/pastrimi')+'">PASTRIMI</a><a class="tepiha-safe-link" href="'+href('/gati')+'">GATI</a><a class="tepiha-safe-link" href="'+href('/arka')+'">ARKA</a><a class="tepiha-safe-link" href="'+href('/transport')+'">TRANSPORT</a><a class="tepiha-safe-link" href="'+href('/')+'">HOME</a></div><div id="tepiha-failopen-status" class="tepiha-safe-status">Reason: '+ss(reason||'boot_timeout').replace(/</g,'&lt;')+'</div><div class="tepiha-safe-foot">Nëse një modul nuk hapet, kthehu këtu dhe hap modulin tjetër. Refresh automatik, cache delete dhe SW unregister janë të çaktivizuara në këtë safe shell.</div></div>';(document.body||document.documentElement).appendChild(mount);return true}catch(e){return false}}window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__=show;window.__TEPIHA_HIDE_FAIL_OPEN_SHELL__=hide;function check(reason){try{if(uiReady()){if(rootVisible())hide('ui_ready_'+ss(reason||''));return}show(reason||'boot_timeout')}catch(e){}}try{window.addEventListener('tepiha:first-ui-ready',function(){if(rootVisible())hide('first_ui_ready')},{passive:true});window.addEventListener('tepiha:route-ui-alive',function(){if(rootVisible())hide('route_ui_alive')},{passive:true});window.addEventListener('tepiha:react-render-called',function(){window.setTimeout(function(){if(rootVisible())hide('react_render_called')},250)},{passive:true});window.addEventListener('error',function(event){try{var target=event&&event.target;var tag=ss(target&&target.tagName).toUpperCase();var rel=ss(target&&target.rel).toLowerCase();var msg=ss(event&&event.message||'');if((tag==='SCRIPT'||(tag==='LINK'&&rel==='modulepreload')||/module|chunk|dynamically imported/i.test(msg))&&!rootVisible())window.setTimeout(function(){check('asset_or_module_error')},600)}catch(e){}},true);window.addEventListener('unhandledrejection',function(event){try{var msg=ss(event&&event.reason&&(event.reason.message||event.reason.stack)||event&&event.reason||'');if(/chunk|module|dynamically imported|importing a module script/i.test(msg)&&!rootVisible())window.setTimeout(function(){check('module_unhandled_rejection')},600)}catch(e){}},true);window.addEventListener('pageshow',function(){window.setTimeout(function(){check('pageshow_check')},2600)},{passive:true});window.setTimeout(function(){check('boot_timeout_3200')},3200);window.setTimeout(function(){check('boot_timeout_6500')},6500)}catch(e){}}catch(e){}})();
+      (function(){try{var VERSION='bulletproof-runtime-v27';var APP_EPOCH=String(window.__TEPIHA_APP_EPOCH||'RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29');var BUILD_ID=String(window.__TEPIHA_BUILD_ID||'2.0.35-vite-update-quarantine-v29');var LOG_KEY='tepiha_hard_refresh_failopen_log_v27';var LAST_KEY='tepiha_hard_refresh_failopen_last_v27';function ss(v){try{return String(v==null?'':v)}catch(e){return''}}function iso(){try{return new Date().toISOString()}catch(e){return''}}function sp(raw,fb){try{var p=JSON.parse(raw);return p==null?fb:p}catch(e){return fb}}function log(entry){try{localStorage.setItem(LAST_KEY,JSON.stringify(entry));var list=sp(localStorage.getItem(LOG_KEY),[]);if(!Array.isArray(list))list=[];list.unshift(entry);localStorage.setItem(LOG_KEY,JSON.stringify(list.slice(0,40)))}catch(e){}}function rootVisible(){try{var root=document.getElementById('root');if(!root)return false;var cs=window.getComputedStyle?window.getComputedStyle(root):null;if(cs&&(cs.display==='none'||cs.visibility==='hidden'||Number(cs.opacity||1)===0))return false;var textLen=root.textContent?String(root.textContent).trim().length:0;return(root.childElementCount||0)>0||textLen>0}catch(e){return false}}function uiReady(){try{if(window.__TEPIHA_UI_READY===true||window.__TEPIHA_FIRST_UI_READY===true)return true}catch(e){}try{if(document.documentElement&&document.documentElement.getAttribute('data-ui-ready')==='1')return true}catch(e){}try{if(document.body&&document.body.getAttribute('data-ui-ready')==='1')return true}catch(e){}return false}function href(path){try{var u=new URL(path,window.location.origin);u.searchParams.set('__failopen',VERSION);return u.pathname+u.search}catch(e){return path}}function hide(reason){try{var node=document.getElementById('tepiha-hard-refresh-failopen-shell');if(node&&node.parentNode)node.parentNode.removeChild(node);document.documentElement.removeAttribute('data-failopen-shell-visible');if(document.body)document.body.removeAttribute('data-failopen-shell-visible');log({at:iso(),ts:Date.now(),source:'hard_refresh_failopen_hide',reason:ss(reason||'ui_ready'),appEpoch:APP_EPOCH,buildId:BUILD_ID})}catch(e){}}function removeOld(){try{['#tepiha-module-boot-manual-panel','#tepiha-runtime-import-fallback','#tepiha-pwa-boot-rescue','#tepiha-chunk-heal-fallback'].forEach(function(sel){try{var n=document.querySelector(sel);if(n&&n.parentNode)n.parentNode.removeChild(n)}catch(e){}});try{document.documentElement.removeAttribute('data-pwa-boot-rescue')}catch(e){}}catch(e){}}function mark(reason){try{window.__TEPIHA_FAIL_OPEN_SHELL_VISIBLE__=true;window.__TEPIHA_UI_READY=true;window.__TEPIHA_FIRST_UI_READY=true}catch(e){}try{document.documentElement.setAttribute('data-ui-ready','1');document.documentElement.setAttribute('data-failopen-shell-visible','1')}catch(e){}try{if(document.body){document.body.setAttribute('data-ui-ready','1');document.body.setAttribute('data-failopen-shell-visible','1')}}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready',{detail:{source:'hard_refresh_failopen_shell',reason:ss(reason||'')}}))}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive',{detail:{source:'hard_refresh_failopen_shell',path:window.location.pathname||'/',reason:ss(reason||'')}}))}catch(e){}}function show(reason,detail){try{if(uiReady()&&!document.getElementById('tepiha-hard-refresh-failopen-shell'))return false;if(document.getElementById('tepiha-hard-refresh-failopen-shell'))return true;removeOld();var entry={at:iso(),ts:Date.now(),source:'hard_refresh_failopen_show',reason:ss(reason||'boot_timeout'),detail:detail||null,appEpoch:APP_EPOCH,buildId:BUILD_ID,href:ss(window.location&&window.location.href),path:ss(window.location&&window.location.pathname),readyState:ss(document.readyState),visibilityState:ss(document.visibilityState),online:(function(){try{return navigator.onLine}catch(e){return null}})(),noDbTouch:true,noOrdersTouch:true,noOutboxTouch:true,noReload:true,noRepair:true};log(entry);mark(reason);var mount=document.createElement('div');mount.id='tepiha-hard-refresh-failopen-shell';mount.setAttribute('data-hard-refresh-failopen-shell','1');mount.innerHTML='<div class="tepiha-safe-card"><div class="tepiha-safe-kicker">SAFE MODE • HARD REFRESH FAIL-OPEN</div><div class="tepiha-safe-title">APP-I NUK U BLLOKUA</div><div class="tepiha-safe-body">Një pjesë e JavaScript-it nuk u ngarkua pas refresh/update. Kjo faqe hapet pa DB dhe pa prekur porositë, outbox-in, pagesat, ose IndexedDB. Zgjidh një modul poshtë.</div><div class="tepiha-safe-grid"><a class="tepiha-safe-link primary" href="'+href('/pranimi')+'">PRANIMI</a><a class="tepiha-safe-link" href="'+href('/pastrimi')+'">PASTRIMI</a><a class="tepiha-safe-link" href="'+href('/gati')+'">GATI</a><a class="tepiha-safe-link" href="'+href('/arka')+'">ARKA</a><a class="tepiha-safe-link" href="'+href('/transport')+'">TRANSPORT</a><a class="tepiha-safe-link" href="'+href('/')+'">HOME</a></div><div id="tepiha-failopen-status" class="tepiha-safe-status">Reason: '+ss(reason||'boot_timeout').replace(/</g,'&lt;')+'</div><div class="tepiha-safe-foot">Nëse një modul nuk hapet, kthehu këtu dhe hap modulin tjetër. Refresh automatik, cache delete dhe SW unregister janë të çaktivizuara në këtë safe shell.</div></div>';(document.body||document.documentElement).appendChild(mount);return true}catch(e){return false}}window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__=show;window.__TEPIHA_HIDE_FAIL_OPEN_SHELL__=hide;function check(reason){try{if(uiReady()){if(rootVisible())hide('ui_ready_'+ss(reason||''));return}show(reason||'boot_timeout')}catch(e){}}try{window.addEventListener('tepiha:first-ui-ready',function(){if(rootVisible())hide('first_ui_ready')},{passive:true});window.addEventListener('tepiha:route-ui-alive',function(){if(rootVisible())hide('route_ui_alive')},{passive:true});window.addEventListener('tepiha:react-render-called',function(){window.setTimeout(function(){if(rootVisible())hide('react_render_called')},250)},{passive:true});window.addEventListener('error',function(event){try{var target=event&&event.target;var tag=ss(target&&target.tagName).toUpperCase();var rel=ss(target&&target.rel).toLowerCase();var msg=ss(event&&event.message||'');if((tag==='SCRIPT'||(tag==='LINK'&&rel==='modulepreload')||/module|chunk|dynamically imported/i.test(msg))&&!rootVisible())window.setTimeout(function(){check('asset_or_module_error')},600)}catch(e){}},true);window.addEventListener('unhandledrejection',function(event){try{var msg=ss(event&&event.reason&&(event.reason.message||event.reason.stack)||event&&event.reason||'');if(/chunk|module|dynamically imported|importing a module script/i.test(msg)&&!rootVisible())window.setTimeout(function(){check('module_unhandled_rejection')},600)}catch(e){}},true);window.addEventListener('pageshow',function(){window.setTimeout(function(){check('pageshow_check')},2600)},{passive:true});window.setTimeout(function(){check('boot_timeout_3200')},3200);window.setTimeout(function(){check('boot_timeout_6500')},6500)}catch(e){}}catch(e){}})();
     </script>
     <script id="tepiha-pwa-boot-rescue-vite-bulletproof-runtime-v27">
       (function(){
@@ -1429,7 +1402,7 @@
           function fallbackHtml(swInfo) {
             var mismatch = swInfo && swInfo.epochMismatch;
             var updateText = mismatch
-              ? '<div style="margin-top:10px;padding:10px;border:1px solid rgba(251,191,36,.35);border-radius:12px;background:rgba(251,191,36,.08);color:#fde68a;font-weight:800">APP-I KA UPDATE. Hape një herë online për rifreskim ose përdor RIPARO APP.</div>'
+              ? '<div style="margin-top:10px;padding:10px;border:1px solid rgba(251,191,36,.35);border-radius:12px;background:rgba(251,191,36,.08);color:#fde68a;font-weight:800">Version i ri është gati. Mbylle app-in komplet dhe hape prap kur nuk je në punë aktive.</div>'
               : '';
             return '' +
               '<div data-pwa-boot-rescue="1" style="position:fixed;inset:0;z-index:2147483647;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
@@ -1447,7 +1420,7 @@
                     '<button id="tepiha-pwa-rescue-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">RIPARO KËTË TELEFON</button>' +
                     '<button id="tepiha-pwa-rescue-copy" type="button" style="border:1px solid rgba(255,255,255,.18);border-radius:14px;background:rgba(255,255,255,.06);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">COPY BOOT DIAG</button>' +
                   '</div>' +
-                  '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">RIPARO është manual dhe pastron vetëm Service Worker/cache buckets. Nuk fshin IndexedDB, orders, outbox, pagesa pending, ose të dhëna lokale.</div>' +
+                  '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Ky ekran nuk bën reload, nuk fshin cache dhe nuk çregjistron Service Worker. Mbylle/hape app-in manualisht kur nuk je në punë aktive.</div>' +
                 '</div>' +
               '</div>';
           }
@@ -1550,47 +1523,13 @@
             } catch (e) { return false; }
           }
           async function postLegacyMessage(type) {
-            try {
-              var controller = navigator.serviceWorker && navigator.serviceWorker.controller;
-              var scriptURL = controller && controller.scriptURL ? String(controller.scriptURL) : '';
-              if (!controller || !isLegacyControllerScriptURL(scriptURL)) return { ok: false, skipped: true, reason: 'no_legacy_controller', type: type, controllerScriptURL: scriptURL };
-              if (typeof MessageChannel === 'function') {
-                return await new Promise(function(resolve){
-                  var done = false;
-                  function finish(payload){ if (done) return; done = true; try { clearTimeout(timer); } catch(e) {} resolve(payload || { ok: true, type: type }); }
-                  var channel = new MessageChannel();
-                  var timer = setTimeout(function(){ finish({ ok: false, timeout: true, type: type }); }, 9000);
-                  channel.port1.onmessage = function(ev){ finish(ev && ev.data || { ok: true, type: type }); };
-                  controller.postMessage({ type: type, manual: true, appEpoch: APP_EPOCH, source: 'index_html_boot_rescue_manual_repair_v12' }, [channel.port2]);
-                });
-              }
-              controller.postMessage({ type: type, manual: true, appEpoch: APP_EPOCH, source: 'index_html_boot_rescue_manual_repair_v12' });
-              return { ok: true, type: type, fireAndForget: true };
-            } catch(e){ return { ok: false, type: type, error: safeString(e && e.message || e) }; }
+            return { ok: false, skipped: true, type: safeString(type || ''), reason: 'update_flow_quarantine_v29_no_controller_postmessage', noCacheDelete: true, noSwUnregister: true, noSkipWaiting: true, noReload: true };
           }
           async function unregisterAllServiceWorkersManual() {
-            var count = 0;
-            try {
-              if (!(navigator && navigator.serviceWorker && typeof navigator.serviceWorker.getRegistrations === 'function')) return { count: 0 };
-              var regs = await navigator.serviceWorker.getRegistrations();
-              regs = Array.isArray(regs) ? regs : [];
-              await Promise.allSettled(regs.map(function(reg){
-                try {
-                  count += 1;
-                  try { reg && reg.waiting && reg.waiting.postMessage && reg.waiting.postMessage({ type: 'SKIP_WAITING', manual: true }); } catch (e) {}
-                  try { reg && reg.active && reg.active.postMessage && reg.active.postMessage({ type: 'SKIP_WAITING', manual: true }); } catch (e) {}
-                  return reg && typeof reg.unregister === 'function' ? reg.unregister() : Promise.resolve(false);
-                } catch (e) {
-                  return Promise.resolve(false);
-                }
-              }));
-              return { count: count };
-            } catch (e) {
-              return { count: count, error: safeString(e && e.message || e) };
-            }
+            return { count: 0, skipped: true, reason: 'update_flow_quarantine_v29_no_sw_unregister', noSkipWaiting: true, noCacheDelete: true, noReload: true };
           }
           async function repairApp() {
-            setStatus('Riparim manual: Service Worker + cache buckets, pa prekur orders/outbox...');
+            setStatus('Version i ri është gati. Mbylle app-in komplet dhe hape prap kur nuk je në punë aktive.');
             var before = await buildDiag('pwa_repair_started');
             appendLog(before);
             var legacyBridge = { purge: { skipped: true, patch: 'V28_no_auto_repair' }, unregister: { skipped: true, patch: 'V28_no_auto_repair' } };
@@ -1607,7 +1546,7 @@
               after.localOrdersOutboxPreserved = true;
             } catch (e) {}
             appendLog(after);
-            setStatus('PATCH V28: repair u regjistrua pa fshirje dhe pa reload automatik. Mbylle/hape manualisht nëse do.');
+            setStatus('PATCH V29: update flow është në quarantine. Nuk u bë reload, cache delete ose SW unregister.');
           }
           async function showFallback(reason) {
             try {
@@ -1808,17 +1747,75 @@
     <div
       id="tepiha-build-marker"
       data-tepiha-build-marker="1"
-      data-app-epoch="RESET-2026-04-27-VITE-SUPABASE-GUARD-V28"
-      data-build-id="2.0.34-vite-supabase-guard-v28"
+      data-app-epoch="RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29"
+      data-build-id="2.0.35-vite-update-quarantine-v29"
       data-index-script-version="index-html-vite-bulletproof-runtime-v27"
       data-pwa-boot-rescue-version="pwa-boot-rescue-vite-bulletproof-runtime-v27"
       style="display:none;position:fixed;left:6px;bottom:calc(58px + env(safe-area-inset-bottom, 0px));z-index:2147482500;max-width:calc(100vw - 12px);padding:3px 5px;border-radius:7px;background:rgba(2,6,23,.52);border:1px solid rgba(96,165,250,.22);color:rgba(191,219,254,.72);font:700 7px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.01em;box-shadow:none;pointer-events:none;opacity:.72"
     >
-      INDEX FAILOPEN • 2.0.34-vite-supabase-guard-v28<br />
-      RESET-2026-04-27-VITE-SUPABASE-GUARD-V28<br />
-      FAILOPEN V28
+      INDEX FAILOPEN • 2.0.35-vite-update-quarantine-v29<br />
+      RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29<br />
+      UPDATE QUARANTINE V29
     </div>
     <div id="root"></div>
+    <script id="tepiha-pre-react-black-screen-fallback-v29">
+      (function(){
+        try {
+          var APP_EPOCH = 'RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29';
+          var BUILD_ID = '2.0.35-vite-update-quarantine-v29';
+          var LAST_KEY = 'tepiha_pre_react_black_screen_last';
+          var LOG_KEY = 'tepiha_pre_react_black_screen_log';
+          function ss(v){ try { return String(v == null ? '' : v); } catch(e) { return ''; } }
+          function iso(){ try { return new Date().toISOString(); } catch(e) { return ''; } }
+          function parse(raw, fb){ try { var x = JSON.parse(raw); return x == null ? fb : x; } catch(e) { return fb; } }
+          function root(){ try { return document.getElementById('root'); } catch(e) { return null; } }
+          function hasReadyMarker(){
+            try { if (window.__TEPIHA_UI_READY__ === true || window.__TEPIHA_FIRST_UI_READY__ === true || window.__TEPIHA_REACT_RENDER_CALLED__ === true) return true; } catch(e) {}
+            try { if (document.documentElement && document.documentElement.getAttribute('data-ui-ready') === '1') return true; } catch(e) {}
+            try { if (document.body && document.body.getAttribute('data-ui-ready') === '1') return true; } catch(e) {}
+            try { if (document.documentElement && document.documentElement.getAttribute('data-react-ready') === '1') return true; } catch(e) {}
+            return false;
+          }
+          function rootHasContent(){ try { var r = root(); if (!r) return false; var t = r.textContent ? ss(r.textContent).trim().length : 0; return (r.childElementCount || 0) > 0 || t > 0; } catch(e) { return false; } }
+          function log(entry){
+            try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); } catch(e) {}
+            try { var list = parse(localStorage.getItem(LOG_KEY), []); if (!Array.isArray(list)) list = []; list.unshift(entry); localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 30))); } catch(e) {}
+          }
+          function href(path){ try { return new URL(path, window.location.origin).pathname; } catch(e) { return path; } }
+          function show(reason){
+            try {
+              if (hasReadyMarker() || rootHasContent()) return false;
+              var r = root();
+              if (!r) return false;
+              if (document.getElementById('tepiha-pre-react-safe-screen-v29')) return true;
+              var entry = { at: iso(), ts: Date.now(), source: 'pre_react_black_screen_fallback_v29', reason: ss(reason || 'pre_react_timeout_2500'), appEpoch: APP_EPOCH, buildId: BUILD_ID, href: ss(window.location && window.location.href), path: ss(window.location && window.location.pathname), readyState: ss(document.readyState), visibilityState: ss(document.visibilityState), noReload: true, noLocationReplace: true, noCacheDelete: true, noSwUnregister: true, noIndexedDbTouch: true, noBusinessLocalStorageTouch: true };
+              log(entry);
+              r.innerHTML = '' +
+                '<section id="tepiha-pre-react-safe-screen-v29" data-pre-react-black-screen-fallback="1" style="min-height:100vh;box-sizing:border-box;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
+                  '<div style="width:min(560px,100%);border:1px solid rgba(96,165,250,.30);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
+                    '<div style="font-size:12px;letter-spacing:.14em;color:#93c5fd;font-weight:1000;margin-bottom:8px">SAFE SCREEN V29</div>' +
+                    '<div style="font-size:25px;font-weight:1000;line-height:1.08;margin-bottom:8px">APP-I NUK U HAP ME REACT</div>' +
+                    '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:12px">Ky fallback u hap para React-it. Nuk bëri reload, nuk fshiu cache dhe nuk preku Service Worker, IndexedDB, orders ose outbox.</div>' +
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">' +
+                      '<a href="'+href('/')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#2563eb;color:#fff;padding:13px;font-size:14px;font-weight:1000">HOME</a>' +
+                      '<a href="'+href('/pranimi')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#334155;color:#fff;padding:13px;font-size:14px;font-weight:1000">PRANIMI</a>' +
+                      '<a href="'+href('/pastrimi')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#334155;color:#fff;padding:13px;font-size:14px;font-weight:1000">PASTRIMI</a>' +
+                      '<a href="'+href('/gati')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#334155;color:#fff;padding:13px;font-size:14px;font-weight:1000">GATI</a>' +
+                      '<a href="'+href('/diag-raw')+'" style="grid-column:1 / -1;text-align:center;text-decoration:none;border-radius:14px;background:rgba(96,165,250,.18);color:#bfdbfe;padding:13px;font-size:14px;font-weight:1000">DIAG RAW</a>' +
+                    '</div>' +
+                    '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Log: tepiha_pre_react_black_screen_last</div>' +
+                  '</div>' +
+                '</section>';
+              try { window.__TEPIHA_PRE_REACT_SAFE_SCREEN_VISIBLE__ = true; } catch(e) {}
+              try { window.dispatchEvent(new CustomEvent('tepiha:pre-react-black-screen-fallback', { detail: entry })); } catch(e) {}
+              return true;
+            } catch(e) { return false; }
+          }
+          window.__TEPIHA_PRE_REACT_BLACK_SCREEN_FALLBACK_V29__ = { show: show, version: 'v29' };
+          window.setTimeout(function(){ show('pre_react_timeout_2500'); }, 2500);
+        } catch(e) {}
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
