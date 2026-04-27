@@ -1,0 +1,33 @@
+PATCH Q / V29 — PRANIMI VAZHDO FAST CONTINUE
+
+Goal: make the PRANIMI "VAZHDO" button feel instant/local-first.
+
+Version:
+- 2.0.35-vite-pranimi-fast-continue-v29
+- RESET-2026-04-27-VITE-PRANIMI-FAST-CONTINUE-V29
+
+Changes:
+1. app/pranimi/page.jsx
+   - Duplicate check during VAZHDO now uses local client index only; live Supabase lookup remains available outside the critical click path.
+   - Returning-client live lookup is bounded to 200ms.
+   - Code verification is bounded to 350ms; network/timeout failures continue local-first.
+   - Code reservation is bounded to 650ms only when a code is missing.
+   - Client-master sync is bounded to 200ms and continues in background if slow.
+   - Create-order VAZHDO no longer waits for syncNow() or pending-op inspection before success/navigation.
+   - syncNow() is started fire-and-forget after local enqueue.
+
+What was not touched:
+- DB schema
+- Supabase tables/RLS
+- orders payload shape
+- outbox format
+- payment/status logic
+- Pastrimi -> Gati flow
+- ARKA calculations
+- design/layout
+- business localStorage/IndexedDB
+
+Expected behavior:
+- VAZHDO saves locally, queues sync, opens SMS/modal or navigates quickly.
+- Supabase sync continues in the background.
+- Slow DB/storage does not keep the button stuck in “DUKE RUJT...”.

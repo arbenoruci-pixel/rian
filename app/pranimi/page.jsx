@@ -65,6 +65,10 @@ const CURRENT_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const PRANIMI_BG_META_TIMEOUT_MS = 2500;
 const PRANIMI_BG_POOL_TIMEOUT_MS = 3000;
 const PRANIMI_BG_SYNC_MIN_GAP_MS = 6000;
+const PRANIMI_CONTINUE_CLIENT_LOOKUP_MS = 200;
+const PRANIMI_CONTINUE_CODE_VERIFY_MS = 350;
+const PRANIMI_CONTINUE_CODE_RESERVE_MS = 650;
+const PRANIMI_CONTINUE_MASTER_SYNC_MS = 200;
 
 function sanitizePhone(phone) {
   return String(phone || '').replace(/\D+/g, '');
@@ -103,7 +107,7 @@ function buildClientMatchKey({ reason, phoneDigits, fullName, code, id }) {
   return `name:${String(fullName || '').trim()}:client:${codeKey}`;
 }
 
-async function detectExistingClientSmart({ name, phone, clientsIndex }) {
+async function detectExistingClientSmart({ name, phone, clientsIndex, allowLive = true, liveTimeoutMs = 700 } = {}) {
   const phoneDigits = normalizeMatchPhone(phone);
   const fullName = normalizeMatchName(name);
   const fullNameParts = fullName ? fullName.split(' ').filter(Boolean) : [];
@@ -136,13 +140,23 @@ async function detectExistingClientSmart({ name, phone, clientsIndex }) {
   for (const item of (Array.isArray(clientsIndex) ? clientsIndex : [])) addCandidate(item);
 
   try {
-    if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+    if (allowLive !== false && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
       if (canCheckPhone) {
-        const hits = await searchClientsLive(phoneDigits);
+        const hits = await withSupabaseTimeout(
+          searchClientsLive(phoneDigits),
+          Number(liveTimeoutMs || 700),
+          'PRANIMI_DUPLICATE_PHONE_LOOKUP_TIMEOUT',
+          { source: 'detectExistingClientSmart', mode: 'phone' }
+        ).catch(() => []);
         for (const item of (Array.isArray(hits) ? hits : [])) addCandidate(item);
       }
       if (canCheckFullName) {
-        const hits = await searchClientsLive(fullName);
+        const hits = await withSupabaseTimeout(
+          searchClientsLive(fullName),
+          Number(liveTimeoutMs || 700),
+          'PRANIMI_DUPLICATE_NAME_LOOKUP_TIMEOUT',
+          { source: 'detectExistingClientSmart', mode: 'name' }
+        ).catch(() => []);
         for (const item of (Array.isArray(hits) ? hits : [])) addCandidate(item);
       }
     }
@@ -2126,7 +2140,7 @@ export default function PranimiPage() {
     } catch { return false; }
   }
 
-  async function findReturningClientByPhone(rawPhone = '') {
+  async function findReturningClientByPhone(rawPhone = '', { allowLive = true, liveTimeoutMs = 700 } = {}) {
     const digits = String(rawPhone || '').replace(/\D+/g, '');
     if (!digits) return null;
     const phoneFull = `${phonePrefix}${digits}`;
@@ -2165,19 +2179,24 @@ export default function PranimiPage() {
     } catch {}
 
     try {
-      if (typeof navigator === 'undefined' || navigator.onLine !== false) {
-        const { data, error } = await supabase
-          .from('clients')
-          .select('id, code, full_name, first_name, last_name, phone, updated_at')
-          .eq('phone', phoneFull)
-          .order('updated_at', { ascending: false })
-          .limit(5);
+      if (allowLive !== false && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+        const { data, error } = await withSupabaseTimeout(
+          supabase
+            .from('clients')
+            .select('id, code, full_name, first_name, last_name, phone, updated_at')
+            .eq('phone', phoneFull)
+            .order('updated_at', { ascending: false })
+            .limit(5),
+          Number(liveTimeoutMs || 700),
+          'PRANIMI_RETURNING_CLIENT_LOOKUP_TIMEOUT',
+          { source: 'findReturningClientByPhone' }
+        );
         if (!error) {
           for (const row of Array.isArray(data) ? data : []) {
             addCandidate({
               id: row?.id || null,
               code: row?.code,
-              name: row?.full_name || `${row?.first_name || ''} ${row?.last_name || ''}`.trim(),
+              name: row?.full_name || [row?.first_name || '', row?.last_name || ''].filter(Boolean).join(' ').trim(),
               phone: row?.phone || phoneFull,
               updated_at: row?.updated_at || null,
             });
@@ -2261,7 +2280,7 @@ export default function PranimiPage() {
 
     try {
       if (!isBridgeEditMode && !noPhone) {
-        const pendingMatch = await detectExistingClientSmart({ name, phone, clientsIndex });
+        const pendingMatch = await detectExistingClientSmart({ name, phone, clientsIndex, allowLive: false });
         if (pendingMatch && !sameSelectedClientCode(pendingMatch.candidate) && String(clientMatchDecision?.matchKey || '') !== String(pendingMatch.matchKey || '')) {
           setClientMatchPrompt(pendingMatch);
           return;
@@ -2354,7 +2373,7 @@ export default function PranimiPage() {
       let returningClient = null;
 
       if (!isBaseEdit && !resolvedSelectedClient) {
-        returningClient = noPhone ? null : await findReturningClientByPhone(phone);
+        returningClient = noPhone ? null : await findReturningClientByPhone(phone, { liveTimeoutMs: PRANIMI_CONTINUE_CLIENT_LOOKUP_MS });
         if (returningClient?.code != null) {
           resolvedSelectedClient = {
             id: returningClient?.id || null,
@@ -2406,7 +2425,12 @@ export default function PranimiPage() {
           try {
             pranimiDiagLog('[PRANIMI handleContinue] reserveSharedCode', { oid: shadowOrderId || oid, existingCode: normalizeCode(resolvedCodeRaw), resolvedSelectedClientCode: resolvedSelectedClientCode || null });
           } catch {}
-          const c = await reserveSharedCode(shadowOrderId || oid);
+          const c = await withSupabaseTimeout(
+            reserveSharedCode(shadowOrderId || oid),
+            PRANIMI_CONTINUE_CODE_RESERVE_MS,
+            'PRANIMI_CONTINUE_CODE_RESERVE_TIMEOUT',
+            { source: 'handleContinue' }
+          );
           resolvedCodeRaw = String(c || '');
           codeRawRef.current = resolvedCodeRaw;
           setCodeRaw(resolvedCodeRaw);
@@ -2444,7 +2468,12 @@ export default function PranimiPage() {
           };
         } catch {}
         pranimiDiagLog('[PRANIMI handleContinue] ensureUniqueBaseCodeForSave args', ensureArgs);
-        const verified = await ensureUniqueBaseCodeForSave(ensureArgs);
+        const verified = await withSupabaseTimeout(
+          ensureUniqueBaseCodeForSave(ensureArgs),
+          PRANIMI_CONTINUE_CODE_VERIFY_MS,
+          'PRANIMI_CONTINUE_CODE_VERIFY_TIMEOUT',
+          { source: 'handleContinue', code: normalizeCode(resolvedCodeRaw) }
+        );
         verifiedCodeResult = verified || null;
 
         const verifiedCode = normalizeCode(verified?.code);
@@ -2468,17 +2497,27 @@ export default function PranimiPage() {
           });
         } catch {}
       } catch (verifyErr) {
+        const verifyMsg = String(verifyErr?.message || verifyErr || '');
+        const verifyIsNetworkish = Boolean(
+          verifyErr?.isSupabaseTimeout ||
+          /timeout|load failed|failed to fetch|fetch failed|networkerror|network request failed|abort/i.test(verifyMsg)
+        );
         try {
           logDebugEvent('pranimi_code_verify_error', {
-            message: verifyErr?.message || String(verifyErr || ''),
+            message: verifyMsg,
             requestedCode: normalizeCode(resolvedCodeRaw),
             isBaseEdit: !!isBaseEdit,
             editTargetId: editTargetId || null,
+            continuedLocalFirst: verifyIsNetworkish,
           });
         } catch {}
-        alert('DB ERROR: Kodi nuk u verifikua para ruajtjes.');
-        setSavingContinue(false);
-        return;
+        if (!verifyIsNetworkish) {
+          alert('DB ERROR: Kodi nuk u verifikua para ruajtjes.');
+          setSavingContinue(false);
+          return;
+        }
+        verifiedCodeResult = { code: normalizeCode(resolvedCodeRaw), verified: false, offline: true, localFirstFast: true };
+        normCodeNow = formatKod(normalizeCode(resolvedCodeRaw), true);
       }
 
       if (!normCodeNow || normCodeNow === '0' || normCodeNow === '—' || normCodeNow === '…') {
@@ -2573,13 +2612,29 @@ export default function PranimiPage() {
       let syncedClientMaster = null;
       try {
         if (typeof navigator === 'undefined' || navigator.onLine !== false) {
-          syncedClientMaster = await syncClientMasterForCode({
-            code: persistedClientCode || normCodeNow,
-            name: finalClientName || '',
-            phone: finalClientPhone || '',
-            photoUrl: clientPhotoUrl || '',
-            selected: resolvedSelectedClient,
-          }).catch(() => null);
+          syncedClientMaster = await withSupabaseTimeout(
+            syncClientMasterForCode({
+              code: persistedClientCode || normCodeNow,
+              name: finalClientName || '',
+              phone: finalClientPhone || '',
+              photoUrl: clientPhotoUrl || '',
+              selected: resolvedSelectedClient,
+            }),
+            PRANIMI_CONTINUE_MASTER_SYNC_MS,
+            'PRANIMI_CONTINUE_MASTER_SYNC_TIMEOUT',
+            { source: 'handleContinue' }
+          ).catch(() => {
+            try {
+              syncClientMasterForCode({
+                code: persistedClientCode || normCodeNow,
+                name: finalClientName || '',
+                phone: finalClientPhone || '',
+                photoUrl: clientPhotoUrl || '',
+                selected: resolvedSelectedClient,
+              }).catch(() => {});
+            } catch {}
+            return null;
+          });
 
           if (syncedClientMaster?.id) {
             const syncedClientMasterName = String(
@@ -2768,33 +2823,9 @@ export default function PranimiPage() {
 
         pranimiDiagLog('[PRANIMI handleContinue] save body', { mode: 'create', table: 'orders', id: String(oid), payload: { id: String(oid), local_oid: String(oid), ...payload } });
         await enqueueBaseOrder({ id: String(oid), local_oid: String(oid), ...payload });
-        const syncRes = await withSupabaseTimeout(
-          syncNow({ source: 'pranimi_continue_fast_wait' }),
-          2500,
-          'PRANIMI_SYNC_FAST_WAIT_TIMEOUT',
-          { source: 'pranimi_handle_continue' }
-        ).catch((err) => {
-          try { syncNow({ source: 'pranimi_continue_background_after_timeout' }).catch(() => {}); } catch {}
-          return { ok: false, offline: true, deferred: true, timeout: err?.isSupabaseTimeout === true, error: String(err?.message || err || 'SYNC_DEFERRED') };
-        });
-        const offlineQueued = Boolean(
-          syncRes?.offline ||
-          syncRes?.deferred ||
-          syncRes?.timeout ||
-          offlineMode ||
-          !netState?.ok ||
-          (typeof navigator !== 'undefined' && navigator.onLine === false)
-        );
-        const pendingOps = await getPendingOps().catch(() => []);
-        const currentPending = (Array.isArray(pendingOps) ? pendingOps : []).find((op) => {
-          const pl = (op?.payload && typeof op.payload === 'object') ? op.payload : ((op?.data && typeof op.data === 'object') ? op.data : {});
-          const rowId = String(pl?.id || pl?.local_oid || pl?.oid || op?.id || '');
-          const table = String(pl?.table || op?.table || 'orders');
-          return table === 'orders' && rowId === String(oid);
-        });
-        if (currentPending && !offlineQueued) {
-          throw new Error(String(currentPending?.lastError?.message || 'Dështoi sinkronizimi me serverin!'));
-        }
+        try {
+          syncNow({ source: 'pranimi_continue_background_instant' }).catch(() => {});
+        } catch {}
 
         finishSuccess();
         return;

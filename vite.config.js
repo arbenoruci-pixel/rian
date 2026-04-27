@@ -77,7 +77,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.mode === 'navigate' && BUSINESS_ROUTE_RE.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'tepiha-vite-business-routes-v28',
+              cacheName: 'tepiha-vite-business-routes-v29',
               networkTimeoutSeconds: 4,
               cacheableResponse: {
                 statuses: [0, 200],
@@ -94,7 +94,7 @@ export default defineConfig({
             // PATCH V28: keep cached hashed chunks available while checking the network in background.
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'tepiha-vite-static-assets-v28',
+              cacheName: 'tepiha-vite-static-assets-v29',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -109,7 +109,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-media-v28',
+              cacheName: 'tepiha-vite-media-v29',
               cacheableResponse: {
                 statuses: [0, 200],
               },
