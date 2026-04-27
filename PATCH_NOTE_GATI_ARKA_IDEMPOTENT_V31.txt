@@ -1,0 +1,27 @@
+PATCH V31 — GATI / ARKË idempotent delivery close
+
+Version: 2.0.37-vite-gati-arka-idempotent-v31
+Epoch: RESET-2026-04-27-VITE-GATI-ARKA-IDEMPOTENT-V31
+
+Scope:
+- app/gati/page.jsx
+- lib/arkaCashSync.js
+- version/cache markers only
+
+What this fixes:
+- Prevents duplicate BASE pending cash rows when the same GATI order is confirmed more than once.
+- Before inserting into arka_pending_payments, the app now checks:
+  order_id + amount + type='IN' + source_module='BASE' + status IN ('PENDING','PENDING_DISPATCH_APPROVAL')
+- If an existing pending payment is found, no new ARKË row is created.
+- PENDING_DISPATCH_APPROVAL is surfaced as "PAGESË NË PRITJE / Handoff #...".
+- Confirm delivery now closes the order sequentially after payment insert/duplicate detection.
+- If payment exists but status close fails, the app stores a local pending-delivery flag and shows "MBYLLE DORËZIMIN".
+- Retry closes only orders.status='dorzim' with delivered_at/picked_up_at; it does not touch ARKË or create another payment.
+
+No changes:
+- No DB schema changes.
+- No ARKË calculation changes.
+- No payment amount logic changes.
+- No Pastrimi → Gati flow changes.
+- No outbox action format changes.
+- No design/layout refactor.

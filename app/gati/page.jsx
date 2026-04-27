@@ -1111,6 +1111,7 @@ function GatiPageInner() {
   const [payMethod, setPayMethod] = useState('CASH');
   const [payBusy, setPayBusy] = useState(false);
   const [payErr, setPayErr] = useState('');
+  const [payDeliveryPending, setPayDeliveryPending] = useState(false);
 
   const [showReturnSheet, setShowReturnSheet] = useState(false);
   const [retOrder, setRetOrder] = useState(null);
@@ -2497,6 +2498,7 @@ function GatiPageInner() {
         paidUpfront: !!order.pay?.paidUpfront,
         m2: computeM2(order),
       });
+      setPayDeliveryPending(readPaymentDoneButDeliveryPending(row.id));
       const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
       setPayAdd(dueNow);
       setPayMethod('CASH');
@@ -2506,11 +2508,280 @@ function GatiPageInner() {
     }
   }
 
+  function deliveryPendingStorageKey(orderId) {
+    return `order_payment_done_but_delivery_pending_${String(orderId || '').trim()}`;
+  }
+
+  function readPaymentDoneButDeliveryPending(orderId) {
+    if (!orderId || typeof localStorage === 'undefined') return false;
+    try {
+      const raw = localStorage.getItem(deliveryPendingStorageKey(orderId));
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return !!parsed?.payment_done && !parsed?.delivery_closed;
+    } catch {
+      return false;
+    }
+  }
+
+  function markPaymentDoneButDeliveryPending(orderId, meta = {}) {
+    if (!orderId || typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(deliveryPendingStorageKey(orderId), JSON.stringify({
+        payment_done: true,
+        delivery_closed: false,
+        order_id: String(orderId),
+        code: meta?.code || '',
+        amount: Number(meta?.amount || 0) || 0,
+        pending_payment_id: meta?.pending_payment_id || meta?.id || null,
+        pending_status: meta?.pending_status || meta?.status || null,
+        handoff_note: meta?.handoff_note || null,
+        created_at: new Date().toISOString(),
+      }));
+    } catch {}
+    setPayDeliveryPending(true);
+  }
+
+  function clearPaymentDoneButDeliveryPending(orderId) {
+    if (!orderId || typeof localStorage === 'undefined') return;
+    try { localStorage.removeItem(deliveryPendingStorageKey(orderId)); } catch {}
+    setPayDeliveryPending(false);
+  }
+
+  function formatPendingPaymentNotice(row) {
+    if (!row?.id && !row?.status) return '';
+    const status = String(row?.status || '').toUpperCase();
+    const handoff = String(row?.handoff_note || row?.handoffNote || '').trim();
+    if (status === 'PENDING_DISPATCH_APPROVAL') {
+      return `PAGESË NË PRITJE${handoff ? ` / ${handoff}` : ''}`;
+    }
+    if (status === 'PENDING') return 'PAGESË NË PRITJE';
+    return '';
+  }
+
+  async function findExistingBasePendingPayment({ orderId, amount, code } = {}) {
+    const idNum = Number(orderId);
+    const amountNum = Number(Number(amount || 0).toFixed(2));
+    if (!Number.isFinite(idNum) || idNum <= 0 || !Number.isFinite(amountNum) || amountNum <= 0) return null;
+
+    try {
+      const { data, error } = await supabase
+        .from('arka_pending_payments')
+        .select('id,status,handoff_note,amount,type,source_module,order_id,order_code,created_by_pin,created_at')
+        .eq('order_id', idNum)
+        .eq('type', 'IN')
+        .eq('source_module', 'BASE')
+        .in('status', ['PENDING', 'PENDING_DISPATCH_APPROVAL'])
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+
+      const rows = Array.isArray(data) ? data : [];
+      const matches = rows.filter((row) => {
+        const rowAmount = Number(Number(row?.amount || 0).toFixed(2));
+        return Math.abs(rowAmount - amountNum) < 0.005;
+      });
+      if (!matches.length) return null;
+
+      return (
+        matches.find((row) => String(row?.status || '').toUpperCase() === 'PENDING_DISPATCH_APPROVAL') ||
+        matches[0]
+      );
+    } catch (err) {
+      try { console.warn('[GATI] pending payment duplicate check failed', err); } catch {}
+      return null;
+    }
+  }
+
+  function isDeliveredStatus(status) {
+    const s = String(status || '').trim().toLowerCase();
+    return ['dorzim', 'dorëzim', 'delivered', 'completed', 'kompletuar', 'marrje'].includes(s);
+  }
+
+  async function verifyOrderDelivered(orderId) {
+    try {
+      const res = await dbFetchOrderById(orderId);
+      const status = res?.row?.status || res?.order?.status || '';
+      return { ok: isDeliveredStatus(status), status, row: res?.row || null, order: res?.order || null };
+    } catch (err) {
+      return { ok: false, status: '', error: err };
+    }
+  }
+
+  async function closeOrderStatusWithVerification(orderId, payload) {
+    const idNum = Number(orderId);
+    if (!Number.isFinite(idNum) || idNum <= 0) throw new Error('ORDER_ID_INVALID');
+
+    const nowIso = payload?.delivered_at || new Date().toISOString();
+    const patch = {
+      status: 'dorzim',
+      data: payload,
+      updated_at: nowIso,
+      delivered_at: nowIso,
+      picked_up_at: payload?.picked_up_at || nowIso,
+    };
+
+    let lastErr = null;
+    try {
+      await transitionOrderStatus('orders', idNum, 'dorzim', patch);
+    } catch (err1) {
+      lastErr = err1;
+      try {
+        await updateOrderRecord('orders', idNum, patch);
+      } catch (err2) {
+        lastErr = err2;
+        try {
+          await queueOp('patch_order_data', {
+            id: idNum,
+            status: 'dorzim',
+            data: {
+              status: 'dorzim',
+              data: payload,
+              updated_at: patch.updated_at,
+              delivered_at: patch.delivered_at,
+              picked_up_at: patch.picked_up_at,
+            },
+          });
+        } catch {}
+      }
+    }
+
+    const verified = await verifyOrderDelivered(idNum);
+    if (!verified.ok) {
+      const msg = verified?.status
+        ? `ORDER_STATUS_STILL_${String(verified.status).toUpperCase()}`
+        : (lastErr?.message || 'ORDER_STATUS_NOT_VERIFIED');
+      throw new Error(msg);
+    }
+
+    return verified;
+  }
+
+  function buildDeliveredPayload({ pinData, newPaid, newDebt, actionAt }) {
+    const baseOrder = flattenOrderForPersist(payOrder?.order);
+    const safeCode = pickFirstValidCode(
+      baseOrder?.code,
+      baseOrder?.code_n,
+      payOrder?.code,
+      baseOrder?.client?.code,
+      payOrder?.order?.code,
+      payOrder?.order?.client?.code
+    );
+    const existingPay = (baseOrder?.pay && typeof baseOrder.pay === 'object') ? baseOrder.pay : {};
+
+    const payload = {
+      delivered_at: actionAt,
+      picked_up_at: actionAt,
+      ...baseOrder,
+      id: String(payOrder?.id || baseOrder.id || ''),
+      status: 'dorzim',
+      state: 'dorzim',
+      code: safeCode || baseOrder?.code || '',
+      client_name: baseOrder?.client_name || baseOrder?.client?.name || payOrder?.name || '',
+      client_phone: baseOrder?.client_phone || baseOrder?.client?.phone || payOrder?.phone || '',
+      price_total: Number(baseOrder?.price_total ?? existingPay?.euro ?? payOrder?.total ?? 0) || 0,
+      paid_cash: Number(baseOrder?.paid_cash ?? existingPay?.paid ?? newPaid ?? 0) || 0,
+      ready_note: '',
+      ready_note_text: '',
+      ready_location: '',
+      ready_slots: [],
+      ready_note_at: null,
+      ready_note_by: null,
+      pay: {
+        ...existingPay,
+        euro: Number(existingPay?.euro ?? payOrder?.total ?? 0) || 0,
+        paid: newPaid,
+        debt: newDebt,
+        arkaRecordedPaid: Number(existingPay?.arkaRecordedPaid ?? payOrder?.arkaRecordedPaid ?? 0) || 0,
+        paidUpfront: !!(existingPay?.paidUpfront ?? payOrder?.paidUpfront),
+      },
+      total: Number(payOrder?.total ?? existingPay?.euro ?? baseOrder?.price_total ?? 0) || 0,
+      paid: newPaid,
+      debt: newDebt,
+      isPaid: newDebt <= 0,
+      delivered_by: pinData?.pin || null,
+      updated_at: actionAt,
+    };
+
+    if (!payload?.client || typeof payload.client !== 'object') payload.client = {};
+    payload.client = {
+      ...payload.client,
+      name: payload.client?.name || payload.client_name || payOrder?.name || '',
+      phone: payload.client?.phone || payload.client_phone || payOrder?.phone || '',
+      code: safeCode || payload.client?.code || '',
+    };
+
+    return payload;
+  }
+
+  async function finalizeDeliveredUi(payload) {
+    try {
+      await safeRecordReconcileTombstone({
+        id: payload?.id,
+        local_oid: payOrder?.order?.local_oid || payOrder?.order?.oid || payOrder?.id || '',
+        code: payload?.code || payOrder?.order?.code || payOrder?.order?.client?.code || '',
+        table: 'orders',
+        status: 'dorzim',
+      }, { reason: 'gati_confirm_delivery', ttlMs: 1000 * 60 * 60 * 8 });
+    } catch {}
+
+    try {
+      scheduleLocalShadowWrite(`tepiha_delivered_${payload.id}`, payload, 650);
+      await saveOrderLocal({
+        id: payload.id,
+        status: 'dorzim',
+        data: payload,
+        updated_at: payload.delivered_at,
+        delivered_at: payload.delivered_at,
+        picked_up_at: payload.picked_up_at,
+        _synced: true,
+        _table: 'orders',
+      });
+      try {
+        patchBaseMasterRow({
+          id: payload.id,
+          status: 'dorzim',
+          data: payload,
+          updated_at: payload.delivered_at,
+          delivered_at: payload.delivered_at,
+          picked_up_at: payload.picked_up_at,
+          table: 'orders',
+          _synced: true,
+        });
+      } catch {}
+    } catch {}
+
+    try {
+      const pickupEventRow = {
+        id: payload.id,
+        code: payload.code,
+        name: payload.client_name || payload.client?.name || '',
+        phone: payload.client_phone || payload.client?.phone || '',
+        address: String(payload?.client?.address || payload?.pickup_address || payload?.address || ''),
+        status: 'dorzim',
+        state: 'dorzim',
+        pieces: Number(computePieces(payload) || 0),
+        m2: Number(computeM2(payload) || 0),
+        total: Number(payload.total || payload.price_total || 0),
+        eventTs: Date.parse(payload.delivered_at) || Date.now(),
+        delivered_at: payload.delivered_at,
+        picked_up_at: payload.picked_up_at,
+      };
+      window.dispatchEvent(new CustomEvent('tepiha:pickup-committed', { detail: pickupEventRow }));
+    } catch {}
+
+    clearPaymentDoneButDeliveryPending(payload?.id);
+    setOrders((prev) => (prev || []).filter((o) => String(o.id) !== String(payload.id)));
+    closePay();
+  }
+
   function closePay() {
     setShowPaySheet(false);
     setPayOrder(null);
     setPayAdd(0);
     setPayMethod('CASH');
+    setPayDeliveryPending(false);
   }
 
   // PAGESA PA DORËZUAR
@@ -2569,182 +2840,116 @@ KUSURI (RESTO): ${kusuri.toFixed(2)}€
 
   // DORËZIMI FINAL DHE PAGESA
   async function confirmDelivery() {
-    if (!payOrder) return;
+    if (!payOrder || payBusy) return;
 
-    // 1) Validate payment (if any)
     const due = Math.max(0, Number((Number(payOrder.total || 0) - Number(payOrder.paid || 0)).toFixed(2)));
     const payNow = Number((Number(payAdd) || 0).toFixed(2));
     if (payNow < 0) {
       alert('SHUMA E PAVLEFSHME!');
       return;
     }
+
     const applied = Math.min(payNow, due);
     const kusuri = Math.max(0, payNow - due);
-
     const newPaid = Number((Number(payOrder.paid || 0) + applied).toFixed(2));
     const newDebt = Math.max(0, Number((Number(payOrder.total || 0) - newPaid).toFixed(2)));
 
-    // 2) Require PIN
     const pinLabel = `DORËZIM POROSIE\nKODI: ${payOrder.code}\n\nPAGESË SOT: ${applied.toFixed(2)}€\nKLIENTI DHA: ${payNow.toFixed(2)}€
 KUSURI: ${kusuri.toFixed(2)}€
 BORXHI PAS: ${newDebt.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFIRMUAR:`;
     const pinData = await requirePaymentPin({ label: pinLabel });
     if (!pinData) return;
 
-    // OPTIMISTIC UI: hiqe nga lista dhe mbyll modalin menjëherë
     const actionAt = new Date().toISOString();
-    const optimisticBase = flattenOrderForPersist(payOrder?.order);
-    const snapOrder = {
-      ...payOrder,
-      paid: newPaid,
-      debt: newDebt,
-      isPaid: newDebt <= 0,
-      status: 'dorzim',
-      delivered_at: actionAt,
-      picked_up_at: actionAt,
-      delivered_by: pinData?.pin || null,
-    };
+    const payload = buildDeliveredPayload({ pinData, newPaid, newDebt, actionAt });
+    const orderId = Number(payload?.id || payOrder?.id || 0);
+
+    setPayBusy(true);
+    setPayErr(null);
+
+    let paymentRecordedOrExisting = applied <= 0;
+    let duplicatePaymentNotice = '';
 
     try {
-      await safeRecordReconcileTombstone({
-        id: snapOrder?.id,
-        local_oid: payOrder?.order?.local_oid || payOrder?.order?.oid || payOrder?.id || '',
-        code: snapOrder?.code || payOrder?.order?.code || payOrder?.order?.client?.code || '',
-        table: 'orders',
-        status: 'dorzim',
-      }, { reason: 'gati_confirm_delivery', ttlMs: 1000 * 60 * 60 * 8 });
-    } catch {}
+      if (applied > 0) {
+        const existingPending = await findExistingBasePendingPayment({
+          orderId,
+          amount: applied,
+          code: payload?.code || payOrder?.code,
+        });
 
-    setOrders((prev) => (prev || []).filter((o) => o.id !== payOrder.id));
-    closePay();
-
-    try {
-      const pickupEventRow = {
-        id: snapOrder.id,
-        code: snapOrder.code,
-        name: snapOrder.name,
-        phone: snapOrder.phone,
-        address: String(optimisticBase?.client?.address || optimisticBase?.pickup_address || optimisticBase?.address || ''),
-        status: 'dorzim',
-        state: 'dorzim',
-        pieces: Number(snapOrder.cope || computePieces(optimisticBase) || 0),
-        m2: Number(snapOrder.m2 || computeM2(optimisticBase) || 0),
-        total: Number(snapOrder.total || computeTotalEuro(optimisticBase) || 0),
-        eventTs: Date.parse(actionAt) || Date.now(),
-        delivered_at: actionAt,
-        picked_up_at: actionAt,
-      };
-      window.dispatchEvent(new CustomEvent('tepiha:pickup-committed', { detail: pickupEventRow }));
-    } catch {}
-
-    // Background: DB + arka + foto nënshkrimi + refresh
-    void (async () => {
-      try {
-        setPayBusy(true);
-        setPayErr(null);
-
-        const baseOrder = flattenOrderForPersist(payOrder?.order);
-        const safeCode = pickFirstValidCode(
-          baseOrder?.code,
-          baseOrder?.code_n,
-          payOrder?.code,
-          baseOrder?.client?.code,
-          payOrder?.order?.code,
-          payOrder?.order?.client?.code
-        );
-        const existingPay = (baseOrder?.pay && typeof baseOrder.pay === 'object') ? baseOrder.pay : {};
-
-        const payload = {
-          delivered_at: snapOrder.delivered_at,
-          picked_up_at: snapOrder.picked_up_at,
-          ...baseOrder,
-          id: String(snapOrder.id || baseOrder.id || ''),
-          status: 'dorzim',
-          state: 'dorzim',
-          code: safeCode || baseOrder?.code || '',
-          client_name: baseOrder?.client_name || baseOrder?.client?.name || snapOrder?.name || '',
-          client_phone: baseOrder?.client_phone || baseOrder?.client?.phone || snapOrder?.phone || '',
-          price_total: Number(baseOrder?.price_total ?? existingPay?.euro ?? snapOrder?.total ?? 0) || 0,
-          paid_cash: Number(baseOrder?.paid_cash ?? existingPay?.paid ?? newPaid ?? 0) || 0,
-          ready_note: '',
-          ready_note_text: '',
-          ready_location: '',
-          ready_slots: [],
-          ready_note_at: null,
-          ready_note_by: null,
-          pay: {
-            ...existingPay,
-            euro: Number(existingPay?.euro ?? snapOrder?.total ?? 0) || 0,
-            paid: newPaid,
-            debt: newDebt,
-            arkaRecordedPaid: Number(existingPay?.arkaRecordedPaid ?? snapOrder?.arkaRecordedPaid ?? 0) || 0,
-            paidUpfront: !!(existingPay?.paidUpfront ?? snapOrder?.paidUpfront),
-          },
-          total: Number(snapOrder?.total ?? existingPay?.euro ?? baseOrder?.price_total ?? 0) || 0,
-          paid: newPaid,
-          debt: newDebt,
-          isPaid: newDebt <= 0,
-          delivered_by: snapOrder.delivered_by,
-          updated_at: snapOrder.delivered_at,
-        };
-
-        if (!payload?.client || typeof payload.client !== 'object') payload.client = {};
-        payload.client = {
-          ...payload.client,
-          name: payload.client?.name || payload.client_name || snapOrder?.name || '',
-          phone: payload.client?.phone || payload.client_phone || snapOrder?.phone || '',
-          code: safeCode || payload.client?.code || '',
-        };
-
-        // Save local mirror (mos blloko UI edhe nëse dështon)
-        try {
-          scheduleLocalShadowWrite(`tepiha_delivered_${snapOrder.id}`, payload, 650);
-          await saveOrderLocal({
-            id: snapOrder.id,
-            status: 'dorzim',
-            data: payload,
-            updated_at: payload.delivered_at,
-            delivered_at: payload.delivered_at,
-            picked_up_at: payload.picked_up_at,
-            _synced: false,
-            _table: 'orders',
-          });
-          try { patchBaseMasterRow({ id: snapOrder.id, status: 'dorzim', data: payload, updated_at: payload.delivered_at, delivered_at: payload.delivered_at, picked_up_at: payload.picked_up_at, table: 'orders', _synced: false }); } catch {}
-        } catch (e) {}
-
-        // Record payment if any
-        if (applied > 0) {
-          try {
-            await recordOrderCashPayment(payload, applied, pinData, payMethod);
-          } catch (e) {}
+        if (existingPending?.id) {
+          paymentRecordedOrExisting = true;
+          duplicatePaymentNotice = formatPendingPaymentNotice(existingPending);
+        } else {
+          const payRes = await recordOrderCashPayment(payload, applied, pinData, payMethod);
+          if (payRes?.ok === false) {
+            throw new Error(payRes?.error || 'ARKA_PAYMENT_FAILED');
+          }
+          paymentRecordedOrExisting = true;
+          duplicatePaymentNotice = payRes?.duplicate || payRes?.existing
+            ? formatPendingPaymentNotice(payRes?.row)
+            : '';
         }
-
-        // Update server (orders table)
-        try {
-          await transitionOrderStatus('orders', snapOrder.id, 'dorzim', { data: payload, updated_at: payload.delivered_at, delivered_at: payload.delivered_at, picked_up_at: payload.picked_up_at });
-        } catch (e) {
-          // fallback queue
-          try {
-            await queueOp('patch_order_data', {
-              id: snapOrder.id,
-              data: {
-                data: payload,
-                updated_at: payload.delivered_at,
-                delivered_at: payload.delivered_at,
-                picked_up_at: payload.picked_up_at,
-              },
-            });
-          } catch (e2) {}
-        }
-
-        await refreshOrders();
-      } catch (e) {
-        setPayErr(e?.message || 'Gabim dorëzim');
-        await refreshOrders();
-      } finally {
-        setPayBusy(false);
       }
-    })();
+
+      await closeOrderStatusWithVerification(orderId, payload);
+      await finalizeDeliveredUi(payload);
+      await refreshOrders();
+
+      if (duplicatePaymentNotice) {
+        alert(`${duplicatePaymentNotice}\n\nPagesa ekzistuese u përdor. Nuk u krijua pagesë e dytë. Dorëzimi u mbyll.`);
+      }
+    } catch (err) {
+      if (applied > 0 && paymentRecordedOrExisting) {
+        markPaymentDoneButDeliveryPending(orderId, {
+          code: payload?.code || payOrder?.code || '',
+          amount: applied,
+          ...(err?.row || {}),
+        });
+      }
+
+      const msg = applied > 0 && paymentRecordedOrExisting
+        ? 'Pagesa u regjistrua ose ekziston në ARKË, por dorëzimi nuk u mbyll. Provo vetëm mbylljen e porosisë.'
+        : 'Dorëzimi/pagesa nuk u krye plotësisht. Provo përsëri.';
+      setPayErr(msg);
+      alert(msg);
+      await refreshOrders();
+    } finally {
+      setPayBusy(false);
+    }
+  }
+
+  async function closeDeliveryOnlyRetry() {
+    if (!payOrder || payBusy) return;
+
+    const pinLabel = `MBYLLE VETËM DORËZIMIN\nKODI: ${payOrder.code}\n\nNuk krijohet pagesë e re në ARKË.\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KONFIRMUAR:`;
+    const pinData = await requirePaymentPin({ label: pinLabel });
+    if (!pinData) return;
+
+    const actionAt = new Date().toISOString();
+    const currentPaid = Number(payOrder.paid || 0) || 0;
+    const currentDebt = Math.max(0, Number((Number(payOrder.total || 0) - currentPaid).toFixed(2)));
+    const payload = buildDeliveredPayload({ pinData, newPaid: currentPaid, newDebt: currentDebt, actionAt });
+    const orderId = Number(payload?.id || payOrder?.id || 0);
+
+    setPayBusy(true);
+    setPayErr(null);
+
+    try {
+      await closeOrderStatusWithVerification(orderId, payload);
+      await finalizeDeliveredUi(payload);
+      await refreshOrders();
+      alert('Dorëzimi u mbyll pa krijuar pagesë tjetër.');
+    } catch (err) {
+      const msg = 'Dorëzimi ende nuk u mbyll. Pagesa ekzistuese mbetet në ARKË; provo përsëri vetëm mbylljen.';
+      markPaymentDoneButDeliveryPending(orderId, { code: payload?.code || payOrder?.code || '' });
+      setPayErr(msg);
+      alert(msg);
+      await refreshOrders();
+    } finally {
+      setPayBusy(false);
+    }
   }
 
   // ---------------- HIDDEN RETURN ----------------
@@ -3706,7 +3911,7 @@ async function resolveReturnDbId(row) {
         <LocalErrorBoundary boundaryKind="panel" routePath="/gati" routeName="GATI" moduleName="GatiPosModal" componentName="PosModal" sourceLayer="gati_panel" showHome={false}>
           <PosModal
           open={showPaySheet}
-          onClose={() => setShowPaySheet(false)}
+          onClose={closePay}
           title="DORËZIMI & PAGESA"
           subtitle={`KODI: ${normalizeCode(payOrder.code)} • ${payOrder.name || ''}`}
           total={Number(payOrder.total || 0)}
@@ -3719,22 +3924,47 @@ async function resolveReturnDbId(row) {
           disabled={payBusy}
           onConfirm={confirmDelivery}
           footerNote={
-            <button
-              className="btn secondary"
-              onClick={applyPayOnly}
-              disabled={payBusy}
-              style={{
-                width: '100%',
-                padding: '12px',
-                marginTop: '10px',
-                background: 'rgba(59,130,246,0.15)',
-                color: '#60a5fa',
-                border: '1px solid rgba(59,130,246,0.3)',
-                fontWeight: 'bold',
-              }}
-            >
-              PAGUAJ PA DORËZU
-            </button>
+            <div>
+              {payErr ? (
+                <div style={{ marginTop: 8, marginBottom: 8, color: '#fbbf24', fontSize: 12, fontWeight: 900 }}>
+                  {payErr}
+                </div>
+              ) : null}
+              {payDeliveryPending ? (
+                <button
+                  className="btn secondary"
+                  onClick={closeDeliveryOnlyRetry}
+                  disabled={payBusy}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    marginTop: '10px',
+                    background: 'rgba(245,158,11,0.15)',
+                    color: '#fbbf24',
+                    border: '1px solid rgba(245,158,11,0.35)',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  MBYLLE DORËZIMIN
+                </button>
+              ) : null}
+              <button
+                className="btn secondary"
+                onClick={applyPayOnly}
+                disabled={payBusy}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  marginTop: '10px',
+                  background: 'rgba(59,130,246,0.15)',
+                  color: '#60a5fa',
+                  border: '1px solid rgba(59,130,246,0.3)',
+                  fontWeight: 'bold',
+                }}
+              >
+                PAGUAJ PA DORËZU
+              </button>
+            </div>
           }
           />
         </LocalErrorBoundary>

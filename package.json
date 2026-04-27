@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.35-vite-update-quarantine-v29",
+  "version": "2.0.37-vite-gati-arka-idempotent-v31",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
