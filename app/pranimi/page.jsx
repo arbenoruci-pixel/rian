@@ -9,7 +9,7 @@ import {
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from '@/lib/routerCompat.jsx';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, storageWithTimeout, withSupabaseTimeout } from '@/lib/supabaseClient';
 import { listOrderRecords, upsertOrderRecord, updateOrderRecord } from '@/lib/ordersService';
 import { fetchOrdersFromDb, fetchClientsFromDb } from '@/lib/ordersDb';
 import { enqueueBaseOrder, enqueueOutboxItem, syncNow } from '@/lib/syncManager';
@@ -275,7 +275,7 @@ async function uploadPhoto(file, oid, key) {
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
 
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
+  const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' }), 9000, 'PRANIMI_PHOTO_UPLOAD_TIMEOUT', { bucket: BUCKET, path });
   if (error) throw error;
 
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
@@ -559,24 +559,25 @@ async function upsertDraftRemote(draft) {
   try {
     if (!draft?.id) return;
     const blob = new Blob([JSON.stringify(draft)], { type: 'application/json' });
-    await supabase.storage.from(BUCKET).upload(`${DRAFTS_FOLDER}/${draft.id}.json`, blob, {
+    await storageWithTimeout(supabase.storage.from(BUCKET).upload(`${DRAFTS_FOLDER}/${draft.id}.json`, blob, {
       upsert: true,
       cacheControl: '0',
       contentType: 'application/json',
-    });
+    }), 6500, 'PRANIMI_DRAFT_UPLOAD_TIMEOUT', { bucket: BUCKET, path: `${DRAFTS_FOLDER}/${draft.id}.json` });
   } catch {}
 }
 
 async function deleteDraftRemote(id) {
   try {
     if (!id) return;
-    await supabase.storage.from(BUCKET).remove([`${DRAFTS_FOLDER}/${id}.json`]);
+    await storageWithTimeout(supabase.storage.from(BUCKET).remove([`${DRAFTS_FOLDER}/${id}.json`]), 5000, 'PRANIMI_DRAFT_REMOVE_TIMEOUT', { bucket: BUCKET, path: `${DRAFTS_FOLDER}/${id}.json` });
   } catch {}
 }
 
 async function listDraftsRemote(limit = 200) {
   try {
-    const { data, error } = await supabase.storage.from(BUCKET).list(DRAFTS_FOLDER, { limit });
+    const safeLimit = Math.min(Number(limit) || 80, 80);
+    const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).list(DRAFTS_FOLDER, { limit: safeLimit }), 6500, 'PRANIMI_DRAFT_LIST_TIMEOUT', { bucket: BUCKET, folder: DRAFTS_FOLDER });
     if (error) throw error;
     return (data || []).filter((x) => x?.name?.endsWith('.json'));
   } catch {
@@ -586,7 +587,7 @@ async function listDraftsRemote(limit = 200) {
 
 async function readDraftRemote(id) {
   try {
-    const { data, error } = await supabase.storage.from(BUCKET).download(`${DRAFTS_FOLDER}/${id}.json`);
+    const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).download(`${DRAFTS_FOLDER}/${id}.json`), 6500, 'PRANIMI_DRAFT_DOWNLOAD_TIMEOUT', { bucket: BUCKET, path: `${DRAFTS_FOLDER}/${id}.json` });
     if (error) throw error;
     const text = await data.text();
     return JSON.parse(text);
@@ -595,11 +596,24 @@ async function readDraftRemote(id) {
   }
 }
 
+async function mapDraftsWithLimit(items = [], limit = 4, worker) {
+  const arr = Array.isArray(items) ? items : [];
+  const width = Math.max(1, Math.min(Number(limit) || 4, 6));
+  let index = 0;
+  const runners = Array.from({ length: Math.min(width, arr.length) }, async () => {
+    while (index < arr.length) {
+      const item = arr[index++];
+      try { await worker(item); } catch {}
+    }
+  });
+  await Promise.allSettled(runners);
+}
+
 async function fetchRemoteDraftsSummary() {
-  const files = await listDraftsRemote(200);
+  const files = await listDraftsRemote(80);
   const out = [];
 
-  const tasks = files.map(async (f) => {
+  await mapDraftsWithLimit(files, 4, async (f) => {
     const id = f.name.replace('.json', '');
     const d = await readDraftRemote(id);
     if (!d?.id) return;
@@ -623,15 +637,13 @@ async function fetchRemoteDraftsSummary() {
       euro,
     });
   });
-
-  await Promise.allSettled(tasks);
   out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   return out;
 }
 
 async function readSharedPrice() {
   try {
-    const { data, error } = await supabase.storage.from(BUCKET).download(`${SETTINGS_FOLDER}/price.json`);
+    const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).download(`${SETTINGS_FOLDER}/price.json`), 4500, 'PRANIMI_PRICE_DOWNLOAD_TIMEOUT', { bucket: BUCKET, path: `${SETTINGS_FOLDER}/price.json` });
     if (error) throw error;
     const text = await data.text();
     const j = JSON.parse(text);
@@ -645,11 +657,11 @@ async function writeSharedPrice(pricePerM2) {
   const v = Number(pricePerM2);
   if (!Number.isFinite(v) || v <= 0) return;
   const blob = new Blob([JSON.stringify({ pricePerM2: v, at: new Date().toISOString() })], { type: 'application/json' });
-  await supabase.storage.from(BUCKET).upload(`${SETTINGS_FOLDER}/price.json`, blob, {
+  await storageWithTimeout(supabase.storage.from(BUCKET).upload(`${SETTINGS_FOLDER}/price.json`, blob, {
     upsert: true,
     cacheControl: '0',
     contentType: 'application/json',
-  });
+  }), 5000, 'PRANIMI_PRICE_UPLOAD_TIMEOUT', { bucket: BUCKET, path: `${SETTINGS_FOLDER}/price.json` });
 }
 
 function ensureCodePair(obj){
@@ -2642,9 +2654,9 @@ export default function PranimiPage() {
               },
             };
             const blob = new Blob([JSON.stringify(shadowOrder)], { type: 'application/json' });
-            await supabase.storage.from(BUCKET).upload(`orders/${shadowOrderId || oid}.json`, blob, {
+            await storageWithTimeout(supabase.storage.from(BUCKET).upload(`orders/${shadowOrderId || oid}.json`, blob, {
               upsert: true, cacheControl: '0', contentType: 'application/json',
-            });
+            }), 6500, 'PRANIMI_ORDER_SHADOW_UPLOAD_TIMEOUT', { bucket: BUCKET, path: `orders/${shadowOrderId || oid}.json` });
           } catch {}
           try { removeDraftLocal(finishedId); } catch {}
           try { await deleteDraftRemote(finishedId); } catch {}
@@ -2756,9 +2768,19 @@ export default function PranimiPage() {
 
         pranimiDiagLog('[PRANIMI handleContinue] save body', { mode: 'create', table: 'orders', id: String(oid), payload: { id: String(oid), local_oid: String(oid), ...payload } });
         await enqueueBaseOrder({ id: String(oid), local_oid: String(oid), ...payload });
-        const syncRes = await syncNow().catch(() => ({ ok: false }));
+        const syncRes = await withSupabaseTimeout(
+          syncNow({ source: 'pranimi_continue_fast_wait' }),
+          2500,
+          'PRANIMI_SYNC_FAST_WAIT_TIMEOUT',
+          { source: 'pranimi_handle_continue' }
+        ).catch((err) => {
+          try { syncNow({ source: 'pranimi_continue_background_after_timeout' }).catch(() => {}); } catch {}
+          return { ok: false, offline: true, deferred: true, timeout: err?.isSupabaseTimeout === true, error: String(err?.message || err || 'SYNC_DEFERRED') };
+        });
         const offlineQueued = Boolean(
           syncRes?.offline ||
+          syncRes?.deferred ||
+          syncRes?.timeout ||
           offlineMode ||
           !netState?.ok ||
           (typeof navigator !== 'undefined' && navigator.onLine === false)

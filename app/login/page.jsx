@@ -18,6 +18,24 @@ function safeDel(key) {
   try { if (typeof window !== "undefined") window.localStorage.removeItem(key); } catch {}
 }
 
+async function fetchLoginWithTimeout(url, options = {}, ms = 7000) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timer = null;
+  const opts = { ...(options || {}) };
+  if (controller && !opts.signal) opts.signal = controller.signal;
+  const pending = fetch(url, opts);
+  try { pending.catch(() => {}); } catch {}
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      try { controller?.abort(); } catch {}
+      const err = new Error('LOGIN_TIMEOUT');
+      err.code = 'LOGIN_TIMEOUT';
+      reject(err);
+    }, Number(ms) > 0 ? Number(ms) : 7000);
+  });
+  return Promise.race([pending, timeout]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 function LoginContent() {
   useRouteAlive('login_page');
   const router = useRouter();
@@ -86,11 +104,11 @@ function LoginContent() {
     } else {
       setBusy(true);
       try {
-        const res = await fetch("/api/auth/login", {
+        const res = await fetchLoginWithTimeout("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ pin: p, role: r, deviceId }),
-        });
+        }, 7000);
         const json = await res.json();
         if (!json.ok) {
           if (json.error === "DEVICE_NOT_APPROVED") {
@@ -109,7 +127,7 @@ function LoginContent() {
         try { window.dispatchEvent(new CustomEvent('tepiha:session-changed', { detail: { reason: 'login', at: Date.now() } })); } catch {}
         cacheApprovedLogin({ pin: p, role: r, deviceId, actor });
       } catch (e) {
-        setErr("S’PO MUNDËM ME U LIDH. PROVO PRAPË.");
+        setErr(String(e?.code || e?.message || '').includes('LOGIN_TIMEOUT') ? "LOGIN TIMEOUT — DB PO VONOHET. PROVO PRAPË." : "S’PO MUNDËM ME U LIDH. PROVO PRAPË.");
         return;
       } finally {
         setBusy(false);

@@ -1,6 +1,19 @@
 import { apiFail, apiOk, createAdminClientOrThrow, normalizeDeviceId, normalizePin, normalizeRole, setClientCookie, readBody } from '../_helpers.js';
 import { canAutoApproveDevice, rolesCompatible } from '../../lib/roles.js';
 
+function withServerTimeout(promise, ms = 6500, label = 'SERVER_SUPABASE_TIMEOUT') {
+  let timer = null;
+  try { promise?.catch?.(() => {}); } catch {}
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(label);
+      err.code = label;
+      reject(err);
+    }, Number(ms) > 0 ? Number(ms) : 6500);
+  });
+  return Promise.race([promise, timeout]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 
 export default async function handler(req, res) {
   if (req.method && req.method !== 'POST') return apiFail(res, 'METHOD_NOT_ALLOWED', 405);
@@ -13,20 +26,20 @@ export default async function handler(req, res) {
     if (!pin || !device_id) return apiFail(res, 'MISSING_FIELDS', 400);
 
     const supabase = createAdminClientOrThrow();
-    const { data: user, error: uerr } = await supabase
+    const { data: user, error: uerr } = await withServerTimeout(supabase
       .from('users')
       .select('id, pin, role, name, is_active, is_hybrid_transport')
       .eq('pin', pin)
-      .maybeSingle();
+      .maybeSingle(), 6500, 'LOGIN_USER_LOOKUP_TIMEOUT');
     if (uerr) return apiFail(res, uerr.message, 500);
     if (!user) return apiFail(res, 'PIN GABIM OSE NUK EKZISTON', 401);
     if (user.is_active === false) return apiFail(res, 'USER_DISABLED', 403);
 
-    const { data: dev, error: derr } = await supabase
+    const { data: dev, error: derr } = await withServerTimeout(supabase
       .from('tepiha_user_devices')
       .select('id, is_approved, user_id')
       .eq('device_id', device_id)
-      .maybeSingle();
+      .maybeSingle(), 6500, 'LOGIN_DEVICE_LOOKUP_TIMEOUT');
     if (derr) return apiFail(res, derr.message, 500);
 
     const userRole = String(user.role || '').toUpperCase();
@@ -49,10 +62,10 @@ export default async function handler(req, res) {
     };
 
     if (dev?.id) {
-      const { error: upErr } = await supabase.from('tepiha_user_devices').update(devicePayload).eq('id', dev.id);
+      const { error: upErr } = await withServerTimeout(supabase.from('tepiha_user_devices').update(devicePayload).eq('id', dev.id), 6500, 'LOGIN_DEVICE_UPDATE_TIMEOUT');
       if (upErr) return apiFail(res, upErr.message, 500);
     } else {
-      const { error: insErr } = await supabase.from('tepiha_user_devices').insert(devicePayload);
+      const { error: insErr } = await withServerTimeout(supabase.from('tepiha_user_devices').insert(devicePayload), 6500, 'LOGIN_DEVICE_INSERT_TIMEOUT');
       if (insErr) return apiFail(res, insErr.message, 500);
     }
 

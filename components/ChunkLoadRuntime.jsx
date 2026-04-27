@@ -7,9 +7,9 @@ import { pushLocalErrorLog } from '@/lib/localErrorLog';
 import { getLastChunkCapture, getLastLazyImportFailure, getLastLazyImportAttempt, isProbablyChunkLikeMessage, recordChunkCapture, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
 
 const CONTROLLED_RECOVERY_EVENT = 'tepiha:sw-controlled-recovery-request';
-const APP_DATA_EPOCH = 'RESET-2026-04-27-VITE-SMART-INCIDENT-LOGS-V27-1';
-const APP_VERSION = '2.0.33-vite-smart-incident-logs-v27-1';
-const V27_DIAG_CLEAR_KEY = 'tepiha_diag_clear_epoch_v27';
+const APP_DATA_EPOCH = 'RESET-2026-04-27-VITE-SUPABASE-GUARD-V28';
+const APP_VERSION = '2.0.34-vite-supabase-guard-v28';
+const V28_DIAG_CLEAR_KEY = 'tepiha_diag_clear_epoch_v28';
 
 const OPTIONAL_MODULEPRELOAD_PATTERNS = [
   /(?:^|\/|-)reconcile-[^/]*\.(?:js|mjs)(?:\?|$)/i,
@@ -261,7 +261,7 @@ function clearRouteDiagModulepreloadOnly() {
 function clearOldRuntimeDiagnosticMarkersOnce() {
   if (!isBrowser()) return;
   try {
-    const previous = safeJson(window.localStorage?.getItem(V27_DIAG_CLEAR_KEY) || 'null', null);
+    const previous = safeJson(window.localStorage?.getItem(V28_DIAG_CLEAR_KEY) || 'null', null);
     if (previous?.epoch === APP_DATA_EPOCH) return;
   } catch {}
 
@@ -293,7 +293,7 @@ function clearOldRuntimeDiagnosticMarkersOnce() {
   }
   try { if (clearRouteDiagModulepreloadOnly()) cleared.push('tepiha_route_diag_log_v1:modulepreload_only'); } catch {}
   try {
-    window.localStorage?.setItem(V27_DIAG_CLEAR_KEY, JSON.stringify({
+    window.localStorage?.setItem(V28_DIAG_CLEAR_KEY, JSON.stringify({
       epoch: APP_DATA_EPOCH,
       version: APP_VERSION,
       at: new Date().toISOString(),

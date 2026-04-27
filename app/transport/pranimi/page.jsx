@@ -5,7 +5,7 @@ import { normalizePhoneDigits } from '@/lib/transport/clientCodes';
 import { upsertTransportClient } from '@/lib/transport/transportDb';
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, storageWithTimeout, withSupabaseTimeout } from '@/lib/supabaseClient';
 import { getPendingOps } from '@/lib/offlineStore';
 import { getTransportSession, getTransportContext } from '@/lib/transportAuth';
 import { recordCashMove } from '@/lib/arkaCashSync';
@@ -235,7 +235,7 @@ async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true });
+  const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).upload(path, file, { upsert: true }), 9000, 'TRANSPORT_PRANIMI_PHOTO_UPLOAD_TIMEOUT', { bucket: BUCKET, path });
   if (error) return null;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;
@@ -1087,13 +1087,16 @@ function PranimiPageInner() {
       try {
         if (isEdit) {
           await updateTransportOrderById(oid, payload);
-          await syncNow({ scope: 'transport', source: 'transport_pranimi_edit' }).catch(() => ({ ok: false }));
+          await withSupabaseTimeout(syncNow({ scope: 'transport', source: 'transport_pranimi_edit' }), 3000, 'TRANSPORT_PRANIMI_EDIT_SYNC_FAST_TIMEOUT', { source: 'transport_pranimi_edit' }).catch(() => ({ ok: false, deferred: true }));
         } else {
           // ✅ Robust Outbox: persist PENDING first, then attempt immediate sync.
           // DB triggers will auto-mark pool codes as USED only when INSERT/UPSERT succeeds.
           await enqueueTransportOrder(payload);
-          const syncRes = await syncNow({ scope: 'transport', source: 'transport_pranimi_create' }).catch(() => ({ ok: false }));
-          const offlineQueued = Boolean(syncRes?.offline || offlineMode || !netState?.ok || (typeof navigator !== 'undefined' && navigator.onLine === false));
+          const syncRes = await withSupabaseTimeout(syncNow({ scope: 'transport', source: 'transport_pranimi_create' }), 3000, 'TRANSPORT_PRANIMI_CREATE_SYNC_FAST_TIMEOUT', { source: 'transport_pranimi_create' }).catch((err) => {
+            try { syncNow({ scope: 'transport', source: 'transport_pranimi_background_after_timeout' }).catch(() => {}); } catch {}
+            return { ok: false, offline: true, deferred: true, timeout: err?.isSupabaseTimeout === true };
+          });
+          const offlineQueued = Boolean(syncRes?.offline || syncRes?.deferred || syncRes?.timeout || offlineMode || !netState?.ok || (typeof navigator !== 'undefined' && navigator.onLine === false));
           const pendingOps = await getPendingOps().catch(() => []);
           const currentPending = (Array.isArray(pendingOps) ? pendingOps : []).find((op) => {
             const pl = (op?.payload && typeof op.payload === 'object') ? op.payload : ((op?.data && typeof op.data === 'object') ? op.data : {});

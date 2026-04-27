@@ -3,7 +3,7 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import Link from '@/lib/routerCompat.jsx';
 import { updateTransportOrderById } from '@/lib/transportOrdersDb';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, storageWithTimeout } from '@/lib/supabaseClient';
 import { ui } from '@/lib/transport/board/ui';
 import { useRenderBatches } from '@/lib/renderBatching';
 import { getName, getCode, getAddress, getTotals, formatTime, money, pickLatLng, haversine, openMap } from '@/lib/transport/board/shared';
@@ -54,10 +54,10 @@ async function uploadPhoto(file, oid, key) {
   const safeKey = String(key || 'photo').replace(/[^a-zA-Z0-9_-]/g, '_');
   const path = `photos/${oid}/${safeKey}_${Date.now()}.${ext}`;
 
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, {
+  const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).upload(path, file, {
     upsert: true,
     cacheControl: '0',
-  });
+  }), 9000, 'TRANSPORT_GATI_PHOTO_UPLOAD_TIMEOUT', { bucket: BUCKET, path });
   if (error) throw error;
 
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);

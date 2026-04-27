@@ -8,7 +8,7 @@ import { isBaseScopedOp, isTransportPath } from '@/lib/transportCore/scope';
 import { syncDebugLog } from '@/lib/syncDebug';
 import { repairPendingBaseCreateOps } from '@/lib/syncRecovery';
 import { isDiagEnabled } from '@/lib/diagMode';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, withSupabaseTimeout, shouldPreferLocal } from '@/lib/supabaseClient';
 import { getStartupIsolationLeftMs, isWithinStartupIsolationWindow } from '@/lib/startupIsolation';
 import { isSafeModeDisabledUntil, safeModeLeftMs } from '@/lib/safeMode';
 
@@ -678,9 +678,15 @@ export default function OfflineSyncRunner() {
           return;
         }
 
+        if (shouldPreferLocal('offline_sync_runner')) {
+          syncDebugLog('runner_skipped_db_circuit_breaker', { reason: fireReason, group: fireGroup });
+          scheduleRetry(`circuit_breaker:${fireReason}`, FOLLOWUP_RETRY_MS);
+          return;
+        }
+
         try {
           syncDebugLog('runner_timer_fire', { reason: fireReason, group: fireGroup, scheduledForMs });
-          const repairRes = await repairPendingBaseCreateOps({ source: `runner:${fireReason}`, limit: 12 });
+          const repairRes = await withSupabaseTimeout(repairPendingBaseCreateOps({ source: `runner:${fireReason}`, limit: 12 }), 6000, 'OFFLINE_RUNNER_REPAIR_TIMEOUT', { source: fireReason });
           if (Number(repairRes?.repaired || 0) > 0) {
             syncDebugLog('runner_repaired_queue', { reason: fireReason, group: fireGroup, repaired: Number(repairRes?.repaired || 0) });
           }
@@ -709,7 +715,7 @@ export default function OfflineSyncRunner() {
         try {
           bootLog('offline_sync_runner_kick', { reason: fireReason, pendingCount: postRepairSnapshot.pendingCount, gapMs });
           syncDebugLog('runner_kick', { reason: fireReason, group: fireGroup, pendingCount: postRepairSnapshot.pendingCount, gapMs });
-          const res = await syncNow({ immediate: true, source: `OfflineSyncRunner:${fireReason}` });
+          const res = await withSupabaseTimeout(syncNow({ immediate: true, source: `OfflineSyncRunner:${fireReason}` }), 18000, 'OFFLINE_RUNNER_SYNC_TIMEOUT', { source: fireReason });
           const stillPending = await readPendingCount();
 
           if (stillPending > 0 && canRunNow()) {

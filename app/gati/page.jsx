@@ -6,7 +6,7 @@ import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, storageWithTimeout, fetchWithTimeout } from '@/lib/supabaseClient';
 import { createOrderRecord, fetchOrderByIdSafe, findLatestOrderByCode, listOrderRecords, transitionOrderStatus, updateOrderData, updateOrderRecord } from '@/lib/ordersService';
 import { recordOrderCashPayment } from '@/components/payments/payService';
 import { saveOrderLocal, getAllOrdersLocal } from '@/lib/offlineStore';
@@ -1048,9 +1048,9 @@ function formatDayMonth(ts) {
 }
 
 async function downloadJsonNoCache(path) {
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60);
+  const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).createSignedUrl(path, 60), 6500, 'GATI_SIGNED_URL_TIMEOUT', { bucket: BUCKET, path });
   if (error || !data?.signedUrl) throw error || new Error('No signedUrl');
-  const res = await fetch(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' });
+  const res = await fetchWithTimeout(`${data.signedUrl}&t=${Date.now()}`, { cache: 'no-store' }, 6500, 'GATI_SIGNED_URL_FETCH_TIMEOUT');
   if (!res.ok) throw new Error('Fetch failed');
   return await res.json();
 }
@@ -1059,7 +1059,7 @@ async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
+  const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' }), 9000, 'GATI_PHOTO_UPLOAD_TIMEOUT', { bucket: BUCKET, path });
   if (error) throw error;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;

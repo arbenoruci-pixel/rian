@@ -1,9 +1,9 @@
 /* LEGACY /sw.js BRIDGE — inert compatibility worker for old controllers. */
 /* eslint-disable no-restricted-globals */
 
-const APP_DATA_EPOCH = 'RESET-2026-04-27-VITE-SMART-INCIDENT-LOGS-V27-1';
-const APP_VERSION = '2.0.33-vite-smart-incident-logs-v27-1';
-const SW_BUILD_LABEL = 'sw-vite-smart-incident-logs-v27-1';
+const APP_DATA_EPOCH = 'RESET-2026-04-27-VITE-SUPABASE-GUARD-V28';
+const APP_VERSION = '2.0.34-vite-supabase-guard-v28';
+const SW_BUILD_LABEL = 'sw-vite-supabase-guard-v28';
 const OFFLINE_FALLBACK = '/offline.html';
 const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v19';
 
@@ -155,7 +155,7 @@ self.addEventListener('message', (event) => {
 
   if (type === 'PURGE_LEGACY_ONLY_CACHES') {
     if (data?.manual !== true) {
-      replyToClient(event, { type: 'PURGE_LEGACY_ONLY_CACHES_RESULT', ok: false, label: SW_BUILD_LABEL, error: 'manual_true_required_v27_1', protectedModernCachesPreserved: true, at: nowIso() });
+      replyToClient(event, { type: 'PURGE_LEGACY_ONLY_CACHES_RESULT', ok: false, label: SW_BUILD_LABEL, error: 'manual_true_required_v28_1', protectedModernCachesPreserved: true, at: nowIso() });
       return;
     }
     event.waitUntil((async () => {
@@ -174,7 +174,7 @@ self.addEventListener('message', (event) => {
 
   if (type === 'LEGACY_SW_SELF_UNREGISTER') {
     if (data?.manual !== true) {
-      replyToClient(event, { type: 'LEGACY_SW_SELF_UNREGISTER_RESULT', ok: false, label: SW_BUILD_LABEL, error: 'manual_true_required_v27_1', noClientReload: true, at: nowIso() });
+      replyToClient(event, { type: 'LEGACY_SW_SELF_UNREGISTER_RESULT', ok: false, label: SW_BUILD_LABEL, error: 'manual_true_required_v28_1', noClientReload: true, at: nowIso() });
       return;
     }
     event.waitUntil((async () => {

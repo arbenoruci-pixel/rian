@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, storageWithTimeout } from '@/lib/supabaseClient';
 import { updateTransportOrderById } from '@/lib/transportOrdersDb';
 
 const BUCKET = 'tepiha-photos';
@@ -56,7 +56,7 @@ async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
+  const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' }), 9000, 'TRANSPORT_INLINE_PHOTO_UPLOAD_TIMEOUT', { bucket: BUCKET, path });
   if (error) throw error;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;

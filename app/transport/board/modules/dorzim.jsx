@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, storageWithTimeout } from '@/lib/supabaseClient';
 import { updateTransportOrderById } from '@/lib/transportOrdersDb';
 import { ui } from '@/lib/transport/board/ui';
 import { useRenderBatches } from '@/lib/renderBatching';
@@ -23,7 +23,7 @@ async function uploadPhoto(orderId, file) {
     if (!file) return null;
     const safe = String(file.name || 'photo.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = `transport/return/${orderId}_${Date.now()}_${safe}`;
-    const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true });
+    const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).upload(path, file, { upsert: true }), 9000, 'TRANSPORT_DORZIM_PHOTO_UPLOAD_TIMEOUT', { bucket: BUCKET, path });
     if (error) return null;
     const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
     return pub?.publicUrl || null;

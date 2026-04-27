@@ -3,7 +3,7 @@
 import React, { Suspense, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import Link from '@/lib/routerCompat.jsx';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase, storageWithTimeout } from '@/lib/supabaseClient';
 import { fetchOrderDataById, fetchOrderByIdSafe, listMixedOrderRecords, transitionOrderStatus } from '@/lib/ordersService';
 import { getAllOrdersLocal, saveOrderLocal } from '@/lib/offlineStore';
 import { requirePaymentPin } from '@/lib/paymentPin';
@@ -1139,7 +1139,7 @@ async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `photos/${oid}/${key}_${Date.now()}.${ext}`;
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' });
+  const { data, error } = await storageWithTimeout(supabase.storage.from(BUCKET).upload(path, file, { upsert: true, cacheControl: '0' }), 9000, 'PASTRIMI_PHOTO_UPLOAD_TIMEOUT', { bucket: BUCKET, path });
   if (error) throw error;
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
   return pub?.publicUrl || null;

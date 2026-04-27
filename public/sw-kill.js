@@ -1,5 +1,5 @@
 (function () {
-  var EPOCH = 'RESET-2026-04-27-VITE-SMART-INCIDENT-LOGS-V27-1';
+  var EPOCH = 'RESET-2026-04-27-VITE-SUPABASE-GUARD-V28';
   var FLAG = '__TEPIHA_SW_KILL_SWITCH__';
   var DONE_KEY = '__tepiha_sw_kill_done__' + EPOCH;
   var RELOAD_KEY = '__tepiha_sw_kill_reload_once__' + EPOCH;
