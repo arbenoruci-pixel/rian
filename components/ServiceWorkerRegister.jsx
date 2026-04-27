@@ -235,41 +235,6 @@ function postLegacyControllerMessage(type, detail = {}) {
     noReload: true,
     detailSource: safeMessage(detail?.source || '', ''),
   });
-}) {
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer = null;
-
-    const finish = (payload) => {
-      if (settled) return;
-      settled = true;
-      try { if (timer) window.clearTimeout(timer); } catch {}
-      resolve(payload || { ok: false, type, timeout: false });
-    };
-
-    try {
-      const controller = navigator.serviceWorker?.controller || null;
-      const scriptURL = String(controller?.scriptURL || '');
-
-      if (!controller || !isLegacySwScriptURL(scriptURL)) {
-        finish({ ok: false, type, skipped: true, reason: 'no_legacy_controller', controllerScriptURL: scriptURL });
-        return;
-      }
-
-      if (typeof MessageChannel === 'function') {
-        const channel = new MessageChannel();
-        channel.port1.onmessage = (event) => finish(event?.data || { ok: true, type });
-        timer = window.setTimeout(() => finish({ ok: false, type, timeout: true }), LEGACY_REPAIR_TIMEOUT_MS);
-        controller.postMessage({ type, manual: true, appEpoch: APP_DATA_EPOCH, ...detail }, [channel.port2]);
-        return;
-      }
-
-      controller.postMessage({ type, manual: true, appEpoch: APP_DATA_EPOCH, ...detail });
-      timer = window.setTimeout(() => finish({ ok: true, type, fireAndForget: true }), 350);
-    } catch (error) {
-      finish({ ok: false, type, error: safeMessage(error, 'legacy_message_failed') });
-    }
-  });
 }
 
 function hideLegacySwBanner() {
