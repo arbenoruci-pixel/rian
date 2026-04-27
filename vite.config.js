@@ -77,7 +77,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.mode === 'navigate' && BUSINESS_ROUTE_RE.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'tepiha-vite-business-routes-v27',
+              cacheName: 'tepiha-vite-business-routes-v27-1',
               networkTimeoutSeconds: 4,
               cacheableResponse: {
                 statuses: [0, 200],
@@ -91,10 +91,10 @@ export default defineConfig({
           },
           {
             urlPattern: ({ request, url }) => request.destination === 'script' || request.destination === 'style' || url.pathname.startsWith('/assets/'),
-            // PATCH N/V26: keep cached hashed chunks available while checking the network in background.
+            // PATCH V27.1: keep cached hashed chunks available while checking the network in background.
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'tepiha-vite-static-assets-v27',
+              cacheName: 'tepiha-vite-static-assets-v27-1',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -109,7 +109,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-media-v27',
+              cacheName: 'tepiha-vite-media-v27-1',
               cacheableResponse: {
                 statuses: [0, 200],
               },

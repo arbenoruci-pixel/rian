@@ -240,10 +240,10 @@ function requestManualUpdate(setStatus) {
     if (escaped) return;
     escaped = true;
     try { if (escapeTimer) window.clearTimeout(escapeTimer); } catch {}
-    setSafeStatus('Versioni i ri u kërkua, por PATCH N V26 nuk bën reload ose SKIP_WAITING automatik. Mbylle/hape manualisht kur të kesh kohë.');
+    setSafeStatus('Versioni i ri u kërkua, por PATCH V27.1 nuk bën reload ose SKIP_WAITING automatik. Mbylle/hape manualisht kur të kesh kohë.');
     try {
       window.__TEPIHA_LAZY_WITH_RELOAD_AUTO_RELOAD_DISABLED__ = true;
-      window.sessionStorage?.setItem?.('tepiha_lazy_with_reload_no_auto_reload_v26', JSON.stringify({
+      window.sessionStorage?.setItem?.('tepiha_lazy_with_reload_no_auto_reload_v27_1', JSON.stringify({
         at: new Date().toISOString(),
         ts: Date.now(),
         noReload: true,
@@ -256,7 +256,7 @@ function requestManualUpdate(setStatus) {
     if (navigator.serviceWorker && typeof navigator.serviceWorker.getRegistration === 'function') {
       Promise.resolve(navigator.serviceWorker.getRegistration())
         .then((registration) => {
-          // PATCH N/V26: no SKIP_WAITING from lazy fallback; keep update passive.
+          // PATCH V27.1: no SKIP_WAITING from lazy fallback; keep update passive.
           finishWithReload();
         })
         .catch(() => finishWithReload());

@@ -11,7 +11,7 @@ import { Navigate } from 'react-router-dom';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import SafeLazyRouteShell from '@/components/SafeLazyRouteShell';
 import TransportMenuSafeRouteShell from '@/components/TransportMenuSafeRouteShell';
-import { exportLocalErrorLogText, LOCAL_ERROR_LAST_KEY, LOCAL_ERROR_LOG_KEY } from '@/lib/localErrorLog';
+import { exportLocalErrorLogText, readSmartIncidentSnapshot, LOCAL_ERROR_LAST_KEY, LOCAL_ERROR_LOG_KEY } from '@/lib/localErrorLog';
 import TransportLayout from '@/app/transport/layout.jsx';
 import ArkaLayout from '@/app/arka/layout.jsx';
 import NotFoundPage from '@/app/not-found.jsx';
@@ -191,9 +191,9 @@ function RouteLifecycleProbe({ path, label, kind = 'route', sourceLayer = 'route
             ...base,
             diagnosticOnly: true,
             noUiReady: true,
-            patch: 'PATCH_M_V25_route_readiness',
+            patch: 'PATCH_V27_1_route_readiness',
           });
-          // PATCH M / V25: first paint/interactive means the route bundle rendered,
+          // PATCH V27.1: first paint/interactive means the route bundle rendered,
           // not that the page data/UI is truly ready. Only page-owned events
           // (tepiha:first-ui-ready / tepiha:route-ui-alive / DOM data-ui-ready)
           // may mark route_ui_ready.
@@ -336,7 +336,9 @@ function DiagRawPage() {
 
   const payload = React.useMemo(() => {
     const safeRead = (key, fallback = null) => readPersistentJson(key, fallback);
+    const smartIncident = readSmartIncidentSnapshot();
     return {
+      smartIncident,
       now: new Date().toISOString(),
       path: (() => {
         try { return String(window.location?.pathname || '/diag-raw'); } catch { return '/diag-raw'; }
@@ -423,11 +425,9 @@ function DiagRawPage() {
           return status?.criticalMode || 'unknown';
         } catch { return 'unknown'; }
       })(),
-      localErrorLast: safeRead(LOCAL_ERROR_LAST_KEY, null),
-      localErrorLog: (() => {
-        const list = safeRead(LOCAL_ERROR_LOG_KEY, []);
-        return Array.isArray(list) ? list.slice(0, 80) : [];
-      })(),
+      localErrorLast: smartIncident.currentIncident,
+      localErrorLog: smartIncident.recentIncidents,
+      localErrorStorageKeys: { last: LOCAL_ERROR_LAST_KEY, log: LOCAL_ERROR_LOG_KEY },
       lastDomPreheal: safeRead(DOM_PREHEAL_LAST_KEY, null),
       domPrehealLog: safeRead(DOM_PREHEAL_LOG_KEY, []).slice(0, 12),
       routeDiagLog: safeRead(ROUTE_DIAG_LOG_KEY, []).slice(0, 24),
@@ -480,13 +480,13 @@ function DiagRawPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#05070d', color: '#e8eef6', padding: 16, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
       <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 12 }}>/diag-raw</div>
-      <div style={{ opacity: 0.82, marginBottom: 12 }}>Eager diagnostic route. Lexon vetëm snapshots dhe ring buffers lokalë.</div>
+      <div style={{ opacity: 0.82, marginBottom: 12 }}>Eager diagnostic route. Copy button kopjon vetëm Smart Incident summary; raw snapshot mbetet për kontroll manual.</div>
       <button
         type="button"
         onClick={copyLocalErrors}
         style={{ marginBottom: 12, borderRadius: 12, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.08)', color: '#fff', padding: '10px 12px', fontWeight: 900, letterSpacing: 0.5 }}
       >
-        {copiedLocalErrors ? 'LOCAL ERROR LOG U KOPJUA' : 'COPY LOCAL ERROR LOG'}
+        {copiedLocalErrors ? 'SMART INCIDENT LOG U KOPJUA' : 'COPY SMART INCIDENT LOG'}
       </button>
       <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.45, fontSize: 12 }}>
         {JSON.stringify(payload, null, 2)}

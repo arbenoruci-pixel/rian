@@ -24,7 +24,7 @@ try {
   }
 } catch {}
 
-const APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER = 'tepiha_runtime_diag_cleanup_done_RESET-2026-04-26-VITE-ROUTE-READINESS-V25';
+const APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER = 'tepiha_runtime_diag_cleanup_done_RESET-2026-04-27-VITE-SMART-INCIDENT-LOGS-V27-1';
 const OLD_RUNTIME_DIAG_KEYS = [
   'tepiha_app_root_runtime_failure_log_v1',
   'tepiha_app_root_runtime_failure_last_v1',
@@ -32,7 +32,7 @@ const OLD_RUNTIME_DIAG_KEYS = [
   'tepiha_runtime_module_disabled_v1',
 ];
 
-function clearStaleRuntimeDiagnosticsForV23() {
+function clearStaleRuntimeDiagnosticsForV27() {
   try {
     if (typeof window === 'undefined') return;
     const marker = window.localStorage?.getItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER)
@@ -47,7 +47,7 @@ function clearStaleRuntimeDiagnosticsForV23() {
     try { window.__TEPIHA_LAST_APP_ROOT_RUNTIME_FAILURE__ = null; } catch {}
     try {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-route-readiness-v25',
+        version: 'app-root-vite-route-readiness-v27-1',
         criticalMode: 'static_runtime_deferred_no_lazy_chunks',
         criticalModules: {},
         lazyModules: {},
@@ -59,17 +59,17 @@ function clearStaleRuntimeDiagnosticsForV23() {
     try { window.localStorage?.setItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER, '1'); } catch {}
     try { window.sessionStorage?.setItem?.(APP_ROOT_RUNTIME_DIAG_CLEANUP_MARKER, '1'); } catch {}
     try {
-      recordRouteDiagEvent('app_root_runtime_diag_cleanup_v23', {
+      recordRouteDiagEvent('app_root_runtime_diag_cleanup_v27_1', {
         path: String(window.location?.pathname || '/'),
         sourceLayer: 'app_root',
-        appEpoch: 'RESET-2026-04-26-VITE-ROUTE-READINESS-V25',
+        appEpoch: 'RESET-2026-04-27-VITE-SMART-INCIDENT-LOGS-V27-1',
         removedKeys: OLD_RUNTIME_DIAG_KEYS,
       });
     } catch {}
   } catch {}
 }
 
-clearStaleRuntimeDiagnosticsForV23();
+clearStaleRuntimeDiagnosticsForV27();
 
 function safeParseJson(raw, fallback = null) {
   try {
@@ -177,7 +177,7 @@ function RouteRequestTracker() {
         } catch {}
         return;
       }
-      // PATCH M / V25: component_mount / first_paint / first_interactive are
+      // PATCH V27.1: component_mount / first_paint / first_interactive are
       // diagnostic only. They no longer clear transitionInFlight because they
       // can happen while the page is still waiting for data.
       const routeSettleTypes = new Set(['route_ui_ready']);
@@ -287,7 +287,7 @@ function RouteRequestTracker() {
           transitionInFlight: false,
           clearedTransition: cleared,
           sourceLayer: 'app_root',
-          patch: 'PATCH_M_V25_route_readiness',
+          patch: 'PATCH_V27_1_route_readiness',
           forceDetail: detail,
         });
       } catch {}
@@ -401,7 +401,7 @@ function getRuntimeStatus() {
   try {
     if (!window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ || typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ !== 'object') {
       window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = {
-        version: 'app-root-vite-route-readiness-v25',
+        version: 'app-root-vite-route-readiness-v27-1',
         criticalMode: 'static_runtime_deferred_no_lazy_chunks',
         criticalModules: {},
         lazyModules: {},

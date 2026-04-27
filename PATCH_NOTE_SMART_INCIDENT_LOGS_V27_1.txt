@@ -1,0 +1,26 @@
+PATCH V27.1 — Smart Incident Logs
+Version: 2.0.33-vite-smart-incident-logs-v27-1
+Epoch: RESET-2026-04-27-VITE-SMART-INCIDENT-LOGS-V27-1
+
+Scope:
+- Diagnostics/log cleanup only.
+- No DB, Supabase schema, orders, outbox, payment/status, Pastrimi→Gati, ARKA calculations, design, or business storage changes.
+
+Changes:
+1. lib/localErrorLog.js now stores a compact Smart Incident ring buffer:
+   - LOCAL_ERROR_MAX reduced from 160 to 20.
+   - 7-day TTL.
+   - 10-minute dedupe by error type / route / module / message / asset.
+   - Old-build incidents are hidden by default and counted as oldBuildIncidentsHidden.
+   - Successful fallback/noise events are not stored as incidents.
+   - Huge objects such as full meta, full route event, componentStack, and stack traces are compacted.
+
+2. /diag-raw copy button now copies Smart Incident summary:
+   - health block: epoch, buildId, standalone, controller, epochMismatch.
+   - currentIncident only when a real current-build problem exists.
+   - recentIncidents compact list.
+   - oldBuildIncidentsHidden count.
+   - Use /diag-raw?full=1 only if full compact incident details are needed.
+
+3. Diagnostic labels updated to V27.1 where relevant.
+4. Cache buckets bumped to v27-1 for this deployment.

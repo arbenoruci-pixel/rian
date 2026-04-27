@@ -737,12 +737,12 @@ export default function ServiceWorkerRegister() {
               controllerScriptURL: currentPayload.controllerScriptURL,
             };
 
-            try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_manual_repair_v26', JSON.stringify(result)); } catch {}
+            try { window.sessionStorage?.setItem?.('tepiha_legacy_sw_manual_repair_v27_1', JSON.stringify(result)); } catch {}
             try { logSwEvent('legacy_sw_bridge_manual_repair_done', result); } catch {}
 
-            setStatus('PATCH N V26: riparimi manual u regjistrua pa reload automatik. Mbylle/hape app-in manualisht nëse ende sheh problem.');
+            setStatus('PATCH V27.1: riparimi manual u regjistrua pa reload automatik. Mbylle/hape app-in manualisht nëse ende sheh problem.');
             try {
-              logSwEvent('legacy_sw_bridge_manual_repair_no_auto_reload_v26', {
+              logSwEvent('legacy_sw_bridge_manual_repair_no_auto_reload_v27_1', {
                 noReload: true,
                 noLocationReplace: true,
                 manualOnly: true,

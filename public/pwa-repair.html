@@ -15,9 +15,9 @@
         Kjo faqe nuk përdor React. E heq vetëm Service Worker-in dhe runtime caches të TEPIHA-s, pastaj e hap app-in me index të freskët.
       </p>
       <div style="font:700 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:#bfdbfe;background:rgba(15,23,42,.78);border:1px solid rgba(96,165,250,.28);border-radius:12px;padding:10px;margin:12px 0">
-        build: 2.0.31-vite-final-hardening-v26<br />
-        epoch: RESET-2026-04-26-VITE-FINAL-HARDENING-V26<br />
-        repair: vite-final-hardening-manual-repair-v26
+        build: 2.0.33-vite-smart-incident-logs-v27-1<br />
+        epoch: RESET-2026-04-27-VITE-SMART-INCIDENT-LOGS-V27-1<br />
+        repair: vite-smart-incident-logs-manual-repair-v27-1
       </div>
       <div id="status" style="min-height:22px;margin:12px 0;color:#bae6fd;font-weight:900">Gati për riparim.</div>
       <div style="display:grid;gap:10px">
@@ -32,15 +32,15 @@
   </main>
   <script>
     (function(){
-      var EPOCH = 'RESET-2026-04-26-VITE-FINAL-HARDENING-V26';
-      var VERSION = '2.0.31-vite-final-hardening-v26';
+      var EPOCH = 'RESET-2026-04-27-VITE-SMART-INCIDENT-LOGS-V27-1';
+      var VERSION = '2.0.33-vite-smart-incident-logs-v27-1';
       var statusEl = document.getElementById('status');
       var diagEl = document.getElementById('diag');
       function text(value){ try { return String(value == null ? '' : value); } catch(e) { return ''; } }
       function setStatus(value){ if (statusEl) statusEl.textContent = text(value); }
       function isRuntimeCacheName(key){
         var value = text(key);
-        // PATCH N/V26: manual repair may purge legacy/runtime app caches only; no broad browser-cache wipe.
+        // PATCH V27.1: manual repair may purge legacy/runtime app caches only; no broad browser-cache wipe.
         return /^(pages-|next-data-|nextjs-|next-|tepiha-next-|tepiha-legacy-|tepiha-sw-legacy-|legacy-sw-|sw-route-containment|sw-pwa-staleness|pwa-staleness)/i.test(value)
           || /^tepiha-vite-(business-routes|static-assets|media)-v(1[0-9]|2[0-5])$/i.test(value)
           || /^workbox-precache-.*tepiha/i.test(value);
@@ -95,7 +95,7 @@
             }));
           }
         } catch(e) {}
-        await buildDiag('manual_pwa_repair_completed_no_auto_reload_v26', { before: before, removedServiceWorkers: regs.length, deletedCaches: deleted, noAutoReload: true });
+        await buildDiag('manual_pwa_repair_completed_no_auto_reload_v27_1', { before: before, removedServiceWorkers: regs.length, deletedCaches: deleted, noAutoReload: true });
         setStatus('U krye pa reload automatik. Mbylle/hape app-in manualisht kur të jesh gati.');
       }
       document.getElementById('repair').onclick = function(){ repair().catch(function(error){ setStatus('Gabim: ' + text(error && error.message || error)); }); };

@@ -38,7 +38,7 @@ export function useRouter() {
     back: () => navigate(-1),
     forward: () => navigate(1),
     refresh: () => {
-      // PATCH M / V25: Next.js router.refresh() shim must never hard reload
+      // PATCH V27.1: Next.js router.refresh() shim must never hard reload
       // the Vite PWA. Emit a diagnostic event and let page-level refresh logic
       // decide what to do.
       try {
