@@ -79,6 +79,22 @@ function withTimeout(promise, ms = DB_TIMEOUT_MS, label = 'db_timeout') {
 }
 
 
+function AccessDeniedPanel() {
+  return (
+    <div style={{ minHeight: '100vh', background: '#05070d', color: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif' }}>
+      <div style={{ width: 'min(520px, 100%)', border: '1px solid rgba(239,68,68,.35)', background: 'linear-gradient(180deg,#111827,#070b12)', borderRadius: 22, padding: 18, boxShadow: '0 22px 70px rgba(0,0,0,.55)' }}>
+        <div style={{ fontSize: 12, letterSpacing: '.14em', color: '#fca5a5', fontWeight: 1000, marginBottom: 8 }}>ARKA</div>
+        <div style={{ fontSize: 24, lineHeight: 1.1, fontWeight: 1000 }}>Nuk ke qasje në këtë faqe</div>
+        <div style={{ marginTop: 10, fontSize: 14, lineHeight: 1.45, color: '#cbd5e1' }}>Kjo faqe kërkon autorizim. Zgjidh një faqe tjetër poshtë.</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
+          <Link prefetch={false} href="/" style={{ textAlign: 'center', textDecoration: 'none', borderRadius: 14, background: '#2563eb', color: '#fff', padding: 13, fontSize: 14, fontWeight: 1000 }}>HOME</Link>
+          <Link prefetch={false} href="/arka" style={{ textAlign: 'center', textDecoration: 'none', borderRadius: 14, background: '#334155', color: '#fff', padding: 13, fontSize: 14, fontWeight: 1000 }}>ARKA</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PayrollPage() {
   const router = useRouter();
   const [actor, setActor] = useState(null);
@@ -466,7 +482,7 @@ export default function PayrollPage() {
     });
   }, [staff, debtsMap]);
 
-  if (actor && !isAdminUser) return null;
+  if (actor && !isAdminUser) return <AccessDeniedPanel />;
 
   return (
     <div className="payrollPage">

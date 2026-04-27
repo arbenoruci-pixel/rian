@@ -21,10 +21,23 @@ import { getStartupIsolationLeftMs, isWithinStartupIsolationWindow } from '@/lib
 import { clearPageSnapshot, readPageSnapshot, writePageSnapshot } from '@/lib/pageSnapshotCache';
 import { clearBaseMasterCacheScope, ensureFreshBaseMasterCache, getBaseRowsByStatus, patchBaseMasterRow, patchBaseMasterRows, readBaseMasterCache, reconcileBaseMasterCacheScope, writeBaseMasterCache } from '@/lib/baseMasterCache';
 import useRouteAlive from '@/lib/routeAlive';
+import { markRealUiReady } from '@/lib/markRealUiReady';
 import { isDiagEnabled } from '@/lib/diagMode';
 import { listBaseCreateRecovery } from '@/lib/syncRecovery';
 
 const RackLocationModal = React.lazy(() => import('@/components/RackLocationModal'));
+
+function RouteLoadingFallback({ title = 'DUKE HAPUR...' }) {
+  return (
+    <div style={{ minHeight: '100vh', background: '#05070d', color: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif' }}>
+      <div style={{ width: 'min(520px, 100%)', border: '1px solid rgba(96,165,250,.30)', background: 'linear-gradient(180deg,#111827,#070b12)', borderRadius: 22, padding: 18, boxShadow: '0 22px 70px rgba(0,0,0,.55)' }}>
+        <div style={{ fontSize: 12, letterSpacing: '.14em', color: '#93c5fd', fontWeight: 1000, marginBottom: 8 }}>TEPIHA</div>
+        <div style={{ fontSize: 24, lineHeight: 1.1, fontWeight: 1000 }}>{title}</div>
+        <div style={{ marginTop: 10, fontSize: 14, lineHeight: 1.45, color: '#cbd5e1' }}>Faqja po hapet. Nuk po bëhet refresh dhe nuk po preken të dhënat.</div>
+      </div>
+    </div>
+  );
+}
 
 function fallbackReconciledRows({ baseRows = [], localRows = [] } = {}) {
   const out = [];
@@ -1068,6 +1081,9 @@ async function uploadPhoto(file, oid, key) {
 // ---------------- COMPONENT ----------------
 function GatiPageInner() {
   useRouteAlive('gati_page');
+  useEffect(() => {
+    markRealUiReady('gati_page_visible');
+  }, []);
   const router = useRouter();
   const sp = useSearchParams();
   const exactMode = String(sp?.get('exact') || '') === '1';
@@ -4230,7 +4246,7 @@ async function resolveReturnDbId(row) {
 }
 export default function GatiPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<RouteLoadingFallback title="DUKE HAPUR GATI..." />}>
       <GatiPageInner />
     </Suspense>
   );

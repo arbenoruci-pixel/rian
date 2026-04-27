@@ -1,0 +1,16 @@
+PATCH V32 — TRUE UI READY + NO NULL FALLBACKS
+
+Version: 2.0.38-vite-true-ui-ready-v32
+Epoch: RESET-2026-04-27-VITE-TRUE-UI-READY-V32
+
+Scope:
+- Readiness markers now distinguish technical React/AppRoot startup from real visible UI.
+- src/main.jsx marks only React render called; it no longer marks UI ready immediately after render().
+- src/AppRoot.jsx marks only AppRoot mounted; it no longer marks UI ready on AppRoot mount.
+- lib/markRealUiReady.js centralizes true UI readiness and route alive events.
+- GATI and PASTRIMI main Suspense wrappers now use dark visual fallbacks instead of null.
+- GATI and PASTRIMI mark true UI ready after the page shell mounts.
+- ARKA staff/payroll permission denial now renders a dark access panel instead of returning blank/null.
+- index.html includes a post-React blank-screen watchdog that logs tepiha_post_react_blank_screen_last and injects a safe dark screen if React/AppRoot starts but the root remains practically blank.
+
+No DB schema, Supabase tables, orders payload, outbox format, payment/status logic, Pastrimi→Gati flow, ARKA calculations, business localStorage keys, IndexedDB, or V31 idempotency logic were changed.

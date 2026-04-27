@@ -520,15 +520,15 @@ function CoreRuntimeModule({ name, children }) {
 
 
 
-function UiReadyMarker() {
+function AppRootMountedMarker() {
   React.useEffect(() => {
-    try { window.__TEPIHA_UI_READY__ = true; } catch {}
-    try { window.__TEPIHA_FIRST_UI_READY__ = true; } catch {}
-    try { document.documentElement?.setAttribute?.('data-ui-ready', '1'); } catch {}
-    try { document.body?.setAttribute?.('data-ui-ready', '1'); } catch {}
+    try { window.__TEPIHA_APPROOT_MOUNTED__ = true; } catch {}
+    try { window.__TEPIHA_APPROOT_MOUNTED_AT__ = Date.now(); } catch {}
+    try { document.documentElement?.setAttribute?.('data-approot-mounted', '1'); } catch {}
+    try { document.body?.setAttribute?.('data-approot-mounted', '1'); } catch {}
     try {
-      window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready', {
-        detail: { source: 'app_root_mounted_v29', at: Date.now(), patch: 'update_quarantine_v29' },
+      window.dispatchEvent(new CustomEvent('tepiha:approot-mounted', {
+        detail: { source: 'app_root_mounted_v32', at: Date.now(), patch: 'true_ui_ready_v32' },
       }));
     } catch {}
   }, []);
@@ -538,7 +538,7 @@ function UiReadyMarker() {
 export default function AppRoot() {
   return (
     <BrowserRouter>
-      <UiReadyMarker />
+      <AppRootMountedMarker />
       <RouteRequestTracker />
       <GlobalErrorBoundary>
         <AuthGate>

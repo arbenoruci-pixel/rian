@@ -23,14 +23,15 @@ function safeString(value) {
   }
 }
 
-function markUiReady(source = 'src_main') {
-  try { window.__TEPIHA_UI_READY__ = true; } catch {}
-  try { window.__TEPIHA_FIRST_UI_READY__ = true; } catch {}
-  try { document.documentElement?.setAttribute?.('data-ui-ready', '1'); } catch {}
-  try { document.body?.setAttribute?.('data-ui-ready', '1'); } catch {}
+function markReactRenderCalled(source = 'src_main_render_called_v32') {
+  try { window.__TEPIHA_REACT_RENDER_CALLED__ = true; } catch {}
+  try { window.__TEPIHA_REACT_RENDER_CALLED_AT__ = Date.now(); } catch {}
+  try { window.__TEPIHA_REACT_RENDER_CALLED_SOURCE__ = source; } catch {}
+  try { document.documentElement?.setAttribute?.('data-react-render-called', '1'); } catch {}
+  try { document.body?.setAttribute?.('data-react-render-called', '1'); } catch {}
   try {
-    window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready', {
-      detail: { source, at: Date.now(), patch: 'update_quarantine_v29' },
+    window.dispatchEvent(new CustomEvent('tepiha:react-render-called', {
+      detail: { source, at: Date.now(), patch: 'true_ui_ready_v32' },
     }));
   } catch {}
 }
@@ -183,11 +184,7 @@ try {
   ReactDOM.createRoot(mountNode).render(
     <AppRoot />,
   );
-  markUiReady('src_main_render_called_v29');
-  try {
-    window.__TEPIHA_REACT_RENDER_CALLED__ = true;
-    window.dispatchEvent(new CustomEvent('tepiha:react-render-called', { detail: { at: Date.now() } }));
-  } catch {}
+  markReactRenderCalled('src_main_render_called_v32');
 } catch (error) {
   try {
     window.__TEPIHA_REACT_MOUNT_ERROR__ = {
