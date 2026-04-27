@@ -206,6 +206,7 @@ function DiagRawPage() {
   const [tick, setTick] = React.useState(0);
   const [copiedLocalErrors, setCopiedLocalErrors] = React.useState(false);
   const [browserSnapshot, setBrowserSnapshot] = React.useState(null);
+  const [swNavigationDiagnostics, setSwNavigationDiagnostics] = React.useState(null);
 
   React.useEffect(() => {
     const id = window.setInterval(() => setTick((value) => value + 1), 900);
@@ -238,6 +239,43 @@ function DiagRawPage() {
         return { currentIndexAsset: '', moduleScripts: [] };
       }
     };
+    const readCacheJson = async (cacheName, key, fallback = null) => {
+      try {
+        if (!('caches' in window) || !window.caches?.open) return fallback;
+        const cache = await window.caches.open(cacheName);
+        const response = await cache.match(key, { ignoreSearch: true });
+        if (!response) return fallback;
+        const parsed = JSON.parse(await response.text());
+        return parsed == null ? fallback : parsed;
+      } catch {
+        return fallback;
+      }
+    };
+    const readStaticProbe = async () => {
+      const startedAt = Date.now();
+      try {
+        const response = await fetch(`/__tepiha_probe.txt?t=${Date.now()}`, {
+          cache: 'no-store',
+          credentials: 'same-origin',
+        });
+        const text = await response.text();
+        return {
+          at: new Date().toISOString(),
+          ok: response.ok && text.trim() === 'ok',
+          status: response.status,
+          durationMs: Date.now() - startedAt,
+          text: text.trim().slice(0, 40),
+        };
+      } catch (error) {
+        return {
+          at: new Date().toISOString(),
+          ok: false,
+          status: null,
+          durationMs: Date.now() - startedAt,
+          errorMessage: safeString(error?.message || error),
+        };
+      }
+    };
     const readSnapshot = async () => {
       const assetInfo = readCurrentIndexAsset();
       let cacheKeys = [];
@@ -259,6 +297,23 @@ function DiagRawPage() {
         }
       } catch (error) {
         registrations = [{ error: safeString(error?.message || error) }];
+      }
+      const navDiagCacheName = 'tepiha-sw-navigation-diag-v1';
+      const swNavigationLast = await readCacheJson(navDiagCacheName, '/__tepiha_sw_nav_last.json', null);
+      const swNavigationLogRaw = await readCacheJson(navDiagCacheName, '/__tepiha_sw_nav_log.json', []);
+      const staticProbe = await readStaticProbe();
+      const swNavigationLog = Array.isArray(swNavigationLogRaw) ? swNavigationLogRaw.slice(0, 50) : [];
+      if (!cancelled) {
+        setSwNavigationDiagnostics({
+          swNavigationLast,
+          swNavigationLog,
+          staticProbe,
+          cacheName: navDiagCacheName,
+          keys: {
+            last: '/__tepiha_sw_nav_last.json',
+            log: '/__tepiha_sw_nav_log.json',
+          },
+        });
       }
       const controllerScriptURL = safeString(navigator.serviceWorker?.controller?.scriptURL);
       const snapshot = {
@@ -307,6 +362,16 @@ function DiagRawPage() {
   const payload = React.useMemo(() => {
     const safeRead = (key, fallback = null) => readPersistentJson(key, fallback);
     const smartIncident = readSmartIncidentSnapshot();
+    const visualIncidents = {
+      blackboxEvents: (() => { const list = safeRead('tepiha_blackbox_events_v32diag', []); return Array.isArray(list) ? list.slice(0, 80) : list; })(),
+      lastBootTrace: safeRead('tepiha_last_boot_trace_v32diag', null),
+      lastVisualIncident: safeRead('tepiha_last_visual_incident_v32diag', null),
+      visualIncidentLog: (() => { const list = safeRead('tepiha_visual_incident_log_v32diag', []); return Array.isArray(list) ? list.slice(0, 80) : list; })(),
+      postReactBlankLast: safeRead('tepiha_post_react_blank_screen_last', null),
+      postReactBlankLog: (() => { const list = safeRead('tepiha_post_react_blank_screen_log', []); return Array.isArray(list) ? list.slice(0, 80) : list; })(),
+      preReactBlankLast: safeRead('tepiha_pre_react_black_screen_last', null),
+      preReactBlankLog: (() => { const list = safeRead('tepiha_pre_react_black_screen_log', []); return Array.isArray(list) ? list.slice(0, 80) : list; })(),
+    };
     return {
       smartIncident,
       now: new Date().toISOString(),
@@ -337,15 +402,19 @@ function DiagRawPage() {
       })(),
       pwaStalenessStartupCheck: (() => { try { return window.__TEPIHA_PWA_STALENESS_CHECK__ || null; } catch { return null; } })(),
       swEpochStartupCheck: (() => { try { return window.__TEPIHA_SW_EPOCH_STARTUP_CHECK__ || null; } catch { return null; } })(),
-      visualIncidents: {
-        blackboxEvents: (() => { const list = safeRead('tepiha_blackbox_events_v32diag', []); return Array.isArray(list) ? list.slice(0, 80) : list; })(),
-        lastBootTrace: safeRead('tepiha_last_boot_trace_v32diag', null),
-        lastVisualIncident: safeRead('tepiha_last_visual_incident_v32diag', null),
-        visualIncidentLog: (() => { const list = safeRead('tepiha_visual_incident_log_v32diag', []); return Array.isArray(list) ? list.slice(0, 80) : list; })(),
-        postReactBlankLast: safeRead('tepiha_post_react_blank_screen_last', null),
-        postReactBlankLog: (() => { const list = safeRead('tepiha_post_react_blank_screen_log', []); return Array.isArray(list) ? list.slice(0, 80) : list; })(),
-        preReactBlankLast: safeRead('tepiha_pre_react_black_screen_last', null),
-        preReactBlankLog: (() => { const list = safeRead('tepiha_pre_react_black_screen_log', []); return Array.isArray(list) ? list.slice(0, 80) : list; })(),
+      visualIncidents,
+      navigationDiagnostics: {
+        swNavigationLast: swNavigationDiagnostics?.swNavigationLast || null,
+        swNavigationLog: swNavigationDiagnostics?.swNavigationLog || [],
+        htmlArrivedLast: safeRead('tepiha_html_arrived_last', null),
+        htmlArrivedLog: (() => { const list = safeRead('tepiha_html_arrived_log', []); return Array.isArray(list) ? list.slice(0, 30) : list; })(),
+        visualIncidents,
+        staticProbe: swNavigationDiagnostics?.staticProbe || null,
+        swCacheName: swNavigationDiagnostics?.cacheName || 'tepiha-sw-navigation-diag-v1',
+        swCacheKeys: swNavigationDiagnostics?.keys || {
+          last: '/__tepiha_sw_nav_last.json',
+          log: '/__tepiha_sw_nav_log.json',
+        },
       },
       activeRouteRequest: safeRead('tepiha_active_route_request_v1', null),
       routeTransition: safeRead('tepiha_route_transition_v1', null),
@@ -424,7 +493,7 @@ function DiagRawPage() {
       })(),
       tick,
     };
-  }, [tick, browserSnapshot]);
+  }, [tick, browserSnapshot, swNavigationDiagnostics]);
 
   const copyLocalErrors = React.useCallback(async () => {
     let ok = false;

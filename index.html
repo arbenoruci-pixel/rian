@@ -13,6 +13,46 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TEPIHA</title>
     <script>
+      (function(){
+        try {
+          var LAST_KEY = 'tepiha_html_arrived_last';
+          var LOG_KEY = 'tepiha_html_arrived_log';
+          var LIMIT = 30;
+          function ss(v){ try { return String(v == null ? '' : v); } catch(e){ return ''; } }
+          function parse(raw, fb){ try { var out = JSON.parse(raw); return out == null ? fb : out; } catch(e){ return fb; } }
+          function isStandalone(){
+            try {
+              return !!((navigator && navigator.standalone === true) ||
+                (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches));
+            } catch(e){ return false; }
+          }
+          var epochMeta = document.querySelector && document.querySelector('meta[name="tepiha-app-epoch"]');
+          var buildMeta = document.querySelector && document.querySelector('meta[name="tepiha-build-id"]');
+          var entry = {
+            at: (new Date()).toISOString(),
+            ts: Date.now(),
+            href: ss(window.location && window.location.href),
+            path: ss(window.location && window.location.pathname),
+            readyState: ss(document && document.readyState),
+            appEpoch: ss(epochMeta && epochMeta.content),
+            buildId: ss(buildMeta && buildMeta.content),
+            standalone: isStandalone(),
+            online: (function(){ try { return navigator.onLine; } catch(e){ return null; } })(),
+            userAgent: ss(navigator && navigator.userAgent),
+            marker: 'html-arrived-before-bundle-v1'
+          };
+          localStorage.setItem(LAST_KEY, JSON.stringify(entry));
+          var log = parse(localStorage.getItem(LOG_KEY), []);
+          if (!Array.isArray(log)) log = [];
+          log.unshift(entry);
+          if (log.length > LIMIT) log = log.slice(0, LIMIT);
+          localStorage.setItem(LOG_KEY, JSON.stringify(log));
+        } catch(e) {}
+      })();
+    </script>
+    <script>
       window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32';
       window.__TEPIHA_BUILD_ID = '2.0.39-vite-true-ui-ready-diag-v32';
       window.__TEPIHA_QUIET_UPDATE_V7 = true;
