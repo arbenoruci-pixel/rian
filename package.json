@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.39-vite-true-ui-ready-diag-v32",
+  "version": "2.0.41-vite-safe-screen-self-report-v34-2",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
