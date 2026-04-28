@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/lib/routerCompat.jsx";
 import { getOrderTable } from "@/lib/orderSource";
 import { createOrderRecord, listMixedOrderRecords, updateOrderData, updateOrderRecord } from "@/lib/ordersService";
 import { listUsers } from "@/lib/usersDb";
 import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
+import { supabase } from "@/lib/supabaseClient";
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -22,6 +23,18 @@ const DISPATCH_SEARCH_LIMIT_TRANSPORT = 140;
 const SLOT_OPTIONS = [
   { value: "morning", label: "PARADITE", window: "09:00 – 13:00" },
   { value: "evening", label: "MBRËMJE", window: "18:00 – 21:00" },
+];
+
+const DISPATCH_TIMELINE_STEPS = [
+  "PA PLAN",
+  "PRANUAR NGA SHOFERI",
+  "NË RRUGË PËR PICKUP",
+  "U MOR TE KLIENTI",
+  "U SHKARKUA NË BAZË",
+  "NË PASTRIM / NË BAZË",
+  "U BË GATI",
+  "NË DËRGESË / PICKUP KTHIMI",
+  "U DORËZUA TE KLIENTI",
 ];
 
 function onlyDigits(v) {
@@ -100,9 +113,39 @@ function getAddress(row) {
   );
 }
 function getOrderCode(row) {
-  return s(row?.client_tcode || row?.code || row?.code_str || row?.data?.code || row?.data?.client_tcode || row?.id);
+  return s(row?.client_tcode || row?.code_str || row?.data?.client_tcode || row?.data?.code_str || row?.code || row?.data?.code || row?.id);
+}
+function looksLikeTransportCode(value) {
+  return /^T[\s-]*\d+/i.test(s(value));
+}
+function isDispatchTransportRow(row) {
+  if (!row) return false;
+  const table = getOrderTable(row);
+  if (table === "transport_orders" || row?._table === "transport_orders") return true;
+  if (looksLikeTransportCode(getOrderCode(row))) return true;
+
+  const markers = [
+    row?.kind,
+    row?.type,
+    row?.source,
+    row?.order_table,
+    row?.table,
+    row?.__src,
+    row?.data?.kind,
+    row?.data?.type,
+    row?.data?.source,
+    row?.data?.order_table,
+    row?.data?.table,
+    row?.data?.order_origin,
+    row?.data?.source_table,
+  ];
+  return markers.some((marker) => up(marker).includes("TRANSPORT"));
+}
+function keepDispatchTransportOnly(rows) {
+  return mergeById(Array.isArray(rows) ? rows : []).filter(isDispatchTransportRow);
 }
 function shouldHideDispatchCode(row) {
+  if (isDispatchTransportRow(row)) return false;
   const source = rowSource(row);
   if (source !== 'online') return false;
   return row?.data?.defer_dispatch_code !== false;
@@ -113,7 +156,9 @@ function getDispatchCardCode(row) {
 }
 function normalizeStatus(v) {
   const x = s(v).toLowerCase();
-  if (["pickup", "pranim", "new", "inbox", "dispatched", "assigned"].includes(x)) return "PICKUP";
+  if (["new", "inbox", "pranim", "dispatched", "assigned"].includes(x)) return "PA PLAN";
+  if (x === "accepted" || x === "pranuar" || x === "pranu") return "PRANUAR";
+  if (x === "pickup") return "PICKUP";
   if (["delivery", "dorzim", "dorëzim", "dorezim", "dorezuar", "dorëzuar", "dorzuar", "marrje"].includes(x)) return "DORZIM";
   if (["failed", "deshtuar", "dështuar", "parealizuar", "no_show", "noshow", "returned", "kthim"].includes(x)) return "DËSHTUAR";
   if (x === "loaded" || x === "ngarkim" || x === "ngarkuar") return "NGARKIM";
@@ -147,6 +192,7 @@ function rowSource(row) {
   return "base";
 }
 function sourceLabel(row) {
+  if (isDispatchTransportRow(row)) return "TRANSPORT";
   const src = rowSource(row);
   if (src === "online") return "ONLINE";
   if (src === "phone") return "TELEFONATË";
@@ -199,9 +245,30 @@ function isCompletedRow(row) {
   return ["DONE", "GATI"].includes(st) || isFailedRow(row);
 }
 function isLiveBoardRow(row) {
-  if (!row) return false;
-  const st = normalizeStatus(row?.status || row?.data?.status || "");
-  return st === "PICKUP" || st === "DORZIM" || st === "NGARKIM";
+  return isDispatchTransportRow(row) && !isFailedRow(row);
+}
+function transportStageIndex(row) {
+  const data = (row?.data && typeof row.data === "object") ? row.data : {};
+  const raw = s(row?.status || data.status || data.transport_status || data.dispatch_status).toLowerCase();
+  const marker = [raw, s(data.step), s(data.stage), s(data.driver_stage), s(data.timeline_status)].join(" ").toLowerCase();
+
+  if (data.delivered_at || data.customer_delivered_at || data.delivery_done_at || ["done", "delivered", "dorezuar", "dorzuar", "dorëzuar"].includes(raw)) return 8;
+  if (data.return_started_at || data.delivery_started_at || ["delivery", "dorzim", "dorëzim", "dorezim", "marrje", "kthim", "return", "returning"].includes(raw)) return 7;
+  if (data.ready_at || raw === "gati") return 6;
+  if (data.base_processing_at || data.pastrim_started_at || ["pastrim", "pastrimi", "base", "in_base", "ne_baze", "në_bazë"].includes(raw)) return 5;
+  if (data.unloaded_at || data.base_unloaded_at || marker.includes("shkark")) return 4;
+  if (data.picked_up_at || data.loaded_at || ["loaded", "ngarkim", "ngarkuar"].includes(raw)) return 3;
+  if (data.pickup_started_at || data.on_way_pickup_at || raw === "pickup" || marker.includes("pickup")) return 2;
+  if (data.accepted_at || data.driver_accepted_at || ["accepted", "pranuar", "pranu"].includes(raw)) return 1;
+  return 0;
+}
+function transportStageLabel(row) {
+  return DISPATCH_TIMELINE_STEPS[transportStageIndex(row)] || DISPATCH_TIMELINE_STEPS[0];
+}
+function timelineStyle(idx, current) {
+  if (idx < current) return ui.timelineDone;
+  if (idx === current) return ui.timelineNow;
+  return ui.timelinePending;
 }
 function formatMoney(v) {
   const n = Number(v || 0);
@@ -247,6 +314,12 @@ function DispatchCard({ row, onOpen }) {
             <span style={ui.badgeGhost}>{planningDate ? uiDate(planningDate) : "PA DATË"}</span>
             <span style={ui.badgeGhost}>{planningSlot ? slotWindow(planningSlot) : "PA SLOT"}</span>
             {driver ? <span style={ui.driverChip}>👷 {driver}</span> : <span style={ui.badgeGhost}>PA SHOFER</span>}
+            <span style={ui.stageBadge}>{transportStageLabel(row)}</span>
+          </div>
+          <div style={ui.timelineWrap} aria-label="Transport timeline">
+            {DISPATCH_TIMELINE_STEPS.map((step, idx) => (
+              <span key={step} style={timelineStyle(idx, transportStageIndex(row))}>{idx + 1}. {step}</span>
+            ))}
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <span style={ui.compactOpen}>HAP ➔</span>
@@ -306,6 +379,8 @@ export default function DispatchPage() {
   const uiReadyMarkedRef = useRef(false);
   const [accessChecked, setAccessChecked] = useState(false);
   const [accessAllowed, setAccessAllowed] = useState(false);
+  const [liveMode, setLiveMode] = useState("POLL");
+  const realtimeTimerRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -374,13 +449,13 @@ export default function DispatchPage() {
     })();
   }, [accessChecked, accessAllowed]);
 
-  async function loadRows() {
+  const loadRows = useCallback(async () => {
     setLoadingRows(true);
     try {
-      const merged = mergeById(
+      const merged = keepDispatchTransportOnly(
         await listMixedOrderRecords({
+          tables: ["transport_orders"],
           byTable: {
-            orders: { orderBy: "updated_at", ascending: false, limit: DISPATCH_LOAD_LIMIT_ORDERS },
             transport_orders: { orderBy: "updated_at", ascending: false, limit: DISPATCH_LOAD_LIMIT_TRANSPORT },
           },
         })
@@ -391,14 +466,14 @@ export default function DispatchPage() {
     } finally {
       setLoadingRows(false);
     }
-  }
+  }, []);
 
   async function getSearchRows() {
-    if (Array.isArray(allRows) && allRows.length) return allRows;
-    return mergeById(
+    if (Array.isArray(allRows) && allRows.length) return keepDispatchTransportOnly(allRows);
+    return keepDispatchTransportOnly(
       await listMixedOrderRecords({
+        tables: ["transport_orders"],
         byTable: {
-          orders: { orderBy: "updated_at", ascending: false, limit: DISPATCH_SEARCH_LIMIT_ORDERS },
           transport_orders: { orderBy: "updated_at", ascending: false, limit: DISPATCH_SEARCH_LIMIT_TRANSPORT },
         },
       })
@@ -409,7 +484,41 @@ export default function DispatchPage() {
     if (!accessChecked || !accessAllowed) return undefined;
     const t = setTimeout(() => loadRows(), 350);
     return () => clearTimeout(t);
-  }, [accessChecked, accessAllowed]);
+  }, [accessChecked, accessAllowed, loadRows]);
+
+  useEffect(() => {
+    if (!accessChecked || !accessAllowed) return undefined;
+    let channel = null;
+    let pollTimer = 0;
+    const scheduleLiveRefresh = (delay = 450) => {
+      try { if (realtimeTimerRef.current) window.clearTimeout(realtimeTimerRef.current); } catch {}
+      try { realtimeTimerRef.current = window.setTimeout(() => loadRows(), delay); } catch {}
+    };
+
+    try {
+      if (supabase && typeof supabase.channel === "function") {
+        channel = supabase
+          .channel("dispatch-transport-live-v2")
+          .on("postgres_changes", { event: "*", schema: "public", table: "transport_orders" }, () => scheduleLiveRefresh(350))
+          .subscribe((status) => {
+            if (String(status || "").toUpperCase() === "SUBSCRIBED") setLiveMode("REALTIME");
+          });
+      }
+    } catch {
+      setLiveMode("POLL");
+    }
+
+    pollTimer = window.setInterval(() => {
+      try { if (document?.visibilityState === "hidden") return; } catch {}
+      loadRows();
+    }, 20000);
+
+    return () => {
+      try { if (realtimeTimerRef.current) window.clearTimeout(realtimeTimerRef.current); } catch {}
+      try { if (pollTimer) window.clearInterval(pollTimer); } catch {}
+      try { if (channel && supabase?.removeChannel) supabase.removeChannel(channel); } catch {}
+    };
+  }, [accessChecked, accessAllowed, loadRows]);
 
   useEffect(() => {
     const digits = onlyDigits(phone);
@@ -500,61 +609,63 @@ export default function DispatchPage() {
     return todayYmd;
   }, [planMode, customDate, todayYmd, tomorrowYmd]);
 
+  const dispatchRows = useMemo(() => keepDispatchTransportOnly(allRows), [allRows]);
+
   const daySlotCount = useMemo(() => {
-    return allRows.filter((row) => {
+    return dispatchRows.filter((row) => {
       if (isCompletedRow(row)) return false;
       return rowPickupDate(row) === plannedDate && rowPickupSlot(row) === slot;
     }).length;
-  }, [allRows, plannedDate, slot]);
+  }, [dispatchRows, plannedDate, slot]);
 
   const dayTotalCount = useMemo(() => {
-    return allRows.filter((row) => {
+    return dispatchRows.filter((row) => {
       if (isCompletedRow(row)) return false;
       return rowPickupDate(row) === plannedDate;
     }).length;
-  }, [allRows, plannedDate]);
+  }, [dispatchRows, plannedDate]);
 
   const todayRows = useMemo(() => {
-    return allRows
+    return dispatchRows
       .filter((row) => !isCompletedRow(row) && rowPickupDate(row) === todayYmd)
       .sort((a, b) => lastTs(b) - lastTs(a));
-  }, [allRows, todayYmd]);
+  }, [dispatchRows, todayYmd]);
 
   const tomorrowRows = useMemo(() => {
-    return allRows
+    return dispatchRows
       .filter((row) => !isCompletedRow(row) && rowPickupDate(row) === tomorrowYmd)
       .sort((a, b) => lastTs(b) - lastTs(a));
-  }, [allRows, tomorrowYmd]);
+  }, [dispatchRows, tomorrowYmd]);
 
   const onlineRows = useMemo(() => {
-    return allRows
+    return dispatchRows
       .filter((row) => !isCompletedRow(row) && rowSource(row) === "online")
       .sort((a, b) => lastTs(b) - lastTs(a));
-  }, [allRows]);
+  }, [dispatchRows]);
 
   const phoneRows = useMemo(() => {
-    return allRows
+    return dispatchRows
       .filter((row) => !isCompletedRow(row) && rowSource(row) === "phone")
       .sort((a, b) => lastTs(b) - lastTs(a));
-  }, [allRows]);
+  }, [dispatchRows]);
 
   const liveRows = useMemo(() => {
-    return allRows
+    return dispatchRows
       .filter((row) => isLiveBoardRow(row))
       .sort((a, b) => lastTs(b) - lastTs(a))
-      .slice(0, 20);
-  }, [allRows]);
+      .slice(0, 50);
+  }, [dispatchRows]);
 
   const failedRows = useMemo(() => {
-    return allRows
+    return dispatchRows
       .filter((row) => isFailedRow(row))
       .sort((a, b) => lastTs(b) - lastTs(a))
       .slice(0, 20);
-  }, [allRows]);
+  }, [dispatchRows]);
 
   const reschedules = useMemo(() => {
     const nowMs = Date.now();
-    return allRows
+    return dispatchRows
       .filter((r) => {
         const ra = r?.data?.reschedule_at || r?.data?.rescheduleAt || r?.data?.riplanifikim_at;
         const ms = ra ? Date.parse(String(ra)) : NaN;
@@ -562,7 +673,7 @@ export default function DispatchPage() {
       })
       .sort((a, b) => lastTs(b) - lastTs(a))
       .slice(0, 20);
-  }, [allRows]);
+  }, [dispatchRows]);
 
   const tabCounts = useMemo(
     () => ({
@@ -755,7 +866,7 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
       <div style={ui.top}>
         <div>
           <div style={ui.title}>DISPATCH</div>
-          <div style={ui.sub}>SMART DISPATCH CENTER</div>
+          <div style={ui.sub}>TRANSPORT CONTROL TOWER • {liveMode === "REALTIME" ? "LIVE REALTIME" : "LIVE POLL 20s"}</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Link href="/transport/board" style={ui.btnGhost}>TEREN</Link>
@@ -767,7 +878,7 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
         <div style={ui.statCard}><div style={ui.statLabel}>SOT</div><div style={ui.statValue}>{tabCounts[TAB_TODAY]}</div></div>
         <div style={ui.statCard}><div style={ui.statLabel}>NESËR</div><div style={ui.statValue}>{tabCounts[TAB_TOMORROW]}</div></div>
         <div style={ui.statCard}><div style={ui.statLabel}>ONLINE</div><div style={ui.statValue}>{tabCounts[TAB_ONLINE]}</div></div>
-        <div style={ui.statCard}><div style={ui.statLabel}>UPDATES</div><div style={ui.statValue}>{tabCounts[TAB_UPDATES]}</div></div>
+        <div style={ui.statCard}><div style={ui.statLabel}>LIVE</div><div style={ui.statValue}>{tabCounts[TAB_UPDATES]}</div></div>
       </div>
 
       <div style={ui.card}>
@@ -886,7 +997,7 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
           <button type="button" style={activeTab === TAB_TOMORROW ? ui.tabOn : ui.tabOff} onClick={() => setActiveTab(TAB_TOMORROW)}>NESËR ({tabCounts[TAB_TOMORROW]})</button>
           <button type="button" style={activeTab === TAB_ONLINE ? ui.tabOn : ui.tabOff} onClick={() => setActiveTab(TAB_ONLINE)}>ONLINE ({tabCounts[TAB_ONLINE]})</button>
           <button type="button" style={activeTab === TAB_PHONE ? ui.tabOn : ui.tabOff} onClick={() => setActiveTab(TAB_PHONE)}>TELEFONATA ({tabCounts[TAB_PHONE]})</button>
-          <button type="button" style={activeTab === TAB_UPDATES ? ui.tabOn : ui.tabOff} onClick={() => setActiveTab(TAB_UPDATES)}>UPDATES ({tabCounts[TAB_UPDATES]})</button>
+          <button type="button" style={activeTab === TAB_UPDATES ? ui.tabOn : ui.tabOff} onClick={() => setActiveTab(TAB_UPDATES)}>LIVE ({tabCounts[TAB_UPDATES]})</button>
         </div>
 
         {activeTab !== TAB_UPDATES ? (
@@ -921,10 +1032,10 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
         ) : (
           <>
             <div style={ui.sectionHeadRow}>
-              <div style={ui.sectionTitle}>UPDATES</div>
+              <div style={ui.sectionTitle}>LIVE TRANSPORT</div>
               <button type="button" style={ui.btnGhostMini} onClick={loadRows}>{loadingRows ? "DUKE…" : "REFRESH"}</button>
             </div>
-            <div style={ui.sectionHint}>Hape veç kur do me pa ndryshimet – jo live gjithë kohën.</div>
+            <div style={ui.sectionHint}>Vetëm transport orders / T-codes. Përditësim: {liveMode === "REALTIME" ? "Supabase realtime" : "refresh i lehtë çdo 20 sekonda"}.</div>
 
             <div style={ui.updateSection}>
               <div style={ui.sectionTitle}>AKTIVITET</div>
@@ -997,6 +1108,12 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
                 <div style={ui.sectionHint}>{getClientPhone(selectedRow) || "PA TEL"} • {getAddress(selectedRow) || "PA ADRESË"}</div>
               </div>
               <button type="button" style={ui.btnGhostMini} onClick={() => setSelectedRow(null)}>MBYLLE</button>
+            </div>
+
+            <div style={ui.timelineWrap}>
+              {DISPATCH_TIMELINE_STEPS.map((step, idx) => (
+                <span key={step} style={timelineStyle(idx, transportStageIndex(selectedRow))}>{idx + 1}. {step}</span>
+              ))}
             </div>
 
             <div style={ui.field}>
@@ -1112,6 +1229,11 @@ const ui = {
   inlineDangerRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", border: "1px solid rgba(185,28,28,0.10)", borderRadius: 14, padding: "10px 12px", background: "rgba(185,28,28,0.04)", width: "100%", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden" },
   inlineDangerHint: { fontSize: 12, fontWeight: 800, color: "rgba(17,17,17,0.72)", flex: 1, minWidth: 180 },
   updateSection: { marginTop: 12, borderTop: "1px solid rgba(0,0,0,0.06)", paddingTop: 12 },
+  stageBadge: { fontSize: 11, fontWeight: 1000, borderRadius: 999, padding: "4px 8px", border: "1px solid rgba(37,99,235,0.24)", background: "rgba(59,130,246,0.12)", color: "#1d4ed8" },
+  timelineWrap: { display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", minWidth: 0, maxWidth: "100%", marginTop: 2 },
+  timelineDone: { fontSize: 10, fontWeight: 1000, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(16,185,129,0.22)", background: "rgba(16,185,129,0.12)", color: "#047857", lineHeight: 1.15 },
+  timelineNow: { fontSize: 10, fontWeight: 1000, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(37,99,235,0.28)", background: "rgba(59,130,246,0.14)", color: "#1d4ed8", lineHeight: 1.15 },
+  timelinePending: { fontSize: 10, fontWeight: 900, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.03)", color: "rgba(17,17,17,0.56)", lineHeight: 1.15 },
   modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.40)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60 },
   modalCard: { width: "min(680px, 100%)", maxWidth: "100%", maxHeight: "90vh", overflow: "auto", background: "#fff", borderRadius: 18, border: "1px solid rgba(0,0,0,0.08)", padding: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.18)", boxSizing: "border-box" },
 };
