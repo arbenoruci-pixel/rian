@@ -1,17 +1,19 @@
-/* TEPIHA SW Navigation Flight Recorder V34.3 — navigation shell fallback before safe screen. */
+/* TEPIHA SW Navigation Flight Recorder V34.4 — last-good shell cache before safe screen. */
 /* eslint-disable no-restricted-globals */
 (function () {
   'use strict';
 
   var NAV_DIAG_CACHE = 'tepiha-sw-navigation-diag-v1';
+  var NAV_SHELL_CACHE = 'tepiha-sw-navigation-shell-v34-4';
+  var NAV_LAST_GOOD_SHELL_KEY = '/__tepiha_last_good_shell__.html';
   var NAV_LAST_KEY = '/__tepiha_sw_nav_last.json';
   var NAV_LOG_KEY = '/__tepiha_sw_nav_log.json';
   var NAV_LOG_LIMIT = 50;
   var NAV_TIMEOUT_MS = 10000;
-  var APP_EPOCH = 'RESET-2026-04-28-VITE-NAV-SHELL-FALLBACK-V34-3';
-  var APP_VERSION = '2.0.42-vite-nav-shell-fallback-v34-3';
-  var SW_NAV_DIAG_VERSION = 'sw-navigation-diag-v34.3';
-  var SAFE_SCREEN_VERSION = 'safe-screen-v34.3-nav-shell-fallback';
+  var APP_EPOCH = 'RESET-2026-04-28-VITE-LAST-GOOD-SHELL-V34-4';
+  var APP_VERSION = '2.0.43-vite-last-good-shell-v34-4';
+  var SW_NAV_DIAG_VERSION = 'sw-navigation-diag-v34.4';
+  var SAFE_SCREEN_VERSION = 'safe-screen-v34.4-last-good-shell';
 
   function nowIso() { try { return new Date().toISOString(); } catch (_) { return ''; } }
   function safeString(value) { try { return String(value == null ? '' : value); } catch (_) { return ''; } }
@@ -26,6 +28,43 @@
     } catch (_) {
       return absoluteUrl(path || '/');
     }
+  }
+
+  function normalizedRouteKey(url) {
+    try {
+      var u = new URL(url || '/', self.location.origin);
+      var path = safeString(u.pathname || '/').replace(/\/{2,}/g, '/');
+      if (!path || path.charAt(0) !== '/') path = '/' + path;
+      if (path.length > 1 && path.charAt(path.length - 1) === '/') path = path.slice(0, -1);
+      return path || '/';
+    } catch (_) { return '/'; }
+  }
+
+  function cacheKeyHref(key) {
+    try {
+      var u = new URL(key || '/', self.location.origin);
+      u.search = '';
+      u.hash = '';
+      return u.href;
+    } catch (_) { return absoluteUrl('/'); }
+  }
+
+  function cacheRequestForKey(key) {
+    return new Request(cacheKeyHref(key), { method: 'GET', credentials: 'same-origin' });
+  }
+
+  function uniqueList(items) {
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < (items || []).length; i += 1) {
+      var value = safeString(items[i] || '').trim();
+      if (!value) continue;
+      if (value === '//' || /^\/\/[^/]/.test(value)) continue;
+      if (seen[value]) continue;
+      seen[value] = true;
+      out.push(value);
+    }
+    return out;
   }
 
   function isNavigationRequest(request) {
@@ -108,35 +147,130 @@
     } catch (_) {}
   }
 
-  async function matchCachedShellCandidates(request, entry) {
-    var path = requestPath(request && request.url) || '/';
-    var pathname = '/';
-    try { pathname = new URL(request.url, self.location.origin).pathname || '/'; } catch (_) {}
-    var candidates = [request, path, pathname, pathname + '/', '/index.html', '/'];
-    var seen = {};
+  async function storeShellResponse(response, requestUrl, entry, source) {
+    try {
+      if (!isUsableShellResponse(response)) {
+        addAttempt(entry, 'shell_cache_store', 'skip_unusable', {
+          source: safeString(source || ''),
+          responseStatus: response ? response.status : null,
+        });
+        return false;
+      }
 
-    for (var i = 0; i < candidates.length; i += 1) {
-      try {
-        var candidate = candidates[i];
-        var key = typeof candidate === 'string' ? candidate : safeString(candidate && candidate.url);
-        if (!key || seen[key]) continue;
-        seen[key] = true;
-        var response = await caches.match(candidate, { ignoreSearch: false });
-        if (!response && typeof candidate === 'string') response = await caches.match(candidate, { ignoreSearch: true });
-        if (isUsableShellResponse(response)) {
-          addAttempt(entry, 'cached_shell', 'hit', { cacheKey: key, responseStatus: response.status });
-          return response;
+      var text = await response.clone().text();
+      if (!text || text.length < 40 || text.indexOf('<') === -1) {
+        addAttempt(entry, 'shell_cache_store', 'skip_empty', {
+          source: safeString(source || ''),
+          textLength: text ? text.length : 0,
+        });
+        return false;
+      }
+
+      var cache = await caches.open(NAV_SHELL_CACHE);
+      var routeKey = normalizedRouteKey(requestUrl || '/');
+      var keys = uniqueList([NAV_LAST_GOOD_SHELL_KEY, routeKey, '/', '/index.html']);
+      var stored = [];
+
+      for (var i = 0; i < keys.length; i += 1) {
+        var shell = new Response(text, {
+          status: 200,
+          statusText: 'OK',
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'X-Tepiha-Shell-Cache': 'last-good-v34.4',
+            'X-Tepiha-Shell-Source': safeString(source || 'unknown'),
+          },
+        });
+        await cache.put(cacheRequestForKey(keys[i]), shell);
+        stored.push(keys[i]);
+      }
+
+      addAttempt(entry, 'shell_cache_store', 'success', {
+        source: safeString(source || ''),
+        cacheName: NAV_SHELL_CACHE,
+        keys: stored,
+        routeKey: routeKey,
+        textLength: text.length,
+      });
+      return true;
+    } catch (error) {
+      addAttempt(entry, 'shell_cache_store', 'error', {
+        source: safeString(source || ''),
+        cacheName: NAV_SHELL_CACHE,
+        errorMessage: safeString(error && (error.message || error.name) ? (error.message || error.name) : error),
+      });
+      return false;
+    }
+  }
+
+  async function matchCachedShellCandidates(request, entry) {
+    var routeKey = normalizedRouteKey(request && request.url);
+    var primaryCandidates = uniqueList([NAV_LAST_GOOD_SHELL_KEY, routeKey, '/', '/index.html']);
+
+    try {
+      var shellCache = await caches.open(NAV_SHELL_CACHE);
+      for (var i = 0; i < primaryCandidates.length; i += 1) {
+        var key = primaryCandidates[i];
+        try {
+          var response = await shellCache.match(cacheRequestForKey(key), { ignoreSearch: true });
+          if (isUsableShellResponse(response)) {
+            addAttempt(entry, 'cached_last_good_shell', 'hit', {
+              cacheName: NAV_SHELL_CACHE,
+              cacheKey: key,
+              responseStatus: response.status,
+            });
+            return response;
+          }
+          addAttempt(entry, 'cached_last_good_shell', 'miss', {
+            cacheName: NAV_SHELL_CACHE,
+            cacheKey: key,
+            responseStatus: response ? response.status : null,
+          });
+        } catch (error) {
+          addAttempt(entry, 'cached_last_good_shell', 'error', {
+            cacheName: NAV_SHELL_CACHE,
+            cacheKey: key,
+            errorMessage: safeString(error && (error.message || error.name) ? (error.message || error.name) : error),
+          });
         }
-        addAttempt(entry, 'cached_shell', 'miss', { cacheKey: key, responseStatus: response ? response.status : null });
-      } catch (error) {
-        addAttempt(entry, 'cached_shell', 'error', { errorMessage: safeString(error && (error.message || error.name) ? (error.message || error.name) : error) });
+      }
+    } catch (error) {
+      addAttempt(entry, 'cached_last_good_shell', 'open_error', {
+        cacheName: NAV_SHELL_CACHE,
+        errorMessage: safeString(error && (error.message || error.name) ? (error.message || error.name) : error),
+      });
+    }
+
+    var globalCandidates = uniqueList([routeKey, '/', '/index.html']);
+    for (var j = 0; j < globalCandidates.length; j += 1) {
+      var globalKey = globalCandidates[j];
+      try {
+        var globalResponse = await caches.match(cacheRequestForKey(globalKey), { ignoreSearch: true });
+        if (isUsableShellResponse(globalResponse)) {
+          addAttempt(entry, 'cached_global_shell', 'hit', {
+            cacheKey: globalKey,
+            responseStatus: globalResponse.status,
+          });
+          return globalResponse;
+        }
+        addAttempt(entry, 'cached_global_shell', 'miss', {
+          cacheKey: globalKey,
+          responseStatus: globalResponse ? globalResponse.status : null,
+        });
+      } catch (error2) {
+        addAttempt(entry, 'cached_global_shell', 'error', {
+          cacheKey: globalKey,
+          errorMessage: safeString(error2 && (error2.message || error2.name) ? (error2.message || error2.name) : error2),
+        });
       }
     }
+
     return null;
   }
 
-  async function fetchNetworkShell(entry) {
-    var stamp = 'v34_3_' + Date.now();
+  async function fetchNetworkShell(entry, requestUrl) {
+    var stamp = 'v34_4_' + Date.now();
     var candidates = ['/index.html', '/'];
     for (var i = 0; i < candidates.length; i += 1) {
       var url = cacheBustUrl(candidates[i], stamp + '_' + i);
@@ -150,6 +284,7 @@
         }));
         if (isUsableShellResponse(response)) {
           addAttempt(entry, 'network_shell', 'success', { shellUrl: url, responseStatus: response.status });
+          await storeShellResponse(response.clone(), requestUrl || '/', entry, 'network_shell');
           return response;
         }
         addAttempt(entry, 'network_shell', 'bad_response', { shellUrl: url, responseStatus: response ? response.status : null });
@@ -172,7 +307,7 @@
       '<main style="width:min(560px,100%);border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);border-radius:22px;padding:22px;box-shadow:0 20px 70px rgba(0,0,0,.38)">' +
       '<div style="font-size:13px;letter-spacing:.18em;color:#93c5fd;font-weight:1000;margin-bottom:10px">TEPIHA</div>' +
       '<h1 style="margin:0 0 8px;font-size:28px;line-height:1.08;color:#fff">RRJETI U VONUA</h1>' +
-      '<p style="margin:0 0 18px;color:#cbd5e1;font-size:15px;line-height:1.45">Service Worker provoi network navigation, cached shell dhe network shell. Safe screen u shfaq vetëm pasi fallback-et dështuan.</p>' +
+      '<p style="margin:0 0 18px;color:#cbd5e1;font-size:15px;line-height:1.45">Service Worker provoi network navigation, last-good cached shell, cached global shell dhe network shell. Safe screen u shfaq vetëm pasi fallback-et dështuan.</p>' +
       '<pre id="tepiha-nav-detail" style="white-space:pre-wrap;word-break:break-word;background:#020617;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;color:#cbd5e1;font-size:12px;line-height:1.4;margin:0 0 16px">' + escapedReason + (escapedDetail ? '\n' + escapedDetail : '') + '\n\n' + escapedPayload + '</pre>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
       '<a href="/" style="text-align:center;text-decoration:none;border-radius:14px;background:#2563eb;color:#fff;padding:13px 10px;font-weight:1000">HOME</a>' +
@@ -243,19 +378,30 @@
     try {
       var response = await fetchNavigationWithTimeout(request);
       entry.durationMs = Date.now() - startedAt;
-      entry.outcome = 'network_success';
-      entry.networkOutcome = 'network_success';
       entry.responseStatus = response ? response.status : null;
-      addAttempt(entry, 'navigation_network', 'success', { responseStatus: entry.responseStatus });
-      await recordNavigation(entry);
-      return response;
+      if (isUsableShellResponse(response)) {
+        entry.outcome = 'network_success';
+        entry.networkOutcome = 'network_success';
+        addAttempt(entry, 'navigation_network', 'success', { responseStatus: entry.responseStatus });
+        await storeShellResponse(response.clone(), request && request.url, entry, 'navigation_network');
+        await recordNavigation(entry);
+        return response;
+      }
+
+      entry.errorMessage = 'navigation returned unusable shell status ' + safeString(entry.responseStatus);
+      entry.networkOutcome = 'network_bad_response';
+      entry.outcome = 'network_bad_response';
+      addAttempt(entry, 'navigation_network', 'bad_response', { responseStatus: entry.responseStatus });
+      throw new Error(entry.errorMessage);
     } catch (error) {
       var errorMessage = safeString(error && (error.message || error.name) ? (error.message || error.name) : error);
       entry.durationMs = Date.now() - startedAt;
-      entry.errorMessage = errorMessage;
-      entry.networkOutcome = /timeout|aborted|abort/i.test(errorMessage) ? 'network_timeout' : 'network_error';
-      entry.outcome = entry.networkOutcome;
-      addAttempt(entry, 'navigation_network', entry.networkOutcome, { errorMessage: errorMessage });
+      if (!entry.errorMessage) entry.errorMessage = errorMessage;
+      if (entry.networkOutcome !== 'network_bad_response') {
+        entry.networkOutcome = /timeout|aborted|abort/i.test(errorMessage) ? 'network_timeout' : 'network_error';
+        entry.outcome = entry.networkOutcome;
+        addAttempt(entry, 'navigation_network', entry.networkOutcome, { errorMessage: errorMessage });
+      }
 
       var cachedShell = await matchCachedShellCandidates(request, entry);
       if (cachedShell) {
@@ -266,7 +412,7 @@
         return cachedShell;
       }
 
-      var networkShell = await fetchNetworkShell(entry);
+      var networkShell = await fetchNetworkShell(entry, request && request.url);
       if (networkShell) {
         entry.durationMs = Date.now() - startedAt;
         entry.outcome = 'fallback_network_shell';
