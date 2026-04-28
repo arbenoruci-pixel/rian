@@ -208,6 +208,8 @@ const DAILY_CAPACITY_M2 = 400;
 const STREAM_MAX_M2 = 450;
 const PASRTRIMI_EDIT_TO_PRANIMI_KEY = 'tepiha_pastrim_edit_to_pranimi_v1';
 const PASRTRIMI_EDIT_TO_PRANIMI_BACKUP_KEY = 'tepiha_pastrim_edit_to_pranimi_backup_v1';
+const PRANIMI_ACTIVE_EDIT_BRIDGE_KEY = 'tepiha_pranimi_active_edit_bridge_v1';
+const PRANIMI_RESET_ON_SHOW_KEY = 'tepiha_pranimi_reset_on_show_v1';
 const PASRTRIMI_FETCH_LIMIT = 48;
 const PASRTRIMI_INITIAL_LOCAL_TIMEOUT_MS = 2200;
 const PASRTRIMI_REMOTE_REFRESH_TIMEOUT_MS = 3500;
@@ -367,6 +369,166 @@ function buildCompactPranimiEditPayload({
   };
 }
 
+
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function firstNumberValue(...values) {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num) && num > 0) return num;
+  }
+  return 0;
+}
+
+function firstNonEmptyBridgeRows(...groups) {
+  for (const group of groups) {
+    const rows = sanitizeBridgeItemRows(Array.isArray(group) ? group : []);
+    const clean = rows.filter((row) => String(row?.m2 || row?.qty || row?.photoUrl || '').trim());
+    if (clean.length > 0) return clean;
+  }
+  return [];
+}
+
+function mergePastrimEditOrderForBridge(item = {}, fetchedRow = null) {
+  const itemOrder = unwrapOrderData(item?.fullOrder || item?.data || {});
+  const fetchedData = unwrapOrderData(fetchedRow?.data || {});
+  const merged = {
+    ...(itemOrder && typeof itemOrder === 'object' ? itemOrder : {}),
+    ...(fetchedData && typeof fetchedData === 'object' ? fetchedData : {}),
+  };
+
+  const fetchedClient = (fetchedData?.client && typeof fetchedData.client === 'object') ? fetchedData.client : {};
+  const itemClient = (itemOrder?.client && typeof itemOrder.client === 'object') ? itemOrder.client : {};
+  const codeValue = normalizeCode(
+    firstNonEmptyString(
+      fetchedData?.client?.code,
+      fetchedData?.code,
+      fetchedRow?.code,
+      itemClient?.code,
+      itemOrder?.code,
+      itemOrder?.code_n,
+      item?.code
+    )
+  );
+  const codeText = codeValue != null ? String(codeValue) : firstNonEmptyString(item?.code, itemOrder?.code, fetchedData?.code);
+  const clientName = firstNonEmptyString(
+    fetchedClient?.name,
+    fetchedData?.client_name,
+    fetchedRow?.client_name,
+    itemClient?.name,
+    itemOrder?.client_name,
+    item?.name
+  );
+  const clientPhone = firstNonEmptyString(
+    fetchedClient?.phone,
+    fetchedData?.client_phone,
+    fetchedRow?.client_phone,
+    itemClient?.phone,
+    itemOrder?.client_phone,
+    item?.phone
+  );
+  const clientPhoto = firstNonEmptyString(
+    fetchedClient?.photoUrl,
+    fetchedClient?.photo,
+    fetchedData?.client_photo_url,
+    itemClient?.photoUrl,
+    itemClient?.photo,
+    itemOrder?.client_photo_url,
+    item?.clientPhotoUrl,
+    item?.client_photo_url
+  );
+
+  const tepiha = firstNonEmptyBridgeRows(
+    fetchedData?.tepiha,
+    fetchedData?.tepihaRows,
+    itemOrder?.tepiha,
+    itemOrder?.tepihaRows,
+    item?.tepiha,
+    item?.tepihaRows
+  );
+  const staza = firstNonEmptyBridgeRows(
+    fetchedData?.staza,
+    fetchedData?.stazaRows,
+    itemOrder?.staza,
+    itemOrder?.stazaRows,
+    item?.staza,
+    item?.stazaRows
+  );
+
+  const fetchedStairs = (fetchedData?.shkallore && typeof fetchedData.shkallore === 'object') ? fetchedData.shkallore : {};
+  const itemStairs = (itemOrder?.shkallore && typeof itemOrder.shkallore === 'object') ? itemOrder.shkallore : {};
+  const stairsQty = firstNumberValue(fetchedStairs?.qty, fetchedData?.stairsQty, itemStairs?.qty, itemOrder?.stairsQty);
+  const stairsPer = firstNumberValue(fetchedStairs?.per, fetchedData?.stairsPer, itemStairs?.per, itemOrder?.stairsPer) || SHKALLORE_M2_PER_STEP_DEFAULT;
+  const stairsPhotoUrl = firstNonEmptyString(fetchedStairs?.photoUrl, fetchedData?.stairsPhotoUrl, itemStairs?.photoUrl, itemOrder?.stairsPhotoUrl);
+
+  const fetchedPay = (fetchedData?.pay && typeof fetchedData.pay === 'object') ? fetchedData.pay : {};
+  const itemPay = (itemOrder?.pay && typeof itemOrder.pay === 'object') ? itemOrder.pay : {};
+  const rate = firstNumberValue(fetchedPay?.rate, fetchedPay?.price, fetchedData?.pricePerM2, itemPay?.rate, itemPay?.price, itemOrder?.pricePerM2, PRICE_DEFAULT) || PRICE_DEFAULT;
+  const totalEuro = firstNumberValue(fetchedPay?.euro, fetchedPay?.total, fetchedData?.price_total, itemPay?.euro, itemPay?.total, itemOrder?.price_total, item?.total);
+  const paid = firstNumberValue(fetchedPay?.paid, fetchedData?.clientPaid, itemPay?.paid, itemOrder?.clientPaid, item?.paid);
+  const arkaPaid = firstNumberValue(fetchedPay?.arkaRecordedPaid, fetchedData?.arkaRecordedPaid, itemPay?.arkaRecordedPaid, itemOrder?.arkaRecordedPaid);
+  const localOid = normalizeLocalOidValue(
+    fetchedRow?.local_oid,
+    fetchedData?.local_oid,
+    fetchedData?.oid,
+    item?.local_oid,
+    itemOrder?.local_oid,
+    itemOrder?.oid
+  );
+
+  return {
+    ...merged,
+    id: fetchedRow?.id != null ? String(fetchedRow.id) : String(itemOrder?.id || item?.id || ''),
+    db_id: fetchedRow?.id != null ? String(fetchedRow.id) : String(item?.db_id || itemOrder?.db_id || ''),
+    local_oid: localOid,
+    oid: localOid || String(itemOrder?.oid || item?.id || ''),
+    status: firstNonEmptyString(fetchedRow?.status, fetchedData?.status, itemOrder?.status, item?.status, 'pastrim'),
+    code: codeText,
+    code_n: codeText,
+    client_name: clientName,
+    client_phone: clientPhone,
+    client_photo_url: clientPhoto,
+    client: {
+      ...(itemClient || {}),
+      ...(fetchedClient || {}),
+      name: clientName,
+      phone: clientPhone,
+      code: codeText,
+      photoUrl: clientPhoto,
+      photo: clientPhoto,
+    },
+    tepiha,
+    staza,
+    shkallore: { qty: stairsQty, per: stairsPer, photoUrl: stairsPhotoUrl },
+    tepihaRows: tepiha,
+    stazaRows: staza,
+    stairsQty,
+    stairsPer,
+    stairsPhotoUrl,
+    pay: {
+      ...(itemPay || {}),
+      ...(fetchedPay || {}),
+      rate,
+      price: rate,
+      euro: totalEuro || fetchedPay?.euro || itemPay?.euro || 0,
+      paid: paid || 0,
+      arkaRecordedPaid: arkaPaid || 0,
+      method: firstNonEmptyString(fetchedPay?.method, fetchedData?.payMethod, itemPay?.method, itemOrder?.payMethod, 'CASH'),
+    },
+    pricePerM2: rate,
+    clientPaid: paid || 0,
+    arkaRecordedPaid: arkaPaid || 0,
+    payMethod: firstNonEmptyString(fetchedPay?.method, fetchedData?.payMethod, itemPay?.method, itemOrder?.payMethod, 'CASH'),
+    notes: firstNonEmptyString(fetchedData?.notes, itemOrder?.notes, item?.notes),
+  };
+}
 
 function normalizeLocalOidValue(...values) {
   const candidates = values.map((value) => String(value || '').trim()).filter(Boolean);
@@ -2223,46 +2385,58 @@ function PastrimiPageInner() {
        return;
     }
     try {
-      let ord = item?.fullOrder || null;
-
-      if (!ord || typeof ord !== 'object' || Object.keys(ord).length === 0) {
-        try {
-          const numericId = Number(item?.db_id ?? item?.id ?? 0);
-          if (Number.isFinite(numericId) && numericId > 0) {
-            const data = await fetchOrderDataById('orders', numericId);
-            ord = (data && typeof data === 'object') ? data : null;
-          }
-        } catch {}
-      }
-
-      if (!ord || typeof ord !== 'object' || Object.keys(ord).length === 0) {
-        try {
-          const raw = localStorage.getItem(`order_${item?.id}`);
-          if (raw) ord = JSON.parse(raw);
-        } catch {}
-      }
-
-      ord = (ord && typeof ord === 'object') ? JSON.parse(JSON.stringify(ord)) : {};
-      if (!ord.client || typeof ord.client !== 'object') ord.client = {};
-      ord.client.name = ord.client.name || ord.client_name || item?.name || '';
-      ord.client.phone = ord.client.phone || ord.client_phone || item?.phone || '';
-      ord.client.code = ord.client.code || ord.code || ord.code_n || item?.code || '';
-
-      const rawDbId = item?.db_id ?? item?.id ?? ord?.db_id ?? ord?.id ?? null;
+      const rawDbId = item?.db_id ?? item?.id ?? item?.fullOrder?.db_id ?? item?.fullOrder?.id ?? null;
       const safeDbId =
         typeof rawDbId === 'number' ? rawDbId :
         (typeof rawDbId === 'string' && /^\d+$/.test(rawDbId.trim()) ? Number(rawDbId.trim()) : null);
 
+      let fetchedRow = null;
+      if (safeDbId !== null && !isPastrimTransportScopedRow(item)) {
+        try {
+          fetchedRow = await withTimeout(
+            fetchOrderByIdSafe('orders', safeDbId, 'id,local_oid,status,created_at,updated_at,data,code,client_name,client_phone'),
+            2600
+          );
+        } catch {}
+      }
+
+      let localShadow = null;
+      try {
+        const shadowKeys = [
+          `order_${safeDbId || ''}`,
+          `order_${item?.id || ''}`,
+          `order_${item?.local_oid || ''}`,
+        ].filter(Boolean);
+        for (const key of shadowKeys) {
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          localShadow = JSON.parse(raw);
+          if (localShadow && typeof localShadow === 'object') break;
+        }
+      } catch {}
+
+      const ord = mergePastrimEditOrderForBridge(
+        { ...(item || {}), fullOrder: localShadow || item?.fullOrder || item?.data || {} },
+        fetchedRow
+      );
+
+      const bridgeSource = isPastrimTransportScopedRow(item)
+        ? 'transport_orders'
+        : (['orders', 'BASE_CACHE', 'LOCAL', 'OUTBOX'].includes(String(item?.source || '').trim()) ? String(item?.source || '').trim() : 'orders');
+
       const payload = buildCompactPranimiEditPayload({
-        source: item?.source || 'orders',
+        source: bridgeSource,
         safeDbId,
-        localOid: String(item?.local_oid || ord?.local_oid || ord?.data?.local_oid || ord?.oid || ord?.id || item?.id || ''),
-        ts: Number(ord?.ts || item?.ts || Date.now()),
-        code: normalizeCode(item?.code || ord?.code || ord?.code_n || ord?.client?.code || ''),
+        localOid: normalizeLocalOidValue(item?.local_oid, fetchedRow?.local_oid, ord?.local_oid, ord?.data?.local_oid, ord?.oid, safeDbId, item?.id),
+        ts: Number(ord?.ts || item?.ts || Date.parse(fetchedRow?.updated_at || fetchedRow?.created_at || 0) || Date.now()),
+        code: normalizeCode(item?.code || ord?.code || ord?.code_n || ord?.client?.code || fetchedRow?.code || ''),
         order: ord,
       });
       try {
         const rawPayload = JSON.stringify(payload);
+        try { sessionStorage.removeItem(PRANIMI_RESET_ON_SHOW_KEY); } catch {}
+        try { window.__TEPIHA_ACTIVE_EDIT_BRIDGE__ = payload; } catch {}
+        try { sessionStorage.setItem(PRANIMI_ACTIVE_EDIT_BRIDGE_KEY, rawPayload); } catch {}
         localStorage.setItem(PASRTRIMI_EDIT_TO_PRANIMI_KEY, rawPayload);
         try { sessionStorage.setItem(PASRTRIMI_EDIT_TO_PRANIMI_BACKUP_KEY, rawPayload); } catch {}
       } catch {}

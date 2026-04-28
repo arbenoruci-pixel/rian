@@ -960,6 +960,8 @@ export default function PranimiPage() {
         }
       }
 
+      if (!wantsEditBridge) return null;
+
       const keys = [
         [PASRTRIMI_EDIT_TO_PRANIMI_KEY, PASRTRIMI_EDIT_TO_PRANIMI_BACKUP_KEY],
         [GATI_EDIT_TO_PRANIMI_KEY, GATI_EDIT_TO_PRANIMI_BACKUP_KEY],
@@ -973,8 +975,8 @@ export default function PranimiPage() {
         if (!parsed) continue;
         try { window.sessionStorage.setItem(PRANIMI_ACTIVE_EDIT_BRIDGE_KEY, raw); } catch {}
         try { window.__TEPIHA_ACTIVE_EDIT_BRIDGE__ = parsed; } catch {}
-        try { window.localStorage.removeItem(primaryKey); } catch {}
-        try { window.sessionStorage.removeItem(backupKey); } catch {}
+        // Keep the primary/backup bridge until the edit is saved or an explicit reset clears it.
+        // iOS PWA can remount /pranimi after the first read; deleting here can open a blank form.
         return parsed;
       }
       return null;
@@ -1182,9 +1184,12 @@ export default function PranimiPage() {
 
     let alive = true;
     let forceResetOnShow = false;
+    let editBridgeUrl = false;
     try {
-      forceResetOnShow = sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1';
-      if (forceResetOnShow) sessionStorage.removeItem(RESET_ON_SHOW_KEY);
+      const search = String(window?.location?.search || '');
+      editBridgeUrl = search.includes('from=pastrimi-edit') || search.includes('from=gati-edit');
+      forceResetOnShow = !editBridgeUrl && sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1';
+      if (forceResetOnShow || editBridgeUrl) sessionStorage.removeItem(RESET_ON_SHOW_KEY);
     } catch {}
 
     (async () => {
