@@ -1,11 +1,11 @@
-/* TEPIHA SW Navigation Flight Recorder V34.6 — verified shell + boot asset offline guard. */
+/* TEPIHA SW Navigation Flight Recorder V34.7 — fast verified shell cache + boot asset offline guard. */
 /* eslint-disable no-restricted-globals */
 (function () {
   'use strict';
 
   var NAV_DIAG_CACHE = 'tepiha-sw-navigation-diag-v1';
-  var NAV_SHELL_CACHE = 'tepiha-sw-navigation-shell-v34-6';
-  var NAV_ASSET_CACHE = 'tepiha-sw-navigation-assets-v34-6';
+  var NAV_SHELL_CACHE = 'tepiha-sw-navigation-shell-v34-7';
+  var NAV_ASSET_CACHE = 'tepiha-sw-navigation-assets-v34-7';
   var NAV_LAST_GOOD_SHELL_KEY = '/__tepiha_last_good_shell_verified__.html';
   var NAV_LAST_GOOD_META_KEY = '/__tepiha_last_good_shell_verified_meta__.json';
   var NAV_LAST_KEY = '/__tepiha_sw_nav_last.json';
@@ -13,10 +13,11 @@
   var NAV_ASSET_LOG_KEY = '/__tepiha_sw_asset_log.json';
   var NAV_LOG_LIMIT = 50;
   var NAV_TIMEOUT_MS = 10000;
-  var APP_EPOCH = 'RESET-2026-04-28-VITE-BOOT-ASSET-GUARD-V34-6';
-  var APP_VERSION = '2.0.45-vite-boot-asset-guard-v34-6';
-  var SW_NAV_DIAG_VERSION = 'sw-navigation-diag-v34.6';
-  var SAFE_SCREEN_VERSION = 'safe-screen-v34.6-boot-asset-guard';
+  var NAV_FAST_CACHE_FALLBACK_MS = 1200;
+  var APP_EPOCH = 'RESET-2026-04-28-VITE-FAST-CACHE-PREBOOT-V34-7';
+  var APP_VERSION = '2.0.46-vite-fast-cache-preboot-v34-7';
+  var SW_NAV_DIAG_VERSION = 'sw-navigation-diag-v34.7';
+  var SAFE_SCREEN_VERSION = 'safe-screen-v34.7-fast-cache-preboot';
 
   function nowIso() { try { return new Date().toISOString(); } catch (_) { return ''; } }
   function safeString(value) { try { return String(value == null ? '' : value); } catch (_) { return ''; } }
@@ -438,7 +439,7 @@
           headers: {
             'Content-Type': 'text/html; charset=utf-8',
             'Cache-Control': 'no-store',
-            'X-Tepiha-Shell-Cache': 'verified-v34.5',
+            'X-Tepiha-Shell-Cache': 'verified-v34.7',
             'X-Tepiha-Shell-Source': safeString(source || 'unknown'),
             'X-Tepiha-Shell-Assets': safeString(verification.assets.length),
           },
@@ -524,7 +525,7 @@
   }
 
   async function fetchNetworkShell(entry, requestUrl) {
-    var stamp = 'v34_5_' + Date.now();
+    var stamp = 'v34_7_' + Date.now();
     var candidates = ['/index.html', '/'];
     for (var i = 0; i < candidates.length; i += 1) {
       var url = cacheBustUrl(candidates[i], stamp + '_' + i);
@@ -563,7 +564,7 @@
       '<main style="width:min(560px,100%);border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);border-radius:22px;padding:22px;box-shadow:0 20px 70px rgba(0,0,0,.38)">' +
       '<div style="font-size:13px;letter-spacing:.18em;color:#93c5fd;font-weight:1000;margin-bottom:10px">TEPIHA</div>' +
       '<h1 style="margin:0 0 8px;font-size:28px;line-height:1.08;color:#fff">RRJETI U VONUA</h1>' +
-      '<p style="margin:0 0 18px;color:#cbd5e1;font-size:15px;line-height:1.45">Service Worker provoi network navigation, verified last-good shell, verified network shell dhe boot asset cache. Safe screen u shfaq vetëm pasi fallback-et e verifikuara dështuan.</p>' +
+      '<p style="margin:0 0 18px;color:#cbd5e1;font-size:15px;line-height:1.45">Service Worker provoi fast verified cache shell, network navigation, verified network shell dhe boot asset cache. Safe screen u shfaq vetëm pasi fallback-et e verifikuara dështuan.</p>' +
       '<pre id="tepiha-nav-detail" style="white-space:pre-wrap;word-break:break-word;background:#020617;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;color:#cbd5e1;font-size:12px;line-height:1.4;margin:0 0 16px">' + escapedReason + (escapedDetail ? '\n' + escapedDetail : '') + '\n\n' + escapedPayload + '</pre>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
       '<a href="/" style="text-align:center;text-decoration:none;border-radius:14px;background:#2563eb;color:#fff;padding:13px 10px;font-weight:1000">HOME</a>' +
@@ -597,6 +598,78 @@
     return Promise.race([fetch(request, init), navigationTimeoutPromise(controller)]);
   }
 
+  async function updateNavigationShellInBackground(request, reason) {
+    var startedAt = Date.now();
+    var entry = {
+      timestamp: nowIso(),
+      ts: startedAt,
+      url: safeString(request && request.url),
+      path: requestPath(request && request.url),
+      normalizedRouteKey: normalizedRouteKey(request && request.url),
+      requestMode: safeString(request && request.mode),
+      requestDestination: safeString(request && request.destination),
+      online: (function () { try { return self.navigator && 'onLine' in self.navigator ? self.navigator.onLine : null; } catch (_) { return null; } })(),
+      swVersion: APP_VERSION,
+      swEpoch: APP_EPOCH,
+      swNavDiagVersion: SW_NAV_DIAG_VERSION,
+      safeScreenVersion: SAFE_SCREEN_VERSION,
+      shellCacheName: NAV_SHELL_CACHE,
+      assetCacheName: NAV_ASSET_CACHE,
+      navTimeoutMs: NAV_TIMEOUT_MS,
+      fastCacheFallbackMs: NAV_FAST_CACHE_FALLBACK_MS,
+      startTime: startedAt,
+      outcome: 'background_shell_update_pending',
+      networkOutcome: 'pending',
+      durationMs: 0,
+      errorMessage: '',
+      responseStatus: null,
+      controlledClientsCount: null,
+      attempts: [],
+      backgroundReason: safeString(reason || ''),
+      noAutoReload: true,
+      noSkipWaiting: true,
+      noClientsClaim: true,
+      noUnregister: true,
+      noCachePurge: true,
+      noBusinessStorageTouch: true,
+    };
+
+    try { entry.controlledClientsCount = await controlledClientsCount(); } catch (_) {}
+
+    try {
+      var response = await fetchNavigationWithTimeout(new Request(request && request.url ? request.url : '/', {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        redirect: 'follow',
+        headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+      }));
+      entry.durationMs = Date.now() - startedAt;
+      entry.responseStatus = response ? response.status : null;
+      if (isUsableShellResponse(response)) {
+        entry.networkOutcome = 'network_success';
+        addAttempt(entry, 'background_navigation_network', 'success', { responseStatus: entry.responseStatus });
+        var stored = await storeVerifiedShellResponse(response.clone(), request && request.url, entry, 'background_navigation_update', { requireVerified: true });
+        entry.outcome = stored ? 'background_shell_update_success' : 'background_shell_update_skip';
+        await recordNavigation(entry);
+        return;
+      }
+      entry.networkOutcome = 'network_bad_response';
+      entry.outcome = 'background_shell_update_bad_response';
+      entry.errorMessage = 'background navigation returned unusable shell status ' + safeString(entry.responseStatus);
+      addAttempt(entry, 'background_navigation_network', 'bad_response', { responseStatus: entry.responseStatus });
+    } catch (error) {
+      var errorMessage = safeString(error && (error.message || error.name) ? (error.message || error.name) : error);
+      entry.durationMs = Date.now() - startedAt;
+      entry.errorMessage = errorMessage;
+      entry.networkOutcome = /timeout|aborted|abort/i.test(errorMessage) ? 'network_timeout' : 'network_error';
+      entry.outcome = 'background_shell_update_' + entry.networkOutcome;
+      addAttempt(entry, 'background_navigation_network', entry.networkOutcome, { errorMessage: errorMessage });
+    }
+
+    try { await recordNavigation(entry); } catch (_) {}
+  }
+
   async function handleNavigation(event) {
     var request = event.request;
     var startedAt = Date.now();
@@ -616,6 +689,7 @@
       shellCacheName: NAV_SHELL_CACHE,
       assetCacheName: NAV_ASSET_CACHE,
       navTimeoutMs: NAV_TIMEOUT_MS,
+      fastCacheFallbackMs: NAV_FAST_CACHE_FALLBACK_MS,
       startTime: startedAt,
       outcome: 'network_pending',
       networkOutcome: 'pending',
@@ -633,6 +707,24 @@
     };
 
     try { entry.controlledClientsCount = await controlledClientsCount(); } catch (_) {}
+
+    var earlyCachedShell = await matchCachedShellCandidates(request, entry);
+    if (earlyCachedShell) {
+      entry.durationMs = Date.now() - startedAt;
+      entry.outcome = 'fallback_verified_cached_shell_fast';
+      entry.networkOutcome = 'cache_fast_before_network';
+      entry.fastCacheFallbackMs = NAV_FAST_CACHE_FALLBACK_MS;
+      try { entry.responseStatus = earlyCachedShell.status; } catch (_) { entry.responseStatus = 200; }
+      addAttempt(entry, 'fast_cached_shell', 'return_before_network', {
+        fastCacheFallbackMs: NAV_FAST_CACHE_FALLBACK_MS,
+        responseStatus: entry.responseStatus,
+      });
+      try {
+        if (event && event.waitUntil) event.waitUntil(updateNavigationShellInBackground(request, 'fast_cached_shell'));
+      } catch (_) {}
+      await recordNavigation(entry);
+      return earlyCachedShell;
+    }
 
     try {
       var response = await fetchNavigationWithTimeout(request);
