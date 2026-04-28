@@ -57,7 +57,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        importScripts: ['/sw-navigation-diag.js'],
+        importScripts: ['/sw-navigation-diag.js?v=34.3'],
         globPatterns: ['**/*.{js,css,ico,png,svg,webp,webmanifest,json,woff2}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         cleanupOutdatedCaches: false,

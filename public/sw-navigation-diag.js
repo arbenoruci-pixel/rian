@@ -1,4 +1,4 @@
-/* TEPIHA SW Navigation Flight Recorder v34.2 — safe-screen self-report navigation diagnostics. */
+/* TEPIHA SW Navigation Flight Recorder V34.3 — navigation shell fallback before safe screen. */
 /* eslint-disable no-restricted-globals */
 (function () {
   'use strict';
@@ -7,15 +7,40 @@
   var NAV_LAST_KEY = '/__tepiha_sw_nav_last.json';
   var NAV_LOG_KEY = '/__tepiha_sw_nav_log.json';
   var NAV_LOG_LIMIT = 50;
-  var NAV_TIMEOUT_MS = 4500;
-  var APP_EPOCH = 'RESET-2026-04-27-VITE-SAFE-SCREEN-SELF-REPORT-V34-2';
-  var APP_VERSION = '2.0.41-vite-safe-screen-self-report-v34-2';
-  var SW_NAV_DIAG_VERSION = 'sw-navigation-diag-v34.2-safe-screen-self-report';
+  var NAV_TIMEOUT_MS = 10000;
+  var APP_EPOCH = 'RESET-2026-04-28-VITE-NAV-SHELL-FALLBACK-V34-3';
+  var APP_VERSION = '2.0.42-vite-nav-shell-fallback-v34-3';
+  var SW_NAV_DIAG_VERSION = 'sw-navigation-diag-v34.3';
+  var SAFE_SCREEN_VERSION = 'safe-screen-v34.3-nav-shell-fallback';
 
   function nowIso() { try { return new Date().toISOString(); } catch (_) { return ''; } }
   function safeString(value) { try { return String(value == null ? '' : value); } catch (_) { return ''; } }
   function sameOrigin(url) { try { return new URL(url, self.location.origin).origin === self.location.origin; } catch (_) { return false; } }
   function requestPath(url) { try { var u = new URL(url, self.location.origin); return safeString(u.pathname + u.search); } catch (_) { return safeString(url || ''); } }
+  function absoluteUrl(path) { try { return new URL(path || '/', self.location.origin).href; } catch (_) { return self.location.origin + '/'; } }
+  function cacheBustUrl(path, label) {
+    try {
+      var u = new URL(path || '/', self.location.origin);
+      u.searchParams.set('__tepiha_nav_shell_fallback', label || String(Date.now()));
+      return u.href;
+    } catch (_) {
+      return absoluteUrl(path || '/');
+    }
+  }
+
+  function isNavigationRequest(request) {
+    try {
+      if (!request || request.method !== 'GET') return false;
+      if (request.mode !== 'navigate') return false;
+      if (!sameOrigin(request.url)) return false;
+      var path = new URL(request.url).pathname || '/';
+      if (/^\/api(?:\/|$)/.test(path)) return false;
+      if (/^\/debug(?:\/|$)/.test(path)) return false;
+      if (/^\/diag-lite(?:\/|$)/.test(path)) return false;
+      if (/^\/diag-raw(?:\/|$)/.test(path)) return false;
+      return true;
+    } catch (_) { return false; }
+  }
 
   async function controlledClientsCount() {
     try {
@@ -53,10 +78,7 @@
       log.unshift(normalized);
       if (log.length > NAV_LOG_LIMIT) log = log.slice(0, NAV_LOG_LIMIT);
       await writeJson(cache, NAV_LOG_KEY, log);
-      return log;
-    } catch (_) {
-      return [entry || {}];
-    }
+    } catch (_) {}
   }
 
   function escapeHtml(value) {
@@ -65,101 +87,102 @@
     });
   }
 
-  function safeJson(value) {
-    try { return JSON.stringify(value, null, 2); } catch (_) { return '{}'; }
-  }
-
-  function jsonForHtmlScript(value) {
-    return safeJson(value).replace(/<\//g, '<\\/').replace(/<!--/g, '<\\!--');
-  }
-
-  function withCacheBust(path, stamp) {
+  function isUsableShellResponse(response) {
     try {
-      var raw = safeString(path || '/');
-      var hash = '';
-      var hashIndex = raw.indexOf('#');
-      if (hashIndex >= 0) {
-        hash = raw.slice(hashIndex);
-        raw = raw.slice(0, hashIndex);
+      if (!response) return false;
+      if (!(response.status === 0 || (response.status >= 200 && response.status < 400))) return false;
+      var ct = safeString(response.headers && response.headers.get ? response.headers.get('content-type') : '').toLowerCase();
+      return !ct || ct.indexOf('text/html') !== -1;
+    } catch (_) { return !!response; }
+  }
+
+  function addAttempt(entry, name, status, detail) {
+    try {
+      if (!entry.attempts || !Array.isArray(entry.attempts)) entry.attempts = [];
+      entry.attempts.push(Object.assign({
+        name: safeString(name),
+        status: safeString(status),
+        at: nowIso(),
+        elapsedMs: Math.max(0, Date.now() - (entry.startTime || Date.now())),
+      }, detail || {}));
+    } catch (_) {}
+  }
+
+  async function matchCachedShellCandidates(request, entry) {
+    var path = requestPath(request && request.url) || '/';
+    var pathname = '/';
+    try { pathname = new URL(request.url, self.location.origin).pathname || '/'; } catch (_) {}
+    var candidates = [request, path, pathname, pathname + '/', '/index.html', '/'];
+    var seen = {};
+
+    for (var i = 0; i < candidates.length; i += 1) {
+      try {
+        var candidate = candidates[i];
+        var key = typeof candidate === 'string' ? candidate : safeString(candidate && candidate.url);
+        if (!key || seen[key]) continue;
+        seen[key] = true;
+        var response = await caches.match(candidate, { ignoreSearch: false });
+        if (!response && typeof candidate === 'string') response = await caches.match(candidate, { ignoreSearch: true });
+        if (isUsableShellResponse(response)) {
+          addAttempt(entry, 'cached_shell', 'hit', { cacheKey: key, responseStatus: response.status });
+          return response;
+        }
+        addAttempt(entry, 'cached_shell', 'miss', { cacheKey: key, responseStatus: response ? response.status : null });
+      } catch (error) {
+        addAttempt(entry, 'cached_shell', 'error', { errorMessage: safeString(error && (error.message || error.name) ? (error.message || error.name) : error) });
       }
-      return raw + (raw.indexOf('?') >= 0 ? '&' : '?') + 't=' + encodeURIComponent(stamp) + hash;
-    } catch (_) {
-      return '/?t=' + encodeURIComponent(stamp);
     }
+    return null;
   }
 
-  function buildSafeScreenPayload(reason, detail, retryHref, currentEvent, navigationLog) {
-    var log = Array.isArray(navigationLog) ? navigationLog.slice(0, 20) : [];
-    if (log.length < 1 && currentEvent) log = [currentEvent];
-    return {
-      title: 'RRJETI U VONUA',
-      reason: safeString(reason || 'RRJETI U VONUA'),
-      detail: safeString(detail || ''),
-      generatedAt: nowIso(),
-      safeScreenVersion: 'V34.2-SAFE-SCREEN-SELF-REPORT',
-      noAutoReload: true,
-      currentTimeoutEvent: currentEvent || null,
-      last20NavigationEvents: log,
-      sw: {
-        version: APP_VERSION,
-        epoch: APP_EPOCH,
-        swNavigationDiagnosticVersion: SW_NAV_DIAG_VERSION,
-        cacheName: NAV_DIAG_CACHE,
-        keys: {
-          last: NAV_LAST_KEY,
-          log: NAV_LOG_KEY,
-        },
-      },
-      links: {
-        probe: withCacheBust('/__tepiha_probe.txt', Date.now()),
-        diagRaw: withCacheBust('/diag-raw', Date.now()),
-        home: withCacheBust('/', Date.now()),
-        retry: withCacheBust(retryHref || '/', Date.now()),
-      },
-    };
+  async function fetchNetworkShell(entry) {
+    var stamp = 'v34_3_' + Date.now();
+    var candidates = ['/index.html', '/'];
+    for (var i = 0; i < candidates.length; i += 1) {
+      var url = cacheBustUrl(candidates[i], stamp + '_' + i);
+      try {
+        var response = await fetch(new Request(url, {
+          method: 'GET',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          redirect: 'follow',
+          headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+        }));
+        if (isUsableShellResponse(response)) {
+          addAttempt(entry, 'network_shell', 'success', { shellUrl: url, responseStatus: response.status });
+          return response;
+        }
+        addAttempt(entry, 'network_shell', 'bad_response', { shellUrl: url, responseStatus: response ? response.status : null });
+      } catch (error) {
+        addAttempt(entry, 'network_shell', 'error', { shellUrl: url, errorMessage: safeString(error && (error.message || error.name) ? (error.message || error.name) : error) });
+      }
+    }
+    return null;
   }
 
-  function safeDarkHtml(reason, detail, retryHref, currentEvent, navigationLog) {
-    var payload = buildSafeScreenPayload(reason, detail, retryHref, currentEvent, navigationLog);
-    var escapedReason = escapeHtml(payload.reason || 'RRJETI U VONUA');
-    var escapedDetail = escapeHtml(payload.detail || '');
-    var escapedProbeHref = escapeHtml(payload.links.probe);
-    var escapedDiagHref = escapeHtml(payload.links.diagRaw);
-    var escapedHomeHref = escapeHtml(payload.links.home);
-    var escapedRetryHref = escapeHtml(payload.links.retry);
-    var jsonText = safeJson(payload);
-    var escapedJson = escapeHtml(jsonText);
-    var scriptJson = jsonForHtmlScript(payload);
-
+  function safeDarkHtml(reason, detail, retryHref, entry) {
+    var escapedReason = escapeHtml(reason || 'RRJETI U VONUA');
+    var escapedDetail = escapeHtml(detail || '');
+    var escapedRetryHref = escapeHtml(retryHref || '/');
+    var escapedPayload = escapeHtml(JSON.stringify(entry || {}, null, 2));
     return '<!doctype html><html lang="sq" style="background:#05070d;color-scheme:dark"><head>' +
       '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">' +
       '<meta name="theme-color" content="#05070d"><title>TEPIHA - RRJETI U VONUA</title></head>' +
-      '<body style="margin:0;min-height:100vh;background:#05070d;color:#e8eef6;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:22px;box-sizing:border-box">' +
-      '<main style="width:min(760px,100%);margin:0 auto;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);border-radius:22px;padding:22px;box-shadow:0 20px 70px rgba(0,0,0,.38)">' +
-      '<div style="font-size:13px;letter-spacing:.18em;color:#93c5fd;font-weight:1000;margin-bottom:10px">TEPIHA · SAFE SCREEN V34.2</div>' +
+      '<body style="margin:0;min-height:100vh;background:#05070d;color:#e8eef6;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:grid;place-items:center;padding:22px;box-sizing:border-box">' +
+      '<main style="width:min(560px,100%);border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);border-radius:22px;padding:22px;box-shadow:0 20px 70px rgba(0,0,0,.38)">' +
+      '<div style="font-size:13px;letter-spacing:.18em;color:#93c5fd;font-weight:1000;margin-bottom:10px">TEPIHA</div>' +
       '<h1 style="margin:0 0 8px;font-size:28px;line-height:1.08;color:#fff">RRJETI U VONUA</h1>' +
-      '<p style="margin:0 0 18px;color:#cbd5e1;font-size:15px;line-height:1.45">Safari nuk mori përgjigje në kohë. Ky ekran po e tregon logun direkt nga Service Worker, para React-it, index.html, route bundle ose /diag-raw.</p>' +
-      '<pre style="white-space:pre-wrap;word-break:break-word;background:#020617;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;color:#cbd5e1;font-size:12px;line-height:1.4;margin:0 0 16px">' + escapedReason + (escapedDetail ? '\n' + escapedDetail : '') + '</pre>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">' +
-      '<button id="copy-nav-log" type="button" style="grid-column:1 / -1;border:0;border-radius:14px;background:#16a34a;color:#fff;padding:13px 10px;font-weight:1000;font-size:14px">COPY NAV LOG</button>' +
-      '<a href="' + escapedProbeHref + '" style="text-align:center;text-decoration:none;border-radius:14px;background:rgba(96,165,250,.18);color:#bfdbfe;padding:13px 10px;font-weight:1000">PROBE</a>' +
-      '<a href="' + escapedDiagHref + '" style="text-align:center;text-decoration:none;border-radius:14px;background:rgba(96,165,250,.18);color:#bfdbfe;padding:13px 10px;font-weight:1000">DIAG RAW</a>' +
-      '<a href="' + escapedHomeHref + '" style="text-align:center;text-decoration:none;border-radius:14px;background:#2563eb;color:#fff;padding:13px 10px;font-weight:1000">HOME</a>' +
-      '<a href="' + escapedRetryHref + '" style="text-align:center;text-decoration:none;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 10px;font-weight:1000">RETRY</a>' +
-      '</div>' +
-      '<div style="margin:0 0 8px;color:#93c5fd;font-size:12px;letter-spacing:.08em;font-weight:1000">NAVIGATION DIAGNOSTIC JSON</div>' +
-      '<pre id="nav-log-pre" style="max-height:48vh;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#020617;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;color:#dbeafe;font-size:11px;line-height:1.42;margin:0">' + escapedJson + '</pre>' +
-      '<script id="tepiha-nav-log-json" type="application/json">' + scriptJson + '</script>' +
-      '<script>(function(){try{var btn=document.getElementById("copy-nav-log");var raw=(document.getElementById("tepiha-nav-log-json")||{}).textContent||"{}";function fallbackCopy(text){var el=document.createElement("textarea");el.value=text;el.setAttribute("readonly","");el.style.position="fixed";el.style.left="-9999px";document.body.appendChild(el);el.focus();el.select();var ok=document.execCommand("copy");document.body.removeChild(el);return ok;}btn&&btn.addEventListener("click",function(){var done=false;Promise.resolve().then(function(){if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(raw).then(function(){done=true;});}).catch(function(){}).then(function(){if(!done)done=fallbackCopy(raw);btn.textContent=done?"NAV LOG U KOPJUA":"COPY FAILED - SELECT JSON";setTimeout(function(){btn.textContent="COPY NAV LOG";},1600);});});}catch(e){}})();</script>' +
+      '<p style="margin:0 0 18px;color:#cbd5e1;font-size:15px;line-height:1.45">Service Worker provoi network navigation, cached shell dhe network shell. Safe screen u shfaq vetëm pasi fallback-et dështuan.</p>' +
+      '<pre id="tepiha-nav-detail" style="white-space:pre-wrap;word-break:break-word;background:#020617;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;color:#cbd5e1;font-size:12px;line-height:1.4;margin:0 0 16px">' + escapedReason + (escapedDetail ? '\n' + escapedDetail : '') + '\n\n' + escapedPayload + '</pre>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+      '<a href="/" style="text-align:center;text-decoration:none;border-radius:14px;background:#2563eb;color:#fff;padding:13px 10px;font-weight:1000">HOME</a>' +
+      '<a href="/diag-raw" style="text-align:center;text-decoration:none;border-radius:14px;background:rgba(96,165,250,.18);color:#bfdbfe;padding:13px 10px;font-weight:1000">DIAG RAW</a>' +
+      '<button id="tepiha-copy-nav-log" type="button" style="border:0;text-align:center;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 10px;font-weight:1000;font:inherit">COPY NAV LOG</button>' +
+      '<button id="tepiha-probe" type="button" style="border:0;text-align:center;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 10px;font-weight:1000;font:inherit">PROBE</button>' +
+      '<a href="' + escapedRetryHref + '" style="grid-column:1 / -1;text-align:center;text-decoration:none;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 10px;font-weight:1000">RETRY</a>' +
+      '</div><div id="tepiha-probe-out" style="margin-top:12px;color:#93c5fd;font-size:12px;font-weight:800;word-break:break-word"></div>' +
+      '<script>(function(){var C="' + NAV_DIAG_CACHE + '",L="' + NAV_LOG_KEY + '",S="' + SAFE_SCREEN_VERSION + '";function t(v){try{return String(v==null?"":v)}catch(e){return""}}async function read(){try{var c=await caches.open(C);var r=await c.match(L,{ignoreSearch:true});return r?await r.text():"[]"}catch(e){return JSON.stringify({error:t(e&&e.message||e),safeScreenVersion:S})}}async function copy(){var out=document.getElementById("tepiha-probe-out");var txt=await read();try{await navigator.clipboard.writeText(txt);if(out)out.textContent="NAV LOG COPIED"}catch(e){var pre=document.getElementById("tepiha-nav-detail");if(pre)pre.textContent=txt;if(out)out.textContent="COPY FAILED - LOG SHOWN ABOVE"}}async function probe(){var out=document.getElementById("tepiha-probe-out");try{var r=await fetch("/__tepiha_version.txt?probe="+Date.now(),{cache:"no-store"});var tx=await r.text();if(out)out.textContent="PROBE "+r.status+": "+tx.slice(0,160)}catch(e){if(out)out.textContent="PROBE FAILED: "+t(e&&e.message||e)}}try{document.getElementById("tepiha-copy-nav-log").addEventListener("click",copy);document.getElementById("tepiha-probe").addEventListener("click",probe)}catch(e){}})();</script>' +
       '</main></body></html>';
-  }
-
-  async function cachedIndexResponse() {
-    try {
-      var cached = await caches.match('/index.html', { ignoreSearch: true });
-      if (cached) return cached;
-    } catch (_) {}
-    return null;
   }
 
   async function navigationTimeoutPromise(controller) {
@@ -173,7 +196,7 @@
 
   async function fetchNavigationWithTimeout(request) {
     var controller = null;
-    var init = { credentials: 'same-origin', cache: 'no-store' };
+    var init = { credentials: 'same-origin', cache: 'no-store', redirect: 'follow' };
     try {
       if (typeof AbortController !== 'undefined') {
         controller = new AbortController();
@@ -197,13 +220,22 @@
       swVersion: APP_VERSION,
       swEpoch: APP_EPOCH,
       swNavDiagVersion: SW_NAV_DIAG_VERSION,
+      safeScreenVersion: SAFE_SCREEN_VERSION,
+      navTimeoutMs: NAV_TIMEOUT_MS,
       startTime: startedAt,
-      outcome: 'no_fallback',
+      outcome: 'network_pending',
       networkOutcome: 'pending',
       durationMs: 0,
       errorMessage: '',
       responseStatus: null,
       controlledClientsCount: null,
+      attempts: [],
+      noAutoReload: true,
+      noSkipWaiting: true,
+      noClientsClaim: true,
+      noUnregister: true,
+      noCachePurge: true,
+      noBusinessStorageTouch: true,
     };
 
     try { entry.controlledClientsCount = await controlledClientsCount(); } catch (_) {}
@@ -214,29 +246,42 @@
       entry.outcome = 'network_success';
       entry.networkOutcome = 'network_success';
       entry.responseStatus = response ? response.status : null;
+      addAttempt(entry, 'navigation_network', 'success', { responseStatus: entry.responseStatus });
       await recordNavigation(entry);
       return response;
     } catch (error) {
       var errorMessage = safeString(error && (error.message || error.name) ? (error.message || error.name) : error);
       entry.durationMs = Date.now() - startedAt;
       entry.errorMessage = errorMessage;
-      entry.networkFailure = /timeout|aborted|abort/i.test(errorMessage) ? 'network_timeout' : 'network_error';
-      entry.networkOutcome = entry.networkFailure;
+      entry.networkOutcome = /timeout|aborted|abort/i.test(errorMessage) ? 'network_timeout' : 'network_error';
+      entry.outcome = entry.networkOutcome;
+      addAttempt(entry, 'navigation_network', entry.networkOutcome, { errorMessage: errorMessage });
 
-      var cached = await cachedIndexResponse();
-      if (cached) {
-        entry.outcome = 'fallback_cache';
-        try { entry.responseStatus = cached.status; } catch (_) { entry.responseStatus = 200; }
+      var cachedShell = await matchCachedShellCandidates(request, entry);
+      if (cachedShell) {
+        entry.durationMs = Date.now() - startedAt;
+        entry.outcome = 'fallback_cached_shell';
+        try { entry.responseStatus = cachedShell.status; } catch (_) { entry.responseStatus = 200; }
         await recordNavigation(entry);
-        return cached;
+        return cachedShell;
       }
 
+      var networkShell = await fetchNetworkShell(entry);
+      if (networkShell) {
+        entry.durationMs = Date.now() - startedAt;
+        entry.outcome = 'fallback_network_shell';
+        try { entry.responseStatus = networkShell.status; } catch (_) { entry.responseStatus = 200; }
+        await recordNavigation(entry);
+        return networkShell;
+      }
+
+      entry.durationMs = Date.now() - startedAt;
       entry.outcome = 'fallback_offline_safe_screen';
       entry.responseStatus = 503;
-      var navigationLog = await recordNavigation(entry);
-      return new Response(safeDarkHtml('RRJETI U VONUA', errorMessage, entry.path || '/', entry, navigationLog), {
+      await recordNavigation(entry);
+      return new Response(safeDarkHtml('RRJETI U VONUA', errorMessage, entry.path || '/', entry), {
         status: 503,
-        statusText: 'Navigation Timeout',
+        statusText: 'Navigation Fallback Failed',
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
       });
     }
@@ -245,9 +290,7 @@
   self.addEventListener('fetch', function (event) {
     try {
       var request = event && event.request;
-      if (!request || request.method !== 'GET') return;
-      if (request.mode !== 'navigate') return;
-      if (!sameOrigin(request.url)) return;
+      if (!isNavigationRequest(request)) return;
       event.respondWith(handleNavigation(event));
     } catch (_) {}
   });

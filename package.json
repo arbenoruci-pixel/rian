@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.41-vite-safe-screen-self-report-v34-2",
+  "version": "2.0.42-vite-nav-shell-fallback-v34-3",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
