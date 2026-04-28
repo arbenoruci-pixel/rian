@@ -4,6 +4,7 @@ import Link from '@/lib/routerCompat.jsx';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getActor } from '@/lib/actorSession';
+import { supabase } from '@/lib/supabaseClient';
 import { fetchSessionUserByPin } from '@/lib/usersService';
 import useRouteAlive from '@/lib/routeAlive';
 import { bootLog, bootMarkReady } from '@/lib/bootLog';
@@ -46,7 +47,7 @@ const INITIAL_MANAGER_SECONDARY_DELAY_MS = 1400;
 const FOOD_DEDUCTION = 3;
 const EXTRA_TYPES = new Set(['TIMA', 'EXPENSE', 'MEAL_PAYMENT', 'MEAL_COVERED']);
 const NON_PAYMENT_STATUSES = new Set(['OWED', 'REJECTED', 'WORKER_DEBT', 'ADVANCE', 'PENDING_DISPATCH_APPROVAL', 'ACCEPTED_BY_DISPATCH']);
-const MANAGER_PAYMENT_SELECT = 'id,amount,type,status,created_at,updated_at,created_by_pin,handed_by_pin,handoff_note';
+const MANAGER_PAYMENT_SELECT = 'id,amount,type,status,note,created_at,updated_at,created_by_pin,created_by_name,handed_by_pin,handed_by_name,handed_by_role,handoff_note,client_name,order_code';
 const MANAGER_HANDOFF_SELECT = 'id,amount,status,worker_pin,worker_name,submitted_at,decided_at,note';
 const MANAGER_PENDING_HANDOFF_SELECT = 'id,amount,status,worker_pin,worker_name,submitted_at,note';
 const MANAGER_PENDING_EXPENSE_SELECT = 'id,amount,type,status,note,created_at,created_by_pin,created_by_name';
@@ -271,15 +272,17 @@ async function loadManagerBulkSnapshots(workerRows = []) {
   const paymentsByPin = new Map();
   const extrasByPin = new Map();
   const handoffsByPin = new Map();
+  const advancesByPin = new Map();
   let hadErrors = false;
 
   if (!uniquePins.length) {
-    return { paymentsByPin, extrasByPin, handoffsByPin, hadErrors };
+    return { paymentsByPin, extrasByPin, handoffsByPin, advancesByPin, hadErrors };
   }
 
   const paymentsLimit = calcBulkLimit(uniquePins.length, 48, 180, 960);
   const extrasLimit = calcBulkLimit(uniquePins.length, 24, 120, 480);
   const handoffsLimit = calcBulkLimit(uniquePins.length, 12, 80, 320);
+  const advancesLimit = calcBulkLimit(uniquePins.length, 12, 80, 320);
 
   const swallowToEmpty = (label, err) => {
     hadErrors = true;
@@ -287,7 +290,7 @@ async function loadManagerBulkSnapshots(workerRows = []) {
     return [];
   };
 
-  const [paymentRows, extraCreatedRows, extraTargetedRows, handoffRows] = await Promise.all([
+  const [paymentRows, extraCreatedRows, extraTargetedRows, advanceCreatedRows, advanceTargetedRows, handoffRows] = await Promise.all([
     withArkaTimeout(listPendingPaymentRecords({
       select: MANAGER_PAYMENT_SELECT,
       in: { created_by_pin: uniquePins },
@@ -309,6 +312,20 @@ async function loadManagerBulkSnapshots(workerRows = []) {
       ascending: false,
       limit: extrasLimit,
     }), 'manager_extras_targeted', 4200).catch((err) => swallowToEmpty('extras_targeted', err)),
+    withArkaTimeout(listPendingPaymentRecords({
+      select: MANAGER_PAYMENT_SELECT,
+      in: { status: ['ADVANCE'], created_by_pin: uniquePins },
+      orderBy: 'created_at',
+      ascending: false,
+      limit: advancesLimit,
+    }), 'manager_advances_created', 4200).catch((err) => swallowToEmpty('advances_created', err)),
+    withArkaTimeout(listPendingPaymentRecords({
+      select: MANAGER_PAYMENT_SELECT,
+      in: { status: ['ADVANCE'], handed_by_pin: uniquePins },
+      orderBy: 'created_at',
+      ascending: false,
+      limit: advancesLimit,
+    }), 'manager_advances_targeted', 4200).catch((err) => swallowToEmpty('advances_targeted', err)),
     withArkaTimeout(listCashHandoffRecords({
       select: MANAGER_HANDOFF_SELECT,
       in: { worker_pin: uniquePins },
@@ -327,11 +344,17 @@ async function loadManagerBulkSnapshots(workerRows = []) {
   for (const row of Array.isArray(extraTargetedRows) ? extraTargetedRows : []) {
     pushRowToGroup(extrasByPin, row?.handed_by_pin, row);
   }
+  for (const row of Array.isArray(advanceCreatedRows) ? advanceCreatedRows : []) {
+    pushRowToGroup(advancesByPin, row?.created_by_pin, row);
+  }
+  for (const row of Array.isArray(advanceTargetedRows) ? advanceTargetedRows : []) {
+    pushRowToGroup(advancesByPin, row?.handed_by_pin, row);
+  }
   for (const row of Array.isArray(handoffRows) ? handoffRows : []) {
     pushRowToGroup(handoffsByPin, row?.worker_pin, row);
   }
 
-  return { paymentsByPin, extrasByPin, handoffsByPin, hadErrors };
+  return { paymentsByPin, extrasByPin, handoffsByPin, advancesByPin, hadErrors };
 }
 function isRealPaymentRow(row) {
   const type = typeOf(row);
@@ -351,7 +374,7 @@ function isOpenExtraRow(row) {
 function getHybridCommission(worker) {
   return n(worker?.hybrid_commission_today ?? worker?.hybrid_commission ?? worker?.commission_amount ?? 0);
 }
-function summarizeArkaCore({ worker, paymentRows = [], extraRows = [], handoffRows = [] }) {
+function summarizeArkaCore({ worker, paymentRows = [], extraRows = [], handoffRows = [], advanceRows = [] }) {
   const payments = mapUniqueById(paymentRows).filter(isRealPaymentRow).sort(byDateDesc);
   const pendingRows = payments.filter((row) => statusOf(row) === 'PENDING');
   const collectedRows = payments.filter((row) => statusOf(row) === 'COLLECTED');
@@ -375,6 +398,16 @@ function summarizeArkaCore({ worker, paymentRows = [], extraRows = [], handoffRo
   const pendingHandoffRows = handoffs.filter((row) => statusOf(row) === 'PENDING_DISPATCH_APPROVAL');
   const deliveredTotal = deliveredRows.reduce((sum, row) => sum + amountOf(row), 0);
 
+  const advances = mapUniqueById(advanceRows)
+    .filter((row) => statusOf(row) === 'ADVANCE')
+    .sort(byDateDesc);
+  const advanceTotal = advances.reduce((sum, row) => sum + amountOf(row), 0);
+
+  const cashFromClientsTotal = paymentTotal;
+  const workerExpenseTotal = expenseTotal + mealTotal;
+  const handedCashTotal = deliveredTotal;
+  const remainingToHandover = Math.max(0, cashFromClientsTotal - workerExpenseTotal - advanceTotal - handedCashTotal);
+
   const dueTotal = Math.max(0, paymentTotal + timaTotal - expenseTotal - mealTotal - hybridCommission);
   const hasTodayBasePayment = payments.some((row) => isToday(row?.created_at));
 
@@ -383,8 +416,8 @@ function summarizeArkaCore({ worker, paymentRows = [], extraRows = [], handoffRo
   if (pendingHandoffRows.length) {
     status = 'NË PRITJE';
     tone = 'warn';
-  } else if (dueTotal > 0) {
-    status = 'PËR DORËZIM';
+  } else if (remainingToHandover > 0) {
+    status = 'MBETET CASH';
     tone = 'info';
   } else if (deliveredTotal > 0) {
     status = 'DORËZUAR';
@@ -404,6 +437,7 @@ function summarizeArkaCore({ worker, paymentRows = [], extraRows = [], handoffRo
     handoffRows: handoffs,
     deliveredRows,
     pendingHandoffRows,
+    advanceRows: advances,
     paymentTotal,
     pendingTotal,
     collectedTotal,
@@ -411,6 +445,11 @@ function summarizeArkaCore({ worker, paymentRows = [], extraRows = [], handoffRo
     expenseTotal,
     mealTotal,
     deliveredTotal,
+    advanceTotal,
+    cashFromClientsTotal,
+    workerExpenseTotal,
+    handedCashTotal,
+    remainingToHandover,
     hybridCommission,
     dueTotal,
     hasTodayBasePayment,
@@ -553,28 +592,37 @@ function PendingExpenseRow({ row, actor, onDone }) {
   );
 }
 
-function WorkerSummaryCard({ item }) {
+function WorkerSummaryCard({ item, busy = '', onAcceptCash, onAddExpense, onAddAdvance }) {
+  const pendingCount = Array.isArray(item?.pendingHandoffRows) ? item.pendingHandoffRows.length : 0;
   return (
-    <div className="arkaWorkerCard">
+    <div className="arkaWorkerCard ownerSimpleCard">
       <div className="arkaWorkerTop">
         <div>
-          <div className="arkaWorkerName">{String(item?.worker?.name || 'PUNTOR').toUpperCase()}</div>
+          <div className="arkaWorkerName">PUNTORI: {String(item?.worker?.name || 'PUNTOR').toUpperCase()}</div>
           <div className="arkaWorkerMeta">PIN {item?.worker?.pin || '—'} • {String(item?.worker?.role || 'WORKER').toUpperCase()}</div>
         </div>
         <div className={`arkaWorkerBadge ${item?.tone || 'idle'}`}>{item?.status || 'PA LËVIZJE'}</div>
       </div>
-      <div className="arkaWorkerStats">
-        <Stat label="PAGESA" value={euro(item?.paymentTotal)} tone="ok" small />
-        <Stat label="SHPENZIME" value={euro(item?.expenseTotal)} tone="warn" small />
-        <Stat label="TIMA" value={euro(item?.timaTotal)} tone="info" small />
-        <Stat label="USHQIM" value={euro(item?.mealTotal)} tone="muted" small />
-        <Stat label="DORËZUAR" value={euro(item?.deliveredTotal)} tone="muted" small />
-        <Stat label="ME DORËZU" value={euro(item?.dueTotal)} tone="strong" small />
+
+      <div className="arkaOwnerFormulaGrid">
+        <Stat label="MORI NGA KLIENTËT" value={euro(item?.cashFromClientsTotal)} tone="ok" small />
+        <Stat label="SHPENZIME" value={euro(item?.workerExpenseTotal)} tone="warn" small />
+        <Stat label="AVANS" value={euro(item?.advanceTotal)} tone="muted" small />
+        <Stat label="DORËZUAR" value={euro(item?.handedCashTotal)} tone="info" small />
+        <Stat label="MBETET ME DORËZU" value={euro(item?.remainingToHandover)} tone="strong" small />
       </div>
-      <div className="arkaWorkerFoot">
-        <span>PENDING {euro(item?.pendingTotal)}</span>
-        <span>COLLECTED {euro(item?.collectedTotal)}</span>
-        <Link prefetch={false} href={`/arka/puntor/${encodeURIComponent(item?.worker?.pin || '')}`} className="arkaTopBtn">DETAJET</Link>
+
+      <div className="arkaFormulaLine">
+        MBETET = MORI NGA KLIENTËT − SHPENZIME − AVANS − DORËZUAR
+      </div>
+
+      <div className="arkaWorkerActions">
+        <Link prefetch={false} href={`/arka/puntor/${encodeURIComponent(item?.worker?.pin || '')}`} className="arkaTopBtn">HAP DETAJET</Link>
+        <button type="button" className="arkaTopBtn" disabled={!!busy || !pendingCount} onClick={() => onAcceptCash?.(item)}>
+          {pendingCount ? 'PRANO CASH (' + pendingCount + ')' : 'PRANO CASH'}
+        </button>
+        <button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddExpense?.(item)}>SHTO SHPENZIM</button>
+        <button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddAdvance?.(item)}>SHTO AVANS</button>
       </div>
     </div>
   );
@@ -680,13 +728,119 @@ export default function ArkaPageV3() {
     await scheduleManagerMutationRefresh(actor);
   }
 
+  async function acceptWorkerCashFromCard(item) {
+    const rows = Array.isArray(item?.pendingHandoffRows) ? item.pendingHandoffRows : [];
+    if (!rows.length) {
+      alert('S’KA DORËZIM CASH NË PRITJE PËR KËTË PUNTOR.');
+      return;
+    }
+    const workerName = String(item?.worker?.name || item?.worker?.pin || 'PUNTOR').toUpperCase();
+    const total = rows.reduce((sum, row) => sum + amountOf(row), 0);
+    const ok = window.confirm('A DON ME PRANU CASH NGA ' + workerName + ': ' + euro(total) + '?');
+    if (!ok) return;
+    try {
+      setBusy('accept_cash_' + (item?.worker?.pin || ''));
+      for (const row of rows) {
+        await acceptDispatchHandoff({ handoffId: row.id, actor });
+      }
+      alert('✅ CASH U PRANUA NË ARKË.');
+      await scheduleManagerMutationRefresh(actor);
+    } catch (e) {
+      alert('🔴 ' + (e?.message || 'NUK U PRANUA CASH.'));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function addWorkerExpenseFromCard(item) {
+    const worker = item?.worker || {};
+    const workerName = String(worker?.name || worker?.pin || 'PUNTOR').toUpperCase();
+    const amount = parseAmountInput(window.prompt('SHUMA E SHPENZIMIT PËR ' + workerName, '') || '');
+    if (!(amount > 0)) return;
+    const note = window.prompt('SHËNIMI I SHPENZIMIT', 'SHPENZIM') || 'SHPENZIM';
+    try {
+      setBusy('expense_' + (worker?.pin || ''));
+      await createExpenseEntry({
+        actor,
+        amount,
+        note,
+        workerPin: worker?.pin || '',
+        workerName: worker?.name || worker?.pin || 'PUNTOR',
+        workerRole: worker?.role || 'WORKER',
+      });
+      alert('✅ SHPENZIMI U SHTUA.');
+      await scheduleManagerMutationRefresh(actor);
+    } catch (e) {
+      alert('🔴 ' + (e?.message || 'NUK U SHTUA SHPENZIMI.'));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function insertWorkerAdvance({ worker, amount, note }) {
+    const now = new Date().toISOString();
+    const payload = {
+      amount,
+      status: 'ADVANCE',
+      type: 'ADVANCE',
+      note: String(note || 'AVANS').trim() || 'AVANS',
+      order_id: null,
+      order_code: null,
+      client_name: null,
+      client_phone: null,
+      created_by_pin: worker?.pin || null,
+      created_by_name: worker?.name || null,
+      approved_by_pin: actor?.pin || null,
+      approved_by_name: actor?.name || null,
+      handed_by_pin: actor?.pin || null,
+      handed_by_name: actor?.name || null,
+      handed_by_role: actor?.role || null,
+      created_at: now,
+      updated_at: now,
+      handed_at: now,
+    };
+    let { error } = await supabase.from('arka_pending_payments').insert(payload);
+    if (error) {
+      const fallbackPayload = {
+        amount,
+        status: 'ADVANCE',
+        note: payload.note,
+        created_by_pin: worker?.pin || null,
+        created_by_name: worker?.name || null,
+        approved_by_pin: actor?.pin || null,
+        approved_by_name: actor?.name || null,
+        updated_at: now,
+      };
+      const retry = await supabase.from('arka_pending_payments').insert(fallbackPayload);
+      if (retry.error) throw retry.error;
+    }
+  }
+
+  async function addWorkerAdvanceFromCard(item) {
+    const worker = item?.worker || {};
+    const workerName = String(worker?.name || worker?.pin || 'PUNTOR').toUpperCase();
+    const amount = parseAmountInput(window.prompt('SHUMA E AVANSIT PËR ' + workerName, '') || '');
+    if (!(amount > 0)) return;
+    const note = window.prompt('SHËNIMI I AVANSIT', 'AVANS') || 'AVANS';
+    const ok = window.confirm('A DON ME SHTU AVANS ' + euro(amount) + ' PËR ' + workerName + '?');
+    if (!ok) return;
+    try {
+      setBusy('advance_' + (worker?.pin || ''));
+      await insertWorkerAdvance({ worker, amount, note });
+      alert('✅ AVANSI U SHTUA.');
+      await scheduleManagerMutationRefresh(actor);
+    } catch (e) {
+      alert('🔴 ' + (e?.message || 'NUK U SHTUA AVANSI.'));
+    } finally {
+      setBusy('');
+    }
+  }
   const totals = useMemo(() => ({
-    paymentTotal: workerCards.reduce((sum, item) => sum + n(item?.paymentTotal), 0),
-    expenseTotal: workerCards.reduce((sum, item) => sum + n(item?.expenseTotal), 0),
-    timaTotal: workerCards.reduce((sum, item) => sum + n(item?.timaTotal), 0),
-    mealTotal: workerCards.reduce((sum, item) => sum + n(item?.mealTotal), 0),
-    deliveredTotal: workerCards.reduce((sum, item) => sum + n(item?.deliveredTotal), 0),
-    dueTotal: workerCards.reduce((sum, item) => sum + n(item?.dueTotal), 0),
+    cashFromClientsTotal: workerCards.reduce((sum, item) => sum + n(item?.cashFromClientsTotal), 0),
+    workerExpenseTotal: workerCards.reduce((sum, item) => sum + n(item?.workerExpenseTotal), 0),
+    advanceTotal: workerCards.reduce((sum, item) => sum + n(item?.advanceTotal), 0),
+    handedCashTotal: workerCards.reduce((sum, item) => sum + n(item?.handedCashTotal), 0),
+    remainingToHandover: workerCards.reduce((sum, item) => sum + n(item?.remainingToHandover), 0),
   }), [workerCards]);
 
   async function loadWorkerView(currentActor) {
@@ -749,7 +903,7 @@ export default function ArkaPageV3() {
     try {
       const staff = await withArkaTimeout(listTodayWorkers(), 'today_workers', 4200);
       const workerRows = (Array.isArray(staff) ? staff : []).filter((row) => roleIsWorker(row?.role));
-      const { paymentsByPin, extrasByPin, handoffsByPin, hadErrors } = await loadManagerBulkSnapshots(workerRows);
+      const { paymentsByPin, extrasByPin, handoffsByPin, advancesByPin, hadErrors } = await loadManagerBulkSnapshots(workerRows);
       if (hadErrors) throw new Error('Load failed');
       const cards = workerRows.map((worker) => {
         const pin = String(worker?.pin || '').trim();
@@ -758,12 +912,13 @@ export default function ArkaPageV3() {
           paymentRows: paymentsByPin.get(pin) || [],
           extraRows: extrasByPin.get(pin) || [],
           handoffRows: handoffsByPin.get(pin) || [],
+          advanceRows: advancesByPin.get(pin) || [],
         });
       });
       cards.sort((a, b) => {
         const priority = { warn: 0, info: 1, ok: 2, idle: 3 };
         return (priority[a?.tone] ?? 9) - (priority[b?.tone] ?? 9)
-          || n(b?.dueTotal) - n(a?.dueTotal)
+          || n(b?.remainingToHandover) - n(a?.remainingToHandover)
           || String(a?.worker?.name || '').localeCompare(String(b?.worker?.name || ''));
       });
       setWorkerCards(cards);
@@ -1309,13 +1464,12 @@ export default function ArkaPageV3() {
 
       {!loading && actor?.pin && canManage ? (
         <>
-          <div className="arkaWorkerStats adminTopGrid">
-            <Stat label="PAGESA" value={euro(totals.paymentTotal)} tone="ok" />
-            <Stat label="SHPENZIME" value={euro(totals.expenseTotal)} tone="warn" />
-            <Stat label="TIMA" value={euro(totals.timaTotal)} tone="info" />
-            <Stat label="USHQIM" value={euro(totals.mealTotal)} tone="muted" />
-            <Stat label="DORËZUAR" value={euro(totals.deliveredTotal)} tone="muted" />
-            <Stat label="ME DORËZU" value={euro(totals.dueTotal)} tone="strong" />
+          <div className="arkaWorkerStats adminTopGrid ownerTotalsGrid">
+            <Stat label="MORI NGA KLIENTËT" value={euro(totals.cashFromClientsTotal)} tone="ok" />
+            <Stat label="SHPENZIME" value={euro(totals.workerExpenseTotal)} tone="warn" />
+            <Stat label="AVANS" value={euro(totals.advanceTotal)} tone="muted" />
+            <Stat label="DORËZUAR" value={euro(totals.handedCashTotal)} tone="info" />
+            <Stat label="MBETET ME DORËZU" value={euro(totals.remainingToHandover)} tone="strong" />
           </div>
 
           <div className="arkaSplitGrid">
@@ -1323,14 +1477,14 @@ export default function ArkaPageV3() {
               <div className="arkaSectionHeadCompact">
                 <div>
                   <div className="arkaSectionTitle">STAFI</div>
-                  <div className="arkaSectionSub">KONTROLL ABSOLUT, POR ME TË NJËJTIN CORE SI PUNTORI.</div>
+                  <div className="arkaSectionSub">KUSH I KA PARET, SA KA MARRË, SA KA SHPENZU, SA KA DORËZU DHE SA I MBETET.</div>
                 </div>
                 <button type="button" className="arkaTopBtn" onClick={() => reloadAll(actor, { force: true, source: 'manual', target: 'all' })}>REFRESH</button>
               </div>
               <div className="arkaWorkerList">
                 {workerCards.length ? workerCards.map((item) => (
                   <ArkaPanelBoundary key={item?.worker?.pin || item?.worker?.id} name="ArkaWorkerSummaryCard">
-                    <WorkerSummaryCard item={item} />
+                    <WorkerSummaryCard item={item} busy={busy} onAcceptCash={acceptWorkerCashFromCard} onAddExpense={addWorkerExpenseFromCard} onAddAdvance={addWorkerAdvanceFromCard} />
                   </ArkaPanelBoundary>
                 )) : <div className="arkaEmpty">S’KA PUNTORË AKTIVË.</div>}
               </div>
@@ -1357,11 +1511,6 @@ export default function ArkaPageV3() {
               )) : null}
               {!secondaryLoading && !pendingExpenseApprovals.length ? <div className="arkaEmpty">S’KA SHPENZIME NË PRITJE.</div> : null}
             </section>
-          </div>
-
-          <div className="arkaSectionCard" style={{ borderColor: 'rgba(245,158,11,.28)', background: 'rgba(245,158,11,.06)' }}>
-            <div className="arkaSectionTitle">X-RAY / DEBUG</div>
-            <div className="arkaSectionSub">ORDERS JANË HEQUR NGA FORMULA ZYRTARE. PO PËRDOREN VETËM `arka_pending_payments` PËR PAGESA DHE `cash_handoffs` ACCEPTED PËR DORËZUAR.</div>
           </div>
         </>
       ) : null}

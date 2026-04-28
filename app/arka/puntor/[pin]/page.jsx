@@ -653,6 +653,19 @@ export default function ArkaWorkerDetailPage() {
     ? `COLLECTED + TIMA - SHPENZIME - USHQIM - KOMISION HYBRID`
     : `COLLECTED + TIMA - SHPENZIME - USHQIM`;
 
+  const sortRowsDesc = (rows = []) => (Array.isArray(rows) ? rows : [])
+    .slice()
+    .sort((a, b) => String(b?.created_at || b?.submitted_at || b?.decided_at || b?.updated_at || '').localeCompare(String(a?.created_at || a?.submitted_at || a?.decided_at || a?.updated_at || '')));
+  const ownerCashRows = sortRowsDesc([...(summary.collectedRows || []), ...(summary.pendingRows || [])]);
+  const ownerExpenseRows = sortRowsDesc([...(summary.expenseRows || []), ...(summary.mealPaymentRows || [])]);
+  const ownerAdvanceRows = sortRowsDesc((debtRows || []).filter((row) => safeUpper(row?.status) === 'ADVANCE'));
+  const ownerDeliveredRows = sortRowsDesc((summary.deliveredRows || []).filter((row) => safeUpper(row?.status) === 'ACCEPTED'));
+  const ownerCashTotal = summary.collectedTotal + summary.pendingTotal;
+  const ownerExpenseTotal = summary.expenseTotal + summary.mealSelfTotal;
+  const ownerAdvanceTotal = summary.advancesTotal;
+  const ownerDeliveredTotal = ownerDeliveredRows.reduce((sum, row) => sum + n(row?.amount), 0);
+  const ownerRemainingTotal = Math.max(0, ownerCashTotal - ownerExpenseTotal - ownerAdvanceTotal - ownerDeliveredTotal);
+
   return (
     <div className="arkaSimplePage">
       <div className="arkaSimpleTop">
@@ -690,7 +703,84 @@ export default function ArkaWorkerDetailPage() {
 
       {!loading ? (
         <>
-          <div className="arkaWorkerStats adminTopGrid">
+          <div className="arkaWorkerStats adminTopGrid ownerTotalsGrid">
+            <Stat label="MORI NGA KLIENTËT" value={euro(ownerCashTotal)} tone="ok" />
+            <Stat label="SHPENZIME" value={euro(ownerExpenseTotal)} tone="warn" />
+            <Stat label="AVANS" value={euro(ownerAdvanceTotal)} tone="muted" />
+            <Stat label="DORËZUAR" value={euro(ownerDeliveredTotal)} tone="info" />
+            <Stat label="MBETET ME DORËZU" value={euro(ownerRemainingTotal)} tone="strong" />
+          </div>
+
+          <div className="arkaActionPanel emphasis ownerFormulaBox">
+            <div className="arkaActionHeader">MBETET ME DORËZU = {euro(ownerRemainingTotal)}</div>
+            <div className="arkaSimpleSub">MORI NGA KLIENTËT − SHPENZIME − AVANS − DORËZUAR</div>
+          </div>
+
+          <div className="arkaSplitGrid detailPage ownerDetailGrid">
+            <section className="arkaSectionCard">
+              <div className="arkaSectionTitle">POROSITË QË I KA INKASU</div>
+              {ownerCashRows.length ? ownerCashRows.slice(0, 24).map((row) => (
+                <div className="arkaHistoryRow" key={`cash_${row?.id || row?.created_at || row?.order_code}`}>
+                  <div>
+                    <div className="arkaHistoryTitle">{String(row?.client_name || row?.order_code || row?.note || 'POROSI').toUpperCase()}</div>
+                    <div className="arkaHistoryMeta">{fmtDate(row?.created_at)} • {safeUpper(row?.status || 'PAGESË')}</div>
+                  </div>
+                  <div className="arkaPendingRight"><div className="arkaHistoryAmount">{euro(row?.amount)}</div></div>
+                </div>
+              )) : <div className="arkaEmpty">S’KA POROSI TË INKASUARA.</div>}
+            </section>
+
+            <section className="arkaSectionCard">
+              <div className="arkaSectionTitle">SHPENZIMET QË I KA BO</div>
+              {ownerExpenseRows.length ? ownerExpenseRows.slice(0, 24).map((row) => {
+                const shownAmount = row?.real_amount != null || row?.meal_amount != null ? n(row?.real_amount) + n(row?.meal_amount) : n(row?.amount);
+                return (
+                  <div className="arkaHistoryRow" key={`expense_${row?.id || row?.created_at}`}>
+                    <div>
+                      <div className="arkaHistoryTitle">{String(row?.note || (safeUpper(row?.type) === 'MEAL_PAYMENT' ? 'USHQIM' : 'SHPENZIM')).toUpperCase()}</div>
+                      <div className="arkaHistoryMeta">{fmtDate(row?.created_at)} • {safeUpper(row?.status || row?.type || 'SHPENZIM')}</div>
+                    </div>
+                    <div className="arkaPendingRight"><div className="arkaHistoryAmount">{euro(shownAmount)}</div></div>
+                  </div>
+                );
+              }) : <div className="arkaEmpty">S’KA SHPENZIME.</div>}
+            </section>
+
+            <section className="arkaSectionCard">
+              <div className="arkaSectionTitle">AVANSET QË I KA MARRË</div>
+              {ownerAdvanceRows.length ? ownerAdvanceRows.slice(0, 24).map((row) => (
+                <div className="arkaHistoryRow" key={`advance_${row?.id || row?.created_at}`}>
+                  <div>
+                    <div className="arkaHistoryTitle">{String(row?.note || 'AVANS').toUpperCase()}</div>
+                    <div className="arkaHistoryMeta">{fmtDate(row?.created_at || row?.updated_at)} • AVANS</div>
+                  </div>
+                  <div className="arkaPendingRight"><div className="arkaHistoryAmount">{euro(row?.amount)}</div></div>
+                </div>
+              )) : <div className="arkaEmpty">S’KA AVANSE.</div>}
+            </section>
+
+            <section className="arkaSectionCard">
+              <div className="arkaSectionTitle">SA KA DORËZUAR</div>
+              {ownerDeliveredRows.length ? ownerDeliveredRows.slice(0, 24).map((row) => (
+                <div className="arkaHistoryRow" key={`handoff_${row?.id || row?.submitted_at}`}>
+                  <div>
+                    <div className="arkaHistoryTitle">DORËZIM CASH</div>
+                    <div className="arkaHistoryMeta">{fmtDate(row?.submitted_at || row?.decided_at)} • {safeUpper(row?.status || 'DORËZUAR')}</div>
+                  </div>
+                  <div className="arkaPendingRight"><div className="arkaHistoryAmount">{euro(row?.amount)}</div></div>
+                </div>
+              )) : <div className="arkaEmpty">S’KA DORËZIME TË PRANUARA.</div>}
+            </section>
+          </div>
+
+          <div className="arkaActionPanel emphasis ownerFormulaBox">
+            <div className="arkaActionHeader">MBETET ME DORËZU: {euro(ownerRemainingTotal)}</div>
+            <div className="arkaSimpleSub">{euro(ownerCashTotal)} − {euro(ownerExpenseTotal)} − {euro(ownerAdvanceTotal)} − {euro(ownerDeliveredTotal)}</div>
+          </div>
+
+          <details className="arkaAdvancedDetails">
+            <summary className="arkaAdvancedSummary">HAP PAMJEN E VJETËR / AVANCUAR</summary>
+            <div className="arkaWorkerStats adminTopGrid">
             <Stat label="TOTAL COLLECTED" value={euro(summary.collectedTotal)} tone="ok" />
             <Stat label="TOTAL PENDING" value={euro(summary.pendingTotal)} tone="warn" />
             <Stat label="SHPENZIME" value={euro(summary.expenseTotal)} tone="warn" />
@@ -1025,6 +1115,7 @@ export default function ArkaWorkerDetailPage() {
               )) : <div className="arkaEmpty">S’KA BORXHE OSE AVANSE.</div>}
             </section>
           </div>
+          </details>
         </>
       ) : null}
     </div>

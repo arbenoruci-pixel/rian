@@ -180,3 +180,26 @@
   .arkaSectionTopStats{grid-template-columns:repeat(4,minmax(0,1fr))}
   .arkaSectionTopStats.singleTwo{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+/* Owner-friendly ARKA summary patch */
+.ownerTotalsGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ownerSimpleCard{gap:14px;border-color:rgba(59,130,246,.16);background:linear-gradient(180deg,rgba(59,130,246,.07),rgba(255,255,255,.03))}
+.arkaOwnerFormulaGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.arkaOwnerFormulaGrid .arkaMiniStat.strong{grid-column:1/-1;border-color:rgba(34,197,94,.34);background:rgba(34,197,94,.12)}
+.arkaFormulaLine{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.28);font-size:10px;font-weight:950;letter-spacing:.10em;text-transform:uppercase;color:rgba(229,231,235,.70);line-height:1.45}
+.arkaWorkerActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.arkaWorkerActions .arkaTopBtn{width:100%;min-height:40px}
+.arkaWorkerActions .arkaTopBtn:disabled{opacity:.45;cursor:not-allowed}
+.ownerFormulaBox{border-color:rgba(34,197,94,.22);background:rgba(34,197,94,.08)}
+.ownerDetailGrid{grid-template-columns:1fr}
+.arkaAdvancedDetails{border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.025);padding:10px}
+.arkaAdvancedSummary{cursor:pointer;list-style:none;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);font-size:10px;font-weight:950;letter-spacing:.16em;text-transform:uppercase;color:rgba(229,231,235,.72)}
+.arkaAdvancedSummary::-webkit-details-marker{display:none}
+.arkaAdvancedDetails[open] .arkaAdvancedSummary{margin-bottom:12px;background:rgba(59,130,246,.10);border-color:rgba(59,130,246,.24);color:#fff}
+@media (min-width:760px){
+  .ownerTotalsGrid{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .arkaOwnerFormulaGrid{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .arkaOwnerFormulaGrid .arkaMiniStat.strong{grid-column:auto}
+  .arkaWorkerActions{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .ownerDetailGrid{grid-template-columns:1fr 1fr}
+}
