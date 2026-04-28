@@ -1,20 +1,22 @@
-/* TEPIHA SW Navigation Flight Recorder V34.5 — verified last-good shell + module asset guard. */
+/* TEPIHA SW Navigation Flight Recorder V34.6 — verified shell + boot asset offline guard. */
 /* eslint-disable no-restricted-globals */
 (function () {
   'use strict';
 
   var NAV_DIAG_CACHE = 'tepiha-sw-navigation-diag-v1';
-  var NAV_SHELL_CACHE = 'tepiha-sw-navigation-shell-v34-5';
+  var NAV_SHELL_CACHE = 'tepiha-sw-navigation-shell-v34-6';
+  var NAV_ASSET_CACHE = 'tepiha-sw-navigation-assets-v34-6';
   var NAV_LAST_GOOD_SHELL_KEY = '/__tepiha_last_good_shell_verified__.html';
   var NAV_LAST_GOOD_META_KEY = '/__tepiha_last_good_shell_verified_meta__.json';
   var NAV_LAST_KEY = '/__tepiha_sw_nav_last.json';
   var NAV_LOG_KEY = '/__tepiha_sw_nav_log.json';
+  var NAV_ASSET_LOG_KEY = '/__tepiha_sw_asset_log.json';
   var NAV_LOG_LIMIT = 50;
   var NAV_TIMEOUT_MS = 10000;
-  var APP_EPOCH = 'RESET-2026-04-28-VITE-VERIFIED-SHELL-V34-5';
-  var APP_VERSION = '2.0.44-vite-verified-shell-v34-5';
-  var SW_NAV_DIAG_VERSION = 'sw-navigation-diag-v34.5';
-  var SAFE_SCREEN_VERSION = 'safe-screen-v34.5-verified-shell';
+  var APP_EPOCH = 'RESET-2026-04-28-VITE-BOOT-ASSET-GUARD-V34-6';
+  var APP_VERSION = '2.0.45-vite-boot-asset-guard-v34-6';
+  var SW_NAV_DIAG_VERSION = 'sw-navigation-diag-v34.6';
+  var SAFE_SCREEN_VERSION = 'safe-screen-v34.6-boot-asset-guard';
 
   function nowIso() { try { return new Date().toISOString(); } catch (_) { return ''; } }
   function safeString(value) { try { return String(value == null ? '' : value); } catch (_) { return ''; } }
@@ -83,6 +85,33 @@
     } catch (_) { return false; }
   }
 
+  function isBootAssetRequest(request) {
+    try {
+      if (!request || request.method !== 'GET') return false;
+      if (!sameOrigin(request.url)) return false;
+      var u = new URL(request.url, self.location.origin);
+      var path = u.pathname || '/';
+      if (/^\/api(?:\/|$)/.test(path)) return false;
+      if (/^\/debug(?:\/|$)/.test(path)) return false;
+      if (/^\/diag-lite(?:\/|$)/.test(path)) return false;
+      if (/^\/diag-raw(?:\/|$)/.test(path)) return false;
+      if (/^\/assets\/.*\.(?:js|mjs|css|woff2?|png|svg|webp|ico)(?:$|\?)/i.test(path)) return true;
+      if (path === '/src/main.jsx') return true;
+      var dest = safeString(request.destination || '').toLowerCase();
+      return dest === 'script' || dest === 'style' || dest === 'font';
+    } catch (_) { return false; }
+  }
+
+  function assetCacheRequestForUrl(url) {
+    try {
+      var u = new URL(url, self.location.origin);
+      return new Request(u.href, { method: 'GET', credentials: 'same-origin' });
+    } catch (_) {
+      return new Request(absoluteUrl('/'), { method: 'GET', credentials: 'same-origin' });
+    }
+  }
+
+
   async function controlledClientsCount() {
     try {
       if (!self.clients || !self.clients.matchAll) return null;
@@ -121,6 +150,122 @@
       await writeJson(cache, NAV_LOG_KEY, log);
     } catch (_) {}
   }
+
+  async function recordAsset(entry) {
+    try {
+      var cache = await caches.open(NAV_DIAG_CACHE);
+      var log = await readJson(cache, NAV_ASSET_LOG_KEY, []);
+      if (!Array.isArray(log)) log = [];
+      log.unshift(Object.assign({ recordedAt: nowIso() }, entry || {}));
+      if (log.length > 80) log = log.slice(0, 80);
+      await writeJson(cache, NAV_ASSET_LOG_KEY, log);
+    } catch (_) {}
+  }
+
+  async function matchAnyCachedAsset(request) {
+    try {
+      var cached = await caches.match(request, { ignoreSearch: false });
+      if (isUsableAssetResponse(cached)) return { response: cached, source: 'caches_match_exact' };
+    } catch (_) {}
+    try {
+      var cached2 = await caches.match(request, { ignoreSearch: true });
+      if (isUsableAssetResponse(cached2)) return { response: cached2, source: 'caches_match_ignore_search' };
+    } catch (_) {}
+    try {
+      var assetCache = await caches.open(NAV_ASSET_CACHE);
+      var cached3 = await assetCache.match(request, { ignoreSearch: false });
+      if (isUsableAssetResponse(cached3)) return { response: cached3, source: NAV_ASSET_CACHE + ':exact' };
+      var cached4 = await assetCache.match(request, { ignoreSearch: true });
+      if (isUsableAssetResponse(cached4)) return { response: cached4, source: NAV_ASSET_CACHE + ':ignore_search' };
+    } catch (_) {}
+    return null;
+  }
+
+  async function putAssetInCache(request, response) {
+    try {
+      if (!isUsableAssetResponse(response)) return false;
+      var cache = await caches.open(NAV_ASSET_CACHE);
+      await cache.put(request, response.clone());
+      return true;
+    } catch (_) { return false; }
+  }
+
+  async function handleBootAsset(event) {
+    var request = event.request;
+    var startedAt = Date.now();
+    var entry = {
+      timestamp: nowIso(),
+      ts: startedAt,
+      url: safeString(request && request.url),
+      path: requestPath(request && request.url),
+      destination: safeString(request && request.destination),
+      swVersion: APP_VERSION,
+      swEpoch: APP_EPOCH,
+      swNavDiagVersion: SW_NAV_DIAG_VERSION,
+      assetCacheName: NAV_ASSET_CACHE,
+      outcome: 'asset_pending',
+      responseStatus: null,
+      durationMs: 0,
+      errorMessage: '',
+      noAutoReload: true,
+      noSkipWaiting: true,
+      noClientsClaim: true,
+      noUnregister: true,
+      noCachePurge: true,
+      noBusinessStorageTouch: true
+    };
+
+    var cachedFirst = await matchAnyCachedAsset(request);
+    var path = '';
+    try { path = new URL(request.url, self.location.origin).pathname || ''; } catch (_) {}
+    var hashedAsset = /^\/assets\/.*-[A-Za-z0-9_-]{6,}\.(?:js|mjs|css|woff2?|png|svg|webp|ico)$/i.test(path);
+
+    if (cachedFirst && hashedAsset) {
+      entry.outcome = 'asset_cached_success';
+      entry.responseStatus = cachedFirst.response.status;
+      entry.durationMs = Date.now() - startedAt;
+      entry.cacheSource = cachedFirst.source;
+      try { if (event && event.waitUntil) event.waitUntil(recordAsset(entry)); } catch (_) {}
+      return cachedFirst.response;
+    }
+
+    try {
+      var response = await fetch(request);
+      entry.responseStatus = response ? response.status : null;
+      if (isUsableAssetResponse(response)) {
+        var putPromise = putAssetInCache(assetCacheRequestForUrl(request.url), response.clone())
+          .then(function (stored) {
+            entry.outcome = stored ? 'asset_network_success_cached' : 'asset_network_success_cache_skip';
+            entry.durationMs = Date.now() - startedAt;
+            return recordAsset(entry);
+          })
+          .catch(function () { return recordAsset(entry); });
+        try { if (event && event.waitUntil) event.waitUntil(putPromise); } catch (_) {}
+        entry.outcome = 'asset_network_success';
+        entry.durationMs = Date.now() - startedAt;
+        return response;
+      }
+      entry.errorMessage = 'asset bad response ' + safeString(entry.responseStatus);
+    } catch (error) {
+      entry.errorMessage = safeString(error && (error.message || error.name) ? (error.message || error.name) : error);
+    }
+
+    var cached = cachedFirst || await matchAnyCachedAsset(request);
+    if (cached) {
+      entry.outcome = 'asset_fallback_cached';
+      entry.responseStatus = cached.response.status;
+      entry.durationMs = Date.now() - startedAt;
+      entry.cacheSource = cached.source;
+      await recordAsset(entry);
+      return cached.response;
+    }
+
+    entry.outcome = 'asset_failed_no_cache';
+    entry.durationMs = Date.now() - startedAt;
+    await recordAsset(entry);
+    throw new Error(entry.errorMessage || 'asset_failed_no_cache');
+  }
+
 
   function escapeHtml(value) {
     return safeString(value).replace(/[<>&"]/g, function (ch) {
@@ -189,7 +334,9 @@
     }
 
     var shellCache = null;
+    var assetCache = null;
     try { shellCache = await caches.open(NAV_SHELL_CACHE); } catch (_) { shellCache = null; }
+    try { assetCache = await caches.open(NAV_ASSET_CACHE); } catch (_) { assetCache = null; }
 
     for (var i = 0; i < assets.length; i += 1) {
       var assetUrl = assets[i];
@@ -200,6 +347,7 @@
         if (isUsableAssetResponse(cached)) {
           assetStatus.status = 'cached';
           assetStatus.responseStatus = cached.status;
+          if (assetCache) { try { await assetCache.put(assetCacheRequestForUrl(assetUrl), cached.clone()); assetStatus.assetCacheStored = true; } catch (_) {} }
           checked.push(assetStatus);
           continue;
         }
@@ -219,6 +367,9 @@
           assetStatus.status = 'network_warmed';
           if (shellCache) {
             try { await shellCache.put(new Request(assetUrl, { method: 'GET', credentials: 'same-origin' }), response.clone()); } catch (_) {}
+          }
+          if (assetCache) {
+            try { await assetCache.put(assetCacheRequestForUrl(assetUrl), response.clone()); assetStatus.assetCacheStored = true; } catch (_) {}
           }
           checked.push(assetStatus);
           continue;
@@ -412,7 +563,7 @@
       '<main style="width:min(560px,100%);border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);border-radius:22px;padding:22px;box-shadow:0 20px 70px rgba(0,0,0,.38)">' +
       '<div style="font-size:13px;letter-spacing:.18em;color:#93c5fd;font-weight:1000;margin-bottom:10px">TEPIHA</div>' +
       '<h1 style="margin:0 0 8px;font-size:28px;line-height:1.08;color:#fff">RRJETI U VONUA</h1>' +
-      '<p style="margin:0 0 18px;color:#cbd5e1;font-size:15px;line-height:1.45">Service Worker provoi network navigation, verified last-good shell, dhe verified network shell. Safe screen u shfaq vetëm pasi fallback-et e verifikuara dështuan.</p>' +
+      '<p style="margin:0 0 18px;color:#cbd5e1;font-size:15px;line-height:1.45">Service Worker provoi network navigation, verified last-good shell, verified network shell dhe boot asset cache. Safe screen u shfaq vetëm pasi fallback-et e verifikuara dështuan.</p>' +
       '<pre id="tepiha-nav-detail" style="white-space:pre-wrap;word-break:break-word;background:#020617;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;color:#cbd5e1;font-size:12px;line-height:1.4;margin:0 0 16px">' + escapedReason + (escapedDetail ? '\n' + escapedDetail : '') + '\n\n' + escapedPayload + '</pre>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
       '<a href="/" style="text-align:center;text-decoration:none;border-radius:14px;background:#2563eb;color:#fff;padding:13px 10px;font-weight:1000">HOME</a>' +
@@ -463,6 +614,7 @@
       swNavDiagVersion: SW_NAV_DIAG_VERSION,
       safeScreenVersion: SAFE_SCREEN_VERSION,
       shellCacheName: NAV_SHELL_CACHE,
+      assetCacheName: NAV_ASSET_CACHE,
       navTimeoutMs: NAV_TIMEOUT_MS,
       startTime: startedAt,
       outcome: 'network_pending',
@@ -548,8 +700,14 @@
   self.addEventListener('fetch', function (event) {
     try {
       var request = event && event.request;
-      if (!isNavigationRequest(request)) return;
-      event.respondWith(handleNavigation(event));
+      if (isNavigationRequest(request)) {
+        event.respondWith(handleNavigation(event));
+        return;
+      }
+      if (isBootAssetRequest(request)) {
+        event.respondWith(handleBootAsset(event));
+        return;
+      }
     } catch (_) {}
   });
 })();
