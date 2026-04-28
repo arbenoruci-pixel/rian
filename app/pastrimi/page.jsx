@@ -418,6 +418,99 @@ function rowsOverlap(a, b) {
   return aTokens.some((t) => bSet.has(t));
 }
 
+function getPastrimTransportCode(row) {
+  if (!row || typeof row !== 'object') return '';
+  const order = unwrapOrderData(row?.fullOrder || row?.data || row || {});
+  const markerValues = [
+    row?.source, row?.table, row?._table, row?._source,
+    order?.source, order?.table, order?._table, order?._source,
+  ].map((x) => String(x || '').trim().toLowerCase());
+  const hasTransportMarker = markerValues.includes('transport_orders') || Boolean(
+    row?.transport_id || row?.transportId || row?.transport || row?.transport_meta || row?.transportOrder ||
+    order?.transport_id || order?.transportId || order?.transport || order?.transport_meta || order?.transportOrder
+  );
+  const candidates = [
+    row?.code, row?.code_str, row?.client_tcode, row?.client_code, row?.order_code, row?.transport_code,
+    row?.client?.tcode, row?.client?.code,
+    order?.code, order?.code_str, order?.client_tcode, order?.client_code, order?.order_code, order?.transport_code,
+    order?.client?.tcode, order?.client?.code, order?.transport?.code, order?.transport?.tcode,
+  ];
+  for (const raw of candidates) {
+    const text = String(raw || '').trim();
+    if (!text || text === '—') continue;
+    const explicitT = /^T\s*0*\d+$/i.test(text);
+    const numericTransportCode = hasTransportMarker && /^\d+$/.test(text);
+    if (!explicitT && !numericTransportCode) continue;
+    const digits = text.replace(/\D+/g, '').replace(/^0+/, '');
+    if (!digits) continue;
+    return `T${digits}`;
+  }
+  return '';
+}
+
+function isPastrimTransportScopedRow(row) {
+  if (!row || typeof row !== 'object') return false;
+  const order = unwrapOrderData(row?.fullOrder || row?.data || row || {});
+  const markerValues = [
+    row?.source, row?.table, row?._table, row?._source,
+    order?.source, order?.table, order?._table, order?._source,
+  ].map((x) => String(x || '').trim().toLowerCase());
+  if (markerValues.includes('transport_orders')) return true;
+  if (getPastrimTransportCode(row)) return true;
+  if (
+    row?.transport_id || row?.transportId || row?.transport || row?.transport_meta || row?.transportOrder ||
+    order?.transport_id || order?.transportId || order?.transport || order?.transport_meta || order?.transportOrder
+  ) return true;
+  return false;
+}
+
+function getPastrimRowScope(row) {
+  if (isPastrimTransportScopedRow(row)) return 'transport_orders';
+  const raw = String(row?.table || row?._table || row?.source || '').trim();
+  if (raw === 'orders' || raw === 'BASE_CACHE' || raw === 'LOCAL' || raw === 'PAGE_SNAPSHOT' || raw === 'OUTBOX') return 'orders';
+  return raw || 'row';
+}
+
+function getPastrimCanonicalTokens(row) {
+  const tokens = new Set(getRowMatchTokens(row));
+  if (!row || typeof row !== 'object') return Array.from(tokens);
+  const scope = getPastrimRowScope(row);
+  const id = String(row?.id || row?.db_id || row?.order_id || '').trim();
+  const localOid = getRowLocalOid(row);
+  const transportCode = getPastrimTransportCode(row);
+  if (transportCode) tokens.add(`transport:code:${transportCode}`);
+  if (id) tokens.add(`${scope}:id:${id}`);
+  if (localOid) tokens.add(`${scope}:local:${localOid}`);
+  return Array.from(tokens).filter(Boolean);
+}
+
+function rowsOverlapPastrimCanonical(a, b) {
+  const aTokens = getPastrimCanonicalTokens(a);
+  if (!aTokens.length) return false;
+  const bSet = new Set(getPastrimCanonicalTokens(b));
+  return aTokens.some((t) => bSet.has(t));
+}
+
+function choosePastrimWinner(existing, incoming) {
+  if (!existing) return incoming;
+  if (!incoming) return existing;
+  const priorityOf = (row) => {
+    const source = String(row?.source || '').trim();
+    if (source === 'transport_orders') return 600;
+    if (source === 'orders') return 500;
+    if (source === 'OUTBOX') return 400;
+    if (source === 'PAGE_SNAPSHOT') return 300;
+    if (source === 'LOCAL') return 200;
+    if (source === 'BASE_CACHE') return 100;
+    return 0;
+  };
+  const incomingPriority = priorityOf(incoming);
+  const existingPriority = priorityOf(existing);
+  if (incomingPriority > existingPriority) return incoming;
+  if (incomingPriority < existingPriority) return existing;
+  return Number(incoming?.ts || 0) >= Number(existing?.ts || 0) ? incoming : existing;
+}
+
 function describePastrimRow(row) {
   const order = unwrapOrderData(row?.fullOrder || row?.data || {});
   const status = normalizeStatus(row?.status || order?.status || '');
@@ -450,22 +543,7 @@ function rowLooksPendingOrLocal(row) {
 }
 
 function isTransportScopedRow(row) {
-  const source = String(row?.source || row?.table || row?._table || '').trim();
-  if (source === 'transport_orders') return true;
-  const order = unwrapOrderData(row?.fullOrder || row?.data || row || {});
-  const code = String(
-    row?.code ||
-    row?.code_str ||
-    row?.client_tcode ||
-    order?.client?.tcode ||
-    order?.client?.code ||
-    order?.client_tcode ||
-    ''
-  ).trim().toUpperCase();
-  if (code.startsWith('T')) return true;
-  if (order?.transport_id || order?.transportId) return true;
-  if (order?.transport || order?.transport_meta || order?.transportOrder) return true;
-  return false;
+  return isPastrimTransportScopedRow(row);
 }
 
 function shouldShowTransportBridgeInPastrim(row) {
@@ -493,7 +571,7 @@ function isLocalReadyTransitionRow(o) {
 }
 
 function getReadyTargetTable(o) {
-  if (o?.source === 'transport_orders') return 'transport_orders';
+  if (isPastrimTransportScopedRow(o)) return 'transport_orders';
   return 'orders';
 }
 
@@ -659,26 +737,42 @@ function buildPendingOutboxPastrimRows() {
 }
 
 function dedupePastrimRows(rows = []) {
-  const priorityOf = (row) => {
-    if (row?.source === 'orders' || row?.source === 'transport_orders') return 6;
-    if (row?.source === 'OUTBOX') return 5;
-    if (row?.source === 'PAGE_SNAPSHOT') return 4;
-    if (row?.source === 'LOCAL') return 3;
-    if (row?.source === 'BASE_CACHE') return 2;
-    return 1;
-  };
-  const map = new Map();
+  const entries = [];
+  const tokenToIndex = new Map();
+
   for (const row of (Array.isArray(rows) ? rows : [])) {
-    const key = getRowPrimaryKey(row);
-    if (!key) continue;
-    const prev = map.get(key);
-    if (!prev) { map.set(key, row); continue; }
-    const p1 = priorityOf(row);
-    const p0 = priorityOf(prev);
-    if (p1 > p0) { map.set(key, row); continue; }
-    if (p1 === p0 && Number(row?.ts || 0) >= Number(prev?.ts || 0)) map.set(key, row);
+    const tokens = getPastrimCanonicalTokens(row);
+    if (!tokens.length) continue;
+
+    const matchedIndices = Array.from(new Set(tokens
+      .map((token) => tokenToIndex.get(token))
+      .filter((idx) => Number.isInteger(idx) && entries[idx])));
+
+    if (!matchedIndices.length) {
+      const idx = entries.length;
+      const tokenSet = new Set(tokens);
+      entries.push({ row, tokens: tokenSet });
+      tokenSet.forEach((token) => tokenToIndex.set(token, idx));
+      continue;
+    }
+
+    const targetIndex = matchedIndices[0];
+    const mergedTokens = new Set([...(entries[targetIndex]?.tokens || []), ...tokens]);
+    let winner = choosePastrimWinner(entries[targetIndex]?.row, row);
+
+    for (const idx of matchedIndices.slice(1)) {
+      const entry = entries[idx];
+      if (!entry) continue;
+      winner = choosePastrimWinner(entry.row, winner);
+      entry.tokens.forEach((token) => mergedTokens.add(token));
+      entries[idx] = null;
+    }
+
+    entries[targetIndex] = { row: winner, tokens: mergedTokens };
+    mergedTokens.forEach((token) => tokenToIndex.set(token, targetIndex));
   }
-  return Array.from(map.values());
+
+  return entries.filter(Boolean).map((entry) => entry.row);
 }
 
 function swControllerScriptURL() {
@@ -779,9 +873,9 @@ async function buildPastrimFallbackRows(trace = null, diagEnabled = false) {
   });
 
   const cleanLocals = locals.filter((o) => o.cope > 0 || o.m2 > 0 || (o.name && o.name.trim() !== ''));
-  const masterTokenSet = new Set((Array.isArray(masterCacheRows) ? masterCacheRows : []).flatMap((row) => getRowMatchTokens(row)));
-  const visibleLocals = cleanLocals.filter((row) => !getRowMatchTokens(row).some((token) => masterTokenSet.has(token)));
-  const visiblePendingOutbox = (Array.isArray(pendingOutbox) ? pendingOutbox : []).filter((row) => !getRowMatchTokens(row).some((token) => masterTokenSet.has(token)));
+  const masterTokenSet = new Set((Array.isArray(masterCacheRows) ? masterCacheRows : []).flatMap((row) => getPastrimCanonicalTokens(row)));
+  const visibleLocals = cleanLocals.filter((row) => !getPastrimCanonicalTokens(row).some((token) => masterTokenSet.has(token)));
+  const visiblePendingOutbox = (Array.isArray(pendingOutbox) ? pendingOutbox : []).filter((row) => !getPastrimCanonicalTokens(row).some((token) => masterTokenSet.has(token)));
   const dedupedLocals = dedupePastrimRows([...masterCacheRows, ...visibleLocals, ...visiblePendingOutbox]).filter((row) => shouldShowTransportBridgeInPastrim(row));
 
   dedupedLocals.sort((a, b) => b.ts - a.ts);
@@ -1740,7 +1834,7 @@ function PastrimiPageInner() {
           ? prev.filter((item) => {
               const sameId = String(item?.id || '') === String(row?.id || '');
               const sameKey = !!nextKey && getRowPrimaryKey(item) === nextKey;
-              const overlap = rowsOverlap(item, nextRow);
+              const overlap = rowsOverlapPastrimCanonical(item, nextRow);
               return !(sameId || sameKey || overlap);
             })
           : [];
@@ -1950,13 +2044,16 @@ function PastrimiPageInner() {
       normalizedMasterCacheRows.forEach((row) => pushPastrimTrace(trace, 'normalized_master_cache', row, 'seen', 'master_cache_row_after_mapping'));
       normalizedPendingOutbox.forEach((row) => pushPastrimTrace(trace, 'normalized_outbox', row, 'seen', 'outbox_row_after_mapping'));
 
-      const dbTokenSet = new Set(normalizedAllOrders.flatMap((row) => getRowMatchTokens(row)));
+      const dbTokenSet = new Set(normalizedAllOrders.flatMap((row) => getPastrimCanonicalTokens(row)));
+      const dbTransportCodeSet = new Set((Array.isArray(transportData) ? transportData : []).map((row) => getPastrimTransportCode(row)).filter(Boolean));
       const matchedMirrorIds = [];
       const cleanMasterCacheRows = normalizedMasterCacheRows.filter((row) => {
         const id = String(row?.id || row?.local_oid || '').trim();
-        const matchedByDb = getRowMatchTokens(row).some((token) => dbTokenSet.has(token));
-        if (matchedByDb) {
-          pushPastrimTrace(trace, 'clean_master_cache', row, 'drop', 'matched_by_db_token');
+        const matchedByDb = getPastrimCanonicalTokens(row).some((token) => dbTokenSet.has(token));
+        const transportCode = getPastrimTransportCode(row);
+        const matchedByTransportCode = isPastrimTransportScopedRow(row) && transportCode && dbTransportCodeSet.has(transportCode);
+        if (matchedByDb || matchedByTransportCode) {
+          pushPastrimTrace(trace, 'clean_master_cache', row, 'drop', matchedByTransportCode ? 'matched_by_db_transport_code' : 'matched_by_db_token');
           if (id) matchedMirrorIds.push(id);
           return false;
         }
@@ -1976,9 +2073,11 @@ function PastrimiPageInner() {
       });
       const cleanPendingOutbox = normalizedPendingOutbox.filter((row) => {
         const id = String(row?.id || row?.local_oid || '').trim();
-        const matchedByDb = getRowMatchTokens(row).some((token) => dbTokenSet.has(token));
-        if (matchedByDb) {
-          pushPastrimTrace(trace, 'clean_pending_outbox', row, 'drop', 'matched_by_db_token');
+        const matchedByDb = getPastrimCanonicalTokens(row).some((token) => dbTokenSet.has(token));
+        const transportCode = getPastrimTransportCode(row);
+        const matchedByTransportCode = isPastrimTransportScopedRow(row) && transportCode && dbTransportCodeSet.has(transportCode);
+        if (matchedByDb || matchedByTransportCode) {
+          pushPastrimTrace(trace, 'clean_pending_outbox', row, 'drop', matchedByTransportCode ? 'matched_by_db_transport_code' : 'matched_by_db_token');
           if (id) matchedMirrorIds.push(id);
           return false;
         }
@@ -2367,7 +2466,7 @@ Shoferi u njoftua në listën e tij.`);
       await refreshOrders({ force: true, source: 'mark_ready_success' });
       scheduleRackMapRefresh(1800);
 
-      if (o.source !== 'transport_orders') {
+      if (!isPastrimTransportScopedRow(o)) {
         let smsOrder = { ...(o || {}), fullOrder: updatedJson };
         try {
           const fresh = await import('@/lib/ordersService').then((m) => m.fetchOrderByIdSafe('orders', o.id, '*'));
@@ -2721,7 +2820,8 @@ BORXHI PAS: ${remaining.toFixed(2)}€
               const total = Number(o?.total || 0);
               const paid = Number(o?.paid || 0);
 
-              const transportMeta = o.source === 'transport_orders' ? getTransportBaseSummary(o?.fullOrder || o) : null;
+              const isTransportDisplay = isPastrimTransportScopedRow(o);
+              const transportMeta = isTransportDisplay ? getTransportBaseSummary(o?.fullOrder || o) : null;
 
               return (
               <div key={o.id + o.source} className="list-item-compact" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)', opacity: o.isReturn ? 0.92 : 1 }}>
@@ -2733,8 +2833,8 @@ BORXHI PAS: ${remaining.toFixed(2)}€
                       onMouseUp={cancelLongPress}
                       onTouchEnd={cancelLongPress}
                       style={{
-                        background: o.source === 'transport_orders' ? '#dc2626' : badgeColorByAge(o.ts),
-                        border: o.source === 'transport_orders' ? '2px solid rgba(255,255,255,0.18)' : 'none',
+                        background: isTransportDisplay ? '#dc2626' : badgeColorByAge(o.ts),
+                        border: isTransportDisplay ? '2px solid rgba(255,255,255,0.18)' : 'none',
                         color: '#fff', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, fontWeight: 800, fontSize: 14, flexShrink: 0
                       }}>
                       {codeLabel}
@@ -2756,8 +2856,8 @@ BORXHI PAS: ${remaining.toFixed(2)}€
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {o.isPaid && <span>✅</span>}
-                  <button id={`btn-${o.id}`} className="btn primary" style={{ padding: '6px 10px', fontSize: 12, backgroundColor: o.source === 'transport_orders' ? '#dc2626' : '#16a34a' }} onClick={() => openReadyPlaceSheet(o)}>
-                    {o.source === 'transport_orders' ? 'NJOFTO 🚚' : 'SMS KLIENTIT'}
+                  <button id={`btn-${o.id}`} className="btn primary" style={{ padding: '6px 10px', fontSize: 12, backgroundColor: isTransportDisplay ? '#dc2626' : '#16a34a' }} onClick={() => openReadyPlaceSheet(o)}>
+                    {isTransportDisplay ? 'NJOFTO 🚚' : 'SMS KLIENTIT'}
                   </button>
                 </div>
               </div>
