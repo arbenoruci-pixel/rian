@@ -6,6 +6,7 @@ import { getOrderTable } from "@/lib/orderSource";
 import { createOrderRecord, listMixedOrderRecords, updateOrderData, updateOrderRecord } from "@/lib/ordersService";
 import { listUsers } from "@/lib/usersDb";
 import { bootLog, bootMarkReady } from "@/lib/bootLog";
+import { getActor } from "@/lib/actorSession";
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -31,6 +32,12 @@ function s(v) {
 }
 function up(v) {
   return s(v).toUpperCase();
+}
+
+const DISPATCH_ACCESS_ROLES = new Set(["DISPATCH", "ADMIN", "ADMIN_MASTER", "OWNER", "PRONAR", "SUPERADMIN"]);
+
+function canAccessDispatch(actor) {
+  return DISPATCH_ACCESS_ROLES.has(up(actor?.role));
 }
 function toLocalYmd(input) {
   try {
@@ -250,6 +257,18 @@ function DispatchCard({ row, onOpen }) {
   );
 }
 
+function DispatchAccessScreen({ checking = false }) {
+  return (
+    <div style={ui.accessPage}>
+      <div style={ui.accessCard}>
+        <div style={ui.accessTitle}>{checking ? "DUKE KONTROLLUAR QASJEN" : "NUK KENI QASJE NË DISPATCH"}</div>
+        <div style={ui.accessSub}>{checking ? "Ju lutem prisni." : "Ky modul hapet vetëm për DISPATCH / ADMIN."}</div>
+        <Link href="/" prefetch={false} style={ui.accessBtn}>KTHEHU NË HOME</Link>
+      </div>
+    </div>
+  );
+}
+
 export default function DispatchPage() {
   const todayYmd = useMemo(() => toLocalYmd(new Date()), []);
   const tomorrowYmd = useMemo(() => addDaysYmd(toLocalYmd(new Date()), 1), []);
@@ -285,6 +304,28 @@ export default function DispatchPage() {
   const [searchTimer, setSearchTimer] = useState(null);
   const phoneTimer = useRef(null);
   const uiReadyMarkedRef = useRef(false);
+  const [accessChecked, setAccessChecked] = useState(false);
+  const [accessAllowed, setAccessAllowed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const refreshAccess = () => {
+      const actor = getActor() || null;
+      const allowed = canAccessDispatch(actor);
+      if (!alive) return;
+      setAccessAllowed(allowed);
+      setAccessChecked(true);
+      try { bootLog(allowed ? "dispatch_access_allowed" : "dispatch_access_denied", { role: actor?.role || "", hasPin: !!actor?.pin }); } catch {}
+    };
+    refreshAccess();
+    try { window.addEventListener("tepiha:session-changed", refreshAccess); } catch {}
+    try { window.addEventListener("storage", refreshAccess); } catch {}
+    return () => {
+      alive = false;
+      try { window.removeEventListener("tepiha:session-changed", refreshAccess); } catch {}
+      try { window.removeEventListener("storage", refreshAccess); } catch {}
+    };
+  }, []);
 
   useEffect(() => {
     const markReady = (source = "dispatch_first_paint") => {
@@ -317,6 +358,7 @@ export default function DispatchPage() {
   }, []);
 
   useEffect(() => {
+    if (!accessChecked || !accessAllowed) return undefined;
     (async () => {
       const res = await listUsers();
       if (res?.ok) {
@@ -330,7 +372,7 @@ export default function DispatchPage() {
         if (ds.length === 1) setDriverId(String(ds[0].id));
       }
     })();
-  }, []);
+  }, [accessChecked, accessAllowed]);
 
   async function loadRows() {
     setLoadingRows(true);
@@ -364,9 +406,10 @@ export default function DispatchPage() {
   }
 
   useEffect(() => {
+    if (!accessChecked || !accessAllowed) return undefined;
     const t = setTimeout(() => loadRows(), 350);
     return () => clearTimeout(t);
-  }, []);
+  }, [accessChecked, accessAllowed]);
 
   useEffect(() => {
     const digits = onlyDigits(phone);
@@ -704,6 +747,9 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
     return [];
   }, [activeTab, todayRows, tomorrowRows, onlineRows, phoneRows]);
 
+  if (!accessChecked) return <DispatchAccessScreen checking />;
+  if (!accessAllowed) return <DispatchAccessScreen />;
+
   return (
     <div style={ui.page}>
       <div style={ui.top}>
@@ -1001,6 +1047,11 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
 }
 
 const ui = {
+  accessPage: { minHeight: "100vh", background: "#070b14", color: "#fff", padding: 16, display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" },
+  accessCard: { width: "min(420px, 100%)", borderRadius: 20, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)", padding: 18, boxShadow: "0 18px 40px rgba(0,0,0,0.28)", display: "grid", gap: 12, textAlign: "center", boxSizing: "border-box" },
+  accessTitle: { fontSize: 18, fontWeight: 1000, letterSpacing: 0.2 },
+  accessSub: { fontSize: 13, fontWeight: 800, color: "rgba(255,255,255,0.72)" },
+  accessBtn: { height: 46, borderRadius: 14, background: "#fff", color: "#070b14", display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none", fontWeight: 1000, marginTop: 4 },
   page: { minHeight: "100vh", background: "#f5f5f7", color: "#111", padding: 16, width: "100%", maxWidth: "100vw", overflowX: "hidden", boxSizing: "border-box" },
   top: { maxWidth: 960, width: "100%", margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", boxSizing: "border-box" },
   title: { fontSize: 18, fontWeight: 900 },

@@ -5,6 +5,7 @@ import Link, { useRouter } from '@/lib/routerCompat.jsx';
 import { APP_VERSION } from '@/lib/appEpoch';
 import useRouteAlive, { markRouteUiAlive } from '@/lib/routeAlive';
 import { buildHomeSearchHref, cleanVisiblePersonName, searchHomeLocalFirst } from '@/lib/homeSearch';
+import { getActor } from '@/lib/actorSession';
 
 const HOME_FAST_BOOT_VERSION = 'home-old-search-restore-v20';
 
@@ -18,6 +19,12 @@ function isOnlineNow() {
 
 function cleanSearch(value) {
   return String(value || '').trim();
+}
+
+const DISPATCH_ACCESS_ROLES = new Set(['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN']);
+
+function canAccessDispatch(actor) {
+  return DISPATCH_ACCESS_ROLES.has(String(actor?.role || '').trim().toUpperCase());
 }
 
 function StatusPill({ online }) {
@@ -63,6 +70,20 @@ export default function HomePage() {
   const [didSearch, setDidSearch] = useState(false);
   const [results, setResults] = useState([]);
   const [searchMessage, setSearchMessage] = useState('');
+  const [canSeeDispatch, setCanSeeDispatch] = useState(false);
+
+  useEffect(() => {
+    const refreshDispatchAccess = () => {
+      try { setCanSeeDispatch(canAccessDispatch(getActor() || null)); } catch { setCanSeeDispatch(false); }
+    };
+    refreshDispatchAccess();
+    try { window.addEventListener('tepiha:session-changed', refreshDispatchAccess); } catch {}
+    try { window.addEventListener('storage', refreshDispatchAccess); } catch {}
+    return () => {
+      try { window.removeEventListener('tepiha:session-changed', refreshDispatchAccess); } catch {}
+      try { window.removeEventListener('storage', refreshDispatchAccess); } catch {}
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -402,6 +423,16 @@ export default function HomePage() {
             </div>
           </Link>
 
+          {canSeeDispatch ? (
+            <Link href="/dispatch" prefetch={false} className="mod-card">
+              <div className="mod-icon icon-dispatch">📍</div>
+              <div className="mod-info">
+                <div className="mod-title">DISPATCH</div>
+                <div className="mod-sub">Planifikim dhe telefonata</div>
+              </div>
+            </Link>
+          ) : null}
+
           <Link href="/arka" prefetch={false} className="mod-card">
             <div className="mod-icon icon-arka">💰</div>
             <div className="mod-info">
@@ -504,6 +535,7 @@ export default function HomePage() {
         .icon-gati { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
         .icon-marrje { background: rgba(239, 68, 68, 0.15); color: #f87171; }
         .icon-transport { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+        .icon-dispatch { background: rgba(14, 165, 233, 0.15); color: #38bdf8; }
         .icon-arka { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
         .icon-fletore { background: rgba(255, 255, 255, 0.1); color: #e2e8f0; }
         .mod-info { display: flex; flex-direction: column; gap: 4px; }
