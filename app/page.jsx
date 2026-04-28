@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link, { useRouter } from '@/lib/routerCompat.jsx';
 import { APP_VERSION } from '@/lib/appEpoch';
 import useRouteAlive, { markRouteUiAlive } from '@/lib/routeAlive';
-import { buildHomeSearchHref, searchHomeLocalFirst } from '@/lib/homeSearch';
+import { buildHomeSearchHref, cleanVisiblePersonName, searchHomeLocalFirst } from '@/lib/homeSearch';
 
 const HOME_FAST_BOOT_VERSION = 'home-old-search-restore-v20';
 
@@ -271,7 +271,7 @@ export default function HomePage() {
                 {results.map((result, index) => {
                   const isTransport = String(result?.kind || '').toUpperCase() === 'TRANSPORT';
                   const measurementChips = Array.isArray(result?.measurements) ? result.measurements : [];
-                  const broughtByText = String(result?.broughtBy || result?.transporter || 'TRANSPORT').trim() || 'TRANSPORT';
+                  const broughtByText = cleanVisiblePersonName(result?.broughtBy || result?.transporter) || 'PA EMËR NË CACHE';
                   return (
                     <div
                       className="result-card"
