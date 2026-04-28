@@ -270,6 +270,8 @@ export default function HomePage() {
               <div className="results-container">
                 {results.map((result, index) => {
                   const isTransport = String(result?.kind || '').toUpperCase() === 'TRANSPORT';
+                  const measurementChips = Array.isArray(result?.measurements) ? result.measurements : [];
+                  const broughtByText = String(result?.broughtBy || result?.transporter || 'TRANSPORT').trim() || 'TRANSPORT';
                   return (
                     <div
                       className="result-card"
@@ -302,8 +304,27 @@ export default function HomePage() {
                       <div className="result-footer">
                         <div className="workers-info">
                           {result.createdBy ? <div>👤 <span>SJELLË NGA:</span> {String(result.createdBy)}</div> : null}
-                          {result.transporter ? <div className="transport-worker">🚚 <span>PRU NGA:</span> {String(result.transporter).toUpperCase()}</div> : null}
+                          {!isTransport && result.transporter ? <div className="transport-worker">🚚 <span>PRU NGA:</span> {String(result.transporter).toUpperCase()}</div> : null}
                           {isTransport ? <div className="transport-worker">🚚 <span>TRANSPORT</span></div> : null}
+                          {isTransport ? (
+                            <div className="transport-extra">
+                              <div className="transport-extra-line">
+                                <span>E KA PRU:</span> {broughtByText}
+                              </div>
+                              <div className="transport-extra-line">
+                                <span>MASAT:</span>
+                                {measurementChips.length ? (
+                                  <div className="measure-chip-row">
+                                    {measurementChips.map((chip, chipIndex) => (
+                                      <span className="measure-chip" key={`${result?.id || result?.code || 'transport'}-m-${chipIndex}`}>{String(chip)}</span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <strong>PA MASA NË CACHE</strong>
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                         <div className="result-actions">
                           {isBaseResult(result) ? (
@@ -461,6 +482,12 @@ export default function HomePage() {
         .workers-info { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: #60a5fa; min-width: 0; }
         .workers-info span { opacity: 0.6; color: #fff; margin-right: 2px; }
         .transport-worker { color: #f59e0b; }
+        .transport-extra { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; color: rgba(255,255,255,0.92); font-size: 11px; font-weight: 900; line-height: 1.25; }
+        .transport-extra-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .transport-extra-line span { opacity: 0.68; color: #fff; margin-right: 0; }
+        .transport-extra-line strong { color: #fbbf24; font-size: 10px; letter-spacing: 0.02em; }
+        .measure-chip-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+        .measure-chip { display: inline-flex; align-items: center; justify-content: center; min-height: 20px; padding: 2px 7px; border-radius: 999px; background: rgba(139,92,246,0.18); border: 1px solid rgba(167,139,250,0.35); color: #f5f3ff; font-size: 11px; font-weight: 1000; line-height: 1; }
         .result-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
         .new-order-btn { background: linear-gradient(180deg, rgba(16,185,129,0.22), rgba(16,185,129,0.12)); color: #d1fae5; border: 1px solid rgba(16,185,129,0.45); border-radius: 12px; padding: 10px 12px; font-size: 11px; font-weight: 900; letter-spacing: 0.2px; text-align: center; cursor: pointer; max-width: 240px; }
         .go-btn { background: #3b82f6; color: #fff; font-weight: 900; padding: 8px 16px; border-radius: 10px; font-size: 13px; border: 0; cursor: pointer; }
