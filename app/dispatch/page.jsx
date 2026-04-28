@@ -228,7 +228,7 @@ function DispatchCard({ row, onOpen }) {
         <div style={ui.codePill}>{code}</div>
         <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 6 }}>
           <div style={ui.compactTop}>
-            <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0, maxWidth: "100%", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: "1 1 180px", overflow: "hidden" }}>
               <span style={ui.compactName}>{up(getClientName(row) || "PA EMËR")}</span>
               <span style={ui.badge}>{sourceLabel(row)}</span>
               <span style={normalizeStatus(row?.status) === "DORZIM" ? ui.badgeWarn : ui.badgeOk}>{normalizeStatus(row?.status || row?.data?.status || "-")}</span>
@@ -894,7 +894,7 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
                       <div style={ui.compactCode}>{getOrderCode(row) || "T-NEW"}</div>
                       <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 4 }}>
                         <div style={ui.compactTop}>
-                          <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0, maxWidth: "100%", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: "1 1 180px", overflow: "hidden" }}>
                             <span style={ui.compactName}>{up(getClientName(row) || "PA EMËR")}</span>
                             <span style={ui.badgeBad}>DËSHTUAR</span>
                           </div>
@@ -921,7 +921,7 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
                       <div style={ui.compactCode}>{getOrderCode(r) || "T-NEW"}</div>
                       <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 4 }}>
                         <div style={ui.compactTop}>
-                          <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0, maxWidth: "100%", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: "1 1 180px", overflow: "hidden" }}>
                             <span style={ui.compactName}>{up(getClientName(r) || "PA EMËR")}</span>
                             <span style={ui.badgeWarn}>RIPLAN</span>
                           </div>
@@ -1001,20 +1001,20 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
 }
 
 const ui = {
-  page: { minHeight: "100vh", background: "#f5f5f7", color: "#111", padding: 16 },
-  top: { maxWidth: 960, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 },
+  page: { minHeight: "100vh", background: "#f5f5f7", color: "#111", padding: 16, width: "100%", maxWidth: "100vw", overflowX: "hidden", boxSizing: "border-box" },
+  top: { maxWidth: 960, width: "100%", margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", boxSizing: "border-box" },
   title: { fontSize: 18, fontWeight: 900 },
   sub: { fontSize: 12, opacity: 0.7 },
-  card: { maxWidth: 960, margin: "14px auto 0", background: "#fff", borderRadius: 18, border: "1px solid rgba(0,0,0,0.08)", padding: 14, boxShadow: "0 10px 24px rgba(0,0,0,0.06)" },
-  statsGrid: { maxWidth: 960, margin: "14px auto 0", display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 },
-  statCard: { background: "#fff", borderRadius: 16, border: "1px solid rgba(0,0,0,0.08)", padding: 12, boxShadow: "0 8px 18px rgba(0,0,0,0.04)" },
+  card: { maxWidth: 960, width: "100%", margin: "14px auto 0", background: "#fff", borderRadius: 18, border: "1px solid rgba(0,0,0,0.08)", padding: 14, boxShadow: "0 10px 24px rgba(0,0,0,0.06)", boxSizing: "border-box", overflow: "hidden" },
+  statsGrid: { maxWidth: 960, width: "100%", margin: "14px auto 0", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))", gap: 10, boxSizing: "border-box" },
+  statCard: { background: "#fff", borderRadius: 16, border: "1px solid rgba(0,0,0,0.08)", padding: 12, boxShadow: "0 8px 18px rgba(0,0,0,0.04)", minWidth: 0, boxSizing: "border-box" },
   statLabel: { fontSize: 11, fontWeight: 900, opacity: 0.65 },
   statValue: { fontSize: 28, fontWeight: 1000, lineHeight: 1.1, marginTop: 4 },
-  row2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
-  field: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 },
+  row2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, minWidth: 0 },
+  field: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 10, minWidth: 0, maxWidth: "100%" },
   label: { fontSize: 12, fontWeight: 900, opacity: 0.75 },
-  input: { height: 44, borderRadius: 12, border: "1px solid rgba(0,0,0,0.12)", padding: "0 12px", fontWeight: 800, outline: "none", width: "100%", background: "#fff" },
-  textarea: { minHeight: 70, borderRadius: 12, border: "1px solid rgba(0,0,0,0.12)", padding: 12, fontWeight: 800, outline: "none", background: "#fff" },
+  input: { height: 44, borderRadius: 12, border: "1px solid rgba(0,0,0,0.12)", padding: "0 12px", fontWeight: 800, outline: "none", width: "100%", maxWidth: "100%", background: "#fff", boxSizing: "border-box" },
+  textarea: { minHeight: 70, borderRadius: 12, border: "1px solid rgba(0,0,0,0.12)", padding: 12, fontWeight: 800, outline: "none", background: "#fff", width: "100%", maxWidth: "100%", boxSizing: "border-box" },
   btnGhost: { border: "1px solid rgba(0,0,0,0.12)", background: "rgba(255,255,255,0.85)", padding: "10px 12px", borderRadius: 12, fontWeight: 900, textDecoration: "none", color: "#111" },
   btnGhostMini: { border: "1px solid rgba(0,0,0,0.12)", background: "rgba(255,255,255,0.85)", padding: "8px 10px", borderRadius: 10, fontWeight: 900, color: "#111", cursor: "pointer" },
   btnPrimary: { height: 48, borderRadius: 14, border: "none", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer", padding: "0 16px" },
@@ -1033,34 +1033,34 @@ const ui = {
   badgeGhost: { fontSize: 11, fontWeight: 900, borderRadius: 999, padding: "4px 8px", border: "1px solid rgba(0,0,0,0.10)", background: "rgba(0,0,0,0.03)" },
   sectionTitle: { fontWeight: 900, marginBottom: 8 },
   sectionHint: { fontSize: 12, opacity: 0.7, marginBottom: 10 },
-  sectionHeadRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 },
+  sectionHeadRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap: "wrap", minWidth: 0 },
   empty: { fontWeight: 800, opacity: 0.75 },
-  list: { display: "flex", flexDirection: "column", gap: 10 },
-  compactRow: { border: "1px solid rgba(0,0,0,0.08)", borderRadius: 16, padding: 10, display: "flex", alignItems: "flex-start", gap: 10, boxShadow: "0 8px 18px rgba(0,0,0,0.05)" },
-  compactTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  compactName: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15, fontWeight: 900, letterSpacing: 0.2 },
-  compactSub: { fontSize: 13, opacity: 0.72, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  list: { display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden" },
+  compactRow: { width: "100%", maxWidth: "100%", minWidth: 0, border: "1px solid rgba(0,0,0,0.08)", borderRadius: 16, padding: 10, display: "flex", alignItems: "flex-start", gap: 10, boxShadow: "0 8px 18px rgba(0,0,0,0.05)", boxSizing: "border-box", overflow: "hidden" },
+  compactTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", minWidth: 0, width: "100%" },
+  compactName: { minWidth: 0, maxWidth: "100%", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15, fontWeight: 900, letterSpacing: 0.2 },
+  compactSub: { minWidth: 0, maxWidth: "100%", fontSize: 13, opacity: 0.72, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   compactTime: { fontSize: 11, opacity: 0.6, fontWeight: 900, whiteSpace: "nowrap", flexShrink: 0 },
-  compactOpen: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 80, height: 32, padding: "0 12px", borderRadius: 999, background: "linear-gradient(180deg, rgba(59,130,246,0.16), rgba(37,99,235,0.10))", border: "1px solid rgba(96,165,250,0.24)", color: "#1d4ed8", fontSize: 11, fontWeight: 900, letterSpacing: 0.3 },
+  compactOpen: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 74, height: 32, padding: "0 12px", borderRadius: 999, background: "linear-gradient(180deg, rgba(59,130,246,0.16), rgba(37,99,235,0.10))", border: "1px solid rgba(96,165,250,0.24)", color: "#1d4ed8", fontSize: 11, fontWeight: 900, letterSpacing: 0.3, flexShrink: 0 },
   codePill: { width: 46, minWidth: 46, height: 46, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "#39d86f", color: "#03140a", fontSize: 14, fontWeight: 1000, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 16px rgba(57,216,111,0.18)" },
   driverChip: { display: "inline-flex", alignItems: "center", gap: 4, justifySelf: "start", borderRadius: 12, padding: "4px 8px", background: "rgba(59,130,246,0.10)", border: "1px solid rgba(59,130,246,0.22)", color: "#2563eb", fontSize: 11, fontWeight: 900 },
-  orderCardBtn: { width: "100%", border: "none", background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" },
-  orderCard: { border: "1px solid rgba(0,0,0,0.08)", borderRadius: 16, padding: 12, display: "flex", alignItems: "flex-start", gap: 12, boxShadow: "0 8px 18px rgba(0,0,0,0.05)", background: "#fff" },
-  tabRow: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 },
-  tabOn: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(17,24,39,0.18)", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" },
-  tabOff: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", color: "#111", fontWeight: 900, cursor: "pointer" },
-  pillRow: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 },
-  pillOn: { height: 38, padding: "0 12px", borderRadius: 999, border: "1px solid rgba(17,24,39,0.18)", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" },
-  pillOff: { height: 38, padding: "0 12px", borderRadius: 999, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", color: "#111", fontWeight: 900, cursor: "pointer" },
-  capacityBox: { borderRadius: 14, border: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.03)", padding: 10, fontSize: 12, fontWeight: 800, display: "grid", gap: 6 },
+  orderCardBtn: { display: "block", width: "100%", maxWidth: "100%", minWidth: 0, border: "none", background: "transparent", padding: 0, cursor: "pointer", textAlign: "left", boxSizing: "border-box", overflow: "hidden" },
+  orderCard: { width: "100%", maxWidth: "100%", minWidth: 0, border: "1px solid rgba(0,0,0,0.08)", borderRadius: 16, padding: 12, display: "flex", alignItems: "flex-start", gap: 10, boxShadow: "0 8px 18px rgba(0,0,0,0.05)", background: "#fff", boxSizing: "border-box", overflow: "hidden" },
+  tabRow: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, minWidth: 0, maxWidth: "100%" },
+  tabOn: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(17,24,39,0.18)", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  tabOff: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", color: "#111", fontWeight: 900, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  pillRow: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8, minWidth: 0, maxWidth: "100%" },
+  pillOn: { minHeight: 38, padding: "0 12px", borderRadius: 999, border: "1px solid rgba(17,24,39,0.18)", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  pillOff: { minHeight: 38, padding: "0 12px", borderRadius: 999, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", color: "#111", fontWeight: 900, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  capacityBox: { borderRadius: 14, border: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.03)", padding: 10, fontSize: 12, fontWeight: 800, display: "grid", gap: 6, width: "100%", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden" },
   capacityWarn: { color: "#8a5a00", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.22)", padding: 8, borderRadius: 10 },
   crmHitBox: { borderRadius: 14, border: "1px solid rgba(59,130,246,0.18)", background: "rgba(59,130,246,0.06)", padding: 12, marginBottom: 10 },
   crmHitTitle: { fontSize: 12, fontWeight: 1000, color: "#1d4ed8" },
   crmHitSub: { fontSize: 12, opacity: 0.8, marginTop: 4, fontWeight: 700 },
-  planRow: { display: "flex", gap: 6, flexWrap: "wrap" },
-  inlineDangerRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", border: "1px solid rgba(185,28,28,0.10)", borderRadius: 14, padding: "10px 12px", background: "rgba(185,28,28,0.04)" },
+  planRow: { display: "flex", gap: 6, flexWrap: "wrap", minWidth: 0, maxWidth: "100%" },
+  inlineDangerRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", border: "1px solid rgba(185,28,28,0.10)", borderRadius: 14, padding: "10px 12px", background: "rgba(185,28,28,0.04)", width: "100%", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden" },
   inlineDangerHint: { fontSize: 12, fontWeight: 800, color: "rgba(17,17,17,0.72)", flex: 1, minWidth: 180 },
   updateSection: { marginTop: 12, borderTop: "1px solid rgba(0,0,0,0.06)", paddingTop: 12 },
   modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.40)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60 },
-  modalCard: { width: "min(680px, 100%)", maxHeight: "90vh", overflow: "auto", background: "#fff", borderRadius: 18, border: "1px solid rgba(0,0,0,0.08)", padding: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.18)" },
+  modalCard: { width: "min(680px, 100%)", maxWidth: "100%", maxHeight: "90vh", overflow: "auto", background: "#fff", borderRadius: 18, border: "1px solid rgba(0,0,0,0.08)", padding: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.18)", boxSizing: "border-box" },
 };
