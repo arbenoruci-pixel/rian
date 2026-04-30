@@ -58,30 +58,47 @@ const BOARD_CALLER = 'transport/board';
 
 
 const TRANSPORT_BOARD_CACHE_VERSION = 'v2-status-split';
-const TRANSPORT_BOARD_PRE_PICKUP_STATUSES = new Set(['', 'new', 'inbox', 'pending', 'scheduled', 'draft', 'pranim', 'dispatched', 'assigned']);
-const TRANSPORT_BOARD_TO_BASE_STATUSES = new Set(['pickup', 'loaded', 'ngarkim']);
+const TRANSPORT_BOARD_WIDE_FETCH_LIMIT = 300;
+const TRANSPORT_BOARD_PRE_PICKUP_STATUSES = new Set(['', 'new', 'inbox', 'pending', 'scheduled', 'draft', 'pranim', 'dispatched', 'assigned', 'accepted']);
+const TRANSPORT_BOARD_TO_BASE_STATUSES = new Set(['pickup', 'picked_up', 'loaded', 'ngarkim']);
 const TRANSPORT_BOARD_BASE_ONLY_STATUSES = new Set(['pastrim', 'at_base', 'in_base', 'base']);
-const TRANSPORT_BOARD_READY_STATUSES = new Set(['gati']);
+const TRANSPORT_BOARD_READY_STATUSES = new Set(['gati', 'ready']);
 const TRANSPORT_BOARD_DEPO_STATUSES = new Set(['depo', 'ne_depo', 'riplan']);
 const TRANSPORT_BOARD_DELIVERY_STATUSES = new Set(['delivery', 'dorzim']);
 const TRANSPORT_BOARD_DONE_STATUSES = new Set(['done', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar']);
+const TRANSPORT_BOARD_INACTIVE_STATUSES = new Set(['done', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar', 'failed', 'canceled', 'cancelled']);
 const TRANSPORT_BOARD_FETCH_STATUSES = [
   'new','NEW','inbox','INBOX','pending','PENDING','scheduled','SCHEDULED','draft','DRAFT',
-  'pranim','PRANIM','dispatched','DISPATCHED','assigned','ASSIGNED',
-  'pickup','PICKUP','loaded','LOADED','ngarkim','NGARKIM','ngarkuar','NGARKUAR',
+  'pranim','PRANIM','dispatched','DISPATCHED','assigned','ASSIGNED','accepted','ACCEPTED',
+  'pickup','PICKUP','picked_up','PICKED_UP','loaded','LOADED','ngarkim','NGARKIM','ngarkuar','NGARKUAR',
   'at_base','AT_BASE','in_base','IN_BASE','base','BASE','pastrim','PASTRIM','pastrimi','PASTRIMI',
   'delivery','DELIVERY','dorzim','DORZIM','dorëzim','DORËZIM',
-  'gati','GATI','depo','DEPO','ne_depo','NE_DEPO','riplan','RIPLAN',
-  'done','DONE','delivered','DELIVERED','dorzuar','DORZUAR','dorezuar','DOREZUAR','dorëzuar','DORËZUAR'
+  'gati','GATI','ready','READY','depo','DEPO','ne_depo','NE_DEPO','riplan','RIPLAN'
 ];
 
 function normalizeTransportLifecycleStatus(value = '') {
   const raw = String(value || '').trim().toLowerCase();
   if (raw === 'pastrimi') return 'pastrim';
   if (raw === 'pranimi') return 'pranim';
-  if (raw === 'ngarkuar') return 'loaded';
+  if (raw === 'ngarkuar' || raw === 'picked_up') return 'loaded';
+  if (raw === 'ready') return 'gati';
+  if (raw === 'accepted') return 'assigned';
   if (raw === 'dorezim' || raw === 'dorëzim') return 'dorzim';
   return raw;
+}
+
+function sameCleanString(a, b) {
+  const left = String(a ?? '').trim();
+  const right = String(b ?? '').trim();
+  return !!left && !!right && left === right;
+}
+
+function getTransportRowStatus(row = {}) {
+  return normalizeTransportLifecycleStatus(row?.status || row?.data?.status || '');
+}
+
+function isTransportInactiveStatus(value = '') {
+  return TRANSPORT_BOARD_INACTIVE_STATUSES.has(normalizeTransportLifecycleStatus(value));
 }
 
 function isTransportPrePickupStatus(value = '') {
@@ -106,12 +123,13 @@ function isTransportDeliveryStatus(value = '') {
 
 function isTransportBoardVisibleStatus(value = '') {
   const st = normalizeTransportLifecycleStatus(value);
+  if (isTransportInactiveStatus(st)) return false;
   return isTransportPrePickupStatus(st)
     || isTransportToBaseStatus(st)
+    || isTransportBaseOnlyStatus(st)
     || TRANSPORT_BOARD_READY_STATUSES.has(st)
     || TRANSPORT_BOARD_DEPO_STATUSES.has(st)
-    || TRANSPORT_BOARD_DELIVERY_STATUSES.has(st)
-    || TRANSPORT_BOARD_DONE_STATUSES.has(st);
+    || TRANSPORT_BOARD_DELIVERY_STATUSES.has(st);
 }
 
 function getTransportDisplayCode(row = {}) {
@@ -128,7 +146,7 @@ function pruneTransportBoardCacheRows(rows = [], authoritativeRows = []) {
   const dbByCode = new Map();
   const statusRank = (status = '') => {
     const st = normalizeTransportLifecycleStatus(status);
-    if (TRANSPORT_BOARD_DONE_STATUSES.has(st)) return 60;
+    if (isTransportInactiveStatus(st)) return 90;
     if (TRANSPORT_BOARD_READY_STATUSES.has(st) || TRANSPORT_BOARD_DEPO_STATUSES.has(st) || TRANSPORT_BOARD_DELIVERY_STATUSES.has(st)) return 50;
     if (isTransportBaseOnlyStatus(st)) return 40;
     if (isTransportToBaseStatus(st)) return 30;
@@ -143,11 +161,11 @@ function pruneTransportBoardCacheRows(rows = [], authoritativeRows = []) {
     if (!prev || statusRank(st) >= statusRank(prev)) dbByCode.set(code, st);
   });
   return list.filter((row) => {
-    const ownStatus = normalizeTransportLifecycleStatus(row?.status || row?.data?.status || '');
+    const ownStatus = getTransportRowStatus(row);
     const code = getTransportDisplayCode(row);
     const dbStatus = code ? dbByCode.get(code) : '';
     if (dbStatus && dbStatus !== ownStatus) {
-      if (isTransportBaseOnlyStatus(dbStatus) || TRANSPORT_BOARD_READY_STATUSES.has(dbStatus) || TRANSPORT_BOARD_DONE_STATUSES.has(dbStatus)) return false;
+      if (isTransportBaseOnlyStatus(dbStatus) || TRANSPORT_BOARD_READY_STATUSES.has(dbStatus) || isTransportInactiveStatus(dbStatus)) return false;
     }
     return isTransportBoardVisibleStatus(ownStatus);
   });
@@ -483,7 +501,15 @@ function scheduleCacheWrite(key, data, opts = {}) {
 
 function getMasterCacheKey(sessionObj) {
   const role = String(sessionObj?.role || sessionObj?.user_role || sessionObj?.actor?.role || '').toUpperCase();
-  const tid = String(sessionObj?.transport_id || sessionObj?.tid || '').trim();
+  const tid = String(
+    sessionObj?.transport_id ||
+    sessionObj?.user_id ||
+    sessionObj?.id ||
+    sessionObj?.tid ||
+    sessionObj?.pin ||
+    sessionObj?.transport_pin ||
+    ''
+  ).trim();
   return `transport_master_cache_${TRANSPORT_BOARD_CACHE_VERSION}_${canAccessTransportAdmin(role) ? 'ALL' : tid}`;
 }
 
@@ -828,17 +854,44 @@ function TransportBoardInner() {
   }
 
   function rowOwnedBySession(row, sess) {
-    const currentTid = deriveTid(sess);
-    const currentPin = String(sess?.pin || sess?.transport_pin || '').trim();
-    if (!currentTid && !currentPin) return false;
-    const topTid = String(row?.transport_id || '').trim();
-    const dataTid = String(row?.data?.transport_id || '').trim();
-    const topPin = String(row?.transport_pin || row?.driver_pin || '').trim();
-    const dataPin = String(row?.data?.transport_pin || row?.data?.driver_pin || '').trim();
-    return (
-      (!!currentTid && (topTid === currentTid || dataTid === currentTid)) ||
-      (!!currentPin && (topPin === currentPin || dataPin === currentPin))
-    );
+    const s = sess || {};
+    const sessionPin = String(s?.pin || s?.transport_pin || s?.user_pin || s?.driver_pin || '').trim();
+    const sessionUserId = String(
+      s?.user_id ||
+      s?.id ||
+      s?.user?.id ||
+      s?.actor?.id ||
+      deriveTid(s) ||
+      ''
+    ).trim();
+
+    if (!sessionUserId && !sessionPin) return false;
+
+    const data = (row?.data && typeof row.data === 'object' && !Array.isArray(row.data)) ? row.data : {};
+
+    const idCandidates = [
+      row?.transport_id,
+      row?.assigned_driver_id,
+      row?.driver_id,
+      data?.transport_id,
+      data?.transport_user_id,
+      data?.assigned_driver_id,
+      data?.driver_id,
+    ];
+
+    const pinCandidates = [
+      row?.driver_pin,
+      row?.transport_pin,
+      row?.assigned_driver_pin,
+      data?.driver_pin,
+      data?.transport_pin,
+      data?.assigned_driver_pin,
+    ];
+
+    const ownsByUserId = !!sessionUserId && idCandidates.some((value) => sameCleanString(value, sessionUserId));
+    const ownsByPin = !!sessionPin && pinCandidates.some((value) => sameCleanString(value, sessionPin));
+
+    return ownsByUserId || ownsByPin;
   }
 
   function translateBoardError(err) {
@@ -1024,9 +1077,11 @@ function TransportBoardInner() {
     try {
       const sessionObj = getTransportSession() || session || {};
       const tid = deriveTid(sessionObj);
+      const sessionPinForLoad = String(sessionObj?.pin || sessionObj?.transport_pin || sessionObj?.user_pin || sessionObj?.driver_pin || '').trim();
+      const sessionUserIdForLoad = String(sessionObj?.user_id || sessionObj?.id || sessionObj?.user?.id || sessionObj?.actor?.id || tid || '').trim();
       const role = String(sessionObj?.role || sessionObj?.user_role || sessionObj?.user?.role || sessionObj?.actor?.role || '').toUpperCase();
       const isAdminLoad = canAccessTransportAdmin(role);
-      if (!isAdminLoad && !tid) {
+      if (!isAdminLoad && !sessionUserIdForLoad && !sessionPinForLoad) {
         setItems([]);
         setLoadError('');
         return;
@@ -1055,18 +1110,17 @@ function TransportBoardInner() {
 
       const allStatuses = TRANSPORT_BOARD_FETCH_STATUSES;
 
-      async function fetchRest(includeAllForFallback = false) {
+      async function fetchRest() {
         const base = String(SUPABASE_URL || '').replace(/\/$/, '');
         if (!base) throw new Error('Missing SUPABASE_URL');
-        const transportFilter = (!isAdminLoad && !includeAllForFallback) ? `&transport_id=eq.${encodeURIComponent(tid)}` : '';
+        const fetchLimit = isAdminLoad ? BOARD_FETCH_LIMIT : TRANSPORT_BOARD_WIDE_FETCH_LIMIT;
         const url =
           base +
           '/rest/v1/transport_orders' +
           `?select=id,code_str,client_id,client_name,client_phone,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id` +
-          transportFilter +
           `&status=in.(${encodeURIComponent(allStatuses.join(','))})` +
           `&order=updated_at.desc,created_at.desc` +
-          `&limit=${BOARD_FETCH_LIMIT}`;
+          `&limit=${fetchLimit}`;
 
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 10000);
@@ -1098,12 +1152,12 @@ function TransportBoardInner() {
           signal: pageCtrl?.signal,
           select: 'id,code_str,client_id,client_name,client_phone,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id',
           in: { status: allStatuses },
-          eq: !isAdminLoad ? { transport_id: tid } : {},
+          eq: {},
           orderBy: 'updated_at',
           secondaryOrderBy: 'created_at',
           secondaryAscending: false,
           ascending: false,
-          limit: BOARD_FETCH_LIMIT,
+          limit: isAdminLoad ? BOARD_FETCH_LIMIT : TRANSPORT_BOARD_WIDE_FETCH_LIMIT,
           timeoutMs: 9000,
           timeoutLabel: 'TRANSPORT_BOARD_TIMEOUT',
         });
@@ -1119,46 +1173,13 @@ function TransportBoardInner() {
 
       if (!isAdminLoad) {
         data = (Array.isArray(data) ? data : []).filter((row) => rowOwnedBySession(row, sessionObj));
-        if (!data.length) {
-          try {
-            const fallbackRows = await fetchRest(true);
-            data = (Array.isArray(fallbackRows) ? fallbackRows : []).filter((row) => rowOwnedBySession(row, sessionObj));
-          } catch {}
-        }
       }
 
-      let deliveredToday = [];
-      try {
-        deliveredToday = await listTransportOrders({
-          signal: pageCtrl?.signal,
-          select: 'id,code_str,client_id,client_name,client_phone,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id',
-          in: { status: ['done'] },
-          eq: !isAdminLoad ? { transport_id: tid } : {},
-          gte: { updated_at: startOfTodayIso() },
-          orderBy: 'updated_at',
-          ascending: false,
-          limit: 80,
-          timeoutMs: 7000,
-          timeoutLabel: 'TRANSPORT_BOARD_DONE_TIMEOUT',
-        });
-      } catch {}
-      if (!isAdminLoad) {
-        deliveredToday = (Array.isArray(deliveredToday) ? deliveredToday : []).filter((row) => rowOwnedBySession(row, sessionObj));
-      }
-      const deliveredMap = new Map();
-      (Array.isArray(deliveredToday) ? deliveredToday : []).forEach((row) => {
-        if (row?.id) deliveredMap.set(String(row.id), row);
-      });
-      const activeList = Array.isArray(data) ? data : [];
-      activeList.forEach((row) => {
-        const st = String(row?.status || '').toLowerCase();
-        if (st === 'done' && isSameDayIso(getDeliveredTs(row)) && row?.id) deliveredMap.set(String(row.id), row);
-      });
-      const authoritativeRows = [...activeList, ...Array.from(deliveredMap.values())];
-      const list = pruneTransportBoardCacheRows([
-        ...activeList.filter((row) => !TRANSPORT_BOARD_DONE_STATUSES.has(normalizeTransportLifecycleStatus(row?.status || row?.data?.status || ''))),
-        ...Array.from(deliveredMap.values()),
-      ], authoritativeRows);
+      const activeList = Array.isArray(data)
+        ? data.filter((row) => !isTransportInactiveStatus(getTransportRowStatus(row)))
+        : [];
+      const authoritativeRows = [...activeList];
+      const list = pruneTransportBoardCacheRows(activeList, authoritativeRows);
       startTransition(() => {
         setItems(list);
       });
@@ -1169,7 +1190,7 @@ function TransportBoardInner() {
           seq,
           reason: boardDiagRef.current.lastLoadReason || reason || '',
           count: Array.isArray(list) ? list.length : 0,
-          deliveredTodayCount: deliveredMap.size,
+          deliveredTodayCount: 0,
         }));
       } catch {}
       scheduleCacheWrite(masterCacheKey, list, { delay: 3200 });
@@ -1622,7 +1643,8 @@ function TransportBoardInner() {
 
   const viewItems = useMemo(() => {
     const filtered = (deferredItems || []).filter((r) => {
-      const st = normalizeTransportLifecycleStatus(r?.status || r?.data?.status || '');
+      const st = getTransportRowStatus(r);
+      if (isTransportInactiveStatus(st) && activeTab !== 'delivered') return false;
       if (activeTab === 'inbox') return isTransportPrePickupStatus(st);
       if (activeTab === 'loaded') return loadedMode === 'in' ? isTransportToBaseStatus(st) : isTransportDeliveryStatus(st);
       if (activeTab === 'ready') return TRANSPORT_BOARD_READY_STATUSES.has(st);
@@ -1653,14 +1675,14 @@ function TransportBoardInner() {
   }, [session]);
 
   const riplanItems = useMemo(() => {
-    const tid = String(transportId || '').trim();
+    const sessionObj = session || getTransportSession() || {};
     return (items || []).filter((r) => {
-      const st = String(r?.status || '').toLowerCase();
+      const st = getTransportRowStatus(r);
       if (st !== 'riplan') return false;
       if (isAdmin) return true;
-      return String(r?.transport_id || '').trim() === tid;
+      return rowOwnedBySession(r, sessionObj);
     });
-  }, [items, transportId, isAdmin]);
+  }, [items, session, isAdmin]);
 
   const riplanCount = riplanItems.length;
 
