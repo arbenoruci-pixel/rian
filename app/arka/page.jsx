@@ -227,6 +227,17 @@ function isToday(v) {
   const now = isoDay(new Date());
   return !!now && isoDay(v) === now;
 }
+function isMealCoveredForPinToday(row, pin) {
+  const cleanPin = String(pin || '').trim();
+  if (!cleanPin || typeOf(row) !== 'MEAL_COVERED') return false;
+  const status = statusOf(row);
+  if (['REJECTED', 'REFUZUAR'].includes(status)) return false;
+  const targetPin = String(row?.handed_by_pin || '').trim();
+  return targetPin === cleanPin && isToday(row?.created_at || row?.handed_at || row?.updated_at);
+}
+function staffMealCoveredToday(row) {
+  return !!(row?.meal_covered_today || row?.mealCoveredToday || row?.has_meal_today);
+}
 function amountOf(row) {
   return n(row?.amount ?? row?.value ?? row?.total_amount ?? row?.sum);
 }
@@ -640,6 +651,7 @@ export default function ArkaPageV3() {
   const [pendingExpenseApprovals, setPendingExpenseApprovals] = useState([]);
   const [mealOptions, setMealOptions] = useState([]);
   const [selectedMealPins, setSelectedMealPins] = useState([]);
+  const [mealCoworkersOpen, setMealCoworkersOpen] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
   const [busy, setBusy] = useState('');
@@ -842,6 +854,28 @@ export default function ArkaPageV3() {
     handedCashTotal: workerCards.reduce((sum, item) => sum + n(item?.handedCashTotal), 0),
     remainingToHandover: workerCards.reduce((sum, item) => sum + n(item?.remainingToHandover), 0),
   }), [workerCards]);
+
+  const selfMealCoveredToday = useMemo(() => {
+    const pin = String(actor?.pin || '').trim();
+    if (!pin || !workerSnapshot) return false;
+    const rows = [
+      ...(Array.isArray(workerSnapshot?.mealCoveredRows) ? workerSnapshot.mealCoveredRows : []),
+      ...(Array.isArray(workerSnapshot?.extraRows) ? workerSnapshot.extraRows : []),
+    ];
+    return rows.some((row) => isMealCoveredForPinToday(row, pin));
+  }, [actor?.pin, workerSnapshot]);
+
+  const canIncludeSelfMeal = !!workerSnapshot?.hasTodayBasePayment && !selfMealCoveredToday;
+
+  const selectedMealWorkers = useMemo(() => {
+    const selected = new Set((selectedMealPins || []).map((pin) => String(pin || '').trim()).filter(Boolean));
+    return (Array.isArray(mealOptions) ? mealOptions : []).filter((row) => selected.has(String(row?.pin || '').trim()));
+  }, [mealOptions, selectedMealPins]);
+
+  const selectedOpenMealWorkers = useMemo(() => (selectedMealWorkers || []).filter((row) => !staffMealCoveredToday(row)), [selectedMealWorkers]);
+  const selectedCoveredMealWorkers = useMemo(() => (selectedMealWorkers || []).filter((row) => staffMealCoveredToday(row)), [selectedMealWorkers]);
+  const mealSubmitPeopleCount = selectedOpenMealWorkers.length + (canIncludeSelfMeal ? 1 : 0);
+  const mealSubmitTotal = mealSubmitPeopleCount * FOOD_DEDUCTION;
 
   async function loadWorkerView(currentActor) {
     setWorkerCards([]);
@@ -1260,10 +1294,18 @@ export default function ArkaPageV3() {
   }
 
   async function submitMeal() {
-    if (!selectedMealPins.length) return alert('🔴 ZGJIDH SË PAKU NJË KOLEG.');
+    const includeSelf = !!canIncludeSelfMeal;
+    const selectedWorkers = selectedOpenMealWorkers;
+    if (!includeSelf && !selectedWorkers.length) {
+      if (selfMealCoveredToday) return alert('🔴 USHQIMI YT ËSHTË REGJISTRUAR TASHMË SOT.');
+      return alert('🔴 ZGJIDH NJË KOLEG OSE DUHET ME PAS SË PAKU 1 PAGESË BAZË SOT PËR USHQIMIN TËND.');
+    }
+    if (selectedCoveredMealWorkers.length) {
+      const names = selectedCoveredMealWorkers.map((row) => String(row?.name || row?.pin || '').toUpperCase()).filter(Boolean).join(', ');
+      return alert(`🔴 KËTA PUNTORË E KANË USHQIMIN E REGJISTRUAR SOT: ${names}`);
+    }
     try {
       setBusy('meal');
-      const selectedWorkers = mealOptions.filter((row) => selectedMealPins.includes(String(row?.pin || '')));
       await createMealDistributionEntry({
         actor,
         payerPin: actor?.pin,
@@ -1271,10 +1313,11 @@ export default function ArkaPageV3() {
         payerRole: actor?.role,
         coveredWorkers: selectedWorkers,
         amountPerPerson: FOOD_DEDUCTION,
-        includePayerMeal: !!workerSnapshot?.hasTodayBasePayment,
+        includePayerMeal: includeSelf,
         note: 'USHQIM EKIPI',
       });
       setSelectedMealPins([]);
+      setMealCoworkersOpen(false);
       await scheduleManagerMutationRefresh(actor);
       alert('✅ USHQIMI U REGJISTRUA.');
     } catch (e) {
@@ -1310,6 +1353,11 @@ export default function ArkaPageV3() {
   function toggleMealPin(pin) {
     const cleanPin = String(pin || '').trim();
     if (!cleanPin) return;
+    const target = (mealOptions || []).find((row) => String(row?.pin || '').trim() === cleanPin);
+    if (target && staffMealCoveredToday(target)) {
+      alert('🔴 KY PUNTOR E KA TASHMË USHQIMIN E REGJISTRUAR SOT.');
+      return;
+    }
     setSelectedMealPins((current) => current.includes(cleanPin)
       ? current.filter((item) => item !== cleanPin)
       : [...current, cleanPin]);
@@ -1368,34 +1416,49 @@ export default function ArkaPageV3() {
           </div>
 
           <div className="arkaActionPanel">
-            <div className="arkaActionHeader">PAGUAJ USHQIM PËR NJË KOLEG</div>
+            <div className="arkaActionHeader">USHQIMI I DITËS</div>
             <div className="arkaSimpleSub">
-              3€ PËR PERSON. `MEAL PAYMENT` ZBRITET NGA TI. `MEAL COVERED` U DEL KOLEGËVE VETËM SI EVIDENCË.
+              3€ PËR PERSON. USHQIMI YT ZBRITET NGA TI. KOLEGËT HAPEN VETËM KUR DO ME PAGU PËR DIKË TJETËR.
             </div>
             <div className="arkaWorkerFoot muted" style={{ marginTop: 8 }}>
-              <span>AUTO PËR TY: {workerSnapshot.hasTodayBasePayment ? 'PO, KE SË PAKU 1 PAGESË BAZË SOT' : 'JO, S’KE PAGESË BAZË SOT'}</span>
-              <span>ZGJIDH KOLEGËT POSHTË</span>
+              <span>USHQIMI YT: {selfMealCoveredToday ? 'I REGJISTRUAR SOT' : (workerSnapshot.hasTodayBasePayment ? 'GATI PËR RUAJTJE' : 'KËRKON PAGESË BAZË SOT')}</span>
+              <button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => setMealCoworkersOpen((v) => !v)}>
+                {mealCoworkersOpen ? 'MBYLLE KOLEGËT' : '+ SHTO USHQIM PËR KOLEG'}
+              </button>
             </div>
-            <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-              {mealOptions.length ? mealOptions.map((row) => {
-                const pin = String(row?.pin || '').trim();
-                const checked = selectedMealPins.includes(pin);
-                return (
-                  <label key={pin} className="arkaPendingRow" style={{ cursor: 'pointer' }}>
-                    <div>
-                      <div className="arkaPendingName">{String(row?.name || pin).toUpperCase()}</div>
-                      <div className="arkaPendingMeta">PIN {pin} • {row?.active_today ? 'AKTIV SOT' : 'JO AKTIV SOT'}</div>
-                    </div>
-                    <div className="arkaPendingRight">
-                      <input type="checkbox" checked={checked} onChange={() => toggleMealPin(pin)} />
-                    </div>
-                  </label>
-                );
-              }) : <div className="arkaEmpty">S’KA KOLEGË PËR T’U PËRFSHIRË.</div>}
-            </div>
+
+            {mealCoworkersOpen ? (
+              <>
+                <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                  {mealOptions.length ? mealOptions.map((row) => {
+                    const pin = String(row?.pin || '').trim();
+                    const checked = selectedMealPins.includes(pin);
+                    const alreadyCovered = staffMealCoveredToday(row);
+                    return (
+                      <label key={pin} className="arkaPendingRow" style={{ cursor: alreadyCovered ? 'not-allowed' : 'pointer', opacity: alreadyCovered ? 0.55 : 1 }}>
+                        <div>
+                          <div className="arkaPendingName">{String(row?.name || pin).toUpperCase()}</div>
+                          <div className="arkaPendingMeta">PIN {pin} • {row?.active_today ? 'AKTIV SOT' : 'JO AKTIV SOT'}{alreadyCovered ? ' • USHQIMI U REGJISTRUA SOT' : ''}</div>
+                        </div>
+                        <div className="arkaPendingRight">
+                          <input type="checkbox" disabled={alreadyCovered} checked={checked && !alreadyCovered} onChange={() => toggleMealPin(pin)} />
+                        </div>
+                      </label>
+                    );
+                  }) : <div className="arkaEmpty">S’KA KOLEGË PËR T’U PËRFSHIRË.</div>}
+                </div>
+                <div className="arkaWorkerFoot" style={{ marginTop: 12 }}>
+                  <span>TË ZGJEDHUR: {selectedOpenMealWorkers.length}</span>
+                  <span>{selectedCoveredMealWorkers.length ? `TË BLLOKUAR: ${selectedCoveredMealWorkers.length}` : ''}</span>
+                </div>
+              </>
+            ) : null}
+
             <div className="arkaWorkerFoot" style={{ marginTop: 12 }}>
-              <span>TË ZGJEDHUR: {selectedMealPins.length}</span>
-              <button type="button" className="arkaSolidBtn" disabled={!!busy || !selectedMealPins.length} onClick={submitMeal}>{busy === 'meal' ? '...' : `RUAJ USHQIMIN • ${euro((selectedMealPins.length + (workerSnapshot.hasTodayBasePayment ? 1 : 0)) * FOOD_DEDUCTION)}`}</button>
+              <span>{mealSubmitPeopleCount ? `${mealSubmitPeopleCount} PERSONA` : 'ASNJË PËR RUAJTJE'}</span>
+              <button type="button" className="arkaSolidBtn" disabled={!!busy || mealSubmitPeopleCount <= 0} onClick={submitMeal}>
+                {busy === 'meal' ? '...' : `${selectedOpenMealWorkers.length ? 'RUAJ USHQIMIN' : 'RUAJ USHQIMIN TIM'} • ${euro(mealSubmitTotal)}`}
+              </button>
             </div>
           </div>
 
