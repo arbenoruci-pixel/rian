@@ -101,6 +101,10 @@ function isTransportInactiveStatus(value = '') {
   return TRANSPORT_BOARD_INACTIVE_STATUSES.has(normalizeTransportLifecycleStatus(value));
 }
 
+function isTransportDoneStatus(value = '') {
+  return TRANSPORT_BOARD_DONE_STATUSES.has(normalizeTransportLifecycleStatus(value));
+}
+
 function isTransportPrePickupStatus(value = '') {
   return TRANSPORT_BOARD_PRE_PICKUP_STATUSES.has(normalizeTransportLifecycleStatus(value));
 }
@@ -167,6 +171,7 @@ function pruneTransportBoardCacheRows(rows = [], authoritativeRows = []) {
     if (dbStatus && dbStatus !== ownStatus) {
       if (isTransportBaseOnlyStatus(dbStatus) || TRANSPORT_BOARD_READY_STATUSES.has(dbStatus) || isTransportInactiveStatus(dbStatus)) return false;
     }
+    if (isTransportDoneStatus(ownStatus)) return true;
     return isTransportBoardVisibleStatus(ownStatus);
   });
 }
