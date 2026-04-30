@@ -1178,42 +1178,79 @@ function PranimiPageInner() {
           setSavingContinue(false);
       }
   }
-  async function persistTransportPaymentState({ nextPaid, nextArkaRecordedPaid, totalEuroOverride }) {
+  async function persistTransportPaymentState({ nextPaid, nextArkaRecordedPaid, totalEuroOverride, paymentActor = null } = {}) {
       if (!isEdit || !oid) return { ok: true, skipped: true };
+      const nowIso = new Date().toISOString();
       const totalToSave = Number(totalEuroOverride ?? totalEuro ?? 0);
+      const currentOrder = await fetchTransportOrderById(oid).catch(() => null);
+      const currentData = (currentOrder?.data && typeof currentOrder.data === 'object' && !Array.isArray(currentOrder.data)) ? currentOrder.data : {};
+      const currentClient = (currentData?.client && typeof currentData.client === 'object' && !Array.isArray(currentData.client)) ? currentData.client : {};
+      const terminalStatus = 'done';
+      const paymentPin = String(paymentActor?.pin || actor?.pin || me?.transport_pin || me?.pin || currentData?.driver_pin || currentData?.transport_pin || '').trim();
+      const paymentName = String(paymentActor?.name || me?.name || me?.full_name || me?.username || currentData?.driver_name || currentData?.transport_name || '').trim();
+      const assignedTransportId = String(
+          currentData?.transport_id ||
+          currentData?.transport_user_id ||
+          currentData?.assigned_driver_id ||
+          currentOrder?.transport_id ||
+          ((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid) ||
+          ''
+      ).trim();
+      const assignedTransportPin = String(currentData?.transport_pin || currentData?.driver_pin || paymentPin || '').trim();
+      const assignedTransportName = String(currentData?.transport_name || currentData?.driver_name || paymentName || '').trim();
       const nextData = {
+          ...currentData,
           client: {
-              id: clientId || null,
-              tcode: String((clientTcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim(),
+              ...currentClient,
+              id: clientId || currentClient?.id || null,
+              tcode: String((clientTcode || currentClient?.tcode || currentClient?.code || normalizeTcode(codeRaw)) || '').toUpperCase().trim(),
               name,
               phone: phonePrefix + phone,
-              code: String((clientTcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim(),
-              photoUrl: clientPhotoUrl,
-              address: addressDesc,
-              gps: { lat: gpsLat || null, lng: gpsLng || null },
+              code: String((clientTcode || currentClient?.code || currentClient?.tcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim(),
+              photoUrl: clientPhotoUrl || currentClient?.photoUrl || '',
+              address: addressDesc || currentClient?.address || '',
+              gps: { lat: gpsLat || currentClient?.gps?.lat || null, lng: gpsLng || currentClient?.gps?.lng || null },
           },
           tepiha: tepihaRows,
           staza: stazaRows,
           shkallore: { qty: stairsQty, per: stairsPer, photoUrl: stairsPhotoUrl },
           pay: {
+              ...(currentData?.pay && typeof currentData.pay === 'object' && !Array.isArray(currentData.pay) ? currentData.pay : {}),
               m2: totalM2,
               euro: totalToSave,
               paid: Number(nextPaid || 0),
               rate: Number(pricePerM2) || PRICE_DEFAULT,
               arkaRecordedPaid: Number(nextArkaRecordedPaid || 0),
           },
+          totals: {
+              ...(currentData?.totals && typeof currentData.totals === 'object' && !Array.isArray(currentData.totals) ? currentData.totals : {}),
+              grandTotal: totalToSave,
+          },
           notes,
-          transport_id: (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid,
-          created_by_pin: actor?.pin || null,
-          created_by_role: actor?.role || null,
-          gps_lat: gpsLat || null,
-          gps_lng: gpsLng || null,
+          status: terminalStatus,
+          state: terminalStatus,
+          delivered_at: nowIso,
+          done_at: nowIso,
+          delivered_by_transport_id: assignedTransportId || currentData?.delivered_by_transport_id || '',
+          delivered_by_pin: paymentPin || currentData?.delivered_by_pin || null,
+          delivered_by_name: paymentName || currentData?.delivered_by_name || null,
+          transport_id: assignedTransportId || currentData?.transport_id || '',
+          transport_user_id: currentData?.transport_user_id || assignedTransportId || '',
+          assigned_driver_id: currentData?.assigned_driver_id || assignedTransportId || '',
+          transport_pin: assignedTransportPin || null,
+          driver_pin: currentData?.driver_pin || assignedTransportPin || null,
+          transport_name: assignedTransportName || null,
+          driver_name: currentData?.driver_name || assignedTransportName || null,
+          created_by_pin: currentData?.created_by_pin || actor?.pin || null,
+          created_by_role: currentData?.created_by_role || actor?.role || null,
+          gps_lat: gpsLat || currentData?.gps_lat || null,
+          gps_lng: gpsLng || currentData?.gps_lng || null,
       };
-      nextData.totals = { grandTotal: totalToSave };
       await updateTransportOrderById(oid, {
         client_name: name,
         client_phone: sanitizePhone(phonePrefix + phone),
-        status: 'done',
+        status: terminalStatus,
+        updated_at: nowIso,
         data: nextData,
       });
       return { ok: true };
@@ -1248,6 +1285,7 @@ function PranimiPageInner() {
           nextPaid,
           nextArkaRecordedPaid,
           totalEuroOverride: totalEuro,
+          paymentActor: pinData,
         });
       } catch (e) {
         alert('Gabim gjatë ruajtjes së pagesës: ' + (e?.message || ''));
