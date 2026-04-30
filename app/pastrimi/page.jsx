@@ -182,6 +182,7 @@ function readPastrimRowsFromPageSnapshot() {
 function persistPastrimPageSnapshot(rows = [], meta = {}) {
   try {
     const cleanRows = dedupePastrimRows((Array.isArray(rows) ? rows : []).map((row) => normalizeRenderableOrderRow(row)))
+      .filter((row) => shouldShowTransportBridgeInPastrim(row))
       .map((row) => {
         const next = row && typeof row === 'object' ? { ...row } : row;
         if (next && typeof next === 'object') {
@@ -654,6 +655,39 @@ function rowsOverlapPastrimCanonical(a, b) {
   return aTokens.some((t) => bSet.has(t));
 }
 
+function isSamePastrimTransportRow(a, b) {
+  if (!isPastrimTransportScopedRow(a) && !isPastrimTransportScopedRow(b)) return false;
+  if (rowsOverlapPastrimCanonical(a, b)) return true;
+  const aCode = getPastrimTransportCode(a);
+  const bCode = getPastrimTransportCode(b);
+  return !!aCode && !!bCode && aCode === bCode;
+}
+
+function removePastrimTransportRowsFromPageSnapshot(target, reason = 'transport_pastrim_cleanup') {
+  try {
+    if (!isPastrimTransportScopedRow(target)) return;
+    const snapshot = readPageSnapshot('pastrimi');
+    const rows = Array.isArray(snapshot?.rows) ? snapshot.rows : [];
+    if (!rows.length) return;
+    const normalizedTarget = normalizeRenderableOrderRow({
+      ...(target && typeof target === 'object' ? target : {}),
+      source: target?.source || 'transport_orders',
+      _table: target?._table || target?.table || 'transport_orders',
+    });
+    const filteredRows = rows.filter((row) => !isSamePastrimTransportRow(normalizeRenderableOrderRow(row), normalizedTarget));
+    if (filteredRows.length === rows.length) return;
+    if (filteredRows.length > 0) {
+      writePageSnapshot('pastrimi', filteredRows, {
+        ...(snapshot?.meta && typeof snapshot.meta === 'object' ? snapshot.meta : {}),
+        source: reason,
+        count: filteredRows.length,
+      });
+    } else {
+      clearPageSnapshot('pastrimi');
+    }
+  } catch {}
+}
+
 function choosePastrimWinner(existing, incoming) {
   if (!existing) return incoming;
   if (!incoming) return existing;
@@ -709,11 +743,63 @@ function isTransportScopedRow(row) {
   return isPastrimTransportScopedRow(row);
 }
 
+function asPastrimObj(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function collectTransportStatusSourcesForPastrim(row) {
+  const base = asPastrimObj(row);
+  const data = asPastrimObj(base?.data);
+  const fullOrder = asPastrimObj(base?.fullOrder);
+  const fullOrderData = asPastrimObj(fullOrder?.data);
+  const unwrappedData = unwrapOrderData(data);
+  const unwrappedFullOrder = unwrapOrderData(fullOrder);
+  const transportNodes = [
+    base?.transport, base?.transport_meta, base?.transportOrder,
+    data?.transport, data?.transport_meta, data?.transportOrder,
+    fullOrder?.transport, fullOrder?.transport_meta, fullOrder?.transportOrder,
+    fullOrderData?.transport, fullOrderData?.transport_meta, fullOrderData?.transportOrder,
+    unwrappedData?.transport, unwrappedData?.transport_meta, unwrappedData?.transportOrder,
+    unwrappedFullOrder?.transport, unwrappedFullOrder?.transport_meta, unwrappedFullOrder?.transportOrder,
+  ].map(asPastrimObj);
+
+  const rawStatuses = [
+    base?.status,
+    data?.status,
+    fullOrder?.status,
+    fullOrderData?.status,
+    unwrappedData?.status,
+    unwrappedFullOrder?.status,
+    ...transportNodes.map((node) => node?.status),
+  ];
+
+  return Array.from(new Set(rawStatuses
+    .map((status) => normalizeTransportPastrimStatus(status))
+    .filter(Boolean)));
+}
+
+function getTransportEffectiveStatusForPastrim(row) {
+  const statuses = collectTransportStatusSourcesForPastrim(row);
+  return statuses.find((status) => TRANSPORT_PASTRIMI_BLOCKED_STATUS_SET.has(status))
+    || statuses.find((status) => TRANSPORT_PASTRIMI_STATUS_SET.has(status))
+    || statuses[0]
+    || '';
+}
+
+function transportRowAllowedInPastrim(row) {
+  if (!isTransportScopedRow(row)) return true;
+  const statuses = collectTransportStatusSourcesForPastrim(row);
+  if (statuses.some((status) => TRANSPORT_PASTRIMI_BLOCKED_STATUS_SET.has(status))) return false;
+  return statuses.some((status) => TRANSPORT_PASTRIMI_STATUS_SET.has(status));
+}
+
 function shouldShowTransportBridgeInPastrim(row) {
   if (!isTransportScopedRow(row)) return true;
+  if (!transportRowAllowedInPastrim(row)) return false;
+  const effectiveStatus = getTransportEffectiveStatusForPastrim(row);
   return isTransportBridgeReadyForBase({
     ...(row && typeof row === 'object' ? row : {}),
-    status: row?.status || row?.fullOrder?.status || row?.data?.status || '',
+    status: effectiveStatus,
     data: row?.fullOrder || row?.data || row,
   });
 }
@@ -755,6 +841,8 @@ function normalizeStatus(s){
 
 const TRANSPORT_PASTRIMI_STATUSES = ['pastrim', 'pastrimi', 'at_base', 'in_base', 'base'];
 const TRANSPORT_PASTRIMI_STATUS_SET = new Set(TRANSPORT_PASTRIMI_STATUSES.map((x) => normalizeStatus(x)));
+const TRANSPORT_PASTRIMI_BLOCKED_STATUSES = ['gati', 'ready', 'done', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar', 'canceled', 'cancelled', 'failed'];
+const TRANSPORT_PASTRIMI_BLOCKED_STATUS_SET = new Set(TRANSPORT_PASTRIMI_BLOCKED_STATUSES.map((x) => normalizeStatus(x)));
 
 function normalizeTransportPastrimStatus(status = '') {
   const st = normalizeStatus(status);
@@ -984,7 +1072,15 @@ function buildPendingOutboxPastrimRows() {
         const rawPayload = it?.payload && typeof it.payload === 'object' ? it.payload : {};
         const table = String(it?.table || rawPayload?.table || rawPayload?._table || '').trim();
         const p = table === 'transport_orders' ? rawPayload : unwrapPayload(rawPayload);
-        if (table === 'transport_orders' && !isTransportBridgeReadyForBase(p)) return null;
+        if (table === 'transport_orders' && !shouldShowTransportBridgeInPastrim({
+          ...(p && typeof p === 'object' ? p : {}),
+          status: p?.status || rawPayload?.status || p?.data?.status || '',
+          data: p?.data || p,
+          fullOrder: p?.data || p,
+          table,
+          _table: table,
+          source: 'OUTBOX',
+        })) return null;
         const view = p?.data && typeof p.data === 'object' ? p.data : p;
         const codeKey = view?.client?.code ?? view?.client?.tcode ?? p.code ?? p.code_str ?? p.code_n ?? p.order_code ?? p.client?.code ?? p.client_tcode ?? p.client_code ?? null;
         const m2 = computeM2(view);
@@ -1232,7 +1328,7 @@ async function recoverExactPastrimRow(openId, options = {}) {
         });
       });
       const merged = dedupePastrimRows([...(Array.isArray(cacheRows) ? cacheRows : []), ...(Array.isArray(pendingRows) ? pendingRows : []), ...(Array.isArray(localRows) ? localRows : [])]);
-      return merged.find((row) => String(row?.id || row?.dbId || '').trim() == exactId) || null;
+      return merged.find((row) => String(row?.id || row?.dbId || '').trim() == exactId && shouldShowTransportBridgeInPastrim(row)) || null;
     } catch {
       return null;
     }
@@ -2141,7 +2237,11 @@ function PastrimiPageInner() {
             })
           : [];
         const status = normalizeStatus(row?.status);
-        if (status !== 'pastrim' && status !== 'pastrimi') return base;
+        if (sourceTable === 'transport_orders') {
+          if (!shouldShowTransportBridgeInPastrim(nextRow)) return base;
+        } else if (status !== 'pastrim' && status !== 'pastrimi') {
+          return base;
+        }
         const merged = [nextRow, ...base]
           .filter((item) => Number(item?.cope || 0) > 0 || Number(item?.m2 || 0) > 0 || String(item?.name || '').trim() !== '')
           .sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
@@ -2221,7 +2321,9 @@ function PastrimiPageInner() {
         const fallbackRows = dedupePastrimRows([
           ...(Array.isArray(readPastrimRowsFromPageSnapshot()) ? readPastrimRowsFromPageSnapshot() : []),
           ...(Array.isArray(offlineRows) ? offlineRows : []),
-        ]).filter((row) => row?.cope > 0 || row?.m2 > 0 || (row?.name && String(row.name).trim() !== ''));
+        ])
+          .filter((row) => shouldShowTransportBridgeInPastrim(row))
+          .filter((row) => row?.cope > 0 || row?.m2 > 0 || (row?.name && String(row.name).trim() !== ''));
         fallbackRows.sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
 
         setReadyCountHint(fallbackRows.length);
@@ -2430,7 +2532,7 @@ function PastrimiPageInner() {
 
       if (exactSearchMode && /^\d+$/.test(String(openId || '').trim()) && !cleanOrders.some((row) => String(row?.id || row?.dbId || '').trim() === String(openId || '').trim())) {
         const recoveredExactRow = await recoverExactPastrimRow(openId, { skipNetwork: !isDocumentVisible() && hiddenSearchBootRef.current });
-        if (recoveredExactRow) {
+        if (recoveredExactRow && shouldShowTransportBridgeInPastrim(recoveredExactRow)) {
           cleanOrders = dedupePastrimRows([recoveredExactRow, ...cleanOrders]).sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
           setExactRecoveredRow(recoveredExactRow);
           try {
@@ -2792,6 +2894,19 @@ Shoferi u njoftua në listën e tij.`);
       if (table === 'orders') {
         try { patchBaseMasterRow(optimisticReadyRow); } catch {}
       }
+      if (table === 'transport_orders') {
+        const readyTransportTarget = normalizeRenderableOrderRow({
+          ...(o && typeof o === 'object' ? o : {}),
+          status: 'gati',
+          data: updatedJson,
+          fullOrder: updatedJson,
+          source: 'transport_orders',
+          table: 'transport_orders',
+          _table: 'transport_orders',
+        });
+        removePastrimTransportRowsFromPageSnapshot(readyTransportTarget, 'mark_ready_transport_cleanup');
+        setOrders((prev) => (Array.isArray(prev) ? prev : []).filter((item) => !isSamePastrimTransportRow(item, readyTransportTarget)));
+      }
 
       await refreshOrders({ force: true, source: 'mark_ready_success' });
       scheduleRackMapRefresh(1800);
@@ -3054,14 +3169,14 @@ BORXHI PAS: ${remaining.toFixed(2)}€
 
   // ==== UI LIST (MAIN) ====
   const visibleOrders = useMemo(() => {
-    const list = Array.isArray(orders) ? orders : [];
+    const list = (Array.isArray(orders) ? orders : []).filter((row) => shouldShowTransportBridgeInPastrim(row));
 
     if (exactSearchMode && openId && !exactSearchTimedOut) {
       const exactList = list.filter((o) => {
         return String(o?.id || '').trim() === openId || String(o?.dbId || '').trim() === openId;
       });
       if (exactList.length > 0) return exactList;
-      if (exactRecoveredRow && (String(exactRecoveredRow?.id || '').trim() === openId || String(exactRecoveredRow?.dbId || '').trim() === openId)) {
+      if (exactRecoveredRow && shouldShowTransportBridgeInPastrim(exactRecoveredRow) && (String(exactRecoveredRow?.id || '').trim() === openId || String(exactRecoveredRow?.dbId || '').trim() === openId)) {
         return [exactRecoveredRow];
       }
       return [];
