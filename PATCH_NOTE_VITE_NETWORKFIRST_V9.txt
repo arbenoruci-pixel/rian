@@ -1,0 +1,30 @@
+PATCH: VITE NETWORKFIRST V9
+Version: 2.0.12-vite-networkfirst-v9
+Epoch: RESET-2026-04-25-VITE-NETWORKFIRST-V9
+
+Deep scan result:
+- No duplicate app/**/page.jsx route files were found.
+- No duplicate paths were found in src/generated/routes.generated.jsx.
+- /pranimi, /pastrimi, /gati, and /marrje-sot are mapped to eagerElement in src/generated/routes.generated.jsx.
+- The /pastrimi safe_lazy_route_shell error is therefore not coming from a second source route in this ZIP.
+
+Root cause found:
+- vite.config.js was still using StaleWhileRevalidate for business navigation routes.
+- On iOS PWA after deploy, that can serve an older cached HTML document for /pastrimi first.
+- That older cached HTML can load an older index asset where /pastrimi was still SafeLazyRouteShell, producing the error:
+  sourceLayer: safe_lazy_route_shell
+  moduleName: @/app/pastrimi/page.jsx
+
+Fix:
+- Changed business route navigation caching from StaleWhileRevalidate to NetworkFirst with a 4 second timeout.
+- Bumped runtime cache buckets to v9.
+- Added early index cleanup for old tepiha-vite runtime caches v6/v7/v8 without reloading and without touching local app data.
+- Protected public/sw.js legacy cleanup so old /sw.js does not delete active tepiha-vite Workbox caches.
+
+Not touched:
+- DB
+- Supabase
+- orders
+- outbox
+- sync/write flow
+- business logic

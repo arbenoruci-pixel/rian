@@ -1,0 +1,3 @@
+This package keeps app/api as the API source tree.
+The duplicate root api/ directory was removed.
+Top-level structure is no-root and clean for patching or repo upload.

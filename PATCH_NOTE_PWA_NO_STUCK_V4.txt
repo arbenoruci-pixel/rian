@@ -1,0 +1,39 @@
+PWA NO-STUCK V4
+Build: 2.0.7-pwa-no-stuck-v4
+Epoch: RESET-2026-04-25-PWA-NO-STUCK-V4
+
+Qellimi:
+Ndalo bllokimin e iOS Homescreen/PWA pas deploy-it kur kapet stale Service Worker/chunk mismatch pas kthimit nga background.
+
+Ndryshime:
+1. components/ServiceWorkerRegister.jsx
+   - U hoq update check ne visibilitychange.
+   - U hoq intervali 1h per registration.update().
+   - registration.update() lejohet vetem nje here ne clean launch/manual update launch.
+   - Update available shfaqet si banner i vogel me buton manual, pa e mbuluar app-in.
+
+2. index.html
+   - SW epoch/cache mismatch regjistrohet si passive update.
+   - Nuk ka auto-repair dhe nuk ka auto-reload ne mismatch.
+   - Boot rescue mbetet vetem si ekran shpëtimi kur React nuk montohet fare, me butona manual.
+
+3. src/generated/routes.generated.jsx
+   - Route-t kritike u kthyen ne static/eager imports:
+     /pranimi, /pastrimi, /gati, /marrje-sot, /arka, /transport, /transport/board.
+
+4. public/sw.js
+   - U hoq clients.claim() ne activate qe SW i ri te mos marre kontrollin e dritareve aktive gjate session-it.
+
+5. public/pwa-repair.html
+   - Repair manual hap app-in me __manual_update.
+
+6. src/AppRoot.jsx, lib/appEpoch.js, package.json
+   - U perditesuan marker-at/versionet ne NO-STUCK V4.
+
+Nuk u preken:
+- DB
+- Supabase
+- orders
+- outbox
+- write flow
+- business logic

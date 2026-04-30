@@ -1,0 +1,29 @@
+AUTHGATE-ONLY RE-ENABLE TEST
+
+Qellimi:
+- Me kthy VETEM AuthGate post-boot listeners
+- Me lane ende OFF motorët tjerë runtime nga patch-i minimalist
+
+Qka mbetet minimal:
+- BootReadyMark OFF
+- ServiceWorkerRegister OFF
+- OfflineSyncRunner OFF
+- SyncStarter OFF
+- SessionDock OFF
+- critical routes eager
+- home safe flags default true
+
+Qka kthehet ON:
+- AuthGate post-boot listeners:
+  - storage
+  - focus
+  - pageshow
+  - online
+  - visibilitychange
+  - startup isolation retry flow
+
+Log clue i ri:
+- authgate_postboot_listeners_enabled
+
+Leximi i testit:
+- nese problemi kthehet me kete patch, AuthGate post-boot churn eshte suspect #1.

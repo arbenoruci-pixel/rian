@@ -1,0 +1,13 @@
+PATCH C2 — Restore Home Design, Keep Fast Boot
+Version: 2.0.16-vite-fast-home-design-restore-v13
+Epoch: RESET-2026-04-25-VITE-FAST-HOME-DESIGN-RESTORE-V13
+
+Scope:
+- Restores Home visual design closer to the pre-V12 TEPIHA Home: TEPIHA PRO header, old dark cards, old icons, old search block, old module spacing.
+- Keeps V12 fast-boot principle: no Supabase/counts/sync/SW wait in Home initial render.
+- Keeps AppRoot runtime delay changes untouched.
+- Hides the normal visible build marker and removes the old visible V9 rescue label.
+- Bumps Workbox/cache buckets to V13.
+
+Not touched:
+- DB, Supabase schema, orders logic, outbox/write format, payments, status flow, critical route mode.

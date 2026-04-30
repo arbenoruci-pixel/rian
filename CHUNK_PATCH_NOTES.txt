@@ -1,0 +1,24 @@
+CHUNK / LAZY IMPORT PATCH
+
+Target: active Vite + React Router runtime
+
+What changed:
+- Added early inline chunk/module error capture in index.html
+- Added runtime listener that handles controlled recovery requests
+- Added lazy import telemetry for route-level and next-dynamic imports
+- Extended chunk-like error detection to Vite/Safari messages
+- Upgraded active GlobalErrorBoundary to treat chunk failures specially
+
+Changed files:
+- index.html
+- src/AppRoot.jsx
+- src/generated/routes.generated.jsx
+- src/shims/next-dynamic.jsx
+- components/GlobalErrorBoundary.jsx
+- components/ChunkLoadRuntime.jsx
+- lib/globalErrors.js
+- lib/lazyImportRuntime.js
+
+Notes:
+- app/layout.jsx is legacy/inactive in this repo, so instrumentation had to go into index.html + AppRoot runtime.
+- This patch focuses on exact chunk failure capture + controlled reload, not auth/login logic.

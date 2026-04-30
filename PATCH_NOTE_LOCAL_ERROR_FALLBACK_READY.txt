@@ -1,0 +1,23 @@
+LOCAL ERROR FALLBACK READY PATCH
+
+Scope:
+- Runtime/UI safety only.
+- No DB changes.
+- No write flow changes.
+- No outbox format changes.
+- No business logic changes.
+
+Changed:
+- components/LocalErrorBoundary.jsx
+
+What changed:
+- When a LocalErrorBoundary fallback becomes visible, it now marks the route as alive/ready.
+- Emits route_ui_alive with reason: local_error_fallback_visible.
+- Emits route_ui_ready with reason: local_error_fallback_visible.
+- Marks first_ui_ready only if UI ready has not already happened.
+- Sets data-ui-ready="1" / window.__TEPIHA_UI_READY=true when local error fallback is visible.
+- Keeps local error panel copy/retry/home behavior unchanged.
+
+Goal:
+- Watchdog should not treat a visible local error panel as black screen.
+- Route/module errors remain local and visible.

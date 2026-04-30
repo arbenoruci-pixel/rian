@@ -1,0 +1,10 @@
+BLACKSCREEN PATCH (NO ROOT FOLDER)
+
+Included fixes:
+1. Critical routes switched from lazy to eager imports to reduce mixed-generation chunk failures on startup/open.
+2. BootReadyMark now waits until route fallback is gone before marking UI ready.
+3. globalErrors now treats visible route fallback as NOT ready.
+4. Service worker no longer forces immediate takeover/purge on register.
+5. Added route-alive coverage to login/pranimi/transport login/transport pranimi.
+
+Files included only where changed.

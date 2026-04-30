@@ -1,0 +1,19 @@
+VITE CORE EAGER V8
+
+Fixes the SafeLazyRouteShell stuck screen on the daily base routes.
+
+Changes:
+- Version aligned to 2.0.11-vite-core-eager-v8 / RESET-2026-04-25-VITE-CORE-EAGER-V8.
+- /pranimi, /pastrimi, /gati, and /marrje-sot are static/eager again, so workers do not get stuck at the local shell while a dynamic route chunk hangs after deploy.
+- ARKA and TRANSPORT remain SafeLazyRouteShell to avoid making initial boot too heavy.
+- SafeLazyRouteShell now has a 9s import timeout so any remaining lazy route cannot stay forever at DUKE HAPUR FAQEN.
+- OfflineFirstWarmup no longer dynamically imports the four base daily routes and starts later to reduce iOS PWA boot pressure.
+- Tiny non-blocking version marker is visible for verification, without the large bottom banner.
+
+Not touched:
+- DB
+- Supabase
+- orders
+- outbox
+- sync/write flow
+- business logic

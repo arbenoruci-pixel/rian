@@ -1,0 +1,55 @@
+PATCH: RUNTIME CORE V1 — AppRoot safety modules removed from lazy chunks
+
+Scope:
+- No DB changes
+- No write flow changes
+- No outbox/offline mutation format changes
+- Runtime/boot/diagnostic layer only
+
+Changed:
+1. src/AppRoot.jsx
+- ChunkLoadRuntime, RootResumeWatchdog, and ServiceWorkerRegister are now static imports in AppRoot.
+- These critical runtime safety modules no longer use SafeRuntimeLazy / React.lazy.
+- Added CoreRuntimeModule wrapper with LocalErrorBoundary so a runtime component error is isolated locally instead of collapsing the whole app.
+- Non-critical runtime lazy modules still use SafeRuntimeLazy, now with auto retry at 300ms and 1200ms before local fallback.
+- Runtime failures are recorded to:
+  - tepiha_app_root_runtime_failure_last_v1
+  - tepiha_app_root_runtime_failure_log_v1
+  - window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__
+
+2. components/RootResumeWatchdog.jsx
+- Removed dependency on lib/resumeGate from the critical root runtime path.
+- Inlined noteHiddenAt() locally so RootResumeWatchdog does not depend on the shared resumeGate lazy/shared chunk.
+
+3. components/LocalErrorBoundary.jsx
+- Added onError callback support.
+- Added optional repairHref / repairLabel action.
+- Runtime module fallback can now show RIPARO APP linking to /pwa-repair.html?from=runtime_import_failure.
+
+4. index.html
+- Added inline, no-React runtime import fallback.
+- If a module script fails before UI is ready, app shows an inline dark fallback instead of leaving a black screen.
+- Fallback includes:
+  - PROVO PËRSËRI
+  - RIPARO APP -> /pwa-repair.html?from=runtime_import_failure
+- Added runtime failure persistence compatible with /diag-raw.
+
+5. src/generated/routes.generated.jsx
+- /diag-raw now shows:
+  - appRootRuntimeStatus
+  - appRootRuntimeFailureLast
+  - appRootRuntimeFailureLog
+  - appRootRuntimeLazyFailures
+  - appRootRuntimeFailedModuleNames
+  - appRootRuntimeLastFailedAssetUrl
+  - criticalRuntimeBundleMode
+
+6. Epoch/version bump
+- APP_DATA_EPOCH: RESET-2026-04-24-RUNTIME-CORE-V1
+- package/build id: 2.0.2-runtime-core-v1
+- SW label: sw-runtime-core-v1
+
+Verification performed:
+- Parsed modified JSX files with @babel/parser successfully.
+- Parsed inline index.html scripts successfully.
+- Full vite build was attempted, but the container build process did not complete within the available execution timeout during the transform phase.

@@ -1,0 +1,15 @@
+PATCH V33 — READINESS CHAIN FIX + DIAG RAW VISUAL INCIDENTS
+Version: 2.0.40-vite-readiness-chain-diag-v33
+Epoch: RESET-2026-04-27-VITE-READINESS-CHAIN-DIAG-V33
+
+Scope:
+- lib/routeAlive.js no longer marks UI ready from route mount/focus/visibility events.
+- RouteLifecycleProbe no longer trusts raw data-ui-ready without a trusted source or DOM verification.
+- /diag-raw now includes V32-DIAG visual incident localStorage snapshots.
+- Page-level Suspense fallback={null} replaced with minimal dark fallback on selected routes.
+
+Not touched:
+DB schema, Supabase tables, orders payload, outbox format, payment/status logic, Pastrimi->Gati flow, ARKA calculations, business localStorage keys, IndexedDB, Service Worker activation behavior.
+
+Build note:
+npm run build could not complete in this sandbox because node_modules/vite was not installed. npm ci also could not complete from cache due missing cached dependency. Run npm ci && npm run build in the deployment environment.

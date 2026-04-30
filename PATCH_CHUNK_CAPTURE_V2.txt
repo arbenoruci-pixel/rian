@@ -1,0 +1,9 @@
+Patched files:
+- index.html
+- lib/lazyImportRuntime.js
+- lib/globalErrors.js
+- components/RuntimeIncidentUploader.jsx
+- components/GlobalErrorBoundary.jsx
+- components/ChunkLoadRuntime.jsx
+
+Verified: npm run build passed locally after patch.

@@ -1,0 +1,11 @@
+PATCH C — Home Fast Boot / First Paint Stabilization
+Version: 2.0.15-vite-fast-home-v12
+Epoch: RESET-2026-04-25-VITE-FAST-HOME-V12
+
+Scope:
+- Home static shell renders immediately with buttons, version marker, online/offline status, and search handoff.
+- AppRoot renders routes before runtime modules.
+- Runtime modules are delayed and isolated behind local runtime lazy boundaries.
+- Index cache inventory is delayed until after load/paint.
+- Offline warmup skips eager daily routes and starts only after Home/ui-ready or timeout.
+- No DB/schema/orders/outbox/payment/status business logic changed.

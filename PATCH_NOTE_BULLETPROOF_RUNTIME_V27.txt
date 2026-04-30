@@ -1,0 +1,27 @@
+PATCH O / V27 — Bulletproof Runtime Final Pass
+
+Version:
+2.0.32-vite-bulletproof-runtime-v27
+
+Epoch:
+RESET-2026-04-26-VITE-BULLETPROOF-RUNTIME-V27
+
+Scope:
+Runtime/PWA hardening only. No DB, Supabase schema, orders, outbox, payment/status, Pastrimi→Gati business flow, ARKA calculations, design, business localStorage, or IndexedDB changes.
+
+Changes:
+1. Fixed index.html __TEPIHA_PWA_STALENESS_REPAIR__ broken clearRuntimeCaches reference.
+2. Runtime import fallback overlay now auto-dismisses on tepiha:first-ui-ready or tepiha:route-ui-alive.
+3. PWA SW epoch mismatch launch path now uses maybeShowFallback instead of direct showFallback.
+4. Removed html from Workbox globPatterns to reduce stale index/shell precache risk.
+5. Excluded /vite-sw.js from Vercel SPA rewrite.
+6. Manual update banner no longer calls updateSW(false); it only checks registration.update() and asks the user to close/open manually.
+7. ChunkLoadRuntime active constants/log key updated from V23 to V27.
+8. SafeLazyRouteShell marks shell visibility separately without route_ui_ready.
+9. routes.generated/AppRoot ignore shell-only readiness markers and do not settle route transitions from safe shell alone.
+
+Acceptance:
+- No automatic reload/replace added.
+- No SW unregister/cache delete added.
+- No business storage or IndexedDB touched.
+- Fullscreen runtime fallback is dismissible and auto-hides on real UI readiness.

@@ -1,0 +1,2157 @@
+<!doctype html>
+<html lang="sq" style="background:#05070d;color-scheme:dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <meta name="theme-color" content="#0b0f14" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="tepiha-app-epoch" content="RESET-2026-04-28-VITE-FAST-CACHE-PREBOOT-V34-7" />
+    <meta name="tepiha-build-id" content="2.0.46-vite-fast-cache-preboot-v34-7" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <title>TEPIHA</title>
+    <style id="tepiha-preboot-dark-v34-7">
+      html, body { margin:0; min-height:100%; background:#05070d !important; color:#e8eef6; color-scheme:dark; }
+      body { min-height:100vh; overflow-x:hidden; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+      #root { min-height:100vh; background:#05070d; }
+      #root:empty::before {
+        content:"TEPIHA\A DUKE U HAPUR...";
+        white-space:pre;
+        position:fixed;
+        inset:0;
+        display:grid;
+        place-items:center;
+        text-align:center;
+        background:radial-gradient(circle at 50% 0%, rgba(37,99,235,.18), transparent 42%), #05070d;
+        color:#e8eef6;
+        font-weight:1000;
+        letter-spacing:.08em;
+        line-height:1.8;
+        z-index:0;
+      }
+    </style>
+    <script>
+      (function(){
+        try {
+          var LAST_KEY = 'tepiha_html_arrived_last';
+          var LOG_KEY = 'tepiha_html_arrived_log';
+          var LIMIT = 30;
+          function ss(v){ try { return String(v == null ? '' : v); } catch(e){ return ''; } }
+          function parse(raw, fb){ try { var out = JSON.parse(raw); return out == null ? fb : out; } catch(e){ return fb; } }
+          function isStandalone(){
+            try {
+              return !!((navigator && navigator.standalone === true) ||
+                (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches));
+            } catch(e){ return false; }
+          }
+          var epochMeta = document.querySelector && document.querySelector('meta[name="tepiha-app-epoch"]');
+          var buildMeta = document.querySelector && document.querySelector('meta[name="tepiha-build-id"]');
+          var entry = {
+            at: (new Date()).toISOString(),
+            ts: Date.now(),
+            href: ss(window.location && window.location.href),
+            path: ss(window.location && window.location.pathname),
+            readyState: ss(document && document.readyState),
+            appEpoch: ss(epochMeta && epochMeta.content),
+            buildId: ss(buildMeta && buildMeta.content),
+            standalone: isStandalone(),
+            online: (function(){ try { return navigator.onLine; } catch(e){ return null; } })(),
+            userAgent: ss(navigator && navigator.userAgent),
+            marker: 'html-arrived-before-bundle-v1'
+          };
+          localStorage.setItem(LAST_KEY, JSON.stringify(entry));
+          var log = parse(localStorage.getItem(LOG_KEY), []);
+          if (!Array.isArray(log)) log = [];
+          log.unshift(entry);
+          if (log.length > LIMIT) log = log.slice(0, LIMIT);
+          localStorage.setItem(LOG_KEY, JSON.stringify(log));
+        } catch(e) {}
+      })();
+    </script>
+    <script>
+      window.__TEPIHA_APP_EPOCH = 'RESET-2026-04-28-VITE-FAST-CACHE-PREBOOT-V34-7';
+      window.__TEPIHA_BUILD_ID = '2.0.46-vite-fast-cache-preboot-v34-7';
+      window.__TEPIHA_QUIET_UPDATE_V7 = true;
+      try { localStorage.removeItem('tepiha_update_available_v1'); sessionStorage.removeItem('tepiha_vite_pwa_update_v1'); } catch (e) {}
+      window.__TEPIHA_SW_KILL_SWITCH__ = false;
+      window.__TEPIHA_FORCE_NETWORK_MODE__ = false;
+      window.__TEPIHA_DIAG_SYSTEM_ENABLED__ = false;
+      window.__TEPIHA_DIAG_RUNTIME_ENABLED__ = false;
+      window.__TEPIHA_RUNTIME_INCIDENTS_ENABLED__ = true;
+      window.__TEPIHA_SIMPLE_INCIDENTS_ENABLED__ = true;
+      window.__TEPIHA_STARTUP_ISOLATION__ = true;
+      window.__TEPIHA_STARTUP_ISOLATION_WINDOW_MS__ = 4500;
+      window.__TEPIHA_INDEX_SCRIPT_VERSION__ = 'index-html-vite-true-ui-ready-v32';
+      window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ = 'pwa-boot-rescue-vite-update-quarantine-v29';
+      window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ = 'pwa-staleness-passive-vite-update-quarantine-v29';
+      window.__TEPIHA_VISIBLE_BUILD_MARKER__ = true;
+      window.__TEPIHA_NAV_CACHE_STRATEGY__ = 'update-quarantine-v29';
+
+      (function(){
+        try {
+          var BB_VERSION = 'smart-visual-blackbox-v32diag';
+          var EVENTS_KEY = 'tepiha_blackbox_events_v32diag';
+          var TRACE_KEY = 'tepiha_last_boot_trace_v32diag';
+          var VISUAL_LAST_KEY = 'tepiha_last_visual_incident_v32diag';
+          var VISUAL_LOG_KEY = 'tepiha_visual_incident_log_v32diag';
+          var STARTED_AT = Date.now();
+          var MAX_EVENTS = 90;
+          function ss(v){ try { return String(v == null ? '' : v); } catch(e){ return ''; } }
+          function iso(){ try { return new Date().toISOString(); } catch(e){ return ''; } }
+          function parse(raw, fb){ try { var out = JSON.parse(raw); return out == null ? fb : out; } catch(e){ return fb; } }
+          function isStandalone(){
+            try {
+              return !!((navigator && navigator.standalone === true) ||
+                (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches));
+            } catch(e){ return false; }
+          }
+          function controllerScriptURL(){ try { return ss(navigator.serviceWorker && navigator.serviceWorker.controller && navigator.serviceWorker.controller.scriptURL); } catch(e){ return ''; } }
+          function visibleChildrenCount(root){
+            try {
+              if (!root || !root.children) return 0;
+              var count = 0;
+              for (var i = 0; i < root.children.length; i++) {
+                var el = root.children[i];
+                if (!el) continue;
+                var cs = window.getComputedStyle ? window.getComputedStyle(el) : null;
+                if (cs && (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity || 1) === 0)) continue;
+                var rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+                if (rect && (rect.width > 0 || rect.height > 0)) count++;
+                else if ((el.textContent || '').trim().length > 0) count++;
+              }
+              return count;
+            } catch(e){ return 0; }
+          }
+          function snapshot(){
+            var root = null;
+            try { root = document.getElementById('root'); } catch(e) {}
+            var txt = '';
+            var html = '';
+            try { txt = root && root.innerText ? String(root.innerText).trim() : (root && root.textContent ? String(root.textContent).trim() : ''); } catch(e) { txt = ''; }
+            try { html = root && root.innerHTML ? String(root.innerHTML) : ''; } catch(e) { html = ''; }
+            return {
+              at: iso(),
+              ts: Date.now(),
+              sinceStartMs: Date.now() - STARTED_AT,
+              version: BB_VERSION,
+              path: ss(window.location && window.location.pathname),
+              href: ss(window.location && window.location.href),
+              appEpoch: ss(window.__TEPIHA_APP_EPOCH),
+              buildId: ss(window.__TEPIHA_BUILD_ID),
+              standalone: isStandalone(),
+              online: (function(){ try { return navigator.onLine; } catch(e){ return null; } })(),
+              visibilityState: ss(document.visibilityState),
+              readyState: ss(document.readyState),
+              controllerScriptURL: controllerScriptURL(),
+              rootExists: !!root,
+              rootTextLength: txt.length,
+              rootHtmlLength: html.length,
+              rootChildCount: root && root.childElementCount ? root.childElementCount : 0,
+              visibleChildrenCount: visibleChildrenCount(root),
+              buttonsCount: (function(){ try { return root ? root.querySelectorAll('button,[role="button"]').length : 0; } catch(e){ return 0; } })(),
+              linksCount: (function(){ try { return root ? root.querySelectorAll('a[href]').length : 0; } catch(e){ return 0; } })(),
+              inputsCount: (function(){ try { return root ? root.querySelectorAll('input,textarea,select').length : 0; } catch(e){ return 0; } })(),
+              htmlUiReady: ss(document.documentElement && document.documentElement.getAttribute('data-ui-ready')),
+              bodyUiReady: ss(document.body && document.body.getAttribute('data-ui-ready')),
+              uiReadySource: ss((document.documentElement && document.documentElement.getAttribute('data-ui-ready-source')) || (document.body && document.body.getAttribute('data-ui-ready-source')) || window.__TEPIHA_LAST_UI_READY_SOURCE__),
+              reactRenderCalled: window.__TEPIHA_REACT_RENDER_CALLED__ === true,
+              appRootMounted: window.__TEPIHA_APPROOT_MOUNTED__ === true,
+              uiReady: window.__TEPIHA_UI_READY__ === true,
+              firstUiReady: window.__TEPIHA_FIRST_UI_READY__ === true,
+              routeStarted: ss(window.__TEPIHA_LAST_ROUTE_STARTED__ || ''),
+              routeVisible: ss(window.__TEPIHA_LAST_ROUTE_VISIBLE__ || '')
+            };
+          }
+          function classify(snap){
+            try {
+              var hasMeaningfulText = Number(snap.rootTextLength || 0) >= 12;
+              var hasControls = Number(snap.buttonsCount || 0) + Number(snap.linksCount || 0) + Number(snap.inputsCount || 0) > 0;
+              var hasVisibleChildren = Number(snap.visibleChildrenCount || 0) > 0;
+              var reactStarted = snap.reactRenderCalled || snap.appRootMounted;
+              var markedReady = snap.uiReady || snap.firstUiReady || snap.htmlUiReady === '1' || snap.bodyUiReady === '1';
+              if (!snap.rootExists) return 'root_missing';
+              if (!reactStarted && !hasMeaningfulText && !hasControls) return 'pre_react_blank_candidate';
+              if (reactStarted && !hasMeaningfulText && !hasControls && !hasVisibleChildren) return 'post_react_blank_candidate';
+              if (markedReady && !hasMeaningfulText && !hasControls) return 'false_ui_ready_candidate';
+              if (reactStarted && Number(snap.rootHtmlLength || 0) < 40 && !hasControls) return 'root_nearly_empty_after_react';
+              return 'ok_or_not_blank';
+            } catch(e){ return 'classify_failed'; }
+          }
+          function saveVisualIncident(entry){
+            try { localStorage.setItem(VISUAL_LAST_KEY, JSON.stringify(entry)); } catch(e) {}
+            try {
+              var list = parse(localStorage.getItem(VISUAL_LOG_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(VISUAL_LOG_KEY, JSON.stringify(list.slice(0, 30)));
+            } catch(e) {}
+          }
+          function persist(entry){
+            try {
+              var list = parse(localStorage.getItem(EVENTS_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.push(entry);
+              if (list.length > MAX_EVENTS) list = list.slice(list.length - MAX_EVENTS);
+              localStorage.setItem(EVENTS_KEY, JSON.stringify(list));
+              localStorage.setItem(TRACE_KEY, JSON.stringify({ at: iso(), ts: Date.now(), version: BB_VERSION, count: list.length, last: entry, recent: list.slice(-25) }));
+            } catch(e) {}
+          }
+          function log(name, details){
+            var snap = snapshot();
+            var entry = { name: ss(name || 'event'), details: details || null, snapshot: snap, classification: classify(snap) };
+            persist(entry);
+            try { window.__TEPIHA_BLACKBOX_LAST__ = entry; } catch(e) {}
+            if (/blank|false_ui_ready|root_missing|route_visible_timeout|resource_error|global_error|unhandled_rejection/i.test(entry.name) || entry.classification !== 'ok_or_not_blank') {
+              saveVisualIncident(entry);
+            }
+            return entry;
+          }
+          function check(name){
+            var entry = log(name || 'visual_check', null);
+            if (entry.classification === 'post_react_blank_candidate' || entry.classification === 'false_ui_ready_candidate' || entry.classification === 'root_nearly_empty_after_react' || entry.classification === 'root_missing') {
+              saveVisualIncident(entry);
+              try { window.dispatchEvent(new CustomEvent('tepiha:blackbox-visual-incident', { detail: entry })); } catch(e) {}
+            }
+            return entry;
+          }
+          window.__TEPIHA_BLACKBOX__ = { version: BB_VERSION, log: log, snapshot: snapshot, classifyBlankScreen: classify, check: check };
+          log('index_loaded', { diagnosticOnly: true, noDbTouch: true, noReload: true });
+          try { window.addEventListener('error', function(event){
+            var target = event && event.target;
+            var tag = ss(target && target.tagName).toUpperCase();
+            var src = ss((target && (target.src || target.href)) || '');
+            if (target && (tag === 'SCRIPT' || tag === 'LINK' || tag === 'IMG')) log('resource_error', { tag: tag, src: src, rel: ss(target && target.rel), message: ss(event && event.message) });
+            else log('global_error', { message: ss(event && event.message), filename: ss(event && event.filename), lineno: event && event.lineno, colno: event && event.colno });
+          }, true); } catch(e) {}
+          try { window.addEventListener('unhandledrejection', function(event){
+            log('unhandled_rejection', { reason: ss(event && event.reason && (event.reason.message || event.reason.stack) || event && event.reason) });
+          }, true); } catch(e) {}
+          try { window.addEventListener('tepiha:react-render-called', function(e){ log('react_render_called_event', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:approot-mounted', function(e){ log('approot_mounted_event', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:first-ui-ready', function(e){ log('first_real_ui_ready_event', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:route-ui-alive', function(e){ log('route_ui_alive_event', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:post-react-blank-screen-fallback', function(e){ log('post_react_safe_screen_shown', e && e.detail || null); }, { passive: true }); } catch(e) {}
+          try {
+            window.setTimeout(function(){ check('visual_check_1500ms'); }, 1500);
+            window.setTimeout(function(){ check('visual_check_3500ms'); }, 3500);
+            window.setTimeout(function(){ check('visual_check_7000ms'); }, 7000);
+            window.setTimeout(function(){ check('visual_check_12000ms'); }, 12000);
+          } catch(e) {}
+          try {
+            var lastMeaningful = 0;
+            var obs = new MutationObserver(function(){
+              var snap = snapshot();
+              if (snap.rootTextLength >= 12 || snap.buttonsCount || snap.linksCount || snap.inputsCount || snap.visibleChildrenCount) lastMeaningful = Date.now();
+              if ((snap.reactRenderCalled || snap.appRootMounted) && lastMeaningful && Date.now() - lastMeaningful > 700 && snap.rootTextLength < 6 && snap.buttonsCount === 0 && snap.linksCount === 0) {
+                log('root_became_blank_after_render', { lastMeaningfulAt: lastMeaningful });
+              }
+            });
+            window.setTimeout(function(){
+              try { var root = document.getElementById('root'); if (root) obs.observe(root, { childList: true, subtree: true, characterData: true }); } catch(e) {}
+            }, 0);
+            window.setTimeout(function(){ try { obs.disconnect(); } catch(e) {} }, 18000);
+          } catch(e) {}
+        } catch(e) {}
+      })();
+      (function(){
+        try {
+          // V12: cache inventory is passive and delayed until after React has a chance to paint Home.
+          function runPassiveCacheInventory(){
+            try {
+              if (!('caches' in window) || !window.caches || typeof window.caches.keys !== 'function') return;
+              window.caches.keys().then(function(keys){
+                try {
+                  var entry = {
+                    at: new Date().toISOString(),
+                    source: 'index_html_passive_cache_inventory_after_paint_v12',
+                    appEpoch: String(window.__TEPIHA_APP_EPOCH || ''),
+                    buildId: String(window.__TEPIHA_BUILD_ID || ''),
+                    cacheKeys: Array.isArray(keys) ? keys.slice(0, 80) : [],
+                    autoCachePurgeDisabled: true,
+                    manualRepairOnly: true,
+                    delayedUntilAfterReact: true
+                  };
+                  window.__TEPIHA_STARTUP_CACHE_INVENTORY__ = entry;
+                  localStorage.setItem('tepiha_startup_cache_inventory_v1', JSON.stringify(entry));
+                } catch (e) {}
+              }).catch(function(){});
+            } catch (e) {}
+          }
+          window.addEventListener('load', function(){
+            try { window.setTimeout(runPassiveCacheInventory, 3500); } catch (e) {}
+          }, { once: true });
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var APP_EPOCH = String(window.__TEPIHA_APP_EPOCH || '');
+          var BUILD_ID = String(window.__TEPIHA_BUILD_ID || '');
+          var INDEX_VERSION = String(window.__TEPIHA_INDEX_SCRIPT_VERSION__ || '');
+          var REPAIR_VERSION = String(window.__TEPIHA_PWA_STALENESS_REPAIR_VERSION__ || '');
+          var STARTED_AT = Date.now();
+          var LAST_KEY = 'tepiha_pwa_staleness_repair_last_v2';
+          var LOG_KEY = 'tepiha_pwa_staleness_repair_log_v2';
+          var GUARD_KEY = 'tepiha_pwa_staleness_repair_guard_v2';
+          function safeString(value){ try { return String(value == null ? '' : value); } catch(e){ return ''; } }
+          function safeParse(raw, fallback){ try { var parsed = JSON.parse(raw); return parsed == null ? fallback : parsed; } catch(e){ return fallback; } }
+          function nowIso(){ try { return new Date().toISOString(); } catch(e){ return ''; } }
+          function isStandalone(){
+            try {
+              return !!((window.navigator && window.navigator.standalone === true) ||
+                (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches));
+            } catch(e){ return false; }
+          }
+          function forceRepair(){
+            try {
+              var sp = new URLSearchParams(window.location.search || '');
+              return sp.get('pwaRepair') === '1' || sp.get('pwa_repair') === '1' || sp.get('repairPwa') === '1' || localStorage.getItem('tepiha_force_pwa_staleness_repair_v2') === '1';
+            } catch(e){ return false; }
+          }
+          function controllerInfo(){
+            var controller = null;
+            var scriptURL = '';
+            try { controller = navigator.serviceWorker && navigator.serviceWorker.controller; } catch(e) {}
+            try { scriptURL = controller && controller.scriptURL ? String(controller.scriptURL) : ''; } catch(e) {}
+            var epoch = '';
+            try { epoch = String(new URL(scriptURL, window.location.origin).searchParams.get('epoch') || '').trim(); } catch(e) {}
+            return { controller: !!controller, scriptURL: scriptURL, epoch: epoch, epochMismatch: !!(APP_EPOCH && epoch && APP_EPOCH !== epoch) };
+          }
+          function isLegacyControllerScriptURL(scriptURL){
+            try {
+              var raw = safeString(scriptURL || '');
+              if (!raw || raw.indexOf('/vite-sw.js') >= 0) return false;
+              return new URL(raw, window.location.origin).pathname === '/sw.js';
+            } catch(e){ return false; }
+          }
+          function isRuntimeCacheName(key){
+            var value = safeString(key);
+            if (!value) return false;
+            return /^(tepiha-vite-|workbox-|vite-|assets-|pages-|next-data-|nextjs-|next-|tepiha-next-|tepiha-legacy-|tepiha-sw-legacy-|legacy-sw-|sw-route-containment|sw-pwa-staleness|pwa-staleness)/i.test(value);
+          }
+          function cacheEpochs(keys){
+            var out = [];
+            try {
+              (keys || []).forEach(function(key){
+                var m = String(key || '').match(/^(?:pages|next-data|nextjs|tepiha-legacy|sw-pwa-staleness|pwa-staleness)-(.+)$/i);
+                if (m && m[1]) out.push(m[1]);
+              });
+            } catch(e) {}
+            return out;
+          }
+          async function readCaches(){
+            try { if (!('caches' in window)) return []; var keys = await caches.keys(); return Array.isArray(keys) ? keys : []; } catch(e){ return []; }
+          }
+          async function postLegacyMessage(type){
+            return { ok: false, skipped: true, type: safeString(type || ''), reason: 'update_flow_quarantine_v29_no_controller_postmessage', noCacheDelete: true, noSwUnregister: true, noSkipWaiting: true, noReload: true };
+          }
+          async function requestLegacyBridgeRepair(){
+            return { purge: { skipped: true, reason: 'update_flow_quarantine_v29_no_cache_delete' }, unregister: { skipped: true, reason: 'update_flow_quarantine_v29_no_sw_unregister' } };
+          }
+          async function manualOnlyClearRuntimeCachesV271(){
+            return [];
+          }
+          function buildReloadUrl(reason){
+            try {
+              var url = new URL(window.location.href);
+              url.searchParams.set('__manual_update', safeString(reason || '1'));
+              url.searchParams.set('__html_epoch', APP_EPOCH.slice(0, 90));
+              url.searchParams.set('t', String(Date.now()));
+              return url.toString();
+            } catch(e) { return '/?__manual_update=1&t=' + Date.now(); }
+          }
+          async function manualStalenessRepair(reason, detail){
+            var guardValue = APP_EPOCH + ':' + safeString(reason || 'repair');
+            try {
+              var existing = sessionStorage.getItem(GUARD_KEY) || '';
+              if (existing === guardValue) {
+                appendLog(snapshot('repair_guard_skip_' + safeString(reason), detail || {}));
+                return false;
+              }
+              sessionStorage.setItem(GUARD_KEY, guardValue);
+            } catch(e) {}
+            var before = snapshot(reason || 'repair_started', detail || {});
+            appendLog(before);
+            var legacyBridge = await requestLegacyBridgeRepair();
+            var deletedCaches = [];
+            var after = snapshot('repair_completed_no_reload_v24', { repairReason: reason, legacyBridge: legacyBridge, deletedLegacyCaches: deletedCaches, modernViteCachesPreserved: true, noAutoReload: true, noRuntimeCacheDelete: true });
+            appendLog(after);
+            try { window.__TEPIHA_PWA_STALENESS_REPAIR_LAST__ = after; } catch(e) {}
+            return false;
+          }
+          async function check(){
+            var keys = await readCaches();
+            var epochs = cacheEpochs(keys);
+            var staleRuntimeCaches = (keys || []).filter(function(key){ return isRuntimeCacheName(key) && APP_EPOCH && String(key).indexOf(APP_EPOCH) === -1; });
+            var info = controllerInfo();
+            var cacheMismatch = staleRuntimeCaches.length > 0 && !(keys || []).some(function(key){ return String(key).indexOf(APP_EPOCH) >= 0; });
+            var entry = snapshot('startup_check', { cacheKeys: keys.slice(0, 80), cacheEpochs: epochs.slice(0, 20), staleRuntimeCaches: staleRuntimeCaches.slice(0, 80), cacheMismatch: cacheMismatch });
+            try { window.__TEPIHA_PWA_STALENESS_CHECK__ = entry; } catch(e) {}
+            appendLog(entry);
+            if ((isStandalone() || forceRepair()) && (info.epochMismatch || cacheMismatch)) {
+              var passive = snapshot(info.epochMismatch ? 'html_sw_epoch_mismatch_passive_no_auto_repair' : 'html_runtime_cache_mismatch_passive_no_auto_repair', {
+                cacheKeys: keys.slice(0, 80),
+                staleRuntimeCaches: staleRuntimeCaches.slice(0, 80),
+                cacheMismatch: cacheMismatch,
+                passiveUpdate: true,
+                autoRepairDisabled: true,
+                autoReloadDisabled: true,
+                manualUpdateOnly: true,
+                manualRepairV12: true
+              });
+              appendLog(passive);
+              try { sessionStorage.setItem('tepiha_update_available_last_v7', JSON.stringify(passive)); } catch(e) {}
+              try { window.__TEPIHA_UPDATE_AVAILABLE__ = passive; } catch(e) {}
+              /* V7 quiet: no startup visual update event dispatch. */
+            }
+          }
+          window.__TEPIHA_PWA_STALENESS_REPAIR__ = { check: check, manualRepair: manualStalenessRepair, snapshot: snapshot, clearRuntimeCaches: manualOnlyClearRuntimeCachesV271 };
+          check().catch(function(error){ appendLog(snapshot('startup_check_error', { message: safeString(error && error.message || error) })); });
+          function syncMarker(){
+            try {
+              var el = document.getElementById('tepiha-build-marker');
+              if (!el) return;
+              var asset = currentIndexAsset();
+              el.setAttribute('data-app-epoch', APP_EPOCH);
+              el.setAttribute('data-build-id', BUILD_ID);
+              el.setAttribute('data-index-script-version', INDEX_VERSION);
+              el.setAttribute('data-pwa-boot-rescue-version', safeString(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || ''));
+              if (asset) el.setAttribute('data-current-index-asset', asset);
+            } catch(e) {}
+          }
+          function hideMarkerSoon(){
+            try {
+              var el = document.getElementById('tepiha-build-marker');
+              if (!el) return;
+              window.setTimeout(function(){ try { el.style.opacity = '0'; el.style.pointerEvents = 'none'; } catch(e) {} }, 1800);
+            } catch(e) {}
+          }
+          try { document.addEventListener('DOMContentLoaded', syncMarker, { once: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:first-ui-ready', hideMarkerSoon, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:route-ui-alive', hideMarkerSoon, { passive: true }); } catch(e) {}
+          try {
+            var observer = new MutationObserver(function(){
+              try {
+                if (document.documentElement.getAttribute('data-ui-ready') === '1' || (document.body && document.body.getAttribute('data-ui-ready') === '1')) hideMarkerSoon();
+              } catch(e) {}
+            });
+            observer.observe(document.documentElement, { attributes: true });
+          } catch(e) {}
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var search = String((window.location && window.location.search) || '');
+          var enableKillScript = /(?:^|[?&])(swkill|debug_sw_kill)=1(?:&|$)/.test(search);
+          if (!enableKillScript) return;
+          var s = document.createElement('script');
+          s.src = '/sw-kill.js';
+          s.async = false;
+          document.head.appendChild(s);
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var untilKey = '__TEPIHA_STARTUP_ISOLATION_UNTIL__';
+          var nextUntil = Date.now() + 4500;
+          try {
+            var existingUntil = Number(sessionStorage.getItem(untilKey) || 0) || 0;
+            if (existingUntil > nextUntil) nextUntil = existingUntil;
+          } catch (e) {}
+          window.__TEPIHA_STARTUP_ISOLATION_UNTIL__ = nextUntil;
+          try { sessionStorage.setItem(untilKey, String(nextUntil)); } catch (e) {}
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var CURRENT_EPOCH = String(window.__TEPIHA_APP_EPOCH || '');
+          var SCRUB_KEYS = [
+            'tepiha_chunk_last_capture_v1',
+            'tepiha_lazy_import_log_v1',
+            'tepiha_last_lazy_import_failure_v1',
+            'tepiha_last_lazy_import_attempt_v1',
+            'tepiha_early_incident_queue_v1',
+            'tepiha_route_transition_v1',
+            'tepiha_active_route_request_v1',
+            'tepiha_root_resume_panic_snapshot_v1'
+          ];
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function readEpochFromValue(value) {
+            try {
+              if (!value) return '';
+              if (Array.isArray(value)) {
+                for (var i = 0; i < value.length; i += 1) {
+                  var itemEpoch = readEpochFromValue(value[i]);
+                  if (itemEpoch) return itemEpoch;
+                }
+                return '';
+              }
+              if (typeof value === 'object') {
+                return String(value.appEpoch || value.swEpoch || value.epoch || value.__appEpoch || '').trim();
+              }
+            } catch (e) {}
+            return '';
+          }
+          function scrubIfEpochMismatch(key) {
+            try {
+              var raw = localStorage.getItem(key);
+              if (!raw) return false;
+              var parsed = safeParse(raw, raw);
+              var storedEpoch = readEpochFromValue(parsed);
+              if (!storedEpoch || !CURRENT_EPOCH || storedEpoch === CURRENT_EPOCH) return false;
+              localStorage.removeItem(key);
+              return true;
+            } catch (e) {
+              return false;
+            }
+          }
+          var scrubbed = [];
+          for (var i = 0; i < SCRUB_KEYS.length; i += 1) {
+            if (scrubIfEpochMismatch(SCRUB_KEYS[i])) scrubbed.push(SCRUB_KEYS[i]);
+          }
+          try {
+            if (scrubbed.length) {
+              window.__TEPIHA_STALE_EPOCH_SCRUB__ = {
+                at: new Date().toISOString(),
+                appEpoch: CURRENT_EPOCH,
+                scrubbedKeys: scrubbed
+              };
+            }
+          } catch (e) {}
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var RESCUE_KEY = 'tepiha_module_boot_rescue_v1';
+          var RESCUE_LOG_KEY = 'tepiha_module_boot_rescue_log_v1';
+          var RESCUE_WINDOW_MS = 120000;
+          var RESCUE_MAX = 2;
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function safeString(value) {
+            try { return String(value || ''); } catch (e) { return ''; }
+          }
+          function currentEpoch() {
+            try { return safeString(window.__TEPIHA_APP_EPOCH || ''); } catch (e) { return ''; }
+          }
+          function pathKey() {
+            try { return safeString((window.location && window.location.pathname) || '/'); } catch (e) { return '/'; }
+          }
+          function isTopLevelIndexAsset(src) {
+            var value = safeString(src);
+            return /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(value) || /\/assets\/index\.[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(value);
+          }
+          function readRescueState() {
+            try {
+              return safeParse(sessionStorage.getItem(RESCUE_KEY), {});
+            } catch (e) {
+              return {};
+            }
+          }
+          function writeRescueState(state) {
+            try { sessionStorage.setItem(RESCUE_KEY, JSON.stringify(state || {})); } catch (e) {}
+          }
+          function appendRescueLog(entry) {
+            try {
+              var list = safeParse(localStorage.getItem(RESCUE_LOG_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(RESCUE_LOG_KEY, JSON.stringify(list.slice(0, 12)));
+            } catch (e) {}
+          }
+          function readNavigationType() {
+            try {
+              var list = performance && typeof performance.getEntriesByType === 'function' ? performance.getEntriesByType('navigation') : [];
+              var nav = list && list[0] ? list[0] : null;
+              return safeString(nav && nav.type || '');
+            } catch (e) {
+              return '';
+            }
+          }
+          function readResumeAgeMs() {
+            try {
+              var hiddenAt = Number(window.__tepihaLastHiddenAt || localStorage.getItem('tepiha_last_hidden_at_v3') || 0) || 0;
+              if (!hiddenAt) return -1;
+              return Math.max(0, Date.now() - hiddenAt);
+            } catch (e) {
+              return -1;
+            }
+          }
+          function readLoadPhase() {
+            var navType = readNavigationType();
+            var resumeAge = readResumeAgeMs();
+            if (resumeAge >= 0 && resumeAge <= 12000) return 'resume_recent';
+            if (navType) return 'navigation_' + navType;
+            return 'initial_load';
+          }
+          function recordBeforeRescue(detail) {
+            // VITE-SILENT-RUNTIME-V16: module/index asset failures are diagnostic-only.
+            // Do not purge caches, post SW purge messages, or navigate automatically.
+            try {
+              var entry = {
+                at: new Date().toISOString(),
+                source: 'index_html_module_boot_rescue_manual_only',
+                appEpoch: currentEpoch(),
+                path: pathKey(),
+                href: safeString(window.location && window.location.href || ''),
+                targetSrc: safeString(detail && (detail.targetSrc || detail.assetUrl || detail.filename) || ''),
+                reason: safeString(detail && detail.reason || 'module_boot_error'),
+                autoRepairDisabled: true,
+                autoReloadDisabled: true,
+                autoCachePurgeDisabled: true,
+                manualRepairOnly: true
+              };
+              try { sessionStorage.setItem('tepiha_module_boot_rescue_manual_v10', JSON.stringify(entry)); } catch (e) {}
+              try { localStorage.setItem('tepiha_module_boot_rescue_last_v1', JSON.stringify(entry)); } catch (e) {}
+              appendRescueLog(entry);
+              try { window.__TEPIHA_MODULE_BOOT_RESCUE_MANUAL__ = entry; } catch (e) {}
+              return entry;
+            } catch (e) {
+              return null;
+            }
+          }
+
+          function buildRescueUrl() {
+            try {
+              var url = new URL(window.location.href);
+              url.searchParams.set('__asset_bootfix', String(Date.now()));
+              var epoch = currentEpoch();
+              if (epoch) url.searchParams.set('__app_epoch', epoch.slice(0, 80));
+              return url.toString();
+            } catch (e) {
+              return '';
+            }
+          }
+          function shouldAttemptRescue(targetSrc) {
+            var state = readRescueState();
+            var now = Date.now();
+            var samePath = safeString(state.path || '') === pathKey();
+            var sameEpoch = safeString(state.epoch || '') === currentEpoch();
+            var sameAsset = safeString(state.targetSrc || '') === safeString(targetSrc || '');
+            var attempts = Number(state.attempts || 0) || 0;
+            var ageMs = Number(state.at || 0) ? Math.max(0, now - Number(state.at || 0)) : Number.POSITIVE_INFINITY;
+            if (!samePath || !sameEpoch || ageMs > RESCUE_WINDOW_MS) return { ok: true, attempts: 0 };
+            if (sameAsset && attempts >= RESCUE_MAX) return { ok: false, attempts: attempts };
+            return { ok: true, attempts: attempts };
+          }
+          function recordRescueAttempt(detail) {
+            var state = readRescueState();
+            var attempts = Number(state.attempts || 0) || 0;
+            var next = {
+              at: Date.now(),
+              path: pathKey(),
+              epoch: currentEpoch(),
+              targetSrc: safeString(detail && detail.targetSrc || ''),
+              attempts: attempts + 1,
+              lastReason: safeString(detail && detail.reason || 'module_boot_error')
+            };
+            writeRescueState(next);
+            appendRescueLog({
+              at: new Date().toISOString(),
+              path: next.path,
+              epoch: next.epoch,
+              targetSrc: next.targetSrc,
+              attempts: next.attempts,
+              reason: next.lastReason,
+              href: safeString(window.location && window.location.href || ''),
+              baseURI: safeString(document.baseURI || ''),
+              readyState: safeString(document.readyState || ''),
+              visibilityState: safeString(document.visibilityState || ''),
+              online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+              loadPhase: readLoadPhase()
+            });
+            return next;
+          }
+          async function resolveCurrentIndexAsset() {
+            try {
+              var res = await fetch(window.location.pathname + window.location.search, { credentials: 'same-origin', cache: 'reload' });
+              var html = await res.text();
+              var match = html && html.match(/\/assets\/index-[^"'>\s]+\.(?:js|mjs)(?:\?[^"'>\s]*)?/i);
+              return match ? safeString(match[0]) : '';
+            } catch (e) {
+              return '';
+            }
+          }
+          function escapeHtml(value) {
+            return safeString(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          }
+          function showManualModuleBootPanel(detail) {
+            try {
+              if (window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__ && window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__('module_boot_error', detail || {})) return true;
+              if (document.getElementById('tepiha-module-boot-manual-panel')) return true;
+              var asset = safeString(detail && (detail.targetSrc || detail.assetUrl || detail.filename) || '');
+              var wrap = document.createElement('div');
+              wrap.id = 'tepiha-module-boot-manual-panel';
+              wrap.setAttribute('data-module-boot-manual-panel', '1');
+              wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px';
+              wrap.innerHTML = ''
+                + '<div style="width:min(560px,100%);border:1px solid rgba(251,191,36,.35);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">'
+                + '<div style="font-size:12px;letter-spacing:.16em;color:#fbbf24;font-weight:1000;margin-bottom:8px">MANUAL REPAIR V10</div>'
+                + '<div style="font-size:24px;font-weight:1000;line-height:1.08;margin-bottom:8px">APP-I KA NEVOJË PËR VEPRIM MANUAL</div>'
+                + '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">U kap një module/index asset që nuk u ngarkua. App-i nuk rifreskohet vetë dhe nuk pastron cache automatikisht.</div>'
+                + (asset ? '<div style="margin-top:8px;color:#94a3b8;font-size:12px;word-break:break-word">ASSET: <b style="color:#e2e8f0">' + escapeHtml(asset) + '</b></div>' : '')
+                + '<div id="tepiha-module-boot-manual-status" style="min-height:18px;margin:12px 0;color:#bae6fd;font-size:13px;font-weight:800"></div>'
+                + '<div style="display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px">'
+                + '<button id="tepiha-module-boot-retry" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">PROVO PËRSËRI</button>'
+                + '<button id="tepiha-module-boot-offline" type="button" style="border:0;border-radius:14px;background:rgba(34,197,94,.16);color:#bbf7d0;padding:13px 14px;font-size:15px;font-weight:1000">VAZHDO OFFLINE</button>'
+                + '<button id="tepiha-module-boot-home" type="button" style="border:0;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">HAP SAFARI</button>'
+                + '<button id="tepiha-module-boot-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">UDHËZIM PËR VERSIONIN</button>'
+                + '</div>'
+                + '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Butonat punojnë vetëm kur i prek user-i. Riparimi manual nuk prek DB, orders, outbox, pagesa, ose sync payload.</div>'
+                + '</div>';
+              (document.body || document.documentElement).appendChild(wrap);
+              var status = document.getElementById('tepiha-module-boot-manual-status');
+              function setStatus(text) { try { if (status) status.textContent = safeString(text || ''); } catch (e) {} }
+              try {
+                var retry = document.getElementById('tepiha-module-boot-retry');
+                if (retry) retry.onclick = function(){
+                  setStatus('PATCH V28: retry nuk bën më reload/replace. Përdor VAZHDO OFFLINE ose HOME.');
+                  try { if (window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__) window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__('manual_retry_no_reload_v27_1'); } catch (e) {}
+                };
+              } catch (e) {}
+              try {
+                var offline = document.getElementById('tepiha-module-boot-offline');
+                if (offline) offline.onclick = function(){
+                  try { sessionStorage.setItem('tepiha_continue_offline_manual_v12', '1'); } catch (e) {}
+                  try { wrap.parentNode && wrap.parentNode.removeChild(wrap); } catch (e) {}
+                };
+              } catch (e) {}
+              try {
+                var home = document.getElementById('tepiha-module-boot-home');
+                if (home) home.onclick = function(){
+                  try {
+                    window.history.replaceState(window.history.state || {}, '', '/?__manual_home=' + Date.now());
+                    window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+                    if (window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__) window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__('manual_home_no_reload_v27_1');
+                  } catch (e) {}
+                };
+              } catch (e) {}
+              try {
+                var repair = document.getElementById('tepiha-module-boot-repair');
+                if (repair) repair.onclick = function(){
+                  setStatus('Po bëhet riparim manual legacy-only...');
+                  try {
+                    var api = window.__TEPIHA_PWA_STALENESS_REPAIR__;
+                    if (api && typeof api.manualRepair === 'function') {
+                      api.manualRepair('module_boot_failure_manual_button', { path: pathKey() });
+                      return;
+                    }
+                  } catch (e) {}
+                  setStatus('PATCH V29: fallback repair është vetëm informues. Mbylle/hape app-in manualisht kur nuk je në punë aktive.');
+                };
+              } catch (e) {}
+              return true;
+            } catch (e) {
+              return false;
+            }
+          }
+          async function tryRescue(detail) {
+            try {
+              if (!detail || !isTopLevelIndexAsset(detail.targetSrc)) return false;
+              var latestAsset = await resolveCurrentIndexAsset();
+              try { detail.latestIndexAsset = latestAsset; } catch (e) {}
+              recordRescueAttempt(detail);
+              recordBeforeRescue(detail);
+              showManualModuleBootPanel(detail);
+              return true;
+            } catch (e) {
+              return false;
+            }
+          }
+          window.__TEPIHA_TRY_MODULE_BOOT_RESCUE__ = tryRescue;
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var STORE_KEY = 'tepiha_root_watchdog_last_v1';
+          var PREHEAL_KEY = 'tepiha_dom_preheal_log_v1';
+          var PREHEAL_LAST_KEY = 'tepiha_dom_preheal_last_v1';
+          var PREHEAL_MAX = 80;
+          function bootId() {
+            try {
+              return String(window.BOOT_ID || sessionStorage.getItem('tepiha_boot_current_id') || localStorage.getItem('tepiha_boot_current_id') || '');
+            } catch (e) {
+              return '';
+            }
+          }
+          function activeRoutePath() {
+            try {
+              return String(window.location && window.location.pathname || '');
+            } catch (e) {
+              return '';
+            }
+          }
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function appendRing(key, entry, max) {
+            try {
+              var list = safeParse(localStorage.getItem(key), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(key, JSON.stringify(list.slice(0, Math.max(8, Number(max) || 80))));
+            } catch (e) {}
+          }
+          function overlayPresent() {
+            try {
+              return !!document.querySelector('[data-overlay="1"],[data-auth-overlay="1"],[data-loading-overlay="1"],[data-route-overlay="1"],.loading-overlay,.route-overlay,.auth-overlay,[data-modal-backdrop="1"],[data-screen-cover="1"],[data-blackout-overlay="1"]');
+            } catch (e) {
+              return false;
+            }
+          }
+          function snapshot(reason) {
+            try {
+              var root = document.getElementById('root') || (document.body && document.body.firstElementChild) || document.body || document.documentElement || null;
+              var cs = root && window.getComputedStyle ? window.getComputedStyle(root) : null;
+              var entry = {
+                type: 'dom_preheal_snapshot',
+                ts: Date.now(),
+                at: new Date().toISOString(),
+                path: activeRoutePath(),
+                activeRoutePath: activeRoutePath(),
+                bootId: bootId(),
+                source: String(reason || 'startup'),
+                sourceLayer: 'index_html',
+                reason: String(reason || 'startup'),
+                visibilityState: String(document.visibilityState || ''),
+                hidden: !!document.hidden,
+                rootExists: !!root,
+                rootId: String(root && root.id || ''),
+                rootTag: String(root && root.tagName || ''),
+                display: String(cs && cs.display || ''),
+                visibility: String(cs && cs.visibility || ''),
+                opacity: String(cs && cs.opacity || ''),
+                pointerEvents: String(cs && cs.pointerEvents || ''),
+                hiddenAttr: !!(root && root.hasAttribute && root.hasAttribute('hidden')),
+                inert: !!(root && root.inert),
+                ariaHidden: String(root && root.getAttribute && root.getAttribute('aria-hidden') || ''),
+                overlayPresent: overlayPresent(),
+                fallbackPresent: !!document.querySelector('[data-route-fallback="1"]')
+              };
+              try { localStorage.setItem(PREHEAL_LAST_KEY, JSON.stringify(entry)); } catch (e) {}
+              appendRing(PREHEAL_KEY, entry, PREHEAL_MAX);
+              try { window.__TEPIHA_LAST_DOM_PREHEAL__ = entry; } catch (e) {}
+              return entry;
+            } catch (e) {
+              return null;
+            }
+          }
+          function repair(node, isRoot) {
+            if (!node || !node.style) return false;
+            var changed = false;
+            try {
+              var cs = window.getComputedStyle(node);
+              if (isRoot && cs.display === 'none') { node.style.display = 'block'; changed = true; }
+              if (cs.visibility === 'hidden') { node.style.visibility = 'visible'; changed = true; }
+              if (parseFloat(cs.opacity || '1') < 0.05) { node.style.opacity = '1'; changed = true; }
+              if (cs.pointerEvents === 'none') { node.style.pointerEvents = 'auto'; changed = true; }
+              if (node.hasAttribute && node.hasAttribute('hidden')) { node.removeAttribute('hidden'); changed = true; }
+            } catch (e) {}
+            return changed;
+          }
+          function run(reason) {
+            try {
+              if (document.visibilityState === 'hidden') return;
+              snapshot(reason);
+              var changed = false;
+              changed = repair(document.documentElement, true) || changed;
+              changed = repair(document.body, true) || changed;
+              var first = document.body && document.body.firstElementChild;
+              changed = repair(first, false) || changed;
+              try { localStorage.setItem(STORE_KEY, JSON.stringify({ at: new Date().toISOString(), reason: reason, changed: changed })); } catch (e) {}
+            } catch (e) {}
+          }
+          setTimeout(function(){ run('startup_60'); }, 60);
+          setTimeout(function(){ run('startup_450'); }, 450);
+          setTimeout(function(){ run('startup_1200'); }, 1200);
+          window.addEventListener('pageshow', function(){ setTimeout(function(){ run('pageshow'); }, 40); }, { passive: true });
+          window.addEventListener('focus', function(){ setTimeout(function(){ run('focus'); }, 40); }, { passive: true });
+          document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') setTimeout(function(){ run('visibility_visible'); }, 40); }, { passive: true });
+        } catch (e) {}
+      })();
+      (function(){
+        try {
+          var LAST_KEY = 'tepiha_chunk_last_capture_v1';
+          var LOG_KEY = 'tepiha_lazy_import_log_v1';
+          var EARLY_QUEUE_KEY = 'tepiha_early_incident_queue_v1';
+          var EARLY_BOOT_ID_KEY = '__TEPIHA_EARLY_BOOT_ID__';
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function safeString(value) {
+            try { return String(value || ''); } catch (e) { return ''; }
+          }
+          function bootId() {
+            try {
+              var existing = safeString(window.BOOT_ID || sessionStorage.getItem('tepiha_boot_current_id') || localStorage.getItem('tepiha_boot_current_id') || sessionStorage.getItem(EARLY_BOOT_ID_KEY));
+              if (existing) return existing;
+              var created = 'earlyboot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+              try { sessionStorage.setItem(EARLY_BOOT_ID_KEY, created); } catch (e) {}
+              return created;
+            } catch (e) {
+              return 'earlyboot_' + Date.now();
+            }
+          }
+          function extractAssetUrls() {
+            var hits = [];
+            for (var i = 0; i < arguments.length; i += 1) {
+              var value = safeString(arguments[i]);
+              if (!value) continue;
+              var matches = value.match(/https?:\/\/[^\s)"']+|\/_next\/static\/chunks\/[^\s)"']+|\/assets\/[^\s)"']+\.(?:js|mjs)(?:\?[^\s)"']*)?/gi) || [];
+              for (var j = 0; j < matches.length; j += 1) hits.push(String(matches[j] || ''));
+            }
+            var uniq = [];
+            var seen = {};
+            for (var k = 0; k < hits.length; k += 1) {
+              var item = safeString(hits[k]);
+              if (!item || seen[item]) continue;
+              seen[item] = true;
+              uniq.push(item);
+            }
+            return uniq.slice(0, 8);
+          }
+          function navigationType() {
+            try {
+              var list = typeof performance !== 'undefined' && typeof performance.getEntriesByType === 'function' ? performance.getEntriesByType('navigation') : [];
+              var nav = list && list[0] ? list[0] : null;
+              return String((nav && nav.type) || '');
+            } catch (e) {
+              return '';
+            }
+          }
+          function hiddenElapsedMs() {
+            try {
+              var hiddenAt = Number(window.__tepihaLastHiddenAt || localStorage.getItem('tepiha_last_hidden_at_v3') || 0) || 0;
+              if (!hiddenAt) return -1;
+              return Math.max(0, Date.now() - hiddenAt);
+            } catch (e) {
+              return -1;
+            }
+          }
+          function loadPhase() {
+            var hiddenMs = hiddenElapsedMs();
+            if (hiddenMs >= 0 && hiddenMs <= 12000) return 'resume_recent';
+            var navType = navigationType();
+            if (navType) return 'navigation_' + navType;
+            return 'initial_load';
+          }
+          function ctx(extra) {
+            var base = {
+              at: new Date().toISOString(),
+              href: String((window.location && window.location.href) || ''),
+              path: String((window.location && window.location.pathname) || ''),
+              search: String((window.location && window.location.search) || ''),
+              baseURI: String((document && document.baseURI) || ''),
+              readyState: String((document && document.readyState) || ''),
+              visibilityState: String((document && document.visibilityState) || ''),
+              online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+              navigationType: navigationType(),
+              loadPhase: loadPhase(),
+              hiddenElapsedMs: hiddenElapsedMs(),
+              appEpoch: String(window.__TEPIHA_APP_EPOCH || ''),
+              buildId: String(window.__TEPIHA_BUILD_ID || ''),
+              bootId: bootId()
+            };
+            if (extra && typeof extra === 'object') {
+              for (var k in extra) base[k] = extra[k];
+            }
+            return base;
+          }
+          function isChunkLike(message) {
+            return /loading chunk|chunkloaderror|chunk [0-9]+ failed|failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|failed to load module script|module script failed|module script|dynamically imported module|\/assets\/.*\.(?:js|mjs)(?:\?|$)|\/_next\/static\/chunks\//i.test(String(message || ''));
+          }
+          function enqueueEarlyIncident(entry) {
+            try {
+              var list = safeParse(localStorage.getItem(EARLY_QUEUE_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(EARLY_QUEUE_KEY, JSON.stringify(list.slice(0, 12)));
+            } catch (e) {}
+          }
+          function postEarlyIncident(entry) {
+            try {
+              var body = {
+                bootId: safeString(entry.bootId || bootId()),
+                incidentType: safeString(entry.reason || 'early_chunk_capture'),
+                bootRootPath: safeString(entry.path || '/'),
+                currentPath: safeString(entry.path || '/'),
+                currentSearch: safeString(entry.search || ''),
+                startedAt: safeString(entry.at || ''),
+                lastEventAt: safeString(entry.at || ''),
+                lastEventType: safeString(entry.reason || 'early_chunk_capture'),
+                uiReady: false,
+                overlayShown: false,
+                online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+                visibilityState: safeString(entry.visibilityState || ''),
+                swEpoch: safeString(entry.appEpoch || ''),
+                userAgent: typeof navigator !== 'undefined' ? safeString(navigator.userAgent || '') : '',
+                meta: {
+                  source: 'index_html_early_chunk_capture_v2',
+                  capture: entry
+                }
+              };
+              var text = JSON.stringify(body);
+              try {
+                if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+                  navigator.sendBeacon('/api/runtime-incident', new Blob([text], { type: 'application/json' }));
+                }
+              } catch (e) {}
+              try {
+                fetch('/api/runtime-incident', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: text,
+                  keepalive: true,
+                  cache: 'no-store'
+                }).catch(function(){});
+              } catch (e) {}
+            } catch (e) {}
+          }
+          function findPerformanceEntries(assetUrl) {
+            try {
+              if (!assetUrl || typeof performance === 'undefined' || typeof performance.getEntriesByName !== 'function') return [];
+              var list = performance.getEntriesByName(String(assetUrl || '')) || [];
+              var out = [];
+              for (var i = 0; i < list.length; i += 1) {
+                var item = list[i];
+                out.push({
+                  name: String(item && item.name || ''),
+                  entryType: String(item && item.entryType || ''),
+                  initiatorType: String(item && item.initiatorType || ''),
+                  startTime: Number(item && item.startTime || 0) || 0,
+                  duration: Number(item && item.duration || 0) || 0,
+                  transferSize: Number(item && item.transferSize || 0) || 0,
+                  encodedBodySize: Number(item && item.encodedBodySize || 0) || 0,
+                  decodedBodySize: Number(item && item.decodedBodySize || 0) || 0,
+                  responseStatus: Number(item && item.responseStatus || 0) || 0
+                });
+              }
+              return out.slice(0, 4);
+            } catch (e) {
+              return [];
+            }
+          }
+          function persist(reason, extra) {
+            var entry = ctx(extra || {});
+            entry.reason = String(reason || 'chunk_capture');
+            entry.assetUrls = extractAssetUrls(entry.targetSrc, entry.filename, entry.message, entry.stack);
+            entry.assetUrl = entry.assetUrls[0] || String(entry.targetSrc || entry.filename || '');
+            entry.performanceEntries = findPerformanceEntries(entry.assetUrl);
+            try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); } catch (e) {}
+            try {
+              var list = safeParse(localStorage.getItem(LOG_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 24)));
+            } catch (e) {}
+            try { window.__TEPIHA_LAST_CHUNK_CAPTURE__ = entry; } catch (e) {}
+            try { window.dispatchEvent(new CustomEvent('tepiha:chunk-capture', { detail: entry })); } catch (e) {}
+            try { window.dispatchEvent(new CustomEvent('tepiha:simple-incident', { detail: {
+              bootId: safeString(entry.bootId || bootId()),
+              incidentType: safeString(entry.reason || 'early_chunk_capture'),
+              bootRootPath: safeString(entry.path || '/'),
+              currentPath: safeString(entry.path || '/'),
+              currentSearch: safeString(entry.search || ''),
+              startedAt: safeString(entry.at || ''),
+              lastEventAt: safeString(entry.at || ''),
+              lastEventType: safeString(entry.reason || 'early_chunk_capture'),
+              uiReady: false,
+              overlayShown: false,
+              online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+              visibilityState: safeString(entry.visibilityState || ''),
+              swEpoch: safeString(entry.appEpoch || ''),
+              userAgent: typeof navigator !== 'undefined' ? safeString(navigator.userAgent || '') : '',
+              meta: { source: 'index_html_early_chunk_capture_v2', capture: entry }
+            } })); } catch (e) {}
+            enqueueEarlyIncident(entry);
+            postEarlyIncident(entry);
+            return entry;
+          }
+          function isUiReadyForRuntimeFallback() {
+            try {
+              if (window.__TEPIHA_UI_READY === true) return true;
+              if (document.documentElement && document.documentElement.getAttribute('data-ui-ready') === '1') return true;
+              if (document.body && document.body.getAttribute('data-ui-ready') === '1') return true;
+              if (document.querySelector('[data-route-fallback="1"],[data-local-error-boundary="1"]')) return true;
+            } catch (e) {}
+            return false;
+          }
+          function isRuntimeAssetUrl(assetUrl) {
+            var value = safeString(assetUrl || '');
+            if (!value) return false;
+            return /(?:resumeGate|rootResume|RootResume|ChunkLoadRuntime|ServiceWorkerRegister|lazyImportRuntime|rootResumePanic|startupIsolation|bootLog|appEpoch|RouteRenderRescue|PwaWarmup|BootReadyMark|AppRoot)/i.test(value);
+          }
+          function runtimeRepairUrl() {
+            try {
+              var url = new URL(window.location.href);
+              url.searchParams.set('__manual_runtime_repair', String(Date.now()));
+              return url.toString();
+            } catch (e) {
+              return '/?__manual_runtime_repair=' + Date.now();
+            }
+          }
+          function recordRuntimeImportFailure(entry) {
+            try {
+              var failure = ctx(entry || {});
+              failure.reason = 'runtime_import_failure_inline_fallback';
+              failure.sourceLayer = 'index_html_inline_runtime_fallback';
+              failure.runtimeModuleSafety = 'inline_no_react_dependency';
+              failure.repairUrl = runtimeRepairUrl();
+              failure.assetUrl = safeString(failure.assetUrl || failure.targetSrc || failure.filename || '');
+              localStorage.setItem('tepiha_app_root_runtime_failure_last_v1', JSON.stringify(failure));
+              var list = safeParse(localStorage.getItem('tepiha_app_root_runtime_failure_log_v1'), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(failure);
+              localStorage.setItem('tepiha_app_root_runtime_failure_log_v1', JSON.stringify(list.slice(0, 40)));
+              try { window.__TEPIHA_LAST_APP_ROOT_RUNTIME_FAILURE__ = failure; } catch (e) {}
+              try {
+                var status = window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ && typeof window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ === 'object'
+                  ? window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__
+                  : { version: 'index-inline-runtime-fallback-v1', criticalMode: 'unknown_before_react', criticalModules: {}, lazyModules: {}, failures: [] };
+                status.failures = Array.isArray(status.failures) ? status.failures : [];
+                status.failures.unshift(failure);
+                status.failures = status.failures.slice(0, 20);
+                status.lastFailure = failure;
+                status.lastUpdatedAt = failure.at;
+                window.__TEPIHA_APP_ROOT_RUNTIME_STATUS__ = status;
+              } catch (e) {}
+              return failure;
+            } catch (e) {
+              return entry || null;
+            }
+          }
+          function showRuntimeImportFailureFallback(entry) {
+            try {
+              if (window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__ && window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__('runtime_import_failure', entry || {})) return true;
+              var rawAsset = safeString(entry && (entry.assetUrl || entry.targetSrc || entry.filename) || '');
+              var topIndex = /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(rawAsset);
+              if (topIndex) return false;
+              // VITE-SILENT-RUNTIME-V16: mos e rrëzo krejt app-in për chunk jo-kritik si smartSms.
+              // Inline fullscreen fallback përdoret vetëm për runtime core assets; route/panel chunks i menaxhon React LocalErrorBoundary/SafeLazyRouteShell.
+              if (!isRuntimeAssetUrl(rawAsset)) return false;
+              if (isUiReadyForRuntimeFallback()) {
+                var passiveFailure = recordRuntimeImportFailure(entry || {});
+                try {
+                  window.__TEPIHA_UPDATE_AVAILABLE__ = passiveFailure;
+                  sessionStorage.setItem('tepiha_update_available_last_v7', JSON.stringify(passiveFailure));
+                } catch (e) {}
+                // VITE-SILENT-RUNTIME-V16: UI is already alive, so keep working and only record diagnostics.
+                return false;
+              }
+              if (document.getElementById('tepiha-runtime-import-fallback')) return true;
+              var failure = recordRuntimeImportFailure(entry || {});
+              var repair = safeString(failure && failure.repairUrl || runtimeRepairUrl()).replace(/"/g, '&quot;');
+              var assetHtml = rawAsset ? '<div style="margin-top:8px;color:#94a3b8;font-size:12px;word-break:break-word">ASSET: <b style="color:#e2e8f0">' + rawAsset.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</b></div>' : '';
+              var wrap = document.createElement('div');
+              wrap.id = 'tepiha-runtime-import-fallback';
+              wrap.setAttribute('data-runtime-import-fallback', '1');
+              wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px';
+              wrap.innerHTML = '' +
+                '<div style="width:min(560px,100%);border:1px solid rgba(251,191,36,.35);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
+                  '<div style="font-size:12px;letter-spacing:.16em;color:#fbbf24;font-weight:1000;margin-bottom:8px">INLINE RUNTIME FALLBACK</div>' +
+                  '<div style="font-size:24px;font-weight:1000;line-height:1.08;margin-bottom:8px">RUNTIME MODULE NUK U NGARKUA</div>' +
+                  '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">Një module script dështoi para se runtime rescue të jetë i sigurt. Ky fallback është inline në HTML dhe nuk varet nga React.</div>' +
+                  assetHtml +
+                  '<div id="tepiha-runtime-manual-status" style="min-height:18px;margin:12px 0 0;color:#bae6fd;font-size:13px;font-weight:800"></div>' +
+                  '<div style="display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px">' +
+                    '<button id="tepiha-runtime-retry" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">PROVO PËRSËRI</button>' +
+                    '<button id="tepiha-runtime-offline" type="button" style="border:0;border-radius:14px;background:rgba(34,197,94,.16);color:#bbf7d0;padding:13px 14px;font-size:15px;font-weight:1000">VAZHDO OFFLINE</button>' +
+                    '<button id="tepiha-runtime-home" type="button" style="border:0;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">HAP SAFARI</button>' +
+                    '<button id="tepiha-runtime-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">RIPARO KËTË TELEFON</button>' +
+                  '</div>' +
+                  '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Nuk prek DB, write flow, outbox, porosi lokale, ose session. Riparimi pastron vetëm SW/runtime cache sipas faqes së repair.</div>' +
+                '</div>';
+              (document.body || document.documentElement).appendChild(wrap);
+              try {
+                var dismissRuntimeImportFallback = function(autoReason){
+                  try { if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap); } catch (e) {}
+                  try { document.documentElement.removeAttribute('data-runtime-import-fallback-visible'); } catch (e) {}
+                  try { persist('runtime_import_fallback_dismissed', { manual: autoReason === 'manual', autoReason: String(autoReason || ''), patch: 'PATCH_O_V27_auto_dismiss' }); } catch (e) {}
+                };
+                window.__TEPIHA_DISMISS_RUNTIME_IMPORT_FALLBACK__ = function(){ dismissRuntimeImportFallback('manual'); };
+                window.addEventListener('tepiha:first-ui-ready', function(){ dismissRuntimeImportFallback('first_ui_ready'); }, { once: true, passive: true });
+                window.addEventListener('tepiha:route-ui-alive', function(){ dismissRuntimeImportFallback('route_ui_alive'); }, { once: true, passive: true });
+              } catch (e) {}
+              try {
+                var runtimeStatus = document.getElementById('tepiha-runtime-manual-status');
+                function setRuntimeStatus(text) { try { if (runtimeStatus) runtimeStatus.textContent = safeString(text || ''); } catch(e) {} }
+                var retry = document.getElementById('tepiha-runtime-retry');
+                if (retry) retry.onclick = function(){
+                  setRuntimeStatus('PATCH O V27: runtime retry nuk bën më reload/replace. Përdor VAZHDO OFFLINE ose HOME.');
+                  try { if (window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__) window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__('runtime_retry_no_reload_v27'); } catch (e) {}
+                };
+                var offline = document.getElementById('tepiha-runtime-offline');
+                if (offline) offline.onclick = function(){
+                  try { sessionStorage.setItem('tepiha_continue_offline_manual_v12', '1'); } catch(e) {}
+                  try { wrap.parentNode && wrap.parentNode.removeChild(wrap); } catch(e) {}
+                };
+                var home = document.getElementById('tepiha-runtime-home');
+                if (home) home.onclick = function(){
+                  try {
+                    window.history.replaceState(window.history.state || {}, '', '/?__manual_home=' + Date.now());
+                    window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+                    if (window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__) window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__('runtime_home_no_reload_v27');
+                  } catch(e) {}
+                };
+                var repairBtn = document.getElementById('tepiha-runtime-repair');
+                if (repairBtn) repairBtn.onclick = function(){
+                  setRuntimeStatus('Po bëhet riparim manual legacy-only...');
+                  try {
+                    var api = window.__TEPIHA_PWA_STALENESS_REPAIR__;
+                    if (api && typeof api.manualRepair === 'function') {
+                      api.manualRepair('runtime_import_failure_manual_button', { repairUrl: repair });
+                      return;
+                    }
+                  } catch(e) {}
+                  setRuntimeStatus('PATCH V29: fallback repair është vetëm informues. Mbylle/hape app-in manualisht kur nuk je në punë aktive.');
+                };
+              } catch (e) {}
+              return true;
+            } catch (e) {
+              return false;
+            }
+          }
+          window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ = showRuntimeImportFailureFallback;
+          window.__TEPIHA_CHUNK_CAPTURE__ = persist;
+          window.addEventListener('error', function(event){
+            try {
+              var target = event && event.target;
+              var tagName = String((target && target.tagName) || '');
+              var targetSrc = String((target && (target.currentSrc || target.src || target.href)) || '');
+              var targetType = String((target && target.type) || '');
+              var targetRel = String((target && target.rel) || '');
+              var message = String((event && event.message) || '');
+              var stack = String((event && event.error && event.error.stack) || '');
+              var moduleLike = (String(tagName).toUpperCase() === 'SCRIPT' && (String(targetType).toLowerCase() === 'module' || /\/(?:assets|src)\/.*\.(?:js|mjs)(?:\?|$)/i.test(targetSrc))) || (String(tagName).toUpperCase() === 'LINK' && String(targetRel).toLowerCase() === 'modulepreload');
+              if (!moduleLike && !isChunkLike(message) && !isChunkLike(stack) && !isChunkLike(targetSrc)) return;
+              var capture = persist('window_module_error', {
+                tagName: tagName,
+                targetSrc: targetSrc,
+                targetType: targetType,
+                targetRel: targetRel,
+                filename: String((event && event.filename) || ''),
+                lineno: Number((event && event.lineno) || 0) || 0,
+                colno: Number((event && event.colno) || 0) || 0,
+                message: message,
+                stack: stack,
+                moduleTarget: !!moduleLike
+              });
+              try {
+                if (capture && capture.moduleTarget && capture.assetUrl && /\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?.*)?$/i.test(String(capture.assetUrl || '')) && typeof window.__TEPIHA_TRY_MODULE_BOOT_RESCUE__ === 'function') {
+                  window.__TEPIHA_TRY_MODULE_BOOT_RESCUE__(capture);
+                }
+              } catch (e) {}
+              try {
+                if (capture && isRuntimeAssetUrl(capture.assetUrl || capture.targetSrc) && typeof window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ === 'function') {
+                  window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__(capture);
+                }
+              } catch (e) {}
+            } catch (e) {}
+          }, true);
+          window.addEventListener('unhandledrejection', function(event){
+            try {
+              var reason = event && event.reason;
+              var message = String((reason && reason.message) || reason || '');
+              var stack = String((reason && reason.stack) || '');
+              if (!isChunkLike(message) && !isChunkLike(stack)) return;
+              var capture = persist('chunk_unhandled_rejection', {
+                message: message,
+                stack: stack,
+                name: String((reason && reason.name) || '')
+              });
+              try {
+                if (!isUiReadyForRuntimeFallback() && isRuntimeAssetUrl(capture.assetUrl || capture.targetSrc || capture.filename || message || stack) && typeof window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__ === 'function') {
+                  window.__TEPIHA_SHOW_RUNTIME_IMPORT_FALLBACK__(capture);
+                }
+              } catch (e) {}
+            } catch (e) {}
+          }, true);
+        } catch (e) {}
+      })();
+    </script>
+
+    <style id="tepiha-hard-refresh-failopen-style-v23">
+      html,body{min-height:100%;background:#05070d}#tepiha-hard-refresh-failopen-shell{position:fixed;inset:0;z-index:2147483645;background:linear-gradient(180deg,#05070d,#07111f);color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}#tepiha-hard-refresh-failopen-shell *{box-sizing:border-box}#tepiha-hard-refresh-failopen-shell .tepiha-safe-card{width:min(620px,100%);border:1px solid rgba(96,165,250,.32);border-radius:22px;background:rgba(15,23,42,.96);box-shadow:0 24px 70px rgba(0,0,0,.52);padding:18px}#tepiha-hard-refresh-failopen-shell .tepiha-safe-kicker{color:#93c5fd;font-size:11px;font-weight:1000;letter-spacing:.16em;text-transform:uppercase}#tepiha-hard-refresh-failopen-shell .tepiha-safe-title{margin-top:8px;font-size:26px;line-height:1.05;font-weight:1000;letter-spacing:-.02em}#tepiha-hard-refresh-failopen-shell .tepiha-safe-body{margin-top:8px;color:#cbd5e1;font-size:14px;line-height:1.45;font-weight:700}#tepiha-hard-refresh-failopen-shell .tepiha-safe-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px}#tepiha-hard-refresh-failopen-shell .tepiha-safe-link{display:flex;align-items:center;justify-content:center;min-height:54px;border-radius:16px;text-decoration:none;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);font-weight:1000;letter-spacing:.04em}#tepiha-hard-refresh-failopen-shell .tepiha-safe-link.primary{background:linear-gradient(180deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.45)}#tepiha-hard-refresh-failopen-shell .tepiha-safe-foot{margin-top:12px;color:#64748b;font-size:12px;line-height:1.35;font-weight:750}#tepiha-hard-refresh-failopen-shell .tepiha-safe-status{margin-top:10px;color:#bae6fd;font-size:12px;font-weight:900;word-break:break-word}@media(max-width:460px){#tepiha-hard-refresh-failopen-shell .tepiha-safe-grid{grid-template-columns:1fr}#tepiha-hard-refresh-failopen-shell .tepiha-safe-title{font-size:23px}}
+    </style>
+    <script id="tepiha-hard-refresh-bulletproof-runtime-v27">
+      (function(){try{var VERSION='bulletproof-runtime-v27';var APP_EPOCH=String(window.__TEPIHA_APP_EPOCH||'RESET-2026-04-28-VITE-FAST-CACHE-PREBOOT-V34-7');var BUILD_ID=String(window.__TEPIHA_BUILD_ID||'2.0.46-vite-fast-cache-preboot-v34-7');var LOG_KEY='tepiha_hard_refresh_failopen_log_v27';var LAST_KEY='tepiha_hard_refresh_failopen_last_v27';function ss(v){try{return String(v==null?'':v)}catch(e){return''}}function iso(){try{return new Date().toISOString()}catch(e){return''}}function sp(raw,fb){try{var p=JSON.parse(raw);return p==null?fb:p}catch(e){return fb}}function log(entry){try{localStorage.setItem(LAST_KEY,JSON.stringify(entry));var list=sp(localStorage.getItem(LOG_KEY),[]);if(!Array.isArray(list))list=[];list.unshift(entry);localStorage.setItem(LOG_KEY,JSON.stringify(list.slice(0,40)))}catch(e){}}function rootVisible(){try{var root=document.getElementById('root');if(!root)return false;var cs=window.getComputedStyle?window.getComputedStyle(root):null;if(cs&&(cs.display==='none'||cs.visibility==='hidden'||Number(cs.opacity||1)===0))return false;var textLen=root.textContent?String(root.textContent).trim().length:0;return(root.childElementCount||0)>0||textLen>0}catch(e){return false}}function uiReady(){try{if(window.__TEPIHA_UI_READY===true||window.__TEPIHA_FIRST_UI_READY===true)return true}catch(e){}try{if(document.documentElement&&document.documentElement.getAttribute('data-ui-ready')==='1')return true}catch(e){}try{if(document.body&&document.body.getAttribute('data-ui-ready')==='1')return true}catch(e){}return false}function href(path){try{var u=new URL(path,window.location.origin);u.searchParams.set('__failopen',VERSION);return u.pathname+u.search}catch(e){return path}}function hide(reason){try{var node=document.getElementById('tepiha-hard-refresh-failopen-shell');if(node&&node.parentNode)node.parentNode.removeChild(node);document.documentElement.removeAttribute('data-failopen-shell-visible');if(document.body)document.body.removeAttribute('data-failopen-shell-visible');log({at:iso(),ts:Date.now(),source:'hard_refresh_failopen_hide',reason:ss(reason||'ui_ready'),appEpoch:APP_EPOCH,buildId:BUILD_ID})}catch(e){}}function removeOld(){try{['#tepiha-module-boot-manual-panel','#tepiha-runtime-import-fallback','#tepiha-pwa-boot-rescue','#tepiha-chunk-heal-fallback'].forEach(function(sel){try{var n=document.querySelector(sel);if(n&&n.parentNode)n.parentNode.removeChild(n)}catch(e){}});try{document.documentElement.removeAttribute('data-pwa-boot-rescue')}catch(e){}}catch(e){}}function mark(reason){try{window.__TEPIHA_FAIL_OPEN_SHELL_VISIBLE__=true;window.__TEPIHA_UI_READY=true;window.__TEPIHA_FIRST_UI_READY=true}catch(e){}try{document.documentElement.setAttribute('data-ui-ready','1');document.documentElement.setAttribute('data-failopen-shell-visible','1')}catch(e){}try{if(document.body){document.body.setAttribute('data-ui-ready','1');document.body.setAttribute('data-failopen-shell-visible','1')}}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready',{detail:{source:'hard_refresh_failopen_shell',reason:ss(reason||'')}}))}catch(e){}try{window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive',{detail:{source:'hard_refresh_failopen_shell',path:window.location.pathname||'/',reason:ss(reason||'')}}))}catch(e){}}function show(reason,detail){try{if(uiReady()&&!document.getElementById('tepiha-hard-refresh-failopen-shell'))return false;if(document.getElementById('tepiha-hard-refresh-failopen-shell'))return true;removeOld();var entry={at:iso(),ts:Date.now(),source:'hard_refresh_failopen_show',reason:ss(reason||'boot_timeout'),detail:detail||null,appEpoch:APP_EPOCH,buildId:BUILD_ID,href:ss(window.location&&window.location.href),path:ss(window.location&&window.location.pathname),readyState:ss(document.readyState),visibilityState:ss(document.visibilityState),online:(function(){try{return navigator.onLine}catch(e){return null}})(),noDbTouch:true,noOrdersTouch:true,noOutboxTouch:true,noReload:true,noRepair:true};log(entry);mark(reason);var mount=document.createElement('div');mount.id='tepiha-hard-refresh-failopen-shell';mount.setAttribute('data-hard-refresh-failopen-shell','1');mount.innerHTML='<div class="tepiha-safe-card"><div class="tepiha-safe-kicker">SAFE MODE • HARD REFRESH FAIL-OPEN</div><div class="tepiha-safe-title">APP-I NUK U BLLOKUA</div><div class="tepiha-safe-body">Një pjesë e JavaScript-it nuk u ngarkua pas refresh/update. Kjo faqe hapet pa DB dhe pa prekur porositë, outbox-in, pagesat, ose IndexedDB. Zgjidh një modul poshtë.</div><div class="tepiha-safe-grid"><a class="tepiha-safe-link primary" href="'+href('/pranimi')+'">PRANIMI</a><a class="tepiha-safe-link" href="'+href('/pastrimi')+'">PASTRIMI</a><a class="tepiha-safe-link" href="'+href('/gati')+'">GATI</a><a class="tepiha-safe-link" href="'+href('/arka')+'">ARKA</a><a class="tepiha-safe-link" href="'+href('/transport')+'">TRANSPORT</a><a class="tepiha-safe-link" href="'+href('/')+'">HOME</a></div><div id="tepiha-failopen-status" class="tepiha-safe-status">Reason: '+ss(reason||'boot_timeout').replace(/</g,'&lt;')+'</div><div class="tepiha-safe-foot">Nëse një modul nuk hapet, kthehu këtu dhe hap modulin tjetër. Refresh automatik, cache delete dhe SW unregister janë të çaktivizuara në këtë safe shell.</div></div>';(document.body||document.documentElement).appendChild(mount);return true}catch(e){return false}}window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__=show;window.__TEPIHA_HIDE_FAIL_OPEN_SHELL__=hide;function check(reason){try{if(uiReady()){if(rootVisible())hide('ui_ready_'+ss(reason||''));return}show(reason||'boot_timeout')}catch(e){}}try{window.addEventListener('tepiha:first-ui-ready',function(){if(rootVisible())hide('first_ui_ready')},{passive:true});window.addEventListener('tepiha:route-ui-alive',function(){if(rootVisible())hide('route_ui_alive')},{passive:true});window.addEventListener('tepiha:react-render-called',function(){window.setTimeout(function(){if(rootVisible())hide('react_render_called')},250)},{passive:true});window.addEventListener('error',function(event){try{var target=event&&event.target;var tag=ss(target&&target.tagName).toUpperCase();var rel=ss(target&&target.rel).toLowerCase();var msg=ss(event&&event.message||'');if((tag==='SCRIPT'||(tag==='LINK'&&rel==='modulepreload')||/module|chunk|dynamically imported/i.test(msg))&&!rootVisible())window.setTimeout(function(){check('asset_or_module_error')},600)}catch(e){}},true);window.addEventListener('unhandledrejection',function(event){try{var msg=ss(event&&event.reason&&(event.reason.message||event.reason.stack)||event&&event.reason||'');if(/chunk|module|dynamically imported|importing a module script/i.test(msg)&&!rootVisible())window.setTimeout(function(){check('module_unhandled_rejection')},600)}catch(e){}},true);window.addEventListener('pageshow',function(){window.setTimeout(function(){check('pageshow_check')},2600)},{passive:true});window.setTimeout(function(){check('boot_timeout_3200')},3200);window.setTimeout(function(){check('boot_timeout_6500')},6500)}catch(e){}}catch(e){}})();
+    </script>
+    <script id="tepiha-pwa-boot-rescue-vite-bulletproof-runtime-v27">
+      (function(){
+        try {
+          var LAST_KEY = 'tepiha_pwa_boot_rescue_last_v1';
+          var LOG_KEY = 'tepiha_pwa_boot_rescue_log_v1';
+          var BOOT_TIMEOUT_MS = 5500;
+          var APP_EPOCH = String(window.__TEPIHA_APP_EPOCH || (document.querySelector('meta[name="tepiha-app-epoch"]') || {}).content || '');
+          var BUILD_ID = String(window.__TEPIHA_BUILD_ID || (document.querySelector('meta[name="tepiha-build-id"]') || {}).content || '');
+          var RESCUE_VERSION = String(window.__TEPIHA_PWA_BOOT_RESCUE_VERSION__ || 'pwa-boot-rescue-vite-bulletproof-runtime-v27');
+          var INDEX_VERSION = String(window.__TEPIHA_INDEX_SCRIPT_VERSION__ || '');
+          var startedAt = Date.now();
+
+          function safeString(value) {
+            try { return String(value == null ? '' : value); } catch (e) { return ''; }
+          }
+          function safeParse(raw, fallback) {
+            try {
+              var parsed = JSON.parse(raw);
+              return parsed == null ? fallback : parsed;
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function nowIso() {
+            try { return new Date().toISOString(); } catch (e) { return ''; }
+          }
+          function isStandalone() {
+            try {
+              return !!(
+                (window.navigator && window.navigator.standalone === true) ||
+                (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+                (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches)
+              );
+            } catch (e) {
+              return false;
+            }
+          }
+          function forceEnabled() {
+            try {
+              var sp = new URLSearchParams(window.location.search || '');
+              if (sp.get('pwaBootRescue') === '1') return true;
+              if (sp.get('bootRescue') === '1') return true;
+              return localStorage.getItem('tepiha_force_pwa_boot_rescue_v1') === '1';
+            } catch (e) {
+              return false;
+            }
+          }
+          function shouldArm() {
+            return isStandalone() || forceEnabled();
+          }
+          function readStorage(storage, key, fallback) {
+            try {
+              var raw = storage && storage.getItem ? storage.getItem(key) : null;
+              if (!raw) return fallback;
+              return safeParse(raw, raw);
+            } catch (e) {
+              return fallback;
+            }
+          }
+          function readBootMarkers() {
+            var out = {};
+            var keys = [
+              'tepiha_boot_in_progress',
+              'tepiha_boot_current_id',
+              'tepiha_boot_last_success',
+              'tepiha_boot_last_interrupted',
+              'tepiha_boot_trace_last',
+              'tepiha_route_ui_alive_v1',
+              'tepiha_route_alive_v1',
+              'tepiha_root_watchdog_last_v1',
+              'tepiha_module_boot_rescue_v1',
+              'tepiha_module_boot_rescue_log_v1',
+              'tepiha_dom_preheal_last_v1'
+            ];
+            for (var i = 0; i < keys.length; i += 1) {
+              var key = keys[i];
+              try {
+                var raw = localStorage.getItem(key);
+                if (raw) out[key] = safeParse(raw, raw);
+              } catch (e) {}
+              try {
+                var sraw = sessionStorage.getItem(key);
+                if (sraw) out['session:' + key] = safeParse(sraw, sraw);
+              } catch (e) {}
+            }
+            try {
+              var ss = sessionStorage.getItem('__TEPIHA_EARLY_BOOT_ID__');
+              if (ss) out['session:__TEPIHA_EARLY_BOOT_ID__'] = ss;
+            } catch (e) {}
+            try {
+              var iso = sessionStorage.getItem('__TEPIHA_STARTUP_ISOLATION_UNTIL__');
+              if (iso) out['session:__TEPIHA_STARTUP_ISOLATION_UNTIL__'] = iso;
+            } catch (e) {}
+            return out;
+          }
+          function readChunkMarkers() {
+            return {
+              lastChunkCapture: readStorage(localStorage, 'tepiha_chunk_last_capture_v1', null),
+              lastLazyImportAttempt: readStorage(localStorage, 'tepiha_last_lazy_import_attempt_v1', null),
+              lastLazyImportFailure: readStorage(localStorage, 'tepiha_last_lazy_import_failure_v1', null),
+              lazyImportLog: (function(){
+                var list = readStorage(localStorage, 'tepiha_lazy_import_log_v1', []);
+                return Array.isArray(list) ? list.slice(0, 12) : [];
+              })()
+            };
+          }
+          function findSwEpochFromUrl(url) {
+            try {
+              var parsed = new URL(String(url || ''), window.location.origin);
+              return String(parsed.searchParams.get('epoch') || '').trim();
+            } catch (e) {
+              return '';
+            }
+          }
+          function readSwInfo() {
+            var controller = null;
+            try { controller = navigator.serviceWorker && navigator.serviceWorker.controller; } catch (e) {}
+            var scriptURL = '';
+            try { scriptURL = controller && controller.scriptURL ? String(controller.scriptURL) : ''; } catch (e) {}
+            var swEpoch = findSwEpochFromUrl(scriptURL);
+            return {
+              supported: !!(navigator && navigator.serviceWorker),
+              controller: !!controller,
+              controllerScriptURL: scriptURL,
+              controllerEpoch: swEpoch,
+              appEpoch: APP_EPOCH,
+              epochMismatch: !!(APP_EPOCH && swEpoch && APP_EPOCH !== swEpoch)
+            };
+          }
+          async function readCacheKeys() {
+            try {
+              if (!('caches' in window)) return [];
+              var keys = await caches.keys();
+              return Array.isArray(keys) ? keys.slice(0, 80) : [];
+            } catch (e) {
+              return ['CACHE_KEYS_READ_FAILED: ' + safeString(e && e.message || e)];
+            }
+          }
+          function rootState() {
+            var root = null;
+            var cs = null;
+            try { root = document.getElementById('root'); } catch (e) {}
+            try { cs = root && window.getComputedStyle ? window.getComputedStyle(root) : null; } catch (e) {}
+            return {
+              exists: !!root,
+              childElementCount: root && root.childElementCount ? root.childElementCount : 0,
+              textLength: root && root.textContent ? String(root.textContent).trim().length : 0,
+              display: safeString(cs && cs.display),
+              visibility: safeString(cs && cs.visibility),
+              opacity: safeString(cs && cs.opacity),
+              dataUiReadyHtml: safeString(document.documentElement && document.documentElement.getAttribute('data-ui-ready')),
+              dataUiReadyBody: safeString(document.body && document.body.getAttribute('data-ui-ready')),
+              windowUiReady: window.__TEPIHA_UI_READY === true,
+              firstUiReady: window.__TEPIHA_FIRST_UI_READY === true,
+              reactReady: window.__TEPIHA_REACT_READY__ === true
+            };
+          }
+          function isUiReady() {
+            try {
+              if (window.__TEPIHA_UI_READY === true) return true;
+              if (window.__TEPIHA_FIRST_UI_READY === true) return true;
+              if (document.documentElement && document.documentElement.getAttribute('data-ui-ready') === '1') return true;
+              if (document.body && document.body.getAttribute('data-ui-ready') === '1') return true;
+              return false;
+            } catch (e) {
+              return false;
+            }
+          }
+          function isRootMeaningfullyVisible() {
+            var state = rootState();
+            if (!state.exists) return false;
+            if (state.display === 'none' || state.visibility === 'hidden' || Number(state.opacity || 1) === 0) return false;
+            return Number(state.childElementCount || 0) > 0 || Number(state.textLength || 0) > 0;
+          }
+          function hasRecentRouteUiAlive() {
+            try {
+              var path = safeString(window.location && window.location.pathname || '/');
+              var live = window.__TEPIHA_ROUTE_UI_ALIVE__ || null;
+              if (!live) live = readStorage(sessionStorage, 'tepiha_route_ui_alive_v1', null) || readStorage(localStorage, 'tepiha_route_ui_alive_v1', null);
+              var livePath = safeString(live && live.path || '');
+              var liveAt = Number(live && live.at || window.__TEPIHA_ROUTE_UI_ALIVE_AT__ || 0) || 0;
+              if (!livePath || livePath !== path) return false;
+              if (!liveAt) return true;
+              return Math.max(0, Date.now() - liveAt) < 30000;
+            } catch (e) { return false; }
+          }
+          function writeBootRescueSkip(reason, extra) {
+            try {
+              appendLog({
+                reason: safeString(reason || 'pwa_boot_rescue_skip'),
+                source: 'index_html_pwa_boot_rescue',
+                sourceLayer: 'index_html',
+                at: nowIso(),
+                ts: Date.now(),
+                appEpoch: APP_EPOCH,
+                buildId: BUILD_ID,
+                path: safeString(window.location && window.location.pathname),
+                search: safeString(window.location && window.location.search),
+                visibilityState: safeString(document.visibilityState),
+                rootState: rootState(),
+                uiReady: isUiReady(),
+                recentRouteUiAlive: hasRecentRouteUiAlive(),
+                extra: extra || {}
+              });
+            } catch (e) {}
+          }
+          function dismissFallbackIfRecovered(reason) {
+            try {
+              if (!isUiReady() && !hasRecentRouteUiAlive() && !isRootMeaningfullyVisible()) return false;
+              var node = document.getElementById('tepiha-pwa-boot-rescue');
+              if (node && node.parentNode) node.parentNode.removeChild(node);
+              try { document.documentElement.removeAttribute('data-pwa-boot-rescue'); } catch (e) {}
+              try { window.__TEPIHA_PWA_BOOT_RESCUE_VISIBLE__ = false; } catch (e) {}
+              if (node) writeBootRescueSkip('pwa_boot_rescue_dismissed_' + safeString(reason || 'recovered'));
+              return !!node;
+            } catch (e) { return false; }
+          }
+          async function buildDiag(reason) {
+            var swInfo = readSwInfo();
+            var cacheKeys = await readCacheKeys();
+            var diag = {
+              reason: safeString(reason || 'pwa_boot_timeout'),
+              source: 'index_html_pwa_boot_rescue',
+              sourceLayer: 'index_html',
+              at: nowIso(),
+              ts: Date.now(),
+              startedAt: startedAt,
+              elapsedMs: Math.max(0, Date.now() - startedAt),
+              href: safeString(window.location && window.location.href),
+              path: safeString(window.location && window.location.pathname),
+              search: safeString(window.location && window.location.search),
+              standalone: isStandalone(),
+              forceEnabled: forceEnabled(),
+              online: !!(navigator && navigator.onLine),
+              visibilityState: safeString(document.visibilityState),
+              documentReadyState: safeString(document.readyState),
+              appEpoch: APP_EPOCH,
+              buildId: BUILD_ID,
+              pwaBootRescueVersion: RESCUE_VERSION,
+              indexScriptVersion: INDEX_VERSION,
+              currentIndexAsset: (function(){ try { var scripts = Array.prototype.slice.call(document.scripts || []); for (var i = scripts.length - 1; i >= 0; i -= 1) { var src = String(scripts[i] && scripts[i].src || ''); if (/\/assets\/index-[^/?]+\.(?:js|mjs)(?:\?|$)/i.test(src) || /\/src\/main\.jsx(?:\?|$)/i.test(src)) return src; } } catch (e) {} return ''; })(),
+              bootId: safeString(window.BOOT_ID || readStorage(sessionStorage, 'tepiha_boot_current_id', '') || readStorage(localStorage, 'tepiha_boot_current_id', '')),
+              serviceWorker: swInfo,
+              cacheKeys: cacheKeys,
+              rootState: rootState(),
+              chunkMarkers: readChunkMarkers(),
+              bootMarkers: readBootMarkers(),
+              userAgent: safeString(navigator && navigator.userAgent)
+            };
+            try {
+              var routeEvent = readStorage(sessionStorage, 'tepiha_route_ui_alive_v1', null) || readStorage(localStorage, 'tepiha_route_ui_alive_v1', null);
+              diag.lastRouteEvent = routeEvent;
+            } catch (e) {}
+            try {
+              diag.lastSyncOfflineEvent = {
+                syncDebugLast: readStorage(localStorage, 'tepiha_sync_debug_last_v1', null),
+                offlineLast: readStorage(localStorage, 'tepiha_offline_last_event_v1', null),
+                pendingQueueCount: (function(){
+                  try {
+                    var keys = Object.keys(localStorage || {});
+                    var count = 0;
+                    for (var i = 0; i < keys.length; i += 1) {
+                      if (/outbox|pending|queue/i.test(keys[i] || '')) count += 1;
+                    }
+                    return count;
+                  } catch (e) { return null; }
+                })()
+              };
+            } catch (e) {}
+            return diag;
+          }
+          function appendLog(entry) {
+            try {
+              var list = safeParse(localStorage.getItem(LOG_KEY), []);
+              if (!Array.isArray(list)) list = [];
+              list.unshift(entry);
+              localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 20)));
+            } catch (e) {}
+            try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); } catch (e) {}
+          }
+          function copyText(text) {
+            return new Promise(function(resolve){
+              try {
+                if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(text).then(function(){ resolve(true); }).catch(function(){ resolve(false); });
+                  return;
+                }
+              } catch (e) {}
+              try {
+                var area = document.createElement('textarea');
+                area.value = text;
+                area.setAttribute('readonly', '');
+                area.style.position = 'fixed';
+                area.style.left = '-9999px';
+                area.style.top = '0';
+                document.body.appendChild(area);
+                area.focus();
+                area.select();
+                var ok = !!document.execCommand('copy');
+                document.body.removeChild(area);
+                resolve(ok);
+              } catch (e) {
+                resolve(false);
+              }
+            });
+          }
+          function setStatus(text) {
+            try {
+              var el = document.getElementById('tepiha-pwa-boot-rescue-status');
+              if (el) el.textContent = safeString(text || '');
+            } catch (e) {}
+          }
+          function fallbackTitleForPath() {
+            try {
+              var path = String(window.location && window.location.pathname || '/').replace(/^\/+/, '').replace(/\/+/g, ' / ');
+              if (!path) return 'TEPIHA';
+              return path.toUpperCase();
+            } catch (e) {
+              return 'TEPIHA';
+            }
+          }
+          function fallbackHtml(swInfo) {
+            var mismatch = swInfo && swInfo.epochMismatch;
+            var updateText = mismatch
+              ? '<div style="margin-top:10px;padding:10px;border:1px solid rgba(251,191,36,.35);border-radius:12px;background:rgba(251,191,36,.08);color:#fde68a;font-weight:800">Version i ri është gati. Mbylle app-in komplet dhe hape prap kur nuk je në punë aktive.</div>'
+              : '';
+            return '' +
+              '<div data-pwa-boot-rescue="1" style="position:fixed;inset:0;z-index:2147483647;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
+                '<div style="width:min(560px,100%);border:1px solid rgba(255,255,255,.14);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
+                  '<div style="font-size:12px;letter-spacing:.16em;color:#93c5fd;font-weight:900;margin-bottom:8px">PWA SAFE RESCUE V17</div>' +
+                  '<div style="font-size:26px;font-weight:1000;line-height:1.05;margin-bottom:8px">APP-I NUK U HAP NË PWA</div>' +
+                  '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:10px">Ky problem është vetëm në këtë telefon/Home Screen. App-i mund të hapet nga Safari. Të dhënat lokale dhe queue nuk preken.</div>' +
+                  '<div style="font-size:13px;color:#94a3b8;margin-bottom:12px">Route: <b style="color:#fff">' + fallbackTitleForPath() + '</b></div>' +
+                  updateText +
+                  '<div id="tepiha-pwa-boot-rescue-status" style="min-height:18px;margin:12px 0;color:#bae6fd;font-size:13px;font-weight:800"></div>' +
+                  '<div style="display:grid;grid-template-columns:1fr;gap:10px">' +
+                    '<button id="tepiha-pwa-rescue-retry" type="button" style="border:0;border-radius:14px;background:#2563eb;color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">PROVO PËRSËRI</button>' +
+                    '<button id="tepiha-pwa-rescue-offline" type="button" style="border:0;border-radius:14px;background:rgba(34,197,94,.16);color:#bbf7d0;padding:13px 14px;font-size:15px;font-weight:1000">VAZHDO OFFLINE</button>' +
+                    '<button id="tepiha-pwa-rescue-home" type="button" style="border:0;border-radius:14px;background:rgba(255,255,255,.10);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">HAP SAFARI</button>' +
+                    '<button id="tepiha-pwa-rescue-repair" type="button" style="border:1px solid rgba(251,191,36,.5);border-radius:14px;background:rgba(251,191,36,.14);color:#fde68a;padding:13px 14px;font-size:15px;font-weight:1000">RIPARO KËTË TELEFON</button>' +
+                    '<button id="tepiha-pwa-rescue-copy" type="button" style="border:1px solid rgba(255,255,255,.18);border-radius:14px;background:rgba(255,255,255,.06);color:#fff;padding:13px 14px;font-size:15px;font-weight:1000">COPY BOOT DIAG</button>' +
+                  '</div>' +
+                  '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Ky ekran nuk bën reload, nuk fshin cache dhe nuk çregjistron Service Worker. Mbylle/hape app-in manualisht kur nuk je në punë aktive.</div>' +
+                '</div>' +
+              '</div>';
+          }
+          function cacheBustUrl(extra) {
+            try {
+              var url = new URL(window.location.href);
+              url.searchParams.set('pwa_repair', extra || String(Date.now()));
+              url.searchParams.set('t', String(Date.now()));
+              return url.toString();
+            } catch (e) {
+              return '/?pwa_repair=' + Date.now();
+            }
+          }
+
+          function writePwaSafeMode(reason) {
+            try {
+              var now = Date.now();
+              var entry = {
+                at: nowIso(),
+                ts: now,
+                source: 'index_html_pwa_safe_rescue',
+                reason: safeString(reason || 'pwa_black_screen_continue_offline'),
+                disableSyncUntil: now + 90000,
+                disableUpdateChecksUntil: now + 90000,
+                disableWarmupUntil: now + 90000,
+                disableRuntimeUploadsUntil: now + 90000,
+                expiresAt: now + 90000,
+                appEpoch: APP_EPOCH,
+                buildId: BUILD_ID,
+                path: safeString(window.location && window.location.pathname),
+                href: safeString(window.location && window.location.href)
+              };
+              try { sessionStorage.setItem('tepiha_safe_mode_v1', JSON.stringify(entry)); } catch (e) {}
+              try { localStorage.setItem('tepiha_safe_mode_v1', JSON.stringify(entry)); } catch (e) {}
+              try { window.__TEPIHA_HOME_SAFE_MODE__ = true; } catch (e) {}
+              appendLog({ reason: 'pwa_safe_mode_set', safeMode: entry, source: 'index_html_pwa_safe_rescue', at: nowIso(), ts: now });
+              return entry;
+            } catch (e) {
+              return null;
+            }
+          }
+          function safeOfflineUrl() {
+            try {
+              var url = new URL('/', window.location.origin);
+              url.searchParams.set('safe', '1');
+              url.searchParams.set('offline', '1');
+              url.searchParams.set('t', String(Date.now()));
+              return url.toString();
+            } catch (e) {
+              return '/?safe=1&offline=1&t=' + Date.now();
+            }
+          }
+          function safariUrl() {
+            try {
+              return new URL('/?fresh=1', 'https://tepiha.vercel.app').toString();
+            } catch (e) {
+              return 'https://tepiha.vercel.app/?fresh=1';
+            }
+          }
+          function clearStaleMarkers() {
+            var localKeys = [
+              'tepiha_chunk_last_capture_v1',
+              'tepiha_lazy_import_log_v1',
+              'tepiha_last_lazy_import_failure_v1',
+              'tepiha_last_lazy_import_attempt_v1',
+              'tepiha_early_incident_queue_v1',
+              'tepiha_route_transition_v1',
+              'tepiha_active_route_request_v1',
+              'tepiha_root_resume_panic_snapshot_v1',
+              'tepiha_root_resume_panic_v1',
+              'tepiha_module_boot_rescue_v1',
+              'tepiha_root_watchdog_last_v1',
+              'tepiha_boot_in_progress'
+            ];
+            var sessionKeys = [
+              'tepiha_boot_in_progress',
+              'tepiha_boot_current_id',
+              'tepiha_route_transition_v1',
+              'tepiha_active_route_request_v1',
+              '__TEPIHA_EARLY_BOOT_ID__',
+              '__TEPIHA_STARTUP_ISOLATION_UNTIL__'
+            ];
+            for (var i = 0; i < localKeys.length; i += 1) {
+              try { localStorage.removeItem(localKeys[i]); } catch (e) {}
+            }
+            for (var j = 0; j < sessionKeys.length; j += 1) {
+              try { sessionStorage.removeItem(sessionKeys[j]); } catch (e) {}
+            }
+          }
+          function isTepihaRuntimeCacheName(key) {
+            var value = safeString(key);
+            if (!value) return false;
+            return /^(tepiha-vite-|workbox-|vite-|assets-|pages-|next-data-|nextjs-|next-|tepiha-next-|tepiha-legacy-|tepiha-sw-legacy-|legacy-sw-|sw-route-containment|sw-pwa-staleness|pwa-staleness)/i.test(value);
+          }
+          function isLegacyControllerScriptURL(scriptURL) {
+            try {
+              var raw = safeString(scriptURL || '');
+              if (!raw || raw.indexOf('/vite-sw.js') >= 0) return false;
+              return new URL(raw, window.location.origin).pathname === '/sw.js';
+            } catch (e) { return false; }
+          }
+          async function postLegacyMessage(type) {
+            return { ok: false, skipped: true, type: safeString(type || ''), reason: 'update_flow_quarantine_v29_no_controller_postmessage', noCacheDelete: true, noSwUnregister: true, noSkipWaiting: true, noReload: true };
+          }
+          async function unregisterAllServiceWorkersManual() {
+            return { count: 0, skipped: true, reason: 'update_flow_quarantine_v29_no_sw_unregister', noSkipWaiting: true, noCacheDelete: true, noReload: true };
+          }
+          async function repairApp() {
+            setStatus('Version i ri është gati. Mbylle app-in komplet dhe hape prap kur nuk je në punë aktive.');
+            var before = await buildDiag('pwa_repair_started');
+            appendLog(before);
+            var legacyBridge = { purge: { skipped: true, patch: 'V28_no_auto_repair' }, unregister: { skipped: true, patch: 'V28_no_auto_repair' } };
+            var unregisteredServiceWorkers = [];
+            var deletedLegacyCaches = [];
+            try { window.__TEPIHA_PWA_REPAIR_CACHE_DELETE_DISABLED_V28__ = true; } catch (e) {}
+            clearStaleMarkers();
+            var after = await buildDiag('pwa_repair_completed_no_reload_v27_1');
+            try {
+              after.legacyBridge = legacyBridge;
+              after.unregisteredServiceWorkers = unregisteredServiceWorkers;
+              after.deletedCacheBuckets = deletedLegacyCaches;
+              after.indexedDbPreserved = true;
+              after.localOrdersOutboxPreserved = true;
+            } catch (e) {}
+            appendLog(after);
+            setStatus('PATCH V29: update flow është në quarantine. Nuk u bë reload, cache delete ose SW unregister.');
+          }
+          async function showFallback(reason) {
+            try {
+              if (window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__ && window.__TEPIHA_SHOW_FAIL_OPEN_SHELL__(reason || 'pwa_boot_timeout', { source: 'pwa_boot_rescue' })) return;
+              if (document.querySelector('[data-pwa-boot-rescue="1"]')) return;
+              var diag = await buildDiag(reason || 'pwa_boot_timeout');
+              appendLog(diag);
+              window.__TEPIHA_PWA_BOOT_RESCUE_VISIBLE__ = true;
+              try { window.dispatchEvent(new CustomEvent('tepiha:pwa-boot-rescue-visible', { detail: diag })); } catch (e) {}
+              var mount = document.createElement('div');
+              mount.id = 'tepiha-pwa-boot-rescue';
+              mount.innerHTML = fallbackHtml(diag.serviceWorker || {});
+              (document.body || document.documentElement).appendChild(mount);
+              try { document.documentElement.setAttribute('data-pwa-boot-rescue', '1'); } catch (e) {}
+              try {
+                var retry = document.getElementById('tepiha-pwa-rescue-retry');
+                if (retry) retry.onclick = function(){
+                  setStatus('Duke provuar përsëri...');
+                  setStatus('PATCH L V24: retry automatik u ndal. Hape manualisht nga Home nëse do.')
+                };
+              } catch (e) {}
+              try {
+                var offline = document.getElementById('tepiha-pwa-rescue-offline');
+                if (offline) offline.onclick = function(){
+                  setStatus('Po hapet safe/offline mode pa prekur të dhënat...');
+                  writePwaSafeMode('pwa_black_screen_continue_offline');
+                  try { var u=safeOfflineUrl(); window.history.replaceState(window.history.state || {}, '', u); window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state })); } catch (e) {}
+                };
+              } catch (e) {}
+              try {
+                var home = document.getElementById('tepiha-pwa-rescue-home');
+                if (home) home.onclick = function(){
+                  try { var h=safariUrl(); window.history.replaceState(window.history.state || {}, '', h); window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state })); } catch (e) {}
+                };
+              } catch (e) {}
+              try {
+                var copy = document.getElementById('tepiha-pwa-rescue-copy');
+                if (copy) copy.onclick = async function(){
+                  setStatus('Duke përgatitur boot diag...');
+                  var fresh = await buildDiag('copy_boot_diag');
+                  appendLog(fresh);
+                  var ok = await copyText(JSON.stringify(fresh, null, 2));
+                  setStatus(ok ? 'BOOT DIAG U KOPJUA' : 'COPY DËSHTOI - hape /diag-raw në Safari');
+                };
+              } catch (e) {}
+              try {
+                var repair = document.getElementById('tepiha-pwa-rescue-repair');
+                if (repair) repair.onclick = function(){ repairApp().catch(function(error){ setStatus('Riparimi dështoi: ' + safeString(error && error.message || error)); }); };
+              } catch (e) {}
+            } catch (e) {}
+          }
+          function maybeShowFallback(reason) {
+            try {
+              if (isUiReady() || hasRecentRouteUiAlive()) {
+                dismissFallbackIfRecovered('ui_ready');
+                return;
+              }
+              if (isRootMeaningfullyVisible()) {
+                // VITE-SILENT-RUNTIME-V16: në iOS Homescreen disa route shfaqen para se marker-i ui_ready të shkruhet.
+                // Mos e mbulo UI-në reale me rescue vetëm pse mungon marker-i.
+                writeBootRescueSkip('pwa_boot_rescue_skip_root_visible_' + safeString(reason || 'timeout'));
+                return;
+              }
+              showFallback(reason || 'pwa_boot_timeout').catch(function(){});
+            } catch (e) {}
+          }
+          try {
+            window.addEventListener('tepiha:first-ui-ready', function(){ dismissFallbackIfRecovered('first_ui_ready'); }, { passive: true });
+            window.addEventListener('tepiha:route-ui-alive', function(){ dismissFallbackIfRecovered('route_ui_alive'); }, { passive: true });
+            window.addEventListener('tepiha:route-diag', function(ev){
+              try {
+                var type = safeString(ev && ev.detail && ev.detail.type || '');
+                if (type === 'route_ui_ready' || type === 'route_first_paint' || type === 'route_first_interactive') dismissFallbackIfRecovered(type);
+              } catch (e) {}
+            }, { passive: true });
+          } catch (e) {}
+          function checkSwEpochAtLaunch() {
+            try {
+              var info = readSwInfo();
+              window.__TEPIHA_PWA_SW_EPOCH_CHECK__ = {
+                at: nowIso(),
+                standalone: isStandalone(),
+                appEpoch: APP_EPOCH,
+                controllerEpoch: info.controllerEpoch,
+                controller: info.controller,
+                epochMismatch: info.epochMismatch
+              };
+              if (info.epochMismatch) {
+                appendLog({
+                  source: 'index_html_pwa_boot_rescue',
+                  reason: 'pwa_sw_epoch_mismatch_detected',
+                  at: nowIso(),
+                  ts: Date.now(),
+                  serviceWorker: info,
+                  appEpoch: APP_EPOCH,
+                  buildId: BUILD_ID,
+                  href: safeString(window.location && window.location.href)
+                });
+              }
+              return info;
+            } catch (e) {
+              return null;
+            }
+          }
+
+          var launchSwInfo = checkSwEpochAtLaunch();
+
+          if (launchSwInfo && launchSwInfo.epochMismatch && shouldArm()) {
+            try {
+              var passiveLaunch = {
+                source: 'index_html_pwa_boot_rescue',
+                reason: 'pwa_sw_epoch_mismatch_passive_no_auto_repair',
+                at: nowIso(),
+                ts: Date.now(),
+                serviceWorker: launchSwInfo,
+                appEpoch: APP_EPOCH,
+                buildId: BUILD_ID,
+                passiveUpdate: true,
+                autoRepairDisabled: true,
+                autoReloadDisabled: true,
+                manualUpdateOnly: true,
+                manualRepairV12: true,
+                href: safeString(window.location && window.location.href)
+              };
+              appendLog(passiveLaunch);
+              try { sessionStorage.setItem('tepiha_update_available_last_v7', JSON.stringify(passiveLaunch)); } catch (e) {}
+              try { window.__TEPIHA_UPDATE_AVAILABLE__ = passiveLaunch; } catch (e) {}
+              /* V7 quiet: no launch visual update event dispatch. */
+            } catch (e) {}
+          }
+
+          if (!shouldArm()) return;
+
+          if (launchSwInfo && launchSwInfo.epochMismatch) {
+            try {
+              window.setTimeout(function(){
+                if (!isUiReady()) maybeShowFallback('pwa_sw_epoch_mismatch_launch');
+              }, 1600);
+            } catch (e) {}
+          }
+
+          try {
+            window.setTimeout(function(){ maybeShowFallback('pwa_boot_timeout_' + BOOT_TIMEOUT_MS); }, BOOT_TIMEOUT_MS);
+            window.setTimeout(function(){ maybeShowFallback('pwa_boot_timeout_late_30000'); }, 30000);
+            window.addEventListener('pageshow', function(){ window.setTimeout(function(){ if (!isUiReady()) maybeShowFallback('pwa_pageshow_no_ui_ready'); }, BOOT_TIMEOUT_MS); }, { passive: true });
+          } catch (e) {}
+        } catch (e) {}
+      })();
+    </script>
+
+  
+    <script id="tepiha-visible-stuck-watchdog-v28">
+      (function(){
+        try {
+          var VERSION = 'visible-stuck-watchdog-v28';
+          var LOG_KEY = 'tepiha_visible_stuck_watchdog_log_v24';
+          var LAST_KEY = 'tepiha_visible_stuck_watchdog_last_v24';
+          function ss(v){ try { return String(v == null ? '' : v); } catch(e){ return ''; } }
+          function iso(){ try { return new Date().toISOString(); } catch(e){ return ''; } }
+          function parse(raw, fb){ try { var x = JSON.parse(raw); return x == null ? fb : x; } catch(e){ return fb; } }
+          function log(entry){ try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); var list=parse(localStorage.getItem(LOG_KEY), []); if(!Array.isArray(list)) list=[]; list.unshift(entry); localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0,40))); } catch(e){} }
+          function root(){ try { return document.getElementById('root') || document.body || document.documentElement; } catch(e){ return null; } }
+          function text(){ var r=root(); try { return ss(r && r.textContent || '').slice(0,1800); } catch(e){ return ''; } }
+          function blocking(){
+            var t=text();
+            try { if (document.querySelector('[data-route-fallback="1"],[data-visible-stuck-candidate="1"],[data-global-loading="1"],[data-loading-overlay="1"]')) return true; } catch(e){}
+            return /(DUKE\s+HAPUR|Duke\s+u\s+ngarkuar|DUKE\s+RIFRESKUAR|PO\s+RIDREJTOHESH|LOADING|Loading)/i.test(t);
+          }
+          function show(reason){
+            try {
+              if (document.getElementById('tepiha-visible-stuck-panel-v28')) return true;
+              if (!blocking()) return false;
+              var entry={at:iso(),ts:Date.now(),source:VERSION,reason:ss(reason||'visible_stuck'),href:ss(location&&location.href),path:ss(location&&location.pathname),text:text().slice(0,360),noReload:true,noCacheDelete:true,noSwUnregister:true};
+              log(entry);
+              var panel=document.createElement('div');
+              panel.id='tepiha-visible-stuck-panel-v28';
+              panel.setAttribute('data-visible-stuck-panel','1');
+              panel.style.cssText='position:fixed;left:10px;right:10px;bottom:10px;z-index:2147483647;background:#07111f;color:#fff;border:1px solid rgba(96,165,250,.45);border-radius:18px;padding:12px;box-shadow:0 18px 48px rgba(0,0,0,.45);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial';
+              panel.innerHTML='<div style="font-size:12px;font-weight:1000;letter-spacing:.08em;color:#bfdbfe">APP SAFE MODE</div><div style="font-size:16px;font-weight:1000;margin-top:3px">U NDAL GLOBAL LOOP</div><div style="font-size:13px;opacity:.82;margin-top:4px;line-height:1.35">Ekrani duket i bllokuar në loading. Nuk po bëhet reload, cache delete, ose SW unregister. Hape një modul nga këtu.</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><a href="/" style="color:#fff;background:#2563eb;padding:9px 10px;border-radius:12px;text-decoration:none;font-weight:900">HOME</a><a href="/pastrimi" style="color:#fff;background:#334155;padding:9px 10px;border-radius:12px;text-decoration:none;font-weight:900">PASTRIMI</a><a href="/gati" style="color:#fff;background:#334155;padding:9px 10px;border-radius:12px;text-decoration:none;font-weight:900">GATI</a><a href="/arka" style="color:#fff;background:#334155;padding:9px 10px;border-radius:12px;text-decoration:none;font-weight:900">ARKA</a><button id="tepiha-visible-stuck-close-v28" type="button" style="color:#fff;background:transparent;border:1px solid rgba(255,255,255,.25);padding:9px 10px;border-radius:12px;font-weight:900">MBYLLE</button></div>';
+              (document.body||document.documentElement).appendChild(panel);
+              try { document.getElementById('tepiha-visible-stuck-close-v28').onclick=function(){ try { panel.remove(); } catch(e){} }; } catch(e){}
+              try { window.dispatchEvent(new CustomEvent('tepiha:visible-stuck-watchdog', { detail: entry })); } catch(e){}
+              return true;
+            } catch(e){ return false; }
+          }
+          function check(reason){ try { if (blocking()) show(reason); } catch(e){} }
+          window.__TEPIHA_VISIBLE_STUCK_WATCHDOG__={show:show,check:check,version:VERSION};
+          setTimeout(function(){ check('timeout_6500'); },6500);
+          setTimeout(function(){ check('timeout_11000'); },11000);
+          try { window.addEventListener('tepiha:pastrimi-loading-timeout', function(){ setTimeout(function(){ check('pastrimi_loading_timeout_event'); },300); }, {passive:true}); } catch(e){}
+          try { window.addEventListener('pageshow', function(){ setTimeout(function(){ check('pageshow_visible_stuck'); },3500); }, {passive:true}); } catch(e){}
+        } catch(e) {}
+      })();
+    </script>
+
+  </head>
+  <body style="background:#05070d;color:#fff">
+    <div
+      id="tepiha-build-marker"
+      data-tepiha-build-marker="1"
+      data-app-epoch="RESET-2026-04-28-VITE-FAST-CACHE-PREBOOT-V34-7"
+      data-build-id="2.0.46-vite-fast-cache-preboot-v34-7"
+      data-index-script-version="index-html-vite-true-ui-ready-v32"
+      data-pwa-boot-rescue-version="pwa-boot-rescue-vite-bulletproof-runtime-v27"
+      style="display:none;position:fixed;left:6px;bottom:calc(58px + env(safe-area-inset-bottom, 0px));z-index:2147482500;max-width:calc(100vw - 12px);padding:3px 5px;border-radius:7px;background:rgba(2,6,23,.52);border:1px solid rgba(96,165,250,.22);color:rgba(191,219,254,.72);font:700 7px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.01em;box-shadow:none;pointer-events:none;opacity:.72"
+    >
+      INDEX FAILOPEN • 2.0.46-vite-fast-cache-preboot-v34-7<br />
+      RESET-2026-04-28-VITE-FAST-CACHE-PREBOOT-V34-7<br />
+      TRUE UI READY V32
+    </div>
+    <div id="root"></div>
+    <script id="tepiha-pre-react-black-screen-fallback-v29">
+      (function(){
+        try {
+          var APP_EPOCH = 'RESET-2026-04-28-VITE-FAST-CACHE-PREBOOT-V34-7';
+          var BUILD_ID = '2.0.46-vite-fast-cache-preboot-v34-7';
+          var LAST_KEY = 'tepiha_pre_react_black_screen_last';
+          var LOG_KEY = 'tepiha_pre_react_black_screen_log';
+          function ss(v){ try { return String(v == null ? '' : v); } catch(e) { return ''; } }
+          function iso(){ try { return new Date().toISOString(); } catch(e) { return ''; } }
+          function parse(raw, fb){ try { var x = JSON.parse(raw); return x == null ? fb : x; } catch(e) { return fb; } }
+          function root(){ try { return document.getElementById('root'); } catch(e) { return null; } }
+          function hasReadyMarker(){
+            try { if (window.__TEPIHA_UI_READY__ === true || window.__TEPIHA_FIRST_UI_READY__ === true || window.__TEPIHA_REACT_RENDER_CALLED__ === true) return true; } catch(e) {}
+            try { if (document.documentElement && document.documentElement.getAttribute('data-ui-ready') === '1') return true; } catch(e) {}
+            try { if (document.body && document.body.getAttribute('data-ui-ready') === '1') return true; } catch(e) {}
+            try { if (document.documentElement && document.documentElement.getAttribute('data-react-ready') === '1') return true; } catch(e) {}
+            return false;
+          }
+          function rootHasContent(){ try { var r = root(); if (!r) return false; var t = r.textContent ? ss(r.textContent).trim().length : 0; return (r.childElementCount || 0) > 0 || t > 0; } catch(e) { return false; } }
+          function log(entry){
+            try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); } catch(e) {}
+            try { var list = parse(localStorage.getItem(LOG_KEY), []); if (!Array.isArray(list)) list = []; list.unshift(entry); localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 30))); } catch(e) {}
+          }
+          function href(path){ try { return new URL(path, window.location.origin).pathname; } catch(e) { return path; } }
+          function show(reason){
+            try {
+              if (hasReadyMarker() || rootHasContent()) return false;
+              var r = root();
+              if (!r) return false;
+              if (document.getElementById('tepiha-pre-react-safe-screen-v29')) return true;
+              var entry = { at: iso(), ts: Date.now(), source: 'pre_react_black_screen_fallback_v29', reason: ss(reason || 'pre_react_timeout_2500'), appEpoch: APP_EPOCH, buildId: BUILD_ID, href: ss(window.location && window.location.href), path: ss(window.location && window.location.pathname), readyState: ss(document.readyState), visibilityState: ss(document.visibilityState), noReload: true, noLocationReplace: true, noCacheDelete: true, noSwUnregister: true, noIndexedDbTouch: true, noBusinessLocalStorageTouch: true };
+              log(entry);
+              r.innerHTML = '' +
+                '<section id="tepiha-pre-react-safe-screen-v29" data-pre-react-black-screen-fallback="1" style="min-height:100vh;box-sizing:border-box;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
+                  '<div style="width:min(560px,100%);border:1px solid rgba(96,165,250,.30);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
+                    '<div style="font-size:12px;letter-spacing:.14em;color:#93c5fd;font-weight:1000;margin-bottom:8px">SAFE SCREEN V29</div>' +
+                    '<div style="font-size:25px;font-weight:1000;line-height:1.08;margin-bottom:8px">APP-I NUK U HAP ME REACT</div>' +
+                    '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:12px">Ky fallback u hap para React-it. Nuk bëri reload, nuk fshiu cache dhe nuk preku Service Worker, IndexedDB, orders ose outbox.</div>' +
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">' +
+                      '<a href="'+href('/')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#2563eb;color:#fff;padding:13px;font-size:14px;font-weight:1000">HOME</a>' +
+                      '<a href="'+href('/pranimi')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#334155;color:#fff;padding:13px;font-size:14px;font-weight:1000">PRANIMI</a>' +
+                      '<a href="'+href('/pastrimi')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#334155;color:#fff;padding:13px;font-size:14px;font-weight:1000">PASTRIMI</a>' +
+                      '<a href="'+href('/gati')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#334155;color:#fff;padding:13px;font-size:14px;font-weight:1000">GATI</a>' +
+                      '<a href="'+href('/diag-raw')+'" style="grid-column:1 / -1;text-align:center;text-decoration:none;border-radius:14px;background:rgba(96,165,250,.18);color:#bfdbfe;padding:13px;font-size:14px;font-weight:1000">DIAG RAW</a>' +
+                    '</div>' +
+                    '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Log: tepiha_pre_react_black_screen_last</div>' +
+                  '</div>' +
+                '</section>';
+              try { window.__TEPIHA_PRE_REACT_SAFE_SCREEN_VISIBLE__ = true; } catch(e) {}
+              try { window.dispatchEvent(new CustomEvent('tepiha:pre-react-black-screen-fallback', { detail: entry })); } catch(e) {}
+              return true;
+            } catch(e) { return false; }
+          }
+          window.__TEPIHA_PRE_REACT_BLACK_SCREEN_FALLBACK_V29__ = { show: show, version: 'v29' };
+          window.setTimeout(function(){ show('pre_react_timeout_2500'); }, 2500);
+        } catch(e) {}
+      })();
+    </script>
+    <script id="tepiha-post-react-blank-screen-watchdog-v32">
+      (function(){
+        try {
+          var APP_EPOCH = 'RESET-2026-04-28-VITE-FAST-CACHE-PREBOOT-V34-7';
+          var BUILD_ID = '2.0.46-vite-fast-cache-preboot-v34-7';
+          var LAST_KEY = 'tepiha_post_react_blank_screen_last';
+          var LOG_KEY = 'tepiha_post_react_blank_screen_log';
+          function ss(v){ try { return String(v == null ? '' : v); } catch(e) { return ''; } }
+          function iso(){ try { return new Date().toISOString(); } catch(e) { return ''; } }
+          function parse(raw, fb){ try { var x = JSON.parse(raw); return x == null ? fb : x; } catch(e) { return fb; } }
+          function root(){ try { return document.getElementById('root'); } catch(e) { return null; } }
+          function href(path){ try { return new URL(path, window.location.origin).pathname; } catch(e) { return path; } }
+          function readySnapshot(){
+            return {
+              reactRenderCalled: !!window.__TEPIHA_REACT_RENDER_CALLED__,
+              appRootMounted: !!window.__TEPIHA_APPROOT_MOUNTED__,
+              uiReady: !!window.__TEPIHA_UI_READY__,
+              firstUiReady: !!window.__TEPIHA_FIRST_UI_READY__,
+              htmlUiReady: ss(document.documentElement && document.documentElement.getAttribute('data-ui-ready')),
+              bodyUiReady: ss(document.body && document.body.getAttribute('data-ui-ready')),
+              uiReadySource: ss(document.documentElement && document.documentElement.getAttribute('data-ui-ready-source')) || ss(document.body && document.body.getAttribute('data-ui-ready-source')),
+              reactRenderCalledAttr: ss(document.documentElement && document.documentElement.getAttribute('data-react-render-called')),
+              appRootMountedAttr: ss(document.documentElement && document.documentElement.getAttribute('data-approot-mounted'))
+            };
+          }
+          function visibleChildrenCount(r){
+            try {
+              var nodes = r ? Array.prototype.slice.call(r.children || []) : [];
+              var count = 0;
+              nodes.forEach(function(n){
+                try {
+                  var cs = window.getComputedStyle ? window.getComputedStyle(n) : null;
+                  var rect = n.getBoundingClientRect ? n.getBoundingClientRect() : { width: 0, height: 0 };
+                  if (cs && (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity || 1) === 0)) return;
+                  if ((rect.width || 0) > 2 && (rect.height || 0) > 2) count += 1;
+                } catch(e) {}
+              });
+              return count;
+            } catch(e) { return 0; }
+          }
+          function rootStats(){
+            var r = root();
+            var text = '';
+            try { text = r && r.innerText ? ss(r.innerText).replace(/\s+/g, ' ').trim() : ''; } catch(e) {}
+            var buttons = 0;
+            try { buttons = r ? r.querySelectorAll('button,a,[role="button"],input,select,textarea').length : 0; } catch(e) {}
+            var childCount = 0;
+            try { childCount = r ? (r.childElementCount || 0) : 0; } catch(e) {}
+            var visibleChildren = visibleChildrenCount(r);
+            return { exists: !!r, textLength: text.length, textSample: text.slice(0, 90), buttonsOrLinks: buttons, childCount: childCount, visibleChildren: visibleChildren };
+          }
+          function rootLooksBlank(){
+            var st = rootStats();
+            if (!st.exists) return true;
+            if (st.buttonsOrLinks > 0) return false;
+            if (st.textLength >= 20) return false;
+            if (st.visibleChildren >= 2 && st.textLength >= 8) return false;
+            return true;
+          }
+          function log(entry){
+            try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); } catch(e) {}
+            try { var list = parse(localStorage.getItem(LOG_KEY), []); if (!Array.isArray(list)) list = []; list.unshift(entry); localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 30))); } catch(e) {}
+          }
+          function show(reason){
+            try {
+              var r = root();
+              if (!r) return false;
+              if (!rootLooksBlank()) return false;
+              if (document.getElementById('tepiha-post-react-safe-screen-v32')) return true;
+              var entry = { at: iso(), ts: Date.now(), source: 'post_react_blank_screen_watchdog_v32', reason: ss(reason || 'post_react_blank_3500'), appEpoch: APP_EPOCH, buildId: BUILD_ID, href: ss(window.location && window.location.href), path: ss(window.location && window.location.pathname), readyState: ss(document.readyState), visibilityState: ss(document.visibilityState), root: rootStats(), ready: readySnapshot(), noReload: true, noLocationReplace: true, noCacheDelete: true, noSwUnregister: true, noSkipWaiting: true, noClientsClaim: true, noIndexedDbTouch: true, noBusinessLocalStorageTouch: true };
+              log(entry);
+              r.innerHTML = '' +
+                '<section id="tepiha-post-react-safe-screen-v32" data-post-react-blank-screen-fallback="1" style="min-height:100vh;box-sizing:border-box;background:#05070d;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px">' +
+                  '<div style="width:min(560px,100%);border:1px solid rgba(96,165,250,.30);background:linear-gradient(180deg,#111827,#070b12);border-radius:22px;box-shadow:0 22px 70px rgba(0,0,0,.55);padding:18px">' +
+                    '<div style="font-size:12px;letter-spacing:.14em;color:#93c5fd;font-weight:1000;margin-bottom:8px">SAFE SCREEN V32</div>' +
+                    '<div style="font-size:25px;font-weight:1000;line-height:1.08;margin-bottom:8px">APP-I U HAP, POR FAQJA MBETI BOSH</div>' +
+                    '<div style="font-size:14px;line-height:1.45;color:#cbd5e1;margin-bottom:12px">Watchdog-u e pa që React/AppRoot u nis, por root-i nuk kishte përmbajtje reale në ekran. Nuk bëri reload, nuk fshiu cache dhe nuk preku Service Worker, IndexedDB, orders ose outbox.</div>' +
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">' +
+                      '<a href="'+href('/')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#2563eb;color:#fff;padding:13px;font-size:14px;font-weight:1000">HOME</a>' +
+                      '<a href="'+href('/pranimi')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#334155;color:#fff;padding:13px;font-size:14px;font-weight:1000">PRANIMI</a>' +
+                      '<a href="'+href('/pastrimi')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#334155;color:#fff;padding:13px;font-size:14px;font-weight:1000">PASTRIMI</a>' +
+                      '<a href="'+href('/gati')+'" style="text-align:center;text-decoration:none;border-radius:14px;background:#334155;color:#fff;padding:13px;font-size:14px;font-weight:1000">GATI</a>' +
+                      '<a href="'+href('/diag-raw')+'" style="grid-column:1 / -1;text-align:center;text-decoration:none;border-radius:14px;background:rgba(96,165,250,.18);color:#bfdbfe;padding:13px;font-size:14px;font-weight:1000">DIAG RAW</a>' +
+                    '</div>' +
+                    '<div style="margin-top:12px;color:#64748b;font-size:12px;line-height:1.35">Log: tepiha_post_react_blank_screen_last</div>' +
+                  '</div>' +
+                '</section>';
+              try { window.__TEPIHA_POST_REACT_SAFE_SCREEN_VISIBLE__ = true; } catch(e) {}
+              try { window.dispatchEvent(new CustomEvent('tepiha:post-react-blank-screen-fallback', { detail: entry })); } catch(e) {}
+              return true;
+            } catch(e) { return false; }
+          }
+          function shouldCheck(){
+            try { if (window.__TEPIHA_REACT_RENDER_CALLED__ === true || window.__TEPIHA_APPROOT_MOUNTED__ === true) return true; } catch(e) {}
+            try { if (document.documentElement && (document.documentElement.getAttribute('data-react-render-called') === '1' || document.documentElement.getAttribute('data-approot-mounted') === '1')) return true; } catch(e) {}
+            return false;
+          }
+          function check(reason){ try { if (shouldCheck()) show(reason); } catch(e) {} }
+          window.__TEPIHA_POST_REACT_BLANK_SCREEN_WATCHDOG_V32__ = { check: check, show: show, rootStats: rootStats, version: 'v32' };
+          try { window.addEventListener('tepiha:react-render-called', function(){ window.setTimeout(function(){ check('react_render_called_3500'); }, 3500); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('tepiha:approot-mounted', function(){ window.setTimeout(function(){ check('approot_mounted_3500'); }, 3500); }, { passive: true }); } catch(e) {}
+          try { window.addEventListener('pageshow', function(){ window.setTimeout(function(){ check('pageshow_post_react_3500'); }, 3500); }, { passive: true }); } catch(e) {}
+          window.setTimeout(function(){ check('post_react_timeout_3500'); }, 3500);
+          window.setTimeout(function(){ check('post_react_timeout_6500'); }, 6500);
+        } catch(e) {}
+      })();
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

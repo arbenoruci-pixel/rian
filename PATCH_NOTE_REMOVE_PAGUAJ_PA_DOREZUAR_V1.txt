@@ -1,0 +1,16 @@
+PATCH: Remove "PAGUAJ PA DORËZU" from GATI delivery/payment modal
+
+Scope:
+- app/gati/page.jsx only
+
+What changed:
+1. Removed the UI button labeled "PAGUAJ PA DORËZU" from the DORËZIMI & PAGESA modal.
+2. Removed the applyPayOnly() function that recorded a cash payment without closing/delivering the order.
+
+What remains unchanged:
+- KONFIRMO DORËZIMIN remains the only normal payment/delivery path.
+- MBYLLE DORËZIMIN retry remains available only when a payment was already recorded but delivery close failed.
+- ARKA/payment service, DB schema, Supabase writes, transport, Pastrimi, Marrje Sot, and cache/runtime logic are untouched.
+
+Reason:
+This option could confuse workers because it records money in ARKA while leaving the order still in GATI / not delivered. Removing it makes the flow safer: payment and delivery are confirmed together.

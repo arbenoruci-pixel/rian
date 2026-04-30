@@ -1,0 +1,13 @@
+PWA-BOOTGUARD-V3
+
+Targeted fix for iOS Homescreen/PWA showing PWA BOOT RESCUE on /login while Safari opens normally.
+
+Changes:
+- Boot rescue now fires only when the React root is not meaningfully visible and no ui-ready/route-ui-alive marker exists.
+- Root-visible pages are logged as boot-rescue skips instead of being covered by rescue overlay.
+- Boot timeout increased to 15s, late check to 30s for iOS standalone cold-start delays.
+- routeAlive now writes global ui-ready markers and dispatches first-ui-ready.
+- RouteLifecycleProbe marks ui-ready after first interactive as a safe fallback.
+- Existing rescue overlay dismisses itself if UI recovers after the overlay appears.
+
+No DB schema, Supabase, orders, outbox, or business workflow changes.

@@ -1,0 +1,49 @@
+/* PREMIUM IOS-STYLE CHIPS PATCH */
+
+/* Replace your existing chips styles with this */
+
+.chips-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: -10px;
+}
+
+@media (min-width: 400px) {
+  .chips-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.chip {
+  position: relative;
+  min-height: 64px;
+  border: 1.5px solid rgba(255,255,255,.14);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.03)),
+    linear-gradient(180deg, #1f1f24 0%, #111217 100%);
+  color: #fff;
+  font-size: 21px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.10),
+    0 8px 18px rgba(0,0,0,.28);
+  transition: all .18s ease;
+}
+
+.chip:active {
+  transform: scale(.965);
+}
+
+.chip.selected {
+  background:
+    linear-gradient(180deg, #3aa0ff 0%, #007aff 100%);
+  border-color: rgba(10,132,255,.95);
+  box-shadow:
+    0 0 0 2px rgba(10,132,255,.18),
+    0 10px 22px rgba(0,122,255,.45);
+}
