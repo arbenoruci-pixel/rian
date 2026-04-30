@@ -169,11 +169,13 @@ function readPastrimRowsFromBaseMasterCache(cache = null) {
 function readPastrimRowsFromPageSnapshot() {
   try {
     const snapshot = readPageSnapshot('pastrimi');
-    return (Array.isArray(snapshot?.rows) ? snapshot.rows : []).map((row) => normalizeRenderableOrderRow({
-      ...(row && typeof row === 'object' ? row : {}),
-      source: String(row?.source || 'PAGE_SNAPSHOT'),
-      _pageSnapshot: true,
-    }));
+    return (Array.isArray(snapshot?.rows) ? snapshot.rows : [])
+      .map((row) => normalizeRenderableOrderRow({
+        ...(row && typeof row === 'object' ? row : {}),
+        source: String(row?.source || 'PAGE_SNAPSHOT'),
+        _pageSnapshot: true,
+      }))
+      .filter((row) => shouldShowTransportBridgeInPastrim(row));
   } catch {
     return [];
   }
@@ -192,6 +194,7 @@ function persistPastrimPageSnapshot(rows = [], meta = {}) {
         return next;
       });
     if (cleanRows.length > 0) writePageSnapshot('pastrimi', cleanRows, meta);
+    else clearPageSnapshot('pastrimi');
   } catch {}
 }
 
@@ -216,6 +219,8 @@ const PASRTRIMI_FETCH_LIMIT = 48;
 const PASRTRIMI_INITIAL_LOCAL_TIMEOUT_MS = 2200;
 const PASRTRIMI_REMOTE_REFRESH_TIMEOUT_MS = 3500;
 const PASTRIMI_LOADING_TIMEOUT_MARKER_KEY = 'tepiha_pastrimi_loading_timeout_v1';
+const PASTRIMI_TRANSPORT_EXIT_TOMBSTONES_KEY = 'tepiha_pastrimi_transport_exit_tombstones_v1';
+const PASTRIMI_TRANSPORT_EXIT_TOMBSTONE_TTL_MS = 1000 * 60 * 60 * 48;
 const PASRTRIMI_REFRESH_MIN_GAP_MS = 2200;
 const PASRTRIMI_LOCAL_PERSIST_LIMIT = 36;
 const PASRTRIMI_LOCAL_PERSIST_MIN_GAP_MS = 10000;
@@ -688,6 +693,140 @@ function removePastrimTransportRowsFromPageSnapshot(target, reason = 'transport_
   } catch {}
 }
 
+
+function getPastrimTransportExitIdentity(row) {
+  const base = row && typeof row === 'object' ? row : {};
+  const order = unwrapOrderData(base?.fullOrder || base?.data || base || {});
+  const fullOrderData = asPastrimObj(base?.fullOrder?.data);
+  const id = String(base?.id || base?.db_id || base?.order_id || order?.id || '').trim();
+  const localOid = normalizeLocalOidValue(
+    base?.local_oid,
+    base?.oid,
+    base?.fullOrder?.local_oid,
+    base?.fullOrder?.oid,
+    base?.data?.local_oid,
+    base?.data?.oid,
+    order?.local_oid,
+    order?.oid,
+    fullOrderData?.local_oid,
+    fullOrderData?.oid
+  );
+  const transportCode = getPastrimTransportCode(base);
+  return { id, localOid: String(localOid || '').trim(), transportCode };
+}
+
+function readPastrimTransportExitTombstones() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const now = Date.now();
+    const raw = JSON.parse(window.localStorage?.getItem?.(PASTRIMI_TRANSPORT_EXIT_TOMBSTONES_KEY) || '[]');
+    const rows = (Array.isArray(raw) ? raw : []).filter((item) => {
+      const at = Number(item?.at || 0);
+      return at > 0 && now - at < PASTRIMI_TRANSPORT_EXIT_TOMBSTONE_TTL_MS;
+    });
+    if (rows.length !== (Array.isArray(raw) ? raw.length : 0)) {
+      window.localStorage?.setItem?.(PASTRIMI_TRANSPORT_EXIT_TOMBSTONES_KEY, JSON.stringify(rows));
+    }
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+function markPastrimTransportExitTombstone(target, reason = 'transport_left_pastrim') {
+  try {
+    if (typeof window === 'undefined') return;
+    const normalized = normalizeRenderableOrderRow({
+      ...(target && typeof target === 'object' ? target : {}),
+      source: target?.source || 'transport_orders',
+      table: target?.table || target?._table || 'transport_orders',
+      _table: target?._table || target?.table || 'transport_orders',
+    });
+    const identity = getPastrimTransportExitIdentity(normalized);
+    if (!identity.id && !identity.localOid && !identity.transportCode) return;
+    const now = Date.now();
+    const rows = readPastrimTransportExitTombstones();
+    const next = rows.filter((item) => !(
+      (!!identity.id && String(item?.id || '') === identity.id) ||
+      (!!identity.localOid && String(item?.localOid || '') === identity.localOid) ||
+      (!!identity.transportCode && String(item?.transportCode || '') === identity.transportCode)
+    ));
+    next.unshift({ ...identity, at: now, reason });
+    window.localStorage?.setItem?.(PASTRIMI_TRANSPORT_EXIT_TOMBSTONES_KEY, JSON.stringify(next.slice(0, 80)));
+  } catch {}
+}
+
+function isPastrimTransportExitTombstoned(row) {
+  try {
+    const identity = getPastrimTransportExitIdentity(row);
+    if (!identity.id && !identity.localOid && !identity.transportCode) return false;
+    const tombstones = readPastrimTransportExitTombstones();
+    return tombstones.some((item) => (
+      (!!identity.id && !!item?.id && String(item.id) === identity.id) ||
+      (!!identity.localOid && !!item?.localOid && String(item.localOid) === identity.localOid) ||
+      (!!identity.transportCode && !!item?.transportCode && String(item.transportCode) === identity.transportCode)
+    ));
+  } catch {
+    return false;
+  }
+}
+
+function pastrimRowMatchesCleanupTarget(row, target) {
+  try {
+    const a = getPastrimTransportExitIdentity(row);
+    const b = getPastrimTransportExitIdentity(target);
+    if (!!a.id && !!b.id && a.id === b.id) return true;
+    if (!!a.localOid && !!b.localOid && a.localOid === b.localOid) return true;
+    if (!!a.transportCode && !!b.transportCode && a.transportCode === b.transportCode) return true;
+    return isSamePastrimTransportRow(row, target);
+  } catch {
+    return false;
+  }
+}
+
+function removePastrimTransportRowsFromLocalCaches(target, reason = 'transport_pastrim_cleanup') {
+  try {
+    if (!isPastrimTransportScopedRow(target) && !getPastrimTransportExitIdentity(target).id) return;
+    const normalizedTarget = normalizeRenderableOrderRow({
+      ...(target && typeof target === 'object' ? target : {}),
+      source: target?.source || 'transport_orders',
+      table: target?.table || target?._table || 'transport_orders',
+      _table: target?._table || target?.table || 'transport_orders',
+    });
+    markPastrimTransportExitTombstone(normalizedTarget, reason);
+    removePastrimTransportRowsFromPageSnapshot(normalizedTarget, reason);
+
+    try {
+      const cache = readBaseMasterCache();
+      const rows = Array.isArray(cache?.rows) ? cache.rows : [];
+      const filtered = rows.filter((item) => !pastrimRowMatchesCleanupTarget(normalizeRenderableOrderRow(item), normalizedTarget));
+      if (filtered.length !== rows.length) writeBaseMasterCache({ ...cache, rows: filtered });
+    } catch {}
+
+    try {
+      const raw = window.localStorage?.getItem?.(LOCAL_ORDERS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const filtered = parsed.filter((item) => !pastrimRowMatchesCleanupTarget(normalizeRenderableOrderRow(item), normalizedTarget));
+          if (filtered.length !== parsed.length) window.localStorage?.setItem?.(LOCAL_ORDERS_KEY, JSON.stringify(filtered));
+        } else if (parsed && typeof parsed === 'object') {
+          let changed = false;
+          const next = {};
+          for (const [key, value] of Object.entries(parsed)) {
+            if (pastrimRowMatchesCleanupTarget(normalizeRenderableOrderRow({ ...(value && typeof value === 'object' ? value : {}), id: value?.id || key }), normalizedTarget)) {
+              changed = true;
+            } else {
+              next[key] = value;
+            }
+          }
+          if (changed) window.localStorage?.setItem?.(LOCAL_ORDERS_KEY, JSON.stringify(next));
+        }
+      }
+    } catch {}
+  } catch {}
+}
+
 function choosePastrimWinner(existing, incoming) {
   if (!existing) return incoming;
   if (!incoming) return existing;
@@ -765,12 +904,18 @@ function collectTransportStatusSourcesForPastrim(row) {
 
   const rawStatuses = [
     base?.status,
+    base?.state,
     data?.status,
+    data?.state,
     fullOrder?.status,
+    fullOrder?.state,
     fullOrderData?.status,
+    fullOrderData?.state,
     unwrappedData?.status,
+    unwrappedData?.state,
     unwrappedFullOrder?.status,
-    ...transportNodes.map((node) => node?.status),
+    unwrappedFullOrder?.state,
+    ...transportNodes.flatMap((node) => [node?.status, node?.state]),
   ];
 
   return Array.from(new Set(rawStatuses
@@ -794,6 +939,7 @@ function transportRowAllowedInPastrim(row) {
 }
 
 function shouldShowTransportBridgeInPastrim(row) {
+  if (isPastrimTransportExitTombstoned(row)) return false;
   if (!isTransportScopedRow(row)) return true;
   if (!transportRowAllowedInPastrim(row)) return false;
   const effectiveStatus = getTransportEffectiveStatusForPastrim(row);
@@ -1033,10 +1179,13 @@ async function readLocalOrdersByStatus(status) {
     (Array.isArray(list) ? list : []).forEach((x) => {
       const raw = x?.data ?? x;
       const full = normalizeOrder(raw);
-      full.status = String(x?.status || full.status || '').toLowerCase() || 'pastrim';
+      const tableName = x?.table || x?._table || full?.table || full?._table || '';
+      full.status = String(full?.status || x?.data?.status || x?.status || '').toLowerCase() || 'pastrim';
+      if (tableName && !full._table) full._table = tableName;
+      if (tableName && !full.table) full.table = tableName;
       const id = x?.id || full.id || full.oid || '';
       const ts = x?.updated_at || x?.created_at || full.created_at || full.updated_at || Date.now();
-      pushRow(id, full, ts, 'idb', !!x?._synced, x?.table || x?._table || '');
+      pushRow(id, full, ts, 'idb', !!x?._synced, tableName);
     });
   } catch {}
 
@@ -1228,8 +1377,11 @@ async function buildPastrimFallbackRows(trace = null, diagEnabled = false) {
     const paid = Number(order.pay?.paid || 0);
     return normalizeRenderableOrderRow({
       id: x.id,
+      local_oid: normalizeLocalOidValue(x?.local_oid, order?.local_oid, order?.oid),
       status: normalizeStatus(order.status || x.status || 'pastrim') || 'pastrim',
       source: 'LOCAL',
+      table: x?.table || x?._table || order?.table || order?._table || '',
+      _table: x?.table || x?._table || order?.table || order?._table || '',
       ts: Number(order.ts || x.ts || Date.now()),
       name: order.client?.name || order.client_name || 'Pa Emër',
       phone: order.client?.phone || order.client_phone || '',
@@ -1314,6 +1466,8 @@ async function recoverExactPastrimRow(openId, options = {}) {
           local_oid: normalizeLocalOidValue(x?.local_oid, order?.local_oid, order?.oid, x?.id),
           status: normalizeStatus(order?.status || x?.status || 'pastrim') || 'pastrim',
           source: 'LOCAL',
+          table: x?.table || x?._table || order?.table || order?._table || '',
+          _table: x?.table || x?._table || order?.table || order?._table || '',
           ts: Number(order?.ts || x?.ts || Date.now()),
           name: order?.client?.name || order?.client_name || 'Pa Emër',
           phone: order?.client?.phone || order?.client_phone || '',
@@ -2095,8 +2249,14 @@ function PastrimiPageInner() {
             const row = payload?.new || payload?.old;
             if (row?.id) {
               setTimeout(() => {
-                saveOrderLocal({ id: row.id, status: normalizeStatus(row.status), data: row.data ?? null, updated_at: row.updated_at || new Date().toISOString(), _synced: true, _table: 'transport_orders' }).catch(() => {});
-                patchPastrimRealtimeRow(row, 'transport_orders');
+                const realtimeTransportRow = { id: row.id, status: normalizeStatus(row.status), data: row.data ?? null, updated_at: row.updated_at || new Date().toISOString(), _synced: true, table: 'transport_orders', _table: 'transport_orders' };
+                saveOrderLocal(realtimeTransportRow).catch(() => {});
+                if (!shouldShowTransportBridgeInPastrim(normalizeRenderableOrderRow({ ...realtimeTransportRow, source: 'transport_orders', fullOrder: row.data ?? {} }))) {
+                  removePastrimTransportRowsFromLocalCaches({ ...row, source: 'transport_orders', table: 'transport_orders', _table: 'transport_orders' }, 'realtime_transport_left_pastrim');
+                  setOrders((prev) => (Array.isArray(prev) ? prev : []).filter((item) => !pastrimRowMatchesCleanupTarget(item, { ...row, source: 'transport_orders', table: 'transport_orders', _table: 'transport_orders' })));
+                } else {
+                  patchPastrimRealtimeRow(row, 'transport_orders');
+                }
               }, 0);
             }
             const nextStatus = normalizeStatus(payload?.new?.status || payload?.new?.data?.status || '');
@@ -2904,8 +3064,8 @@ Shoferi u njoftua në listën e tij.`);
           table: 'transport_orders',
           _table: 'transport_orders',
         });
-        removePastrimTransportRowsFromPageSnapshot(readyTransportTarget, 'mark_ready_transport_cleanup');
-        setOrders((prev) => (Array.isArray(prev) ? prev : []).filter((item) => !isSamePastrimTransportRow(item, readyTransportTarget)));
+        removePastrimTransportRowsFromLocalCaches(readyTransportTarget, 'mark_ready_transport_cleanup');
+        setOrders((prev) => (Array.isArray(prev) ? prev : []).filter((item) => !pastrimRowMatchesCleanupTarget(item, readyTransportTarget)));
       }
 
       await refreshOrders({ force: true, source: 'mark_ready_success' });
