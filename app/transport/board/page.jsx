@@ -1178,8 +1178,45 @@ function TransportBoardInner() {
       const activeList = Array.isArray(data)
         ? data.filter((row) => !isTransportInactiveStatus(getTransportRowStatus(row)))
         : [];
-      const authoritativeRows = [...activeList];
-      const list = pruneTransportBoardCacheRows(activeList, authoritativeRows);
+
+      let deliveredToday = [];
+      try {
+        deliveredToday = await listTransportOrders({
+          signal: pageCtrl?.signal,
+          select: 'id,code_str,client_id,client_name,client_phone,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id',
+          in: {
+            status: [
+              'done', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar',
+              'DONE', 'DELIVERED', 'DORZUAR', 'DOREZUAR', 'DORËZUAR',
+            ],
+          },
+          eq: {},
+          gte: { updated_at: startOfTodayIso() },
+          orderBy: 'updated_at',
+          ascending: false,
+          limit: isAdminLoad ? BOARD_FETCH_LIMIT : TRANSPORT_BOARD_WIDE_FETCH_LIMIT,
+          timeoutMs: 7000,
+          timeoutLabel: 'TRANSPORT_BOARD_DONE_TIMEOUT',
+        });
+      } catch {}
+
+      if (!isAdminLoad) {
+        deliveredToday = (Array.isArray(deliveredToday) ? deliveredToday : []).filter((row) => rowOwnedBySession(row, sessionObj));
+      }
+
+      const deliveredMap = new Map();
+      (Array.isArray(deliveredToday) ? deliveredToday : []).forEach((row) => {
+        const st = getTransportRowStatus(row);
+        if (TRANSPORT_BOARD_DONE_STATUSES.has(st) && isSameDayIso(getDeliveredTs(row)) && row?.id) {
+          deliveredMap.set(String(row.id), row);
+        }
+      });
+
+      const authoritativeRows = [...activeList, ...Array.from(deliveredMap.values())];
+      const list = pruneTransportBoardCacheRows([
+        ...activeList,
+        ...Array.from(deliveredMap.values()),
+      ], authoritativeRows);
       startTransition(() => {
         setItems(list);
       });
@@ -1190,7 +1227,7 @@ function TransportBoardInner() {
           seq,
           reason: boardDiagRef.current.lastLoadReason || reason || '',
           count: Array.isArray(list) ? list.length : 0,
-          deliveredTodayCount: 0,
+          deliveredTodayCount: deliveredMap.size,
         }));
       } catch {}
       scheduleCacheWrite(masterCacheKey, list, { delay: 3200 });
