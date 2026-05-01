@@ -593,6 +593,8 @@ export default function ArkaWorkerDetailPage() {
   const [timaNote, setTimaNote] = useState('TIMA');
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseNote, setExpenseNote] = useState('SHPENZIM');
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [advanceNote, setAdvanceNote] = useState('AVANS');
   const [deletingId, setDeletingId] = useState('');
   const [staffOptions, setStaffOptions] = useState([]);
   const [mealAmount, setMealAmount] = useState('3');
@@ -1036,6 +1038,74 @@ export default function ArkaWorkerDetailPage() {
     }
   }
 
+  async function addAdvance() {
+    if (!canManage) {
+      alert('🔴 NUK KE LEJE ME SHTU AVANS.');
+      return;
+    }
+
+    const amount = parseAmountInput(advanceAmount);
+    if (amount <= 0) {
+      alert('🔴 SHKRUAJ SHUMËN E AVANSIT.');
+      return;
+    }
+
+    const ok = window.confirm(
+      `A DON ME SHTU AVANS ${amount.toFixed(2)}€ PËR ${String(worker?.name || pin || 'PUNTOR').toUpperCase()}?`
+    );
+    if (!ok) return;
+
+    const now = new Date().toISOString();
+    const workerPin = String(pin || '').trim();
+    const workerName = String(worker?.name || workerPin || 'PUNTOR').trim();
+    const adminPin = String(actor?.pin || '').trim();
+    const adminName = String(actor?.name || actor?.full_name || actor?.username || adminPin || 'ADMIN').trim();
+
+    try {
+      setBusy(true);
+
+      const payload = {
+        status: 'ADVANCE',
+        type: 'ADVANCE',
+        amount,
+        note: advanceNote || 'AVANS',
+        source_module: 'ARKA_WORKER_DETAIL',
+
+        created_by_pin: workerPin,
+        created_by_name: workerName,
+
+        handed_by_pin: adminPin,
+        handed_by_name: adminName,
+        handed_at: now,
+
+        approved_by_pin: adminPin,
+        approved_by_name: adminName,
+        approved_at: now,
+
+        created_at: now,
+        updated_at: now,
+      };
+
+      const { error } = await supabase
+        .from('arka_pending_payments')
+        .insert(payload);
+
+      if (error) throw error;
+
+      setAdvanceAmount('');
+      setAdvanceNote('AVANS');
+
+      await reload();
+      notifyArkaHome();
+
+      alert('✅ AVANSI U REGJISTRUA.');
+    } catch (e) {
+      alert(`🔴 ${e?.message || 'NUK U REGJISTRUA AVANSI.'}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeExpense(row) {
     if (!row?.id) return;
     const ok = window.confirm(`A DON ME E FSHI KËTË RRESHT ${euro(row?.amount)}?`);
@@ -1159,6 +1229,41 @@ export default function ArkaWorkerDetailPage() {
             <div className="arkaFormulaLine">
               {euro(cashAccount.baseOpenDueTotal)} + {euro(cashAccount.transportOpenDueTotal)} − {euro(cashAccount.approvedTodayExpenses)} = {euro(cashAccount.totalDueToBase)}
             </div>
+
+            {canManage ? (
+              <div className="arkaActionPanel emphasis">
+                <div>
+                  <div className="arkaActionHeader">SHTO AVANS PËR PUNTORIN</div>
+                  <div className="arkaSimpleSub">
+                    AVANSI ËSHTË PARA QË KOMPANIA IA JEP PUNTORIT DHE ZBRITET NGA RROGA MUJORE. NUK PREK CASH-IN E KLIENTËVE.
+                  </div>
+                </div>
+
+                <div className="arkaInlineForm">
+                  <input
+                    className="arkaField small"
+                    value={advanceAmount}
+                    onChange={(e) => setAdvanceAmount(e.target.value)}
+                    placeholder="SHUMA E AVANSIT (€)"
+                    inputMode="decimal"
+                  />
+                  <input
+                    className="arkaField"
+                    value={advanceNote}
+                    onChange={(e) => setAdvanceNote(e.target.value)}
+                    placeholder="SHËNIM / ARSYE"
+                  />
+                  <button
+                    type="button"
+                    className="arkaSolidBtn"
+                    onClick={addAdvance}
+                    disabled={busy}
+                  >
+                    + SHTO AVANS
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section className="arkaSectionCard payrollClearBlock">
