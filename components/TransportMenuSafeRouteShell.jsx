@@ -21,21 +21,33 @@ function readRuntimeContext() {
 }
 
 function makeTransportMenuLazy(retryCount) {
-  return React.lazy(() => loadLazyModule(
-    () => import('@/app/transport/menu/page.jsx'),
-    {
-      kind: 'route',
-      label: MODULE_ID,
-      moduleId: MODULE_ID,
-      requestedModule: MODULE_ID,
-      importerHint: MODULE_ID,
-      importCaller: 'TransportMenuSafeRouteShell',
-      componentName: 'TransportMenuInner',
-      path: ROUTE_PATH,
-      importRetryCount: retryCount,
-      retryCount,
-    },
-  ));
+  return React.lazy(async () => {
+    const loaded = await loadLazyModule(
+      () => import('@/app/transport/menu/page.jsx'),
+      {
+        kind: 'route',
+        label: MODULE_ID,
+        moduleId: MODULE_ID,
+        requestedModule: MODULE_ID,
+        importerHint: MODULE_ID,
+        importCaller: 'TransportMenuSafeRouteShell',
+        componentName: 'TransportMenuInner',
+        path: ROUTE_PATH,
+        importRetryCount: retryCount,
+        retryCount,
+      },
+    );
+
+    if (loaded && typeof loaded.default === 'function') {
+      return { default: loaded.default };
+    }
+
+    if (typeof loaded === 'function') {
+      return { default: loaded };
+    }
+
+    throw new Error('TransportMenuSafeRouteShell: menu module loaded without a valid default component.');
+  });
 }
 
 function TransportMenuLoading({ retryCount }) {
