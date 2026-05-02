@@ -33,7 +33,6 @@ const DIAG_RAW_SW_NAV_LAST_KEY = '/__tepiha_sw_nav_last.json';
 const DIAG_RAW_SW_NAV_LOG_KEY = '/__tepiha_sw_nav_log.json';
 
 
-const Page0 = lazyRoute(() => import('@/app/arka/buxheti/page.jsx'), '@/app/arka/buxheti/page.jsx');
 const Page1 = lazyRoute(() => import('@/app/arka/obligimet/page.jsx'), '@/app/arka/obligimet/page.jsx');
 const Page3 = lazyRoute(() => import('@/app/arka/payroll/page.jsx'), '@/app/arka/payroll/page.jsx');
 const Page5 = lazyRoute(() => import('@/app/arka/stafi/page.jsx'), '@/app/arka/stafi/page.jsx');
@@ -640,7 +639,9 @@ export const appRoutes = [
   { path: '/admin/devices', element: <Navigate to='/arka/stafi' replace /> },
   { path: '/arka/puntoret', element: <Navigate to='/arka/stafi' replace /> },
   { path: '/diag-raw', element: eagerElement(DiagRawPage, '/diag-raw') },
-  { path: '/arka/buxheti', element: safeLazyElement('/arka/buxheti', () => import('@/app/arka/buxheti/page.jsx'), '@/app/arka/buxheti/page.jsx', 'ARKA BUXHETI') },
+  { path: '/arka/buxheti', element: <Navigate to='/arka' replace /> },
+  { path: '/arka/borqet', element: <Navigate to='/arka/obligimet' replace /> },
+  { path: '/arka/investimet', element: <Navigate to='/arka' replace /> },
   { path: '/arka/obligimet', element: safeLazyElement('/arka/obligimet', () => import('@/app/arka/obligimet/page.jsx'), '@/app/arka/obligimet/page.jsx', 'ARKA OBLIGIMET') },
   { path: '/arka', element: safeLazyElement('/arka', () => import('@/app/arka/page.jsx'), '@/app/arka/page.jsx', 'ARKA') },
   { path: '/arka/payroll', element: safeLazyElement('/arka/payroll', () => import('@/app/arka/payroll/page.jsx'), '@/app/arka/payroll/page.jsx', 'ARKA PAYROLL') },
