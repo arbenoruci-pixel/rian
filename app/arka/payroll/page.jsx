@@ -548,6 +548,21 @@ export default function PayrollPage() {
     return (monthlyPayrollPreview || []).find((row) => row.key === selectedPayrollRow.key) || null;
   }, [monthlyPayrollPreview, selectedPayrollRow]);
 
+  function getFinanceWorkerForPayrollRow(row) {
+    if (!row) return null;
+    return (financeCards || []).find((worker) => {
+      const sameId = row?.id && worker?.id && String(row.id) === String(worker.id);
+      const samePin = row?.pin && worker?.pin && String(row.pin) === String(worker.pin);
+      return sameId || samePin;
+    }) || row;
+  }
+
+  function openPayrollPayModal(row) {
+    const worker = getFinanceWorkerForPayrollRow(row);
+    if (!worker) return;
+    openSalaryModal(worker);
+  }
+
   if (actor && !isAdminUser) return <AccessDeniedPanel />;
 
   return (
@@ -556,9 +571,9 @@ export default function PayrollPage() {
         <div className="topbar">
           <div>
             <div className="eyebrow">Arka / Payroll</div>
-            <h1 className="title">Financat & Rrogat</h1>
+            <h1 className="title">Payroll Mujor</h1>
             <p className="subtitle">
-              Një pamje e pastër, moderne dhe bankare për rrogat, avanset dhe borxhet.
+              Një sistem i vetëm kompakt për rrogë, avans, status dhe kontroll para pagesës.
             </p>
           </div>
 
@@ -654,7 +669,7 @@ export default function PayrollPage() {
                   <th>Borxh info</th>
                   <th>Neto</th>
                   <th>Status</th>
-                  <th>Detaje</th>
+                  <th>Veprim</th>
                 </tr>
               </thead>
               <tbody>
@@ -683,9 +698,26 @@ export default function PayrollPage() {
                       ) : null}
                     </td>
                     <td>
-                      <button type="button" className="detailsBtn" onClick={() => setSelectedPayrollRow(row)}>
-                        SHIKO
-                      </button>
+                      <div className="proActionStack">
+                        <button type="button" className="detailsBtn" onClick={() => setSelectedPayrollRow(row)}>
+                          SHIKO
+                        </button>
+                        <button type="button" className="detailsBtn amber" onClick={() => openAdvanceModal(getFinanceWorkerForPayrollRow(row))}>
+                          AVANS
+                        </button>
+                        <button type="button" className="detailsBtn slate" onClick={() => startFinanceEdit(getFinanceWorkerForPayrollRow(row))}>
+                          EDITO
+                        </button>
+                        <button
+                          type="button"
+                          className="detailsBtn pay"
+                          disabled={row.statusKind !== 'ok'}
+                          title={row.statusKind !== 'ok' ? 'Rroga hapet vetëm kur statusi është OK PËR PAGESË.' : 'Hap modalin ekzistues të pagesës së rrogës.'}
+                          onClick={() => openPayrollPayModal(row)}
+                        >
+                          PAGUAJ
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -779,66 +811,7 @@ export default function PayrollPage() {
 
         {loading ? (
           <div className="empty">Po lexohen financat...</div>
-        ) : financeCards.length === 0 ? (
-          <div className="empty">Nuk ka asnjë punëtor për payroll.</div>
-        ) : (
-          <div className="cardsGrid">
-            {financeCards.map((u) => (
-              <div className="moneyCard" key={u.id} style={{ opacity: u.is_active === false ? 0.6 : 1 }}>
-                <div className="moneyTop">
-                  <div>
-                    <div className="moneyNameRow">
-                      <div className="moneyName">{u.name || "Pa emër"}</div>
-                      {paydayDue(u.salary_day) && (
-                        <span className="dueBadge">⚠️ KOHA PËR RROGË</span>
-                      )}
-                    </div>
-                    <div className="moneyMeta">
-                      {u.role || "—"} · PIN {u.pin || "—"} · Dita e rrogës: {u.salary_day || "—"}
-                    </div>
-                  </div>
-                  <div className="cardActions">
-                    <button className="editMini" onClick={() => startFinanceEdit(u)}>EDITO</button>
-                    {isAdminUser ? (
-                      <button className="deleteMini" onClick={() => handleDeleteWorker(u)}>🗑️ FSHI</button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="moneyMetrics">
-                  <div className="metric salary">
-                    <span>Rroga bazë</span>
-                    <strong>{euro(u.baseSalary)}</strong>
-                  </div>
-                  <div className="metric debt">
-                    <span>Avanset</span>
-                    <strong>{euro(u.totalAdvance)}</strong>
-                  </div>
-                  <div className="metric longdebt">
-                    <span>Borxh afatgjatë</span>
-                    <strong>{euro(u.longTermDebt)}</strong>
-                  </div>
-                </div>
-
-                <div className="moneyBottom">
-                  <div className="payablePreview">
-                    Për t'u paguar sot
-                    <strong>{euro(u.baseSalary - u.totalAdvance)}</strong>
-                  </div>
-
-                  <div className="moneyActionStack">
-                    <button className="advanceBtn" onClick={() => openAdvanceModal(u)}>
-                      💸 SHTO AVANS
-                    </button>
-                    <button className="payBtn" onClick={() => openSalaryModal(u)}>
-                      💳 PAGUAJ RROGËN
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        ) : null}
       </div>
 
       {selectedPayrollDetails && (
@@ -922,6 +895,48 @@ export default function PayrollPage() {
             ) : (
               <div className="detailOk">Ky puntor është OK për pagesë sipas preview-it.</div>
             )}
+
+            <div className="detailActions">
+              <button
+                type="button"
+                className="advanceBtn"
+                onClick={() => {
+                  const row = selectedPayrollDetails;
+                  setSelectedPayrollRow(null);
+                  openAdvanceModal(getFinanceWorkerForPayrollRow(row));
+                }}
+              >
+                💸 SHTO AVANS
+              </button>
+              <button
+                type="button"
+                className="editMini"
+                onClick={() => {
+                  const row = selectedPayrollDetails;
+                  setSelectedPayrollRow(null);
+                  startFinanceEdit(getFinanceWorkerForPayrollRow(row));
+                }}
+              >
+                EDITO RROGËN / PARAMETRAT
+              </button>
+              <button
+                type="button"
+                className="payBtn detailPayBtn"
+                disabled={selectedPayrollDetails.statusKind !== 'ok'}
+                onClick={() => {
+                  const row = selectedPayrollDetails;
+                  setSelectedPayrollRow(null);
+                  openPayrollPayModal(row);
+                }}
+              >
+                💳 PAGUAJ RROGËN
+              </button>
+            </div>
+            {selectedPayrollDetails.statusKind !== 'ok' ? (
+              <div className="detailPayGuard">
+                Pagesa e rrogës hapet vetëm kur statusi bëhet <strong>OK PËR PAGESË</strong>.
+              </div>
+            ) : null}
           </div>
         </div>
       )}
@@ -1872,6 +1887,61 @@ export default function PayrollPage() {
           padding: 0 12px;
           background: #eff6ff;
           color: #1d4ed8;
+        }
+        .detailsBtn.amber {
+          background: #fff7ed;
+          color: #b45309;
+        }
+        .detailsBtn.slate {
+          background: #f1f5f9;
+          color: #334155;
+        }
+        .detailsBtn.pay {
+          background: #dcfce7;
+          color: #166534;
+        }
+        .detailsBtn:disabled,
+        .payBtn:disabled {
+          opacity: .45;
+          cursor: not-allowed;
+          filter: grayscale(.2);
+        }
+        .detailPayBtn {
+          min-height: 46px;
+        }
+        .detailPayGuard {
+          margin-top: 12px;
+          border-radius: 16px;
+          background: #fffbeb;
+          border: 1px solid #fde68a;
+          color: #92400e;
+          padding: 12px 14px;
+          font-weight: 850;
+          line-height: 1.45;
+        }
+        .detailsBtn.amber {
+          background: #fff7ed;
+          color: #b45309;
+        }
+        .detailsBtn.slate {
+          background: #f8fafc;
+          color: #334155;
+        }
+        .proActionStack {
+          display: flex;
+          gap: 7px;
+          flex-wrap: wrap;
+        }
+        .detailActions {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          margin-top: 16px;
+        }
+        .detailActions .advanceBtn,
+        .detailActions .editMini {
+          min-height: 48px;
         }
         .proMobileList { display: none; }
         .proMobileCard {
