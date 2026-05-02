@@ -6,7 +6,7 @@ import { useRouter } from "@/lib/routerCompat.jsx";
 import { supabase } from "@/lib/supabaseClient";
 import { listPendingPaymentRecords } from "@/lib/arkaService";
 import { deleteUserRecord, listUserRecords, updateUserRecord } from "@/lib/usersService";
-import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow } from "@/lib/payrollMonthClose";
+import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow, isPayrollEligibleWorker } from "@/lib/payrollMonthClose";
 
 function jparse(s, fallback) {
   try { return JSON.parse(s) ?? fallback; } catch { return fallback; }
@@ -126,6 +126,7 @@ export default function PayrollPage() {
   const [payrollMonthRows, setPayrollMonthRows] = useState([]);
   const [payrollMonthLoading, setPayrollMonthLoading] = useState(false);
   const [payrollMonthError, setPayrollMonthError] = useState("");
+  const [selectedPayrollRow, setSelectedPayrollRow] = useState(null);
 
   const normalizedRole = String(actor?.role || '').toUpperCase();
   const isAdminUser = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);
@@ -210,12 +211,12 @@ export default function PayrollPage() {
         .gte("created_at", startIso)
         .lt("created_at", endIso)
         .order("created_at", { ascending: false })
-        .limit(2500);
+        .limit(3000);
 
       if (error) throw error;
       setPayrollMonthRows(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.warn("MONTHLY PAYROLL PREVIEW LOAD ERROR", err);
+      console.warn("PRO PAYROLL PREVIEW LOAD ERROR", err);
       setPayrollMonthRows([]);
       setPayrollMonthError(normalizeDbError(err));
     } finally {
@@ -502,21 +503,23 @@ export default function PayrollPage() {
   }
 
   const financeCards = useMemo(() => {
-    return (staff || []).map((u) => {
-      const workerName = String(u.name || "").trim().toUpperCase();
-      const autoDebt = Number(debtsMap[workerName] || 0);
-      const manualAdvance = Number(u.avans_manual || 0);
-      const longTermDebt = Number(u.borxh_afatgjat || 0);
-      const baseSalary = Number(u.salary || 0);
-      return {
-        ...u,
-        autoDebt,
-        manualAdvance,
-        longTermDebt,
-        baseSalary,
-        totalAdvance: autoDebt + manualAdvance,
-      };
-    });
+    return (staff || [])
+      .filter(isPayrollEligibleWorker)
+      .map((u) => {
+        const workerName = String(u.name || "").trim().toUpperCase();
+        const autoDebt = Number(debtsMap[workerName] || 0);
+        const manualAdvance = Number(u.avans_manual || 0);
+        const longTermDebt = Number(u.borxh_afatgjat || 0);
+        const baseSalary = Number(u.salary || 0);
+        return {
+          ...u,
+          autoDebt,
+          manualAdvance,
+          longTermDebt,
+          baseSalary,
+          totalAdvance: autoDebt + manualAdvance,
+        };
+      });
   }, [staff, debtsMap]);
 
   const monthlyPayrollPreview = useMemo(() => buildMonthlyPayrollPreview({
@@ -532,9 +535,18 @@ export default function PayrollPage() {
       acc.net += Number(row.net || 0);
       acc.carryOver += Number(row.carryOver || 0);
       acc.openCash += Number(row.openCash || 0);
+      acc.pendingHandoff += Number(row.pendingHandoff || 0);
+      if (row.statusKind === 'ok') acc.okCount += 1;
+      if (row.statusKind === 'blocked') acc.blockedCount += 1;
+      if (row.statusKind === 'review') acc.reviewCount += 1;
       return acc;
-    }, { gross: 0, deductions: 0, net: 0, carryOver: 0, openCash: 0 });
+    }, { gross: 0, deductions: 0, net: 0, carryOver: 0, openCash: 0, pendingHandoff: 0, okCount: 0, blockedCount: 0, reviewCount: 0 });
   }, [monthlyPayrollPreview]);
+
+  const selectedPayrollDetails = useMemo(() => {
+    if (!selectedPayrollRow) return null;
+    return (monthlyPayrollPreview || []).find((row) => row.key === selectedPayrollRow.key) || null;
+  }, [monthlyPayrollPreview, selectedPayrollRow]);
 
   if (actor && !isAdminUser) return <AccessDeniedPanel />;
 
@@ -580,17 +592,17 @@ export default function PayrollPage() {
           </div>
         </div>
 
-        <section className="monthlyPanel">
-          <div className="monthlyTop">
+        <section className="proPayrollPanel">
+          <div className="proTop">
             <div>
-              <div className="monthlyEyebrow">MBYLLJA MUJORE</div>
-              <div className="monthlyTitle">Preview i rrogave — pa ruajtje</div>
-              <div className="monthlySub">
-                Ky panel vetëm llogarit muajin. Nuk paguan rroga, nuk mbyll avanse dhe nuk prek buxhetin.
+              <div className="proEyebrow">MBYLLJA MUJORE</div>
+              <div className="proTitle">Payroll profesional — preview i sigurt</div>
+              <div className="proSub">
+                Ky panel llogarit rrogat mujore, komisionin, avanset, ushqimin dhe borxhin. Nuk paguan rroga dhe nuk prek buxhetin.
               </div>
             </div>
 
-            <div className="monthlyControls">
+            <div className="proControls">
               <label>
                 <span>Muaji</span>
                 <input
@@ -601,7 +613,7 @@ export default function PayrollPage() {
               </label>
               <button
                 type="button"
-                className="monthlyReload"
+                className="proReload"
                 onClick={() => reloadMonthlyPayrollPreview(payrollMonth)}
                 disabled={payrollMonthLoading}
               >
@@ -611,19 +623,27 @@ export default function PayrollPage() {
           </div>
 
           {payrollMonthError ? (
-            <div className="monthlyError">Gabim në preview: {payrollMonthError}</div>
+            <div className="proError">Gabim në preview: {payrollMonthError}</div>
           ) : null}
 
-          <div className="monthlyTotals">
-            <div><span>Gross</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
-            <div><span>Zbritje</span><strong>{euro(monthlyPayrollTotals.deductions)}</strong></div>
-            <div><span>Neto për pagesë</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
-            <div><span>Bartet</span><strong>{euro(monthlyPayrollTotals.carryOver)}</strong></div>
-            <div><span>Cash hapur</span><strong>{euro(monthlyPayrollTotals.openCash)}</strong></div>
+          <div className="proScoreboard">
+            <div className="score ok"><span>OK për pagesë</span><strong>{monthlyPayrollTotals.okCount}</strong></div>
+            <div className="score blocked"><span>Bllokuar</span><strong>{monthlyPayrollTotals.blockedCount}</strong></div>
+            <div className="score review"><span>Kontrollo</span><strong>{monthlyPayrollTotals.reviewCount}</strong></div>
+            <div className="score"><span>Neto total</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
           </div>
 
-          <div className="monthlyTableWrap">
-            <table className="monthlyTable">
+          <div className="proTotals">
+            <div><span>Gross</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
+            <div><span>Zbritje</span><strong>{euro(monthlyPayrollTotals.deductions)}</strong></div>
+            <div><span>Neto</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
+            <div><span>Bartet</span><strong>{euro(monthlyPayrollTotals.carryOver)}</strong></div>
+            <div><span>Cash hapur</span><strong>{euro(monthlyPayrollTotals.openCash)}</strong></div>
+            <div><span>Dorëzim në pritje</span><strong>{euro(monthlyPayrollTotals.pendingHandoff)}</strong></div>
+          </div>
+
+          <div className="proTableWrap">
+            <table className="proTable">
               <thead>
                 <tr>
                   <th>Puntori</th>
@@ -634,18 +654,17 @@ export default function PayrollPage() {
                   <th>Borxh</th>
                   <th>Neto</th>
                   <th>Status</th>
+                  <th>Detaje</th>
                 </tr>
               </thead>
               <tbody>
                 {monthlyPayrollPreview.length === 0 ? (
-                  <tr>
-                    <td colSpan={8}>Nuk ka punëtorë për preview.</td>
-                  </tr>
+                  <tr><td colSpan={9}>Nuk ka punëtorë aktivë për payroll.</td></tr>
                 ) : monthlyPayrollPreview.map((row) => (
                   <tr key={row.key}>
                     <td>
                       <strong>{row.name}</strong>
-                      <small>PIN {row.pin || "—"}</small>
+                      <small>PIN {row.pin || "—"} · {row.role || "PUNTOR"}</small>
                     </td>
                     <td>{euro(row.baseSalary)}</td>
                     <td>{euro(row.transportCommission)}</td>
@@ -654,19 +673,39 @@ export default function PayrollPage() {
                     <td>{euro(row.debtTotal)}</td>
                     <td><strong>{euro(row.net)}</strong></td>
                     <td>
-                      <div className={`monthlyStatus ${row.blocked ? "danger" : row.warnings.length ? "warn" : "ok"}`}>
-                        {row.blocked ? "BLLOKUAR" : row.warnings.length ? "KONTROLLO" : "OK"}
+                      <div className={`proStatus ${row.statusKind}`}>
+                        {row.statusLabel}
                       </div>
                       {row.warnings.length ? (
-                        <ul className="monthlyWarnings">
-                          {row.warnings.map((w) => <li key={w}>{w}</li>)}
+                        <ul className="proWarnings">
+                          {row.warnings.slice(0, 3).map((w) => <li key={w}>{w}</li>)}
                         </ul>
                       ) : null}
+                    </td>
+                    <td>
+                      <button type="button" className="detailsBtn" onClick={() => setSelectedPayrollRow(row)}>
+                        SHIKO
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="proMobileList">
+            {monthlyPayrollPreview.map((row) => (
+              <button type="button" className={`proMobileCard ${row.statusKind}`} key={row.key} onClick={() => setSelectedPayrollRow(row)}>
+                <div>
+                  <strong>{row.name}</strong>
+                  <small>PIN {row.pin || "—"}</small>
+                </div>
+                <div>
+                  <span>{row.statusLabel}</span>
+                  <b>{euro(row.net)}</b>
+                </div>
+              </button>
+            ))}
           </div>
         </section>
 
@@ -801,6 +840,91 @@ export default function PayrollPage() {
           </div>
         )}
       </div>
+
+      {selectedPayrollDetails && (
+        <div
+          className="fullOverlay"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setSelectedPayrollRow(null);
+          }}
+        >
+          <div className="fullModal payrollDetailModal">
+            <div className="modalTop">
+              <div>
+                <div className="modalEyebrow">Monthly Payroll Detail</div>
+                <div className="modalTitle">{selectedPayrollDetails.name}</div>
+                <div className="modalWorker">PIN {selectedPayrollDetails.pin || "—"} · {payrollMonth}</div>
+              </div>
+              <button className="closeBtn" onClick={() => setSelectedPayrollRow(null)}>✕</button>
+            </div>
+
+            <div className="detailGrid">
+              <div className="detailBox good">
+                <span>Gross</span>
+                <strong>{euro(selectedPayrollDetails.gross)}</strong>
+              </div>
+              <div className="detailBox warn">
+                <span>Zbritje</span>
+                <strong>{euro(selectedPayrollDetails.deductions)}</strong>
+              </div>
+              <div className="detailBox main">
+                <span>Neto për pagesë</span>
+                <strong>{euro(selectedPayrollDetails.net)}</strong>
+              </div>
+              <div className="detailBox danger">
+                <span>Bartet muajin tjetër</span>
+                <strong>{euro(selectedPayrollDetails.carryOver)}</strong>
+              </div>
+            </div>
+
+            <div className="detailFormula">
+              <div className="formulaTitle">Formula</div>
+              <div className="formulaLine">
+                RROGA {euro(selectedPayrollDetails.baseSalary)}
+                {" + "} KOMISION {euro(selectedPayrollDetails.transportCommission)}
+                {" - "} AVANS {euro(selectedPayrollDetails.advancesTotal)}
+                {" - "} USHQIM {euro(selectedPayrollDetails.mealTotal)}
+                {" - "} BORXH {euro(selectedPayrollDetails.debtTotal)}
+                {" = "} NETO {euro(selectedPayrollDetails.net)}
+              </div>
+            </div>
+
+            <div className="breakdownGrid">
+              <div className="breakdownCard">
+                <h3>Hyrje / Gross</h3>
+                <p><span>Rroga bazë</span><strong>{euro(selectedPayrollDetails.baseSalary)}</strong></p>
+                <p><span>Komision transporti</span><strong>{euro(selectedPayrollDetails.transportCommission)}</strong></p>
+                <p><span>Transport m²</span><strong>{Number(selectedPayrollDetails.transportM2 || 0).toFixed(2)} m²</strong></p>
+              </div>
+
+              <div className="breakdownCard">
+                <h3>Zbritje</h3>
+                <p><span>Avans</span><strong>{euro(selectedPayrollDetails.advancesTotal)}</strong></p>
+                <p><span>Ushqim</span><strong>{euro(selectedPayrollDetails.mealTotal)}</strong></p>
+                <p><span>Borxh</span><strong>{euro(selectedPayrollDetails.debtTotal)}</strong></p>
+              </div>
+
+              <div className="breakdownCard">
+                <h3>Kontroll para pagesës</h3>
+                <p><span>Cash hapur</span><strong>{euro(selectedPayrollDetails.openCash)}</strong></p>
+                <p><span>Dorëzim në pritje</span><strong>{euro(selectedPayrollDetails.pendingHandoff)}</strong></p>
+                <p><span>Status</span><strong>{selectedPayrollDetails.statusLabel}</strong></p>
+              </div>
+            </div>
+
+            {selectedPayrollDetails.warnings.length ? (
+              <div className="detailWarnings">
+                <strong>Çka duhet kontrolluar para pagesës</strong>
+                <ul>
+                  {selectedPayrollDetails.warnings.map((w) => <li key={w}>{w}</li>)}
+                </ul>
+              </div>
+            ) : (
+              <div className="detailOk">Ky puntor është OK për pagesë sipas preview-it.</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {advanceModal && (
         <div
@@ -1574,77 +1698,82 @@ export default function PayrollPage() {
           text-align: center;
           font-weight: 700;
         }
-        .monthlyPanel {
-          background: rgba(15, 23, 42, .96);
+        .proPayrollPanel {
+          background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
           color: #f8fafc;
-          border: 1px solid rgba(148, 163, 184, .28);
-          border-radius: 28px;
+          border: 1px solid rgba(148, 163, 184, .24);
+          border-radius: 30px;
           padding: 22px;
           margin-bottom: 18px;
-          box-shadow: 0 18px 40px rgba(15,23,42,.14);
+          box-shadow: 0 24px 70px rgba(15, 23, 42, .18);
         }
-        .monthlyTop {
+        .proTop {
           display: flex;
           justify-content: space-between;
-          gap: 16px;
           align-items: flex-start;
+          gap: 16px;
           flex-wrap: wrap;
           margin-bottom: 16px;
         }
-        .monthlyEyebrow {
+        .proEyebrow {
           color: #93c5fd;
           font-size: 12px;
           letter-spacing: .16em;
           font-weight: 1000;
+          text-transform: uppercase;
         }
-        .monthlyTitle {
+        .proTitle {
           margin-top: 8px;
-          font-size: 28px;
-          line-height: 1;
+          font-size: clamp(28px, 3vw, 42px);
+          line-height: .96;
           font-weight: 1000;
-          letter-spacing: -.04em;
+          letter-spacing: -.055em;
         }
-        .monthlySub {
-          margin-top: 8px;
+        .proSub {
+          margin-top: 10px;
           color: #cbd5e1;
-          font-size: 14px;
           max-width: 760px;
           line-height: 1.45;
+          font-weight: 650;
         }
-        .monthlyControls {
+        .proControls {
           display: flex;
-          gap: 10px;
           align-items: flex-end;
+          gap: 10px;
           flex-wrap: wrap;
         }
-        .monthlyControls label {
+        .proControls label {
           display: flex;
           flex-direction: column;
           gap: 7px;
           color: #cbd5e1;
           font-size: 11px;
-          font-weight: 900;
+          font-weight: 1000;
           letter-spacing: .12em;
           text-transform: uppercase;
         }
-        .monthlyControls input {
+        .proControls input {
           border: 1px solid rgba(148,163,184,.32);
           background: #020617;
           color: #fff;
-          border-radius: 14px;
+          border-radius: 15px;
           padding: 13px 14px;
           font-weight: 900;
+          outline: none;
         }
-        .monthlyReload {
-          min-height: 46px;
+        .proReload, .detailsBtn {
           border: none;
-          border-radius: 14px;
+          cursor: pointer;
+          font-weight: 1000;
+        }
+        .proReload {
+          min-height: 46px;
+          border-radius: 15px;
           padding: 0 16px;
           background: #2563eb;
           color: #fff;
-          font-weight: 1000;
         }
-        .monthlyError {
+        .proError {
           background: rgba(239,68,68,.12);
           border: 1px solid rgba(248,113,113,.35);
           color: #fecaca;
@@ -1653,19 +1782,27 @@ export default function PayrollPage() {
           margin-bottom: 12px;
           font-weight: 800;
         }
-        .monthlyTotals {
+        .proScoreboard, .proTotals {
           display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: 10px;
           margin-bottom: 14px;
         }
-        .monthlyTotals div {
+        .proScoreboard {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .proTotals {
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+        }
+        .score, .proTotals div {
           background: rgba(255,255,255,.06);
           border: 1px solid rgba(148,163,184,.18);
           border-radius: 18px;
           padding: 14px;
         }
-        .monthlyTotals span {
+        .score.ok { border-color: rgba(34,197,94,.35); }
+        .score.blocked { border-color: rgba(239,68,68,.35); }
+        .score.review { border-color: rgba(245,158,11,.35); }
+        .score span, .proTotals span {
           display: block;
           color: #94a3b8;
           text-transform: uppercase;
@@ -1674,31 +1811,30 @@ export default function PayrollPage() {
           font-weight: 1000;
           margin-bottom: 8px;
         }
-        .monthlyTotals strong {
-          font-size: 20px;
+        .score strong, .proTotals strong {
+          font-size: 24px;
           line-height: 1;
           font-weight: 1000;
         }
-        .monthlyTableWrap {
+        .proTableWrap {
           overflow: auto;
-          border-radius: 18px;
+          border-radius: 20px;
           border: 1px solid rgba(148,163,184,.22);
-        }
-        .monthlyTable {
-          width: 100%;
-          border-collapse: collapse;
-          min-width: 920px;
           background: #020617;
         }
-        .monthlyTable th,
-        .monthlyTable td {
+        .proTable {
+          width: 100%;
+          border-collapse: collapse;
+          min-width: 1060px;
+        }
+        .proTable th, .proTable td {
           border-bottom: 1px solid rgba(148,163,184,.14);
           padding: 12px 14px;
           text-align: left;
           vertical-align: top;
           font-size: 13px;
         }
-        .monthlyTable th {
+        .proTable th {
           color: #93c5fd;
           text-transform: uppercase;
           letter-spacing: .11em;
@@ -1706,28 +1842,119 @@ export default function PayrollPage() {
           font-weight: 1000;
           background: rgba(15,23,42,.9);
         }
-        .monthlyTable td small {
+        .proTable td small {
           display: block;
           margin-top: 4px;
           color: #94a3b8;
           font-weight: 800;
         }
-        .monthlyStatus {
+        .proStatus {
           display: inline-flex;
           border-radius: 999px;
           padding: 7px 10px;
           font-size: 10px;
           font-weight: 1000;
           letter-spacing: .08em;
+          text-transform: uppercase;
         }
-        .monthlyStatus.ok { background: #dcfce7; color: #166534; }
-        .monthlyStatus.warn { background: #fef3c7; color: #92400e; }
-        .monthlyStatus.danger { background: #fee2e2; color: #991b1b; }
-        .monthlyWarnings {
+        .proStatus.ok { background: #dcfce7; color: #166534; }
+        .proStatus.blocked { background: #fee2e2; color: #991b1b; }
+        .proStatus.review { background: #fef3c7; color: #92400e; }
+        .proWarnings {
           margin: 8px 0 0;
           padding-left: 16px;
           color: #cbd5e1;
           line-height: 1.35;
+        }
+        .detailsBtn {
+          min-height: 38px;
+          border-radius: 12px;
+          padding: 0 12px;
+          background: #eff6ff;
+          color: #1d4ed8;
+        }
+        .proMobileList { display: none; }
+        .proMobileCard {
+          width: 100%;
+          border: 1px solid rgba(148,163,184,.22);
+          background: rgba(255,255,255,.06);
+          color: #fff;
+          border-radius: 18px;
+          padding: 14px;
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          text-align: left;
+        }
+        .proMobileCard strong, .proMobileCard b { display: block; font-size: 17px; }
+        .proMobileCard small, .proMobileCard span { display: block; margin-top: 4px; color: #cbd5e1; font-size: 12px; font-weight: 800; }
+        .proMobileCard.ok { border-color: rgba(34,197,94,.35); }
+        .proMobileCard.blocked { border-color: rgba(239,68,68,.35); }
+        .proMobileCard.review { border-color: rgba(245,158,11,.35); }
+        .payrollDetailModal { max-width: 1100px; }
+        .detailGrid, .breakdownGrid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+        .breakdownGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .detailBox, .breakdownCard, .detailFormula, .detailWarnings, .detailOk {
+          border-radius: 20px;
+          padding: 16px;
+          border: 1px solid #e2e8f0;
+          background: #fff;
+        }
+        .detailBox span {
+          display: block;
+          color: #64748b;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: .12em;
+          font-weight: 1000;
+          margin-bottom: 10px;
+        }
+        .detailBox strong {
+          font-size: 28px;
+          line-height: 1;
+          font-weight: 1000;
+          color: #0f172a;
+        }
+        .detailBox.good { background: #ecfdf5; border-color: #bbf7d0; }
+        .detailBox.warn { background: #fffbeb; border-color: #fde68a; }
+        .detailBox.main { background: #eff6ff; border-color: #bfdbfe; }
+        .detailBox.danger { background: #fff1f2; border-color: #fecdd3; }
+        .formulaTitle, .breakdownCard h3 {
+          margin: 0 0 10px;
+          color: #0f172a;
+          font-weight: 1000;
+          letter-spacing: -.02em;
+        }
+        .formulaLine {
+          color: #334155;
+          line-height: 1.6;
+          font-weight: 800;
+        }
+        .breakdownCard p {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          margin: 10px 0 0;
+          color: #475569;
+          font-weight: 800;
+        }
+        .breakdownCard p strong { color: #0f172a; }
+        .detailWarnings {
+          background: #fffbeb;
+          border-color: #fde68a;
+          color: #92400e;
+        }
+        .detailWarnings ul { margin: 10px 0 0; padding-left: 18px; }
+        .detailOk {
+          background: #ecfdf5;
+          border-color: #bbf7d0;
+          color: #166534;
+          font-weight: 900;
         }
 
         .moneyActionStack {
@@ -1856,16 +2083,19 @@ export default function PayrollPage() {
           .advanceGrid, .advanceHintRow {
             grid-template-columns: 1fr;
           }
-          .monthlyTotals {
+          .proScoreboard, .proTotals, .detailGrid, .breakdownGrid {
             grid-template-columns: 1fr;
           }
-          .monthlyControls {
+          .proControls, .proControls label, .proControls input, .proReload {
             width: 100%;
           }
-          .monthlyControls label,
-          .monthlyControls input,
-          .monthlyReload {
-            width: 100%;
+          .proTableWrap {
+            display: none;
+          }
+          .proMobileList {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
           }
           .fullOverlay {
             padding: 8px;
