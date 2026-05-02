@@ -598,7 +598,7 @@ export default function PayrollPage() {
               <div className="proEyebrow">MBYLLJA MUJORE</div>
               <div className="proTitle">Payroll profesional — preview i sigurt</div>
               <div className="proSub">
-                Ky panel llogarit rrogat mujore, komisionin, avanset, ushqimin dhe borxhin. Nuk paguan rroga dhe nuk prek buxhetin.
+                Ky panel llogarit rrogën mujore sipas rregullit: RROGA BAZË − AVANSI PERSONAL. Komisioni, ushqimi dhe shpenzimet shfaqen vetëm si informatë.
               </div>
             </div>
 
@@ -634,10 +634,10 @@ export default function PayrollPage() {
           </div>
 
           <div className="proTotals">
-            <div><span>Gross</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
-            <div><span>Zbritje</span><strong>{euro(monthlyPayrollTotals.deductions)}</strong></div>
+            <div><span>Rroga total</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
+            <div><span>Avans total</span><strong>{euro(monthlyPayrollTotals.deductions)}</strong></div>
             <div><span>Neto</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
-            <div><span>Bartet</span><strong>{euro(monthlyPayrollTotals.carryOver)}</strong></div>
+            <div><span>Avans bartet</span><strong>{euro(monthlyPayrollTotals.carryOver)}</strong></div>
             <div><span>Cash hapur</span><strong>{euro(monthlyPayrollTotals.openCash)}</strong></div>
             <div><span>Dorëzim në pritje</span><strong>{euro(monthlyPayrollTotals.pendingHandoff)}</strong></div>
           </div>
@@ -648,10 +648,10 @@ export default function PayrollPage() {
                 <tr>
                   <th>Puntori</th>
                   <th>Rroga</th>
-                  <th>Komision</th>
+                  <th>Komision info</th>
                   <th>Avans</th>
-                  <th>Ushqim</th>
-                  <th>Borxh</th>
+                  <th>Ushqim info</th>
+                  <th>Borxh info</th>
                   <th>Neto</th>
                   <th>Status</th>
                   <th>Detaje</th>
@@ -860,11 +860,11 @@ export default function PayrollPage() {
 
             <div className="detailGrid">
               <div className="detailBox good">
-                <span>Gross</span>
+                <span>Rroga bazë</span>
                 <strong>{euro(selectedPayrollDetails.gross)}</strong>
               </div>
               <div className="detailBox warn">
-                <span>Zbritje</span>
+                <span>Avans personal</span>
                 <strong>{euro(selectedPayrollDetails.deductions)}</strong>
               </div>
               <div className="detailBox main">
@@ -872,7 +872,7 @@ export default function PayrollPage() {
                 <strong>{euro(selectedPayrollDetails.net)}</strong>
               </div>
               <div className="detailBox danger">
-                <span>Bartet muajin tjetër</span>
+                <span>Avans bartet muajin tjetër</span>
                 <strong>{euro(selectedPayrollDetails.carryOver)}</strong>
               </div>
             </div>
@@ -881,27 +881,27 @@ export default function PayrollPage() {
               <div className="formulaTitle">Formula</div>
               <div className="formulaLine">
                 RROGA {euro(selectedPayrollDetails.baseSalary)}
-                {" + "} KOMISION {euro(selectedPayrollDetails.transportCommission)}
-                {" - "} AVANS {euro(selectedPayrollDetails.advancesTotal)}
-                {" - "} USHQIM {euro(selectedPayrollDetails.mealTotal)}
-                {" - "} BORXH {euro(selectedPayrollDetails.debtTotal)}
+                {" - "} AVANS PERSONAL {euro(selectedPayrollDetails.advancesTotal)}
                 {" = "} NETO {euro(selectedPayrollDetails.net)}
+              </div>
+              <div className="formulaNote">
+                Komisioni, ushqimi, shpenzimet e kompanisë dhe cash-i i klientëve nuk zbriten nga rroga mujore. Ato përdoren vetëm për kontroll.
               </div>
             </div>
 
             <div className="breakdownGrid">
               <div className="breakdownCard">
-                <h3>Hyrje / Gross</h3>
+                <h3>Rroga mujore</h3>
                 <p><span>Rroga bazë</span><strong>{euro(selectedPayrollDetails.baseSalary)}</strong></p>
-                <p><span>Komision transporti</span><strong>{euro(selectedPayrollDetails.transportCommission)}</strong></p>
+                <p><span>Komision ditor informativ</span><strong>{euro(selectedPayrollDetails.transportCommission)}</strong></p>
                 <p><span>Transport m²</span><strong>{Number(selectedPayrollDetails.transportM2 || 0).toFixed(2)} m²</strong></p>
               </div>
 
               <div className="breakdownCard">
-                <h3>Zbritje</h3>
-                <p><span>Avans</span><strong>{euro(selectedPayrollDetails.advancesTotal)}</strong></p>
-                <p><span>Ushqim</span><strong>{euro(selectedPayrollDetails.mealTotal)}</strong></p>
-                <p><span>Borxh</span><strong>{euro(selectedPayrollDetails.debtTotal)}</strong></p>
+                <h3>Zbritje nga rroga</h3>
+                <p><span>Avans personal</span><strong>{euro(selectedPayrollDetails.advancesTotal)}</strong></p>
+                <p><span>Ushqim informativ</span><strong>{euro(selectedPayrollDetails.mealTotal)}</strong></p>
+                <p><span>Borxh informativ</span><strong>{euro(selectedPayrollDetails.debtTotal)}</strong></p>
               </div>
 
               <div className="breakdownCard">
@@ -1933,6 +1933,13 @@ export default function PayrollPage() {
         .formulaLine {
           color: #334155;
           line-height: 1.6;
+          font-weight: 800;
+        }
+        .formulaNote {
+          margin-top: 10px;
+          color: #64748b;
+          line-height: 1.45;
+          font-size: 13px;
           font-weight: 800;
         }
         .breakdownCard p {
