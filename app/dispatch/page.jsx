@@ -8,6 +8,7 @@ import { listUsers } from "@/lib/usersDb";
 import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
 import { supabase } from "@/lib/supabaseClient";
+import { findTransportClientByPhoneOnly, normTCode, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -130,7 +131,16 @@ function getAddress(row) {
   );
 }
 function getOrderCode(row) {
-  return s(row?.client_tcode || row?.code_str || row?.data?.client_tcode || row?.data?.code_str || row?.code || row?.data?.code || row?.id);
+  return s(row?.client_tcode || row?.tcode || row?.code_str || row?.data?.client_tcode || row?.data?.client?.tcode || row?.data?.client?.code || row?.data?.code_str || row?.code || row?.data?.code || row?.id);
+}
+function getTransportClientId(row) {
+  return s(row?.client_id || row?.data?.client_id || row?.data?.client?.id || (row?.source === "transport_clients" ? row?.id : ""));
+}
+function getTransportTCode(row) {
+  return normTCode(row?.client_tcode || row?.tcode || row?.code_str || row?.data?.client_tcode || row?.data?.client?.tcode || row?.data?.client?.code || "");
+}
+function dispatchSamePhone(a, b) {
+  return sameTransportPhoneDigits(a, b);
 }
 function looksLikeTransportCode(value) {
   return /^T[\s-]*\d+/i.test(s(value));
@@ -593,9 +603,8 @@ export default function DispatchPage() {
     phoneTimer.current = setTimeout(async () => {
       setPhoneBusy(true);
       try {
-        const rows = await getSearchRows();
-        const hit = rows.find((row) => getClientPhone(row) === digits) || null;
-        setPhoneHit(hit);
+        const hit = await findTransportClientByPhoneOnly(phone, { timeoutMs: 5500 }).catch(() => null);
+        setPhoneHit(hit || null);
         if (hit && !s(name)) setName(getClientName(hit));
         if (hit && !s(address)) setAddress(getAddress(hit));
       } catch {
@@ -603,7 +612,7 @@ export default function DispatchPage() {
       } finally {
         setPhoneBusy(false);
       }
-    }, 260);
+    }, 320);
     return () => {
       if (phoneTimer.current) clearTimeout(phoneTimer.current);
     };
@@ -656,15 +665,19 @@ export default function DispatchPage() {
     }
   }
 
-  function applySuggestion(row) {
+  function applySuggestion(row, options = {}) {
     setName(getClientName(row));
     setPhone(getClientPhone(row));
     setAddress(getAddress(row));
     setNote(s(row?.data?.note || row?.data?.client_note || note));
     setCrmQuery(getClientName(row) || getClientPhone(row));
     setCrmOpen(false);
-    setPhoneHit(row);
+    // Search manual mund të gjejë me emër/T-code/adresë.
+    // Vendimi “klient ekzistues” vendoset vetëm nga lookup-u i telefonit më lart.
+    if (options?.keepPhoneHit) setPhoneHit(row);
+    else setPhoneHit(null);
   }
+
 
   const plannedDate = useMemo(() => {
     if (planMode === "tomorrow") return tomorrowYmd;
@@ -767,12 +780,25 @@ export default function DispatchPage() {
       const cleanPhone = onlyDigits(phone);
       const cleanAddress = s(address);
       const cleanNote = s(note);
+      const existingPhoneClient = phoneHit && dispatchSamePhone(getClientPhone(phoneHit) || phoneHit?.phone_digits || phoneHit?.phone, cleanPhone) ? phoneHit : null;
+      const existingClientId = existingPhoneClient ? getTransportClientId(existingPhoneClient) : "";
+      const existingTCode = existingPhoneClient ? getTransportTCode(existingPhoneClient) : "";
       const payload = {
         status: driverId ? "assigned" : "inbox",
         client_name: cleanName,
         client_phone: cleanPhone,
+        ...(existingClientId ? { client_id: existingClientId } : {}),
+        ...(existingTCode ? { code_str: existingTCode, client_tcode: existingTCode } : {}),
         data: {
-          client: { name: cleanName, phone: cleanPhone, address: cleanAddress },
+          client: {
+            ...(existingClientId ? { id: existingClientId } : {}),
+            ...(existingTCode ? { tcode: existingTCode, code: existingTCode } : {}),
+            name: cleanName,
+            phone: cleanPhone,
+            address: cleanAddress,
+          },
+          ...(existingClientId ? { client_id: existingClientId } : {}),
+          ...(existingTCode ? { client_tcode: existingTCode, code_str: existingTCode } : {}),
           address: cleanAddress,
           note: cleanNote,
           created_by: "DISPATCH",
@@ -790,7 +816,13 @@ export default function DispatchPage() {
           driver_pin: pickedDriverPin || null,
           assigned_driver_id: driverId || null,
           assigned_at: new Date().toISOString(),
-          last_customer_hit: phoneHit ? { id: phoneHit.id, table: getOrderTable(phoneHit) } : null,
+          last_customer_hit: existingPhoneClient ? {
+            id: existingClientId || existingPhoneClient.id || null,
+            tcode: existingTCode || null,
+            source: existingPhoneClient.source || "transport_clients",
+            row_id: existingPhoneClient.row_id || null,
+            matched_by: "phone_digits",
+          } : null,
         },
       };
 
@@ -998,13 +1030,15 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
 
         {phoneHit ? (
           <div style={ui.crmHitBox}>
-            <div style={ui.crmHitTitle}>KY KLIENT EKZISTON NË DB</div>
-            <div style={ui.crmHitSub}>{up(getClientName(phoneHit) || "PA EMËR")} • {getClientPhone(phoneHit) || "PA TEL"}</div>
-            <div style={ui.crmHitSub}>ADRESA E FUNDIT: {getAddress(phoneHit) || "PA ADRESË"}</div>
-            <div style={ui.crmHitSub}>POROSIA E FUNDIT: {getOrderCode(phoneHit) || "-"} • {niceDate(phoneHit?.updated_at || phoneHit?.created_at)}</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-              <button type="button" style={ui.btnGhostMini} onClick={() => applySuggestion(phoneHit)}>PËRDOR TË DHËNAT E FUNDIT</button>
-              <button type="button" style={ui.btnGhostMini} onClick={() => setAddress("")}>NDRYSHO ADRESËN</button>
+            <div style={ui.crmHitTitle}>KY KLIENT EKZISTON NË DB. A DON ME SHTU POROSI TË RE TE KY KLIENT?</div>
+            <div style={ui.crmHitSub}>EMRI: {up(getClientName(phoneHit) || "PA EMËR")}</div>
+            <div style={ui.crmHitSub}>TEL: {getClientPhone(phoneHit) || phoneHit?.phone_digits || "PA TEL"}</div>
+            <div style={ui.crmHitSub}>T-CODE: {getTransportTCode(phoneHit) || "PA T-CODE"}</div>
+            <div style={ui.crmHitSub}>ADRESA/GPS: {getAddress(phoneHit) || "PA ADRESË"}{phoneHit?.gps_lat && phoneHit?.gps_lng ? ` • ${phoneHit.gps_lat}, ${phoneHit.gps_lng}` : ""}</div>
+            <div style={ui.crmHitSub}>BURIMI: {phoneHit?.source === "transport_clients" ? "TRANSPORT_CLIENTS" : "TRANSPORT ORDER HISTORY"} • {niceDate(phoneHit?.updated_at || phoneHit?.created_at)}</div>
+            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" style={ui.btnGhostMini} onClick={() => applySuggestion(phoneHit, { keepPhoneHit: true })}>PO, PËRDOR KËTË KLIENT</button>
+              <button type="button" style={ui.btnGhostMini} onClick={() => setPhoneHit(null)}>JO, VAZHDO PA LIDHJE</button>
             </div>
           </div>
         ) : null}
