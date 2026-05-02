@@ -6,6 +6,7 @@ import { useRouter } from "@/lib/routerCompat.jsx";
 import { supabase } from "@/lib/supabaseClient";
 import { listPendingPaymentRecords } from "@/lib/arkaService";
 import { deleteUserRecord, listUserRecords, updateUserRecord } from "@/lib/usersService";
+import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow } from "@/lib/payrollMonthClose";
 
 function jparse(s, fallback) {
   try { return JSON.parse(s) ?? fallback; } catch { return fallback; }
@@ -121,6 +122,10 @@ export default function PayrollPage() {
   const [deductManualAdvance, setDeductManualAdvance] = useState(true);
   const [deductLongTermAmount, setDeductLongTermAmount] = useState("");
   const [workerHistory, setWorkerHistory] = useState([]);
+  const [payrollMonth, setPayrollMonth] = useState(() => getCurrentPayrollMonth());
+  const [payrollMonthRows, setPayrollMonthRows] = useState([]);
+  const [payrollMonthLoading, setPayrollMonthLoading] = useState(false);
+  const [payrollMonthError, setPayrollMonthError] = useState("");
 
   const normalizedRole = String(actor?.role || '').toUpperCase();
   const isAdminUser = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);
@@ -159,6 +164,11 @@ export default function PayrollPage() {
     };
   }, [router]);
 
+  useEffect(() => {
+    if (!actor || !isAdminUser) return;
+    void reloadMonthlyPayrollPreview(payrollMonth);
+  }, [actor?.pin, isAdminUser, payrollMonth]);
+
   async function reloadAll(isSilent = false) {
     if (!isSilent) setLoading(true);
     try {
@@ -186,6 +196,33 @@ export default function PayrollPage() {
       if (!isSilent) setLoading(false);
     }
   }
+
+  async function reloadMonthlyPayrollPreview(monthValue = payrollMonth) {
+    const month = String(monthValue || getCurrentPayrollMonth()).slice(0, 7);
+    const { startIso, endIso } = getMonthWindow(month);
+
+    setPayrollMonthLoading(true);
+    setPayrollMonthError("");
+    try {
+      const { data, error } = await supabase
+        .from("arka_pending_payments")
+        .select("*")
+        .gte("created_at", startIso)
+        .lt("created_at", endIso)
+        .order("created_at", { ascending: false })
+        .limit(2500);
+
+      if (error) throw error;
+      setPayrollMonthRows(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("MONTHLY PAYROLL PREVIEW LOAD ERROR", err);
+      setPayrollMonthRows([]);
+      setPayrollMonthError(normalizeDbError(err));
+    } finally {
+      setPayrollMonthLoading(false);
+    }
+  }
+
 
   function startFinanceEdit(u) {
     setEditingId(u.id);
@@ -482,6 +519,23 @@ export default function PayrollPage() {
     });
   }, [staff, debtsMap]);
 
+  const monthlyPayrollPreview = useMemo(() => buildMonthlyPayrollPreview({
+    workers: financeCards,
+    paymentRows: payrollMonthRows,
+    month: payrollMonth,
+  }), [financeCards, payrollMonthRows, payrollMonth]);
+
+  const monthlyPayrollTotals = useMemo(() => {
+    return (monthlyPayrollPreview || []).reduce((acc, row) => {
+      acc.gross += Number(row.gross || 0);
+      acc.deductions += Number(row.deductions || 0);
+      acc.net += Number(row.net || 0);
+      acc.carryOver += Number(row.carryOver || 0);
+      acc.openCash += Number(row.openCash || 0);
+      return acc;
+    }, { gross: 0, deductions: 0, net: 0, carryOver: 0, openCash: 0 });
+  }, [monthlyPayrollPreview]);
+
   if (actor && !isAdminUser) return <AccessDeniedPanel />;
 
   return (
@@ -525,6 +579,96 @@ export default function PayrollPage() {
             </label>
           </div>
         </div>
+
+        <section className="monthlyPanel">
+          <div className="monthlyTop">
+            <div>
+              <div className="monthlyEyebrow">MBYLLJA MUJORE</div>
+              <div className="monthlyTitle">Preview i rrogave — pa ruajtje</div>
+              <div className="monthlySub">
+                Ky panel vetëm llogarit muajin. Nuk paguan rroga, nuk mbyll avanse dhe nuk prek buxhetin.
+              </div>
+            </div>
+
+            <div className="monthlyControls">
+              <label>
+                <span>Muaji</span>
+                <input
+                  type="month"
+                  value={payrollMonth}
+                  onChange={(e) => setPayrollMonth(e.target.value || getCurrentPayrollMonth())}
+                />
+              </label>
+              <button
+                type="button"
+                className="monthlyReload"
+                onClick={() => reloadMonthlyPayrollPreview(payrollMonth)}
+                disabled={payrollMonthLoading}
+              >
+                {payrollMonthLoading ? "PO LEXOHET..." : "RIFRESKO"}
+              </button>
+            </div>
+          </div>
+
+          {payrollMonthError ? (
+            <div className="monthlyError">Gabim në preview: {payrollMonthError}</div>
+          ) : null}
+
+          <div className="monthlyTotals">
+            <div><span>Gross</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
+            <div><span>Zbritje</span><strong>{euro(monthlyPayrollTotals.deductions)}</strong></div>
+            <div><span>Neto për pagesë</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
+            <div><span>Bartet</span><strong>{euro(monthlyPayrollTotals.carryOver)}</strong></div>
+            <div><span>Cash hapur</span><strong>{euro(monthlyPayrollTotals.openCash)}</strong></div>
+          </div>
+
+          <div className="monthlyTableWrap">
+            <table className="monthlyTable">
+              <thead>
+                <tr>
+                  <th>Puntori</th>
+                  <th>Rroga</th>
+                  <th>Komision</th>
+                  <th>Avans</th>
+                  <th>Ushqim</th>
+                  <th>Borxh</th>
+                  <th>Neto</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyPayrollPreview.length === 0 ? (
+                  <tr>
+                    <td colSpan={8}>Nuk ka punëtorë për preview.</td>
+                  </tr>
+                ) : monthlyPayrollPreview.map((row) => (
+                  <tr key={row.key}>
+                    <td>
+                      <strong>{row.name}</strong>
+                      <small>PIN {row.pin || "—"}</small>
+                    </td>
+                    <td>{euro(row.baseSalary)}</td>
+                    <td>{euro(row.transportCommission)}</td>
+                    <td>{euro(row.advancesTotal)}</td>
+                    <td>{euro(row.mealTotal)}</td>
+                    <td>{euro(row.debtTotal)}</td>
+                    <td><strong>{euro(row.net)}</strong></td>
+                    <td>
+                      <div className={`monthlyStatus ${row.blocked ? "danger" : row.warnings.length ? "warn" : "ok"}`}>
+                        {row.blocked ? "BLLOKUAR" : row.warnings.length ? "KONTROLLO" : "OK"}
+                      </div>
+                      {row.warnings.length ? (
+                        <ul className="monthlyWarnings">
+                          {row.warnings.map((w) => <li key={w}>{w}</li>)}
+                        </ul>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         {editingId && (
           <section className="editPanel">
@@ -1430,6 +1574,162 @@ export default function PayrollPage() {
           text-align: center;
           font-weight: 700;
         }
+        .monthlyPanel {
+          background: rgba(15, 23, 42, .96);
+          color: #f8fafc;
+          border: 1px solid rgba(148, 163, 184, .28);
+          border-radius: 28px;
+          padding: 22px;
+          margin-bottom: 18px;
+          box-shadow: 0 18px 40px rgba(15,23,42,.14);
+        }
+        .monthlyTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: flex-start;
+          flex-wrap: wrap;
+          margin-bottom: 16px;
+        }
+        .monthlyEyebrow {
+          color: #93c5fd;
+          font-size: 12px;
+          letter-spacing: .16em;
+          font-weight: 1000;
+        }
+        .monthlyTitle {
+          margin-top: 8px;
+          font-size: 28px;
+          line-height: 1;
+          font-weight: 1000;
+          letter-spacing: -.04em;
+        }
+        .monthlySub {
+          margin-top: 8px;
+          color: #cbd5e1;
+          font-size: 14px;
+          max-width: 760px;
+          line-height: 1.45;
+        }
+        .monthlyControls {
+          display: flex;
+          gap: 10px;
+          align-items: flex-end;
+          flex-wrap: wrap;
+        }
+        .monthlyControls label {
+          display: flex;
+          flex-direction: column;
+          gap: 7px;
+          color: #cbd5e1;
+          font-size: 11px;
+          font-weight: 900;
+          letter-spacing: .12em;
+          text-transform: uppercase;
+        }
+        .monthlyControls input {
+          border: 1px solid rgba(148,163,184,.32);
+          background: #020617;
+          color: #fff;
+          border-radius: 14px;
+          padding: 13px 14px;
+          font-weight: 900;
+        }
+        .monthlyReload {
+          min-height: 46px;
+          border: none;
+          border-radius: 14px;
+          padding: 0 16px;
+          background: #2563eb;
+          color: #fff;
+          font-weight: 1000;
+        }
+        .monthlyError {
+          background: rgba(239,68,68,.12);
+          border: 1px solid rgba(248,113,113,.35);
+          color: #fecaca;
+          border-radius: 16px;
+          padding: 12px 14px;
+          margin-bottom: 12px;
+          font-weight: 800;
+        }
+        .monthlyTotals {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 14px;
+        }
+        .monthlyTotals div {
+          background: rgba(255,255,255,.06);
+          border: 1px solid rgba(148,163,184,.18);
+          border-radius: 18px;
+          padding: 14px;
+        }
+        .monthlyTotals span {
+          display: block;
+          color: #94a3b8;
+          text-transform: uppercase;
+          letter-spacing: .12em;
+          font-size: 10px;
+          font-weight: 1000;
+          margin-bottom: 8px;
+        }
+        .monthlyTotals strong {
+          font-size: 20px;
+          line-height: 1;
+          font-weight: 1000;
+        }
+        .monthlyTableWrap {
+          overflow: auto;
+          border-radius: 18px;
+          border: 1px solid rgba(148,163,184,.22);
+        }
+        .monthlyTable {
+          width: 100%;
+          border-collapse: collapse;
+          min-width: 920px;
+          background: #020617;
+        }
+        .monthlyTable th,
+        .monthlyTable td {
+          border-bottom: 1px solid rgba(148,163,184,.14);
+          padding: 12px 14px;
+          text-align: left;
+          vertical-align: top;
+          font-size: 13px;
+        }
+        .monthlyTable th {
+          color: #93c5fd;
+          text-transform: uppercase;
+          letter-spacing: .11em;
+          font-size: 10px;
+          font-weight: 1000;
+          background: rgba(15,23,42,.9);
+        }
+        .monthlyTable td small {
+          display: block;
+          margin-top: 4px;
+          color: #94a3b8;
+          font-weight: 800;
+        }
+        .monthlyStatus {
+          display: inline-flex;
+          border-radius: 999px;
+          padding: 7px 10px;
+          font-size: 10px;
+          font-weight: 1000;
+          letter-spacing: .08em;
+        }
+        .monthlyStatus.ok { background: #dcfce7; color: #166534; }
+        .monthlyStatus.warn { background: #fef3c7; color: #92400e; }
+        .monthlyStatus.danger { background: #fee2e2; color: #991b1b; }
+        .monthlyWarnings {
+          margin: 8px 0 0;
+          padding-left: 16px;
+          color: #cbd5e1;
+          line-height: 1.35;
+        }
+
         .moneyActionStack {
           display: flex;
           gap: 10px;
@@ -1555,6 +1855,17 @@ export default function PayrollPage() {
           }
           .advanceGrid, .advanceHintRow {
             grid-template-columns: 1fr;
+          }
+          .monthlyTotals {
+            grid-template-columns: 1fr;
+          }
+          .monthlyControls {
+            width: 100%;
+          }
+          .monthlyControls label,
+          .monthlyControls input,
+          .monthlyReload {
+            width: 100%;
           }
           .fullOverlay {
             padding: 8px;
