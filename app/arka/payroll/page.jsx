@@ -178,7 +178,7 @@ export default function PayrollPage() {
 
       const rawDebts = await withTimeout(listPendingPaymentRecords({
         select: "amount, created_by_name",
-        in: { status: ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"] },
+        in: { status: ["ADVANCE"] },
       }), DB_TIMEOUT_MS, 'arka_payroll_debts_timeout');
 
       const dMap = {};
@@ -275,12 +275,12 @@ export default function PayrollPage() {
     }
   }
 
-  function openSalaryModal(u) {
-    const workerName = String(u.name || "").trim().toUpperCase();
-    const baseSalary = Number(u.salary || 0);
-    const autoDebt = Number(debtsMap[workerName] || 0);
-    const manualAdvance = Number(u.avans_manual || 0);
-    const longTermDebt = Number(u.borxh_afatgjat || 0);
+  function openSalaryModal(u, payrollRow = null) {
+    const baseSalary = Number(u?.salary ?? u?.baseSalary ?? payrollRow?.baseSalary ?? 0);
+    const manualAdvance = Number(u?.avans_manual ?? u?.manualAdvance ?? 0);
+    const monthlyAdvanceTotal = Number(payrollRow?.advancesTotal ?? 0);
+    const autoDebt = Math.max(0, monthlyAdvanceTotal > 0 ? monthlyAdvanceTotal - manualAdvance : Number(debtsMap[String(u?.name || "").trim().toUpperCase()] || 0));
+    const longTermDebt = Number(u?.borxh_afatgjat ?? u?.longTermDebt ?? payrollRow?.debtTotal ?? 0);
 
     setSalaryModal({
       ...u,
@@ -289,11 +289,12 @@ export default function PayrollPage() {
       manualAdvance,
       totalAdvance: autoDebt + manualAdvance,
       longTermDebt,
+      payrollMonthRow: payrollRow || null,
     });
     setDeductAutoAdvance(true);
     setDeductManualAdvance(true);
     setDeductLongTermAmount("");
-    fetchWorkerHistory(u.name || "");
+    fetchWorkerHistory(u?.name || payrollRow?.name || "");
   }
 
   function openAdvanceModal(u) {
@@ -409,14 +410,14 @@ export default function PayrollPage() {
           let { error } = await supabase
             .from("arka_pending_payments")
             .update(clearPayload)
-            .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+            .in("status", ["ADVANCE"])
             .eq(field, value);
 
           if (error && String(error?.message || '').toLowerCase().includes('updated_at')) {
             const retry = await supabase
               .from("arka_pending_payments")
               .update({ status: "CLEARED_PAID" })
-              .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+              .in("status", ["ADVANCE"])
               .eq(field, value);
             error = retry.error;
           }
@@ -488,14 +489,14 @@ export default function PayrollPage() {
         let { error } = await supabase
           .from("arka_pending_payments")
           .update(clearPayload)
-          .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+          .in("status", ["ADVANCE"])
           .eq(field, value);
 
         if (error && String(error?.message || '').toLowerCase().includes('updated_at')) {
           const retry = await supabase
             .from("arka_pending_payments")
             .update({ status: "CLEARED_PAID" })
-            .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+            .in("status", ["ADVANCE"])
             .eq(field, value);
           error = retry.error;
         }
@@ -607,7 +608,7 @@ export default function PayrollPage() {
   function openPayrollPayModal(row) {
     const worker = getFinanceWorkerForPayrollRow(row);
     if (!worker) return;
-    openSalaryModal(worker);
+    openSalaryModal(worker, row);
   }
 
   if (actor && !isAdminUser) return <AccessDeniedPanel />;
@@ -1116,7 +1117,7 @@ export default function PayrollPage() {
                 <div className="bigNumberCard salaryPayoutCard">
                   <span>Për me ia dhënë</span>
                   <strong>{euro(payableAmount)}</strong>
-                  <small>Formula fikse: Rroga bazë − avansi personal. Nuk ka zgjedhje manuale këtu.</small>
+                  <small>Formula fikse: Rroga bazë − avansi personal. Nuk përfshin borxh/duplikat/rejected.</small>
                 </div>
 
                 <div className="salaryFormulaBox">
@@ -1134,7 +1135,7 @@ export default function PayrollPage() {
                     <strong>{euro(salaryModal.baseSalary)}</strong>
                   </div>
                   <div className="summaryRow deductRow">
-                    <span>Avans personal që zbritet</span>
+                    <span>Avans personal që zbritet (vetëm ADVANCE)</span>
                     <strong>{euro(Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0))}</strong>
                   </div>
                   <div className="summaryRow mutedRow">
@@ -1144,7 +1145,7 @@ export default function PayrollPage() {
                 </div>
 
                 <div className="warningBox">
-                  ✅ Në këtë ekran nga rroga zbritet vetëm avansi personal. Ushqimi, komisioni, shpenzimet dhe borxhi informativ nuk zbriten nga rroga mujore.
+                  ✅ Në këtë ekran nga rroga zbritet vetëm avansi personal me status ADVANCE. Ushqimi, komisioni, shpenzimet dhe borxhi informativ nuk zbriten nga rroga mujore.
                 </div>
 
                 <div className="actionStack">
