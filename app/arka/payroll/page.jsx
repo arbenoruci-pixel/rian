@@ -369,11 +369,10 @@ export default function PayrollPage() {
 
   const payableAmount = useMemo(() => {
     if (!salaryModal) return 0;
-    const autoPart = deductAutoAdvance ? Number(salaryModal.autoDebt || 0) : 0;
-    const manualPart = deductManualAdvance ? Number(salaryModal.manualAdvance || 0) : 0;
-    const longTermPart = Math.max(0, Number(deductLongTermAmount || 0));
-    return Number(salaryModal.baseSalary || 0) - autoPart - manualPart - longTermPart;
-  }, [salaryModal, deductAutoAdvance, deductManualAdvance, deductLongTermAmount]);
+    const baseSalary = Number(salaryModal.baseSalary || 0);
+    const personalAdvance = Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0);
+    return Math.max(0, baseSalary - personalAdvance);
+  }, [salaryModal]);
 
   async function handlePaySalary() {
     if (!salaryModal || !masterPin) {
@@ -394,7 +393,7 @@ export default function PayrollPage() {
 
     setActionBusy(true);
     try {
-      if (deductAutoAdvance) {
+      {
         const nowIso = new Date().toISOString();
         const workerPin = String(salaryModal?.pin || '').trim();
         const workerName = String(salaryModal?.name || '').trim();
@@ -430,7 +429,7 @@ export default function PayrollPage() {
         await runClearQuery("created_by_name", workerName);
       }
 
-      const nextManualAdvance = deductManualAdvance ? 0 : Number(salaryModal.manualAdvance || 0);
+      const nextManualAdvance = 0;
       const nextLongTerm = Math.max(
         0,
         Number(salaryModal.longTermDebt || 0) - longTermReduction
@@ -1114,63 +1113,43 @@ export default function PayrollPage() {
 
             <div className="payMainGrid">
               <div className="paySummary">
-                <div className="bigNumberCard">
-                  <span>Për t'u paguar</span>
+                <div className="bigNumberCard salaryPayoutCard">
+                  <span>Për me ia dhënë</span>
                   <strong>{euro(payableAmount)}</strong>
-                  <small>Rillogaritet live sipas zgjedhjeve më poshtë</small>
+                  <small>Formula fikse: Rroga bazë − avansi personal. Nuk ka zgjedhje manuale këtu.</small>
+                </div>
+
+                <div className="salaryFormulaBox">
+                  <div className="formulaTitle">Formula e pagesës</div>
+                  <div className="formulaLine">
+                    RROGA BAZË {euro(salaryModal.baseSalary)}
+                    {" - "} AVANS PERSONAL {euro(Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0))}
+                    {" = "} PËR PAGESË {euro(payableAmount)}
+                  </div>
                 </div>
 
                 <div className="summaryList">
-                  <div className="summaryRow">
+                  <div className="summaryRow salaryRow">
                     <span>Rroga bazë</span>
                     <strong>{euro(salaryModal.baseSalary)}</strong>
                   </div>
-                  <label className="checkRow">
-                    <div>
-                      <strong>Zbrit avansin nga porositë</strong>
-                      <small>{euro(salaryModal.autoDebt)}</small>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={deductAutoAdvance}
-                      onChange={(e) => setDeductAutoAdvance(e.target.checked)}
-                    />
-                  </label>
-                  <label className="checkRow">
-                    <div>
-                      <strong>Zbrit avansin manual</strong>
-                      <small>{euro(salaryModal.manualAdvance)}</small>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={deductManualAdvance}
-                      onChange={(e) => setDeductManualAdvance(e.target.checked)}
-                    />
-                  </label>
-
-                  <label className="deductBox">
-                    <span>Zbrit nga borxhi afatgjatë (opsionale)</span>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      value={deductLongTermAmount}
-                      onChange={(e) => setDeductLongTermAmount(onlyDigits(e.target.value))}
-                      placeholder="P.sh. 50"
-                    />
-                    <small>Borxhi aktual: {euro(salaryModal.longTermDebt)}</small>
-                  </label>
+                  <div className="summaryRow deductRow">
+                    <span>Avans personal që zbritet</span>
+                    <strong>{euro(Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0))}</strong>
+                  </div>
+                  <div className="summaryRow mutedRow">
+                    <span>Borxh afatgjatë informativ</span>
+                    <strong>{euro(salaryModal.longTermDebt)}</strong>
+                  </div>
                 </div>
 
                 <div className="warningBox">
-                  ⚠️ Borxhi afatgjatë nuk zbritet automatikisht. Vendos një shumë vetëm nëse dëshiron ta ulësh këtë muaj.
+                  ✅ Në këtë ekran nga rroga zbritet vetëm avansi personal. Ushqimi, komisioni, shpenzimet dhe borxhi informativ nuk zbriten nga rroga mujore.
                 </div>
 
                 <div className="actionStack">
                   <button className="greenCta" disabled={actionBusy} onClick={handlePaySalary}>
-                    PAGUAJ RROGËN
-                  </button>
-                  <button className="amberCta" disabled={actionBusy} onClick={handleMoveAdvancesToLongTerm}>
-                    KALO AVANSET NË BORXH AFATGJATË
+                    PAGUAJ RROGËN • {euro(payableAmount)}
                   </button>
                 </div>
               </div>
@@ -1620,6 +1599,39 @@ export default function PayrollPage() {
           display: flex;
           flex-direction: column;
           gap: 12px;
+        }
+        .salaryPayoutCard {
+          background: linear-gradient(180deg, #ecfdf5 0%, #ffffff 100%);
+          border-color: #bbf7d0;
+        }
+        .salaryFormulaBox {
+          border-radius: 20px;
+          padding: 16px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          margin-bottom: 14px;
+        }
+        .salaryFormulaBox .formulaTitle {
+          margin: 0 0 8px;
+          color: #0f172a;
+          font-weight: 1000;
+        }
+        .salaryFormulaBox .formulaLine {
+          color: #334155;
+          line-height: 1.55;
+          font-weight: 900;
+        }
+        .summaryRow.salaryRow {
+          background: #eff6ff;
+          border-color: #bfdbfe;
+        }
+        .summaryRow.deductRow {
+          background: #fff7ed;
+          border-color: #fed7aa;
+        }
+        .summaryRow.mutedRow {
+          background: #f8fafc;
+          border-color: #e2e8f0;
         }
         .summaryRow {
           display: flex;
