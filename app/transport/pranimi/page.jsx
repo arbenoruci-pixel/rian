@@ -136,6 +136,115 @@ function readClientCodeMap(tid) {
     return {};
   }
 }
+
+function normalizeTransportPhoneKey(value) {
+  let digits = normalizePhoneDigits(value);
+  if (digits.startsWith('00383')) digits = digits.slice(5);
+  else if (digits.startsWith('383') && digits.length >= 10) digits = digits.slice(3);
+  if (digits.startsWith('0') && digits.length >= 8) digits = digits.replace(/^0+/, '');
+  return digits;
+}
+
+function buildTransportPhoneVariants(value) {
+  const raw = normalizePhoneDigits(value);
+  const key = normalizeTransportPhoneKey(raw);
+  const variants = new Set();
+  if (raw) variants.add(raw);
+  if (key) {
+    variants.add(key);
+    variants.add(`0${key}`);
+    variants.add(`383${key}`);
+    variants.add(`00383${key}`);
+  }
+  return Array.from(variants).filter(Boolean);
+}
+
+function sameTransportPhone(a, b) {
+  const ka = normalizeTransportPhoneKey(a);
+  const kb = normalizeTransportPhoneKey(b);
+  return !!ka && !!kb && ka === kb;
+}
+
+function buildTransportPhoneMatchKey(candidate = {}, phoneDigits = '') {
+  const phoneKey = normalizeTransportPhoneKey(phoneDigits || candidate?.phone_digits || candidate?.phone || '');
+  const codeKey = String(candidate?.tcode || candidate?.client_tcode || candidate?.code || candidate?.id || '').trim().toUpperCase();
+  return `transport-phone:${phoneKey}:client:${codeKey || 'na'}`;
+}
+
+function normalizeTransportClientCandidate(c = {}) {
+  const phoneRaw = String(c?.phone || c?.client_phone || c?.phone_digits || '').trim();
+  const phoneDigits = normalizePhoneDigits(c?.phone_digits || phoneRaw || '');
+  const tcode = normalizeTcode(c?.tcode || c?.client_tcode || c?.code || c?.code_str || '');
+  const kind = String(c?.kind || 'client');
+  const source = c?.source || 'transport_clients';
+  const isOrderHistory = source === 'transport_orders' || kind === 'order_cache';
+  return {
+    id: isOrderHistory ? (c?.client_id || c?.row?.client_id || null) : (c?.id || c?.client_id || null),
+    kind,
+    source,
+    tcode,
+    name: String(c?.name || c?.client_name || '').trim(),
+    phone: phoneRaw,
+    phone_digits: phoneDigits,
+    address: String(c?.address || c?.client_address || '').trim(),
+    gps_lat: c?.gps_lat ?? c?.lat ?? '',
+    gps_lng: c?.gps_lng ?? c?.lng ?? '',
+    updated_at: c?.updated_at || c?.row?.updated_at || '',
+    row: c?.row || null,
+  };
+}
+
+async function findTransportClientByPhoneOnly(transportId, phoneValue, options = {}) {
+  const tid = String(transportId || '').trim();
+  const variants = buildTransportPhoneVariants(phoneValue);
+  const phoneKey = normalizeTransportPhoneKey(phoneValue);
+  if (!phoneKey || phoneKey.length < 6) return null;
+
+  const timeoutMs = Number(options?.timeoutMs || 5000);
+  const signal = options?.signal || null;
+  const candidates = [];
+  const seen = new Set();
+  const pushCandidate = (row = {}) => {
+    const c = normalizeTransportClientCandidate(row);
+    const cPhoneKey = normalizeTransportPhoneKey(c.phone_digits || c.phone || '');
+    if (!cPhoneKey || cPhoneKey !== phoneKey) return;
+    const key = String(c.id || c.tcode || `${cPhoneKey}:${c.name}`).trim();
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    candidates.push(c);
+  };
+
+  try {
+    let query = supabase
+      .from('transport_clients')
+      .select('id, tcode, name, phone, phone_digits, address, gps_lat, gps_lng, updated_at')
+      .in('phone_digits', variants)
+      .order('updated_at', { ascending: false })
+      .limit(5);
+    if (typeof query?.timeout === 'function') query = query.timeout(timeoutMs, 'TRANSPORT_PHONE_CLIENT_TIMEOUT');
+    if (signal && typeof query?.abortSignal === 'function') query = query.abortSignal(signal);
+    const { data, error } = await query;
+    if (!error) (Array.isArray(data) ? data : []).forEach(pushCandidate);
+  } catch {}
+
+  if (!candidates.length) {
+    try {
+      const orderHits = await searchTransportClientCandidatesByOrders({
+        transportId: tid,
+        query: variants[0] || phoneValue,
+        limit: 20,
+        signal,
+        timeoutMs: Math.max(3500, Math.min(timeoutMs, 7000)),
+        timeoutLabel: 'TRANSPORT_PHONE_ORDER_HISTORY_TIMEOUT',
+      }).catch(() => []);
+      (Array.isArray(orderHits) ? orderHits : []).forEach(pushCandidate);
+    } catch {}
+  }
+
+  candidates.sort((a, b) => String(b?.updated_at || b?.row?.updated_at || '').localeCompare(String(a?.updated_at || a?.row?.updated_at || '')));
+  return candidates[0] || null;
+}
+
 async function searchClientsLive(transportId, q, options = {}) {
   const tid = String(transportId || '').trim();
   const qq = String(q || '').trim();
@@ -448,6 +557,8 @@ function PranimiPageInner() {
   const [oldClientDebt, setOldClientDebt] = useState(0);
   const [clientId, setClientId] = useState(null);
   const [clientTcode, setClientTcode] = useState('');
+  const [transportClientMatchPrompt, setTransportClientMatchPrompt] = useState({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
+  const [transportClientMatchDecision, setTransportClientMatchDecision] = useState({ matchKey: '', mode: '' });
   const [activeChipKey, setActiveChipKey] = useState('');
   // Rows
   const [tepihaRows, setTepihaRows] = useState([]);
@@ -952,6 +1063,70 @@ function PranimiPageInner() {
         setGpsSaved(false);
       }
   }
+  function applyExistingTransportClientCandidate(candidate = {}, { accepted = false } = {}) {
+      const c = normalizeTransportClientCandidate(candidate || {});
+      const tc = normalizeTcode(c.tcode || '');
+      const matchKey = buildTransportPhoneMatchKey(c, c.phone_digits || c.phone);
+      if (c.name) setName(c.name);
+      const fullPhone = String(c.phone || '').trim();
+      const pref = PREFIX_OPTIONS.find((opt) => fullPhone.startsWith(opt.code));
+      if (pref) {
+        setPhonePrefix(pref.code);
+        setPhone(fullPhone.slice(pref.code.length).replace(/\D+/g, ''));
+      } else {
+        const localDigits = normalizeTransportPhoneKey(c.phone_digits || fullPhone);
+        if (localDigits) setPhone(localDigits);
+      }
+      setClientId(c.id || null);
+      if (tc && tc !== 'T0') {
+        try { clearTimeout(codeWarmupTimerRef.current); } catch {}
+        setClientTcode(tc);
+        setCodeRaw(tc);
+      }
+      if (c.address) setAddressDesc(c.address);
+      if (c.gps_lat !== '' && c.gps_lat != null) setGpsLat(c.gps_lat);
+      if (c.gps_lng !== '' && c.gps_lng != null) setGpsLng(c.gps_lng);
+      if (accepted) setTransportClientMatchDecision({ matchKey, mode: 'use_existing' });
+      setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
+  }
+
+  function isSelectedTransportPhoneClient(candidate = {}) {
+      const c = normalizeTransportClientCandidate(candidate || {});
+      const cId = String(c.id || '').trim();
+      const cCode = normalizeTcode(c.tcode || '');
+      if (cId && String(clientId || '').trim() === cId) return true;
+      if (cCode && cCode !== 'T0' && normalizeTcode(clientTcode || codeRaw) === cCode && sameTransportPhone(c.phone_digits || c.phone, phonePrefix + phone)) return true;
+      return false;
+  }
+
+  useEffect(() => {
+      if (creating || isEdit) return;
+      const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
+      const phoneFull = sanitizePhone(phonePrefix + (phone || ''));
+      const phoneKey = normalizeTransportPhoneKey(phoneFull);
+      if (!tid || !phoneKey || phoneKey.length < 6) {
+        if (transportClientMatchPrompt?.open) setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
+        return;
+      }
+      let alive = true;
+      const t = setTimeout(() => {
+        void (async () => {
+          const found = await findTransportClientByPhoneOnly(tid, phoneFull, { timeoutMs: 5000 }).catch(() => null);
+          if (!alive) return;
+          if (!found) {
+            if (transportClientMatchPrompt?.open) setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
+            return;
+          }
+          const matchKey = buildTransportPhoneMatchKey(found, phoneFull);
+          if (isSelectedTransportPhoneClient(found)) return;
+          if (String(transportClientMatchDecision?.matchKey || '') === matchKey && transportClientMatchDecision?.mode === 'use_existing') return;
+          if (String(transportClientMatchPrompt?.matchKey || '') === matchKey && transportClientMatchPrompt?.open) return;
+          setTransportClientMatchPrompt({ open: true, matchKey, candidate: found, phoneDigits: phoneKey });
+        })();
+      }, 650);
+      return () => { alive = false; clearTimeout(t); };
+  }, [creating, isEdit, actor?.role, me?.transport_id, assignTid, phonePrefix, phone, clientId, clientTcode, codeRaw, transportClientMatchDecision?.matchKey, transportClientMatchDecision?.mode, transportClientMatchPrompt?.open, transportClientMatchPrompt?.matchKey]);
+
   // ✅ FIX: MESAZHI I GATSHËM PËR SMS/VIBER
   function buildStartMessage() {
       const code = normalizeTcode(codeRaw);
@@ -1012,16 +1187,35 @@ function PranimiPageInner() {
       const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
       if(!tid) return alert("S'je i kyçur (PIN)!");
       setSavingContinue(true);
-      // 1) Upsert transport client (transport-only client book)
+      // 1) Phone-only existing-client check for transport client book.
+      // Transport never decides an existing client from name or T-code; phone_digits is the guard.
       const phoneFull = sanitizePhone(phonePrefix + phone);
       const phoneDigits = normalizePhoneDigits(phoneFull);
-      let tcodeForClient = String((clientTcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim();
-      // Nëse nuk kemi T-KOD (p.sh. lease/pool ra), provoj edhe 1 herë me e rezervu.
-      if (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0') {
+      const phoneKey = normalizeTransportPhoneKey(phoneFull);
+      let existingPhoneClient = null;
+      if (!isEdit && phoneKey && phoneKey.length >= 6) {
+        existingPhoneClient = await findTransportClientByPhoneOnly(tid, phoneFull, { timeoutMs: 5500 }).catch(() => null);
+        if (existingPhoneClient && !isSelectedTransportPhoneClient(existingPhoneClient)) {
+          const matchKey = buildTransportPhoneMatchKey(existingPhoneClient, phoneFull);
+          if (!(String(transportClientMatchDecision?.matchKey || '') === matchKey && transportClientMatchDecision?.mode === 'use_existing')) {
+            setTransportClientMatchPrompt({ open: true, matchKey, candidate: existingPhoneClient, phoneDigits: phoneKey });
+            setSavingContinue(false);
+            return;
+          }
+          applyExistingTransportClientCandidate(existingPhoneClient, { accepted: true });
+        }
+      }
+
+      let tcodeForClient = String((existingPhoneClient?.tcode || clientTcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim();
+      let nextClientId = existingPhoneClient?.id || clientId || null;
+
+      // Nëse telefoni nuk ekziston në DB, vetëm atëherë merret T-code i ri.
+      if (!existingPhoneClient && (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0')) {
         try {
           const fresh = await getOrReserveTransportCode(tid);
           if (fresh) {
             setCodeRaw(fresh);
+            setClientTcode(fresh);
             tcodeForClient = String(fresh).toUpperCase().trim();
           }
         } catch {}
@@ -1034,9 +1228,9 @@ function PranimiPageInner() {
         setSavingContinue(false);
         return;
       }
-      let nextClientId = null;
       try {
         const r = await upsertTransportClient({
+          id: nextClientId || undefined,
           name,
           phone: phoneFull,
           phone_digits: phoneDigits,
@@ -1046,8 +1240,11 @@ function PranimiPageInner() {
           gps_lng: gpsLng ?? null,
           notes: notes || ''
         });
-        nextClientId = r?.id || r?.client_id || null;
+        nextClientId = r?.id || r?.client_id || nextClientId || null;
+        tcodeForClient = String((r?.tcode || tcodeForClient) || '').toUpperCase().trim();
         setClientId(nextClientId || null);
+        setClientTcode(tcodeForClient);
+        setCodeRaw(tcodeForClient);
       } catch (e) {
         // If RLS blocks writes to transport_clients, we still allow order save.
         console.warn('upsertTransportClient failed:', e?.message);
@@ -1481,6 +1678,21 @@ function PranimiPageInner() {
             <input className="input" placeholder="KËRKO: TEL • KOD • Txx • EMËR" value={clientQuery} onChange={e => setClientQuery(e.target.value)} />
             {clientsLoading ? <div style={{ fontSize: 12, opacity: .7, marginTop: 8 }}>DUKE KËRKUAR...</div> : null}
             {clientSearchNotice ? <div style={{ fontSize: 12, opacity: .82, marginTop: 8, color: '#fbbf24', fontWeight: 800 }}>{clientSearchNotice}</div> : null}
+            {transportClientMatchPrompt?.open && transportClientMatchPrompt?.candidate ? (
+              <div className="transport-existing-client-prompt">
+                <div className="existing-title">KY KLIENT EKZISTON NË DB. A DON ME SHTU POROSI TË RE TE KY KLIENT?</div>
+                <div className="existing-grid">
+                  <div><span>EMRI</span><strong>{transportClientMatchPrompt.candidate.name || 'PA EMËR'}</strong></div>
+                  <div><span>TEL</span><strong>{transportClientMatchPrompt.candidate.phone || transportClientMatchPrompt.candidate.phone_digits || 'PA TEL'}</strong></div>
+                  <div><span>T-CODE</span><strong>{normalizeTcode(transportClientMatchPrompt.candidate.tcode || '')}</strong></div>
+                  <div><span>ADRESA/GPS</span><strong>{transportClientMatchPrompt.candidate.address || ((transportClientMatchPrompt.candidate.gps_lat || transportClientMatchPrompt.candidate.gps_lng) ? `${transportClientMatchPrompt.candidate.gps_lat || ''}${transportClientMatchPrompt.candidate.gps_lng ? `, ${transportClientMatchPrompt.candidate.gps_lng}` : ''}` : 'NUK KA')}</strong></div>
+                </div>
+                <div className="existing-actions">
+                  <button type="button" className="btn" onClick={() => applyExistingTransportClientCandidate(transportClientMatchPrompt.candidate, { accepted: true })}>PO, SHTO TE KY KLIENT</button>
+                  <button type="button" className="btn secondary" onClick={() => { setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' }); setPhone(''); setClientId(null); setClientTcode(''); }}>NUK ËSHTË KY — NDRYSHO TEL</button>
+                </div>
+              </div>
+            ) : null}
             {clientHits.length > 0 ? (
               <div className="client-hits">
                 {clientHits.map((c, i) => (
@@ -1507,6 +1719,8 @@ function PranimiPageInner() {
                       if (c.address) setAddressDesc(c.address);
                       if (c.gps_lat) setGpsLat(c.gps_lat);
                       if (c.gps_lng) setGpsLng(c.gps_lng);
+                      setTransportClientMatchDecision({ matchKey: buildTransportPhoneMatchKey(c, c.phone_digits || c.phone), mode: 'use_existing' });
+                      setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
                       setClientQuery('');
                     }}
                   >
@@ -1859,6 +2073,14 @@ function PranimiPageInner() {
         .client-inline-edit{ border:none; background:transparent; color:#93c5fd; font-size:18px; }
         .client-selected-name{ font-size:18px; font-weight:900; line-height:1.15; }
         .client-selected-phone,.client-selected-address{ margin-top:4px; font-size:13px; opacity:.82; }
+        .transport-existing-client-prompt{ margin-top:12px; padding:14px; border-radius:18px; background:rgba(22,163,74,0.16); border:1px solid rgba(34,197,94,0.45); color:#fff; }
+        .transport-existing-client-prompt .existing-title{ font-size:13px; line-height:1.35; font-weight:1000; color:#bbf7d0; letter-spacing:.02em; }
+        .transport-existing-client-prompt .existing-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+        .transport-existing-client-prompt .existing-grid div{ padding:9px 10px; border-radius:12px; background:rgba(0,0,0,0.22); min-width:0; }
+        .transport-existing-client-prompt .existing-grid span{ display:block; font-size:10px; opacity:.68; font-weight:900; letter-spacing:.08em; margin-bottom:3px; }
+        .transport-existing-client-prompt .existing-grid strong{ display:block; font-size:12px; font-weight:900; overflow-wrap:anywhere; }
+        .transport-existing-client-prompt .existing-actions{ display:grid; grid-template-columns:1fr; gap:8px; margin-top:12px; }
+        @media (max-width:520px){ .transport-existing-client-prompt .existing-grid{ grid-template-columns:1fr; } }
         .transport-extra-grid{ display:grid; grid-template-columns:1fr; gap:12px; margin-top:14px; }
         .transport-extra-card{ border:1px solid rgba(255,255,255,0.10); background:linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03)); border-radius:18px; padding:14px; box-shadow:0 10px 24px rgba(0,0,0,0.18); }
         .transport-extra-label{ font-size:11px; font-weight:900; letter-spacing:1px; opacity:.68; margin-bottom:8px; }
