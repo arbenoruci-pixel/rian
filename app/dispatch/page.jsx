@@ -1044,9 +1044,9 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
         <div style={ui.field}>
           <div style={ui.label}>SHOFERI</div>
           <select style={ui.input} value={driverId} onChange={(e) => setDriverId(e.target.value)}>
-            <option value="">(PA SHOFER – TË GJITHË E SHOHIN INBOX)</option>
+            <option style={ui.selectOption} value="">(PA SHOFER – TË GJITHË E SHOHIN INBOX)</option>
             {drivers.map((d) => (
-              <option key={String(d.id)} value={String(d.id)}>{String(d.name || "TRANSPORT").toUpperCase()}</option>
+              <option style={ui.selectOption} key={String(d.id)} value={String(d.id)}>{String(d.name || "TRANSPORT").toUpperCase()}</option>
             ))}
           </select>
         </div>
@@ -1201,9 +1201,9 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
             <div style={ui.field}>
               <div style={ui.label}>SHOFERI</div>
               <select style={ui.input} value={editDriver} onChange={(e) => setEditDriver(e.target.value)}>
-                <option value="">(PA SHOFER – TË GJITHË E SHOHIN INBOX)</option>
+                <option style={ui.selectOption} value="">(PA SHOFER – TË GJITHË E SHOHIN INBOX)</option>
                 {drivers.map((d) => (
-                  <option key={String(d.id)} value={String(d.id)}>{up(d.name || "TRANSPORT")}</option>
+                  <option style={ui.selectOption} key={String(d.id)} value={String(d.id)}>{up(d.name || "TRANSPORT")}</option>
                 ))}
               </select>
             </div>
@@ -1249,8 +1249,9 @@ const ui = {
   row2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, minWidth: 0 },
   field: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 10, minWidth: 0, maxWidth: "100%" },
   label: { fontSize: 12, fontWeight: 900, opacity: 0.75 },
-  input: { height: 44, borderRadius: 12, border: "1px solid rgba(0,0,0,0.12)", padding: "0 12px", fontWeight: 800, outline: "none", width: "100%", maxWidth: "100%", background: "#fff", boxSizing: "border-box" },
-  textarea: { minHeight: 70, borderRadius: 12, border: "1px solid rgba(0,0,0,0.12)", padding: 12, fontWeight: 800, outline: "none", background: "#fff", width: "100%", maxWidth: "100%", boxSizing: "border-box" },
+  input: { height: 44, borderRadius: 12, border: "1px solid rgba(0,0,0,0.12)", padding: "0 12px", fontWeight: 800, outline: "none", width: "100%", maxWidth: "100%", background: "#fff", color: "#111", WebkitTextFillColor: "#111", caretColor: "#111", boxSizing: "border-box" },
+  textarea: { minHeight: 70, borderRadius: 12, border: "1px solid rgba(0,0,0,0.12)", padding: 12, fontWeight: 800, outline: "none", background: "#fff", color: "#111", WebkitTextFillColor: "#111", caretColor: "#111", width: "100%", maxWidth: "100%", boxSizing: "border-box" },
+  selectOption: { background: "#fff", color: "#111" },
   btnGhost: { border: "1px solid rgba(0,0,0,0.12)", background: "rgba(255,255,255,0.85)", padding: "10px 12px", borderRadius: 12, fontWeight: 900, textDecoration: "none", color: "#111" },
   btnGhostMini: { border: "1px solid rgba(0,0,0,0.12)", background: "rgba(255,255,255,0.85)", padding: "8px 10px", borderRadius: 10, fontWeight: 900, color: "#111", cursor: "pointer" },
   btnPrimary: { height: 48, borderRadius: 14, border: "none", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer", padding: "0 16px" },
