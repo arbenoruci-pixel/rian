@@ -395,15 +395,39 @@ export default function PayrollPage() {
     setActionBusy(true);
     try {
       if (deductAutoAdvance) {
-        const { error: err1 } = await supabase
-          .from("arka_pending_payments")
-          .update({
-            status: "CLEARED_PAID",
-            applied_at: new Date().toISOString(),
-          })
-          .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
-          .eq("created_by_name", salaryModal.name);
-        if (err1) throw err1;
+        const nowIso = new Date().toISOString();
+        const workerPin = String(salaryModal?.pin || '').trim();
+        const workerName = String(salaryModal?.name || '').trim();
+
+        const clearPayload = {
+          status: "CLEARED_PAID",
+          updated_at: nowIso,
+        };
+
+        const runClearQuery = async (field, value) => {
+          if (!value) return null;
+
+          let { error } = await supabase
+            .from("arka_pending_payments")
+            .update(clearPayload)
+            .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+            .eq(field, value);
+
+          if (error && String(error?.message || '').toLowerCase().includes('updated_at')) {
+            const retry = await supabase
+              .from("arka_pending_payments")
+              .update({ status: "CLEARED_PAID" })
+              .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+              .eq(field, value);
+            error = retry.error;
+          }
+
+          if (error) throw error;
+          return true;
+        };
+
+        await runClearQuery("created_by_pin", workerPin);
+        await runClearQuery("created_by_name", workerName);
       }
 
       const nextManualAdvance = deductManualAdvance ? 0 : Number(salaryModal.manualAdvance || 0);
@@ -450,15 +474,39 @@ export default function PayrollPage() {
 
     setActionBusy(true);
     try {
-      const { error: err1 } = await supabase
-        .from("arka_pending_payments")
-        .update({
-          status: "CLEARED_PAID",
-          applied_at: new Date().toISOString(),
-        })
-        .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
-        .eq("created_by_name", salaryModal.name);
-      if (err1) throw err1;
+      const nowIso = new Date().toISOString();
+      const workerPin = String(salaryModal?.pin || '').trim();
+      const workerName = String(salaryModal?.name || '').trim();
+
+      const clearPayload = {
+        status: "CLEARED_PAID",
+        updated_at: nowIso,
+      };
+
+      const runClearQuery = async (field, value) => {
+        if (!value) return null;
+
+        let { error } = await supabase
+          .from("arka_pending_payments")
+          .update(clearPayload)
+          .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+          .eq(field, value);
+
+        if (error && String(error?.message || '').toLowerCase().includes('updated_at')) {
+          const retry = await supabase
+            .from("arka_pending_payments")
+            .update({ status: "CLEARED_PAID" })
+            .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
+            .eq(field, value);
+          error = retry.error;
+        }
+
+        if (error) throw error;
+        return true;
+      };
+
+      await runClearQuery("created_by_pin", workerPin);
+      await runClearQuery("created_by_name", workerName);
 
       const nextLongTerm = Number(salaryModal.longTermDebt || 0) + totalToMove;
       const { error: err2 } = await supabase
