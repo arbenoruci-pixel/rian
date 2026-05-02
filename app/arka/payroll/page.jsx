@@ -178,7 +178,7 @@ export default function PayrollPage() {
 
       const rawDebts = await withTimeout(listPendingPaymentRecords({
         select: "amount, created_by_name",
-        in: { status: ["ADVANCE"] },
+        in: { status: ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"] },
       }), DB_TIMEOUT_MS, 'arka_payroll_debts_timeout');
 
       const dMap = {};
@@ -205,16 +205,34 @@ export default function PayrollPage() {
     setPayrollMonthLoading(true);
     setPayrollMonthError("");
     try {
-      const { data, error } = await supabase
-        .from("arka_pending_payments")
-        .select("*")
-        .gte("created_at", startIso)
-        .lt("created_at", endIso)
-        .order("created_at", { ascending: false })
-        .limit(3000);
+      const [monthRes, paidRes] = await Promise.all([
+        supabase
+          .from("arka_pending_payments")
+          .select("*")
+          .gte("created_at", startIso)
+          .lt("created_at", endIso)
+          .order("created_at", { ascending: false })
+          .limit(3000),
 
-      if (error) throw error;
-      setPayrollMonthRows(Array.isArray(data) ? data : []);
+        supabase
+          .from("arka_pending_payments")
+          .select("*")
+          .eq("status", "SALARY_PAID")
+          .ilike("note", `%RROGA ${month}%`)
+          .order("created_at", { ascending: false })
+          .limit(500),
+      ]);
+
+      if (monthRes.error) throw monthRes.error;
+      if (paidRes.error) throw paidRes.error;
+
+      const map = new Map();
+      [...(Array.isArray(monthRes.data) ? monthRes.data : []), ...(Array.isArray(paidRes.data) ? paidRes.data : [])].forEach((row) => {
+        const key = String(row?.id || `${row?.status}_${row?.amount}_${row?.created_at}_${Math.random()}`);
+        map.set(key, row);
+      });
+
+      setPayrollMonthRows([...map.values()]);
     } catch (err) {
       console.warn("PRO PAYROLL PREVIEW LOAD ERROR", err);
       setPayrollMonthRows([]);
@@ -223,7 +241,6 @@ export default function PayrollPage() {
       setPayrollMonthLoading(false);
     }
   }
-
 
   function startFinanceEdit(u) {
     setEditingId(u.id);
@@ -275,12 +292,12 @@ export default function PayrollPage() {
     }
   }
 
-  function openSalaryModal(u, payrollRow = null) {
-    const baseSalary = Number(u?.salary ?? u?.baseSalary ?? payrollRow?.baseSalary ?? 0);
-    const manualAdvance = Number(u?.avans_manual ?? u?.manualAdvance ?? 0);
-    const monthlyAdvanceTotal = Number(payrollRow?.advancesTotal ?? 0);
-    const autoDebt = Math.max(0, monthlyAdvanceTotal > 0 ? monthlyAdvanceTotal - manualAdvance : Number(debtsMap[String(u?.name || "").trim().toUpperCase()] || 0));
-    const longTermDebt = Number(u?.borxh_afatgjat ?? u?.longTermDebt ?? payrollRow?.debtTotal ?? 0);
+  function openSalaryModal(u) {
+    const workerName = String(u.name || "").trim().toUpperCase();
+    const baseSalary = Number(u.salary || 0);
+    const autoDebt = Number(debtsMap[workerName] || 0);
+    const manualAdvance = Number(u.avans_manual || 0);
+    const longTermDebt = Number(u.borxh_afatgjat || 0);
 
     setSalaryModal({
       ...u,
@@ -289,12 +306,11 @@ export default function PayrollPage() {
       manualAdvance,
       totalAdvance: autoDebt + manualAdvance,
       longTermDebt,
-      payrollMonthRow: payrollRow || null,
     });
     setDeductAutoAdvance(true);
     setDeductManualAdvance(true);
     setDeductLongTermAmount("");
-    fetchWorkerHistory(u?.name || payrollRow?.name || "");
+    fetchWorkerHistory(u.name || "");
   }
 
   function openAdvanceModal(u) {
@@ -410,14 +426,14 @@ export default function PayrollPage() {
           let { error } = await supabase
             .from("arka_pending_payments")
             .update(clearPayload)
-            .in("status", ["ADVANCE"])
+            .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
             .eq(field, value);
 
           if (error && String(error?.message || '').toLowerCase().includes('updated_at')) {
             const retry = await supabase
               .from("arka_pending_payments")
               .update({ status: "CLEARED_PAID" })
-              .in("status", ["ADVANCE"])
+              .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
               .eq(field, value);
             error = retry.error;
           }
@@ -428,6 +444,46 @@ export default function PayrollPage() {
 
         await runClearQuery("created_by_pin", workerPin);
         await runClearQuery("created_by_name", workerName);
+      }
+
+      const nowSalaryIso = new Date().toISOString();
+      const salaryPaidPayload = {
+        amount: Math.max(0, Number(payableAmount || 0)),
+        status: "SALARY_PAID",
+        type: "SALARY_PAYMENT",
+        note: `RROGA ${payrollMonth} • ${salaryModal?.name || ''} • PAGUAR ${euro(payableAmount)}`,
+        created_by_pin: salaryModal?.pin || null,
+        created_by_name: salaryModal?.name || null,
+        approved_by_pin: actor?.pin || masterPin || null,
+        approved_by_name: actor?.name || actor?.full_name || actor?.username || 'ADMIN',
+        handed_by_pin: actor?.pin || masterPin || null,
+        handed_by_name: actor?.name || actor?.full_name || actor?.username || 'ADMIN',
+        handed_by_role: actor?.role || null,
+        created_at: nowSalaryIso,
+        updated_at: nowSalaryIso,
+        handed_at: nowSalaryIso,
+      };
+
+      {
+        let { error: salaryInsertError } = await supabase
+          .from("arka_pending_payments")
+          .insert(salaryPaidPayload);
+
+        if (salaryInsertError) {
+          const fallbackPayload = {
+            amount: Math.max(0, Number(payableAmount || 0)),
+            status: "SALARY_PAID",
+            type: "SALARY_PAYMENT",
+            note: `RROGA ${payrollMonth} • ${salaryModal?.name || ''} • PAGUAR ${euro(payableAmount)}`,
+            created_by_pin: salaryModal?.pin || null,
+            created_by_name: salaryModal?.name || null,
+            updated_at: nowSalaryIso,
+          };
+          const retry = await supabase
+            .from("arka_pending_payments")
+            .insert(fallbackPayload);
+          if (retry.error) throw retry.error;
+        }
       }
 
       const nextManualAdvance = 0;
@@ -446,9 +502,10 @@ export default function PayrollPage() {
 
       if (err2) throw err2;
 
-      alert(`✅ Rroga u përpunua me sukses për ${salaryModal.name}.`);
+      alert(`✅ Rroga ${euro(payableAmount)} u pagua dhe u mbyll për ${salaryModal.name}.`);
       setSalaryModal(null);
       await reloadAll(false);
+      await reloadMonthlyPayrollPreview(payrollMonth);
     } catch (e) {
       alert("GABIM: " + normalizeDbError(e));
     } finally {
@@ -489,14 +546,14 @@ export default function PayrollPage() {
         let { error } = await supabase
           .from("arka_pending_payments")
           .update(clearPayload)
-          .in("status", ["ADVANCE"])
+          .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
           .eq(field, value);
 
         if (error && String(error?.message || '').toLowerCase().includes('updated_at')) {
           const retry = await supabase
             .from("arka_pending_payments")
             .update({ status: "CLEARED_PAID" })
-            .in("status", ["ADVANCE"])
+            .in("status", ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"])
             .eq(field, value);
           error = retry.error;
         }
@@ -521,6 +578,7 @@ export default function PayrollPage() {
       alert(`✅ Avanset u kaluan në borxh afatgjatë për ${salaryModal.name}.`);
       setSalaryModal(null);
       await reloadAll(false);
+      await reloadMonthlyPayrollPreview(payrollMonth);
     } catch (e) {
       alert("GABIM: " + normalizeDbError(e));
     } finally {
@@ -587,8 +645,12 @@ export default function PayrollPage() {
       if (row.statusKind === 'ok') acc.okCount += 1;
       if (row.statusKind === 'blocked') acc.blockedCount += 1;
       if (row.statusKind === 'review') acc.reviewCount += 1;
+      if (row.statusKind === 'paid') {
+        acc.paidCount += 1;
+        acc.paidTotal += Number(row.salaryPaidAmount || 0);
+      }
       return acc;
-    }, { gross: 0, deductions: 0, net: 0, carryOver: 0, openCash: 0, pendingHandoff: 0, okCount: 0, blockedCount: 0, reviewCount: 0 });
+    }, { gross: 0, deductions: 0, net: 0, carryOver: 0, openCash: 0, pendingHandoff: 0, okCount: 0, blockedCount: 0, reviewCount: 0, paidCount: 0, paidTotal: 0 });
   }, [monthlyPayrollPreview]);
 
   const selectedPayrollDetails = useMemo(() => {
@@ -608,7 +670,7 @@ export default function PayrollPage() {
   function openPayrollPayModal(row) {
     const worker = getFinanceWorkerForPayrollRow(row);
     if (!worker) return;
-    openSalaryModal(worker, row);
+    openSalaryModal(worker);
   }
 
   if (actor && !isAdminUser) return <AccessDeniedPanel />;
@@ -708,6 +770,7 @@ export default function PayrollPage() {
             <div className="score ok"><span>OK për pagesë</span><strong>{monthlyPayrollTotals.okCount}</strong></div>
             <div className="score blocked"><span>Bllokuar</span><strong>{monthlyPayrollTotals.blockedCount}</strong></div>
             <div className="score review"><span>Kontrollo</span><strong>{monthlyPayrollTotals.reviewCount}</strong></div>
+            <div className="score paid"><span>Paguar</span><strong>{monthlyPayrollTotals.paidCount}</strong></div>
             <div className="score"><span>Për pagesë total</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
           </div>
 
@@ -775,7 +838,7 @@ export default function PayrollPage() {
                           type="button"
                           className="detailsBtn pay"
                           disabled={row.statusKind !== 'ok'}
-                          title={row.statusKind !== 'ok' ? 'Rroga hapet vetëm kur statusi është OK PËR PAGESË.' : 'Hap modalin ekzistues të pagesës së rrogës.'}
+                          title={row.statusKind !== 'ok' ? 'Rroga hapet vetëm kur statusi është OK PËR PAGESË dhe nuk është paguar këtë muaj.' : 'Hap modalin ekzistues të pagesës së rrogës.'}
                           onClick={() => openPayrollPayModal(row)}
                         >
                           PAGUAJ
@@ -911,6 +974,10 @@ export default function PayrollPage() {
                 <span>Avans bartet muajin tjetër</span>
                 <strong>{euro(selectedPayrollDetails.carryOver)}</strong>
               </div>
+              <div className="detailBox paidBox">
+                <span>Paguar këtë muaj</span>
+                <strong>{euro(selectedPayrollDetails.salaryPaidAmount || 0)}</strong>
+              </div>
             </div>
 
             <div className="detailFormula">
@@ -956,7 +1023,11 @@ export default function PayrollPage() {
                 </ul>
               </div>
             ) : (
-              <div className="detailOk">Ky puntor është OK për pagesë. Nuk ka cash/dorëzim që e bllokon rrogën.</div>
+              <div className="detailOk">
+                {selectedPayrollDetails.statusKind === 'paid'
+                  ? 'Ky puntor është PAGUAR për këtë muaj. Mos e paguaj përsëri.'
+                  : 'Ky puntor është OK për pagesë. Nuk ka cash/dorëzim që e bllokon rrogën.'}
+              </div>
             )}
 
             <div className="detailActions">
@@ -997,7 +1068,7 @@ export default function PayrollPage() {
             </div>
             {selectedPayrollDetails.statusKind !== 'ok' ? (
               <div className="detailPayGuard">
-                Butoni hapet vetëm kur nuk ka cash të hapur ose dorëzim në pritje.
+                Butoni hapet vetëm kur statusi është OK PËR PAGESË dhe nuk është paguar këtë muaj.
               </div>
             ) : null}
           </div>
@@ -1117,7 +1188,7 @@ export default function PayrollPage() {
                 <div className="bigNumberCard salaryPayoutCard">
                   <span>Për me ia dhënë</span>
                   <strong>{euro(payableAmount)}</strong>
-                  <small>Formula fikse: Rroga bazë − avansi personal. Nuk përfshin borxh/duplikat/rejected.</small>
+                  <small>Formula fikse: Rroga bazë − avansi personal. Nuk ka zgjedhje manuale këtu.</small>
                 </div>
 
                 <div className="salaryFormulaBox">
@@ -1135,7 +1206,7 @@ export default function PayrollPage() {
                     <strong>{euro(salaryModal.baseSalary)}</strong>
                   </div>
                   <div className="summaryRow deductRow">
-                    <span>Avans personal që zbritet (vetëm ADVANCE)</span>
+                    <span>Avans personal që zbritet</span>
                     <strong>{euro(Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0))}</strong>
                   </div>
                   <div className="summaryRow mutedRow">
@@ -1145,7 +1216,7 @@ export default function PayrollPage() {
                 </div>
 
                 <div className="warningBox">
-                  ✅ Në këtë ekran nga rroga zbritet vetëm avansi personal me status ADVANCE. Ushqimi, komisioni, shpenzimet dhe borxhi informativ nuk zbriten nga rroga mujore.
+                  ✅ Në këtë ekran nga rroga zbritet vetëm avansi personal. Ushqimi, komisioni, shpenzimet dhe borxhi informativ nuk zbriten nga rroga mujore.
                 </div>
 
                 <div className="actionStack">
@@ -1926,6 +1997,7 @@ export default function PayrollPage() {
         .score.ok { border-color: rgba(34,197,94,.35); }
         .score.blocked { border-color: rgba(239,68,68,.35); }
         .score.review { border-color: rgba(245,158,11,.35); }
+        .score.paid { border-color: rgba(59,130,246,.35); }
         .score span, .proTotals span {
           display: block;
           color: #94a3b8;
@@ -1984,6 +2056,7 @@ export default function PayrollPage() {
         .proStatus.ok { background: #dcfce7; color: #166534; }
         .proStatus.blocked { background: #fee2e2; color: #991b1b; }
         .proStatus.review { background: #fef3c7; color: #92400e; }
+        .proStatus.paid { background: #dbeafe; color: #1d4ed8; }
         .proWarnings {
           margin: 8px 0 0;
           padding-left: 16px;
@@ -2070,10 +2143,11 @@ export default function PayrollPage() {
         .proMobileCard.ok { border-color: rgba(34,197,94,.35); }
         .proMobileCard.blocked { border-color: rgba(239,68,68,.35); }
         .proMobileCard.review { border-color: rgba(245,158,11,.35); }
+        .proMobileCard.paid { border-color: rgba(59,130,246,.35); }
         .payrollDetailModal { max-width: 1100px; }
         .detailGrid, .breakdownGrid {
           display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
+          grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: 12px;
           margin-bottom: 14px;
         }
@@ -2103,6 +2177,7 @@ export default function PayrollPage() {
         .detailBox.warn { background: #fffbeb; border-color: #fde68a; }
         .detailBox.main { background: #eff6ff; border-color: #bfdbfe; }
         .detailBox.danger { background: #fff1f2; border-color: #fecdd3; }
+        .detailBox.paidBox { background: #eff6ff; border-color: #bfdbfe; }
         .formulaTitle, .breakdownCard h3 {
           margin: 0 0 10px;
           color: #0f172a;
