@@ -659,9 +659,24 @@ export default function PayrollPage() {
           <div className="proTop">
             <div>
               <div className="proEyebrow">MBYLLJA MUJORE</div>
-              <div className="proTitle">Payroll profesional — preview i sigurt</div>
+              <div className="proTitle">Payroll i qartë — rroga mujore</div>
               <div className="proSub">
-                Ky panel llogarit rrogën mujore sipas rregullit: RROGA BAZË − AVANSI PERSONAL. Komisioni, ushqimi dhe shpenzimet shfaqen vetëm si informatë.
+                Rregulli kryesor: nga rroga mujore zbritet vetëm avansi personal. Komisioni, ushqimi, shpenzimet dhe cash-i shfaqen vetëm për kontroll.
+              </div>
+
+              <div className="payrollRules">
+                <div>
+                  <span>1</span>
+                  <strong>RROGA = RROGA BAZË − AVANSI PERSONAL</strong>
+                </div>
+                <div>
+                  <span>2</span>
+                  <strong>KOMISIONI / USHQIMI NUK ZBRITEN NGA RROGA</strong>
+                </div>
+                <div>
+                  <span>3</span>
+                  <strong>CASH-I I HAPUR VETËM E BLLOKON PAGESËN</strong>
+                </div>
               </div>
             </div>
 
@@ -693,13 +708,13 @@ export default function PayrollPage() {
             <div className="score ok"><span>OK për pagesë</span><strong>{monthlyPayrollTotals.okCount}</strong></div>
             <div className="score blocked"><span>Bllokuar</span><strong>{monthlyPayrollTotals.blockedCount}</strong></div>
             <div className="score review"><span>Kontrollo</span><strong>{monthlyPayrollTotals.reviewCount}</strong></div>
-            <div className="score"><span>Neto total</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
+            <div className="score"><span>Për pagesë total</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
           </div>
 
           <div className="proTotals">
-            <div><span>Rroga total</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
-            <div><span>Avans total</span><strong>{euro(monthlyPayrollTotals.deductions)}</strong></div>
-            <div><span>Neto</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
+            <div><span>Rroga bazë total</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
+            <div><span>Zbritet nga rroga</span><strong>{euro(monthlyPayrollTotals.deductions)}</strong></div>
+            <div><span>Për me ia dhënë</span><strong>{euro(monthlyPayrollTotals.net)}</strong></div>
             <div><span>Avans bartet</span><strong>{euro(monthlyPayrollTotals.carryOver)}</strong></div>
             <div><span>Cash hapur</span><strong>{euro(monthlyPayrollTotals.openCash)}</strong></div>
             <div><span>Dorëzim në pritje</span><strong>{euro(monthlyPayrollTotals.pendingHandoff)}</strong></div>
@@ -710,12 +725,12 @@ export default function PayrollPage() {
               <thead>
                 <tr>
                   <th>Puntori</th>
-                  <th>Rroga</th>
-                  <th>Komision info</th>
-                  <th>Avans</th>
-                  <th>Ushqim info</th>
-                  <th>Borxh info</th>
-                  <th>Neto</th>
+                  <th>Rroga bazë</th>
+                  <th>Komision ditor<br/>nuk futet</th>
+                  <th>Avans<br/>zbritet</th>
+                  <th>Ushqim<br/>nuk zbritet</th>
+                  <th>Borxh<br/>info</th>
+                  <th>Për pagesë</th>
                   <th>Status</th>
                   <th>Veprim</th>
                 </tr>
@@ -872,7 +887,7 @@ export default function PayrollPage() {
           <div className="fullModal payrollDetailModal">
             <div className="modalTop">
               <div>
-                <div className="modalEyebrow">Monthly Payroll Detail</div>
+                <div className="modalEyebrow">Detaje të rrogës mujore</div>
                 <div className="modalTitle">{selectedPayrollDetails.name}</div>
                 <div className="modalWorker">PIN {selectedPayrollDetails.pin || "—"} · {payrollMonth}</div>
               </div>
@@ -889,7 +904,7 @@ export default function PayrollPage() {
                 <strong>{euro(selectedPayrollDetails.deductions)}</strong>
               </div>
               <div className="detailBox main">
-                <span>Neto për pagesë</span>
+                <span>Për me ia dhënë</span>
                 <strong>{euro(selectedPayrollDetails.net)}</strong>
               </div>
               <div className="detailBox danger">
@@ -899,34 +914,34 @@ export default function PayrollPage() {
             </div>
 
             <div className="detailFormula">
-              <div className="formulaTitle">Formula</div>
+              <div className="formulaTitle">Formula e rrogës</div>
               <div className="formulaLine">
-                RROGA {euro(selectedPayrollDetails.baseSalary)}
+                RROGA BAZË {euro(selectedPayrollDetails.baseSalary)}
                 {" - "} AVANS PERSONAL {euro(selectedPayrollDetails.advancesTotal)}
                 {" = "} NETO {euro(selectedPayrollDetails.net)}
               </div>
               <div className="formulaNote">
-                Komisioni, ushqimi, shpenzimet e kompanisë dhe cash-i i klientëve nuk zbriten nga rroga mujore. Ato përdoren vetëm për kontroll.
+                Vetëm avansi personal zbritet nga rroga. Komisioni, ushqimi, shpenzimet e kompanisë, borxhi informativ dhe cash-i i klientëve nuk e ulin rrogën mujore në këtë ekran.
               </div>
             </div>
 
             <div className="breakdownGrid">
               <div className="breakdownCard">
-                <h3>Rroga mujore</h3>
+                <h3>PAGA QË LLOGARITET</h3>
                 <p><span>Rroga bazë</span><strong>{euro(selectedPayrollDetails.baseSalary)}</strong></p>
                 <p><span>Komision ditor informativ</span><strong>{euro(selectedPayrollDetails.transportCommission)}</strong></p>
                 <p><span>Transport m²</span><strong>{Number(selectedPayrollDetails.transportM2 || 0).toFixed(2)} m²</strong></p>
               </div>
 
               <div className="breakdownCard">
-                <h3>Zbritje nga rroga</h3>
+                <h3>ZBRITET NGA RROGA</h3>
                 <p><span>Avans personal</span><strong>{euro(selectedPayrollDetails.advancesTotal)}</strong></p>
-                <p><span>Ushqim informativ</span><strong>{euro(selectedPayrollDetails.mealTotal)}</strong></p>
-                <p><span>Borxh informativ</span><strong>{euro(selectedPayrollDetails.debtTotal)}</strong></p>
+                
+                
               </div>
 
               <div className="breakdownCard">
-                <h3>Kontroll para pagesës</h3>
+                <h3>BLLOKON PAGESËN, POR NUK ZBRITET</h3>
                 <p><span>Cash hapur</span><strong>{euro(selectedPayrollDetails.openCash)}</strong></p>
                 <p><span>Dorëzim në pritje</span><strong>{euro(selectedPayrollDetails.pendingHandoff)}</strong></p>
                 <p><span>Status</span><strong>{selectedPayrollDetails.statusLabel}</strong></p>
@@ -941,7 +956,7 @@ export default function PayrollPage() {
                 </ul>
               </div>
             ) : (
-              <div className="detailOk">Ky puntor është OK për pagesë sipas preview-it.</div>
+              <div className="detailOk">Ky puntor është OK për pagesë. Nuk ka cash/dorëzim që e bllokon rrogën.</div>
             )}
 
             <div className="detailActions">
@@ -982,7 +997,7 @@ export default function PayrollPage() {
             </div>
             {selectedPayrollDetails.statusKind !== 'ok' ? (
               <div className="detailPayGuard">
-                Pagesa e rrogës hapet vetëm kur statusi bëhet <strong>OK PËR PAGESË</strong>.
+                Butoni hapet vetëm kur nuk ka cash të hapur ose dorëzim në pritje.
               </div>
             ) : null}
           </div>
@@ -1799,6 +1814,39 @@ export default function PayrollPage() {
           line-height: 1.45;
           font-weight: 650;
         }
+        .payrollRules {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 14px;
+        }
+        .payrollRules div {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          border-radius: 16px;
+          padding: 12px 14px;
+          background: rgba(255,255,255,.06);
+          border: 1px solid rgba(147,197,253,.22);
+          color: #dbeafe;
+        }
+        .payrollRules span {
+          width: 26px;
+          height: 26px;
+          border-radius: 999px;
+          background: #2563eb;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #fff;
+          font-weight: 1000;
+          flex: 0 0 auto;
+        }
+        .payrollRules strong {
+          font-size: 11px;
+          line-height: 1.25;
+          letter-spacing: .06em;
+        }
         .proControls {
           display: flex;
           align-items: flex-end;
@@ -2069,6 +2117,18 @@ export default function PayrollPage() {
           font-weight: 800;
         }
         .breakdownCard p strong { color: #0f172a; }
+        .breakdownCard.deductOnly {
+          background: #fff7ed;
+          border-color: #fed7aa;
+        }
+        .breakdownCard.infoOnly {
+          background: #f8fafc;
+          border-color: #e2e8f0;
+        }
+        .breakdownCard.blockOnly {
+          background: #fffbeb;
+          border-color: #fde68a;
+        }
         .detailWarnings {
           background: #fffbeb;
           border-color: #fde68a;
@@ -2209,6 +2269,9 @@ export default function PayrollPage() {
             grid-template-columns: 1fr;
           }
           .proScoreboard, .proTotals, .detailGrid, .breakdownGrid {
+            grid-template-columns: 1fr;
+          }
+          .payrollRules {
             grid-template-columns: 1fr;
           }
           .proControls, .proControls label, .proControls input, .proReload {
