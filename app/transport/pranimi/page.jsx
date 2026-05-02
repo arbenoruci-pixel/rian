@@ -118,14 +118,12 @@ function displayTransportName(value, lookup, fallback = '') {
 }
 function readCodeLease() { try { return JSON.parse(localStorage.getItem(CODE_LEASE_KEY)); } catch { return null; } }
 function writeCodeLease(tid, code) { try { localStorage.setItem(CODE_LEASE_KEY, JSON.stringify({ tid: String(tid), code: String(code), at: Date.now() })); } catch {} }
-async function getOrReserveTransportCode(tid) {
+async function getOrReserveTransportCode(tid, opts = {}) {
   const TID = String(tid || '').trim();
   if (!TID) return '';
-  const lease = readCodeLease();
-  if (lease && lease.tid === TID && (Date.now() - Number(lease.at || 0) < 60*60*1000)) return String(lease.code);
-  const c = await reserveTransportCode(TID);
-  if (c) writeCodeLease(TID, c);
-  return c;
+  // Transport T-code reservation is lazy: existing clients are decided by phone first,
+  // so this is called only when a new transport client/order truly needs a fresh T-code.
+  return reserveTransportCode(TID, opts);
 }
 function readClientCodeMap(tid) {
   try {
@@ -228,17 +226,23 @@ async function findTransportClientByPhoneOnly(transportId, phoneValue, options =
   } catch {}
 
   if (!candidates.length) {
-    try {
-      const orderHits = await searchTransportClientCandidatesByOrders({
-        transportId: tid,
-        query: variants[0] || phoneValue,
-        limit: 20,
-        signal,
-        timeoutMs: Math.max(3500, Math.min(timeoutMs, 7000)),
-        timeoutLabel: 'TRANSPORT_PHONE_ORDER_HISTORY_TIMEOUT',
-      }).catch(() => []);
-      (Array.isArray(orderHits) ? orderHits : []).forEach(pushCandidate);
-    } catch {}
+    // If transport_clients is missing a row, recover from transport order history.
+    // First try the current driver/admin scope, then a global read. Candidate acceptance
+    // still requires same normalized phone_digits, never name or T-code alone.
+    for (const orderTransportId of [tid, '']) {
+      if (candidates.length) break;
+      try {
+        const orderHits = await searchTransportClientCandidatesByOrders({
+          transportId: orderTransportId,
+          query: variants[0] || phoneValue,
+          limit: 20,
+          signal,
+          timeoutMs: Math.max(3500, Math.min(timeoutMs, 7000)),
+          timeoutLabel: orderTransportId ? 'TRANSPORT_PHONE_ORDER_HISTORY_TIMEOUT' : 'TRANSPORT_PHONE_ORDER_HISTORY_GLOBAL_TIMEOUT',
+        }).catch(() => []);
+        (Array.isArray(orderHits) ? orderHits : []).forEach(pushCandidate);
+      } catch {}
+    }
   }
 
   candidates.sort((a, b) => String(b?.updated_at || b?.row?.updated_at || '').localeCompare(String(a?.updated_at || a?.row?.updated_at || '')));
@@ -690,34 +694,11 @@ function PranimiPageInner() {
               ? crypto.randomUUID()
               : `ord_${Date.now()}`;
             setOid(id);
-            const tidForCode = (role === 'TRANSPORT')
-              ? String(transportScope?.transport_id || scope?.transport_id || '')
-              : String(adminTidLocal || scope?.transport_id || assignTid || '');
-            const lease = readCodeLease();
-            const leasedCode = (lease && String(lease.tid || '') === String(tidForCode || '') && (Date.now() - Number(lease.at || 0) < 60*60*1000))
-              ? String(lease.code || '')
-              : '';
-            setCodeRaw(leasedCode || '');
+            // Do not pre-reserve a T-code on page open. First let phone-only client lookup
+            // decide whether this is an existing transport client with a permanent T-code.
+            setCodeRaw('');
+            setClientTcode('');
             clearTimeout(codeWarmupTimerRef.current);
-            const offlineNow = (() => {
-              try {
-                return localStorage.getItem(OFFLINE_MODE_KEY) === '1' || (typeof navigator !== 'undefined' && navigator.onLine === false);
-              } catch {
-                return typeof navigator !== 'undefined' && navigator.onLine === false;
-              }
-            })();
-            codeWarmupTimerRef.current = setTimeout(async () => {
-              try {
-                const c = await getOrReserveTransportCode(tidForCode);
-                if (c) setCodeRaw(c);
-              } catch (e) {
-                if (!offlineNow) {
-                  try { setOfflineMode(true); } catch {}
-                  try { setNetState({ ok: false, reason: 'CODE_RESERVE_FAILED' }); } catch {}
-                  try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-                }
-              }
-            }, offlineNow ? 60 : 700);
         }
         setCreating(false);
     })();
@@ -732,24 +713,6 @@ function PranimiPageInner() {
       try { secretTapTimerRef.current && clearTimeout(secretTapTimerRef.current); } catch {}
     };
   }, []);
-
-  useEffect(() => {
-    if (creating || isEdit || codeRaw) return;
-    if (!offlineMode) return;
-    const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
-    if (!tid) return;
-    let cancelled = false;
-    const t = setTimeout(async () => {
-      try {
-        const c = await getOrReserveTransportCode(String(tid || ''));
-        if (!cancelled && c) setCodeRaw(c);
-      } catch {}
-    }, 60);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [offlineMode, creating, isEdit, codeRaw, actor?.role, me?.transport_id, assignTid]);
 
   useEffect(() => {
     try {
@@ -826,14 +789,12 @@ function PranimiPageInner() {
         ? crypto.randomUUID()
         : `ord_${Date.now()}`;
       setOid(id);
-      // Reserve / reuse code for the new actor scope.
-      try {
-        const c = await getOrReserveTransportCode(String(transport_id || ''));
-        setCodeRaw(c);
-      } catch {
-        setCodeRaw('');
-        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-      }
+      // New actor scope starts without a reserved T-code; phone-only lookup runs first.
+      setCodeRaw('');
+      setClientId(null);
+      setClientTcode('');
+      setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
+      setTransportClientMatchDecision({ matchKey: '', mode: '' });
     };
     const tick = async () => {
       if (!alive) return;
@@ -1099,6 +1060,43 @@ function PranimiPageInner() {
       return false;
   }
 
+  function isAcceptedTransportClientForCurrentPhone() {
+      const phoneKey = normalizeTransportPhoneKey(phonePrefix + phone);
+      const decisionKey = String(transportClientMatchDecision?.matchKey || '');
+      return Boolean(
+        phoneKey &&
+        phoneKey.length >= 6 &&
+        transportClientMatchDecision?.mode === 'use_existing' &&
+        decisionKey.includes(`transport-phone:${phoneKey}:`) &&
+        (clientId || (clientTcode && normalizeTcode(clientTcode) !== 'T0'))
+      );
+  }
+
+  function resetAcceptedTransportClientIdentity() {
+      setClientId(null);
+      setClientTcode('');
+      setCodeRaw('');
+      setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
+      setTransportClientMatchDecision({ matchKey: '', mode: '' });
+  }
+
+  function handleTransportPhoneChange(raw) {
+      const nextPhone = String(raw || '').replace(/\D+/g, '');
+      if ((clientId || clientTcode || transportClientMatchDecision?.mode) && nextPhone !== String(phone || '')) {
+        resetAcceptedTransportClientIdentity();
+      }
+      setPhone(nextPhone);
+  }
+
+  function handleTransportPrefixChange(nextPrefix) {
+      const prefix = String(nextPrefix || '+383');
+      if (prefix !== phonePrefix && (clientId || clientTcode || transportClientMatchDecision?.mode)) {
+        resetAcceptedTransportClientIdentity();
+      }
+      setPhonePrefix(prefix);
+      setShowPrefixSheet(false);
+  }
+
   useEffect(() => {
       if (creating || isEdit) return;
       const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
@@ -1165,9 +1163,11 @@ function PranimiPageInner() {
   }
   function saveClientQuick() {
       if (!String(name || '').trim()) return alert('Shkruaj emrin!');
-      const normalized = normalizeTcode(clientTcode || codeRaw);
-      setClientTcode(normalized);
-      setCodeRaw(normalized);
+      const normalized = (clientTcode || codeRaw) ? normalizeTcode(clientTcode || codeRaw) : '';
+      if (normalized && normalized !== 'T0') {
+        setClientTcode(normalized);
+        setCodeRaw(normalized);
+      }
       setShowAddClient(false);
   }
 
@@ -1206,13 +1206,15 @@ function PranimiPageInner() {
         }
       }
 
-      let tcodeForClient = String((existingPhoneClient?.tcode || clientTcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim();
-      let nextClientId = existingPhoneClient?.id || clientId || null;
+      const acceptedExistingByPhone = Boolean(existingPhoneClient || isAcceptedTransportClientForCurrentPhone());
+      let tcodeForClient = String((existingPhoneClient?.tcode || (acceptedExistingByPhone ? clientTcode : '') || normalizeTcode(codeRaw)) || '').toUpperCase().trim();
+      let nextClientId = existingPhoneClient?.id || (acceptedExistingByPhone ? clientId : null) || null;
 
       // Nëse telefoni nuk ekziston në DB, vetëm atëherë merret T-code i ri.
-      if (!existingPhoneClient && (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0')) {
+      // Existing transport clients keep their permanent T-code and never consume a fresh code.
+      if (!acceptedExistingByPhone && (!tcodeForClient || tcodeForClient === 'T0' || tcodeForClient === '0')) {
         try {
-          const fresh = await getOrReserveTransportCode(tid);
+          const fresh = await getOrReserveTransportCode(tid, { oid });
           if (fresh) {
             setCodeRaw(fresh);
             setClientTcode(fresh);
@@ -1637,7 +1639,7 @@ function PranimiPageInner() {
     <div className="wrap">
         <header className="header-row" style={{ alignItems: 'flex-start' }}>
             <div><h1 className="title">PRANIMI</h1><div className="subtitle">KRIJO POROSI</div></div>
-            <div className="code-badge"><span className="badge" onClick={handleSecretPriceTap} style={{ cursor: "pointer", WebkitTapHighlightColor: "transparent", userSelect: "none", WebkitUserSelect: "none" }}>KODI: {normalizeTcode(codeRaw)}</span></div>
+            <div className="code-badge"><span className="badge" onClick={handleSecretPriceTap} style={{ cursor: "pointer", WebkitTapHighlightColor: "transparent", userSelect: "none", WebkitUserSelect: "none" }}>KODI: {(clientTcode || codeRaw) ? normalizeTcode(clientTcode || codeRaw) : 'I RI'}</span></div>
         </header>
 
         {actor?.role !== 'TRANSPORT' && (
@@ -1650,10 +1652,8 @@ function PranimiPageInner() {
                   const v = String(e.target.value || '').trim();
                   setAssignTid(v);
                   if (!isEdit) {
-                    try {
-                      const c = await getOrReserveTransportCode(v);
-                      setCodeRaw(c);
-                    } catch {}
+                    // Switching driver/admin scope must not reserve a T-code before phone-only lookup.
+                    resetAcceptedTransportClientIdentity();
                   }
                 }}
                 style={{width:'100%', padding:'10px 12px', borderRadius:12, background:'#0f172a', color:'#fff', border:'1px solid rgba(255,255,255,0.12)'}}
@@ -1678,21 +1678,6 @@ function PranimiPageInner() {
             <input className="input" placeholder="KËRKO: TEL • KOD • Txx • EMËR" value={clientQuery} onChange={e => setClientQuery(e.target.value)} />
             {clientsLoading ? <div style={{ fontSize: 12, opacity: .7, marginTop: 8 }}>DUKE KËRKUAR...</div> : null}
             {clientSearchNotice ? <div style={{ fontSize: 12, opacity: .82, marginTop: 8, color: '#fbbf24', fontWeight: 800 }}>{clientSearchNotice}</div> : null}
-            {transportClientMatchPrompt?.open && transportClientMatchPrompt?.candidate ? (
-              <div className="transport-existing-client-prompt">
-                <div className="existing-title">KY KLIENT EKZISTON NË DB. A DON ME SHTU POROSI TË RE TE KY KLIENT?</div>
-                <div className="existing-grid">
-                  <div><span>EMRI</span><strong>{transportClientMatchPrompt.candidate.name || 'PA EMËR'}</strong></div>
-                  <div><span>TEL</span><strong>{transportClientMatchPrompt.candidate.phone || transportClientMatchPrompt.candidate.phone_digits || 'PA TEL'}</strong></div>
-                  <div><span>T-CODE</span><strong>{normalizeTcode(transportClientMatchPrompt.candidate.tcode || '')}</strong></div>
-                  <div><span>ADRESA/GPS</span><strong>{transportClientMatchPrompt.candidate.address || ((transportClientMatchPrompt.candidate.gps_lat || transportClientMatchPrompt.candidate.gps_lng) ? `${transportClientMatchPrompt.candidate.gps_lat || ''}${transportClientMatchPrompt.candidate.gps_lng ? `, ${transportClientMatchPrompt.candidate.gps_lng}` : ''}` : 'NUK KA')}</strong></div>
-                </div>
-                <div className="existing-actions">
-                  <button type="button" className="btn" onClick={() => applyExistingTransportClientCandidate(transportClientMatchPrompt.candidate, { accepted: true })}>PO, SHTO TE KY KLIENT</button>
-                  <button type="button" className="btn secondary" onClick={() => { setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' }); setPhone(''); setClientId(null); setClientTcode(''); }}>NUK ËSHTË KY — NDRYSHO TEL</button>
-                </div>
-              </div>
-            ) : null}
             {clientHits.length > 0 ? (
               <div className="client-hits">
                 {clientHits.map((c, i) => (
@@ -1701,26 +1686,47 @@ function PranimiPageInner() {
                     key={c.id || i}
                     className="client-hit"
                     onClick={() => {
-                      setName(c.name || '');
-                      const digits = normalizePhoneDigits(c.phone_digits || c.phone);
-                      if (digits) {
-                        const fullPhone = String(c.phone || '');
+                      const candidate = normalizeTransportClientCandidate(c || {});
+                      setName(candidate.name || '');
+                      const digits = normalizePhoneDigits(candidate.phone_digits || candidate.phone);
+                      const candidatePhoneKey = normalizeTransportPhoneKey(candidate.phone_digits || candidate.phone || digits);
+                      const queryPhoneKey = normalizeTransportPhoneKey(clientQuery);
+                      const currentPhoneKey = normalizeTransportPhoneKey(phonePrefix + phone);
+                      const phoneMatchedByInput = Boolean(
+                        candidatePhoneKey &&
+                        candidatePhoneKey.length >= 6 &&
+                        ((queryPhoneKey && queryPhoneKey === candidatePhoneKey) || (currentPhoneKey && currentPhoneKey === candidatePhoneKey))
+                      );
+                      if (digits && phoneMatchedByInput) {
+                        const fullPhone = String(candidate.phone || '');
                         const pref = PREFIX_OPTIONS.find((opt) => fullPhone.startsWith(opt.code));
                         if (pref) {
                           setPhonePrefix(pref.code);
                           setPhone(fullPhone.slice(pref.code.length).replace(/\D+/g, ''));
                         } else {
-                          setPhone(digits);
+                          setPhone(normalizeTransportPhoneKey(digits));
                         }
                       }
-                      setClientId(c.id || null);
-                      const tc = String(c.tcode || '').trim();
-                      if (tc) { setClientTcode(tc); setCodeRaw(tc); }
-                      if (c.address) setAddressDesc(c.address);
-                      if (c.gps_lat) setGpsLat(c.gps_lat);
-                      if (c.gps_lng) setGpsLng(c.gps_lng);
-                      setTransportClientMatchDecision({ matchKey: buildTransportPhoneMatchKey(c, c.phone_digits || c.phone), mode: 'use_existing' });
-                      setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
+                      // Search by name/T-code may fill visible fields, but it never accepts an existing client.
+                      // The decision remains phone-only and must go through the green confirmation prompt.
+                      setClientId(null);
+                      setClientTcode('');
+                      setCodeRaw('');
+                      setTransportClientMatchDecision({ matchKey: '', mode: '' });
+                      if (candidate.address) setAddressDesc(candidate.address);
+                      if (candidate.gps_lat) setGpsLat(candidate.gps_lat);
+                      if (candidate.gps_lng) setGpsLng(candidate.gps_lng);
+                      if (phoneMatchedByInput) {
+                        setShowAddClient(true);
+                        setTransportClientMatchPrompt({
+                          open: true,
+                          matchKey: buildTransportPhoneMatchKey(candidate, candidate.phone_digits || candidate.phone || digits),
+                          candidate,
+                          phoneDigits: candidatePhoneKey,
+                        });
+                      } else {
+                        setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
+                      }
                       setClientQuery('');
                     }}
                   >
@@ -1743,7 +1749,7 @@ function PranimiPageInner() {
                 {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini large" /> : <div className="client-avatar-fallback">👤</div>}
                 <div className="client-selected-copy">
                   <div className="client-copy-topline">
-                    <div className="client-code-pill">{normalizeTcode(clientTcode || codeRaw)}</div>
+                    <div className="client-code-pill">{(clientTcode || codeRaw) ? normalizeTcode(clientTcode || codeRaw) : 'I RI'}</div>
                     <button type="button" className="client-inline-edit" onClick={() => setShowAddClient(true)}>✎</button>
                   </div>
                   <div className="client-selected-name">{name || 'KLIENT I RI'}</div>
@@ -1864,7 +1870,7 @@ function PranimiPageInner() {
 
               <div className="field-group transport-tcode-focus">
                 <label className="label">T-CODE</label>
-                <input className="input tcodeInput" value={normalizeTcode(clientTcode || codeRaw)} readOnly disabled placeholder="T123" style={{ opacity: 0.7, cursor: 'not-allowed' }} />
+                <input className="input tcodeInput" value={(clientTcode || codeRaw) ? normalizeTcode(clientTcode || codeRaw) : 'MERRET PAS TEL.'} readOnly disabled placeholder="T123" style={{ opacity: 0.7, cursor: 'not-allowed' }} />
               </div>
 
               <div className="field-group">
@@ -1876,9 +1882,25 @@ function PranimiPageInner() {
                 <label className="label">TELEFONI</label>
                 <div className="row">
                   <button type="button" className="prefixBtn" onClick={() => setShowPrefixSheet(true)}>{phonePrefix}</button>
-                  <input className="input" value={phone} onChange={(e) => setPhone(String(e.target.value || '').replace(/\D+/g, ''))} inputMode="numeric" placeholder="44XXXXXX" />
+                  <input className="input" value={phone} onChange={(e) => handleTransportPhoneChange(e.target.value)} inputMode="numeric" placeholder="44XXXXXX" />
                 </div>
               </div>
+
+              {transportClientMatchPrompt?.open && transportClientMatchPrompt?.candidate ? (
+                <div className="transport-existing-client-prompt">
+                  <div className="existing-title">KY KLIENT EKZISTON NË DB. A DON ME SHTU POROSI TË RE TE KY KLIENT?</div>
+                  <div className="existing-grid">
+                    <div><span>EMRI</span><strong>{transportClientMatchPrompt.candidate.name || 'PA EMËR'}</strong></div>
+                    <div><span>TEL</span><strong>{transportClientMatchPrompt.candidate.phone || transportClientMatchPrompt.candidate.phone_digits || 'PA TEL'}</strong></div>
+                    <div><span>T-CODE</span><strong>{normalizeTcode(transportClientMatchPrompt.candidate.tcode || '')}</strong></div>
+                    <div><span>ADRESA/GPS</span><strong>{transportClientMatchPrompt.candidate.address || ((transportClientMatchPrompt.candidate.gps_lat || transportClientMatchPrompt.candidate.gps_lng) ? `${transportClientMatchPrompt.candidate.gps_lat || ''}${transportClientMatchPrompt.candidate.gps_lng ? `, ${transportClientMatchPrompt.candidate.gps_lng}` : ''}` : 'NUK KA')}</strong></div>
+                  </div>
+                  <div className="existing-actions">
+                    <button type="button" className="btn" onClick={() => applyExistingTransportClientCandidate(transportClientMatchPrompt.candidate, { accepted: true })}>PO, SHTO TE KY KLIENT</button>
+                    <button type="button" className="btn secondary" onClick={() => { resetAcceptedTransportClientIdentity(); setPhone(''); }}>NUK ËSHTË KY — NDRYSHO TEL</button>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="field-group">
                 <label className="label">ADRESA</label>
@@ -1995,7 +2017,7 @@ function PranimiPageInner() {
         <div className="modalCenterOverlay" onClick={() => setShowPrefixSheet(false)}>
             <div className="modalCenter" onClick={e => e.stopPropagation()}>
                 {PREFIX_OPTIONS.map(o => (
-                    <div key={o.code} className="prefixOpt" onClick={() => {setPhonePrefix(o.code); setShowPrefixSheet(false);}}>
+                    <div key={o.code} className="prefixOpt" onClick={() => handleTransportPrefixChange(o.code)}>
                         <span className="poFlag">{o.flag}</span><span className="poCode">{o.code}</span>
                     </div>
                 ))}
