@@ -118,11 +118,49 @@ function displayTransportName(value, lookup, fallback = '') {
 }
 function readCodeLease() { try { return JSON.parse(localStorage.getItem(CODE_LEASE_KEY)); } catch { return null; } }
 function writeCodeLease(tid, code) { try { localStorage.setItem(CODE_LEASE_KEY, JSON.stringify({ tid: String(tid), code: String(code), at: Date.now() })); } catch {} }
+
+function transportOrderCodeCacheKey(oid) {
+  return `transport_order_code_v1__${String(oid || '').trim()}`;
+}
+
+function transportPoolMirrorKey(ownerId) {
+  return `transport_pool_mirror_${String(ownerId || '').trim()}`;
+}
+
+function uniqSortedTransportCodes(values = []) {
+  const arr = Array.from(new Set((Array.isArray(values) ? values : [])
+    .map((value) => normalizeTcode(value))
+    .filter((value) => value && value !== 'T0')));
+  arr.sort((a, b) => {
+    const na = Number(String(a).replace(/\D+/g, '') || 0);
+    const nb = Number(String(b).replace(/\D+/g, '') || 0);
+    return na - nb;
+  });
+  return arr;
+}
+
+function releaseUnusedWarmTransportCode(ownerId, code, orderId) {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  const owner = String(ownerId || '').trim();
+  const cleanCode = normalizeTcode(code);
+  if (!owner || !cleanCode || cleanCode === 'T0') return;
+  try {
+    const orderKey = transportOrderCodeCacheKey(orderId);
+    const cached = String(localStorage.getItem(orderKey) || '').trim();
+    if (!cached || normalizeTcode(cached) === cleanCode) {
+      localStorage.removeItem(orderKey);
+    }
+  } catch {}
+  try {
+    const mirrorKey = transportPoolMirrorKey(owner);
+    const raw = localStorage.getItem(mirrorKey);
+    const arr = raw ? JSON.parse(raw) : [];
+    localStorage.setItem(mirrorKey, JSON.stringify(uniqSortedTransportCodes([...(Array.isArray(arr) ? arr : []), cleanCode])));
+  } catch {}
+}
 async function getOrReserveTransportCode(tid, opts = {}) {
   const TID = String(tid || '').trim();
   if (!TID) return '';
-  // Transport T-code reservation is lazy: existing clients are decided by phone first,
-  // so this is called only when a new transport client/order truly needs a fresh T-code.
   return reserveTransportCode(TID, opts);
 }
 function readClientCodeMap(tid) {
@@ -694,8 +732,8 @@ function PranimiPageInner() {
               ? crypto.randomUUID()
               : `ord_${Date.now()}`;
             setOid(id);
-            // Do not pre-reserve a T-code on page open. First let phone-only client lookup
-            // decide whether this is an existing transport client with a permanent T-code.
+            // Start empty, then warm a visible T-code shortly after open.
+            // If a typed phone belongs to an existing client, the existing permanent T-code replaces it.
             setCodeRaw('');
             setClientTcode('');
             clearTimeout(codeWarmupTimerRef.current);
@@ -713,6 +751,34 @@ function PranimiPageInner() {
       try { secretTapTimerRef.current && clearTimeout(secretTapTimerRef.current); } catch {}
     };
   }, []);
+
+
+  useEffect(() => {
+    if (creating || isEdit || !oid) return;
+    if ((clientTcode && normalizeTcode(clientTcode) !== 'T0') || (codeRaw && normalizeTcode(codeRaw) !== 'T0')) return;
+
+    const tid = getCurrentDraftTransportId();
+    if (!tid) return;
+
+    // Keep the old worker-friendly behavior: show a T-code on the screen shortly after opening.
+    // Existing-client protection still wins later: if the typed phone belongs to an existing
+    // client, this warmed code is put back into the local mirror and the client's permanent
+    // T-code replaces it.
+    try { clearTimeout(codeWarmupTimerRef.current); } catch {}
+    let alive = true;
+    codeWarmupTimerRef.current = setTimeout(() => {
+      void (async () => {
+        const fresh = await getOrReserveTransportCode(tid, { oid }).catch(() => '');
+        if (!alive || !fresh) return;
+        setCodeRaw(normalizeTcode(fresh));
+      })();
+    }, 650);
+
+    return () => {
+      alive = false;
+      try { clearTimeout(codeWarmupTimerRef.current); } catch {}
+    };
+  }, [creating, isEdit, oid, actor?.role, me?.transport_id, assignTid, codeRaw, clientTcode]);
 
   useEffect(() => {
     try {
@@ -789,7 +855,7 @@ function PranimiPageInner() {
         ? crypto.randomUUID()
         : `ord_${Date.now()}`;
       setOid(id);
-      // New actor scope starts without a reserved T-code; phone-only lookup runs first.
+      // New actor scope starts clean; warm-up will show a fresh T-code after the scope is ready.
       setCodeRaw('');
       setClientId(null);
       setClientTcode('');
@@ -1041,6 +1107,10 @@ function PranimiPageInner() {
       setClientId(c.id || null);
       if (tc && tc !== 'T0') {
         try { clearTimeout(codeWarmupTimerRef.current); } catch {}
+        const warmedCode = normalizeTcode(codeRaw || '');
+        if (!isEdit && warmedCode && warmedCode !== 'T0' && warmedCode !== tc) {
+          releaseUnusedWarmTransportCode(getCurrentDraftTransportId(), warmedCode, oid);
+        }
         setClientTcode(tc);
         setCodeRaw(tc);
       }
@@ -1652,7 +1722,7 @@ function PranimiPageInner() {
                   const v = String(e.target.value || '').trim();
                   setAssignTid(v);
                   if (!isEdit) {
-                    // Switching driver/admin scope must not reserve a T-code before phone-only lookup.
+                    // Switching driver/admin scope starts a clean code/client decision.
                     resetAcceptedTransportClientIdentity();
                   }
                 }}
@@ -2103,7 +2173,6 @@ function PranimiPageInner() {
         .transport-existing-client-prompt .existing-grid strong{ display:block; font-size:12px; font-weight:900; overflow-wrap:anywhere; }
         .transport-existing-client-prompt .existing-actions{ display:grid; grid-template-columns:1fr; gap:8px; margin-top:12px; }
         @media (max-width:520px){ .transport-existing-client-prompt .existing-grid{ grid-template-columns:1fr; } }
-
         .transport-extra-grid{ display:grid; grid-template-columns:1fr; gap:12px; margin-top:14px; }
         .transport-extra-card{ border:1px solid rgba(255,255,255,0.10); background:linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03)); border-radius:18px; padding:14px; box-shadow:0 10px 24px rgba(0,0,0,0.18); }
         .transport-extra-label{ font-size:11px; font-weight:900; letter-spacing:1px; opacity:.68; margin-bottom:8px; }
@@ -2167,6 +2236,7 @@ function PranimiPageInner() {
         /* MODERN CHIPS STYLE */
         .chip-modern { padding: 10px 14px; border-radius: 14px; font-weight: 900; font-size: 16px; letter-spacing: 0.2px; text-shadow: 0 1px 0 rgba(0,0,0,0.35); }
         .gpsBtn { width: 44px; background: #222; border: 1px solid #333; border-radius: 12px; color: white; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
         /* PHONE-FRIENDLY TRANSPORT CLIENT MODAL
            Keeps the existing-client prompt usable on iPhone/Safari when the
            keyboard/browser bars reduce the visible height. */
