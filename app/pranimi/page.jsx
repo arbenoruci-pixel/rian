@@ -68,7 +68,7 @@ const PRANIMI_BG_SYNC_MIN_GAP_MS = 6000;
 const PRANIMI_CONTINUE_CLIENT_LOOKUP_MS = 200;
 const PRANIMI_CONTINUE_CODE_VERIFY_MS = 350;
 const PRANIMI_CONTINUE_CODE_RESERVE_MS = 650;
-const PRANIMI_CONTINUE_MASTER_SYNC_MS = 200;
+const PRANIMI_CONTINUE_MASTER_SYNC_MS = 1000;
 
 function sanitizePhone(phone) {
   return String(phone || '').replace(/\D+/g, '');
@@ -93,12 +93,42 @@ function normDigits(s) {
 
 function normalizeMatchPhone(raw) {
   let digits = String(raw || '').replace(/\D+/g, '');
-  if (digits.startsWith('383')) digits = digits.slice(3);
+  if (digits.startsWith('00383')) digits = digits.slice(5);
+  else if (digits.startsWith('383')) digits = digits.slice(3);
+  if (digits.startsWith('0') && digits.length >= 8) digits = digits.replace(/^0+/, '');
   return digits;
 }
 
 function normalizeMatchName(raw) {
   return String(raw || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function isValidClientPhoneDigits(raw) {
+  const digits = normalizeMatchPhone(raw);
+  return digits.length >= 8;
+}
+
+function baseNamesMatchStrong(inputName, candidateName) {
+  const a = normalizeMatchName(inputName);
+  const b = normalizeMatchName(candidateName);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const ap = a.split(' ').filter(Boolean);
+  const bp = b.split(' ').filter(Boolean);
+  if (ap.length < 2 || bp.length < 2) return false;
+  const aFirst = ap[0];
+  const aLast = ap[ap.length - 1];
+  const bFirst = bp[0];
+  const bLast = bp[bp.length - 1];
+  return aFirst === bFirst && aLast === bLast;
+}
+
+function isStrongBaseClientNamePhoneMatch(candidate = {}, { name, phone } = {}) {
+  const inputPhone = normalizeMatchPhone(phone);
+  const candidatePhone = normalizeMatchPhone(candidate?.phone || candidate?.client_phone || '');
+  if (!isValidClientPhoneDigits(inputPhone) || !candidatePhone || candidatePhone !== inputPhone) return false;
+  const candidateName = candidate?.name || candidate?.full_name || candidate?.client_name || `${candidate?.first_name || ''} ${candidate?.last_name || ''}`.trim();
+  return baseNamesMatchStrong(name, candidateName);
 }
 
 function buildClientMatchKey({ reason, phoneDigits, fullName, code, id }) {
@@ -111,9 +141,9 @@ async function detectExistingClientSmart({ name, phone, clientsIndex, allowLive 
   const phoneDigits = normalizeMatchPhone(phone);
   const fullName = normalizeMatchName(name);
   const fullNameParts = fullName ? fullName.split(' ').filter(Boolean) : [];
-  const canCheckPhone = phoneDigits.length >= 6;
+  const canCheckPhone = isValidClientPhoneDigits(phoneDigits);
   const canCheckFullName = fullNameParts.length >= 2;
-  if (!canCheckPhone && !canCheckFullName) return null;
+  if (!canCheckPhone || !canCheckFullName) return null;
 
   const seen = new Map();
   const addCandidate = (row = {}) => {
@@ -168,31 +198,18 @@ async function detectExistingClientSmart({ name, phone, clientsIndex, allowLive 
     return String(b?.last_seen || '').localeCompare(String(a?.last_seen || ''));
   };
 
-  if (canCheckPhone) {
-    const phoneMatches = all.filter((item) => item.phoneNorm && item.phoneNorm === phoneDigits).sort(sortBest);
-    if (phoneMatches.length) {
-      const winner = phoneMatches[0];
+  if (canCheckPhone && canCheckFullName) {
+    const strongMatches = all
+      .filter((item) => item.phoneNorm && item.phoneNorm === phoneDigits && baseNamesMatchStrong(fullName, item.nameNorm))
+      .sort(sortBest);
+    if (strongMatches.length) {
+      const winner = strongMatches[0];
       return {
         open: true,
-        reason: 'phone_exact',
+        reason: 'name_phone_exact',
         phoneDigits,
         fullName,
         matchKey: buildClientMatchKey({ reason: 'phone_exact', phoneDigits, fullName, code: winner.code, id: winner.id }),
-        candidate: winner,
-      };
-    }
-  }
-
-  if (canCheckFullName) {
-    const nameMatches = all.filter((item) => item.nameNorm && item.nameNorm === fullName).sort(sortBest);
-    if (nameMatches.length) {
-      const winner = nameMatches[0];
-      return {
-        open: true,
-        reason: 'full_name_exact',
-        phoneDigits,
-        fullName,
-        matchKey: buildClientMatchKey({ reason: 'full_name_exact', phoneDigits, fullName, code: winner.code, id: winner.id }),
         candidate: winner,
       };
     }
@@ -1597,7 +1614,7 @@ export default function PranimiPage() {
   useEffect(() => {
     const phoneDigits = normalizeMatchPhone(phone);
     const fullName = normalizeMatchName(name);
-    const canCheckPhone = phoneDigits.length >= 6;
+    const canCheckPhone = isValidClientPhoneDigits(phoneDigits);
     const canCheckFullName = fullName.split(' ').filter(Boolean).length >= 2;
 
     if (isBridgeEditMode || noPhone) {
@@ -2147,7 +2164,7 @@ export default function PranimiPage() {
 
   async function findReturningClientByPhone(rawPhone = '', { allowLive = true, liveTimeoutMs = 700 } = {}) {
     const digits = String(rawPhone || '').replace(/\D+/g, '');
-    if (!digits) return null;
+    if (!isValidClientPhoneDigits(digits)) return null;
     const phoneFull = `${phonePrefix}${digits}`;
     const shortDigits = digits.startsWith('383') ? digits.slice(3) : digits;
     const seen = new Map();
@@ -2220,63 +2237,205 @@ export default function PranimiPage() {
     return sorted[0] || null;
   }
 
+  async function findBaseClientByNameAndPhone({ name: rawName, phone: rawPhone, clientsIndex: indexArg, allowLive = true, liveTimeoutMs = 700 } = {}) {
+    const phoneDigits = normalizeMatchPhone(rawPhone);
+    const fullName = normalizeMatchName(rawName);
+    if (!isValidClientPhoneDigits(phoneDigits) || fullName.split(' ').filter(Boolean).length < 2) return null;
+
+    const seen = new Map();
+    const addCandidate = (row = {}, source = '') => {
+      const candidatePhone = normalizeMatchPhone(row?.phone || row?.client_phone || '');
+      if (!candidatePhone || candidatePhone !== phoneDigits) return;
+      const candidateName = row?.name || row?.full_name || row?.client_name || `${row?.first_name || ''} ${row?.last_name || ''}`.trim();
+      if (!baseNamesMatchStrong(fullName, candidateName)) return;
+      const codeNum = normalizeCode(row?.code ?? row?.client_code ?? null);
+      if (codeNum == null) return;
+      const key = String(row?.id || `code:${codeNum}`);
+      if (!key || seen.has(key)) return;
+      seen.set(key, {
+        id: row?.id || null,
+        code: codeNum,
+        name: String(candidateName || rawName || '').trim(),
+        phone: String(row?.phone || row?.client_phone || rawPhone || '').trim(),
+        updated_at: row?.updated_at || row?.last_seen || null,
+        source,
+      });
+    };
+
+    try {
+      for (const item of (Array.isArray(indexArg) ? indexArg : [])) addCandidate(item, 'clientsIndex');
+    } catch {}
+
+    try {
+      const cached = safeJsonParse(localStorage.getItem('tepiha_clients_index_v1') || '{}', {});
+      for (const item of (Array.isArray(cached?.items) ? cached.items : [])) addCandidate(item, 'clientsIndexCache');
+    } catch {}
+
+    try {
+      if (allowLive !== false && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+        const phoneHits = await withSupabaseTimeout(
+          searchClientsLive(phoneDigits),
+          Number(liveTimeoutMs || 700),
+          'PRANIMI_FINAL_CLIENT_PHONE_LOOKUP_TIMEOUT',
+          { source: 'findBaseClientByNameAndPhone', mode: 'phone' }
+        ).catch(() => []);
+        for (const item of (Array.isArray(phoneHits) ? phoneHits : [])) addCandidate(item, 'livePhone');
+
+        const nameHits = await withSupabaseTimeout(
+          searchClientsLive(fullName),
+          Number(liveTimeoutMs || 700),
+          'PRANIMI_FINAL_CLIENT_NAME_LOOKUP_TIMEOUT',
+          { source: 'findBaseClientByNameAndPhone', mode: 'name' }
+        ).catch(() => []);
+        for (const item of (Array.isArray(nameHits) ? nameHits : [])) addCandidate(item, 'liveName');
+      }
+    } catch {}
+
+    const matches = Array.from(seen.values()).sort((a, b) => String(b?.updated_at || '').localeCompare(String(a?.updated_at || '')));
+    return matches[0] || null;
+  }
+
   async function syncClientMasterForCode({ code, name: rawName, phone: rawPhone, photoUrl, selected } = {}) {
-    const codeNum = Number(normalizeCode(code) || 0);
-    if (!codeNum) return null;
+    const requestedCodeNum = Number(normalizeCode(code) || 0);
+    if (!requestedCodeNum) return null;
 
-    const phoneDigits = String(rawPhone || '').replace(/\D+/g, '');
-    const phoneFull = phoneDigits ? `${phonePrefix}${phoneDigits}` : '';
-    const safeName = String(rawName || '').trim();
+    const phoneDigits = normalizeMatchPhone(rawPhone || '');
+    const hasValidPhone = isValidClientPhoneDigits(phoneDigits);
+    const phoneFull = hasValidPhone ? `${phonePrefix}${phoneDigits}` : '';
+    const safeName = String(rawName || '').trim().replace(/\s+/g, ' ');
     const parts = splitFullNameLoose(safeName);
+    const selectedId = String(selected?.id || '').trim();
+    const selectedCodeNum = normalizeCode(selected?.code ?? null);
 
-    let targetId = String(selected?.id || '').trim();
-    if (!targetId && phoneFull) {
+    const rowName = (row = {}) => String(
+      row?.full_name ||
+      row?.name ||
+      [row?.first_name || '', row?.last_name || ''].filter(Boolean).join(' ') ||
+      ''
+    ).trim();
+
+    const buildConflict = (row = {}, reason = 'CODE_CONFLICT') => {
+      const existingCode = normalizeCode(row?.code ?? selectedCodeNum ?? null);
+      return {
+        id: String(row?.id || selectedId || '').trim() || null,
+        code: existingCode != null ? existingCode : requestedCodeNum,
+        phone: String(row?.phone || phoneFull || '').trim(),
+        name: rowName(row) || safeName,
+        codeConflict: true,
+        conflictReason: reason,
+        requestedCode: requestedCodeNum,
+        existingCode: existingCode != null ? existingCode : null,
+      };
+    };
+
+    const updateClient = async (row = {}, lockedCodeNum = requestedCodeNum, reason = 'strong') => {
+      const targetId = String(row?.id || selectedId || '').trim();
+      if (!targetId) return null;
+
+      const existingCodeNum = normalizeCode(row?.code ?? null);
+      const finalLockedCode = normalizeCode(lockedCodeNum ?? existingCodeNum ?? requestedCodeNum);
+      if (existingCodeNum != null && finalLockedCode != null && String(existingCodeNum) !== String(finalLockedCode)) {
+        return buildConflict(row, `${reason}_EXISTING_CODE_DIFFERS_FROM_LOCK`);
+      }
+      if (finalLockedCode != null && String(finalLockedCode) !== String(requestedCodeNum)) {
+        return buildConflict({ ...row, code: finalLockedCode }, `${reason}_REQUESTED_CODE_DIFFERS_FROM_PERMANENT_CODE`);
+      }
+
+      const patch = {
+        full_name: safeName || rowName(row) || null,
+        first_name: parts.first_name || null,
+        last_name: parts.last_name || null,
+        updated_at: new Date().toISOString(),
+      };
+      if (finalLockedCode != null) patch.code = finalLockedCode;
+      if (phoneFull) patch.phone = phoneFull;
+      if (photoUrl) patch.photo_url = photoUrl;
+
+      const { data: updated, error: updateErr } = await supabase
+        .from('clients')
+        .update(patch)
+        .eq('id', targetId)
+        .select('id, code, full_name, first_name, last_name, phone, photo_url')
+        .maybeSingle();
+      if (updateErr) throw updateErr;
+
+      const out = updated || { ...row, ...patch, id: targetId };
+      return {
+        id: targetId,
+        code: normalizeCode(out?.code ?? finalLockedCode ?? requestedCodeNum),
+        phone: String(out?.phone || phoneFull || '').trim(),
+        name: rowName(out) || safeName,
+        matchReason: reason,
+      };
+    };
+
+    // 1) Selected client is the only phone-independent hard lock.
+    //    If DB already has another permanent code for this selected id, do not overwrite it.
+    if (selectedId) {
+      const { data: selectedRow, error: selectedErr } = await supabase
+        .from('clients')
+        .select('id, code, full_name, first_name, last_name, phone, photo_url')
+        .eq('id', selectedId)
+        .maybeSingle();
+      if (selectedErr) throw selectedErr;
+      const lockedCode = normalizeCode(selectedRow?.code ?? selectedCodeNum ?? requestedCodeNum);
+      if (lockedCode != null && String(lockedCode) !== String(requestedCodeNum)) {
+        return buildConflict({ ...(selectedRow || {}), id: selectedId, code: lockedCode }, 'SELECTED_CLIENT_CODE_CONFLICT');
+      }
+      return updateClient(selectedRow || { id: selectedId, code: lockedCode, phone: selected?.phone || phoneFull, full_name: selected?.name || safeName }, lockedCode, 'selected');
+    }
+
+    let phoneHits = [];
+    if (hasValidPhone && phoneFull) {
       const { data: byPhone, error: byPhoneErr } = await supabase
         .from('clients')
-        .select('id, code, full_name, first_name, last_name, phone, photo_url')
+        .select('id, code, full_name, first_name, last_name, phone, photo_url, updated_at')
         .eq('phone', phoneFull)
         .order('updated_at', { ascending: false })
-        .limit(2);
+        .limit(5);
       if (byPhoneErr) throw byPhoneErr;
-      const phoneHits = Array.isArray(byPhone) ? byPhone : [];
-      if (phoneHits.length === 1) targetId = String(phoneHits[0]?.id || '').trim();
+      phoneHits = Array.isArray(byPhone) ? byPhone : [];
     }
-    if (!targetId) {
-      const { data: existing, error } = await supabase
-        .from('clients')
-        .select('id, code, full_name, first_name, last_name, phone, photo_url')
-        .eq('code', codeNum)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      const existingPhone = String(existing?.phone || '').replace(/\D+/g, '');
-      const inputPhone = String(phoneFull || '').replace(/\D+/g, '');
-      if (existing?.id && (!existingPhone || !inputPhone || existingPhone === inputPhone)) {
-        targetId = String(existing?.id || '').trim();
+
+    // 2) Strong name + valid phone match may sync, but it may never replace an existing permanent code.
+    const strongHits = phoneHits.filter((row) => isStrongBaseClientNamePhoneMatch(row, { name: safeName, phone: phoneFull }));
+    if (strongHits.length > 0) {
+      const strongRow = strongHits[0];
+      const permanentCode = normalizeCode(strongRow?.code ?? null);
+      if (permanentCode != null && String(permanentCode) !== String(requestedCodeNum)) {
+        return buildConflict(strongRow, 'STRONG_MATCH_CODE_CONFLICT');
+      }
+      return updateClient(strongRow, permanentCode ?? requestedCodeNum, 'strong_name_phone');
+    }
+
+    // 3) Phone-only hit is a warning/conflict source only. It cannot update clients.code.
+    if (phoneHits.length === 1) {
+      const phoneOnlyRow = phoneHits[0];
+      const phoneOnlyCode = normalizeCode(phoneOnlyRow?.code ?? null);
+      if (phoneOnlyCode != null && String(phoneOnlyCode) !== String(requestedCodeNum)) {
+        return buildConflict(phoneOnlyRow, 'PHONE_ONLY_CODE_CONFLICT');
+      }
+      return null;
+    }
+
+    // 4) A row found by the same code can be refreshed, because code is already the permanent key.
+    const { data: existingByCode, error: codeErr } = await supabase
+      .from('clients')
+      .select('id, code, full_name, first_name, last_name, phone, photo_url')
+      .eq('code', requestedCodeNum)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (codeErr) throw codeErr;
+
+    if (existingByCode?.id) {
+      const existingPhone = normalizeMatchPhone(existingByCode?.phone || '');
+      if (!existingPhone || !hasValidPhone || existingPhone === phoneDigits) {
+        return updateClient(existingByCode, requestedCodeNum, 'code_owner');
       }
     }
 
-    if (!targetId) return null;
-
-    const patch = {
-      code: codeNum,
-      full_name: safeName || null,
-      first_name: parts.first_name || null,
-      last_name: parts.last_name || null,
-      phone: phoneFull || null,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (photoUrl) patch.photo_url = photoUrl;
-
-    const { error: updateErr } = await supabase
-      .from('clients')
-      .update(patch)
-      .eq('id', targetId);
-    if (updateErr) throw updateErr;
-
-    return { id: targetId, code: codeNum, phone: phoneFull || '', name: safeName };
+    return null;
   }
 
   async function handleContinue() {
@@ -2374,12 +2533,31 @@ export default function PranimiPage() {
         };
       })();
 
-      let resolvedSelectedClient = selectedClient || null;
+      let resolvedSelectedClient = (selectedClient && (isBaseEdit || isStrongBaseClientNamePhoneMatch(selectedClient, { name, phone: getCanonicalClientPhone() }))) ? selectedClient : null;
       let returningClient = null;
+      let finalNamePhoneClient = null;
+
+      if (!isBaseEdit && !noPhone) {
+        finalNamePhoneClient = await findBaseClientByNameAndPhone({
+          name,
+          phone: getCanonicalClientPhone(),
+          clientsIndex,
+          liveTimeoutMs: PRANIMI_CONTINUE_CLIENT_LOOKUP_MS,
+        });
+        if (finalNamePhoneClient?.code != null) {
+          resolvedSelectedClient = {
+            id: finalNamePhoneClient?.id || null,
+            code: normalizeCode(finalNamePhoneClient?.code || null),
+            name: finalNamePhoneClient?.name || '',
+            phone: finalNamePhoneClient?.phone || getCanonicalClientPhone(),
+          };
+          setSelectedClient(resolvedSelectedClient);
+        }
+      }
 
       if (!isBaseEdit && !resolvedSelectedClient) {
         returningClient = noPhone ? null : await findReturningClientByPhone(phone, { liveTimeoutMs: PRANIMI_CONTINUE_CLIENT_LOOKUP_MS });
-        if (returningClient?.code != null) {
+        if (returningClient?.code != null && isStrongBaseClientNamePhoneMatch(returningClient, { name, phone: getCanonicalClientPhone() })) {
           resolvedSelectedClient = {
             id: returningClient?.id || null,
             code: normalizeCode(returningClient?.code || null),
@@ -2391,11 +2569,12 @@ export default function PranimiPage() {
       }
 
       if (!resolvedSelectedClient && urlClientPrefill?.code != null) {
-        resolvedSelectedClient = urlClientPrefill;
+        const urlPrefillStrong = isStrongBaseClientNamePhoneMatch(urlClientPrefill, { name, phone: getCanonicalClientPhone() });
+        if (urlPrefillStrong || isBaseEdit) resolvedSelectedClient = urlClientPrefill;
       }
 
       const resolvedSelectedClientId = String(resolvedSelectedClient?.id || '').trim() || null;
-      const resolvedSelectedClientCodeNum = normalizeCode(resolvedSelectedClient?.code ?? urlClientPrefill?.code ?? null);
+      const resolvedSelectedClientCodeNum = normalizeCode(resolvedSelectedClient?.code ?? (isBaseEdit ? urlClientPrefill?.code : null) ?? null);
       const resolvedSelectedClientCode = resolvedSelectedClientCodeNum != null ? String(resolvedSelectedClientCodeNum) : '';
 
       let resolvedCodeRaw = codeRaw;
@@ -2406,6 +2585,7 @@ export default function PranimiPage() {
         urlCode: String(newOrderUrlClientRef.current?.code || '').trim() || null,
         selectedClient: selectedClient ? { id: selectedClient?.id || null, code: normalizeCode(selectedClient?.code || null), name: selectedClient?.name || '', phone: selectedClient?.phone || '' } : null,
         returningClient: returningClient ? { id: returningClient?.id || null, code: normalizeCode(returningClient?.code || null), name: returningClient?.name || '', phone: returningClient?.phone || '' } : null,
+        finalNamePhoneClient: finalNamePhoneClient ? { id: finalNamePhoneClient?.id || null, code: normalizeCode(finalNamePhoneClient?.code || null), name: finalNamePhoneClient?.name || '', phone: finalNamePhoneClient?.phone || '' } : null,
         resolvedSelectedClient: resolvedSelectedClient ? { id: resolvedSelectedClient?.id || null, code: normalizeCode(resolvedSelectedClient?.code || null), name: resolvedSelectedClient?.name || '', phone: resolvedSelectedClient?.phone || '' } : null,
         resolvedSelectedClientCode: resolvedSelectedClientCode || null,
       };
@@ -2558,6 +2738,7 @@ export default function PranimiPage() {
           updated_at: nowIso,
           client_name: finalClientName,
           client_phone: finalClientPhone,
+          phone_digits: normalizeMatchPhone(finalClientPhone || ''),
           client_code: persistedClientCode,
           pieces: Number(copeCount || 0),
           m2_total: Number(totalM2 || 0),
@@ -2575,13 +2756,19 @@ export default function PranimiPage() {
             photoUrl: clientPhotoUrl || null,
           },
           client_master_id: resolvedSelectedClientId || null,
+          client_id: resolvedSelectedClientId || null,
         },
       };
 
       const verifiedOwner = verifiedCodeResult?.owner && typeof verifiedCodeResult.owner === 'object' ? verifiedCodeResult.owner : null;
       const verifiedOwnerPhone = normalizeMatchPhone(verifiedOwner?.phone || '');
       const finalPhoneDigits = normalizeMatchPhone(finalClientPhone || '');
-      if (!payload?.client_id && verifiedOwner?.id && verifiedOwnerPhone && finalPhoneDigits && verifiedOwnerPhone === finalPhoneDigits) {
+      const verifiedOwnerStrongMatch = verifiedOwner?.id &&
+        isValidClientPhoneDigits(finalPhoneDigits) &&
+        verifiedOwnerPhone &&
+        verifiedOwnerPhone === finalPhoneDigits &&
+        isStrongBaseClientNamePhoneMatch(verifiedOwner, { name: finalClientName || name, phone: finalClientPhone });
+      if (!payload?.client_id && verifiedOwnerStrongMatch) {
         payload.client_id = String(verifiedOwner.id || '').trim() || null;
         payload.data.client_master_id = payload.client_id || null;
         payload.data.client = {
@@ -2617,6 +2804,14 @@ export default function PranimiPage() {
       let syncedClientMaster = null;
       try {
         if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+          let masterSyncFailed = false;
+          let masterSyncError = null;
+          const masterSyncPhoneDigits = normalizeMatchPhone(finalClientPhone || getCanonicalClientPhone() || phone || '');
+          const mustVerifyMasterClientBeforeSave = !isBaseEdit &&
+            !noPhone &&
+            isValidClientPhoneDigits(masterSyncPhoneDigits) &&
+            !resolvedSelectedClientId;
+
           syncedClientMaster = await withSupabaseTimeout(
             syncClientMasterForCode({
               code: persistedClientCode || normCodeNow,
@@ -2628,18 +2823,41 @@ export default function PranimiPage() {
             PRANIMI_CONTINUE_MASTER_SYNC_MS,
             'PRANIMI_CONTINUE_MASTER_SYNC_TIMEOUT',
             { source: 'handleContinue' }
-          ).catch(() => {
-            try {
-              syncClientMasterForCode({
-                code: persistedClientCode || normCodeNow,
-                name: finalClientName || '',
-                phone: finalClientPhone || '',
-                photoUrl: clientPhotoUrl || '',
-                selected: resolvedSelectedClient,
-              }).catch(() => {});
-            } catch {}
+          ).catch((err) => {
+            masterSyncFailed = true;
+            masterSyncError = err;
             return null;
           });
+
+          if (masterSyncFailed && mustVerifyMasterClientBeforeSave) {
+            try {
+              logDebugEvent('pranimi_client_master_sync_required_failed', {
+                code: persistedClientCode || normCodeNow || null,
+                phoneDigits: masterSyncPhoneDigits || null,
+                hasSelectedClientId: !!resolvedSelectedClientId,
+                hasSelectedClientCode: !!resolvedSelectedClientCode,
+                errorName: masterSyncError?.name || null,
+                errorMessage: masterSyncError?.message || String(masterSyncError || ''),
+              });
+            } catch {}
+            alert('Nuk u verifikua klienti ekzistues. Kontrollo internetin ose zgjedhe klientin nga popup-i.');
+            setSavingContinue(false);
+            return;
+          }
+
+          if (syncedClientMaster?.codeConflict) {
+            try {
+              logDebugEvent('pranimi_client_master_code_conflict', {
+                requestedCode: syncedClientMaster?.requestedCode || persistedClientCode || null,
+                existingCode: syncedClientMaster?.existingCode || syncedClientMaster?.code || null,
+                clientId: syncedClientMaster?.id || null,
+                reason: syncedClientMaster?.conflictReason || 'CODE_CONFLICT',
+              });
+            } catch {}
+            alert(`KUJDES: Ky numër/emër duket se i takon klientit ekzistues me kod ${syncedClientMaster?.existingCode || syncedClientMaster?.code || '—'}. Kodi permanent nuk u ndryshua. Zgjedhe klientin ekzistues nga popup-i ose kontrollo emrin/telefonin para ruajtjes.`);
+            setSavingContinue(false);
+            return;
+          }
 
           if (syncedClientMaster?.id) {
             const syncedClientMasterName = String(
@@ -2654,6 +2872,13 @@ export default function PranimiPage() {
             payload.client_id = syncedClientMaster.id;
             payload.client_name = syncedClientMasterName || payload.client_name || null;
             payload.client_phone = syncedClientMasterPhone || payload.client_phone || '';
+
+            const syncedClientCode = normalizeCode(syncedClientMaster?.code ?? persistedClientCode) || persistedClientCode;
+            if (syncedClientCode && String(syncedClientCode) !== String(persistedClientCode)) {
+              alert('KUJDES: Kodi i klientit permanent nuk përputhet me kodin e porosisë. Ruajtja u ndal për siguri.');
+              setSavingContinue(false);
+              return;
+            }
 
             payload.data.client = {
               ...(payload.data.client || {}),

@@ -2827,6 +2827,26 @@ function PastrimiPageInner() {
         ? 'transport_orders'
         : (['orders', 'BASE_CACHE', 'LOCAL', 'OUTBOX'].includes(String(item?.source || '').trim()) ? String(item?.source || '').trim() : 'orders');
 
+      const editCodeProbe = String(
+        item?.code || item?.code_str || item?.client_tcode || item?.order_code ||
+        ord?.code || ord?.code_str || ord?.client_tcode || ord?.client?.tcode || ord?.client?.code ||
+        ''
+      ).trim();
+      const isTransportEdit = bridgeSource === 'transport_orders' || /^T\d+$/i.test(editCodeProbe);
+      if (isTransportEdit) {
+        const transportEditId = String(rawDbId || item?.transport_order_id || item?.fullOrder?.id || ord?.id || '').trim();
+        if (!transportEditId) {
+          alert('❌ Nuk u gjet ID e transport order për editim.');
+          return;
+        }
+        try { sessionStorage.removeItem(PRANIMI_RESET_ON_SHOW_KEY); } catch {}
+        try { sessionStorage.removeItem(PRANIMI_ACTIVE_EDIT_BRIDGE_KEY); } catch {}
+        try { sessionStorage.removeItem(PASRTRIMI_EDIT_TO_PRANIMI_BACKUP_KEY); } catch {}
+        try { localStorage.removeItem(PASRTRIMI_EDIT_TO_PRANIMI_KEY); } catch {}
+        router.push(`/transport/pranimi?edit=${encodeURIComponent(transportEditId)}&from=pastrimi-edit`);
+        return;
+      }
+
       const payload = buildCompactPranimiEditPayload({
         source: bridgeSource,
         safeDbId,
@@ -2843,7 +2863,9 @@ function PastrimiPageInner() {
         localStorage.setItem(PASRTRIMI_EDIT_TO_PRANIMI_KEY, rawPayload);
         try { sessionStorage.setItem(PASRTRIMI_EDIT_TO_PRANIMI_BACKUP_KEY, rawPayload); } catch {}
       } catch {}
-      router.push('/pranimi?from=pastrimi-edit');
+      const baseEditId = String(rawDbId || safeDbId || item?.id || '').trim();
+      const baseEditQuery = baseEditId ? `edit=${encodeURIComponent(baseEditId)}&` : '';
+      router.push(`/pranimi?${baseEditQuery}from=pastrimi-edit`);
     } catch (e) {
       alert('❌ Gabim gjatë hapjes!');
     }

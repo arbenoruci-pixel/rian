@@ -181,6 +181,11 @@ function normalizeTransportPhoneKey(value) {
   return digits;
 }
 
+function isValidTransportPhoneDigits(value) {
+  const key = normalizeTransportPhoneKey(value);
+  return key.length >= 8;
+}
+
 function buildTransportPhoneVariants(value) {
   const raw = normalizePhoneDigits(value);
   const key = normalizeTransportPhoneKey(raw);
@@ -234,7 +239,7 @@ async function findTransportClientByPhoneOnly(transportId, phoneValue, options =
   const tid = String(transportId || '').trim();
   const variants = buildTransportPhoneVariants(phoneValue);
   const phoneKey = normalizeTransportPhoneKey(phoneValue);
-  if (!phoneKey || phoneKey.length < 6) return null;
+  if (!isValidTransportPhoneDigits(phoneKey)) return null;
 
   const timeoutMs = Number(options?.timeoutMs || 5000);
   const signal = options?.signal || null;
@@ -565,7 +570,7 @@ function PranimiPageInner() {
   useRouteAlive('transport_pranimi_page');
   const router = useRouter();
   const searchParams = useSearchParams();
-  const editId = String(searchParams?.get('id') || '').trim();
+  const editId = String(searchParams?.get('edit') || searchParams?.get('id') || '').trim();
   const isEdit = Boolean(editId);
   const newStatusRaw = String(searchParams?.get('new_status') || '').trim().toLowerCase();
   
@@ -1134,8 +1139,7 @@ function PranimiPageInner() {
       const phoneKey = normalizeTransportPhoneKey(phonePrefix + phone);
       const decisionKey = String(transportClientMatchDecision?.matchKey || '');
       return Boolean(
-        phoneKey &&
-        phoneKey.length >= 6 &&
+        isValidTransportPhoneDigits(phoneKey) &&
         transportClientMatchDecision?.mode === 'use_existing' &&
         decisionKey.includes(`transport-phone:${phoneKey}:`) &&
         (clientId || (clientTcode && normalizeTcode(clientTcode) !== 'T0'))
@@ -1172,7 +1176,7 @@ function PranimiPageInner() {
       const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
       const phoneFull = sanitizePhone(phonePrefix + (phone || ''));
       const phoneKey = normalizeTransportPhoneKey(phoneFull);
-      if (!tid || !phoneKey || phoneKey.length < 6) {
+      if (!tid || !isValidTransportPhoneDigits(phoneKey)) {
         if (transportClientMatchPrompt?.open) setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
         return;
       }
@@ -1259,11 +1263,15 @@ function PranimiPageInner() {
       setSavingContinue(true);
       // 1) Phone-only existing-client check for transport client book.
       // Transport never decides an existing client from name or T-code; phone_digits is the guard.
+      const cleanClientName = String(name || '').trim();
       const phoneFull = sanitizePhone(phonePrefix + phone);
       const phoneDigits = normalizePhoneDigits(phoneFull);
       const phoneKey = normalizeTransportPhoneKey(phoneFull);
+      const phoneIsValidForMatch = isValidTransportPhoneDigits(phoneKey);
+      const actorPin = String(actor?.pin || me?.pin || me?.transport_pin || '').trim();
+      const actorName = String(actor?.name || me?.name || me?.full_name || me?.username || displayTransportName(actorPin, transportUserNameMap, '') || '').trim();
       let existingPhoneClient = null;
-      if (!isEdit && phoneKey && phoneKey.length >= 6) {
+      if (!isEdit && phoneIsValidForMatch) {
         existingPhoneClient = await findTransportClientByPhoneOnly(tid, phoneFull, { timeoutMs: 5500 }).catch(() => null);
         if (existingPhoneClient && !isSelectedTransportPhoneClient(existingPhoneClient)) {
           const matchKey = buildTransportPhoneMatchKey(existingPhoneClient, phoneFull);
@@ -1303,7 +1311,7 @@ function PranimiPageInner() {
       try {
         const r = await upsertTransportClient({
           id: nextClientId || undefined,
-          name,
+          name: cleanClientName,
           phone: phoneFull,
           phone_digits: phoneDigits,
           tcode: tcodeForClient,
@@ -1312,18 +1320,24 @@ function PranimiPageInner() {
           gps_lng: gpsLng ?? null,
           notes: notes || ''
         });
+        if (!r?.ok || !(r?.id || r?.client_id)) {
+          throw new Error(r?.error || 'TRANSPORT_CLIENT_LINK_FAILED');
+        }
         nextClientId = r?.id || r?.client_id || nextClientId || null;
         tcodeForClient = String((r?.tcode || tcodeForClient) || '').toUpperCase().trim();
         setClientId(nextClientId || null);
         setClientTcode(tcodeForClient);
         setCodeRaw(tcodeForClient);
       } catch (e) {
-        // If RLS blocks writes to transport_clients, we still allow order save.
         console.warn('upsertTransportClient failed:', e?.message);
+        try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw: tcodeForClient || codeRaw, name: cleanClientName, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
+        alert('⚠️ Klienti i transportit nuk u lidh me DB. Porosia u ruajt si DRAFT, jo si transport_order pa client_id.');
+        setSavingContinue(false);
+        return;
       }
       const order = {
           id: oid, ts: Date.now(),
-          client: { id: nextClientId, tcode: tcodeForClient, name, phone: phonePrefix+phone, code: tcodeForClient, photoUrl: clientPhotoUrl, address: addressDesc, gps: { lat: gpsLat || null, lng: gpsLng || null } },
+          client: { id: nextClientId, tcode: tcodeForClient, name: cleanClientName, phone: phoneFull, code: tcodeForClient, photoUrl: clientPhotoUrl, address: addressDesc, gps: { lat: gpsLat || null, lng: gpsLng || null } },
           tepiha: tepihaRows, staza: stazaRows, shkallore: { qty: stairsQty, per: stairsPer, photoUrl: stairsPhotoUrl },
           pay: { m2: totalM2, euro: totalEuro, paid: clientPaid, rate: Number(pricePerM2) || PRICE_DEFAULT, arkaRecordedPaid },
           notes
@@ -1354,13 +1368,36 @@ function PranimiPageInner() {
           client_tcode: tcodeForClient,
           visit_nr: visitNr,
           client_id: nextClientId,
-          client_name: name, 
+          client_name: cleanClientName, 
           client_phone: phoneFull,
           // ⚠️ transport_id është GENERATED ALWAYS (data->>'transport_id').
           // Pra NUK guxojmë me e fut në INSERT/UPDATE (kthen error "cannot insert a non-DEFAULT value...").
           // Board e lexon transport_id nga kolona e gjeneruar, sepse ne e ruajmë gjithmonë te data.transport_id.
           status: nextStatus,
-          data: { ...order, transport_id: tid, created_by_pin: actor?.pin || null, created_by_role: actor?.role || null, gps_lat: gpsLat || null, gps_lng: gpsLng || null }
+          data: {
+            ...order,
+            client_id: nextClientId || null,
+            client_name: cleanClientName,
+            client_phone: phoneFull,
+            phone_digits: phoneDigits,
+            client: {
+              ...(order?.client || {}),
+              id: nextClientId || null,
+              tcode: tcodeForClient,
+              code: tcodeForClient,
+              name: cleanClientName,
+              phone: phoneFull,
+              phone_digits: phoneDigits,
+            },
+            transport_id: tid,
+            brought_by_pin: actorPin || null,
+            brought_by_name: actorName || null,
+            created_by_pin: actorPin || null,
+            created_by_name: actorName || null,
+            created_by_role: actor?.role || null,
+            gps_lat: gpsLat || null,
+            gps_lng: gpsLng || null
+          }
       };
       // In edit mode, keep original client_tcode/visit_nr (don't overwrite)
       if (isEdit) {
@@ -1763,8 +1800,7 @@ function PranimiPageInner() {
                       const queryPhoneKey = normalizeTransportPhoneKey(clientQuery);
                       const currentPhoneKey = normalizeTransportPhoneKey(phonePrefix + phone);
                       const phoneMatchedByInput = Boolean(
-                        candidatePhoneKey &&
-                        candidatePhoneKey.length >= 6 &&
+                        isValidTransportPhoneDigits(candidatePhoneKey) &&
                         ((queryPhoneKey && queryPhoneKey === candidatePhoneKey) || (currentPhoneKey && currentPhoneKey === candidatePhoneKey))
                       );
                       if (digits && phoneMatchedByInput) {
