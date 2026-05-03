@@ -1,0 +1,18 @@
+PATCH: transport/pranimi T-code visible warm-up
+
+Changed file:
+- app/transport/pranimi/page.jsx
+
+Purpose:
+- Restore visible T-code shortly after opening /transport/pranimi instead of leaving header as "KODI: I RI".
+- Preserve phone-only existing-client protection: if phone matches an existing transport client, the existing permanent T-code replaces the warmed code.
+- If a warmed code is replaced by an existing client's T-code, the warmed code is returned to the local transport mirror and the draft order code cache for that OID is cleared.
+
+Not touched:
+- DB schema
+- public.orders
+- PRANIMI BAZE
+- ARKA/payroll
+- Pastrimi/Gati/Marrje-Sot
+- Transport Board
+- Service Worker/cache/runtime
