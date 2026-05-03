@@ -126,9 +126,9 @@ function baseNamesMatchStrong(inputName, candidateName) {
 function isStrongBaseClientNamePhoneMatch(candidate = {}, { name, phone } = {}) {
   const inputPhone = normalizeMatchPhone(phone);
   const candidatePhone = normalizeMatchPhone(candidate?.phone || candidate?.client_phone || '');
-  if (!isValidClientPhoneDigits(inputPhone) || !candidatePhone || candidatePhone !== inputPhone) return false;
-  const candidateName = candidate?.name || candidate?.full_name || candidate?.client_name || `${candidate?.first_name || ''} ${candidate?.last_name || ''}`.trim();
-  return baseNamesMatchStrong(name, candidateName);
+  // BASE now follows the same safety rule as TRANSPORT: a valid phone number is the primary identity.
+  // Names may be typed differently by staff, so name mismatch must not cause a new client/code.
+  return !!(isValidClientPhoneDigits(inputPhone) && candidatePhone && candidatePhone === inputPhone);
 }
 
 function buildClientMatchKey({ reason, phoneDigits, fullName, code, id }) {
@@ -143,7 +143,7 @@ async function detectExistingClientSmart({ name, phone, clientsIndex, allowLive 
   const fullNameParts = fullName ? fullName.split(' ').filter(Boolean) : [];
   const canCheckPhone = isValidClientPhoneDigits(phoneDigits);
   const canCheckFullName = fullNameParts.length >= 2;
-  if (!canCheckPhone || !canCheckFullName) return null;
+  if (!canCheckPhone) return null;
 
   const seen = new Map();
   const addCandidate = (row = {}) => {
@@ -198,15 +198,15 @@ async function detectExistingClientSmart({ name, phone, clientsIndex, allowLive 
     return String(b?.last_seen || '').localeCompare(String(a?.last_seen || ''));
   };
 
-  if (canCheckPhone && canCheckFullName) {
-    const strongMatches = all
-      .filter((item) => item.phoneNorm && item.phoneNorm === phoneDigits && baseNamesMatchStrong(fullName, item.nameNorm))
+  if (canCheckPhone) {
+    const phoneMatches = all
+      .filter((item) => item.phoneNorm && item.phoneNorm === phoneDigits)
       .sort(sortBest);
-    if (strongMatches.length) {
-      const winner = strongMatches[0];
+    if (phoneMatches.length) {
+      const winner = phoneMatches[0];
       return {
         open: true,
-        reason: 'name_phone_exact',
+        reason: 'phone_exact',
         phoneDigits,
         fullName,
         matchKey: buildClientMatchKey({ reason: 'phone_exact', phoneDigits, fullName, code: winner.code, id: winner.id }),
@@ -1622,7 +1622,7 @@ export default function PranimiPage() {
       return;
     }
 
-    if (!canCheckPhone && !canCheckFullName) {
+    if (!canCheckPhone) {
       if (clientMatchPrompt?.open) setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
       return;
     }
@@ -2240,14 +2240,13 @@ export default function PranimiPage() {
   async function findBaseClientByNameAndPhone({ name: rawName, phone: rawPhone, clientsIndex: indexArg, allowLive = true, liveTimeoutMs = 700 } = {}) {
     const phoneDigits = normalizeMatchPhone(rawPhone);
     const fullName = normalizeMatchName(rawName);
-    if (!isValidClientPhoneDigits(phoneDigits) || fullName.split(' ').filter(Boolean).length < 2) return null;
+    if (!isValidClientPhoneDigits(phoneDigits)) return null;
 
     const seen = new Map();
     const addCandidate = (row = {}, source = '') => {
       const candidatePhone = normalizeMatchPhone(row?.phone || row?.client_phone || '');
       if (!candidatePhone || candidatePhone !== phoneDigits) return;
       const candidateName = row?.name || row?.full_name || row?.client_name || `${row?.first_name || ''} ${row?.last_name || ''}`.trim();
-      if (!baseNamesMatchStrong(fullName, candidateName)) return;
       const codeNum = normalizeCode(row?.code ?? row?.client_code ?? null);
       if (codeNum == null) return;
       const key = String(row?.id || `code:${codeNum}`);
@@ -2281,13 +2280,8 @@ export default function PranimiPage() {
         ).catch(() => []);
         for (const item of (Array.isArray(phoneHits) ? phoneHits : [])) addCandidate(item, 'livePhone');
 
-        const nameHits = await withSupabaseTimeout(
-          searchClientsLive(fullName),
-          Number(liveTimeoutMs || 700),
-          'PRANIMI_FINAL_CLIENT_NAME_LOOKUP_TIMEOUT',
-          { source: 'findBaseClientByNameAndPhone', mode: 'name' }
-        ).catch(() => []);
-        for (const item of (Array.isArray(nameHits) ? nameHits : [])) addCandidate(item, 'liveName');
+        // BASE final lookup is phone-only. Name search is intentionally skipped so a mistyped name
+        // does not create a different permanent code for the same phone number.
       }
     } catch {}
 
@@ -2397,7 +2391,7 @@ export default function PranimiPage() {
       phoneHits = Array.isArray(byPhone) ? byPhone : [];
     }
 
-    // 2) Strong name + valid phone match may sync, but it may never replace an existing permanent code.
+    // 2) Valid phone match may sync, but it may never replace an existing permanent code.
     const strongHits = phoneHits.filter((row) => isStrongBaseClientNamePhoneMatch(row, { name: safeName, phone: phoneFull }));
     if (strongHits.length > 0) {
       const strongRow = strongHits[0];
@@ -2405,7 +2399,7 @@ export default function PranimiPage() {
       if (permanentCode != null && String(permanentCode) !== String(requestedCodeNum)) {
         return buildConflict(strongRow, 'STRONG_MATCH_CODE_CONFLICT');
       }
-      return updateClient(strongRow, permanentCode ?? requestedCodeNum, 'strong_name_phone');
+      return updateClient(strongRow, permanentCode ?? requestedCodeNum, 'phone_match');
     }
 
     // 3) Phone-only hit is a warning/conflict source only. It cannot update clients.code.
