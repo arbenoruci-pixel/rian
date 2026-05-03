@@ -359,7 +359,7 @@ export default async function handler(req, res) {
     const [baseRes, clientsRes, transportRes, transportClientsRes, users] = await Promise.all([
       sb.from('orders').select('id,code,client_name,client_phone,status,created_at,updated_at,data,total').order('created_at', { ascending: false }).limit(5000),
       sb.from('clients').select('*').order('code', { ascending: true }).limit(5000),
-      sb.from('transport_orders').select('id,created_at,updated_at,code_str,client_id,client_tcode,client_name,client_phone,status,data,transport_id,visit_nr,ready_at,total').order('created_at', { ascending: false }).limit(5000),
+      sb.from('transport_orders').select('id,created_at,updated_at,code_str,client_id,client_tcode,client_name,client_phone,status,data,transport_id,visit_nr,ready_at').order('created_at', { ascending: false }).limit(5000),
       sb.from('transport_clients').select('*').order('created_at', { ascending: true }).limit(5000),
       readUsers(sb),
     ]);
