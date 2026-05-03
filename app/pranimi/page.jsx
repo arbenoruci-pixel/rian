@@ -65,7 +65,7 @@ const CURRENT_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const PRANIMI_BG_META_TIMEOUT_MS = 2500;
 const PRANIMI_BG_POOL_TIMEOUT_MS = 3000;
 const PRANIMI_BG_SYNC_MIN_GAP_MS = 6000;
-const PRANIMI_CONTINUE_CLIENT_LOOKUP_MS = 200;
+const PRANIMI_CONTINUE_CLIENT_LOOKUP_MS = 1000;
 const PRANIMI_CONTINUE_CODE_VERIFY_MS = 350;
 const PRANIMI_CONTINUE_CODE_RESERVE_MS = 650;
 const PRANIMI_CONTINUE_MASTER_SYNC_MS = 1000;
@@ -106,6 +106,10 @@ function normalizeMatchName(raw) {
 function isValidClientPhoneDigits(raw) {
   const digits = normalizeMatchPhone(raw);
   return digits.length >= 8;
+}
+
+function pranimiIsOnline() {
+  try { return typeof navigator === 'undefined' || navigator.onLine !== false; } catch { return true; }
 }
 
 function baseNamesMatchStrong(inputName, candidateName) {
@@ -2165,13 +2169,18 @@ export default function PranimiPage() {
   async function findReturningClientByPhone(rawPhone = '', { allowLive = true, liveTimeoutMs = 700 } = {}) {
     const digits = String(rawPhone || '').replace(/\D+/g, '');
     if (!isValidClientPhoneDigits(digits)) return null;
-    const phoneFull = `${phonePrefix}${digits}`;
-    const shortDigits = digits.startsWith('383') ? digits.slice(3) : digits;
+    const phoneFull = `${phonePrefix}${normalizeMatchPhone(digits)}`;
+    const phoneKey = normalizeMatchPhone(phoneFull);
+    const shortDigits = phoneKey.startsWith('383') ? phoneKey.slice(3) : phoneKey;
+    const online = pranimiIsOnline();
+    const useLiveAsTruth = allowLive !== false && online;
     const seen = new Map();
 
     const addCandidate = (row = {}) => {
       const codeNum = Number(normalizeCode(row?.code) || 0);
       if (!codeNum) return;
+      const rowPhone = normalizeMatchPhone(row?.phone || row?.client_phone || phoneFull || '');
+      if (!isValidClientPhoneDigits(rowPhone) || rowPhone !== phoneKey) return;
       const key = String(row?.id || `code:${codeNum}`);
       if (seen.has(key)) return;
       seen.set(key, {
@@ -2180,52 +2189,50 @@ export default function PranimiPage() {
         name: String(row?.name || row?.full_name || row?.client_name || '').trim(),
         phone: String(row?.phone || row?.client_phone || phoneFull || '').trim(),
         updated_at: row?.updated_at || null,
+        source: useLiveAsTruth ? 'live' : 'cache',
       });
     };
 
-    try {
-      const localPool = Array.isArray(clientsIndex) ? clientsIndex : [];
-      for (const item of localPool) {
-        const p = String(item?.phone || '').replace(/\D+/g, '');
-        if (p && (p === shortDigits || p === digits || p === `383${shortDigits}`)) addCandidate(item);
+    if (useLiveAsTruth) {
+      const { data, error } = await withSupabaseTimeout(
+        supabase
+          .from('clients')
+          .select('id, code, full_name, first_name, last_name, phone, updated_at')
+          .eq('phone', phoneFull)
+          .order('updated_at', { ascending: false })
+          .limit(5),
+        Number(liveTimeoutMs || 700),
+        'PRANIMI_RETURNING_CLIENT_LOOKUP_TIMEOUT',
+        { source: 'findReturningClientByPhone', mode: 'live_only' }
+      );
+      if (error) throw error;
+      for (const row of Array.isArray(data) ? data : []) {
+        addCandidate({
+          id: row?.id || null,
+          code: row?.code,
+          name: row?.full_name || [row?.first_name || '', row?.last_name || ''].filter(Boolean).join(' ').trim(),
+          phone: row?.phone || phoneFull,
+          updated_at: row?.updated_at || null,
+        });
       }
-    } catch {}
-
-    try {
-      const cached = safeJsonParse(localStorage.getItem('tepiha_clients_index_v1') || '{}', {});
-      const items = Array.isArray(cached?.items) ? cached.items : [];
-      for (const item of items) {
-        const p = String(item?.phone || '').replace(/\D+/g, '');
-        if (p && (p === shortDigits || p === digits || p === `383${shortDigits}`)) addCandidate(item);
-      }
-    } catch {}
-
-    try {
-      if (allowLive !== false && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
-        const { data, error } = await withSupabaseTimeout(
-          supabase
-            .from('clients')
-            .select('id, code, full_name, first_name, last_name, phone, updated_at')
-            .eq('phone', phoneFull)
-            .order('updated_at', { ascending: false })
-            .limit(5),
-          Number(liveTimeoutMs || 700),
-          'PRANIMI_RETURNING_CLIENT_LOOKUP_TIMEOUT',
-          { source: 'findReturningClientByPhone' }
-        );
-        if (!error) {
-          for (const row of Array.isArray(data) ? data : []) {
-            addCandidate({
-              id: row?.id || null,
-              code: row?.code,
-              name: row?.full_name || [row?.first_name || '', row?.last_name || ''].filter(Boolean).join(' ').trim(),
-              phone: row?.phone || phoneFull,
-              updated_at: row?.updated_at || null,
-            });
-          }
+    } else {
+      try {
+        const localPool = Array.isArray(clientsIndex) ? clientsIndex : [];
+        for (const item of localPool) {
+          const p = normalizeMatchPhone(item?.phone || '');
+          if (p && (p === shortDigits || p === phoneKey || p === `383${shortDigits}`)) addCandidate(item);
         }
-      }
-    } catch {}
+      } catch {}
+
+      try {
+        const cached = safeJsonParse(localStorage.getItem('tepiha_clients_index_v1') || '{}', {});
+        const items = Array.isArray(cached?.items) ? cached.items : [];
+        for (const item of items) {
+          const p = normalizeMatchPhone(item?.phone || '');
+          if (p && (p === shortDigits || p === phoneKey || p === `383${shortDigits}`)) addCandidate(item);
+        }
+      } catch {}
+    }
 
     const matches = Array.from(seen.values());
     const uniqueCodes = Array.from(new Set(matches.map((m) => Number(normalizeCode(m?.code) || 0)).filter((n) => Number.isFinite(n) && n > 0)));
@@ -2239,13 +2246,15 @@ export default function PranimiPage() {
 
   async function findBaseClientByNameAndPhone({ name: rawName, phone: rawPhone, clientsIndex: indexArg, allowLive = true, liveTimeoutMs = 700 } = {}) {
     const phoneDigits = normalizeMatchPhone(rawPhone);
-    const fullName = normalizeMatchName(rawName);
     if (!isValidClientPhoneDigits(phoneDigits)) return null;
+    const phoneFull = `${phonePrefix}${phoneDigits}`;
+    const online = pranimiIsOnline();
+    const useLiveAsTruth = allowLive !== false && online;
 
     const seen = new Map();
     const addCandidate = (row = {}, source = '') => {
       const candidatePhone = normalizeMatchPhone(row?.phone || row?.client_phone || '');
-      if (!candidatePhone || candidatePhone !== phoneDigits) return;
+      if (!isValidClientPhoneDigits(candidatePhone) || candidatePhone !== phoneDigits) return;
       const candidateName = row?.name || row?.full_name || row?.client_name || `${row?.first_name || ''} ${row?.last_name || ''}`.trim();
       const codeNum = normalizeCode(row?.code ?? row?.client_code ?? null);
       if (codeNum == null) return;
@@ -2261,6 +2270,19 @@ export default function PranimiPage() {
       });
     };
 
+    if (useLiveAsTruth) {
+      const phoneHits = await withSupabaseTimeout(
+        searchClientsLive(phoneDigits),
+        Number(liveTimeoutMs || 700),
+        'PRANIMI_FINAL_CLIENT_PHONE_LOOKUP_TIMEOUT',
+        { source: 'findBaseClientByNameAndPhone', mode: 'live_only_phone' }
+      );
+      for (const item of (Array.isArray(phoneHits) ? phoneHits : [])) addCandidate(item, 'livePhone');
+      const matches = Array.from(seen.values()).sort((a, b) => String(b?.updated_at || '').localeCompare(String(a?.updated_at || '')));
+      return matches[0] || null;
+    }
+
+    // Offline path: preserve the existing local/cache behavior. Cache is only authoritative offline.
     try {
       for (const item of (Array.isArray(indexArg) ? indexArg : [])) addCandidate(item, 'clientsIndex');
     } catch {}
@@ -2268,21 +2290,6 @@ export default function PranimiPage() {
     try {
       const cached = safeJsonParse(localStorage.getItem('tepiha_clients_index_v1') || '{}', {});
       for (const item of (Array.isArray(cached?.items) ? cached.items : [])) addCandidate(item, 'clientsIndexCache');
-    } catch {}
-
-    try {
-      if (allowLive !== false && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
-        const phoneHits = await withSupabaseTimeout(
-          searchClientsLive(phoneDigits),
-          Number(liveTimeoutMs || 700),
-          'PRANIMI_FINAL_CLIENT_PHONE_LOOKUP_TIMEOUT',
-          { source: 'findBaseClientByNameAndPhone', mode: 'phone' }
-        ).catch(() => []);
-        for (const item of (Array.isArray(phoneHits) ? phoneHits : [])) addCandidate(item, 'livePhone');
-
-        // BASE final lookup is phone-only. Name search is intentionally skipped so a mistyped name
-        // does not create a different permanent code for the same phone number.
-      }
     } catch {}
 
     const matches = Array.from(seen.values()).sort((a, b) => String(b?.updated_at || '').localeCompare(String(a?.updated_at || '')));
@@ -2372,6 +2379,9 @@ export default function PranimiPage() {
         .eq('id', selectedId)
         .maybeSingle();
       if (selectedErr) throw selectedErr;
+      if (!selectedRow?.id) {
+        return buildConflict({ id: selectedId, code: selectedCodeNum ?? requestedCodeNum, phone: selected?.phone || phoneFull, full_name: selected?.name || safeName }, 'SELECTED_CLIENT_NOT_CONFIRMED_LIVE');
+      }
       const lockedCode = normalizeCode(selectedRow?.code ?? selectedCodeNum ?? requestedCodeNum);
       if (lockedCode != null && String(lockedCode) !== String(requestedCodeNum)) {
         return buildConflict({ ...(selectedRow || {}), id: selectedId, code: lockedCode }, 'SELECTED_CLIENT_CODE_CONFLICT');
@@ -2527,31 +2537,52 @@ export default function PranimiPage() {
         };
       })();
 
-      let resolvedSelectedClient = (selectedClient && (isBaseEdit || isStrongBaseClientNamePhoneMatch(selectedClient, { name, phone: getCanonicalClientPhone() }))) ? selectedClient : null;
+      const onlineForClientLookup = pranimiIsOnline();
+      const currentCanonicalPhone = getCanonicalClientPhone();
+      const currentPhoneDigits = normalizeMatchPhone(currentCanonicalPhone || phone || '');
+      const canUsePhoneForClientMatch = !noPhone && isValidClientPhoneDigits(currentPhoneDigits);
+      let resolvedSelectedClient = (selectedClient && (isBaseEdit || isStrongBaseClientNamePhoneMatch(selectedClient, { name, phone: currentCanonicalPhone }))) ? selectedClient : null;
       let returningClient = null;
       let finalNamePhoneClient = null;
+      let finalLiveLookupFailed = false;
+      let finalLiveLookupError = null;
 
-      if (!isBaseEdit && !noPhone) {
-        finalNamePhoneClient = await findBaseClientByNameAndPhone({
-          name,
-          phone: getCanonicalClientPhone(),
-          clientsIndex,
-          liveTimeoutMs: PRANIMI_CONTINUE_CLIENT_LOOKUP_MS,
-        });
+      if (!isBaseEdit && canUsePhoneForClientMatch) {
+        try {
+          finalNamePhoneClient = await findBaseClientByNameAndPhone({
+            name,
+            phone: currentCanonicalPhone,
+            clientsIndex,
+            allowLive: onlineForClientLookup,
+            liveTimeoutMs: PRANIMI_CONTINUE_CLIENT_LOOKUP_MS,
+          });
+        } catch (err) {
+          finalLiveLookupFailed = onlineForClientLookup;
+          finalLiveLookupError = err;
+        }
+
         if (finalNamePhoneClient?.code != null) {
           resolvedSelectedClient = {
             id: finalNamePhoneClient?.id || null,
             code: normalizeCode(finalNamePhoneClient?.code || null),
             name: finalNamePhoneClient?.name || '',
-            phone: finalNamePhoneClient?.phone || getCanonicalClientPhone(),
+            phone: finalNamePhoneClient?.phone || currentCanonicalPhone,
           };
           setSelectedClient(resolvedSelectedClient);
         }
       }
 
-      if (!isBaseEdit && !resolvedSelectedClient) {
-        returningClient = noPhone ? null : await findReturningClientByPhone(phone, { liveTimeoutMs: PRANIMI_CONTINUE_CLIENT_LOOKUP_MS });
-        if (returningClient?.code != null && isStrongBaseClientNamePhoneMatch(returningClient, { name, phone: getCanonicalClientPhone() })) {
+      if (!isBaseEdit && canUsePhoneForClientMatch && !resolvedSelectedClient && !finalLiveLookupFailed) {
+        try {
+          returningClient = await findReturningClientByPhone(phone, {
+            allowLive: onlineForClientLookup,
+            liveTimeoutMs: PRANIMI_CONTINUE_CLIENT_LOOKUP_MS,
+          });
+        } catch (err) {
+          finalLiveLookupFailed = onlineForClientLookup;
+          finalLiveLookupError = err;
+        }
+        if (returningClient?.code != null && isStrongBaseClientNamePhoneMatch(returningClient, { name, phone: currentCanonicalPhone })) {
           resolvedSelectedClient = {
             id: returningClient?.id || null,
             code: normalizeCode(returningClient?.code || null),
@@ -2560,6 +2591,20 @@ export default function PranimiPage() {
           };
           setSelectedClient(resolvedSelectedClient);
         }
+      }
+
+      if (finalLiveLookupFailed && !resolvedSelectedClient?.id) {
+        try {
+          logDebugEvent('pranimi_final_client_live_lookup_failed_block_save', {
+            phoneDigits: currentPhoneDigits || null,
+            hasSelectedClientId: !!resolvedSelectedClient?.id,
+            errorName: finalLiveLookupError?.name || null,
+            errorMessage: finalLiveLookupError?.message || String(finalLiveLookupError || ''),
+          });
+        } catch {}
+        alert('Nuk u verifikua klienti ekzistues. Kontrollo internetin ose zgjedhe klientin nga popup-i.');
+        setSavingContinue(false);
+        return;
       }
 
       if (!resolvedSelectedClient && urlClientPrefill?.code != null) {
