@@ -36,7 +36,8 @@ const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
 const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
 
 const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
-const PRICE_DEFAULT = 3.0;
+const PRICE_DEFAULT = 1.3;
+const LEGACY_BASE_PRICE_DEFAULTS = new Set([1, 3]);
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 const DAILY_CAPACITY_M2 = 400;
 const DRAFT_LIST_KEY = 'draft_orders_v1';
@@ -699,6 +700,15 @@ async function writeSharedPrice(pricePerM2) {
   }), 5000, 'PRANIMI_PRICE_UPLOAD_TIMEOUT', { bucket: BUCKET, path: `${SETTINGS_FOLDER}/price.json` });
 }
 
+function normalizeNewBasePricePerM2(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return PRICE_DEFAULT;
+  for (const legacy of LEGACY_BASE_PRICE_DEFAULTS) {
+    if (Math.abs(n - legacy) < 0.001) return PRICE_DEFAULT;
+  }
+  return n;
+}
+
 function ensureCodePair(obj){
   const n = Number(obj?.code ?? obj?.code_n ?? 0) || 0;
   const code = obj?.code != null ? String(obj.code) : (n ? String(n) : null);
@@ -802,6 +812,7 @@ export default function PranimiPage() {
   const newOrderUrlClientRef = useRef({ code: '', name: '', phone: '' });
   const oidRef = useRef('');
   const uiReadyMarkedRef = useRef(false);
+  const priceSourceRef = useRef('new');
 
   useEffect(() => {
     codeRawRef.current = String(codeRaw || '');
@@ -1063,6 +1074,7 @@ export default function PranimiPage() {
     const rate = Number(pay?.rate ?? pay?.price ?? ord?.pricePerM2 ?? ordData?.pricePerM2 ?? PRICE_DEFAULT) || PRICE_DEFAULT;
     const paid = Number(pay?.paid ?? ord?.clientPaid ?? ordData?.clientPaid ?? 0) || 0;
     const arkaPaid = Number(pay?.arkaRecordedPaid ?? ord?.arkaRecordedPaid ?? ordData?.arkaRecordedPaid ?? 0) || 0;
+    priceSourceRef.current = 'existing';
     setPricePerM2(rate);
     setPriceTmp(rate);
     setClientPaid(paid);
@@ -1183,6 +1195,10 @@ export default function PranimiPage() {
       setStairsQty(0);
       setStairsPer(SHKALLORE_M2_PER_STEP_DEFAULT);
       setStairsPhotoUrl('');
+
+      priceSourceRef.current = 'new';
+      setPricePerM2(PRICE_DEFAULT);
+      setPriceTmp(PRICE_DEFAULT);
 
       setClientPaid(0);
       setArkaRecordedPaid(0);
@@ -1665,13 +1681,20 @@ export default function PranimiPage() {
       } catch {}
 
       try {
-        const shared = await readSharedPrice();
-        if (shared) {
-          setPricePerM2(shared);
-          localStorage.setItem(PRICE_KEY, String(shared));
-        } else {
-          const p = Number(localStorage.getItem(PRICE_KEY) || '');
-          if (Number.isFinite(p) && p > 0) setPricePerM2(p);
+        if (priceSourceRef.current === 'new') {
+          const shared = await readSharedPrice();
+          if (shared) {
+            const nextPrice = normalizeNewBasePricePerM2(shared);
+            setPricePerM2(nextPrice);
+            setPriceTmp(nextPrice);
+            localStorage.setItem(PRICE_KEY, String(nextPrice));
+          } else {
+            const p = Number(localStorage.getItem(PRICE_KEY) || '');
+            const nextPrice = normalizeNewBasePricePerM2(Number.isFinite(p) && p > 0 ? p : PRICE_DEFAULT);
+            setPricePerM2(nextPrice);
+            setPriceTmp(nextPrice);
+            localStorage.setItem(PRICE_KEY, String(nextPrice));
+          }
         }
       } catch {}
 
@@ -2015,7 +2038,7 @@ export default function PranimiPage() {
   async function savePriceAndClose() {
     const v = Number(priceTmp);
     if (!Number.isFinite(v) || v <= 0) {
-      alert('Shkruaj një çmim të vlefshëm (p.sh. 3).');
+      alert('Shkruaj një çmim të vlefshëm (p.sh. 1.30).');
       return;
     }
     setPricePerM2(v);
@@ -3172,7 +3195,9 @@ export default function PranimiPage() {
     setStairsPer(Number(d?.stairsPer) || SHKALLORE_M2_PER_STEP_DEFAULT);
     setStairsPhotoUrl(d?.stairsPhotoUrl || '');
 
+    priceSourceRef.current = 'draft';
     setPricePerM2(Number(d?.pricePerM2) || PRICE_DEFAULT);
+    setPriceTmp(Number(d?.pricePerM2) || PRICE_DEFAULT);
     setClientPaid(Number(d?.clientPaid) || 0);
     setArkaRecordedPaid(Number(d?.arkaRecordedPaid) || 0);
     setPayMethod(d?.payMethod || 'CASH');

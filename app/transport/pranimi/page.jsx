@@ -39,7 +39,8 @@ const STAZA_CHIPS = [0.5, 0.8, 0.9, 1.2, 1.5, 1.6, 2.0, 2.4, 2.5, 3.0, 4.0, 5.0]
 const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
 const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
 const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
-const PRICE_DEFAULT = 1.5;
+const PRICE_DEFAULT = 1.8;
+const LEGACY_TRANSPORT_PRICE_DEFAULTS = new Set([1.5, 3]);
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 const PREFIX_OPTIONS = [
   { flag: '🇽🇰', code: '+383', label: 'KOSOVË' },
@@ -73,6 +74,14 @@ const TRANSPORT_CLIENT_SEARCH_TIMEOUT_MS = 12000;
 // ---------------- HELPERS ----------------
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
 function normDigits(s) { return String(s || '').replace(/\D+/g, ''); }
+function normalizeNewTransportPricePerM2(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return PRICE_DEFAULT;
+  for (const legacy of LEGACY_TRANSPORT_PRICE_DEFAULTS) {
+    if (Math.abs(n - legacy) < 0.001) return PRICE_DEFAULT;
+  }
+  return n;
+}
 function looksUuid(value) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim()); }
 function isOpaqueUserRef(value) {
   const raw = String(value || '').trim();
@@ -718,6 +727,7 @@ function PranimiPageInner() {
   const liveSearchSeqRef = useRef(0);
   const liveSearchAbortRef = useRef(null);
   const secretTapTimerRef = useRef(null);
+  const priceSourceRef = useRef('new');
   const codeWarmupTimerRef = useRef(null);
   const debtLookupTimerRef = useRef(null);
   const actorRole = String(actor?.role || '').trim().toUpperCase();
@@ -832,8 +842,10 @@ function PranimiPageInner() {
                 setStairsPer(d.shkallore?.per||SHKALLORE_M2_PER_STEP_DEFAULT); 
                 setStairsPhotoUrl(d.shkallore?.photoUrl||'');
                 
+                priceSourceRef.current = 'existing';
                 setClientPaid(d.pay?.paid||0); 
                 setPricePerM2(d.pay?.rate||PRICE_DEFAULT); 
+                setPriceTmp(d.pay?.rate||PRICE_DEFAULT);
                 setArkaRecordedPaid(d.pay?.arkaRecordedPaid||0);
                 setNotes(d.notes||'');
                 if (!isBaseBridgeEdit && searchParams?.get('focus') === 'pay') { setTimeout(() => setShowPaySheet(true), 200); }
@@ -847,6 +859,9 @@ function PranimiPageInner() {
             // If a typed phone belongs to an existing client, the existing permanent T-code replaces it.
             setCodeRaw('');
             setClientTcode('');
+            priceSourceRef.current = 'new';
+            setPricePerM2(PRICE_DEFAULT);
+            setPriceTmp(PRICE_DEFAULT);
             clearTimeout(codeWarmupTimerRef.current);
         }
         setCreating(false);
@@ -923,19 +938,16 @@ function PranimiPageInner() {
   }, []);
 
   useEffect(() => {
+    if (isEdit || priceSourceRef.current !== 'new') return;
     try {
       const raw = localStorage.getItem(PRICE_KEY);
-      if (raw == null || raw === '') return;
-      const saved = Number(raw);
-      if (!Number.isFinite(saved) || saved <= 0) return;
-      if (saved === 3) {
-        setPricePerM2(PRICE_DEFAULT);
-        try { localStorage.setItem(PRICE_KEY, String(PRICE_DEFAULT)); } catch {}
-        return;
-      }
-      setPricePerM2(saved);
+      const saved = Number(raw || '');
+      const nextPrice = normalizeNewTransportPricePerM2(Number.isFinite(saved) && saved > 0 ? saved : PRICE_DEFAULT);
+      setPricePerM2(nextPrice);
+      setPriceTmp(nextPrice);
+      try { localStorage.setItem(PRICE_KEY, String(nextPrice)); } catch {}
     } catch {}
-  }, []);
+  }, [isEdit]);
   // --- SESSION WATCH (PIN SWITCH) ---
   useEffect(() => {
     // Polling is the most reliable option because localStorage changes in the same tab
@@ -1781,7 +1793,9 @@ function PranimiPageInner() {
   function loadDraft(d) {
       setOid(d.id); setCodeRaw(d.codeRaw); setName(d.name || ''); setPhone(d.phone || ''); 
       setTepihaRows(d.tepihaRows||[]); setStazaRows(d.stazaRows||[]); setClientPaid(d.clientPaid||0);
+      priceSourceRef.current = 'draft';
       setPricePerM2(Number(d.pricePerM2 || PRICE_DEFAULT));
+      setPriceTmp(Number(d.pricePerM2 || PRICE_DEFAULT));
       setStairsQty(d.stairsQty || 0); setStairsPer(d.stairsPer || SHKALLORE_M2_PER_STEP_DEFAULT);
       setAddressDesc(d.addressDesc || ''); setGpsLat(d.gpsLat || ''); setGpsLng(d.gpsLng || '');
       setClientPhotoUrl(d.clientPhotoUrl || '');
