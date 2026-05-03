@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import { supabase, storageWithTimeout, withSupabaseTimeout } from '@/lib/supabaseClient';
 import { getPendingOps } from '@/lib/offlineStore';
 import { getTransportSession, getTransportContext } from '@/lib/transportAuth';
+import { readBestActor } from '@/lib/sessionStore';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import PosModal from '@/components/PosModal';
 import { requirePaymentPin } from '@/lib/paymentPin';
@@ -451,8 +452,72 @@ function chipStyleForVal(v, active) {
   };
 }
 
-function getSafeTransportActorScope() {
+function getMainOnlyTransportActorScope() {
   if (typeof window === 'undefined') return { role: 'UNKNOWN', pin: '', transport_id: '', name: '' };
+
+  const safeParse = (raw) => {
+    try { return raw ? JSON.parse(raw) : null; } catch { return null; }
+  };
+
+  try {
+    const actor = readBestActor({ allowTransportFallback: false });
+    if (actor && (actor.role || actor.pin || actor.id || actor.user_id)) {
+      const role = String(actor.role || '').trim().toUpperCase() || 'UNKNOWN';
+      const pin = String(actor.pin || actor.transport_pin || '').trim();
+      return {
+        role,
+        pin,
+        transport_id: role === 'TRANSPORT'
+          ? String(actor.transport_id || actor.id || actor.user_id || pin || '').trim()
+          : (pin ? `ADMIN_${pin}` : ''),
+        name: String(actor.name || actor.username || actor.full_name || '').trim(),
+      };
+    }
+  } catch {}
+
+  try {
+    const rawMain = localStorage.getItem('tepiha_session_v1');
+    const m = safeParse(rawMain);
+    const u = m?.user || m?.actor || m || null;
+    const role = String(u?.role || '').trim().toUpperCase();
+    const pin = String(u?.pin || '').trim();
+    if (role || pin) {
+      return {
+        role: role || 'UNKNOWN',
+        pin,
+        transport_id: role === 'TRANSPORT' ? String(u?.transport_id || pin || '').trim() : (pin ? `ADMIN_${pin}` : ''),
+        name: String(u?.name || u?.username || u?.full_name || '').trim(),
+      };
+    }
+  } catch {}
+
+  try {
+    const rawCurrent = localStorage.getItem('CURRENT_USER_DATA');
+    const u = safeParse(rawCurrent);
+    const role = String(u?.role || '').trim().toUpperCase();
+    const pin = String(u?.pin || '').trim();
+    if (role || pin) {
+      return {
+        role: role || 'UNKNOWN',
+        pin,
+        transport_id: role === 'TRANSPORT' ? String(u?.transport_id || pin || '').trim() : (pin ? `ADMIN_${pin}` : ''),
+        name: String(u?.name || u?.username || u?.full_name || '').trim(),
+      };
+    }
+  } catch {}
+
+  return { role: 'UNKNOWN', pin: '', transport_id: '', name: '' };
+}
+
+function getSafeTransportActorScope({ allowTransportFallback = true } = {}) {
+  if (typeof window === 'undefined') return { role: 'UNKNOWN', pin: '', transport_id: '', name: '' };
+
+  // Base bridge edit must never trust transport context/session. A stale
+  // transport session can remain on iOS/Safari after user switch, so the
+  // main/base session is the only source of truth for bridge mode.
+  if (!allowTransportFallback) {
+    return getMainOnlyTransportActorScope();
+  }
 
   const safeParse = (raw) => {
     try { return raw ? JSON.parse(raw) : null; } catch { return null; }
@@ -499,23 +564,7 @@ function getSafeTransportActorScope() {
     }
   } catch {}
 
-  try {
-    const rawMain = localStorage.getItem('tepiha_session_v1');
-    const m = safeParse(rawMain);
-    const u = m?.user || m?.actor || m || null;
-    const role = String(u?.role || '').trim().toUpperCase();
-    const pin = String(u?.pin || '').trim();
-    if (role || pin) {
-      return {
-        role: role || 'UNKNOWN',
-        pin,
-        transport_id: role === 'TRANSPORT' ? pin : (pin ? `ADMIN_${pin}` : ''),
-        name: String(u?.name || '').trim(),
-      };
-    }
-  } catch {}
-
-  return { role: 'UNKNOWN', pin: '', transport_id: '', name: '' };
+  return getMainOnlyTransportActorScope();
 }
 
 // Local Drafts Helpers
@@ -677,17 +726,43 @@ function PranimiPageInner() {
   function getCurrentDraftTransportId() {
     return String((actor?.role === 'TRANSPORT' ? me?.transport_id : assignTid) || '').trim();
   }
+
+  // Base worker bridge is allowed only to edit an existing transport order from PASTRIMI.
+  // After save/message close, never send that user to Transport Board/Menu because the route guard
+  // correctly blocks full transport access and would redirect them to Login.
+  function closeAfterTransportPranimiSave() {
+    if (isBaseWorkerBridgeEdit) {
+      router.push('/pastrimi');
+      return;
+    }
+    const returnTab = String(searchParams?.get('return_tab') || '').toLowerCase();
+    const returnMode = String(searchParams?.get('return_mode') || '').toLowerCase();
+    if (returnTab === 'loaded') {
+      router.push(`/transport/board?tab=loaded&mode=${returnMode === 'out' ? 'out' : 'in'}`);
+    } else if (returnTab === 'ready') {
+      router.push('/transport/board?tab=ready');
+    } else if (returnTab === 'depo') {
+      router.push('/transport/board?tab=depo');
+    } else {
+      router.push('/transport/board');
+    }
+  }
+
   useEffect(() => {
     trackRender('TransportPranimiPage');
   }, []);
   // --- INIT ---
   useEffect(() => {
     (async () => {
-        const scope = getSafeTransportActorScope();
+        const scope = getSafeTransportActorScope({ allowTransportFallback: !isBaseBridgeEdit });
         const role = String(scope?.role || 'UNKNOWN').toUpperCase();
         const pin = String(scope?.pin || '').trim();
         const actorObj = { role, pin };
         setActor(actorObj);
+        if (isBaseBridgeEdit && !isBaseWorkerRoleForTransportBridge(role) && !['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(role)) {
+          router.push('/login');
+          return;
+        }
         let transportScope = null;
         let adminTidLocal = null;
         if (role === 'TRANSPORT') {
@@ -900,10 +975,14 @@ function PranimiPageInner() {
     };
     const tick = async () => {
       if (!alive) return;
-      const scope = getSafeTransportActorScope();
+      const scope = getSafeTransportActorScope({ allowTransportFallback: !isBaseBridgeEdit });
       const role = String(scope?.role || 'UNKNOWN').toUpperCase();
       const pin = String(scope?.pin || '').trim();
       const tid = String(scope?.transport_id || (pin ? `ADMIN_${pin}` : 'ADMIN')).trim();
+      if (isBaseBridgeEdit && !isBaseWorkerRoleForTransportBridge(role) && !['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(role)) {
+        router.push('/login');
+        return;
+      }
       const sig = `${role}|${pin}|${tid}`;
       if (!actorSigRef.current) {
         actorSigRef.current = sig;
@@ -927,7 +1006,7 @@ function PranimiPageInner() {
     };
     const t = setInterval(() => { tick(); }, 15000);
     return () => { alive = false; clearInterval(t); };
-  }, [router]);
+  }, [router, isBaseBridgeEdit]);
   // Search Live (TEL / KOD / T-CODE / EMËR)
   useEffect(() => {
       const q = String(clientQuery || '').trim();
@@ -1489,17 +1568,7 @@ function PranimiPageInner() {
 
         if(autoMsgAfterSave) { setMsgKind('start'); setShowMsgSheet(true); } // ✅ HAP MESAZHIN
         else {
-          const returnTab = String(searchParams?.get('return_tab') || '').toLowerCase();
-          const returnMode = String(searchParams?.get('return_mode') || '').toLowerCase();
-          if (returnTab === 'loaded') {
-            router.push(`/transport/board?tab=loaded&mode=${returnMode === 'out' ? 'out' : 'in'}`);
-          } else if (returnTab === 'ready') {
-            router.push('/transport/board?tab=ready');
-          } else if (returnTab === 'depo') {
-            router.push('/transport/board?tab=depo');
-          } else {
-            router.push('/transport/board');
-          }
+          closeAfterTransportPranimiSave();
         }
       } catch (e) {
           let queuedTransportOffline = false;
@@ -2213,14 +2282,14 @@ function PranimiPageInner() {
       {/* MESSAGE SHEET */}
       {/* MESSAGE MODAL FULL SCREEN */}
       {showMsgSheet && (
-        <div className="msgOverlay" onClick={() => router.push('/transport/board')}>
+        <div className="msgOverlay" onClick={closeAfterTransportPranimiSave}>
           <div className="msgModal" onClick={(e) => e.stopPropagation()}>
             <div className="msgModalTop">
               <div>
                 <div className="msgModalTitle">MESAZHI PËR KLIENTIN</div>
                 <div className="msgModalSub">Dërgoje nga këtu para se ta mbyllësh porosinë.</div>
               </div>
-              <button className="btn secondary" onClick={() => router.push('/transport/board')}>MBYLL</button>
+              <button className="btn secondary" onClick={closeAfterTransportPranimiSave}>MBYLL</button>
             </div>
             <div className="msgPreview">
               <pre style={{color:'#E5E7EB', fontSize:14, whiteSpace:'pre-wrap', lineHeight:1.55, margin:0}}>{buildCurrentMessage()}</pre>
