@@ -2843,7 +2843,7 @@ function PastrimiPageInner() {
         try { sessionStorage.removeItem(PRANIMI_ACTIVE_EDIT_BRIDGE_KEY); } catch {}
         try { sessionStorage.removeItem(PASRTRIMI_EDIT_TO_PRANIMI_BACKUP_KEY); } catch {}
         try { localStorage.removeItem(PASRTRIMI_EDIT_TO_PRANIMI_KEY); } catch {}
-        router.push(`/transport/pranimi?edit=${encodeURIComponent(transportEditId)}&from=pastrimi-edit`);
+        router.push(`/transport/pranimi?edit=${encodeURIComponent(transportEditId)}&from=pastrimi-edit&baseBridge=1`);
         return;
       }
 

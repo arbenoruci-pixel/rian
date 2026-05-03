@@ -565,6 +565,24 @@ function getAdvancedTransportStatus(currentStatus = '', fallbackStatus = 'loaded
   return current;
 }
 
+function isBaseWorkerRoleForTransportBridge(role) {
+  return ['PUNTOR', 'PUNETOR', 'WORKER'].includes(String(role || '').trim().toUpperCase());
+}
+
+function readExistingTransportAssignment(row, data = {}) {
+  const d = (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+  return String(
+    d.transport_id ||
+    d.transport_user_id ||
+    d.assigned_driver_id ||
+    d.driver_id ||
+    row?.transport_id ||
+    row?.transport_user_id ||
+    row?.assigned_driver_id ||
+    ''
+  ).trim();
+}
+
 // ---------------- COMPONENT ----------------
 function PranimiPageInner() {
   useRouteAlive('transport_pranimi_page');
@@ -572,6 +590,8 @@ function PranimiPageInner() {
   const searchParams = useSearchParams();
   const editId = String(searchParams?.get('edit') || searchParams?.get('id') || '').trim();
   const isEdit = Boolean(editId);
+  const bridgeFrom = String(searchParams?.get('from') || '').trim();
+  const isBaseBridgeEdit = Boolean(isEdit && bridgeFrom === 'pastrimi-edit' && searchParams?.get('baseBridge') === '1');
   const newStatusRaw = String(searchParams?.get('new_status') || '').trim().toLowerCase();
   
   // Flow: në create respektojmë query statusin; default i sigurt = 'pickup'.
@@ -635,6 +655,8 @@ function PranimiPageInner() {
   // ADMIN/DISPATCH can create transport orders without being a transport actor.
   // Prevent leaking orders to a driver just because a stale transport session exists.
   const [actor, setActor] = useState(null); // { role, pin }
+  const [lockedBridgeTransportId, setLockedBridgeTransportId] = useState('');
+  const [editOriginalData, setEditOriginalData] = useState(null);
   const [assignTid, setAssignTid] = useState(''); // transport_id to write into order.data.transport_id
   const [transportUsers, setTransportUsers] = useState([]); // [{pin,name}]
   const transportUserNameMap = useMemo(() => new Map((Array.isArray(transportUsers) ? transportUsers : []).map((u) => [String(u?.pin || u?.transport_id || '').trim(), String(u?.name || '').trim()]).filter((entry) => entry[0] && entry[1])), [transportUsers]);
@@ -649,6 +671,9 @@ function PranimiPageInner() {
   const secretTapTimerRef = useRef(null);
   const codeWarmupTimerRef = useRef(null);
   const debtLookupTimerRef = useRef(null);
+  const actorRole = String(actor?.role || '').trim().toUpperCase();
+  const isBaseWorkerBridgeEdit = Boolean(isBaseBridgeEdit && isBaseWorkerRoleForTransportBridge(actorRole));
+
   function getCurrentDraftTransportId() {
     return String((actor?.role === 'TRANSPORT' ? me?.transport_id : assignTid) || '').trim();
   }
@@ -699,6 +724,12 @@ function PranimiPageInner() {
                 setOid(row.id); setCodeRaw(row.code_str); setEditRowStatus(row.status);
                 const d = row.data || {};
                 const c = d.client || {};
+                setEditOriginalData(d && typeof d === 'object' && !Array.isArray(d) ? d : {});
+                if (isBaseBridgeEdit) {
+                  const existingTid = readExistingTransportAssignment(row, d);
+                  setLockedBridgeTransportId(existingTid);
+                  if (existingTid) setAssignTid(existingTid);
+                }
                 setName(c.name || ''); 
                 try {
                   const fullPhone = String(c.phone || '');
@@ -730,7 +761,7 @@ function PranimiPageInner() {
                 setPricePerM2(d.pay?.rate||PRICE_DEFAULT); 
                 setArkaRecordedPaid(d.pay?.arkaRecordedPaid||0);
                 setNotes(d.notes||'');
-                if (searchParams?.get('focus') === 'pay') { setTimeout(() => setShowPaySheet(true), 200); }
+                if (!isBaseBridgeEdit && searchParams?.get('focus') === 'pay') { setTimeout(() => setShowPaySheet(true), 200); }
             }
         } else {
             const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -1255,11 +1286,30 @@ function PranimiPageInner() {
   async function handleContinue() {
       if (savingContinue || photoUploading) return;
       if(!name) return alert("Shkruaj emrin!");
+      const currentActorRole = String(actor?.role || '').trim().toUpperCase();
+      const currentIsBaseWorker = isBaseWorkerRoleForTransportBridge(currentActorRole);
+      if (currentIsBaseWorker && !isBaseBridgeEdit) {
+        alert('Ky rol mund të hapë TRANSPORT PRANIMI vetëm nga PASTRIMI për editim.');
+        return;
+      }
+      if (currentIsBaseWorker && isBaseBridgeEdit && !isEdit) {
+        alert('PUNTORI i bazës nuk mund të krijojë transport order të ri.');
+        return;
+      }
       // transport_id written to DB = assignment scope
       // - TRANSPORT user: own tid
       // - ADMIN/DISPATCH: selected driver tid OR ADMIN_<pin>
-      const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
+      // - PUNTOR via Pastrimi bridge: locked existing transport_id from the order
+      const editDataForTransport = (isEdit && editOriginalData && typeof editOriginalData === 'object' && !Array.isArray(editOriginalData)) ? editOriginalData : {};
+      const preservedBridgeTid = readExistingTransportAssignment({ transport_id: editDataForTransport?.transport_id }, editDataForTransport) || lockedBridgeTransportId || assignTid;
+      const tid = (currentIsBaseWorker && isBaseBridgeEdit)
+        ? preservedBridgeTid
+        : ((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid);
       if(!tid) return alert("S'je i kyçur (PIN)!");
+      if (currentIsBaseWorker && isBaseBridgeEdit && !preservedBridgeTid) {
+        alert('Nuk u gjet shoferi/transport_id ekzistues për këtë transport order. Nuk u ruajt që të mos ndryshohet assignment-i.');
+        return;
+      }
       setSavingContinue(true);
       // 1) Phone-only existing-client check for transport client book.
       // Transport never decides an existing client from name or T-code; phone_digits is the guard.
@@ -1390,11 +1440,17 @@ function PranimiPageInner() {
               phone_digits: phoneDigits,
             },
             transport_id: tid,
-            brought_by_pin: actorPin || null,
-            brought_by_name: actorName || null,
-            created_by_pin: actorPin || null,
-            created_by_name: actorName || null,
-            created_by_role: actor?.role || null,
+            transport_user_id: editDataForTransport?.transport_user_id || undefined,
+            assigned_driver_id: editDataForTransport?.assigned_driver_id || undefined,
+            transport_pin: isBaseWorkerBridgeEdit ? (editDataForTransport?.transport_pin || editDataForTransport?.driver_pin || null) : (editDataForTransport?.transport_pin || undefined),
+            driver_pin: isBaseWorkerBridgeEdit ? (editDataForTransport?.driver_pin || editDataForTransport?.transport_pin || null) : (editDataForTransport?.driver_pin || undefined),
+            transport_name: isBaseWorkerBridgeEdit ? (editDataForTransport?.transport_name || editDataForTransport?.driver_name || null) : (editDataForTransport?.transport_name || undefined),
+            driver_name: isBaseWorkerBridgeEdit ? (editDataForTransport?.driver_name || editDataForTransport?.transport_name || null) : (editDataForTransport?.driver_name || undefined),
+            brought_by_pin: isBaseWorkerBridgeEdit ? (editDataForTransport?.brought_by_pin || editDataForTransport?.created_by_pin || actorPin || null) : (actorPin || null),
+            brought_by_name: isBaseWorkerBridgeEdit ? (editDataForTransport?.brought_by_name || editDataForTransport?.created_by_name || actorName || null) : (actorName || null),
+            created_by_pin: isBaseWorkerBridgeEdit ? (editDataForTransport?.created_by_pin || actorPin || null) : (actorPin || null),
+            created_by_name: isBaseWorkerBridgeEdit ? (editDataForTransport?.created_by_name || actorName || null) : (actorName || null),
+            created_by_role: isBaseWorkerBridgeEdit ? (editDataForTransport?.created_by_role || actor?.role || null) : (actor?.role || null),
             gps_lat: gpsLat || null,
             gps_lng: gpsLng || null
           }
@@ -1667,6 +1723,7 @@ function PranimiPageInner() {
   function deleteDraft(id) { removeDraftLocal(id); setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); }
   // --- PAYMENT / PRICE ---
   function openPay() {
+    if (isBaseWorkerBridgeEdit) return;
     const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
     setPayAdd(dueNow > 0 ? dueNow : 0);
     setPayMethod('CASH');
@@ -1674,6 +1731,7 @@ function PranimiPageInner() {
   }
   function openPriceEditor() { setPriceTmp(pricePerM2); setShowPriceSheet(true); }
   function handleSecretPriceTap() {
+    if (isBaseWorkerBridgeEdit) return;
     if (secretTapTimerRef.current) clearTimeout(secretTapTimerRef.current);
     secretTapRef.current += 1;
     if (secretTapRef.current >= 3) {
@@ -1749,7 +1807,7 @@ function PranimiPageInner() {
             <div className="code-badge"><span className="badge" onClick={handleSecretPriceTap} style={{ cursor: "pointer", WebkitTapHighlightColor: "transparent", userSelect: "none", WebkitUserSelect: "none" }}>KODI: {(clientTcode || codeRaw) ? normalizeTcode(clientTcode || codeRaw) : 'I RI'}</span></div>
         </header>
 
-        {actor?.role !== 'TRANSPORT' && (
+        {actor?.role !== 'TRANSPORT' && !isBaseWorkerBridgeEdit && (
           <section style={{marginTop: 10}}>
             <div className="card" style={{padding:'12px 14px', borderRadius:18}}>
               <div style={{fontSize:12, opacity:.75, marginBottom:8}}>KUJT ME IA QIT?</div>
@@ -1769,6 +1827,15 @@ function PranimiPageInner() {
                 {actor?.pin && <option value={`ADMIN_${actor.pin}`}>VETEM ADMIN</option>}
                 {transportUsers.map(u => <option key={u.pin} value={u.pin}>{u.name}</option>)}
               </select>
+            </div>
+          </section>
+        )}
+
+        {isBaseWorkerBridgeEdit && (
+          <section style={{marginTop: 10}}>
+            <div className="card" style={{padding:'12px 14px', borderRadius:18, border:'1px solid rgba(59,130,246,0.35)', background:'rgba(59,130,246,0.10)'}}>
+              <div style={{fontSize:12, opacity:.75, marginBottom:6}}>BASE BRIDGE EDIT</div>
+              <div style={{fontSize:13, fontWeight:900}}>SHOFERI/TRANSPORT_ID ËSHTË I KYÇUR DHE NUK NDRYSHOHET NGA PASTRIMI.</div>
             </div>
           </section>
         )}
@@ -1937,7 +2004,7 @@ function PranimiPageInner() {
         <section className="card">
           <div className="row util-row" style={{ gap: 10 }}>
             <button className="btn secondary" style={{ flex: 1 }} onClick={() => setShowStairsSheet(true)}>🪜 SHKALLORE</button>
-            <button className="btn secondary" style={{ flex: 1 }} onClick={openPay}>€ PAGESA</button>
+            {!isBaseWorkerBridgeEdit && <button className="btn secondary" style={{ flex: 1 }} onClick={openPay}>€ PAGESA</button>}
           </div>
           <div style={{ marginTop: 10 }}>
             <button className="btn secondary" style={{ width: '100%' }} onClick={() => { setMsgKind('start'); setShowMsgSheet(true); }}>📩 DËRGO MESAZH — FILLON PASTRIMI</button>
@@ -1957,7 +2024,7 @@ function PranimiPageInner() {
         </section>
 
         <footer className="footer-bar">
-          <button className="btn secondary" onClick={() => router.push('/transport/menu')}>↩ MENU</button>
+          <button className="btn secondary" onClick={() => router.push(isBaseWorkerBridgeEdit ? '/pastrimi' : '/transport/menu')}>↩ {isBaseWorkerBridgeEdit ? 'PASTRIMI' : 'MENU'}</button>
           <button className="btn primary" onClick={handleContinue} disabled={photoUploading || savingContinue}>
             {savingContinue ? '⏳ DUKE RUJT...' : (isEdit ? '💾 RUAJ' : '💾 RUAJ / VAZHDO')}
           </button>
@@ -2029,7 +2096,7 @@ function PranimiPageInner() {
           </div>
         )}
       {/* PAY SHEET */}
-      {showPaySheet && (
+      {showPaySheet && !isBaseWorkerBridgeEdit && (
         <PosModal
           open={showPaySheet}
           onClose={() => setShowPaySheet(false)}
@@ -2131,7 +2198,7 @@ function PranimiPageInner() {
         </div>
       )}
       {/* PRICE SHEET */}
-      {showPriceSheet && (
+      {showPriceSheet && !isBaseWorkerBridgeEdit && (
         <div className="payfs">
           <div className="payfs-top">
             <div className="payfs-title">NDËRRO QMIMIN</div>

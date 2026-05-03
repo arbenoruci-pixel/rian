@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { usePathname, useRouter } from '@/lib/routerCompat.jsx';
 import { getTransportSession } from '@/lib/transportAuth';
+import { readBestActor } from '@/lib/sessionStore';
 import TransportSyncStarter from '@/components/transport/TransportSyncStarter';
 
 function TransportLayoutShell({ text = 'DUKE HAPUR TRANSPORT…' }) {
@@ -14,6 +15,39 @@ function TransportLayoutShell({ text = 'DUKE HAPUR TRANSPORT…' }) {
       </div>
     </div>
   );
+}
+
+function normalizeBridgeRole(role) {
+  return String(role || '').trim().toUpperCase();
+}
+
+function isBaseWorkerRole(role) {
+  return ['PUNTOR', 'PUNETOR', 'WORKER'].includes(normalizeBridgeRole(role));
+}
+
+function isPastrimiTransportBridgeRoute(pathname) {
+  if (typeof window === 'undefined') return false;
+  if (String(pathname || '') !== '/transport/pranimi') return false;
+  try {
+    const sp = new URLSearchParams(window.location.search || '');
+    return Boolean(
+      String(sp.get('edit') || sp.get('id') || '').trim()
+      && sp.get('from') === 'pastrimi-edit'
+      && sp.get('baseBridge') === '1'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasPastrimiBaseBridgeAccess(pathname) {
+  if (!isPastrimiTransportBridgeRoute(pathname)) return false;
+  try {
+    const actor = readBestActor({ allowTransportFallback: false });
+    return isBaseWorkerRole(actor?.role);
+  } catch {
+    return false;
+  }
 }
 
 // Guard for ALL /transport/* pages.
@@ -33,6 +67,14 @@ export default function TransportLayout({ children }) {
       const tid = session?.transport_id ? String(session.transport_id) : '';
 
       if (tid) {
+        if (!cancelled) setStatus('ok');
+        return;
+      }
+
+      // Limited bridge: base workers may open an existing transport order only
+      // when the navigation comes from Pastrimi edit. This does not grant
+      // access to Transport menu/board or transport create flow.
+      if (hasPastrimiBaseBridgeAccess(pathname)) {
         if (!cancelled) setStatus('ok');
         return;
       }
