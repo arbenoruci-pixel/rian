@@ -1,0 +1,53 @@
+PATCH V10 — ROUTE DEEP SCAN / SAFE LAZY LOOP FIX
+
+Source ZIP scanned: rian-main 500 369.zip
+
+Problem confirmed:
+- /transport/pranimi was still rendered through SafeLazyRouteShell:
+  safeLazyElement('/transport/pranimi', () => import('@/app/transport/pranimi/page.jsx'), ...)
+- The same pattern existed on other operational ARKA/TRANSPORT routes.
+- On iOS/PWA this can stall at dynamic import and show:
+  MODULI NUK U NGARKUA / U NDAL GLOBAL LOOP.
+
+Minimal fix:
+- Convert daily operational ARKA/TRANSPORT routes from SafeLazyRouteShell to direct eager route elements.
+- Convert thin redirect-only transport wrappers to direct <Navigate> redirects, so those wrapper modules are not imported at all.
+
+Changed file:
+- src/generated/routes.generated.jsx
+
+Routes changed to eager:
+- /arka
+- /arka/obligimet
+- /arka/payroll
+- /arka/stafi
+- /transport/menu
+- /transport/pranimi
+- /transport/fletore
+- /transport/item
+- /transport/pay
+- /transport/ngarkim-sot
+
+Routes changed to direct redirects:
+- /transport/gati -> /transport/board
+- /transport/inbox -> /transport/board?tab=inbox
+- /transport/loaded -> /transport/board
+- /transport/marrje-sot -> /transport/board?tab=loaded&mode=out
+- /transport/ne-ardhje -> /transport/board
+- /transport/offload -> /transport/board
+- /transport/pickup -> /transport/board
+- /transport/te-pa-plotsuara -> /transport/board
+
+Not touched:
+- DB schema
+- orders / transport_orders data
+- ARKA business logic
+- payments
+- payroll
+- Service Worker/cache/runtime
+- offlineStore/outbox
+- page business logic
+
+Notes:
+- Debug, restore, public client link (/k/:id), and lower-priority lazy routes are left unchanged.
+- This patch changes route loading method only; it does not change the underlying page logic.

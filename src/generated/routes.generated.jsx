@@ -20,15 +20,24 @@ import OfflinePageEager from '@/app/offline/page.jsx';
 import HomePageEager from '@/app/page.jsx';
 import TransportLoginPageEager from '@/app/transport/login/page.jsx';
 import TransportBoardPageEager from '@/app/transport/board/page.jsx';
-import TransportPranimiPageEager from '@/app/transport/pranimi/page.jsx';
 import GatiPageEager from '@/app/gati/page.jsx';
 import MarrjeSotPageEager from '@/app/marrje-sot/page.jsx';
 import PastrimiPageEager from '@/app/pastrimi/page.jsx';
 import PranimiPageEager from '@/app/pranimi/page.jsx';
 import ArkaPuntorPageEager from '@/app/arka/puntor/[pin]/page.jsx';
 import DispatchPageEager from '@/app/dispatch/page.jsx';
+import ArkaPageEager from '@/app/arka/page.jsx';
+import ArkaObligimetPageEager from '@/app/arka/obligimet/page.jsx';
+import ArkaPayrollPageEager from '@/app/arka/payroll/page.jsx';
+import ArkaStafiPageEager from '@/app/arka/stafi/page.jsx';
+import TransportMenuPageEager from '@/app/transport/menu/page.jsx';
+import TransportPranimiPageEager from '@/app/transport/pranimi/page.jsx';
+import TransportFletorePageEager from '@/app/transport/fletore/page.jsx';
+import TransportItemPageEager from '@/app/transport/item/page.jsx';
+import TransportPayPageEager from '@/app/transport/pay/page.jsx';
+import TransportNgarkimSotPageEager from '@/app/transport/ngarkim-sot/page.jsx';
 
-// V15 route alignment: keep daily base routes static/eager; keep ARKA worker detail eager to avoid dynamic chunk/default-export lazy failures. Other heavy ARKA/TRANSPORT routes stay behind SafeLazyRouteShell.
+// V16 route alignment: keep operational ARKA/TRANSPORT routes static/eager or direct redirects. Avoid SafeLazyRouteShell on daily-use pages because iOS/PWA dynamic imports can stall and trigger global-loop safe mode.
 
 const DIAG_RAW_NAV_READER_VERSION = 'V34.1-DIAG-RAW-NAVIGATION-READER-ONLY';
 const DIAG_RAW_SW_NAV_CACHE = 'tepiha-sw-navigation-diag-v1';
@@ -644,11 +653,11 @@ export const appRoutes = [
   { path: '/arka/buxheti', element: <Navigate to='/arka' replace /> },
   { path: '/arka/borqet', element: <Navigate to='/arka/obligimet' replace /> },
   { path: '/arka/investimet', element: <Navigate to='/arka' replace /> },
-  { path: '/arka/obligimet', element: safeLazyElement('/arka/obligimet', () => import('@/app/arka/obligimet/page.jsx'), '@/app/arka/obligimet/page.jsx', 'ARKA OBLIGIMET') },
-  { path: '/arka', element: safeLazyElement('/arka', () => import('@/app/arka/page.jsx'), '@/app/arka/page.jsx', 'ARKA') },
-  { path: '/arka/payroll', element: safeLazyElement('/arka/payroll', () => import('@/app/arka/payroll/page.jsx'), '@/app/arka/payroll/page.jsx', 'ARKA PAYROLL') },
+  { path: '/arka/obligimet', element: eagerElement(ArkaObligimetPageEager, '/arka/obligimet') },
+  { path: '/arka', element: eagerElement(ArkaPageEager, '/arka') },
+  { path: '/arka/payroll', element: eagerElement(ArkaPayrollPageEager, '/arka/payroll') },
   { path: '/arka/puntor/:pin', element: eagerElement(ArkaPuntorPageEager, '/arka/puntor/:pin') },
-  { path: '/arka/stafi', element: safeLazyElement('/arka/stafi', () => import('@/app/arka/stafi/page.jsx'), '@/app/arka/stafi/page.jsx', 'ARKA STAFI') },
+  { path: '/arka/stafi', element: eagerElement(ArkaStafiPageEager, '/arka/stafi') },
   { path: '/baza', element: lazyElement(Page6, '/baza') },
   { path: '/debug-lite', element: lazyElement(Page7, '/debug-lite') },
   { path: '/debug/boot', element: lazyElement(Page8, '/debug/boot') },
@@ -670,22 +679,22 @@ export const appRoutes = [
   { path: '/restore', element: lazyElement(Page24, '/restore') },
   { path: '/search', element: <SearchRouteRedirect /> },
   { path: '/transport/board', element: eagerElement(TransportBoardPageEager, '/transport/board') },
-  { path: '/transport/fletore', element: safeLazyElement('/transport/fletore', () => import('@/app/transport/fletore/page.jsx'), '@/app/transport/fletore/page.jsx', 'TRANSPORT FLETORE') },
-  { path: '/transport/gati', element: safeLazyElement('/transport/gati', () => import('@/app/transport/gati/page.jsx'), '@/app/transport/gati/page.jsx', 'TRANSPORT GATI') },
-  { path: '/transport/inbox', element: safeLazyElement('/transport/inbox', () => import('@/app/transport/inbox/page.jsx'), '@/app/transport/inbox/page.jsx', 'TRANSPORT INBOX') },
-  { path: '/transport/item', element: safeLazyElement('/transport/item', () => import('@/app/transport/item/page.jsx'), '@/app/transport/item/page.jsx', 'TRANSPORT ITEM') },
-  { path: '/transport/loaded', element: safeLazyElement('/transport/loaded', () => import('@/app/transport/loaded/page.jsx'), '@/app/transport/loaded/page.jsx', 'TRANSPORT LOADED') },
+  { path: '/transport/fletore', element: eagerElement(TransportFletorePageEager, '/transport/fletore') },
+  { path: '/transport/gati', element: <Navigate to='/transport/board' replace /> },
+  { path: '/transport/inbox', element: <Navigate to='/transport/board?tab=inbox' replace /> },
+  { path: '/transport/item', element: eagerElement(TransportItemPageEager, '/transport/item') },
+  { path: '/transport/loaded', element: <Navigate to='/transport/board' replace /> },
   { path: '/transport/login', element: eagerElement(TransportLoginPageEager, '/transport/login') },
-  { path: '/transport/marrje-sot', element: safeLazyElement('/transport/marrje-sot', () => import('@/app/transport/marrje-sot/page.jsx'), '@/app/transport/marrje-sot/page.jsx', 'TRANSPORT MARRJE SOT') },
-  { path: '/transport/menu', element: eagerElement(TransportMenuSafeRouteShell, '/transport/menu') },
-  { path: '/transport/ne-ardhje', element: safeLazyElement('/transport/ne-ardhje', () => import('@/app/transport/ne-ardhje/page.jsx'), '@/app/transport/ne-ardhje/page.jsx', 'TRANSPORT NE ARDHJE') },
-  { path: '/transport/ngarkim-sot', element: safeLazyElement('/transport/ngarkim-sot', () => import('@/app/transport/ngarkim-sot/page.jsx'), '@/app/transport/ngarkim-sot/page.jsx', 'TRANSPORT NGARKIM SOT') },
-  { path: '/transport/offload', element: safeLazyElement('/transport/offload', () => import('@/app/transport/offload/page.jsx'), '@/app/transport/offload/page.jsx', 'TRANSPORT OFFLOAD') },
+  { path: '/transport/marrje-sot', element: <Navigate to='/transport/board?tab=loaded&mode=out' replace /> },
+  { path: '/transport/menu', element: eagerElement(TransportMenuPageEager, '/transport/menu') },
+  { path: '/transport/ne-ardhje', element: <Navigate to='/transport/board' replace /> },
+  { path: '/transport/ngarkim-sot', element: eagerElement(TransportNgarkimSotPageEager, '/transport/ngarkim-sot') },
+  { path: '/transport/offload', element: <Navigate to='/transport/board' replace /> },
   { path: '/transport', element: <Navigate to='/transport/board' replace /> },
-  { path: '/transport/pay', element: safeLazyElement('/transport/pay', () => import('@/app/transport/pay/page.jsx'), '@/app/transport/pay/page.jsx', 'TRANSPORT PAY') },
-  { path: '/transport/pickup', element: safeLazyElement('/transport/pickup', () => import('@/app/transport/pickup/page.jsx'), '@/app/transport/pickup/page.jsx', 'TRANSPORT PICKUP') },
+  { path: '/transport/pay', element: eagerElement(TransportPayPageEager, '/transport/pay') },
+  { path: '/transport/pickup', element: <Navigate to='/transport/board' replace /> },
   { path: '/transport/pranimi', element: eagerElement(TransportPranimiPageEager, '/transport/pranimi') },
-  { path: '/transport/te-pa-plotsuara', element: safeLazyElement('/transport/te-pa-plotsuara', () => import('@/app/transport/te-pa-plotsuara/page.jsx'), '@/app/transport/te-pa-plotsuara/page.jsx', 'TRANSPORT TE PA PLOTSUARA') },
+  { path: '/transport/te-pa-plotsuara', element: <Navigate to='/transport/board' replace /> },
   { path: '/worker', element: lazyElement(Page43, '/worker') },
   { path: '*', element: <NotFoundPage /> },
 ];
