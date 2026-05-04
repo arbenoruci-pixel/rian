@@ -74,7 +74,26 @@ function orderAssignedDriver(o) {
 }
 
 function orderRackLabel(o) {
-  return String(o?.data?.ready_note || o?.data?.ready_location || o?.data?.rack_label || '').trim();
+  const data = (o?.data && typeof o.data === 'object' && !Array.isArray(o.data)) ? o.data : {};
+  const slotText = (value) => {
+    if (Array.isArray(value)) return value.map((x) => String(x || '').trim()).filter(Boolean).join(', ');
+    return '';
+  };
+  return String(
+    data.ready_note
+      || data.ready_location
+      || slotText(data.ready_slots)
+      || data.rack_label
+      || data.rack
+      || data.location
+      || o?.ready_note
+      || o?.ready_location
+      || slotText(o?.ready_slots)
+      || o?.rack_label
+      || o?.rack
+      || o?.location
+      || ''
+  ).trim();
 }
 
 function safeTs(value) {
@@ -280,6 +299,8 @@ function ReadyView({
         latLng: geoCache.latLng,
         lat: geoCache.lat,
         lng: geoCache.lng,
+        rackLabel: orderRackLabel(row),
+        assignedDriver: orderAssignedDriver(row),
         smsCount: getSmsCount ? getSmsCount(row) : Number(row?.data?.sms_count || 0),
       };
     });
