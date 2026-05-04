@@ -636,6 +636,75 @@ function readExistingTransportAssignment(row, data = {}) {
   ).trim();
 }
 
+function asPlainTransportObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function firstTransportValue(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    const text = String(value).trim();
+    if (text) return value;
+  }
+  return '';
+}
+
+function splitTransportPhoneForForm(value, fallbackPrefix = '+383') {
+  const raw = String(value || '').trim();
+  if (!raw) return { prefix: fallbackPrefix, local: '' };
+  const compact = raw.replace(/[^\d+]/g, '');
+  const digits = normalizePhoneDigits(compact || raw);
+
+  if (compact.startsWith('+')) {
+    const pref = PREFIX_OPTIONS.find((opt) => compact.startsWith(opt.code));
+    if (pref) return { prefix: pref.code, local: compact.slice(pref.code.length).replace(/\D+/g, '') };
+  }
+
+  for (const opt of PREFIX_OPTIONS) {
+    const codeDigits = normalizePhoneDigits(opt.code);
+    if (digits.startsWith(`00${codeDigits}`) && digits.length > codeDigits.length + 2) {
+      return { prefix: opt.code, local: digits.slice(codeDigits.length + 2).replace(/^0+/, '') };
+    }
+    if (digits.startsWith(codeDigits) && digits.length > codeDigits.length) {
+      return { prefix: opt.code, local: digits.slice(codeDigits.length).replace(/^0+/, '') };
+    }
+  }
+
+  if (digits.startsWith('0') && digits.length >= 8) {
+    return { prefix: fallbackPrefix, local: digits.replace(/^0+/, '') };
+  }
+
+  return { prefix: fallbackPrefix, local: normalizeTransportPhoneKey(digits) || digits };
+}
+
+function readTransportOrderClientForEdit(row = {}) {
+  const d = asPlainTransportObject(row?.data);
+  const nestedOrder = asPlainTransportObject(d?.order);
+  const c = asPlainTransportObject(d?.client || nestedOrder?.client);
+  const gps = asPlainTransportObject(c?.gps || d?.gps || nestedOrder?.gps);
+  const tcode = normalizeTcode(firstTransportValue(
+    c?.tcode,
+    c?.code,
+    d?.client_tcode,
+    nestedOrder?.client_tcode,
+    row?.client_tcode,
+    row?.code_str,
+    d?.code_str,
+    d?.code
+  ));
+
+  return {
+    id: firstTransportValue(row?.client_id, c?.id, d?.client_id, nestedOrder?.client_id) || null,
+    tcode: tcode && tcode !== 'T0' ? tcode : '',
+    name: String(firstTransportValue(c?.name, c?.client_name, d?.client_name, nestedOrder?.client_name, row?.client_name, row?.name) || '').trim(),
+    phone: String(firstTransportValue(c?.phone, c?.client_phone, d?.client_phone, nestedOrder?.client_phone, row?.client_phone, row?.phone) || '').trim(),
+    photoUrl: String(firstTransportValue(c?.photoUrl, c?.photo_url, d?.clientPhotoUrl, d?.client_photo_url, nestedOrder?.clientPhotoUrl) || '').trim(),
+    address: String(firstTransportValue(c?.address, c?.addressDesc, d?.addressDesc, d?.address, nestedOrder?.addressDesc, nestedOrder?.address, row?.address, row?.client_address) || '').trim(),
+    gpsLat: firstTransportValue(gps?.lat, c?.gps_lat, d?.gps_lat, nestedOrder?.gps_lat, row?.gps_lat),
+    gpsLng: firstTransportValue(gps?.lng, c?.gps_lng, d?.gps_lng, nestedOrder?.gps_lng, row?.gps_lng),
+  };
+}
+
 // ---------------- COMPONENT ----------------
 function PranimiPageInner() {
   useRouteAlive('transport_pranimi_page');
@@ -801,32 +870,27 @@ function PranimiPageInner() {
         if (isEdit) {
             const row = await fetchTransportOrderById(editId).catch(() => null);
             if (row) {
-                setOid(row.id); setCodeRaw(row.code_str); setEditRowStatus(row.status);
-                const d = row.data || {};
-                const c = d.client || {};
+                const d = asPlainTransportObject(row.data);
+                const editClient = readTransportOrderClientForEdit(row);
+                const existingTid = readExistingTransportAssignment(row, d);
+                setOid(row.id);
+                setCodeRaw(editClient.tcode || normalizeTcode(row.code_str || row.client_tcode || ''));
+                setEditRowStatus(row.status);
                 setEditOriginalData(d && typeof d === 'object' && !Array.isArray(d) ? d : {});
-                if (isBaseBridgeEdit) {
-                  const existingTid = readExistingTransportAssignment(row, d);
-                  setLockedBridgeTransportId(existingTid);
-                  if (existingTid) setAssignTid(existingTid);
-                }
-                setName(c.name || ''); 
+                if (existingTid) setAssignTid(existingTid);
+                if (isBaseBridgeEdit) setLockedBridgeTransportId(existingTid);
+                setName(editClient.name || '');
                 try {
-                  const fullPhone = String(c.phone || '');
-                  const pref = PREFIX_OPTIONS.find((opt) => fullPhone.startsWith(opt.code));
-                  if (pref) {
-                    setPhonePrefix(pref.code);
-                    setPhone(fullPhone.slice(pref.code.length).replace(/\D+/g, ''));
-                  } else {
-                    setPhone(fullPhone.replace(/\D+/g, ''));
-                  }
+                  const phoneParts = splitTransportPhoneForForm(editClient.phone, phonePrefix);
+                  setPhonePrefix(phoneParts.prefix || '+383');
+                  setPhone(phoneParts.local || '');
                 } catch {}
-                setClientPhotoUrl(c.photoUrl||'');
-                setClientId(row?.client_id || c?.id || null);
-                setClientTcode(String(c.tcode || c.code || row.code_str || ''));
-                setAddressDesc(c.address || d?.address || row?.address || ''); 
-                const lat = c?.gps?.lat ?? c?.gps_lat ?? d?.gps_lat ?? row?.gps_lat ?? '';
-                const lng = c?.gps?.lng ?? c?.gps_lng ?? d?.gps_lng ?? row?.gps_lng ?? '';
+                setClientPhotoUrl(editClient.photoUrl || '');
+                setClientId(editClient.id || null);
+                setClientTcode(editClient.tcode || normalizeTcode(row.code_str || row.client_tcode || ''));
+                setAddressDesc(editClient.address || '');
+                const lat = editClient.gpsLat;
+                const lng = editClient.gpsLng;
                 if (lat !== '' && lat != null) setGpsLat(lat);
                 if (lng !== '' && lng != null) setGpsLng(lng);
                 
