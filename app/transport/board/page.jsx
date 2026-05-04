@@ -2588,10 +2588,25 @@ function TransportBoardInner() {
       {/* BOTTOM BAR (not on READY) */}
       {activeTab !== 'ready' && (
         <div style={ui.bottomBar}>
-          <div style={{ color: '#8E44AD', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <span style={{ fontSize: 20 }}>📥</span>
-            <span style={{ fontSize: 10, fontWeight: 600 }}>Inbox</span>
-          </div>
+          <button
+            type="button"
+            onClick={() => switchMainTab('delivered')}
+            disabled={uiSwitchPending}
+            style={{
+              color: activeTab === 'delivered' ? '#8E44AD' : '#888',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              background: 'transparent',
+              border: 0,
+              padding: 0,
+              cursor: uiSwitchPending ? 'default' : 'pointer',
+              opacity: uiSwitchPending ? 0.82 : 1,
+            }}
+          >
+            <span style={{ fontSize: 20 }}>📋</span>
+            <span style={{ fontSize: 10, fontWeight: activeTab === 'delivered' ? 800 : 600 }}>Dorëzimet</span>
+          </button>
           <Link
             href="/transport/menu"
             style={{ color: '#888', display: 'flex', flexDirection: 'column', alignItems: 'center', textDecoration: 'none' }}
