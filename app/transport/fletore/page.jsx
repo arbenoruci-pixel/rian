@@ -110,7 +110,7 @@ function buildClientBuckets(clients, orders, q, showCompleted) {
   const allClients = Array.isArray(clients) ? clients : [];
   const allOrders = Array.isArray(orders) ? orders : [];
   const search = String(q || "").trim().toLowerCase();
-  const doneStatuses = new Set(["dorezuar", "dorëzuar", "dorzim", "dorezim", "paguar", "anuluar", "arkiv", "arkivuar", "done", "completed"]);
+  const doneStatuses = new Set(["dorezuar", "dorëzuar", "dorzim", "dorezim", "paguar", "anuluar", "cancelled", "canceled", "failed", "deshtuar", "dështuar", "deleted", "void", "arkiv", "arkivuar", "done", "completed"]);
 
   const ordersByCode = new Map();
   allOrders.forEach((o) => {

@@ -393,14 +393,18 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
   }
 
   async function handleCancel(order) {
+    let reason = 'ANULUAR NGA TRANSPORTERI';
     if (typeof window !== 'undefined') {
-      const ok = window.confirm('A je i sigurt që dëshiron ta anulosh këtë porosi?');
+      const input = window.prompt('ARSYEJA E ANULIMIT / PSE NUK U REALIZUA?', reason);
+      if (input === null) return;
+      reason = String(input || '').trim() || reason;
+      const ok = window.confirm(`A je i sigurt që dëshiron ta anulosh këtë porosi?\n\nARSYE: ${reason}`);
       if (!ok) return;
     }
     if (typeof onCancel !== 'function') return;
     try {
       setCancelBusy(true);
-      await onCancel(order);
+      await onCancel(order, reason);
       closeModal();
     } catch (err) {
       console.error('Cancel failed:', err);

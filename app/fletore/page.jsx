@@ -233,7 +233,7 @@ export default function FletorePage() {
     const allOrders = Array.isArray(data?.orders) ? data.orders : [];
     const search = String(q || "").trim().toLowerCase();
 
-    const doneStatuses = new Set(["dorezuar", "dorëzuar", "dorzim", "dorezim", "paguar", "anuluar", "arkiv", "arkivuar"]);
+    const doneStatuses = new Set(["dorezuar", "dorëzuar", "dorzim", "dorezim", "paguar", "anuluar", "cancelled", "canceled", "failed", "deshtuar", "dështuar", "deleted", "void", "arkiv", "arkivuar"]);
 
     const ordersByClient = new Map();
     allOrders.forEach((o) => {

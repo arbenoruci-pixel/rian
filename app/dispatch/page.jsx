@@ -50,7 +50,8 @@ function up(v) {
 }
 
 
-const TRANSPORT_PRE_PICKUP_STATUSES = new Set(["", "new", "inbox", "pending", "scheduled", "draft", "pranim", "dispatched", "assigned"]);
+const TRANSPORT_PRE_PICKUP_STATUSES = new Set(["", "new", "inbox", "pending", "scheduled", "draft", "pranim", "dispatched", "assigned", "accepted"]);
+const DISPATCH_CANCELLED_STATUSES = new Set(["cancelled", "canceled", "anuluar", "annulled", "void", "deleted", "removed"]);
 
 function rawStatus(value) {
   return s(value).toLowerCase();
@@ -259,6 +260,7 @@ function normalizeStatus(v) {
   if (x === "pickup") return "PICKUP";
   if (["delivery", "dorzim", "dorëzim", "dorezim", "dorezuar", "dorëzuar", "dorzuar", "marrje"].includes(x)) return "DORZIM";
   if (["failed", "deshtuar", "dështuar", "parealizuar", "no_show", "noshow", "returned", "kthim"].includes(x)) return "DËSHTUAR";
+  if (DISPATCH_CANCELLED_STATUSES.has(x)) return "ANULUAR";
   if (x === "loaded" || x === "ngarkim" || x === "ngarkuar") return "NGARKIM";
   if (x === "gati") return "GATI";
   if (x === "done") return "DONE";
@@ -333,6 +335,21 @@ function mergeById(rows) {
   });
   return Array.from(map.values());
 }
+function isDispatchRemovedRow(row) {
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  return !!(
+    data.dispatch_removed ||
+    data.dispatch_hidden ||
+    data.dispatch_archived ||
+    data.deleted_from_dispatch ||
+    data.soft_deleted
+  );
+}
+function isCancelledRow(row) {
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  const raw = rawStatus(row?.status || data.status || data.dispatch_status || "");
+  return DISPATCH_CANCELLED_STATUSES.has(raw) || !!(data.cancelled || data.canceled || data.cancelled_at || data.canceled_at);
+}
 function isFailedRow(row) {
   const st = normalizeStatus(row?.status || row?.data?.status || "");
   if (st === "DËSHTUAR") return true;
@@ -340,7 +357,13 @@ function isFailedRow(row) {
 }
 function isCompletedRow(row) {
   const st = normalizeStatus(row?.status || row?.data?.status || "");
-  return ["DONE", "GATI"].includes(st) || isFailedRow(row);
+  return ["DONE", "GATI", "ANULUAR"].includes(st) || isFailedRow(row) || isDispatchRemovedRow(row);
+}
+function canDispatchRemoveRow(row) {
+  if (!isDispatchTransportRow(row)) return false;
+  if (isDoneDispatchRow(row)) return false;
+  if (isDispatchRemovedRow(row) || isCancelledRow(row) || isFailedRow(row)) return true;
+  return TRANSPORT_PRE_PICKUP_STATUSES.has(rawStatus(row?.status || row?.data?.status || ""));
 }
 
 const DISPATCH_DONE_STATUSES = new Set([
@@ -383,7 +406,7 @@ function isDoneToday(row) {
 
 function isLiveBoardRow(row) {
   if (!isDispatchTransportRow(row)) return false;
-  if (isFailedRow(row)) return false;
+  if (isDispatchRemovedRow(row) || isCancelledRow(row) || isFailedRow(row)) return false;
 
   if (isDoneDispatchRow(row)) {
     return isDoneToday(row);
@@ -806,7 +829,7 @@ export default function DispatchPage() {
 
   const failedRows = useMemo(() => {
     return dispatchRows
-      .filter((row) => isFailedRow(row))
+      .filter((row) => isFailedRow(row) && !isDispatchRemovedRow(row) && !isCancelledRow(row))
       .sort((a, b) => lastTs(b) - lastTs(a))
       .slice(0, 20);
   }, [dispatchRows]);
@@ -981,35 +1004,53 @@ export default function DispatchPage() {
     }
   }
 
-  async function removeOnlineRow(row) {
+  async function removeDispatchRow(row) {
     if (!row?.id) return;
-    if (rowSource(row) !== "online") {
-      alert("Ky opsion është vetëm për porositë ONLINE.");
+    if (!canDispatchRemoveRow(row)) {
+      alert("Kjo porosi nuk fshihet nga Dispatch në këtë fazë. Nëse puna ka nisur, përdor statuset operative që të mos humbin pagesat ose gjurmët.");
       return;
     }
-    const ok = window.confirm(`A je i sigurt që don me e heq këtë porosi ONLINE nga lista?
-
-Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE.`);
+    const code = getDispatchCardCode(row);
+    const defaultReason = isFailedRow(row) ? "DËSHTOI / NUK U REALIZUA" : isCancelledRow(row) ? "ANULUAR" : "ANULUAR NGA DISPATCH";
+    const reason = window.prompt(`ARSYEJA E FSHIRJES / ANULIMIT PËR ${code}`, defaultReason);
+    if (reason === null) return;
+    const cleanReason = s(reason) || defaultReason;
+    const ok = window.confirm(`A je i sigurt që don me e heq këtë porosi nga Dispatch?\n\n${code} • ${up(getClientName(row) || "PA EMËR")}\nARSYE: ${cleanReason}\n\nKjo është soft-delete: porosia nuk fshihet nga DB, vetëm shënohet ANULUAR dhe largohet nga listat aktive.`);
     if (!ok) return;
     setDeleteBusyId(String(row.id));
     try {
       const rowTable = getOrderTable(row);
       if (!rowTable) throw new Error("Burimi i porosisë mungon.");
+      const nowIso = new Date().toISOString();
+      const actorNow = getActor() || null;
+      const actorName = s(actorNow?.name || actorNow?.full_name || actorNow?.pin || actorNow?.role || "DISPATCH");
       const nextData = {
         ...(row.data || {}),
+        status: "cancelled",
+        cancelled: true,
+        canceled: true,
+        cancelled_at: nowIso,
+        canceled_at: nowIso,
+        cancellation_reason: cleanReason,
+        cancel_reason: cleanReason,
+        cancelled_by: actorName,
+        cancellation_source: "DISPATCH",
         dispatch_removed: true,
-        dispatch_removed_at: new Date().toISOString(),
-        dispatch_removed_reason: "manual_online_delete",
+        dispatch_hidden: true,
+        dispatch_removed_at: nowIso,
+        dispatch_removed_by: actorName,
+        dispatch_removed_reason: cleanReason,
       };
       await updateOrderRecord(rowTable, row.id, {
-        status: "done",
-        updated_at: new Date().toISOString(),
+        status: "cancelled",
+        updated_at: nowIso,
         data: nextData,
       });
       if (selectedRow?.id === row.id) setSelectedRow(null);
+      setAllRows((prev) => (Array.isArray(prev) ? prev.filter((x) => String(x?.id || "") !== String(row.id || "")) : prev));
       await loadRows();
     } catch (e) {
-      alert(e?.message || "Gabim gjatë fshirjes.");
+      alert(e?.message || "Gabim gjatë fshirjes/anulimit.");
     } finally {
       setDeleteBusyId("");
     }
@@ -1199,16 +1240,16 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
             ) : (
               <div style={ui.list}>
                 {currentRows.map((row) => {
-                  const isOnlineRow = activeTab === TAB_ONLINE && rowSource(row) === "online";
+                  const removable = canDispatchRemoveRow(row);
                   const deleting = deleteBusyId === String(row?.id || "");
                   return (
                     <div key={`${getOrderTable(row)}_${row.id}`} style={{ display: "grid", gap: 8 }}>
                       <DispatchCard row={row} onOpen={openRow} />
-                      {isOnlineRow ? (
+                      {removable ? (
                         <div style={ui.inlineDangerRow}>
-                          <div style={ui.inlineDangerHint}>Nëse është hajgare ose porosi e pavlefshme, hiqe prej ONLINE pa prek pjesët tjera.</div>
-                          <button type="button" style={ui.btnDangerMini} onClick={() => removeOnlineRow(row)} disabled={deleting}>
-                            {deleting ? "DUKE HEQ…" : "FSHI NGA ONLINE"}
+                          <div style={ui.inlineDangerHint}>Nëse porosia është anuluar, hajgare, ose dështoi me u marrë, largoje nga listat aktive pa e fshirë nga DB.</div>
+                          <button type="button" style={ui.btnDangerMini} onClick={() => removeDispatchRow(row)} disabled={deleting}>
+                            {deleting ? "DUKE HEQ…" : "FSHI POROSINË"}
                           </button>
                         </div>
                       ) : null}
@@ -1248,8 +1289,11 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
                         </div>
                         <div style={ui.compactSub}>{getClientPhone(row) || "PA TEL"} • {getAddress(row) || "PA ADRESË"}</div>
                         <div style={ui.compactSub}>ARSYE: {up(row?.data?.failed_note || row?.data?.reason || row?.data?.unsuccess_reason || "PA SHËNIM")}</div>
-                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
                           <button type="button" style={ui.btnGhostMini} onClick={() => openRow(row)}>HAP</button>
+                          <button type="button" style={ui.btnDangerMini} onClick={() => removeDispatchRow(row)} disabled={deleteBusyId === String(row?.id || "")}>
+                            {deleteBusyId === String(row?.id || "") ? "DUKE HEQ…" : "FSHI NGA DISPATCH"}
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1334,14 +1378,14 @@ Kjo nuk e prish sistemin — porosia vetëm mbyllet dhe zhduket nga tab-i ONLINE
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" style={{ ...ui.btnPrimary, flex: 1 }} onClick={savePlan} disabled={saveBusy}>{saveBusy ? "DUKE RUAJT…" : "RUAJ PLANIN"}</button>
-              {rowSource(selectedRow) === "online" ? (
+              {canDispatchRemoveRow(selectedRow) ? (
                 <button
                   type="button"
                   style={ui.btnDanger}
-                  onClick={() => removeOnlineRow(selectedRow)}
+                  onClick={() => removeDispatchRow(selectedRow)}
                   disabled={deleteBusyId === String(selectedRow?.id || "")}
                 >
-                  {deleteBusyId === String(selectedRow?.id || "") ? "DUKE HEQ…" : "FSHI NGA ONLINE"}
+                  {deleteBusyId === String(selectedRow?.id || "") ? "DUKE HEQ…" : "FSHI POROSINË"}
                 </button>
               ) : null}
             </div>

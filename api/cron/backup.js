@@ -14,8 +14,8 @@ import {
   pickClientPhone,
 } from '../_helpers.js';
 
-const BASE_DONE = new Set(['dorezuar', 'dorëzuar', 'dorzim', 'dorezim', 'paguar', 'anuluar', 'arkiv', 'arkivuar', 'done', 'completed']);
-const TRANSPORT_DONE = new Set(['dorezuar', 'dorëzuar', 'dorzim', 'dorezim', 'paguar', 'anuluar', 'arkiv', 'arkivuar', 'done', 'completed']);
+const BASE_DONE = new Set(['dorezuar', 'dorëzuar', 'dorzim', 'dorezim', 'paguar', 'anuluar', 'cancelled', 'canceled', 'failed', 'deshtuar', 'dështuar', 'deleted', 'void', 'arkiv', 'arkivuar', 'done', 'completed']);
+const TRANSPORT_DONE = new Set(['dorezuar', 'dorëzuar', 'dorzim', 'dorezim', 'paguar', 'anuluar', 'cancelled', 'canceled', 'failed', 'deshtuar', 'dështuar', 'deleted', 'void', 'arkiv', 'arkivuar', 'done', 'completed']);
 
 function fmtDate(value) {
   if (!value) return '';

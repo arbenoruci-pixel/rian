@@ -84,6 +84,7 @@ function normalizeTransportLifecycleStatus(value = '') {
   if (raw === 'ready') return 'gati';
   if (raw === 'accepted') return 'assigned';
   if (raw === 'dorezim' || raw === 'dorëzim') return 'dorzim';
+  if (raw === 'canceled' || raw === 'anuluar' || raw === 'annulled' || raw === 'void' || raw === 'deleted' || raw === 'removed') return 'cancelled';
   return raw;
 }
 
@@ -220,11 +221,12 @@ function resolveBoardTransportIdentity(current = {}, sessionObj = {}, transportI
   return { id, pin, name };
 }
 
-function buildTransportStatusPatch(current = {}, nextStatus = '', transportId = '', nowIso = new Date().toISOString(), sessionObj = {}) {
+function buildTransportStatusPatch(current = {}, nextStatus = '', transportId = '', nowIso = new Date().toISOString(), sessionObj = {}, options = {}) {
   const status = normalizeTransportLifecycleStatus(nextStatus);
   const currentData = (current?.data && typeof current.data === 'object' && !Array.isArray(current.data)) ? current.data : {};
   const data = { ...currentData, status };
   const identity = resolveBoardTransportIdentity(current, sessionObj, transportId);
+  const reason = String(options?.reason || '').trim();
 
   if (identity.id) {
     data.transport_id = data.transport_id || identity.id;
@@ -255,6 +257,20 @@ function buildTransportStatusPatch(current = {}, nextStatus = '', transportId = 
   if (status === 'done' || status === 'delivered' || status === 'dorzuar' || status === 'dorezuar' || status === 'dorëzuar') {
     data.delivered_at = data.delivered_at || nowIso;
     data.delivered_by_transport_id = String(transportId || data.delivered_by_transport_id || '');
+  }
+  if (status === 'cancelled') {
+    data.cancelled = true;
+    data.canceled = true;
+    data.cancelled_at = data.cancelled_at || nowIso;
+    data.canceled_at = data.canceled_at || nowIso;
+    data.cancellation_source = data.cancellation_source || 'TRANSPORT';
+    data.cancelled_by_transport_id = String(identity.id || transportId || data.cancelled_by_transport_id || '');
+    data.cancelled_by = identity.name || identity.pin || data.cancelled_by || 'TRANSPORT';
+    if (reason) {
+      data.cancellation_reason = reason;
+      data.cancel_reason = reason;
+      data.failed_note = data.failed_note || reason;
+    }
   }
   return { status, updated_at: nowIso, data };
 }
@@ -1518,9 +1534,28 @@ function TransportBoardInner() {
     });
   }
 
-  async function cancelTransportOrder(orderId) {
+  async function cancelTransportOrder(orderOrId, reasonText = '') {
+    const orderId = String((orderOrId && typeof orderOrId === 'object') ? orderOrId.id : orderOrId || '').trim();
     if (!orderId) return;
-    await updateTransportStatus([orderId], 'cancelled');
+    const current = (orderOrId && typeof orderOrId === 'object')
+      ? orderOrId
+      : ((itemsRef.current || items || []).find((x) => String(x?.id || '') === orderId) || {});
+    const nowIso = new Date().toISOString();
+    const reason = String(reasonText || '').trim() || 'ANULUAR NGA TRANSPORTERI';
+    const patch = buildTransportStatusPatch(current, 'cancelled', transportId, nowIso, session || getTransportSession() || {}, { reason });
+
+    try {
+      await updateTransportOrderById(orderId, patch);
+    } catch (error) {
+      alert('Gabim: ' + translateBoardError(error));
+      return;
+    }
+
+    setItems((prev) => {
+      const next = Array.isArray(prev) ? prev.filter((it) => String(it?.id || '') !== orderId) : prev;
+      scheduleCacheWrite(getMasterCacheKey(session || getTransportSession() || {}), Array.isArray(next) ? next : [], { delay: 800 });
+      return next;
+    });
     try { load(); } catch {}
   }
 
