@@ -1,0 +1,26 @@
+PATCH: DISPATCH ANULIME 24H
+
+QELLIMI:
+- Kur Dispatch ose shoferi anulon/deshton nje transport order, porosia te largohet nga listat aktive.
+- Te mos zhduket krejt nga syte e Dispatch menjehere.
+- Te shfaqet ne nje tab/buton te vecante "ANULIME 24H" per 24 ore.
+- Pas 24 oreve nuk shfaqet me ne kete liste, por mbetet ne DB si audit/history.
+
+PREKUR:
+- app/dispatch/page.jsx
+
+NUK PREKUR:
+- DB schema
+- orders/transport data hard-delete
+- ARKA/payments/payroll
+- Service Worker/cache/runtime
+- offlineStore/outbox
+- Transport Board logic
+
+DETAILS:
+- Shtohet TAB_CANCELLED = cancelled.
+- Shtohet DISPATCH_CANCEL_VISIBLE_MS = 24h.
+- Anulimet/dështimet merren nga status cancelled/canceled/anuluar, data.cancelled_at/canceled_at, dispatch_removed_at, failed_at ose updated_at.
+- Shtohet button/tab "ANULIME 24H".
+- Shtohet card e vecante qe tregon: kodi, klienti, telefoni/adresa, arsyeja, burimi, kush e anuloi, dhe koha.
+- Query limit per transport_orders rritet lehte nga 120 ne 160 qe anulimet e fundit te mos humbin shpejt nga lista.

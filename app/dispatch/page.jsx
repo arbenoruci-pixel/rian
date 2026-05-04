@@ -16,9 +16,10 @@ const TAB_TOMORROW = "tomorrow";
 const TAB_ONLINE = "online";
 const TAB_PHONE = "phone";
 const TAB_UPDATES = "updates";
+const TAB_CANCELLED = "cancelled";
 
 const DISPATCH_LOAD_LIMIT_ORDERS = 96;
-const DISPATCH_LOAD_LIMIT_TRANSPORT = 120;
+const DISPATCH_LOAD_LIMIT_TRANSPORT = 160;
 const DISPATCH_SEARCH_LIMIT_ORDERS = 120;
 const DISPATCH_SEARCH_LIMIT_TRANSPORT = 140;
 
@@ -52,6 +53,7 @@ function up(v) {
 
 const TRANSPORT_PRE_PICKUP_STATUSES = new Set(["", "new", "inbox", "pending", "scheduled", "draft", "pranim", "dispatched", "assigned", "accepted"]);
 const DISPATCH_CANCELLED_STATUSES = new Set(["cancelled", "canceled", "anuluar", "annulled", "void", "deleted", "removed"]);
+const DISPATCH_CANCEL_VISIBLE_MS = 24 * 60 * 60 * 1000;
 
 function rawStatus(value) {
   return s(value).toLowerCase();
@@ -350,6 +352,34 @@ function isCancelledRow(row) {
   const raw = rawStatus(row?.status || data.status || data.dispatch_status || "");
   return DISPATCH_CANCELLED_STATUSES.has(raw) || !!(data.cancelled || data.canceled || data.cancelled_at || data.canceled_at);
 }
+function cancelledAtMs(row) {
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  const raw = data.cancelled_at || data.canceled_at || data.dispatch_removed_at || data.failed_at || data.unsuccessful_at || row?.updated_at || row?.created_at;
+  const ms = raw ? Date.parse(String(raw)) : NaN;
+  return Number.isFinite(ms) ? ms : 0;
+}
+function isRecentDispatchCancellation(row) {
+  if (!row) return false;
+  if (!(isCancelledRow(row) || isFailedRow(row) || isDispatchRemovedRow(row))) return false;
+  const ms = cancelledAtMs(row);
+  if (!ms) return false;
+  return Date.now() - ms <= DISPATCH_CANCEL_VISIBLE_MS;
+}
+function cancelReason(row) {
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  return s(data.cancellation_reason || data.cancel_reason || data.dispatch_removed_reason || data.failed_note || data.reason || data.unsuccess_reason || data.note || "PA ARSYE");
+}
+function cancelActor(row) {
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  return s(data.cancelled_by || data.dispatch_removed_by || data.transport_name || data.driver_name || data.actor || "-");
+}
+function cancelSource(row) {
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  const explicit = s(data.cancellation_source);
+  if (explicit) return up(explicit);
+  if (data.dispatch_removed_by || data.dispatch_removed_at || data.dispatch_hidden) return "DISPATCH";
+  return up(data.source || sourceLabel(row));
+}
 function isFailedRow(row) {
   const st = normalizeStatus(row?.status || row?.data?.status || "");
   if (st === "DËSHTUAR") return true;
@@ -494,6 +524,31 @@ function DispatchCard({ row, onOpen }) {
         </div>
       </div>
     </button>
+  );
+}
+
+function CancellationRow({ row, onOpen }) {
+  const code = getDispatchCardCode(row);
+  return (
+    <div style={ui.cancelCard}>
+      <div style={ui.cancelTop}>
+        <div style={ui.cancelCode}>{code}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={ui.cancelName}>{up(getClientName(row) || "PA EMËR")}</div>
+          <div style={ui.cancelSub}>{getClientPhone(row) || "PA TEL"} • {getAddress(row) || "PA ADRESË"}</div>
+        </div>
+        <span style={ui.badgeBad}>{isFailedRow(row) ? "DËSHTUAR" : "ANULUAR"}</span>
+      </div>
+      <div style={ui.cancelReason}>ARSYE: {up(cancelReason(row))}</div>
+      <div style={ui.cancelMeta}>
+        <span>{niceDate(cancelledAtMs(row))}</span>
+        <span>BURIMI: {cancelSource(row)}</span>
+        <span>NGA: {up(cancelActor(row))}</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button type="button" style={ui.btnGhostMini} onClick={() => onOpen(row)}>HAP</button>
+      </div>
+    </div>
   );
 }
 
@@ -834,6 +889,13 @@ export default function DispatchPage() {
       .slice(0, 20);
   }, [dispatchRows]);
 
+  const cancellationRows = useMemo(() => {
+    return dispatchRows
+      .filter((row) => isRecentDispatchCancellation(row))
+      .sort((a, b) => cancelledAtMs(b) - cancelledAtMs(a))
+      .slice(0, 40);
+  }, [dispatchRows]);
+
   const reschedules = useMemo(() => {
     const nowMs = Date.now();
     return dispatchRows
@@ -853,8 +915,9 @@ export default function DispatchPage() {
       [TAB_ONLINE]: onlineRows.length,
       [TAB_PHONE]: phoneRows.length,
       [TAB_UPDATES]: liveRows.length + failedRows.length + reschedules.length,
+      [TAB_CANCELLED]: cancellationRows.length,
     }),
-    [todayRows.length, tomorrowRows.length, onlineRows.length, phoneRows.length, liveRows.length, failedRows.length, reschedules.length]
+    [todayRows.length, tomorrowRows.length, onlineRows.length, phoneRows.length, liveRows.length, failedRows.length, reschedules.length, cancellationRows.length]
   );
 
   const canSend = useMemo(() => s(name).length >= 2 && isValidTransportPhoneDigits(getDispatchPhoneDigits(phone)), [name, phone]);
@@ -1082,9 +1145,10 @@ export default function DispatchPage() {
     if (activeTab === TAB_TOMORROW) return tomorrowRows;
     if (activeTab === TAB_ONLINE) return onlineRows;
     if (activeTab === TAB_PHONE) return phoneRows;
+    if (activeTab === TAB_CANCELLED) return cancellationRows;
     if (activeTab === TAB_TODAY) return todayRows;
     return [];
-  }, [activeTab, todayRows, tomorrowRows, onlineRows, phoneRows]);
+  }, [activeTab, todayRows, tomorrowRows, onlineRows, phoneRows, cancellationRows]);
 
   if (!accessChecked) return <DispatchAccessScreen checking />;
   if (!accessAllowed) return <DispatchAccessScreen />;
@@ -1107,6 +1171,7 @@ export default function DispatchPage() {
         <div style={ui.statCard}><div style={ui.statLabel}>NESËR</div><div style={ui.statValue}>{tabCounts[TAB_TOMORROW]}</div></div>
         <div style={ui.statCard}><div style={ui.statLabel}>ONLINE</div><div style={ui.statValue}>{tabCounts[TAB_ONLINE]}</div></div>
         <div style={ui.statCard}><div style={ui.statLabel}>LIVE</div><div style={ui.statValue}>{tabCounts[TAB_UPDATES]}</div></div>
+        <div style={ui.statCard}><div style={ui.statLabel}>ANULIME 24H</div><div style={ui.statValue}>{tabCounts[TAB_CANCELLED]}</div></div>
       </div>
 
       <div style={ui.card}>
@@ -1228,9 +1293,27 @@ export default function DispatchPage() {
           <button type="button" style={activeTab === TAB_ONLINE ? ui.tabOn : ui.tabOff} onClick={() => setActiveTab(TAB_ONLINE)}>ONLINE ({tabCounts[TAB_ONLINE]})</button>
           <button type="button" style={activeTab === TAB_PHONE ? ui.tabOn : ui.tabOff} onClick={() => setActiveTab(TAB_PHONE)}>TELEFONATA ({tabCounts[TAB_PHONE]})</button>
           <button type="button" style={activeTab === TAB_UPDATES ? ui.tabOn : ui.tabOff} onClick={() => setActiveTab(TAB_UPDATES)}>LIVE ({tabCounts[TAB_UPDATES]})</button>
+          <button type="button" style={activeTab === TAB_CANCELLED ? ui.tabDangerOn : ui.tabDangerOff} onClick={() => setActiveTab(TAB_CANCELLED)}>ANULIME 24H ({tabCounts[TAB_CANCELLED]})</button>
         </div>
 
-        {activeTab !== TAB_UPDATES ? (
+        {activeTab === TAB_CANCELLED ? (
+          <>
+            <div style={ui.sectionHeadRow}>
+              <div style={ui.sectionTitle}>ANULIME / DËSHTIME — 24 ORËT E FUNDIT</div>
+              <button type="button" style={ui.btnGhostMini} onClick={loadRows}>{loadingRows ? "DUKE…" : "REFRESH"}</button>
+            </div>
+            <div style={ui.sectionHint}>Këtu shihen porositë e anuluara nga Dispatch ose shoferi. Pas 24 orëve nuk shfaqen më në këtë listë, por mbeten të ruajtura në DB si audit.</div>
+            {(cancellationRows?.length || 0) === 0 ? (
+              <div style={ui.empty}>S'KA ANULIME NË 24 ORËT E FUNDIT.</div>
+            ) : (
+              <div style={ui.list}>
+                {cancellationRows.map((row) => (
+                  <CancellationRow key={`${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />
+                ))}
+              </div>
+            )}
+          </>
+        ) : activeTab !== TAB_UPDATES ? (
           <>
             <div style={ui.sectionHint}>
               {activeTab === TAB_ONLINE ? "Porositë që vijnë nga forma online." : activeTab === TAB_PHONE ? "Porositë që dispatch i fut manualisht nga telefonatat." : activeTab === TAB_TOMORROW ? "Planifikimi për nesër." : "Planifikimi për sot."}
@@ -1468,6 +1551,15 @@ const ui = {
   timelineDone: { fontSize: 10, fontWeight: 1000, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(16,185,129,0.22)", background: "rgba(16,185,129,0.12)", color: "#047857", lineHeight: 1.15 },
   timelineNow: { fontSize: 10, fontWeight: 1000, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(37,99,235,0.28)", background: "rgba(59,130,246,0.14)", color: "#1d4ed8", lineHeight: 1.15 },
   timelinePending: { fontSize: 10, fontWeight: 900, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.03)", color: "rgba(17,17,17,0.56)", lineHeight: 1.15 },
+  tabDangerOn: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(185,28,28,0.28)", background: "#991b1b", color: "#fff", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  tabDangerOff: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(185,28,28,0.22)", background: "rgba(185,28,28,0.08)", color: "#991b1b", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  cancelCard: { width: "100%", maxWidth: "100%", minWidth: 0, border: "1px solid rgba(185,28,28,0.18)", borderRadius: 16, padding: 12, display: "grid", gap: 8, background: "linear-gradient(180deg, rgba(254,242,242,0.95), rgba(255,255,255,0.96))", boxShadow: "0 8px 18px rgba(0,0,0,0.05)", boxSizing: "border-box", overflow: "hidden" },
+  cancelTop: { display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, maxWidth: "100%" },
+  cancelCode: { minWidth: 52, height: 42, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(185,28,28,0.10)", color: "#991b1b", fontSize: 13, fontWeight: 1000, border: "1px solid rgba(185,28,28,0.16)" },
+  cancelName: { minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15, fontWeight: 1000 },
+  cancelSub: { minWidth: 0, maxWidth: "100%", fontSize: 12, opacity: 0.72, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: 800 },
+  cancelReason: { borderRadius: 12, background: "rgba(185,28,28,0.07)", border: "1px solid rgba(185,28,28,0.10)", color: "#7f1d1d", padding: "8px 10px", fontSize: 12, fontWeight: 900 },
+  cancelMeta: { display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11, opacity: 0.68, fontWeight: 900 },
   modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.40)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60 },
   modalCard: { width: "min(680px, 100%)", maxWidth: "100%", maxHeight: "90vh", overflow: "auto", background: "#fff", borderRadius: 18, border: "1px solid rgba(0,0,0,0.08)", padding: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.18)", boxSizing: "border-box" },
 };
