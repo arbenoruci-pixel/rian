@@ -13,15 +13,14 @@ const ROUTE_URLS = [
   // V12: do not warm Home or the eager daily routes before/around first paint.
   // Warmup is background convenience only for lazy secondary surfaces.
   '/arka',
-  '/transport',
   '/transport/menu',
   '/transport/board',
 ];
 
 const MODULE_WARMERS = [
   // V12: keep daily business routes eager and avoid warming runtime modules here.
+  // V6 transport fix: do not warm @/app/transport/page.jsx; /transport now redirects directly to /transport/board.
   ['ARKA', () => import('@/app/arka/page.jsx')],
-  ['TRANSPORT_HOME', () => import('@/app/transport/page.jsx')],
   ['TRANSPORT_MENU', () => import('@/app/transport/menu/page.jsx')],
   ['TRANSPORT_BOARD', () => import('@/app/transport/board/page.jsx')],
   ['SMART_SMS_MODAL', () => import('@/components/SmartSmsModal.jsx')],
