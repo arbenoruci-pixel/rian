@@ -20,6 +20,7 @@ import OfflinePageEager from '@/app/offline/page.jsx';
 import HomePageEager from '@/app/page.jsx';
 import TransportLoginPageEager from '@/app/transport/login/page.jsx';
 import TransportBoardPageEager from '@/app/transport/board/page.jsx';
+import TransportPranimiPageEager from '@/app/transport/pranimi/page.jsx';
 import GatiPageEager from '@/app/gati/page.jsx';
 import MarrjeSotPageEager from '@/app/marrje-sot/page.jsx';
 import PastrimiPageEager from '@/app/pastrimi/page.jsx';
@@ -683,7 +684,7 @@ export const appRoutes = [
   { path: '/transport', element: <Navigate to='/transport/board' replace /> },
   { path: '/transport/pay', element: safeLazyElement('/transport/pay', () => import('@/app/transport/pay/page.jsx'), '@/app/transport/pay/page.jsx', 'TRANSPORT PAY') },
   { path: '/transport/pickup', element: safeLazyElement('/transport/pickup', () => import('@/app/transport/pickup/page.jsx'), '@/app/transport/pickup/page.jsx', 'TRANSPORT PICKUP') },
-  { path: '/transport/pranimi', element: safeLazyElement('/transport/pranimi', () => import('@/app/transport/pranimi/page.jsx'), '@/app/transport/pranimi/page.jsx', 'TRANSPORT PRANIMI') },
+  { path: '/transport/pranimi', element: eagerElement(TransportPranimiPageEager, '/transport/pranimi') },
   { path: '/transport/te-pa-plotsuara', element: safeLazyElement('/transport/te-pa-plotsuara', () => import('@/app/transport/te-pa-plotsuara/page.jsx'), '@/app/transport/te-pa-plotsuara/page.jsx', 'TRANSPORT TE PA PLOTSUARA') },
   { path: '/worker', element: lazyElement(Page43, '/worker') },
   { path: '*', element: <NotFoundPage /> },
