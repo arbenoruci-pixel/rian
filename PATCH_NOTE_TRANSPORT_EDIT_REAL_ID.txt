@@ -1,0 +1,17 @@
+PATCH: Transport edit loads real order ID and client info
+
+Files changed:
+- app/transport/pranimi/page.jsx
+
+Fixes:
+- Prefer ?id=<order_id> over ?edit=1 marker when opening Transport PRANIMI edit.
+- Keep legacy ?edit=<order_id> support.
+- Hydrate edit form client fields from row.data.client, data-level fields, and top-level row fields.
+- Split phone prefix/local number safely for edit mode.
+
+Not touched:
+- DB schema
+- ARKA/payments/payroll
+- Service Worker/cache/runtime
+- offlineStore/outbox format
+- transport order business logic

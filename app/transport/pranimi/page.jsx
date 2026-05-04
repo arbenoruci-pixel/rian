@@ -705,12 +705,21 @@ function readTransportOrderClientForEdit(row = {}) {
   };
 }
 
+function resolveTransportPranimiEditId(searchParams) {
+  const idParam = String(searchParams?.get('id') || '').trim();
+  const editParam = String(searchParams?.get('edit') || '').trim();
+  if (idParam) return idParam;
+  const marker = editParam.toLowerCase();
+  if (!editParam || marker === '1' || marker === 'true' || marker === 'yes') return '';
+  return editParam;
+}
+
 // ---------------- COMPONENT ----------------
 function PranimiPageInner() {
   useRouteAlive('transport_pranimi_page');
   const router = useRouter();
   const searchParams = useSearchParams();
-  const editId = String(searchParams?.get('edit') || searchParams?.get('id') || '').trim();
+  const editId = resolveTransportPranimiEditId(searchParams);
   const isEdit = Boolean(editId);
   const bridgeFrom = String(searchParams?.get('from') || '').trim();
   const isBaseBridgeEdit = Boolean(isEdit && bridgeFrom === 'pastrimi-edit' && searchParams?.get('baseBridge') === '1');
@@ -876,7 +885,7 @@ function PranimiPageInner() {
                 setOid(row.id);
                 setCodeRaw(editClient.tcode || normalizeTcode(row.code_str || row.client_tcode || ''));
                 setEditRowStatus(row.status);
-                setEditOriginalData(d && typeof d === 'object' && !Array.isArray(d) ? d : {});
+                setEditOriginalData(d);
                 if (existingTid) setAssignTid(existingTid);
                 if (isBaseBridgeEdit) setLockedBridgeTransportId(existingTid);
                 setName(editClient.name || '');
