@@ -1,0 +1,25 @@
+PATCH V8 — TRANSPORT PRANIMI uses standard Smart SMS logic
+
+Goal:
+- Make the message shown after Transport Pranimi save/use the same SmartSmsModal + lib/smartSms.js logic as other modules.
+- Keep Transport Board pickup SMS text aligned with the preferred wording.
+
+Files changed:
+- lib/smartSms.js
+- app/transport/pranimi/page.jsx
+- app/transport/board/modules/inbox.jsx
+
+Changes:
+1) Added action type: transport_pranimi in lib/smartSms.js.
+2) Updated transport_marrje text to the preferred driver pickup wording.
+3) app/transport/pranimi/page.jsx now imports SmartSmsModal and buildSmartSmsText.
+4) Replaced the custom WhatsApp/Viber/SMS message modal in Transport Pranimi with SmartSmsModal.
+5) Viber/SMS/WhatsApp now use the same link-building behavior as the rest of the app.
+
+Not touched:
+- DB schema
+- transport_orders/orders data
+- ARKA/payments/payroll
+- Service Worker/cache/runtime
+- offlineStore/outbox
+- status flow

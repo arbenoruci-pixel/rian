@@ -11,12 +11,13 @@ import { getTransportSession, getTransportContext } from '@/lib/transportAuth';
 import { readBestActor } from '@/lib/sessionStore';
 import { recordCashMove } from '@/lib/arkaCashSync';
 import PosModal from '@/components/PosModal';
+import SmartSmsModal from '@/components/SmartSmsModal';
 import { requirePaymentPin } from '@/lib/paymentPin';
 import { getClientBalanceByPhone } from '@/lib/clientBalanceDb';
 import { enqueueTransportOrder, syncNow } from '@/lib/syncManager';
 import { addTransportCollected } from '@/lib/transportArkaStore';
 import { fetchTransportOrderById, listTransportOrders, searchTransportClientCandidatesByOrders, updateTransportOrderById } from '@/lib/transportOrdersDb';
-import { buildSmsLink } from '@/lib/smartSms';
+import { buildSmartSmsText } from '@/lib/smartSms';
 import { trackRender } from '@/lib/sensor';
 import useRouteAlive from '@/lib/routeAlive';
 
@@ -1389,25 +1390,48 @@ function PranimiPageInner() {
       return () => { alive = false; clearTimeout(t); };
   }, [creating, isEdit, actor?.role, me?.transport_id, assignTid, phonePrefix, phone, clientId, clientTcode, codeRaw, transportClientMatchDecision?.matchKey, transportClientMatchDecision?.mode, transportClientMatchPrompt?.open, transportClientMatchPrompt?.matchKey]);
 
-  // ✅ FIX: MESAZHI I GATSHËM PËR SMS/VIBER
+  // Mesazhi i Transport Pranimi përdor të njëjtën logjikë si Smart SMS.
+  function buildTransportPranimiSmsOrder() {
+      const code = normalizeTcode(clientTcode || codeRaw);
+      const phoneFull = sanitizePhone(phonePrefix + phone);
+      return {
+        client_name: String(name || '').trim(),
+        client_phone: phoneFull,
+        phone: phoneFull,
+        client_tcode: code,
+        code_str: code,
+        t_code: code,
+        code,
+        tepiha: tepihaRows,
+        staza: stazaRows,
+        shkallore: { qty: stairsQty, per: stairsPer, photoUrl: stairsPhotoUrl },
+        pieces: Number(copeCount || 0),
+        m2_total: Number(totalM2 || 0),
+        total_euro: Number(totalEuro || 0),
+        pay: {
+          m2: Number(totalM2 || 0),
+          euro: Number(totalEuro || 0),
+          total: Number(totalEuro || 0),
+          paid: Number(clientPaid || 0),
+          pieces: Number(copeCount || 0),
+        },
+        totals: {
+          m2: Number(totalM2 || 0),
+          total: Number(totalEuro || 0),
+          euro: Number(totalEuro || 0),
+          pieces: Number(copeCount || 0),
+        },
+        client: {
+          name: String(name || '').trim(),
+          phone: phoneFull,
+          code,
+          tcode: code,
+        },
+      };
+  }
+
   function buildStartMessage() {
-      const code = normalizeTcode(codeRaw);
-      const pieces = Number(copeCount || 0);
-      return [
-        `Përshëndetje ${name || ''},`,
-        `Porosia juaj u pranua me sukses.`,
-        `KODI: ${code}`,
-        `COPË: ${pieces}`,
-        `TOTALI: ${Number(totalEuro || 0).toFixed(2)} €`,
-        ``,
-        `Kur porosia të jetë gati, do t'ju njoftojmë për konfirmim. Pa konfirmimin tuaj, porosia nuk sillet.`,
-        `Nëse nuk lajmëroheni brenda 3 ditëve, aplikohet tarifë ekstra për ta risjellë.`,
-        ``,
-        `📍 Ndiqni porosinë live:`,
-        `https://tepiha.vercel.app/k/${normalizeTcode(codeRaw)}`,
-        ``,
-        `Tel: ${COMPANY_PHONE_DISPLAY}`
-      ].join('\n');
+      return buildSmartSmsText(buildTransportPranimiSmsOrder(), 'transport_pranimi');
   }
   function buildReceiptMessage() {
       const paid = Number(clientPaid || 0);
@@ -2361,46 +2385,13 @@ function PranimiPageInner() {
           </div>
         </div>
       )}
-      {/* MESSAGE SHEET */}
-      {/* MESSAGE MODAL FULL SCREEN */}
-      {showMsgSheet && (
-        <div className="msgOverlay" onClick={closeAfterTransportPranimiSave}>
-          <div className="msgModal" onClick={(e) => e.stopPropagation()}>
-            <div className="msgModalTop">
-              <div>
-                <div className="msgModalTitle">MESAZHI PËR KLIENTIN</div>
-                <div className="msgModalSub">Dërgoje nga këtu para se ta mbyllësh porosinë.</div>
-              </div>
-              <button className="btn secondary" onClick={closeAfterTransportPranimiSave}>MBYLL</button>
-            </div>
-            <div className="msgPreview">
-              <pre style={{color:'#E5E7EB', fontSize:14, whiteSpace:'pre-wrap', lineHeight:1.55, margin:0}}>{buildCurrentMessage()}</pre>
-            </div>
-            <div className="msgActions">
-              <button className="btn secondary" onClick={() => {
-                const txt = buildCurrentMessage();
-                try { navigator.clipboard?.writeText(txt); } catch {}
-              }}>KOPJO</button>
-              <button className="btn secondary" onClick={() => {
-                const txt = buildCurrentMessage();
-                const ph = sanitizePhone(phonePrefix + phone);
-                window.open(`https://wa.me/${ph}?text=${encodeURIComponent(txt)}`, '_blank');
-              }}>WHATSAPP</button>
-              <button className="btn secondary" onClick={() => {
-                const txt = buildCurrentMessage();
-                const ph = sanitizePhone(phonePrefix + phone);
-                window.open(`viber://chat?number=%2B${ph}`, '_blank');
-              }}>VIBER</button>
-              <button className="btn primary" onClick={() => {
-                const txt = buildCurrentMessage();
-                const ph = sanitizePhone(phonePrefix + phone);
-                const smsHref = buildSmsLink(ph, txt);
-                if (smsHref) window.open(smsHref, '_blank');
-              }}>SMS</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* MESSAGE SHEET - standard Smart SMS logic */}
+      <SmartSmsModal
+        isOpen={showMsgSheet}
+        onClose={closeAfterTransportPranimiSave}
+        phone={sanitizePhone(phonePrefix + phone)}
+        messageText={buildCurrentMessage()}
+      />
       <style jsx>{`
         .wrap { padding: 10px 10px 80px; max-width: 600px; margin: 0 auto; color: white; }
 
