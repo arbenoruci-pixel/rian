@@ -7,8 +7,33 @@ import { useRenderBatches } from '@/lib/renderBatching';
 const BOARD_RENDER_LIMIT = 50;
 const ACTION_DEFER_MS = 300;
 
-function buildConfirmSms(trackUrl) {
-  return `Përshëndetje! Jam shoferi i kompanisë JONI. Jam rrugës për të marrë porosinë tuaj për larjen e tepihave. Ju lutem klikoni këtë link për të na konfirmuar lokacionin dhe kohën kur jeni në shtëpi: ${trackUrl || 'https://tepiha.vercel.app/k/'}`;
+function buildConfirmSms(trackUrl, order) {
+  const clientName = String(
+    order?.client_name
+    || order?.clientName
+    || order?.name
+    || order?.client?.name
+    || order?.data?.client_name
+    || order?.data?.clientName
+    || order?.data?.name
+    || order?.data?.client?.name
+    || ''
+  ).trim();
+
+  return [
+    clientName ? `Përshëndetje ${clientName}!` : 'Përshëndetje!',
+    '',
+    'Jam shoferi i kompanisë JONI. Së shpejti vij t’i marr tepihat për larje, ju lutem bëjini gati.',
+    '',
+    'Për të dërguar lokacionin, preke këtë link:',
+    trackUrl || 'https://tepiha.vercel.app/k/',
+    '',
+    'Ose na shkruani këtu adresën e saktë dhe një pikë orientuese.',
+    '',
+    'Për info:',
+    'Kompania JONI',
+    'Tel: +38344735312',
+  ].join('\n');
 }
 
 function normalizePhone(phone) {
@@ -25,7 +50,7 @@ function buildSmsHref(phone, order) {
   if (!clean || !order) return '';
   const trackUrl = buildTransportConfirmUrl(order);
   if (!trackUrl || /\/k\/?$/.test(trackUrl)) return '';
-  return buildSmsLink(clean, buildConfirmSms(trackUrl));
+  return buildSmsLink(clean, buildConfirmSms(trackUrl, order));
 }
 
 function getLatLngFromOrder(order, getOrderLatLng) {

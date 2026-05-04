@@ -1,0 +1,18 @@
+PATCH NOTE — TRANSPORT PICKUP SMS TEXT V7
+
+Qëllimi:
+- Ndrysho mesazhin e fazës së marrjes në transport.
+- Mos thuaj më “jam rrugës”.
+- Prezanto shoferin, kërko që tepihat të bëhen gati, dhe jep opsion për link lokacioni ose përshkrim adrese.
+
+Files changed:
+- lib/smartSms.js
+- app/transport/board/modules/inbox.jsx
+
+Nuk preket:
+- DB schema
+- orders / transport_orders
+- ARKA / payments / payroll
+- Service Worker / cache / runtime
+- offlineStore / outbox
+- status flow
