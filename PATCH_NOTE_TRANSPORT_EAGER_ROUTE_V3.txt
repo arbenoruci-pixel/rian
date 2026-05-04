@@ -1,0 +1,34 @@
+PATCH NOTE — TRANSPORT EAGER ROUTE V3
+
+Goal:
+Stop frequent SafeLazyRouteShell loading/safe-mode stalls when opening Transport.
+
+Changed file:
+- src/generated/routes.generated.jsx
+
+What changed:
+- Kept previous Dispatch eager fix:
+  /dispatch -> eagerElement(DispatchPageEager, '/dispatch')
+- Added eager imports for:
+  @/app/transport/page.jsx
+  @/app/transport/board/page.jsx
+- Changed:
+  /transport -> eagerElement(TransportPageEager, '/transport')
+  /transport/board -> eagerElement(TransportBoardPageEager, '/transport/board')
+
+Why:
+Transport entry redirects into /transport/board, and /transport/board is the real driver UI. Leaving board behind SafeLazyRouteShell can still show the same "DUKE HAPUR FAQEN / APP SAFE MODE" stall after /transport opens.
+
+Not touched:
+- DB schema
+- orders / transport data
+- ARKA
+- payments
+- payroll
+- Service Worker / cache / runtime
+- offlineStore / outbox
+- transport business logic
+- UI redesign
+
+Notes:
+Other legacy/deep transport routes remain lazy/safe-lazy for now to keep the patch minimal. If a specific route still shows Safe Mode, patch that route separately after seeing the exact module name in the screenshot/log.
