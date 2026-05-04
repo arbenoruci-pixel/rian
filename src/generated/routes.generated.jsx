@@ -653,7 +653,7 @@ export const appRoutes = [
   { path: '/debug', element: lazyElement(Page9, '/debug') },
   { path: '/debug/sync', element: lazyElement(Page10, '/debug/sync') },
   { path: '/diag-lite', element: lazyElement(Page11, '/diag-lite') },
-  { path: '/dispatch', element: lazyElement(Page12, '/dispatch') },
+  { path: '/dispatch', element: safeLazyElement('/dispatch', () => import('@/app/dispatch/page.jsx'), '@/app/dispatch/page.jsx', 'DISPATCH') },
   { path: '/fletore', element: lazyElement(Page13, '/fletore') },
   { path: '/gati', element: eagerElement(GatiPageEager, '/gati') },
   { path: '/k/:id', element: lazyElement(Page15, '/k/:id') },

@@ -21,8 +21,10 @@ function normalizeBridgeRole(role) {
   return String(role || '').trim().toUpperCase();
 }
 
-function isBaseWorkerRole(role) {
-  return ['PUNTOR', 'PUNETOR', 'WORKER'].includes(normalizeBridgeRole(role));
+const TRANSPORT_BRIDGE_ACCESS_ROLES = new Set(['PUNTOR', 'PUNETOR', 'WORKER', 'DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN']);
+
+function isTransportBridgeAccessRole(role) {
+  return TRANSPORT_BRIDGE_ACCESS_ROLES.has(normalizeBridgeRole(role));
 }
 
 function isPastrimiTransportBridgeRoute(pathname) {
@@ -44,7 +46,7 @@ function hasPastrimiBaseBridgeAccess(pathname) {
   if (!isPastrimiTransportBridgeRoute(pathname)) return false;
   try {
     const actor = readBestActor({ allowTransportFallback: false });
-    return isBaseWorkerRole(actor?.role);
+    return isTransportBridgeAccessRole(actor?.role);
   } catch {
     return false;
   }
@@ -63,18 +65,27 @@ export default function TransportLayout({ children }) {
     let redirectTimer = null;
 
     const resolve = () => {
+      const isBridge = isPastrimiTransportBridgeRoute(pathname);
+
+      // Limited bridge: base/admin users may open an existing transport order only
+      // when the navigation comes from Pastrimi edit. Bridge mode must never trust
+      // a stale transport session left in Safari/iPhone storage by a previous user.
+      if (isBridge) {
+        if (hasPastrimiBaseBridgeAccess(pathname)) {
+          if (!cancelled) setStatus('ok');
+          return;
+        }
+        if (!cancelled) setStatus('redirecting');
+        redirectTimer = window.setTimeout(() => {
+          if (!cancelled) router.replace('/login');
+        }, 80);
+        return;
+      }
+
       const session = getTransportSession();
       const tid = session?.transport_id ? String(session.transport_id) : '';
 
       if (tid) {
-        if (!cancelled) setStatus('ok');
-        return;
-      }
-
-      // Limited bridge: base workers may open an existing transport order only
-      // when the navigation comes from Pastrimi edit. This does not grant
-      // access to Transport menu/board or transport create flow.
-      if (hasPastrimiBaseBridgeAccess(pathname)) {
         if (!cancelled) setStatus('ok');
         return;
       }

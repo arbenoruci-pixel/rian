@@ -245,8 +245,7 @@ function normalizeTransportClientCandidate(c = {}) {
   };
 }
 
-async function findTransportClientByPhoneOnly(transportId, phoneValue, options = {}) {
-  const tid = String(transportId || '').trim();
+async function findTransportClientByPhoneOnly(phoneValue, options = {}) {
   const variants = buildTransportPhoneVariants(phoneValue);
   const phoneKey = normalizeTransportPhoneKey(phoneValue);
   if (!isValidTransportPhoneDigits(phoneKey)) return null;
@@ -279,23 +278,19 @@ async function findTransportClientByPhoneOnly(transportId, phoneValue, options =
   } catch {}
 
   if (!candidates.length) {
-    // If transport_clients is missing a row, recover from transport order history.
-    // First try the current driver/admin scope, then a global read. Candidate acceptance
-    // still requires same normalized phone_digits, never name or T-code alone.
-    for (const orderTransportId of [tid, '']) {
-      if (candidates.length) break;
-      try {
-        const orderHits = await searchTransportClientCandidatesByOrders({
-          transportId: orderTransportId,
-          query: variants[0] || phoneValue,
-          limit: 20,
-          signal,
-          timeoutMs: Math.max(3500, Math.min(timeoutMs, 7000)),
-          timeoutLabel: orderTransportId ? 'TRANSPORT_PHONE_ORDER_HISTORY_TIMEOUT' : 'TRANSPORT_PHONE_ORDER_HISTORY_GLOBAL_TIMEOUT',
-        }).catch(() => []);
-        (Array.isArray(orderHits) ? orderHits : []).forEach(pushCandidate);
-      } catch {}
-    }
+    // If transport_clients is missing a row, recover from global transport order history.
+    // Candidate acceptance still requires same normalized phone_digits, never name or T-code alone.
+    try {
+      const orderHits = await searchTransportClientCandidatesByOrders({
+        transportId: '',
+        query: variants[0] || phoneValue,
+        limit: 20,
+        signal,
+        timeoutMs: Math.max(3500, Math.min(timeoutMs, 7000)),
+        timeoutLabel: 'TRANSPORT_PHONE_ORDER_HISTORY_GLOBAL_TIMEOUT',
+      }).catch(() => []);
+      (Array.isArray(orderHits) ? orderHits : []).forEach(pushCandidate);
+    } catch {}
   }
 
   candidates.sort((a, b) => String(b?.updated_at || b?.row?.updated_at || '').localeCompare(String(a?.updated_at || a?.row?.updated_at || '')));
@@ -1305,7 +1300,7 @@ function PranimiPageInner() {
       let alive = true;
       const t = setTimeout(() => {
         void (async () => {
-          const found = await findTransportClientByPhoneOnly(tid, phoneFull, { timeoutMs: 5000 }).catch(() => null);
+          const found = await findTransportClientByPhoneOnly(phoneFull, { timeoutMs: 5000 }).catch(() => null);
           if (!alive) return;
           if (!found) {
             if (transportClientMatchPrompt?.open) setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
@@ -1413,7 +1408,7 @@ function PranimiPageInner() {
       const actorName = String(actor?.name || me?.name || me?.full_name || me?.username || displayTransportName(actorPin, transportUserNameMap, '') || '').trim();
       let existingPhoneClient = null;
       if (!isEdit && phoneIsValidForMatch) {
-        existingPhoneClient = await findTransportClientByPhoneOnly(tid, phoneFull, { timeoutMs: 5500 }).catch(() => null);
+        existingPhoneClient = await findTransportClientByPhoneOnly(phoneFull, { timeoutMs: 5500 }).catch(() => null);
         if (existingPhoneClient && !isSelectedTransportPhoneClient(existingPhoneClient)) {
           const matchKey = buildTransportPhoneMatchKey(existingPhoneClient, phoneFull);
           if (!(String(transportClientMatchDecision?.matchKey || '') === matchKey && transportClientMatchDecision?.mode === 'use_existing')) {

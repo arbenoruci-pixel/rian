@@ -8,7 +8,8 @@ import { listUsers } from "@/lib/usersDb";
 import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
 import { supabase } from "@/lib/supabaseClient";
-import { findTransportClientByPhoneOnly, normTCode, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
+import { reserveTransportCode } from "@/lib/transportCodes";
+import { findTransportClientByPhoneOnly, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits, upsertTransportClient } from "@/lib/transport/transportDb";
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -138,6 +139,76 @@ function getTransportClientId(row) {
 }
 function getTransportTCode(row) {
   return normTCode(row?.client_tcode || row?.tcode || row?.code_str || row?.data?.client_tcode || row?.data?.client?.tcode || row?.data?.client?.code || "");
+}
+function getTransportClientSource(row) {
+  return s(row?.source || row?._table || row?.data?.source || "");
+}
+function getDispatchPhoneDigits(value) {
+  return normalizeTransportPhoneKey(value);
+}
+async function ensureDispatchTransportClientLink({ name, phone, address, existingPhoneClient, tcodeOwner }) {
+  const cleanName = s(name);
+  const cleanPhone = onlyDigits(phone);
+  const phoneDigits = getDispatchPhoneDigits(cleanPhone);
+
+  if (!isValidTransportPhoneDigits(phoneDigits)) {
+    throw new Error("TELEFONI NUK ËSHTË VALID. SHKRUAJ NUMËR ME SË PAKU 8 SHIFRA.");
+  }
+
+  let liveClient = null;
+  try {
+    liveClient = await findTransportClientByPhoneOnly(cleanPhone, { timeoutMs: 5500 });
+  } catch (error) {
+    throw new Error(`NUK U VERIFIKUA KLIENTI ME TELEFON. POROSIA NUK U RUAJT. ${error?.message || ''}`.trim());
+  }
+
+  const selectedClient = liveClient && dispatchSamePhone(getClientPhone(liveClient) || liveClient?.phone_digits || liveClient?.phone, cleanPhone)
+    ? liveClient
+    : (existingPhoneClient && dispatchSamePhone(getClientPhone(existingPhoneClient) || existingPhoneClient?.phone_digits || existingPhoneClient?.phone, cleanPhone) ? existingPhoneClient : null);
+
+  let clientId = selectedClient ? getTransportClientId(selectedClient) : "";
+  let tcode = selectedClient ? getTransportTCode(selectedClient) : "";
+
+  if (!tcode) {
+    try {
+      tcode = normTCode(await reserveTransportCode(tcodeOwner || "DISPATCH", { oid: `dispatch_${Date.now()}` }));
+    } catch (error) {
+      throw new Error(`NUK U REZERVUA T-CODE. POROSIA NUK U RUAJT. ${error?.message || ''}`.trim());
+    }
+  }
+
+  if (!tcode) {
+    throw new Error("NUK U GJET / KRIJUA T-CODE. POROSIA NUK U RUAJT.");
+  }
+
+  const upsertResult = await upsertTransportClient({
+    ...(clientId ? { id: clientId } : {}),
+    name: cleanName,
+    phone: cleanPhone,
+    phone_digits: phoneDigits,
+    tcode,
+    address: s(address),
+  });
+
+  if (!upsertResult?.ok || !(upsertResult?.id || clientId)) {
+    throw new Error(upsertResult?.error || "TRANSPORT_CLIENT_LINK_FAILED");
+  }
+
+  const linkedTcode = normTCode(upsertResult?.tcode || tcode);
+  const linkedClientId = upsertResult?.id || clientId;
+  if (!linkedClientId || !linkedTcode) {
+    throw new Error("TRANSPORT_CLIENT_LINK_INCOMPLETE");
+  }
+
+  return {
+    clientId: linkedClientId,
+    tcode: linkedTcode,
+    name: cleanName,
+    phone: cleanPhone,
+    phoneDigits,
+    source: getTransportClientSource(selectedClient) || "transport_clients",
+    rowId: selectedClient?.row_id || selectedClient?.id || null,
+  };
 }
 function dispatchSamePhone(a, b) {
   return sameTransportPhoneDigits(a, b);
@@ -595,8 +666,9 @@ export default function DispatchPage() {
 
   useEffect(() => {
     const digits = onlyDigits(phone);
+    const phoneDigits = getDispatchPhoneDigits(digits);
     if (phoneTimer.current) clearTimeout(phoneTimer.current);
-    if (digits.length < 6) {
+    if (!isValidTransportPhoneDigits(phoneDigits)) {
       setPhoneHit(null);
       return;
     }
@@ -762,11 +834,11 @@ export default function DispatchPage() {
     [todayRows.length, tomorrowRows.length, onlineRows.length, phoneRows.length, liveRows.length, failedRows.length, reschedules.length]
   );
 
-  const canSend = useMemo(() => s(name).length >= 2 && onlyDigits(phone).length >= 6, [name, phone]);
+  const canSend = useMemo(() => s(name).length >= 2 && isValidTransportPhoneDigits(getDispatchPhoneDigits(phone)), [name, phone]);
 
   async function send() {
     if (!canSend) {
-      setErr("PLOTËSO EMRIN DHE TELIN");
+      setErr("PLOTËSO EMRIN DHE TELEFON VALID");
       return;
     }
     setBusy(true);
@@ -781,24 +853,35 @@ export default function DispatchPage() {
       const cleanAddress = s(address);
       const cleanNote = s(note);
       const existingPhoneClient = phoneHit && dispatchSamePhone(getClientPhone(phoneHit) || phoneHit?.phone_digits || phoneHit?.phone, cleanPhone) ? phoneHit : null;
-      const existingClientId = existingPhoneClient ? getTransportClientId(existingPhoneClient) : "";
-      const existingTCode = existingPhoneClient ? getTransportTCode(existingPhoneClient) : "";
+      const actorNow = getActor() || null;
+      const clientLink = await ensureDispatchTransportClientLink({
+        name: cleanName,
+        phone: cleanPhone,
+        address: cleanAddress,
+        existingPhoneClient,
+        tcodeOwner: pickedDriverPin || String(actorNow?.pin || '').trim() || 'DISPATCH',
+      });
       const payload = {
         status: driverId ? "assigned" : "inbox",
-        client_name: cleanName,
-        client_phone: cleanPhone,
-        ...(existingClientId ? { client_id: existingClientId } : {}),
-        ...(existingTCode ? { code_str: existingTCode, client_tcode: existingTCode } : {}),
+        client_id: clientLink.clientId,
+        client_tcode: clientLink.tcode,
+        code_str: clientLink.tcode,
+        client_name: clientLink.name,
+        client_phone: clientLink.phone,
         data: {
           client: {
-            ...(existingClientId ? { id: existingClientId } : {}),
-            ...(existingTCode ? { tcode: existingTCode, code: existingTCode } : {}),
-            name: cleanName,
-            phone: cleanPhone,
+            id: clientLink.clientId,
+            tcode: clientLink.tcode,
+            code: clientLink.tcode,
+            name: clientLink.name,
+            phone: clientLink.phone,
+            phone_digits: clientLink.phoneDigits,
             address: cleanAddress,
           },
-          ...(existingClientId ? { client_id: existingClientId } : {}),
-          ...(existingTCode ? { client_tcode: existingTCode, code_str: existingTCode } : {}),
+          client_id: clientLink.clientId,
+          client_tcode: clientLink.tcode,
+          code_str: clientLink.tcode,
+          phone_digits: clientLink.phoneDigits,
           address: cleanAddress,
           note: cleanNote,
           created_by: "DISPATCH",
@@ -816,15 +899,19 @@ export default function DispatchPage() {
           driver_pin: pickedDriverPin || null,
           assigned_driver_id: driverId || null,
           assigned_at: new Date().toISOString(),
-          last_customer_hit: existingPhoneClient ? {
-            id: existingClientId || existingPhoneClient.id || null,
-            tcode: existingTCode || null,
-            source: existingPhoneClient.source || "transport_clients",
-            row_id: existingPhoneClient.row_id || null,
+          last_customer_hit: {
+            id: clientLink.clientId,
+            tcode: clientLink.tcode,
+            source: clientLink.source || "transport_clients",
+            row_id: clientLink.rowId || null,
             matched_by: "phone_digits",
-          } : null,
+          },
         },
       };
+
+      if (!payload.client_id || !payload.client_tcode || !payload.code_str || !payload.data?.client?.id || !payload.data?.client?.tcode) {
+        throw new Error("TRANSPORT_CLIENT_LINK_INCOMPLETE");
+      }
 
       await createOrderRecord("transport_orders", payload);
       setMsg("U DËRGUA ✅");
