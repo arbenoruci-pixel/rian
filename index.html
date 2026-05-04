@@ -1939,14 +1939,57 @@
           function log(entry){ try { localStorage.setItem(LAST_KEY, JSON.stringify(entry)); var list=parse(localStorage.getItem(LOG_KEY), []); if(!Array.isArray(list)) list=[]; list.unshift(entry); localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0,40))); } catch(e){} }
           function root(){ try { return document.getElementById('root') || document.body || document.documentElement; } catch(e){ return null; } }
           function text(){ var r=root(); try { return ss(r && r.textContent || '').slice(0,1800); } catch(e){ return ''; } }
+          function appUiReady(){
+            try {
+              if (window.__TEPIHA_UI_READY === true || window.__TEPIHA_UI_READY__ === true || window.__TEPIHA_FIRST_UI_READY === true || window.__TEPIHA_FIRST_UI_READY__ === true || window.__TEPIHA_REACT_RENDER_CALLED__ === true) return true;
+            } catch(e){}
+            try { if (document.documentElement && document.documentElement.getAttribute('data-ui-ready') === '1') return true; } catch(e){}
+            try { if (document.body && document.body.getAttribute('data-ui-ready') === '1') return true; } catch(e){}
+            try {
+              var raw = localStorage.getItem('tepiha_route_ui_alive_v1');
+              if (raw) {
+                var alive = parse(raw, null);
+                var aliveTs = Number(alive && (alive.ts || alive.atMs || alive.time || 0));
+                var alivePath = ss(alive && (alive.path || alive.routePath || ''));
+                var here = ss(location && location.pathname || '');
+                if (aliveTs && Date.now() - aliveTs < 30000 && (!alivePath || alivePath === here)) return true;
+              }
+            } catch(e){}
+            try {
+              var r = document.getElementById('root');
+              if (!r) return false;
+              var t = ss(r.textContent || '').replace(/\s+/g, ' ').trim();
+              if (!t || t.length < 40) return false;
+              if (/(MODULI\s+NUK\s+U\s+NGARKUA|DUKE\s+HAPUR\s+FAQEN|APP\s+SAFE\s+MODE|U\s+NDAL\s+GLOBAL\s+LOOP)/i.test(t)) return false;
+              var controls = r.querySelectorAll('button,a,input,select,textarea,[role="button"]').length;
+              if (controls < 1) return false;
+              if (/(Inbox|Të\s+Reja|Pikapi|Depo|PASTRIMI|GATI|ARKA|PRANIMI|DISPATCH|Transport|Porosi)/i.test(t)) return true;
+              if (t.length > 120 && controls >= 2) return true;
+            } catch(e){}
+            return false;
+          }
+          function dismiss(reason){
+            try {
+              var panel = document.getElementById('tepiha-visible-stuck-panel-v28');
+              if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
+              if (panel) log({at:iso(),ts:Date.now(),source:VERSION,reason:ss(reason||'app_ui_ready_dismiss'),href:ss(location&&location.href),path:ss(location&&location.pathname),dismissed:true,noReload:true,noCacheDelete:true,noSwUnregister:true});
+            } catch(e){}
+          }
           function blocking(){
+            if (appUiReady()) { dismiss('blocking_app_ui_ready'); return false; }
             var t=text();
-            try { if (document.querySelector('[data-route-fallback="1"],[data-visible-stuck-candidate="1"],[data-global-loading="1"],[data-loading-overlay="1"]')) return true; } catch(e){}
+            try {
+              if (document.querySelector('[data-route-fallback="1"],[data-visible-stuck-candidate="1"],[data-global-loading="1"],[data-loading-overlay="1"]')) {
+                if (appUiReady()) { dismiss('blocking_marker_but_app_ui_ready'); return false; }
+                return true;
+              }
+            } catch(e){}
             return /(DUKE\s+HAPUR|Duke\s+u\s+ngarkuar|DUKE\s+RIFRESKUAR|PO\s+RIDREJTOHESH|LOADING|Loading)/i.test(t);
           }
           function show(reason){
             try {
-              if (document.getElementById('tepiha-visible-stuck-panel-v28')) return true;
+              if (appUiReady()) { dismiss('show_app_ui_ready'); return false; }
+              if (document.getElementById('tepiha-visible-stuck-panel-v28')) { if (appUiReady()) dismiss('show_existing_app_ui_ready'); return true; }
               if (!blocking()) return false;
               var entry={at:iso(),ts:Date.now(),source:VERSION,reason:ss(reason||'visible_stuck'),href:ss(location&&location.href),path:ss(location&&location.pathname),text:text().slice(0,360),noReload:true,noCacheDelete:true,noSwUnregister:true};
               log(entry);
@@ -1961,12 +2004,18 @@
               return true;
             } catch(e){ return false; }
           }
-          function check(reason){ try { if (blocking()) show(reason); } catch(e){} }
-          window.__TEPIHA_VISIBLE_STUCK_WATCHDOG__={show:show,check:check,version:VERSION};
+          function check(reason){ try { if (appUiReady()) { dismiss('check_app_ui_ready_' + ss(reason||'')); return false; } if (blocking()) show(reason); } catch(e){} }
+          window.__TEPIHA_VISIBLE_STUCK_WATCHDOG__={show:show,check:check,dismiss:dismiss,appUiReady:appUiReady,version:VERSION};
           setTimeout(function(){ check('timeout_6500'); },6500);
           setTimeout(function(){ check('timeout_11000'); },11000);
+          setTimeout(function(){ check('dismiss_probe_16000'); },16000);
+          try { window.addEventListener('tepiha:first-ui-ready', function(){ setTimeout(function(){ dismiss('first_ui_ready'); },50); }, {passive:true}); } catch(e){}
+          try { window.addEventListener('tepiha:route-ui-alive', function(){ setTimeout(function(){ dismiss('route_ui_alive'); },50); }, {passive:true}); } catch(e){}
+          try { window.addEventListener('tepiha:route-diag', function(ev){ var d=ev&&ev.detail||{}; var type=ss(d.type||d.event||d.name||''); if (/route_ui_ready|route_first_paint|route_first_interactive|ui_ready/i.test(type)) setTimeout(function(){ dismiss('route_diag_' + type); },50); }, {passive:true}); } catch(e){}
           try { window.addEventListener('tepiha:pastrimi-loading-timeout', function(){ setTimeout(function(){ check('pastrimi_loading_timeout_event'); },300); }, {passive:true}); } catch(e){}
           try { window.addEventListener('pageshow', function(){ setTimeout(function(){ check('pageshow_visible_stuck'); },3500); }, {passive:true}); } catch(e){}
+          try { window.addEventListener('visibilitychange', function(){ setTimeout(function(){ check('visibilitychange'); },900); }, {passive:true}); } catch(e){}
+          try { var dismissPolls=0; var dismissTimer=setInterval(function(){ dismissPolls+=1; if (appUiReady()) dismiss('poll_app_ui_ready'); if (dismissPolls>=24) clearInterval(dismissTimer); },1000); } catch(e){}
         } catch(e) {}
       })();
     </script>

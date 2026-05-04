@@ -1,0 +1,23 @@
+PATCH V11 — Safe Mode overlay false-positive dismiss
+
+Scope:
+- index.html only
+
+What changed:
+- Keeps visible-stuck watchdog / Safe Mode active.
+- Adds appUiReady() detection for real rendered UI.
+- Auto-dismisses the "APP SAFE MODE / U NDAL GLOBAL LOOP" panel when the real route UI is visible or route ui-ready events fire.
+- Prevents the panel from showing when the app UI is already ready.
+
+Not touched:
+- DB schema
+- orders / transport_orders
+- ARKA
+- payments
+- payroll
+- Service Worker/cache/runtime
+- offlineStore/outbox
+- business logic
+
+Validation:
+- Extracted script tepiha-visible-stuck-watchdog-v28 and checked JavaScript syntax with node Function parser.
