@@ -1900,9 +1900,6 @@ function TransportBoardInner() {
           <button style={{ ...(activeTab === 'depo' ? ui.tabActive : ui.tab), opacity: uiSwitchPending ? 0.82 : 1 }} onClick={() => switchMainTab('depo')} disabled={uiSwitchPending}>
             Depo 🏢 {counts.depo > 0 && <span style={ui.dot} />}
           </button>
-          <button style={{ ...(activeTab === 'delivered' ? ui.tabActive : ui.tab), opacity: uiSwitchPending ? 0.82 : 1 }} onClick={() => switchMainTab('delivered')} disabled={uiSwitchPending}>
-            Dorëzimet 📋 {counts.delivered > 0 && <span style={ui.dot} />}
-          </button>
         </div>
       </div>
 
@@ -2605,7 +2602,7 @@ function TransportBoardInner() {
             }}
           >
             <span style={{ fontSize: 20 }}>📋</span>
-            <span style={{ fontSize: 10, fontWeight: activeTab === 'delivered' ? 800 : 600 }}>Dorëzimet</span>
+            <span style={{ fontSize: 10, fontWeight: 600 }}>Dorëzimet</span>
           </button>
           <Link
             href="/transport/menu"
