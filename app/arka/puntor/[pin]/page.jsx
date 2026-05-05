@@ -291,9 +291,27 @@ function isCurrentMonth(v) {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 }
 
+function isSettledWorkerExpense(row) {
+  const status = safeUpper(row?.status);
+  const handoffNote = String(row?.handoff_note || row?.handoffNote || '').toUpperCase();
+  const handoffNoteSettled = handoffNote.includes('SETTLED_IN_HANDOFF');
+  const hasHandoffRef = handoffNoteSettled || /\bHANDOFF\s*#?\d+/i.test(handoffNote);
+  const hasHandedAt = Boolean(row?.handed_at || row?.handedAt);
+  const hasHandedBy = Boolean(String(row?.handed_by_pin || row?.handedByPin || '').trim());
+
+  // Payroll cash-clear view must deduct only active/unsettled expenses.
+  // Anything already attached to a handoff has already reduced the worker's handoff cash.
+  if (handoffNoteSettled) return true;
+  if (hasHandedAt) return true;
+  if (ACCEPTED_HISTORY_STATUSES.has(status) && hasHandoffRef) return true;
+  if (hasHandedBy && hasHandoffRef) return true;
+  return false;
+}
+
 function isApprovedTodayExpense(row, targetPin) {
   const type = safeUpper(row?.type);
   if (!['EXPENSE', 'MEAL_PAYMENT'].includes(type)) return false;
+  if (isSettledWorkerExpense(row)) return false;
   if (!ACCEPTED_HISTORY_STATUSES.has(safeUpper(row?.status))) return false;
   if (!paymentBelongsToPin(row, targetPin)) return false;
   if (!isToday(row?.created_at || row?.handed_at || row?.updated_at)) return false;

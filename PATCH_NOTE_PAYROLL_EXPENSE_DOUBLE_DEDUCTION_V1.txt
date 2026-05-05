@@ -1,0 +1,32 @@
+PATCH: Payroll worker detail expense double-deduction fix
+
+Changed:
+- app/arka/puntor/[pin]/page.jsx
+
+What changed:
+- Added local helper isSettledWorkerExpense(row).
+- In the worker detail Payroll cash-clear calculation, accepted expenses are counted only if they are still active/unsettled.
+- Excludes expenses already settled in a handoff, including rows with:
+  - handoff_note containing SETTLED_IN_HANDOFF
+  - handed_at present
+  - accepted status tied to handoff marker
+  - handed_by_pin present together with handoff settlement marker
+
+Why:
+- Prevents cases like Tapin PIN 1968 / expense ID 585 (€6 MEAL_PAYMENT) from being deducted again after it was already settled in handoff #92.
+
+Expected result for the provided case:
+- T133 client paid: €12.78
+- Tapin commission: €3.55
+- Transport for base: €9.23
+- Active expenses: €0.00
+- Due to base now: €9.23
+
+Not touched:
+- DB schema
+- ARKA data
+- payroll tables
+- transport commission logic
+- status flow
+- service worker/cache/runtime
+- offline/outbox
