@@ -29,11 +29,11 @@ import useRouteAlive from '@/lib/routeAlive';
 
 const BUCKET = 'tepiha-photos';
 
-const TEPIHA_CHIPS = [2.0, 2.5, 3.0, 3.5, 3.7, 4.0, 5.0, 6.0, 8.0, 12.0];
-const STAZA_CHIPS = [0.5, 0.8, 0.9, 1.2, 1.5, 1.6, 2.0, 2.4, 2.5, 3.0, 4.0, 5.0];
+const TEPIHA_CHIPS = [1.0, 1.2, 1.5, 1.8, 2.0, 2.1, 2.2, 2.5, 2.8, 3.0, 3.2, 3.5, 3.7, 4.0, 4.5, 5.0, 5.8, 6.0, 8.0, 10.0, 12.0];
+const STAZA_CHIPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 1.6, 1.8, 2.0, 2.2, 2.4, 2.5, 2.8, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0];
 
-const SHKALLORE_QTY_CHIPS = [5, 10, 15, 20, 25, 30];
-const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4];
+const SHKALLORE_QTY_CHIPS = [5, 8, 10, 12, 13, 14, 15, 16, 17, 18, 20, 25, 30];
+const SHKALLORE_PER_CHIPS = [0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
 
 const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 1.3;
