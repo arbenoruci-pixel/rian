@@ -54,22 +54,46 @@ function pillStyle(bg, color, border) {
   };
 }
 
+function cleanAddressLine(value) {
+  const raw = String(value || '').trim();
+  if (!raw || /pa adres|adresë jo e ruajtur|adrese jo e ruajtur/i.test(raw)) return '';
+  return raw;
+}
+
+function depoRiplanLabel(item) {
+  const d = item?.data || {};
+  const raw = item?.riplan_at || item?.reschedule_at || d?.riplan_at || d?.reschedule_at || d?.riplan?.at || d?.schedule_at || '';
+  if (!raw) return '';
+  try {
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return '';
+    return `RIPLAN: ${dt.toLocaleDateString([], { day: '2-digit', month: '2-digit' })} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  } catch {
+    return '';
+  }
+}
+
+const cardLabelStyle = { color: 'rgba(255,255,255,0.58)', fontSize: 10.5, fontWeight: 950, letterSpacing: 0.8, textTransform: 'uppercase' };
+const cardValueStyle = { color: '#f8fafc', fontSize: 13.5, fontWeight: 900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const cardFooterStyle = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 2, flexWrap: 'wrap' };
+const openPillStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 76, height: 30, padding: '0 12px', borderRadius: 999, background: 'linear-gradient(180deg, rgba(59,130,246,0.26), rgba(37,99,235,0.18))', border: '1px solid rgba(96,165,250,0.30)', color: '#dbeafe', fontSize: 11, fontWeight: 950, letterSpacing: 0.2, boxShadow: '0 6px 16px rgba(30,64,175,0.24)', whiteSpace: 'nowrap' };
+
 function choiceBadge(item) {
   const choice = String(item?.data?.tracking_choice || '').trim().toLowerCase();
   if (choice === 'resend') {
     return {
-      text: '🔄 KËRKON RISJELLJE (+5€)',
+      text: 'Kërkon risjellje +5€',
       style: { background: 'rgba(10,132,255,0.16)', color: '#0A84FF', border: '1px solid rgba(10,132,255,0.35)' },
     };
   }
   if (choice === 'pickup') {
     return {
-      text: '📍 VJEN E MERR VETË',
+      text: 'Vjen e merr vetë',
       style: { background: 'rgba(52,199,89,0.15)', color: '#34C759', border: '1px solid rgba(52,199,89,0.30)' },
     };
   }
   return {
-    text: '⚠️ NË PRITJE TË ZGJEDHJES...',
+    text: 'Në pritje',
     style: { background: 'rgba(255,159,10,0.15)', color: '#FF9F0A', border: '1px solid rgba(255,159,10,0.30)' },
   };
 }
@@ -149,46 +173,29 @@ function DepoModule({ items, loading, geo, onOpenModal, onBulkStatus, onOpenSms,
           const t = getTotals(item);
           const badge = choiceBadge(item);
           const unseenStyle = getUnseenRowStyle ? getUnseenRowStyle(item) : null;
-          const assignedDriver = orderAssignedDriver(item);
-          const rackLabel = String(item?.data?.ready_note || item?.data?.ready_location || '').trim();
+          const address = cleanAddressLine(getAddress(item));
+          const riplanLabel = depoRiplanLabel(item);
           return (
             <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: 10, marginBottom: 8, borderRadius: 16, border: '1px solid rgba(245,158,11,0.55)', background: 'linear-gradient(180deg, rgba(245,158,11,0.12), rgba(245,158,11,0.04))', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 24px rgba(0,0,0,0.22)', cursor: 'pointer', ...(unseenStyle || null) }} onClick={() => { setTimeout(() => { onMarkSeen && onMarkSeen(item?.id); setToolsRow(item); }, ACTION_DEFER_MS); }}>
               <div style={transportCodeCircle}>{transportCode(getCode(item))}</div>
-              <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 4 }}>
+              <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 900, letterSpacing: 0.2 }}>{getName(item)}</span>
-                    {unseenStyle ? <span style={pillStyle('rgba(245,158,11,0.18)', '#fbbf24', '1px solid rgba(245,158,11,0.35)')}>NEW</span> : null}
-                    <span style={pillStyle('rgba(255,59,48,0.16)', '#ff5f57', '1px solid rgba(255,95,87,0.25)')}>🏢 DEPO</span>
-                    {renderUnseenBadge ? renderUnseenBadge(item) : null}
-                  </div>
-                  <span style={{ color: 'rgba(255,255,255,0.48)', fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', flexShrink: 0 }}>{formatTime(item.updated_at || item.created_at)}</span>
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, letterSpacing: 0.2 }}>{getName(item)}</span>
+                  <span style={pillStyle('rgba(255,59,48,0.16)', '#ffb4ab', '1px solid rgba(255,95,87,0.25)')}>DEPO</span>
                 </div>
 
-                <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getAddress(item) || 'Pa adresë'}</div>
-
-                <div style={{ color: 'rgba(255,255,255,0.52)', fontSize: 12, fontWeight: 800 }}>{t.pieces} copë • {money(t.total)} €</div>
-
+                <div style={cardLabelStyle}>ARSYE / ZGJEDHJE</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px', borderRadius: 12, fontSize: 11, fontWeight: 900, letterSpacing: 0.3, ...badge.style }}>{badge.text}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '5px 9px', borderRadius: 12, fontSize: 11, fontWeight: 950, letterSpacing: 0.3, ...badge.style }}>{badge.text}</span>
+                  {riplanLabel ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '5px 9px', borderRadius: 12, fontSize: 11, fontWeight: 950, letterSpacing: 0.3, background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.30)', color: '#93c5fd' }}>{riplanLabel}</span> : null}
                 </div>
 
-                {rackLabel ? (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifySelf: 'start', borderRadius: 12, padding: '4px 8px', background: 'rgba(19,108,53,0.45)', border: '1px solid rgba(52,199,89,0.35)', color: '#86efac', fontSize: 11, fontWeight: 900, maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    📍 {rackLabel}
-                  </div>
-                ) : null}
+                <div style={cardLabelStyle}>ADRESA</div>
+                <div style={cardValueStyle}>{address || 'PA ADRESË'}</div>
 
-                {assignedDriver ? (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifySelf: 'start', borderRadius: 12, padding: '4px 8px', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', fontSize: 11, fontWeight: 900, marginTop: 4 }}>
-                    👷‍♂️ {assignedDriver}
-                  </div>
-                ) : null}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 80, height: 32, padding: '0 12px', borderRadius: 999, background: 'linear-gradient(180deg, rgba(59,130,246,0.26), rgba(37,99,235,0.18))', border: '1px solid rgba(96,165,250,0.30)', color: '#dbeafe', fontSize: 11, fontWeight: 900, letterSpacing: 0.3, boxShadow: '0 6px 16px rgba(30,64,175,0.24)' }}>
-                    HAP ➔
-                  </span>
+                <div style={cardFooterStyle}>
+                  <span style={{ color: 'rgba(255,255,255,0.70)', fontSize: 12, fontWeight: 900 }}>{t.pieces} copë • {money(t.total)} €</span>
+                  <span style={openPillStyle}>HAP ➔</span>
                 </div>
               </div>
             </div>

@@ -552,6 +552,100 @@ function renderUnseenBadge(item) {
   );
 }
 
+
+function boardSafeTs(value) {
+  if (!value) return 0;
+  try {
+    const ts = new Date(value).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function boardUpdatedTs(row = {}) {
+  return boardSafeTs(row?.updated_at || row?.created_at || row?.data?.updated_at || row?.data?.created_at);
+}
+
+function boardReadyTs(row = {}) {
+  const d = (row?.data && typeof row.data === 'object') ? row.data : {};
+  return boardSafeTs(row?.ready_at || d?.ready_at || row?.updated_at || d?.updated_at || row?.created_at || d?.created_at);
+}
+
+function boardDeliveredTs(row = {}) {
+  const d = (row?.data && typeof row.data === 'object') ? row.data : {};
+  return boardSafeTs(row?.delivered_at || d?.delivered_at || row?.updated_at || d?.updated_at || row?.created_at || d?.created_at);
+}
+
+function boardRiplanTs(row = {}) {
+  const d = (row?.data && typeof row.data === 'object') ? row.data : {};
+  return boardSafeTs(row?.riplan_at || row?.reschedule_at || d?.riplan_at || d?.reschedule_at || d?.riplan?.at || d?.schedule_at);
+}
+
+function boardIsToday(ts) {
+  if (!ts) return false;
+  try {
+    const d = new Date(ts);
+    const now = new Date();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  } catch {
+    return false;
+  }
+}
+
+function boardPayDue(row = {}) {
+  const d = (row?.data && typeof row.data === 'object') ? row.data : {};
+  const total = Number(row?.total ?? row?.total_price ?? row?.price_total ?? row?.amount_due ?? d?.pay?.euro ?? d?.totals?.grandTotal ?? d?.totals?.grand_total ?? d?.totals?.total ?? d?.total ?? 0) || 0;
+  const paid = Number(d?.pay?.paid ?? row?.paid ?? 0) || 0;
+  return Math.max(0, Number((total - paid).toFixed(2)));
+}
+
+function boardDepoRank(row = {}) {
+  const d = (row?.data && typeof row.data === 'object') ? row.data : {};
+  const riplanTs = boardRiplanTs(row);
+  if (boardIsToday(riplanTs)) return 0;
+  const choice = String(d?.tracking_choice || row?.tracking_choice || '').trim().toLowerCase();
+  if (choice === 'resend') return 1;
+  if (!choice) return 2;
+  if (choice === 'pickup') return 3;
+  return 4;
+}
+
+function compareTransportBoardRows(a, b, activeTab, loadedMode) {
+  if (activeTab === 'inbox') {
+    const au = a?.__unseen ? 1 : 0;
+    const bu = b?.__unseen ? 1 : 0;
+    if (au !== bu) return bu - au;
+    return boardUpdatedTs(b) - boardUpdatedTs(a);
+  }
+  if (activeTab === 'loaded' && loadedMode === 'in') {
+    return boardUpdatedTs(b) - boardUpdatedTs(a);
+  }
+  if (activeTab === 'loaded' && loadedMode === 'out') {
+    const ad = boardPayDue(a) > 0 ? 1 : 0;
+    const bd = boardPayDue(b) > 0 ? 1 : 0;
+    if (ad !== bd) return bd - ad;
+    return boardUpdatedTs(b) - boardUpdatedTs(a);
+  }
+  if (activeTab === 'ready') {
+    return boardReadyTs(a) - boardReadyTs(b);
+  }
+  if (activeTab === 'depo') {
+    const ar = boardDepoRank(a);
+    const br = boardDepoRank(b);
+    if (ar !== br) return ar - br;
+    const art = boardRiplanTs(a);
+    const brt = boardRiplanTs(b);
+    if (art && brt && art !== brt) return art - brt;
+    if (art !== brt) return art ? -1 : 1;
+    return boardUpdatedTs(b) - boardUpdatedTs(a);
+  }
+  if (activeTab === 'delivered') {
+    return boardDeliveredTs(b) - boardDeliveredTs(a);
+  }
+  return boardUpdatedTs(b) - boardUpdatedTs(a);
+}
+
 function purgeLegacyTransportBoardCaches() {
   try {
     if (typeof window === 'undefined') return;
@@ -1764,12 +1858,7 @@ function TransportBoardInner() {
           __unseen: !!id && !seenIds?.[id],
         };
       })
-      .sort((a, b) => {
-        const au = a?.__unseen ? 1 : 0;
-        const bu = b?.__unseen ? 1 : 0;
-        if (au !== bu) return bu - au;
-        return 0;
-      });
+      .sort((a, b) => compareTransportBoardRows(a, b, activeTab, loadedMode));
   }, [deferredItems, activeTab, loadedMode, seenIds]);
 
   const isAdmin = useMemo(() => {
@@ -2072,55 +2161,68 @@ function TransportBoardInner() {
 
       {/* SUB-TABS for loaded */}
       {activeTab === 'loaded' && (
-        <div
-          style={{
-            ...ui.subTabsWrap,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
-          <button
-            style={{
-              ...(loadedMode === 'in' ? ui.subTabActive : ui.subTab),
-              flex: 1,
-            }}
-            onClick={() => switchLoadedMode('in')}
-            disabled={uiSwitchPending}
-          >
-            🏠 PËR BAZË ({subCounts.in})
-          </button>
-
+        <>
           <div
             style={{
-              minWidth: 'fit-content',
-              padding: '8px 12px',
-              borderRadius: 999,
-              border: '1px solid rgba(255,255,255,0.12)',
-              background: 'rgba(255,255,255,0.06)',
-              color: 'rgba(255,255,255,0.86)',
-              fontSize: 12,
-              fontWeight: 900,
-              letterSpacing: 0.5,
-              textAlign: 'center',
-              whiteSpace: 'nowrap',
+              ...ui.subTabsWrap,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 10,
             }}
           >
-            SELECT ALL
+            <button
+              style={{
+                ...(loadedMode === 'in' ? ui.subTabActive : ui.subTab),
+                flex: 1,
+              }}
+              onClick={() => switchLoadedMode('in')}
+              disabled={uiSwitchPending}
+            >
+              🏠 PËR BAZË ({subCounts.in})
+            </button>
+
+            <button
+              style={{
+                ...(loadedMode === 'out' ? ui.subTabActive : ui.subTab),
+                flex: 1,
+              }}
+              onClick={() => switchLoadedMode('out')}
+              disabled={uiSwitchPending}
+            >
+              🚚 PËR KLIENT ({subCounts.out})
+            </button>
           </div>
 
-          <button
-            style={{
-              ...(loadedMode === 'out' ? ui.subTabActive : ui.subTab),
-              flex: 1,
-            }}
-            onClick={() => switchLoadedMode('out')}
-            disabled={uiSwitchPending}
-          >
-            🚚 PËR KLIENT ({subCounts.out})
-          </button>
-        </div>
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '0 16px 8px' }}>
+            <button
+              type="button"
+              style={{
+                minWidth: 132,
+                padding: '8px 14px',
+                borderRadius: 999,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.06)',
+                color: 'rgba(255,255,255,0.86)',
+                fontSize: 12,
+                fontWeight: 900,
+                letterSpacing: 0.5,
+                textAlign: 'center',
+                whiteSpace: 'nowrap',
+                cursor: 'pointer',
+              }}
+              onClick={() => {
+                if (selectedIds?.size) {
+                  setSelectedIds(new Set());
+                  return;
+                }
+                setSelectedIds(new Set((viewItems || []).map((x) => x?.id).filter(Boolean)));
+              }}
+            >
+              {selectedIds?.size ? `FSHI (${selectedIds.size})` : 'SELECT ALL'}
+            </button>
+          </div>
+        </>
       )}
 
       {/* VIEW (MODULES) */}

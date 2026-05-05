@@ -160,6 +160,71 @@ function getRiplanNote(row) {
   return String(row?.riplan_note || d?.riplan_note || d?.reschedule_note || d?.riplan?.note || '').trim();
 }
 
+function cleanReadyAddress(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text || /^pa adres[ëe]$/i.test(text) || /^adres[ëe] jo/i.test(text)) return '';
+  return text;
+}
+
+const readyLabelStyle = {
+  color: '#F59E0B',
+  fontSize: 10,
+  fontWeight: 950,
+  letterSpacing: 0.8,
+  textTransform: 'uppercase',
+};
+
+const readyAddressStyle = {
+  color: '#ffffff',
+  fontSize: 14,
+  fontWeight: 950,
+  lineHeight: 1.25,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const readyFooterStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  flexWrap: 'wrap',
+  color: 'rgba(255,255,255,0.72)',
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const readyOpenPillStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minWidth: 72,
+  height: 30,
+  padding: '0 12px',
+  borderRadius: 999,
+  background: 'linear-gradient(180deg, rgba(59,130,246,0.26), rgba(37,99,235,0.18))',
+  border: '1px solid rgba(96,165,250,0.30)',
+  color: '#dbeafe',
+  fontSize: 11,
+  fontWeight: 950,
+  letterSpacing: 0.3,
+};
+
+const readyMiniBadgeStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '4px 8px',
+  borderRadius: 999,
+  fontSize: 10,
+  fontWeight: 950,
+  letterSpacing: 0.4,
+  textTransform: 'uppercase',
+  background: 'rgba(255,255,255,0.08)',
+  color: 'rgba(255,255,255,0.88)',
+  border: '1px solid rgba(255,255,255,0.12)',
+};
 
 function renderBatchHint(remainingCount, onMore) {
   if (!(remainingCount > 0)) return null;
@@ -218,6 +283,7 @@ function ReadyView({
   onOpenSms,
   getSmsCount,
   onOpenRack,
+  onMarkSeen,
 }) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
@@ -288,7 +354,7 @@ function ReadyView({
         id: row?.id,
         name: getName(row),
         code: getCode(row),
-        address: getAddress(row) || 'Pa adresë',
+        address: cleanReadyAddress(getAddress(row)),
         createdAtLabel: formatTime(row?.created_at),
         totals,
         readyAt,
@@ -340,7 +406,7 @@ function ReadyView({
         id: row?.id,
         name: getName(row),
         code: getCode(row),
-        address: getAddress(row) || 'Pa adresë',
+        address: cleanReadyAddress(getAddress(row)),
         createdAtLabel: formatTime(row?.created_at),
         totals,
         readyAt,
@@ -622,42 +688,37 @@ function ReadyView({
 
         {visibleReadyItems.map((item) => {
           const isSelected = selectedIds?.has(item.id);
+          const hasAddress = !!item.address;
+          const smsCount = Number(item.smsCount || 0);
           return (
-            <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, marginBottom: 8, borderRadius: 16, border: '1px solid rgba(245,158,11,0.45)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 24px rgba(0,0,0,0.18)', cursor: 'pointer', ...item.agingStyle }} onClick={() => runDeferred(() => { if (selectionMode) toggleSelection(item.id); else setToolsRow(item.row); })}>
+            <div
+              key={item.id}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, marginBottom: 8, borderRadius: 16, border: '1px solid rgba(245,158,11,0.45)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 24px rgba(0,0,0,0.18)', cursor: 'pointer', ...item.agingStyle }}
+              onClick={() => runDeferred(() => { if (selectionMode) toggleSelection(item.id); else { if (onMarkSeen) onMarkSeen(item.id); setToolsRow(item.row); } })}
+            >
               {selectionMode && (
                 <div style={{ marginRight: 2 }}>
                   <div style={isSelected ? ui.checkboxSelected : ui.checkboxEmpty}>{isSelected && '✓'}</div>
                 </div>
               )}
               <div style={{ width: 36, minWidth: 36, height: 36, marginRight: 6, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#39d86f', color: '#03140a', fontSize: 12, fontWeight: 1000, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 16px rgba(57,216,111,0.18)' }}>{item.code}</div>
-              <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 4 }}>
+              <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 900, letterSpacing: 0.2 }}>{item.name}</span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px', borderRadius: 999, fontSize: 10, fontWeight: 900, letterSpacing: 0.5, textTransform: 'uppercase', background: 'rgba(255,149,0,0.15)', color: '#FF9F0A', border: '1px solid rgba(255,159,10,0.28)' }}>🚚 PËR KAMION</span>
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, letterSpacing: 0.2 }}>{item.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {smsCount > 0 ? <span style={readyMiniBadgeStyle}>SMS {smsCount}/3</span> : null}
+                    {item.ageDays > 0 ? <span style={readyMiniBadgeStyle}>{item.ageDays} DITË GATI</span> : null}
                   </div>
-                  <span style={{ color: 'rgba(255,255,255,0.52)', fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', flexShrink: 0 }}>{item.createdAtLabel}</span>
                 </div>
 
-                <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.address}</div>
+                <div style={readyLabelStyle}>ADRESA</div>
+                <div style={hasAddress ? readyAddressStyle : { ...readyAddressStyle, color: '#fbbf24' }}>{hasAddress ? item.address : 'PA ADRESË'}</div>
 
-                <div style={{ color: 'rgba(255,255,255,0.52)', fontSize: 12, fontWeight: 800 }}>{item.totals?.pieces} copë • {money(item.totals?.total)} €</div>
-
-                {item.rackLabel ? (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifySelf: 'start', borderRadius: 12, padding: '4px 8px', background: 'rgba(19,108,53,0.45)', border: '1px solid rgba(52,199,89,0.35)', color: '#86efac', fontSize: 11, fontWeight: 900, maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    📍 {item.rackLabel}
-                  </div>
-                ) : null}
-
-                {item.assignedDriver ? (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifySelf: 'start', borderRadius: 12, padding: '4px 8px', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', fontSize: 11, fontWeight: 900, marginTop: 4 }}>
-                    👷‍♂️ {item.assignedDriver}
-                  </div>
-                ) : null}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 80, height: 32, padding: '0 12px', borderRadius: 999, background: 'linear-gradient(180deg, rgba(59,130,246,0.26), rgba(37,99,235,0.18))', border: '1px solid rgba(96,165,250,0.30)', color: '#dbeafe', fontSize: 11, fontWeight: 900, letterSpacing: 0.3, boxShadow: '0 6px 16px rgba(30,64,175,0.24)' }}>
-                    HAP ➔
+                <div style={readyFooterStyle}>
+                  <span>{item.totals?.pieces} copë • {money(item.totals?.total)} €</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+                    {item.rackLabel ? <span style={{ color: '#86efac', fontWeight: 950 }}>RAFTI: {item.rackLabel}</span> : null}
+                    <span style={readyOpenPillStyle}>HAP ➔</span>
                   </span>
                 </div>
               </div>

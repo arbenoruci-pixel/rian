@@ -136,7 +136,7 @@ function hasRealCode(order) {
 
 function orderCode(order) {
   const raw = rawOrderCode(order);
-  if (!raw) return 'T-NEW';
+  if (!raw) return 'T—';
   if (/^#/.test(raw)) return raw;
   const code = raw.replace(/^#+/, '');
   return /^T/i.test(code) ? code.replace(/^T[-\s]*/i, 'T') : `T${code}`;
@@ -503,6 +503,18 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
     WebkitBackdropFilter: 'blur(10px)',
   };
 
+  const cardLabelStyle = { color: 'rgba(255,255,255,0.58)', fontSize: 10.5, fontWeight: 950, letterSpacing: 0.8, textTransform: 'uppercase' };
+  const cardAddressStyle = { color: '#f8fafc', fontSize: 13.5, fontWeight: 900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+  const cardFooterStyle = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 2 };
+  const openPillStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 68, height: 28, padding: '0 10px', borderRadius: 999, background: 'linear-gradient(180deg, rgba(59,130,246,0.26), rgba(37,99,235,0.18))', border: '1px solid rgba(96,165,250,0.30)', color: '#dbeafe', fontSize: 10.5, fontWeight: 950, letterSpacing: 0.2, boxShadow: '0 6px 16px rgba(30,64,175,0.24)', whiteSpace: 'nowrap' };
+  const newPillStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px', borderRadius: 999, fontSize: 10, fontWeight: 950, letterSpacing: 0.5, textTransform: 'uppercase', background: 'rgba(245,158,11,0.18)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.35)', whiteSpace: 'nowrap' };
+  const missingAddressStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px', borderRadius: 999, fontSize: 10, fontWeight: 950, letterSpacing: 0.4, textTransform: 'uppercase', background: 'rgba(255,59,48,0.14)', color: '#ffb4ab', border: '1px solid rgba(255,95,87,0.28)', width: 'fit-content' };
+  const cleanAddress = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw || /pa adres|adresë jo e ruajtur|adrese jo e ruajtur/i.test(raw)) return '';
+    return raw;
+  };
+
   const activeCoords = activeOrder ? getLatLngFromOrder(activeOrder, getOrderLatLng) : null;
   const currentPhone = activeOrder ? orderPhone(activeOrder) : '';
   const activeTrackUrl = activeOrder ? buildTransportConfirmUrl(activeOrder) : '';
@@ -519,12 +531,10 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
         ) : list.length ? (
           visibleItems.map((order, idx) => {
             const realCode = hasRealCode(order);
-            const rackLabel = orderRackLabel(order);
-            const assignedDriver = orderAssignedDriver(order);
             const total = orderTotal(order);
             const pieces = orderPieces(order);
-            const secondary = orderCityPhone(order);
-            const addressLine = [orderAddress(order), secondary].filter(Boolean).join(' • ');
+            const address = cleanAddress(orderAddress(order));
+            const isNew = !!(getUnseenRowStyle ? getUnseenRowStyle(order) : null);
             return (
               <button
                 key={String(order?.id || order?.local_oid || idx)}
@@ -549,48 +559,28 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                 <div style={{ display: 'grid', gap: 6 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                     <div style={{ width: 32, minWidth: 32, height: 32, marginRight: 4, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#39d86f', color: '#03140a', fontSize: 9.5, fontWeight: 1000, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 6px 12px rgba(57,216,111,0.18)' }}>
-                      {realCode ? orderCode(order) : 'T-NEW'}
+                      {realCode ? orderCode(order) : 'T—'}
                     </div>
                     <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                        <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 11.5, fontWeight: 900, letterSpacing: 0.1 }}>
-                            {orderTitle(order)}
-                          </span>
-                          {(getUnseenRowStyle ? getUnseenRowStyle(order) : null) ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px', borderRadius: 999, fontSize: 10, fontWeight: 900, letterSpacing: 0.5, textTransform: 'uppercase', background: 'rgba(245,158,11,0.18)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.35)' }}>NEW</span> : null}
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px', borderRadius: 999, fontSize: 10, fontWeight: 900, letterSpacing: 0.5, textTransform: 'uppercase', background: 'rgba(168,85,247,0.18)', color: '#f0abfc', border: '1px solid rgba(168,85,247,0.30)' }}>📥 TË REJA</span>
-                          {renderUnseenBadge ? renderUnseenBadge(order) : null}
-                        </div>
-                        <span style={{ color: 'rgba(255,255,255,0.48)', fontSize: 9.5, fontWeight: 900, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                          {orderTime(order)}
+                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 14.5, fontWeight: 950, letterSpacing: 0.1 }}>
+                          {orderTitle(order)}
                         </span>
+                        {isNew ? <span style={newPillStyle}>NEW</span> : null}
                       </div>
 
-                      <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 11, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {addressLine || 'Adresë jo e ruajtur'}
+                      <div style={cardLabelStyle}>ADRESA</div>
+                      {address ? (
+                        <div style={cardAddressStyle}>{address}</div>
+                      ) : (
+                        <span style={missingAddressStyle}>PA ADRESË</span>
+                      )}
+
+                      <div style={cardFooterStyle}>
+                        <span style={{ color: 'rgba(255,255,255,0.70)', fontSize: 12, fontWeight: 900 }}>{pieces} copë • {total} €</span>
+                        <span style={openPillStyle}>HAP ➔</span>
                       </div>
 
-                      <div style={{ color: 'rgba(255,255,255,0.52)', fontSize: 10.5, fontWeight: 800 }}>
-                        {pieces} copë • {total} €
-                      </div>
-
-                      {rackLabel ? (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifySelf: 'start', borderRadius: 12, padding: '4px 8px', background: 'rgba(19,108,53,0.45)', border: '1px solid rgba(52,199,89,0.35)', color: '#86efac', fontSize: 10, fontWeight: 900, maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          📍 {rackLabel}
-                        </div>
-                      ) : null}
-
-                      {assignedDriver ? (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifySelf: 'start', borderRadius: 12, padding: '4px 8px', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', fontSize: 10, fontWeight: 900, marginTop: 4 }}>
-                          👷‍♂️ {assignedDriver}
-                        </div>
-                      ) : null}
-
-                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 64, height: 24, padding: '0 9px', borderRadius: 999, background: 'linear-gradient(180deg, rgba(59,130,246,0.26), rgba(37,99,235,0.18))', border: '1px solid rgba(96,165,250,0.30)', color: '#dbeafe', fontSize: 9.5, fontWeight: 900, letterSpacing: 0.2, boxShadow: '0 6px 16px rgba(30,64,175,0.24)' }}>
-                          HAP ➔
-                        </span>
-                      </div>
                     </div>
                   </div>
                 </div>
