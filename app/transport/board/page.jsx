@@ -1435,26 +1435,41 @@ function TransportBoardInner() {
     return { ok: true, newCount, movedToDepot: newCount >= 3, data: nextData };
   }
 
+  function shouldIncrementDepotSmsStrike(order, actionType) {
+    const action = String(actionType || '').trim();
+    if (action !== 'transport_konfirmim') return false;
+
+    const st = normalizeTransportLifecycleStatus(order?.status || order?.data?.status || '');
+    return TRANSPORT_BOARD_READY_STATUSES.has(st) || TRANSPORT_BOARD_DEPO_STATUSES.has(st);
+  }
+
   async function handleOpenSms(order, actionType) {
     const requestId = Date.now() + Math.random();
     smsOpenReqRef.current = requestId;
-    const smsRes = await incrementSmsStrike(order);
-    if (smsOpenReqRef.current !== requestId) return;
-    if (!smsRes?.ok) {
-      alert('Gabim: ' + (smsRes?.error || 'SMS count nuk u ruajt.'));
-      return;
+
+    let enrichedOrder = order;
+
+    if (shouldIncrementDepotSmsStrike(order, actionType)) {
+      const smsRes = await incrementSmsStrike(order);
+      if (smsOpenReqRef.current !== requestId) return;
+
+      if (!smsRes?.ok) {
+        alert('Gabim: ' + (smsRes?.error || 'SMS count nuk u ruajt.'));
+        return;
+      }
+
+      if (smsRes?.movedToDepot) {
+        alert('Mesazhi i 3-të! Porosia kaloi automatikisht në DEPO.');
+        try { await load(); } catch {}
+        return;
+      }
+
+      enrichedOrder = {
+        ...order,
+        data: smsRes?.data || { ...(order?.data || {}), sms_count: smsRes?.newCount || getSmsCount(order) + 1 },
+      };
     }
 
-    if (smsRes?.movedToDepot) {
-      alert('Mesazhi i 3-të! Porosia kaloi automatikisht në DEPO.');
-      try { await load(); } catch {}
-      return;
-    }
-
-    const enrichedOrder = {
-      ...order,
-      data: smsRes?.data || { ...(order?.data || {}), sms_count: smsRes?.newCount || getSmsCount(order) + 1 },
-    };
     const phone = String(
       enrichedOrder?.client_phone ||
       enrichedOrder?.data?.client_phone ||
@@ -1463,6 +1478,7 @@ function TransportBoardInner() {
       enrichedOrder?.phone ||
       ''
     ).trim();
+
     const text = buildSmartSmsText(enrichedOrder, actionType);
     setSmsModal({ open: true, phone, text });
   }
