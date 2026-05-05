@@ -75,6 +75,18 @@ const SETTINGS_FOLDER = 'transport_settings';
 const TRANSPORT_CLIENT_SEARCH_TIMEOUT_MS = 12000;
 // ---------------- HELPERS ----------------
 function sanitizePhone(phone) { return String(phone || '').replace(/\D+/g, ''); }
+function buildTransportPhoneDigits(prefix, local) {
+  const prefixDigits = sanitizePhone(prefix || '+383') || '383';
+  let localDigits = sanitizePhone(local || '');
+  if (!localDigits) return '';
+  if (localDigits.startsWith('00')) localDigits = localDigits.slice(2);
+  if (localDigits.startsWith(prefixDigits)) {
+    const rest = localDigits.slice(prefixDigits.length).replace(/^0+/, '');
+    return rest ? `${prefixDigits}${rest}` : prefixDigits;
+  }
+  localDigits = localDigits.replace(/^0+/, '');
+  return localDigits ? `${prefixDigits}${localDigits}` : prefixDigits;
+}
 function normDigits(s) { return String(s || '').replace(/\D+/g, ''); }
 function normalizeNewTransportPricePerM2(value) {
   const n = Number(value);
@@ -1198,7 +1210,7 @@ function PranimiPageInner() {
 
   useEffect(() => {
     let alive = true;
-    const phoneFull = sanitizePhone(phonePrefix + (phone || ''));
+    const phoneFull = buildTransportPhoneDigits(phonePrefix, phone || '');
     try { clearTimeout(debtLookupTimerRef.current); } catch {}
     if (!phoneFull || phoneFull.length < 6) { setOldClientDebt(0); return () => { alive = false; }; }
     debtLookupTimerRef.current = setTimeout(async () => {
@@ -1367,7 +1379,7 @@ function PranimiPageInner() {
   useEffect(() => {
       if (creating || isEdit) return;
       const tid = (actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid;
-      const phoneFull = sanitizePhone(phonePrefix + (phone || ''));
+      const phoneFull = buildTransportPhoneDigits(phonePrefix, phone || '');
       const phoneKey = normalizeTransportPhoneKey(phoneFull);
       if (!tid || !isValidTransportPhoneDigits(phoneKey)) {
         if (transportClientMatchPrompt?.open) setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
@@ -1395,7 +1407,7 @@ function PranimiPageInner() {
   // Mesazhi i Transport Pranimi përdor të njëjtën logjikë si Smart SMS.
   function buildTransportPranimiSmsOrder() {
       const code = normalizeTcode(clientTcode || codeRaw);
-      const phoneFull = sanitizePhone(phonePrefix + phone);
+      const phoneFull = buildTransportPhoneDigits(phonePrefix, phone);
       return {
         client_name: String(name || '').trim(),
         client_phone: phoneFull,
@@ -1499,7 +1511,7 @@ function PranimiPageInner() {
       // 1) Phone-only existing-client check for transport client book.
       // Transport never decides an existing client from name or T-code; phone_digits is the guard.
       const cleanClientName = String(name || '').trim();
-      const phoneFull = sanitizePhone(phonePrefix + phone);
+      const phoneFull = buildTransportPhoneDigits(phonePrefix, phone);
       const phoneDigits = normalizePhoneDigits(phoneFull);
       const phoneKey = normalizeTransportPhoneKey(phoneFull);
       const phoneIsValidForMatch = isValidTransportPhoneDigits(phoneKey);
@@ -1742,7 +1754,7 @@ function PranimiPageInner() {
               id: clientId || currentClient?.id || null,
               tcode: String((clientTcode || currentClient?.tcode || currentClient?.code || normalizeTcode(codeRaw)) || '').toUpperCase().trim(),
               name,
-              phone: phonePrefix + phone,
+              phone: buildTransportPhoneDigits(phonePrefix, phone),
               code: String((clientTcode || currentClient?.code || currentClient?.tcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim(),
               photoUrl: clientPhotoUrl || currentClient?.photoUrl || '',
               address: addressDesc || currentClient?.address || '',
@@ -1785,7 +1797,7 @@ function PranimiPageInner() {
       };
       await updateTransportOrderById(oid, {
         client_name: name,
-        client_phone: sanitizePhone(phonePrefix + phone),
+        client_phone: buildTransportPhoneDigits(phonePrefix, phone),
         status: terminalStatus,
         updated_at: nowIso,
         data: nextData,
@@ -2391,7 +2403,7 @@ function PranimiPageInner() {
       <SmartSmsModal
         isOpen={showMsgSheet}
         onClose={closeAfterTransportPranimiSave}
-        phone={sanitizePhone(phonePrefix + phone)}
+        phone={buildTransportPhoneDigits(phonePrefix, phone)}
         messageText={buildCurrentMessage()}
       />
       <style jsx>{`

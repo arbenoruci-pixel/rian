@@ -9,7 +9,7 @@ import { getTransportSession } from "@/lib/transportAuth";
 import { getActor } from '@/lib/actorSession';
 import { fetchTransportOrderById, fetchTransportOrderByCode, updateTransportOrderById } from "@/lib/transportOrdersDb";
 import { reserveTransportCode } from "@/lib/transportCodes";
-import { buildSmsLink } from "@/lib/smartSms";
+import { buildSmsLink, normalizePhoneForWhatsApp } from "@/lib/smartSms";
 
 function V33PageOpenFallback() {
   return (
@@ -61,9 +61,11 @@ function getPhone(row) {
     row?.client_phone ||
     row?.phone ||
     row?.telefoni ||
+    row?.data?.client_phone ||
     row?.data?.client?.phone ||
+    row?.data?.phone ||
     "";
-  return onlyDigits(p);
+  return normalizePhoneForWhatsApp(p);
 }
 
 function getAddress(row) {

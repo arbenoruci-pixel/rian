@@ -195,7 +195,7 @@ function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, s
               const firstId = Array.from(selectedIds || [])[0];
               const row = sortedItems.find((x) => x.id === firstId);
               if (!row) return;
-              setTimeout(() => { onOpenSms && onOpenSms(row, 'transport_marrje'); }, ACTION_DEFER_MS);
+              setTimeout(() => { onOpenSms && onOpenSms(row, 'transport_pikap_konfirmim'); }, ACTION_DEFER_MS);
             }}
           >
             💬 SMS
@@ -219,7 +219,7 @@ function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, s
             <div style={ui.toolsGrid}>
               <button style={ui.toolBtnBig} onClick={() => openMap(toolsRow)}><span style={{ fontSize: 24 }}>📍</span><span style={{ fontSize: 14 }}>MAPS</span></button>
               <button style={ui.toolBtnBig} onClick={() => callClient(toolsRow)}><span style={{ fontSize: 24 }}>📞</span><span style={{ fontSize: 14 }}>THIRR</span></button>
-              <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenSms && row && onOpenSms(row, 'transport_marrje'); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>💬</span><span style={{ fontSize: 14 }}>SMS</span></button>
+              <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenSms && row && onOpenSms(row, 'transport_pikap_konfirmim'); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>💬</span><span style={{ fontSize: 14 }}>SMS</span></button>
               <button
                 style={{ border: '1px solid rgba(34,197,94,0.3)', background: 'rgba(34,197,94,0.15)', color: '#34C759', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer', marginTop: 6 }}
                 onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenRack && row && onOpenRack(row); }, ACTION_DEFER_MS); }}

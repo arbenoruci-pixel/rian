@@ -13,9 +13,8 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, phone
     try { window.location.href = href; } catch {}
   }
 
-  function openWhatsApp(event) {
+  async function openWhatsApp(event) {
     event?.preventDefault?.();
-    try { onAction?.('whatsapp'); } catch {}
     const appHref = String(links?.whatsappApp || '').trim();
     const webHref = String(links?.whatsapp || '').trim();
     const target = appHref || webHref;
@@ -23,6 +22,7 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, phone
       alert('Nuk ka numër valid për WhatsApp.');
       return;
     }
+    try { await Promise.resolve(onAction?.('whatsapp')); } catch {}
 
     let fallbackCancelled = false;
     const fallbackTimer = window.setTimeout(() => {
@@ -49,26 +49,26 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, phone
     openHref(target);
   }
 
-  function openViber(event) {
+  async function openViber(event) {
     event?.preventDefault?.();
-    try { onAction?.('viber'); } catch {}
     try { navigator.clipboard?.writeText(String(messageText || '').trim()); } catch {}
     const href = String(links?.viber || '').trim();
     if (!href) {
       alert('Nuk u ndërtua linku për Viber.');
       return;
     }
+    try { await Promise.resolve(onAction?.('viber')); } catch {}
     openHref(href);
   }
 
-  function openSms(event) {
+  async function openSms(event) {
     event?.preventDefault?.();
-    try { onAction?.('sms'); } catch {}
     const href = String(links?.sms || '').trim();
     if (!href) {
       alert('Nuk ka numër valid për SMS.');
       return;
     }
+    try { await Promise.resolve(onAction?.('sms')); } catch {}
     openHref(href);
   }
 

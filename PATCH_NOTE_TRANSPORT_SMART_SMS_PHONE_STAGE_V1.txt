@@ -1,0 +1,27 @@
+PATCH: Transport Smart SMS phone + pickup-stage correction
+
+Changed files:
+- lib/smartSms.js
+- components/SmartSmsModal.jsx
+- app/transport/board/page.jsx
+- app/transport/board/modules/ngarkim.jsx
+- lib/transport/board/shared.js
+- app/transport/item/page.jsx
+- app/transport/pranimi/page.jsx
+
+What changed:
+1. Fixed Kosovo phone normalization for messaging links:
+   - 383044... / +383044... / 044... now become +38344... for SMS and 38344... for WhatsApp.
+2. Added new Smart SMS action: transport_pikap_konfirmim.
+   - Used in PIKAP/NGARKIM instead of transport_marrje.
+   - Message now confirms carpets were picked up and are going to the base for cleaning.
+3. Smart SMS modal now calls onAction only after a valid channel link exists.
+4. Transport Board now increments sms_count only when the driver taps WhatsApp/Viber/SMS, not when the modal opens.
+5. No-show/shared board WhatsApp and transport item manual messages now use the same normalized phone format.
+
+Not changed:
+- DB schema
+- ARKA/payments/payroll
+- Service worker/cache/runtime
+- Offline outbox format
+- Status flow except the existing 3rd confirmation SMS depot behavior is preserved, now triggered after channel tap.

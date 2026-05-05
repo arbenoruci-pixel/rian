@@ -625,7 +625,7 @@ function TransportBoardInner() {
   const [geo, setGeo] = useState(null);
 
   const [modal, setModal] = useState({ open: false, url: '' });
-  const [smsModal, setSmsModal] = useState({ open: false, phone: '', text: '' });
+  const [smsModal, setSmsModal] = useState({ open: false, phone: '', text: '', strikeOrder: null, strikeAction: '', strikeDone: false });
   const smsOpenReqRef = useRef(0);
   const [transportUsers, setTransportUsers] = useState([]);
   const [seenIds, setSeenIds] = useState({});
@@ -1447,40 +1447,50 @@ function TransportBoardInner() {
     const requestId = Date.now() + Math.random();
     smsOpenReqRef.current = requestId;
 
-    let enrichedOrder = order;
-
-    if (shouldIncrementDepotSmsStrike(order, actionType)) {
-      const smsRes = await incrementSmsStrike(order);
-      if (smsOpenReqRef.current !== requestId) return;
-
-      if (!smsRes?.ok) {
-        alert('Gabim: ' + (smsRes?.error || 'SMS count nuk u ruajt.'));
-        return;
-      }
-
-      if (smsRes?.movedToDepot) {
-        alert('Mesazhi i 3-të! Porosia kaloi automatikisht në DEPO.');
-        try { await load(); } catch {}
-        return;
-      }
-
-      enrichedOrder = {
-        ...order,
-        data: smsRes?.data || { ...(order?.data || {}), sms_count: smsRes?.newCount || getSmsCount(order) + 1 },
-      };
-    }
-
     const phone = String(
-      enrichedOrder?.client_phone ||
-      enrichedOrder?.data?.client_phone ||
-      enrichedOrder?.client?.phone ||
-      enrichedOrder?.data?.client?.phone ||
-      enrichedOrder?.phone ||
+      order?.client_phone ||
+      order?.data?.client_phone ||
+      order?.client?.phone ||
+      order?.data?.client?.phone ||
+      order?.phone ||
       ''
     ).trim();
 
-    const text = buildSmartSmsText(enrichedOrder, actionType);
-    setSmsModal({ open: true, phone, text });
+    const text = buildSmartSmsText(order, actionType);
+    if (smsOpenReqRef.current !== requestId) return;
+    setSmsModal({
+      open: true,
+      phone,
+      text,
+      strikeOrder: shouldIncrementDepotSmsStrike(order, actionType) ? order : null,
+      strikeAction: String(actionType || ''),
+      strikeDone: false,
+    });
+  }
+
+  async function handleSmartSmsModalAction(channel) {
+    const current = smsModal;
+    const shouldStrike = Boolean(current?.open && current?.strikeOrder && !current?.strikeDone);
+    if (!shouldStrike) return { ok: true, skipped: true };
+
+    setSmsModal((prev) => ({ ...prev, strikeDone: true, lastChannel: channel || '' }));
+
+    const smsRes = await incrementSmsStrike(current.strikeOrder);
+    if (!smsRes?.ok) {
+      setSmsModal((prev) => ({ ...prev, strikeDone: false }));
+      alert('Gabim: ' + (smsRes?.error || 'SMS count nuk u ruajt.'));
+      return { ok: false, error: smsRes?.error || 'SMS count nuk u ruajt.' };
+    }
+
+    if (smsRes?.movedToDepot) {
+      setTimeout(() => {
+        alert('Mesazhi i 3-të! Porosia kaloi automatikisht në DEPO.');
+        try { setSmsModal({ open: false, phone: '', text: '', strikeOrder: null, strikeAction: '', strikeDone: false }); } catch {}
+        try { load(); } catch {}
+      }, 650);
+    }
+
+    return { ok: true, newCount: smsRes?.newCount || getSmsCount(current.strikeOrder) + 1 };
   }
 
   function closeModal() {
@@ -2256,10 +2266,11 @@ function TransportBoardInner() {
           isOpen={smsModal.open}
         onClose={() => {
           smsOpenReqRef.current = Date.now() + Math.random();
-          setSmsModal({ ...smsModal, open: false });
+          setSmsModal({ open: false, phone: '', text: '', strikeOrder: null, strikeAction: '', strikeDone: false });
         }}
         phone={smsModal.phone}
           messageText={smsModal.text}
+          onAction={handleSmartSmsModalAction}
         />
       </LocalErrorBoundary>
 
