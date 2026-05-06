@@ -728,6 +728,8 @@ function DispatchCard({ row, onOpen }) {
   const pieces = getRowPieces(row);
   const address = getAddress(row);
   const status = shortStatusLabel(row);
+  const hasPaymentInfo = [pay.total, pay.paid, pay.debt].some((value) => value !== null && value !== undefined);
+  const piecesText = Number(pieces || 0) > 0 ? `${pieces} copë` : "COPË: PA REGJISTRUAR";
   return (
     <button type="button" onClick={() => onOpen(row)} style={ui.orderCardBtn}>
       <div style={ui.orderCard}>
@@ -743,14 +745,18 @@ function DispatchCard({ row, onOpen }) {
           <div style={ui.cardLabel}>ADRESA</div>
           <div style={address ? ui.addressStrong : ui.addressWarn}>{address || "PA ADRESË"}</div>
 
-          <div style={ui.moneyGrid}>
-            <div><span style={ui.moneyLabel}>TOTALI:</span> <strong>{moneyDash(pay.total)}</strong></div>
-            <div><span style={ui.moneyLabel}>PAGUAR:</span> <strong>{moneyDash(pay.paid)}</strong></div>
-            <div><span style={rowHasDebt(row) ? ui.debtStrong : ui.moneyLabel}>BORXH:</span> <strong>{moneyDash(pay.debt)}</strong></div>
-          </div>
+          {hasPaymentInfo ? (
+            <div style={ui.moneyGrid}>
+              <div><span style={ui.moneyLabel}>TOTALI:</span> <strong>{moneyDash(pay.total)}</strong></div>
+              <div><span style={ui.moneyLabel}>PAGUAR:</span> <strong>{moneyDash(pay.paid)}</strong></div>
+              <div><span style={rowHasDebt(row) ? ui.debtStrong : ui.moneyLabel}>BORXH:</span> <strong>{moneyDash(pay.debt)}</strong></div>
+            </div>
+          ) : (
+            <div style={ui.moneyLine}><span style={ui.moneyLabel}>TOTALI:</span> <strong>PA LLOGARITUR</strong></div>
+          )}
 
           <div style={ui.cardFooterRow}>
-            <span style={ui.compactSub}>{pieces || 0} copë • {moneyDash(pay.total)}</span>
+            <span style={ui.compactSub}>{piecesText}{hasPaymentInfo && pay.total !== null ? ` • ${moneyDash(pay.total)}` : ""}</span>
             <span style={ui.compactSub}>Shoferi: {driver}</span>
             <span style={ui.compactSub}>Orari: {getScheduleText(row)}</span>
             <span style={ui.compactOpen}>HAP ➔</span>
@@ -836,6 +842,11 @@ export default function DispatchPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [accessAllowed, setAccessAllowed] = useState(false);
   const [liveMode, setLiveMode] = useState("POLL");
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [liveOpen, setLiveOpen] = useState(false);
+  const [driversOpen, setDriversOpen] = useState(false);
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [commandFilter, setCommandFilter] = useState("");
   const [commandDriverFilter, setCommandDriverFilter] = useState("all");
@@ -1464,6 +1475,37 @@ export default function DispatchPage() {
     return [];
   }, [activeTab, todayRows, tomorrowRows, onlineRows, phoneRows, cancellationRows]);
 
+  const showCommandDetails = commandOpen || commandActive;
+  const activeQuickFilterLabel = quickFilters.find((filter) => filter.key === commandFilter)?.label || "";
+  const activeDriverFilterLabel = commandDriverFilters.find((filter) => String(filter.key) === String(commandDriverFilter))?.label || "TË GJITHA";
+
+  function toggleCommandPanel() {
+    const next = !commandOpen;
+    setCommandOpen(next);
+    if (next) {
+      setCreateOpen(false);
+      setLiveOpen(false);
+    }
+  }
+
+  function toggleCreatePanel() {
+    const next = !createOpen;
+    setCreateOpen(next);
+    if (next) {
+      setCommandOpen(false);
+      setLiveOpen(false);
+    }
+  }
+
+  function toggleLivePanel() {
+    const next = !liveOpen;
+    setLiveOpen(next);
+    if (next) {
+      setCommandOpen(false);
+      setCreateOpen(false);
+    }
+  }
+
   const selectedPay = selectedRow ? getPaymentInfo(selectedRow) : { total: null, paid: null, debt: null };
   const selectedPhone = selectedRow ? getClientPhone(selectedRow) : "";
   const selectedPhoneLink = selectedRow ? phoneHref(selectedRow) : "";
@@ -1476,9 +1518,11 @@ export default function DispatchPage() {
   return (
     <div style={ui.page}>
       <div style={ui.top}>
-        <div>
+        <div style={ui.headerLeft}>
           <div style={ui.title}>DISPATCH</div>
-          <div style={ui.sub}>TRANSPORT CONTROL TOWER • {liveMode === "REALTIME" ? "LIVE REALTIME" : "LIVE POLL 20s"}</div>
+          <button type="button" style={ui.liveChip} onClick={toggleLivePanel}>
+            {liveMode === "REALTIME" ? "LIVE REALTIME" : "LIVE 20s"} {liveOpen ? "▴" : "▾"}
+          </button>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Link href="/transport/board" style={ui.btnGhost}>TEREN</Link>
@@ -1486,25 +1530,23 @@ export default function DispatchPage() {
         </div>
       </div>
 
-      <div style={ui.statsGrid}>
-        <div style={ui.statCard}><div style={ui.statLabel}>SOT</div><div style={ui.statValue}>{tabCounts[TAB_TODAY]}</div></div>
-        <div style={ui.statCard}><div style={ui.statLabel}>NESËR</div><div style={ui.statValue}>{tabCounts[TAB_TOMORROW]}</div></div>
-        <div style={ui.statCard}><div style={ui.statLabel}>ONLINE</div><div style={ui.statValue}>{tabCounts[TAB_ONLINE]}</div></div>
-        <div style={ui.statCard}><div style={ui.statLabel}>LIVE</div><div style={ui.statValue}>{tabCounts[TAB_UPDATES]}</div></div>
-        <div style={ui.statCard}><div style={ui.statLabel}>ANULIME 24H</div><div style={ui.statValue}>{tabCounts[TAB_CANCELLED]}</div></div>
+      <div style={ui.statsStrip}>
+        <button type="button" style={activeTab === TAB_TODAY ? ui.statChipOn : ui.statChip} onClick={() => setActiveTab(TAB_TODAY)}>SOT <strong>{tabCounts[TAB_TODAY]}</strong></button>
+        <button type="button" style={activeTab === TAB_TOMORROW ? ui.statChipOn : ui.statChip} onClick={() => setActiveTab(TAB_TOMORROW)}>NESËR <strong>{tabCounts[TAB_TOMORROW]}</strong></button>
+        <button type="button" style={activeTab === TAB_ONLINE ? ui.statChipOn : ui.statChip} onClick={() => setActiveTab(TAB_ONLINE)}>ONLINE <strong>{tabCounts[TAB_ONLINE]}</strong></button>
+        <button type="button" style={liveOpen ? ui.statChipOn : ui.statChip} onClick={toggleLivePanel}>LIVE <strong>{tabCounts[TAB_UPDATES]}</strong></button>
+        <button type="button" style={activeTab === TAB_CANCELLED ? ui.statChipDangerOn : ui.statChipDanger} onClick={() => setActiveTab(TAB_CANCELLED)}>ANULIME <strong>{tabCounts[TAB_CANCELLED]}</strong></button>
       </div>
 
       <div style={ui.commandCard}>
-        <div style={ui.sectionHeadRow}>
-          <div>
-            <div style={ui.sectionTitle}>DISPATCH COMMAND</div>
-            <div style={ui.sectionHint}>KËRKO KLIENTIN me telefon, T-code, emër ose adresë.</div>
-          </div>
-          <button type="button" style={ui.btnGhostMini} onClick={loadRows}>{loadingRows ? "DUKE…" : "REFRESH"}</button>
-        </div>
-
         <div style={ui.field}>
-          <div style={ui.label}>KËRKO KLIENTIN</div>
+          <div style={ui.searchHeadRow}>
+            <div>
+              <div style={ui.label}>KËRKO KLIENTIN</div>
+              <div style={ui.searchHint}>Tel / T-code / emër / adresë</div>
+            </div>
+            <button type="button" style={ui.btnGhostMini} onClick={loadRows}>{loadingRows ? "DUKE…" : "↻"}</button>
+          </div>
           <input
             style={ui.commandInput}
             value={commandQuery}
@@ -1514,64 +1556,86 @@ export default function DispatchPage() {
           />
         </div>
 
-        <div style={ui.smartFilterBlock}>
-          <div style={ui.smartFilterTitle}>SHOFERË / BAZA</div>
-          <div style={ui.smartChipRow}>
-            {commandDriverFilters.map((filter) => (
-              <button
-                key={filter.key}
-                type="button"
-                style={commandDriverFilter === filter.key ? ui.smartChipOn : ui.smartChipOff}
-                onClick={() => setCommandDriverFilter(filter.key)}
-              >
-                <span>{filter.label}</span>
-                <strong>{filter.count}</strong>
-              </button>
-            ))}
-          </div>
+        <div style={ui.topActions}>
+          <button type="button" style={showCommandDetails ? ui.topActionOn : ui.topActionOff} onClick={toggleCommandPanel}>COMMAND {showCommandDetails ? "▴" : "▾"}</button>
+          <button type="button" style={createOpen ? ui.topActionOn : ui.topActionOff} onClick={toggleCreatePanel}>+ SMART CREATE</button>
+          <button type="button" style={liveOpen ? ui.topActionOn : ui.topActionOff} onClick={toggleLivePanel}>{liveMode === "REALTIME" ? "LIVE" : "LIVE 20s"} {liveOpen ? "▴" : "▾"}</button>
         </div>
 
-        <div style={ui.smartFilterBlock}>
-          <div style={ui.smartFilterTitle}>FILTERA SI INBOX</div>
-          <div style={ui.quickGrid}>
-            {quickFilters.map((filter) => (
-              <button
-                key={filter.key}
-                type="button"
-                style={commandFilter === filter.key ? ui.quickFilterOn : ui.quickFilterOff}
-                onClick={() => setCommandFilter(commandFilter === filter.key ? "" : filter.key)}
-              >
-                <span>{filter.label}</span>
-                <strong>{filter.count}</strong>
+        {showCommandDetails ? (
+          <div style={ui.commandDetails}>
+            <div style={ui.compactToggleRow}>
+              <button type="button" style={ui.panelToggle} onClick={() => setDriversOpen(!driversOpen)}>
+                Shoferë/Baza: {activeDriverFilterLabel} {driversOpen ? "▴" : "▾"}
               </button>
-            ))}
-          </div>
-        </div>
-
-        {commandActive ? (
-          <div style={ui.commandResults}>
-            <div style={ui.sectionHeadRow}>
-              <div style={ui.sectionTitle}>REZULTATET ({commandRows.length})</div>
-              <button type="button" style={ui.btnGhostMini} onClick={() => { setCommandQuery(""); setCommandFilter(""); setCommandDriverFilter("all"); }}>PASTRO</button>
+              <button type="button" style={ui.panelToggle} onClick={() => setAdvancedFiltersOpen(!advancedFiltersOpen)}>
+                Advanced filters{activeQuickFilterLabel ? `: ${activeQuickFilterLabel}` : ""} {advancedFiltersOpen ? "▴" : "▾"}
+              </button>
+              {(commandFilter || commandDriverFilter !== "all" || s(commandQuery)) ? (
+                <button type="button" style={ui.panelToggleDanger} onClick={() => { setCommandQuery(""); setCommandFilter(""); setCommandDriverFilter("all"); }}>PASTRO</button>
+              ) : null}
             </div>
-            {commandRows.length === 0 ? (
-              <div style={ui.emptyBox}>
-                <div>NUK U GJET KLIENT. PËRDOR SMART CREATE POSHTË PËR POROSI TË RE.</div>
-                {s(commandQuery) ? <button type="button" style={ui.btnGhostMini} onClick={prefillCreateFromCommandSearch}>KRIJO ME KËTË SEARCH</button> : null}
-              </div>
-            ) : (
-              <div style={ui.list}>
-                {commandRows.map((row) => (
-                  <DispatchCard key={`command_${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />
+
+            {driversOpen ? (
+              <div style={ui.smartChipRow}>
+                {commandDriverFilters.map((filter) => (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    style={commandDriverFilter === filter.key ? ui.smartChipOn : ui.smartChipOff}
+                    onClick={() => setCommandDriverFilter(filter.key)}
+                  >
+                    <span>{filter.label}</span>
+                    <strong>{filter.count}</strong>
+                  </button>
                 ))}
               </div>
+            ) : null}
+
+            {advancedFiltersOpen ? (
+              <div style={ui.quickChipRow}>
+                {quickFilters.map((filter) => (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    style={commandFilter === filter.key ? ui.quickChipOn : ui.quickChipOff}
+                    onClick={() => setCommandFilter(commandFilter === filter.key ? "" : filter.key)}
+                  >
+                    <span>{filter.label}</span>
+                    <strong>{filter.count}</strong>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {commandActive ? (
+              <div style={ui.commandResults}>
+                <div style={ui.sectionHeadRow}>
+                  <div style={ui.sectionTitle}>REZULTATET ({commandRows.length})</div>
+                </div>
+                {commandRows.length === 0 ? (
+                  <div style={ui.emptyBox}>
+                    <div>NUK U GJET KLIENT. HAPE + SMART CREATE PËR POROSI TË RE.</div>
+                    {s(commandQuery) ? <button type="button" style={ui.btnGhostMini} onClick={() => { prefillCreateFromCommandSearch(); setCreateOpen(true); setCommandOpen(false); }}>KRIJO ME KËTË SEARCH</button> : null}
+                  </div>
+                ) : (
+                  <div style={ui.list}>
+                    {commandRows.map((row) => (
+                      <DispatchCard key={`command_${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={ui.sectionHint}>Shkruaj tel/T-code/emër/adresë ose hap një filter për me i nxjerrë rezultatet.</div>
             )}
           </div>
         ) : (
-          <div style={ui.sectionHint}>Shkruaj tel/T-code/emër/adresë ose prek një filtër për vendimet urgjente.</div>
+          <div style={ui.sectionHint}>Search-i qëndron gjithmonë hapur. Hape COMMAND për shoferë/bazë, filtra dhe rezultate të detajuara.</div>
         )}
       </div>
 
+      {createOpen ? (
       <div style={ui.card}>
         <div style={ui.sectionHeadRow}>
           <div style={ui.sectionTitle}>DISPATCH SMART CREATE</div>
@@ -1696,6 +1760,20 @@ export default function DispatchPage() {
           {busy ? "DUKE DËRGU…" : "DËRGO"}
         </button>
       </div>
+      ) : null}
+
+      {liveOpen ? (
+        <div style={ui.card}>
+          <div style={ui.sectionHeadRow}>
+            <div>
+              <div style={ui.sectionTitle}>LIVE / TRANSPORT CONTROL TOWER</div>
+              <div style={ui.sectionHint}>{liveMode === "REALTIME" ? "Supabase realtime" : "Refresh i lehtë çdo 20 sekonda"}</div>
+            </div>
+            <button type="button" style={ui.btnGhostMini} onClick={loadRows}>{loadingRows ? "DUKE…" : "↻"}</button>
+          </div>
+          {(liveRows?.length || 0) === 0 ? <div style={ui.empty}>S'KA AKTIVITET LIVE.</div> : <div style={ui.list}>{liveRows.map((row) => <DispatchCard key={`live_panel_${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />)}</div>}
+        </div>
+      ) : null}
 
       <div style={ui.card}>
         <div style={ui.tabRow}>
@@ -1733,23 +1811,9 @@ export default function DispatchPage() {
               <div style={ui.empty}>S'KA POROSI NË KËTË TAB.</div>
             ) : (
               <div style={ui.list}>
-                {currentRows.map((row) => {
-                  const removable = canDispatchRemoveRow(row);
-                  const deleting = deleteBusyId === String(row?.id || "");
-                  return (
-                    <div key={`${getOrderTable(row)}_${row.id}`} style={{ display: "grid", gap: 8 }}>
-                      <DispatchCard row={row} onOpen={openRow} />
-                      {removable ? (
-                        <div style={ui.inlineDangerRow}>
-                          <div style={ui.inlineDangerHint}>Nëse porosia është anuluar, hajgare, ose dështoi me u marrë, largoje nga listat aktive pa e fshirë nga DB.</div>
-                          <button type="button" style={ui.btnDangerMini} onClick={() => removeDispatchRow(row)} disabled={deleting}>
-                            {deleting ? "DUKE HEQ…" : "FSHI POROSINË"}
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                {currentRows.map((row) => (
+                  <DispatchCard key={`${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />
+                ))}
               </div>
             )}
           </>
@@ -1785,9 +1849,6 @@ export default function DispatchPage() {
                         <div style={ui.compactSub}>ARSYE: {up(row?.data?.failed_note || row?.data?.reason || row?.data?.unsuccess_reason || "PA SHËNIM")}</div>
                         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
                           <button type="button" style={ui.btnGhostMini} onClick={() => openRow(row)}>HAP</button>
-                          <button type="button" style={ui.btnDangerMini} onClick={() => removeDispatchRow(row)} disabled={deleteBusyId === String(row?.id || "")}>
-                            {deleteBusyId === String(row?.id || "") ? "DUKE HEQ…" : "FSHI NGA DISPATCH"}
-                          </button>
                         </div>
                       </div>
                     </div>
@@ -1915,9 +1976,12 @@ export default function DispatchPage() {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" style={{ ...ui.btnPrimary, flex: 1 }} onClick={savePlan} disabled={saveBusy}>{saveBusy ? "DUKE RUAJT…" : "RUAJ PLANIN"}</button>
-              {canDispatchRemoveRow(selectedRow) ? (
+            {canDispatchRemoveRow(selectedRow) ? (
+              <div style={ui.adminRiskBox}>
+                <div>
+                  <div style={ui.sectionTitle}>ADMIN / RREZIK</div>
+                  <div style={ui.sectionHint}>Përdore vetëm kur porosia është anuluar ose duhet larguar nga listat aktive. Kërkon confirm.</div>
+                </div>
                 <button
                   type="button"
                   style={ui.btnDanger}
@@ -1926,7 +1990,11 @@ export default function DispatchPage() {
                 >
                   {deleteBusyId === String(selectedRow?.id || "") ? "DUKE HEQ…" : "FSHI POROSINË"}
                 </button>
-              ) : null}
+              </div>
+            ) : null}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" style={{ ...ui.btnPrimary, flex: 1 }} onClick={savePlan} disabled={saveBusy}>{saveBusy ? "DUKE RUAJT…" : "RUAJ PLANIN"}</button>
             </div>
           </div>
         </div>
@@ -2104,4 +2172,30 @@ const ui = {
   actionGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 },
   actionBtn: { minHeight: 42, borderRadius: 12, border: "1px solid rgba(96,165,250,0.28)", background: "rgba(37,99,235,0.18)", color: "#dbeafe", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 12px", fontWeight: 1000, textDecoration: "none", cursor: "pointer", boxSizing: "border-box" },
   actionBtnDisabled: { minHeight: 42, borderRadius: 12, border: "1px solid rgba(148,163,184,0.14)", background: "rgba(148,163,184,0.08)", color: "rgba(203,213,225,0.42)", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 12px", fontWeight: 1000, cursor: "not-allowed", boxSizing: "border-box" },
+
+  // Dispatch compact mobile command-center overrides
+  page: { minHeight: "100vh", background: "#070b14", color: "#f8fafc", padding: "16px 16px calc(120px + env(safe-area-inset-bottom))", width: "100%", maxWidth: "100vw", overflowX: "hidden", boxSizing: "border-box" },
+  headerLeft: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 },
+  liveChip: { minHeight: 30, borderRadius: 999, border: "1px solid rgba(96,165,250,0.32)", background: "rgba(37,99,235,0.18)", color: "#dbeafe", padding: "0 10px", fontSize: 11, fontWeight: 1000, cursor: "pointer", letterSpacing: 0.2 },
+  statsStrip: { maxWidth: 960, width: "100%", margin: "10px auto 0", display: "flex", gap: 8, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2, boxSizing: "border-box" },
+  statChip: { minHeight: 32, borderRadius: 999, border: "1px solid rgba(148,163,184,0.20)", background: "rgba(15,23,42,0.88)", color: "#e2e8f0", padding: "0 11px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 1000, whiteSpace: "nowrap", cursor: "pointer" },
+  statChipOn: { minHeight: 32, borderRadius: 999, border: "1px solid rgba(96,165,250,0.38)", background: "#2563eb", color: "#fff", padding: "0 11px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 1000, whiteSpace: "nowrap", cursor: "pointer" },
+  statChipDanger: { minHeight: 32, borderRadius: 999, border: "1px solid rgba(248,113,113,0.22)", background: "rgba(127,29,29,0.18)", color: "#fecaca", padding: "0 11px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 1000, whiteSpace: "nowrap", cursor: "pointer" },
+  statChipDangerOn: { minHeight: 32, borderRadius: 999, border: "1px solid rgba(248,113,113,0.34)", background: "#991b1b", color: "#fff", padding: "0 11px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 1000, whiteSpace: "nowrap", cursor: "pointer" },
+  searchHeadRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 },
+  searchHint: { fontSize: 11, color: "rgba(203,213,225,0.64)", fontWeight: 800, marginTop: 2 },
+  topActions: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 8, minWidth: 0 },
+  topActionOn: { minHeight: 38, borderRadius: 12, border: "1px solid rgba(96,165,250,0.38)", background: "#2563eb", color: "#fff", padding: "0 8px", fontSize: 12, fontWeight: 1000, cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  topActionOff: { minHeight: 38, borderRadius: 12, border: "1px solid rgba(148,163,184,0.20)", background: "rgba(2,6,23,0.42)", color: "#e2e8f0", padding: "0 8px", fontSize: 12, fontWeight: 1000, cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  commandDetails: { marginTop: 10, borderTop: "1px solid rgba(148,163,184,0.12)", paddingTop: 10, display: "grid", gap: 10 },
+  compactToggleRow: { display: "flex", gap: 8, flexWrap: "wrap", minWidth: 0 },
+  panelToggle: { minHeight: 34, borderRadius: 999, border: "1px solid rgba(148,163,184,0.20)", background: "rgba(15,23,42,0.82)", color: "#e2e8f0", padding: "0 10px", fontSize: 11, fontWeight: 1000, cursor: "pointer", maxWidth: "100%" },
+  panelToggleDanger: { minHeight: 34, borderRadius: 999, border: "1px solid rgba(248,113,113,0.22)", background: "rgba(127,29,29,0.22)", color: "#fecaca", padding: "0 10px", fontSize: 11, fontWeight: 1000, cursor: "pointer", maxWidth: "100%" },
+  quickChipRow: { display: "flex", gap: 7, flexWrap: "wrap", minWidth: 0, maxWidth: "100%" },
+  quickChipOn: { minHeight: 34, borderRadius: 999, border: "1px solid rgba(96,165,250,0.40)", background: "#2563eb", color: "#fff", padding: "0 10px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, fontWeight: 1000, cursor: "pointer", whiteSpace: "nowrap" },
+  quickChipOff: { minHeight: 34, borderRadius: 999, border: "1px solid rgba(148,163,184,0.18)", background: "rgba(2,6,23,0.36)", color: "#e2e8f0", padding: "0 10px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, fontWeight: 1000, cursor: "pointer", whiteSpace: "nowrap" },
+  commandCard: { maxWidth: 960, width: "100%", margin: "10px auto 0", background: "linear-gradient(180deg, rgba(30,41,59,0.98), rgba(15,23,42,0.98))", borderRadius: 18, border: "1px solid rgba(96,165,250,0.24)", padding: 12, boxShadow: "0 18px 34px rgba(0,0,0,0.30)", boxSizing: "border-box", overflow: "hidden" },
+  commandInput: { height: 48, borderRadius: 14, border: "1px solid rgba(96,165,250,0.34)", padding: "0 13px", fontWeight: 1000, outline: "none", width: "100%", maxWidth: "100%", background: "rgba(2,6,23,0.86)", color: "#f8fafc", WebkitTextFillColor: "#f8fafc", caretColor: "#93c5fd", boxSizing: "border-box", fontSize: 15 },
+  moneyLine: { borderRadius: 12, background: "rgba(15,23,42,0.54)", border: "1px solid rgba(148,163,184,0.10)", padding: "7px 9px", fontSize: 12, color: "#e2e8f0", fontWeight: 1000 },
+  adminRiskBox: { marginTop: 12, borderTop: "1px solid rgba(248,113,113,0.18)", paddingTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", borderRadius: 14 },
 };
