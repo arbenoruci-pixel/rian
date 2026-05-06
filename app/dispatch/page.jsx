@@ -581,6 +581,57 @@ function shortStatusLabel(row) {
 function rowNeedsDriver(row) {
   return !s(orderAssignedDriver(row) || row?.data?.transport_name || row?.data?.driver_name || row?.data?.actor || row?.data?.transport_id || row?.data?.transport_user_id || row?.data?.assigned_driver_id);
 }
+function driverDisplayName(driver) {
+  return up(driver?.name || driver?.full_name || driver?.username || driver?.pin || "SHOFER");
+}
+function driverStableId(driver) {
+  return String(driver?.id || driver?.user_id || driver?.pin || driver?.user_pin || "").trim();
+}
+function driverStablePin(driver) {
+  return String(driver?.pin || driver?.user_pin || driver?.transport_pin || "").trim();
+}
+function rowDriverTokens(row) {
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  return [
+    row?.driver_id,
+    row?.driver_pin,
+    row?.driver_name,
+    row?.transport_id,
+    row?.transport_pin,
+    row?.transport_name,
+    row?.assigned_driver_id,
+    data.transport_id,
+    data.transport_user_id,
+    data.assigned_driver_id,
+    data.driver_id,
+    data.driver_pin,
+    data.driver_name,
+    data.transport_pin,
+    data.transport_name,
+    data.actor,
+  ].map((x) => s(x)).filter(Boolean);
+}
+function rowMatchesDriver(row, driver) {
+  if (!driver) return false;
+  const id = driverStableId(driver);
+  const pin = driverStablePin(driver);
+  const name = driverDisplayName(driver);
+  const tokens = rowDriverTokens(row);
+  return tokens.some((token) => {
+    const raw = String(token || "").trim();
+    if (!raw) return false;
+    if (id && raw === id) return true;
+    if (pin && raw === pin) return true;
+    return up(raw) === name;
+  });
+}
+function isBaseSideRow(row) {
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  const raw = rawStatus(row?.status || data.status || data.transport_status || data.dispatch_status || "");
+  if (["loaded", "ngarkim", "ngarkuar", "pastrim", "pastrimi", "base", "in_base", "ne_baze", "në_bazë", "gati", "ne_depo", "në_depo", "depo", "depot"].includes(raw)) return true;
+  const idx = transportStageIndex(row);
+  return idx >= 3 && idx <= 6;
+}
 function rowHasDebt(row) {
   const pay = getPaymentInfo(row);
   if (pay.debt !== null) return Number(pay.debt) > 0.009;
@@ -627,6 +678,12 @@ function matchesCommandFilter(row, filter) {
   if (filter === "debt") return rowHasDebt(row);
   if (filter === "done_today") return isDoneToday(row);
   return true;
+}
+function matchesCommandDriverFilter(row, filter, drivers) {
+  if (!filter || filter === "all") return true;
+  if (filter === "base") return isBaseSideRow(row);
+  const driver = (drivers || []).find((d) => driverStableId(d) === String(filter));
+  return rowMatchesDriver(row, driver);
 }
 function sortCommandRows(a, b, filter) {
   if (filter === "debt") return (rowHasDebt(b) ? 1 : 0) - (rowHasDebt(a) ? 1 : 0) || lastTs(b) - lastTs(a);
@@ -781,6 +838,7 @@ export default function DispatchPage() {
   const [liveMode, setLiveMode] = useState("POLL");
   const [commandQuery, setCommandQuery] = useState("");
   const [commandFilter, setCommandFilter] = useState("");
+  const [commandDriverFilter, setCommandDriverFilter] = useState("all");
   const [copyMsg, setCopyMsg] = useState("");
   const realtimeTimerRef = useRef(null);
 
@@ -1008,6 +1066,23 @@ export default function DispatchPage() {
     else setPhoneHit(null);
   }
 
+  function prefillCreateFromCommandSearch() {
+    const q = s(commandQuery);
+    if (!q) return;
+    const digits = onlyDigits(q);
+    if (digits.length >= 7) {
+      setPhone(digits);
+      setCrmQuery(digits);
+    } else if (looksLikeTransportCode(q)) {
+      setCrmQuery(q);
+      setNote((prev) => s(prev) || `Kërkuar nga dispatch: ${q}`);
+    } else {
+      setName((prev) => s(prev) || q);
+      setCrmQuery(q);
+    }
+    setMsg("SEARCH U KALUA TE SMART CREATE ✅");
+    window.setTimeout(() => setMsg(""), 2200);
+  }
 
   const plannedDate = useMemo(() => {
     if (planMode === "tomorrow") return tomorrowYmd;
@@ -1026,15 +1101,32 @@ export default function DispatchPage() {
     { key: "done_today", label: "DORËZUAR SOT", count: dispatchRows.filter((row) => isDoneToday(row)).length },
   ]), [dispatchRows]);
 
-  const commandActive = s(commandQuery).length > 0 || !!commandFilter;
+  const commandDriverFilters = useMemo(() => {
+    const activeRows = dispatchRows.filter((row) => !isCompletedRow(row));
+    return [
+      { key: "all", label: "TË GJITHA", count: activeRows.length },
+      { key: "base", label: "BAZA", count: activeRows.filter((row) => isBaseSideRow(row)).length },
+      ...drivers.map((driver) => {
+        const key = driverStableId(driver);
+        return {
+          key,
+          label: driverDisplayName(driver),
+          count: activeRows.filter((row) => rowMatchesDriver(row, driver)).length,
+        };
+      }).filter((x) => !!x.key),
+    ];
+  }, [dispatchRows, drivers]);
+
+  const commandActive = s(commandQuery).length > 0 || !!commandFilter || commandDriverFilter !== "all";
   const commandRows = useMemo(() => {
     if (!commandActive) return [];
     return dispatchRows
       .filter((row) => matchesCommandSearch(row, commandQuery))
       .filter((row) => matchesCommandFilter(row, commandFilter))
+      .filter((row) => matchesCommandDriverFilter(row, commandDriverFilter, drivers))
       .sort((a, b) => sortCommandRows(a, b, commandFilter))
       .slice(0, 50);
-  }, [dispatchRows, commandQuery, commandFilter, commandActive]);
+  }, [dispatchRows, commandQuery, commandFilter, commandDriverFilter, drivers, commandActive]);
 
   const daySlotCount = useMemo(() => {
     return dispatchRows.filter((row) => {
@@ -1422,28 +1514,51 @@ export default function DispatchPage() {
           />
         </div>
 
-        <div style={ui.quickGrid}>
-          {quickFilters.map((filter) => (
-            <button
-              key={filter.key}
-              type="button"
-              style={commandFilter === filter.key ? ui.quickFilterOn : ui.quickFilterOff}
-              onClick={() => setCommandFilter(commandFilter === filter.key ? "" : filter.key)}
-            >
-              <span>{filter.label}</span>
-              <strong>{filter.count}</strong>
-            </button>
-          ))}
+        <div style={ui.smartFilterBlock}>
+          <div style={ui.smartFilterTitle}>SHOFERË / BAZA</div>
+          <div style={ui.smartChipRow}>
+            {commandDriverFilters.map((filter) => (
+              <button
+                key={filter.key}
+                type="button"
+                style={commandDriverFilter === filter.key ? ui.smartChipOn : ui.smartChipOff}
+                onClick={() => setCommandDriverFilter(filter.key)}
+              >
+                <span>{filter.label}</span>
+                <strong>{filter.count}</strong>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={ui.smartFilterBlock}>
+          <div style={ui.smartFilterTitle}>FILTERA SI INBOX</div>
+          <div style={ui.quickGrid}>
+            {quickFilters.map((filter) => (
+              <button
+                key={filter.key}
+                type="button"
+                style={commandFilter === filter.key ? ui.quickFilterOn : ui.quickFilterOff}
+                onClick={() => setCommandFilter(commandFilter === filter.key ? "" : filter.key)}
+              >
+                <span>{filter.label}</span>
+                <strong>{filter.count}</strong>
+              </button>
+            ))}
+          </div>
         </div>
 
         {commandActive ? (
           <div style={ui.commandResults}>
             <div style={ui.sectionHeadRow}>
               <div style={ui.sectionTitle}>REZULTATET ({commandRows.length})</div>
-              <button type="button" style={ui.btnGhostMini} onClick={() => { setCommandQuery(""); setCommandFilter(""); }}>PASTRO</button>
+              <button type="button" style={ui.btnGhostMini} onClick={() => { setCommandQuery(""); setCommandFilter(""); setCommandDriverFilter("all"); }}>PASTRO</button>
             </div>
             {commandRows.length === 0 ? (
-              <div style={ui.empty}>NUK U GJET KLIENT. PËRDOR SMART CREATE POSHTË PËR POROSI TË RE.</div>
+              <div style={ui.emptyBox}>
+                <div>NUK U GJET KLIENT. PËRDOR SMART CREATE POSHTË PËR POROSI TË RE.</div>
+                {s(commandQuery) ? <button type="button" style={ui.btnGhostMini} onClick={prefillCreateFromCommandSearch}>KRIJO ME KËTË SEARCH</button> : null}
+              </div>
             ) : (
               <div style={ui.list}>
                 {commandRows.map((row) => (
@@ -1553,10 +1668,23 @@ export default function DispatchPage() {
 
         <div style={ui.field}>
           <div style={ui.label}>SHOFERI</div>
+          <div style={ui.smartChipRow}>
+            <button type="button" style={!driverId ? ui.smartChipOn : ui.smartChipOff} onClick={() => setDriverId("")}>BAZA / PA SHOFER</button>
+            {drivers.map((d) => (
+              <button
+                key={`create_driver_${String(d.id)}`}
+                type="button"
+                style={String(driverId || "") === String(d.id || "") ? ui.smartChipOn : ui.smartChipOff}
+                onClick={() => setDriverId(String(d.id || ""))}
+              >
+                {driverDisplayName(d)}
+              </button>
+            ))}
+          </div>
           <select style={ui.input} value={driverId} onChange={(e) => setDriverId(e.target.value)}>
             <option style={ui.selectOption} value="">(PA SHOFER – TË GJITHË E SHOHIN INBOX)</option>
             {drivers.map((d) => (
-              <option style={ui.selectOption} key={String(d.id)} value={String(d.id)}>{String(d.name || "TRANSPORT").toUpperCase()}</option>
+              <option style={ui.selectOption} key={String(d.id)} value={String(d.id)}>{driverDisplayName(d)}</option>
             ))}
           </select>
         </div>
@@ -1930,9 +2058,15 @@ const ui = {
   tabDangerOff: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(248,113,113,0.22)", background: "rgba(127,29,29,0.18)", color: "#fecaca", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
   pillOn: { minHeight: 38, padding: "0 12px", borderRadius: 999, border: "1px solid rgba(96,165,250,0.34)", background: "#2563eb", color: "#fff", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
   pillOff: { minHeight: 38, padding: "0 12px", borderRadius: 999, border: "1px solid rgba(148,163,184,0.20)", background: "rgba(15,23,42,0.88)", color: "#e2e8f0", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
-  quickGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: 8, margin: "10px 0 12px", minWidth: 0 },
+  quickGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: 8, margin: "8px 0 12px", minWidth: 0 },
   quickFilterOn: { minHeight: 48, borderRadius: 14, border: "1px solid rgba(96,165,250,0.42)", background: "rgba(37,99,235,0.88)", color: "#fff", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontWeight: 1000, cursor: "pointer" },
   quickFilterOff: { minHeight: 48, borderRadius: 14, border: "1px solid rgba(148,163,184,0.18)", background: "rgba(2,6,23,0.45)", color: "#e2e8f0", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontWeight: 1000, cursor: "pointer" },
+  smartFilterBlock: { borderRadius: 16, border: "1px solid rgba(148,163,184,0.12)", background: "rgba(2,6,23,0.24)", padding: 10, marginTop: 10, minWidth: 0, overflow: "hidden" },
+  smartFilterTitle: { fontSize: 10, fontWeight: 1000, letterSpacing: 0.8, color: "rgba(147,197,253,0.88)", marginBottom: 8 },
+  smartChipRow: { display: "flex", gap: 8, flexWrap: "wrap", minWidth: 0, maxWidth: "100%", marginBottom: 8 },
+  smartChipOn: { minHeight: 38, borderRadius: 999, border: "1px solid rgba(96,165,250,0.42)", background: "rgba(37,99,235,0.92)", color: "#fff", padding: "0 12px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, fontWeight: 1000, cursor: "pointer", maxWidth: "100%" },
+  smartChipOff: { minHeight: 38, borderRadius: 999, border: "1px solid rgba(148,163,184,0.20)", background: "rgba(15,23,42,0.82)", color: "#e2e8f0", padding: "0 12px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, fontWeight: 1000, cursor: "pointer", maxWidth: "100%" },
+  emptyBox: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", borderRadius: 14, border: "1px solid rgba(148,163,184,0.14)", background: "rgba(2,6,23,0.28)", padding: 12, fontWeight: 900, color: "rgba(226,232,240,0.82)" },
   commandResults: { borderTop: "1px solid rgba(148,163,184,0.14)", marginTop: 12, paddingTop: 12 },
   capacityBox: { borderRadius: 14, border: "1px solid rgba(148,163,184,0.16)", background: "rgba(2,6,23,0.36)", padding: 10, fontSize: 12, fontWeight: 900, display: "grid", gap: 6, width: "100%", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden" },
   crmHitBox: { borderRadius: 14, border: "1px solid rgba(96,165,250,0.26)", background: "rgba(37,99,235,0.14)", padding: 12, marginBottom: 10 },
