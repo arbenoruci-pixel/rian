@@ -477,6 +477,182 @@ function getTotals(row) {
   const total = Number(row?.price_total ?? row?.data?.price_total ?? row?.data?.totals?.grandTotal ?? row?.data?.totals?.total ?? row?.data?.totals?.euro ?? 0) || 0;
   return { pieces, m2, total };
 }
+
+function finiteMoneyValue(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+function moneyDash(value) {
+  if (value === null || value === undefined) return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toFixed(2)} €`;
+}
+function getPaymentInfo(row) {
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  const pay = data?.pay && typeof data.pay === "object" ? data.pay : {};
+  const totals = data?.totals && typeof data.totals === "object" ? data.totals : {};
+  const payment = data?.payment && typeof data.payment === "object" ? data.payment : {};
+  const paymentSnapshot = data?.payment_snapshot && typeof data.payment_snapshot === "object" ? data.payment_snapshot : {};
+  const total = finiteMoneyValue(
+    row?.price_total,
+    row?.total_price,
+    row?.total,
+    data?.price_total,
+    data?.total_price,
+    data?.total,
+    pay?.euro,
+    pay?.total,
+    totals?.grandTotal,
+    totals?.grand_total,
+    totals?.total,
+    totals?.euro,
+    payment?.total,
+    paymentSnapshot?.total
+  );
+  let paid = finiteMoneyValue(
+    row?.paid_amount,
+    row?.paid_cash,
+    row?.clientPaid,
+    row?.paid,
+    data?.paid_amount,
+    data?.paid_cash,
+    data?.clientPaid,
+    data?.paid,
+    pay?.paid,
+    payment?.paid,
+    payment?.amount_taken,
+    paymentSnapshot?.amount_taken
+  );
+  let debt = finiteMoneyValue(
+    row?.debt,
+    row?.debt_remaining,
+    data?.debt,
+    data?.debt_remaining,
+    pay?.debt,
+    payment?.debt,
+    payment?.debt_remaining,
+    paymentSnapshot?.debt_remaining
+  );
+  if (debt === null && total !== null && paid !== null) debt = Math.max(0, Number((total - paid).toFixed(2)));
+  if (paid === null && total !== null && debt !== null) paid = Math.max(0, Number((total - debt).toFixed(2)));
+  return { total, paid, debt };
+}
+function getRowPieces(row) {
+  const totals = getTotals(row);
+  return totals.pieces || Number(row?.data?.qty || row?.data?.items_count || row?.data?.["copë"] || row?.data?.cope || 0) || 0;
+}
+function getScheduleText(row) {
+  const date = rowPickupDate(row);
+  const slot = rowPickupSlot(row);
+  const slotText = slot ? slotWindow(slot) : "";
+  if (date && slotText) return `${uiDate(date)} • ${slotText}`;
+  if (date) return uiDate(date);
+  if (slotText) return slotText;
+  return "—";
+}
+function dispatchStatusLabel(rowOrStatus) {
+  const row = typeof rowOrStatus === "object" ? rowOrStatus : null;
+  const data = row?.data && typeof row.data === "object" ? row.data : {};
+  const raw = rawStatus(row ? (row?.status || data.status || data.transport_status || data.dispatch_status) : rowOrStatus);
+  if (["assigned", "inbox", "new", "pranim", "dispatched", "scheduled", "pending", "draft", "accepted", "pranuar", "pranu"].includes(raw)) return "E PLANIFIKUAR";
+  if (raw === "pickup") return "SHOFERI PO SHKON ME I MARRË";
+  if (["loaded", "ngarkim", "ngarkuar"].includes(raw)) return "U MORËN, JANË RRUGËS PËR BAZË";
+  if (["pastrim", "pastrimi", "base", "in_base", "ne_baze", "në_bazë"].includes(raw)) return "NË PASTRIM";
+  if (raw === "gati") return "GATI PËR DORËZIM";
+  if (["delivery", "dorzim", "dorëzim", "dorezim", "marrje", "kthim", "return", "returning"].includes(raw)) return "SHOFERI ËSHTË RRUGËS TE KLIENTI";
+  if (["done", "delivered", "dorzuar", "dorezuar", "dorëzuar"].includes(raw)) return "E DORËZUAR";
+  if (["ne_depo", "në_depo", "depo", "depot"].includes(raw)) return "NË DEPO";
+  if (["cancelled", "canceled", "anuluar", "annulled", "void", "deleted", "removed"].includes(raw)) return "ANULUAR";
+  if (["failed", "deshtuar", "dështuar", "parealizuar", "no_show", "noshow", "returned"].includes(raw)) return "DËSHTUAR";
+  return normalizeStatus(raw || "-");
+}
+function shortStatusLabel(row) {
+  const label = dispatchStatusLabel(row);
+  if (label === "SHOFERI PO SHKON ME I MARRË") return "PICKUP";
+  if (label === "U MORËN, JANË RRUGËS PËR BAZË") return "PËR BAZË";
+  if (label === "SHOFERI ËSHTË RRUGËS TE KLIENTI") return "PËR KLIENT";
+  return label;
+}
+function rowNeedsDriver(row) {
+  return !s(orderAssignedDriver(row) || row?.data?.transport_name || row?.data?.driver_name || row?.data?.actor || row?.data?.transport_id || row?.data?.transport_user_id || row?.data?.assigned_driver_id);
+}
+function rowHasDebt(row) {
+  const pay = getPaymentInfo(row);
+  if (pay.debt !== null) return Number(pay.debt) > 0.009;
+  if (pay.total !== null && pay.paid !== null) return Number(pay.total) > Number(pay.paid) + 0.009;
+  return false;
+}
+function isDepotRow(row) {
+  const raw = rawStatus(row?.status || row?.data?.status || row?.data?.transport_status || row?.data?.dispatch_status || "");
+  return ["ne_depo", "në_depo", "depo", "depot"].includes(raw);
+}
+function isReadyRow(row) {
+  const raw = rawStatus(row?.status || row?.data?.status || row?.data?.transport_status || row?.data?.dispatch_status || "");
+  return raw === "gati" || !!row?.data?.ready_at;
+}
+function commandSearchText(row) {
+  return [
+    getDispatchCardCode(row),
+    getOrderCode(row),
+    getTransportTCode(row),
+    getClientName(row),
+    getClientPhone(row),
+    getAddress(row),
+    row?.status,
+    row?.data?.status,
+    dispatchStatusLabel(row),
+    orderAssignedDriver(row),
+    rowPickupDate(row),
+    rowPickupSlot(row),
+  ].join(" ").toLowerCase();
+}
+function matchesCommandSearch(row, query) {
+  const q = s(query).toLowerCase();
+  if (!q) return true;
+  const digits = onlyDigits(q);
+  if (digits && getClientPhone(row).includes(digits)) return true;
+  return commandSearchText(row).includes(q);
+}
+function matchesCommandFilter(row, filter) {
+  if (!filter) return true;
+  if (filter === "no_driver") return rowNeedsDriver(row);
+  if (filter === "no_address") return !getAddress(row);
+  if (filter === "depo") return isDepotRow(row);
+  if (filter === "gati") return isReadyRow(row);
+  if (filter === "debt") return rowHasDebt(row);
+  if (filter === "done_today") return isDoneToday(row);
+  return true;
+}
+function sortCommandRows(a, b, filter) {
+  if (filter === "debt") return (rowHasDebt(b) ? 1 : 0) - (rowHasDebt(a) ? 1 : 0) || lastTs(b) - lastTs(a);
+  if (filter === "gati") return transportStageIndex(a) - transportStageIndex(b) || lastTs(a) - lastTs(b);
+  if (filter === "done_today") return lastTs(b) - lastTs(a);
+  return lastTs(b) - lastTs(a);
+}
+function getCopyReplyText(row) {
+  const pay = getPaymentInfo(row);
+  const code = getDispatchCardCode(row);
+  const name = getClientName(row) || "klient";
+  const address = getAddress(row) || "—";
+  const driver = orderAssignedDriver(row) || "—";
+  const schedule = getScheduleText(row);
+  return `Përshëndetje ${name},\nPorosia juaj ${code} është në statusin: ${dispatchStatusLabel(row)}.\nTotali është ${moneyDash(pay.total)}, paguar ${moneyDash(pay.paid)}, borxhi ${moneyDash(pay.debt)}.\nAdresa: ${address}.\nShoferi/orari: ${driver} ${schedule}.`;
+}
+function phoneHref(row) {
+  const phone = getClientPhone(row);
+  return phone ? `tel:${phone}` : "";
+}
+function whatsappHref(row) {
+  const phone = getClientPhone(row);
+  if (!phone) return "";
+  const text = encodeURIComponent(getCopyReplyText(row));
+  return `https://wa.me/${phone}?text=${text}`;
+}
 function sameCustomer(a, b) {
   const p1 = getClientPhone(a);
   const p2 = getClientPhone(b);
@@ -490,35 +666,36 @@ function sameCustomer(a, b) {
 
 function DispatchCard({ row, onOpen }) {
   const code = getDispatchCardCode(row);
-  const driver = orderAssignedDriver(row);
-  const planningDate = rowPickupDate(row);
-  const planningSlot = rowPickupSlot(row);
+  const driver = orderAssignedDriver(row) || "PA SHOFER";
+  const pay = getPaymentInfo(row);
+  const pieces = getRowPieces(row);
+  const address = getAddress(row);
+  const status = shortStatusLabel(row);
   return (
     <button type="button" onClick={() => onOpen(row)} style={ui.orderCardBtn}>
       <div style={ui.orderCard}>
         <div style={ui.codePill}>{code}</div>
-        <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 6 }}>
+        <div style={ui.cardBody}>
           <div style={ui.compactTop}>
-            <div style={{ minWidth: 0, maxWidth: "100%", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: "1 1 180px", overflow: "hidden" }}>
+            <div style={ui.cardNameWrap}>
               <span style={ui.compactName}>{up(getClientName(row) || "PA EMËR")}</span>
-              <span style={ui.badge}>{sourceLabel(row)}</span>
-              <span style={normalizeStatus(row?.status) === "DORZIM" ? ui.badgeWarn : ui.badgeOk}>{normalizeStatus(row?.status || row?.data?.status || "-")}</span>
             </div>
-            <span style={ui.compactTime}>{planningDate ? uiDate(planningDate) : niceDate(row.updated_at || row.created_at)}</span>
+            <span style={normalizeStatus(row?.status) === "DORZIM" ? ui.badgeWarn : ui.badgeOk}>{status}</span>
           </div>
-          <div style={ui.compactSub}>{getClientPhone(row) || "PA TEL"} • {getAddress(row) || "PA ADRESË"}</div>
-          <div style={ui.planRow}>
-            <span style={ui.badgeGhost}>{planningDate ? uiDate(planningDate) : "PA DATË"}</span>
-            <span style={ui.badgeGhost}>{planningSlot ? slotWindow(planningSlot) : "PA SLOT"}</span>
-            {driver ? <span style={ui.driverChip}>👷 {driver}</span> : <span style={ui.badgeGhost}>PA SHOFER</span>}
-            <span style={ui.stageBadge}>{transportStageLabel(row)}</span>
+
+          <div style={ui.cardLabel}>ADRESA</div>
+          <div style={address ? ui.addressStrong : ui.addressWarn}>{address || "PA ADRESË"}</div>
+
+          <div style={ui.moneyGrid}>
+            <div><span style={ui.moneyLabel}>TOTALI:</span> <strong>{moneyDash(pay.total)}</strong></div>
+            <div><span style={ui.moneyLabel}>PAGUAR:</span> <strong>{moneyDash(pay.paid)}</strong></div>
+            <div><span style={rowHasDebt(row) ? ui.debtStrong : ui.moneyLabel}>BORXH:</span> <strong>{moneyDash(pay.debt)}</strong></div>
           </div>
-          <div style={ui.timelineWrap} aria-label="Transport timeline">
-            {DISPATCH_TIMELINE_STEPS.map((step, idx) => (
-              <span key={step} style={timelineStyle(idx, transportStageIndex(row))}>{idx + 1}. {step}</span>
-            ))}
-          </div>
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+
+          <div style={ui.cardFooterRow}>
+            <span style={ui.compactSub}>{pieces || 0} copë • {moneyDash(pay.total)}</span>
+            <span style={ui.compactSub}>Shoferi: {driver}</span>
+            <span style={ui.compactSub}>Orari: {getScheduleText(row)}</span>
             <span style={ui.compactOpen}>HAP ➔</span>
           </div>
         </div>
@@ -602,6 +779,9 @@ export default function DispatchPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [accessAllowed, setAccessAllowed] = useState(false);
   const [liveMode, setLiveMode] = useState("POLL");
+  const [commandQuery, setCommandQuery] = useState("");
+  const [commandFilter, setCommandFilter] = useState("");
+  const [copyMsg, setCopyMsg] = useState("");
   const realtimeTimerRef = useRef(null);
 
   useEffect(() => {
@@ -836,6 +1016,25 @@ export default function DispatchPage() {
   }, [planMode, customDate, todayYmd, tomorrowYmd]);
 
   const dispatchRows = useMemo(() => keepDispatchTransportOnly(allRows), [allRows]);
+
+  const quickFilters = useMemo(() => ([
+    { key: "no_driver", label: "PA SHOFER", count: dispatchRows.filter((row) => !isCompletedRow(row) && rowNeedsDriver(row)).length },
+    { key: "no_address", label: "PA ADRESË", count: dispatchRows.filter((row) => !isCompletedRow(row) && !getAddress(row)).length },
+    { key: "depo", label: "DEPO", count: dispatchRows.filter((row) => !isCompletedRow(row) && isDepotRow(row)).length },
+    { key: "gati", label: "GATI", count: dispatchRows.filter((row) => !isCompletedRow(row) && isReadyRow(row)).length },
+    { key: "debt", label: "BORXH", count: dispatchRows.filter((row) => rowHasDebt(row)).length },
+    { key: "done_today", label: "DORËZUAR SOT", count: dispatchRows.filter((row) => isDoneToday(row)).length },
+  ]), [dispatchRows]);
+
+  const commandActive = s(commandQuery).length > 0 || !!commandFilter;
+  const commandRows = useMemo(() => {
+    if (!commandActive) return [];
+    return dispatchRows
+      .filter((row) => matchesCommandSearch(row, commandQuery))
+      .filter((row) => matchesCommandFilter(row, commandFilter))
+      .sort((a, b) => sortCommandRows(a, b, commandFilter))
+      .slice(0, 50);
+  }, [dispatchRows, commandQuery, commandFilter, commandActive]);
 
   const daySlotCount = useMemo(() => {
     return dispatchRows.filter((row) => {
@@ -1141,6 +1340,29 @@ export default function DispatchPage() {
     }
   }
 
+  async function copyReply(row) {
+    const text = getCopyReplyText(row);
+    try {
+      if (navigator?.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopyMsg("PËRGJIGJJA U KOPJUA ✅");
+      window.setTimeout(() => setCopyMsg(""), 2200);
+    } catch {
+      setCopyMsg("NUK U KOPJUA — PROVO PRAP");
+      window.setTimeout(() => setCopyMsg(""), 2200);
+    }
+  }
+
   const currentRows = useMemo(() => {
     if (activeTab === TAB_TOMORROW) return tomorrowRows;
     if (activeTab === TAB_ONLINE) return onlineRows;
@@ -1149,6 +1371,12 @@ export default function DispatchPage() {
     if (activeTab === TAB_TODAY) return todayRows;
     return [];
   }, [activeTab, todayRows, tomorrowRows, onlineRows, phoneRows, cancellationRows]);
+
+  const selectedPay = selectedRow ? getPaymentInfo(selectedRow) : { total: null, paid: null, debt: null };
+  const selectedPhone = selectedRow ? getClientPhone(selectedRow) : "";
+  const selectedPhoneLink = selectedRow ? phoneHref(selectedRow) : "";
+  const selectedWhatsappLink = selectedRow ? whatsappHref(selectedRow) : "";
+  const selectedTransportHref = selectedRow?.id ? `/transport/board` : "/transport/board";
 
   if (!accessChecked) return <DispatchAccessScreen checking />;
   if (!accessAllowed) return <DispatchAccessScreen />;
@@ -1172,6 +1400,61 @@ export default function DispatchPage() {
         <div style={ui.statCard}><div style={ui.statLabel}>ONLINE</div><div style={ui.statValue}>{tabCounts[TAB_ONLINE]}</div></div>
         <div style={ui.statCard}><div style={ui.statLabel}>LIVE</div><div style={ui.statValue}>{tabCounts[TAB_UPDATES]}</div></div>
         <div style={ui.statCard}><div style={ui.statLabel}>ANULIME 24H</div><div style={ui.statValue}>{tabCounts[TAB_CANCELLED]}</div></div>
+      </div>
+
+      <div style={ui.commandCard}>
+        <div style={ui.sectionHeadRow}>
+          <div>
+            <div style={ui.sectionTitle}>DISPATCH COMMAND</div>
+            <div style={ui.sectionHint}>KËRKO KLIENTIN me telefon, T-code, emër ose adresë.</div>
+          </div>
+          <button type="button" style={ui.btnGhostMini} onClick={loadRows}>{loadingRows ? "DUKE…" : "REFRESH"}</button>
+        </div>
+
+        <div style={ui.field}>
+          <div style={ui.label}>KËRKO KLIENTIN</div>
+          <input
+            style={ui.commandInput}
+            value={commandQuery}
+            onChange={(e) => setCommandQuery(e.target.value)}
+            placeholder="Tel / T-code / emër / adresë"
+            inputMode="search"
+          />
+        </div>
+
+        <div style={ui.quickGrid}>
+          {quickFilters.map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              style={commandFilter === filter.key ? ui.quickFilterOn : ui.quickFilterOff}
+              onClick={() => setCommandFilter(commandFilter === filter.key ? "" : filter.key)}
+            >
+              <span>{filter.label}</span>
+              <strong>{filter.count}</strong>
+            </button>
+          ))}
+        </div>
+
+        {commandActive ? (
+          <div style={ui.commandResults}>
+            <div style={ui.sectionHeadRow}>
+              <div style={ui.sectionTitle}>REZULTATET ({commandRows.length})</div>
+              <button type="button" style={ui.btnGhostMini} onClick={() => { setCommandQuery(""); setCommandFilter(""); }}>PASTRO</button>
+            </div>
+            {commandRows.length === 0 ? (
+              <div style={ui.empty}>NUK U GJET KLIENT. PËRDOR SMART CREATE POSHTË PËR POROSI TË RE.</div>
+            ) : (
+              <div style={ui.list}>
+                {commandRows.map((row) => (
+                  <DispatchCard key={`command_${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={ui.sectionHint}>Shkruaj tel/T-code/emër/adresë ose prek një filtër për vendimet urgjente.</div>
+        )}
       </div>
 
       <div style={ui.card}>
@@ -1420,45 +1703,90 @@ export default function DispatchPage() {
           <div style={ui.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={ui.sectionHeadRow}>
               <div>
-                <div style={ui.sectionTitle}>{up(getClientName(selectedRow) || "PA EMËR")}</div>
-                <div style={ui.sectionHint}>{getClientPhone(selectedRow) || "PA TEL"} • {getAddress(selectedRow) || "PA ADRESË"}</div>
+                <div style={ui.modalKicker}>KLIENTI</div>
+                <div style={ui.sectionTitle}>{getDispatchCardCode(selectedRow)} • {up(getClientName(selectedRow) || "PA EMËR")}</div>
+                <div style={ui.sectionHint}>{selectedPhone || "PA TEL"}</div>
               </div>
               <button type="button" style={ui.btnGhostMini} onClick={() => setSelectedRow(null)}>MBYLLE</button>
             </div>
 
-            <div style={ui.timelineWrap}>
-              {DISPATCH_TIMELINE_STEPS.map((step, idx) => (
-                <span key={step} style={timelineStyle(idx, transportStageIndex(selectedRow))}>{idx + 1}. {step}</span>
-              ))}
+            <div style={ui.detailGrid}>
+              <div style={ui.detailBox}>
+                <div style={ui.detailLabel}>STATUSI AKTUAL</div>
+                <div style={ui.detailValue}>{dispatchStatusLabel(selectedRow)}</div>
+              </div>
+              <div style={ui.detailBox}>
+                <div style={ui.detailLabel}>SA I BËHEN</div>
+                <div style={ui.paymentRows}>
+                  <div><span>TOTALI</span><strong>{moneyDash(selectedPay.total)}</strong></div>
+                  <div><span>PAGUAR</span><strong>{moneyDash(selectedPay.paid)}</strong></div>
+                  <div><span>BORXH</span><strong style={rowHasDebt(selectedRow) ? ui.debtInline : undefined}>{moneyDash(selectedPay.debt)}</strong></div>
+                </div>
+              </div>
+              <div style={ui.detailBox}>
+                <div style={ui.detailLabel}>ADRESA</div>
+                <div style={getAddress(selectedRow) ? ui.detailValue : ui.addressWarn}>{getAddress(selectedRow) || "PA ADRESË"}</div>
+              </div>
+              <div style={ui.detailBox}>
+                <div style={ui.detailLabel}>SHOFERI / ORARI</div>
+                <div style={ui.detailValue}>Shoferi: {orderAssignedDriver(selectedRow) || "PA SHOFER"}</div>
+                <div style={ui.detailSub}>Data/sloti: {getScheduleText(selectedRow)}</div>
+              </div>
             </div>
 
-            <div style={ui.field}>
-              <div style={ui.label}>DATA</div>
-              <input type="date" style={ui.input} value={editDate} onChange={(e) => setEditDate(e.target.value)} />
-            </div>
-            <div style={ui.field}>
-              <div style={ui.label}>SLOTI</div>
-              <div style={ui.pillRow}>
-                {SLOT_OPTIONS.map((opt) => (
-                  <button key={opt.value} type="button" style={editSlot === opt.value ? ui.pillOn : ui.pillOff} onClick={() => setEditSlot(opt.value)}>
-                    {opt.label} • {opt.window}
-                  </button>
+            <div style={ui.updateSection}>
+              <div style={ui.sectionTitle}>TIMELINE</div>
+              <div style={ui.timelineWrap}>
+                {DISPATCH_TIMELINE_STEPS.map((step, idx) => (
+                  <span key={step} style={timelineStyle(idx, transportStageIndex(selectedRow))}>{idx + 1}. {step}</span>
                 ))}
               </div>
             </div>
-            <div style={ui.field}>
-              <div style={ui.label}>SHOFERI</div>
-              <select style={ui.input} value={editDriver} onChange={(e) => setEditDriver(e.target.value)}>
-                <option style={ui.selectOption} value="">(PA SHOFER – TË GJITHË E SHOHIN INBOX)</option>
-                {drivers.map((d) => (
-                  <option style={ui.selectOption} key={String(d.id)} value={String(d.id)}>{up(d.name || "TRANSPORT")}</option>
-                ))}
-              </select>
+
+            <div style={ui.updateSection}>
+              <div style={ui.sectionTitle}>VEPRIME</div>
+              <div style={ui.actionGrid}>
+                {selectedPhoneLink ? <a href={selectedPhoneLink} style={ui.actionBtn}>THIRR</a> : null}
+                {selectedWhatsappLink ? <a href={selectedWhatsappLink} target="_blank" rel="noreferrer" style={ui.actionBtn}>WHATSAPP</a> : null}
+                <button type="button" style={ui.actionBtn} onClick={() => copyReply(selectedRow)}>KOPJO PËRGJIGJEN</button>
+                <button type="button" style={ui.actionBtn} onClick={() => setDispatchReschedule(selectedRow)}>RIPLAN</button>
+                <a href={selectedTransportHref} style={ui.actionBtn}>HAP NË TRANSPORT</a>
+                <button type="button" style={ui.actionBtnDisabled} disabled>EDITO ADRESËN</button>
+              </div>
+              {copyMsg ? <div style={ui.ok}>{copyMsg}</div> : null}
             </div>
-            <div style={ui.field}>
-              <div style={ui.label}>SHËNIM</div>
-              <textarea style={ui.textarea} value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="OPSIONALE" />
+
+            <div style={ui.updateSection}>
+              <div style={ui.sectionTitle}>NDËRRO SHOFERIN / ORARIN</div>
+              <div style={ui.field}>
+                <div style={ui.label}>DATA</div>
+                <input type="date" style={ui.input} value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+              </div>
+              <div style={ui.field}>
+                <div style={ui.label}>SLOTI</div>
+                <div style={ui.pillRow}>
+                  {SLOT_OPTIONS.map((opt) => (
+                    <button key={opt.value} type="button" style={editSlot === opt.value ? ui.pillOn : ui.pillOff} onClick={() => setEditSlot(opt.value)}>
+                      {opt.label} • {opt.window}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={ui.field}>
+                <div style={ui.label}>SHOFERI</div>
+                <select style={ui.input} value={editDriver} onChange={(e) => setEditDriver(e.target.value)}>
+                  <option style={ui.selectOption} value="">(PA SHOFER – TË GJITHË E SHOHIN INBOX)</option>
+                  {drivers.map((d) => (
+                    <option style={ui.selectOption} key={String(d.id)} value={String(d.id)}>{up(d.name || "TRANSPORT")}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={ui.field}>
+                <div style={ui.label}>SHËNIM</div>
+                <textarea style={ui.textarea} value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="OPSIONALE" />
+              </div>
             </div>
+
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" style={{ ...ui.btnPrimary, flex: 1 }} onClick={savePlan} disabled={saveBusy}>{saveBusy ? "DUKE RUAJT…" : "RUAJ PLANIN"}</button>
               {canDispatchRemoveRow(selectedRow) ? (
@@ -1562,4 +1890,84 @@ const ui = {
   cancelMeta: { display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11, opacity: 0.68, fontWeight: 900 },
   modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.40)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60 },
   modalCard: { width: "min(680px, 100%)", maxWidth: "100%", maxHeight: "90vh", overflow: "auto", background: "#fff", borderRadius: 18, border: "1px solid rgba(0,0,0,0.08)", padding: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.18)", boxSizing: "border-box" },
+
+  // Dispatch Command Center dark UI overrides / additions
+  page: { minHeight: "100vh", background: "#070b14", color: "#f8fafc", padding: 16, width: "100%", maxWidth: "100vw", overflowX: "hidden", boxSizing: "border-box" },
+  top: { maxWidth: 960, width: "100%", margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", boxSizing: "border-box" },
+  title: { fontSize: 18, fontWeight: 1000, letterSpacing: 0.5, color: "#f8fafc" },
+  sub: { fontSize: 12, color: "rgba(226,232,240,0.68)", fontWeight: 800 },
+  card: { maxWidth: 960, width: "100%", margin: "14px auto 0", background: "rgba(15,23,42,0.96)", borderRadius: 18, border: "1px solid rgba(148,163,184,0.18)", padding: 14, boxShadow: "0 18px 36px rgba(0,0,0,0.28)", boxSizing: "border-box", overflow: "hidden" },
+  commandCard: { maxWidth: 960, width: "100%", margin: "14px auto 0", background: "linear-gradient(180deg, rgba(30,41,59,0.98), rgba(15,23,42,0.98))", borderRadius: 20, border: "1px solid rgba(96,165,250,0.28)", padding: 14, boxShadow: "0 22px 44px rgba(0,0,0,0.34)", boxSizing: "border-box", overflow: "hidden" },
+  statsGrid: { maxWidth: 960, width: "100%", margin: "14px auto 0", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))", gap: 10, boxSizing: "border-box" },
+  statCard: { background: "rgba(15,23,42,0.92)", borderRadius: 16, border: "1px solid rgba(148,163,184,0.16)", padding: 12, boxShadow: "0 12px 24px rgba(0,0,0,0.22)", minWidth: 0, boxSizing: "border-box" },
+  statLabel: { fontSize: 11, fontWeight: 1000, color: "rgba(203,213,225,0.72)" },
+  statValue: { fontSize: 28, fontWeight: 1000, lineHeight: 1.1, marginTop: 4, color: "#f8fafc" },
+  label: { fontSize: 12, fontWeight: 1000, color: "rgba(203,213,225,0.82)" },
+  sectionTitle: { fontWeight: 1000, marginBottom: 8, color: "#f8fafc", letterSpacing: 0.2 },
+  sectionHint: { fontSize: 12, color: "rgba(203,213,225,0.70)", marginBottom: 10, fontWeight: 700 },
+  empty: { fontWeight: 900, color: "rgba(203,213,225,0.72)" },
+  input: { height: 44, borderRadius: 12, border: "1px solid rgba(148,163,184,0.22)", padding: "0 12px", fontWeight: 900, outline: "none", width: "100%", maxWidth: "100%", background: "rgba(2,6,23,0.72)", color: "#f8fafc", WebkitTextFillColor: "#f8fafc", caretColor: "#93c5fd", boxSizing: "border-box" },
+  commandInput: { height: 52, borderRadius: 16, border: "1px solid rgba(96,165,250,0.34)", padding: "0 14px", fontWeight: 1000, outline: "none", width: "100%", maxWidth: "100%", background: "rgba(2,6,23,0.86)", color: "#f8fafc", WebkitTextFillColor: "#f8fafc", caretColor: "#93c5fd", boxSizing: "border-box", fontSize: 16 },
+  textarea: { minHeight: 70, borderRadius: 12, border: "1px solid rgba(148,163,184,0.22)", padding: 12, fontWeight: 900, outline: "none", background: "rgba(2,6,23,0.72)", color: "#f8fafc", WebkitTextFillColor: "#f8fafc", caretColor: "#93c5fd", width: "100%", maxWidth: "100%", boxSizing: "border-box" },
+  selectOption: { background: "#0f172a", color: "#f8fafc" },
+  btnGhost: { border: "1px solid rgba(148,163,184,0.24)", background: "rgba(15,23,42,0.92)", padding: "10px 12px", borderRadius: 12, fontWeight: 1000, textDecoration: "none", color: "#f8fafc" },
+  btnGhostMini: { border: "1px solid rgba(148,163,184,0.24)", background: "rgba(15,23,42,0.92)", padding: "8px 10px", borderRadius: 10, fontWeight: 1000, color: "#f8fafc", cursor: "pointer" },
+  btnPrimary: { height: 48, borderRadius: 14, border: "1px solid rgba(96,165,250,0.32)", background: "#2563eb", color: "#fff", fontWeight: 1000, cursor: "pointer", padding: "0 16px" },
+  btnDanger: { height: 48, borderRadius: 14, border: "1px solid rgba(248,113,113,0.28)", background: "rgba(127,29,29,0.62)", color: "#fecaca", fontWeight: 1000, cursor: "pointer", padding: "0 16px" },
+  btnDangerMini: { height: 38, borderRadius: 12, border: "1px solid rgba(248,113,113,0.28)", background: "rgba(127,29,29,0.52)", color: "#fecaca", fontWeight: 1000, cursor: "pointer", padding: "0 14px", whiteSpace: "nowrap" },
+  err: { background: "rgba(127,29,29,0.30)", border: "1px solid rgba(248,113,113,0.25)", color: "#fecaca", padding: 10, borderRadius: 12, fontWeight: 900, marginBottom: 10 },
+  ok: { background: "rgba(6,78,59,0.32)", border: "1px solid rgba(52,211,153,0.24)", color: "#bbf7d0", padding: 10, borderRadius: 12, fontWeight: 1000, marginBottom: 10 },
+  suggestBox: { position: "absolute", left: 0, right: 0, top: 78, background: "#0f172a", border: "1px solid rgba(148,163,184,0.22)", borderRadius: 14, boxShadow: "0 14px 28px rgba(0,0,0,0.32)", zIndex: 20, overflow: "hidden" },
+  suggestItem: { width: "100%", textAlign: "left", background: "#0f172a", color: "#f8fafc", border: "none", borderBottom: "1px solid rgba(148,163,184,0.12)", padding: 12, cursor: "pointer" },
+  badge: { fontSize: 11, fontWeight: 1000, borderRadius: 999, padding: "4px 8px", border: "1px solid rgba(148,163,184,0.22)", background: "rgba(148,163,184,0.10)", color: "#e2e8f0" },
+  badgeOk: { fontSize: 11, fontWeight: 1000, borderRadius: 999, padding: "5px 9px", border: "1px solid rgba(52,211,153,0.24)", background: "rgba(16,185,129,0.14)", color: "#86efac" },
+  badgeWarn: { fontSize: 11, fontWeight: 1000, borderRadius: 999, padding: "5px 9px", border: "1px solid rgba(251,191,36,0.28)", background: "rgba(245,158,11,0.14)", color: "#fde68a" },
+  badgeBad: { fontSize: 11, fontWeight: 1000, borderRadius: 999, padding: "5px 9px", border: "1px solid rgba(248,113,113,0.30)", background: "rgba(239,68,68,0.14)", color: "#fecaca" },
+  badgeGhost: { fontSize: 11, fontWeight: 1000, borderRadius: 999, padding: "4px 8px", border: "1px solid rgba(148,163,184,0.18)", background: "rgba(148,163,184,0.08)", color: "#cbd5e1" },
+  tabOn: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(96,165,250,0.34)", background: "#2563eb", color: "#fff", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  tabOff: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(148,163,184,0.20)", background: "rgba(15,23,42,0.88)", color: "#e2e8f0", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  tabDangerOn: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(248,113,113,0.30)", background: "#991b1b", color: "#fff", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  tabDangerOff: { height: 40, padding: "0 14px", borderRadius: 999, border: "1px solid rgba(248,113,113,0.22)", background: "rgba(127,29,29,0.18)", color: "#fecaca", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  pillOn: { minHeight: 38, padding: "0 12px", borderRadius: 999, border: "1px solid rgba(96,165,250,0.34)", background: "#2563eb", color: "#fff", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  pillOff: { minHeight: 38, padding: "0 12px", borderRadius: 999, border: "1px solid rgba(148,163,184,0.20)", background: "rgba(15,23,42,0.88)", color: "#e2e8f0", fontWeight: 1000, cursor: "pointer", maxWidth: "100%", boxSizing: "border-box" },
+  quickGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: 8, margin: "10px 0 12px", minWidth: 0 },
+  quickFilterOn: { minHeight: 48, borderRadius: 14, border: "1px solid rgba(96,165,250,0.42)", background: "rgba(37,99,235,0.88)", color: "#fff", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontWeight: 1000, cursor: "pointer" },
+  quickFilterOff: { minHeight: 48, borderRadius: 14, border: "1px solid rgba(148,163,184,0.18)", background: "rgba(2,6,23,0.45)", color: "#e2e8f0", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontWeight: 1000, cursor: "pointer" },
+  commandResults: { borderTop: "1px solid rgba(148,163,184,0.14)", marginTop: 12, paddingTop: 12 },
+  capacityBox: { borderRadius: 14, border: "1px solid rgba(148,163,184,0.16)", background: "rgba(2,6,23,0.36)", padding: 10, fontSize: 12, fontWeight: 900, display: "grid", gap: 6, width: "100%", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden" },
+  crmHitBox: { borderRadius: 14, border: "1px solid rgba(96,165,250,0.26)", background: "rgba(37,99,235,0.14)", padding: 12, marginBottom: 10 },
+  crmHitTitle: { fontSize: 12, fontWeight: 1000, color: "#bfdbfe" },
+  inlineDangerRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", border: "1px solid rgba(248,113,113,0.18)", borderRadius: 14, padding: "10px 12px", background: "rgba(127,29,29,0.16)", width: "100%", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden" },
+  inlineDangerHint: { fontSize: 12, fontWeight: 800, color: "rgba(254,202,202,0.86)", flex: 1, minWidth: 180 },
+  updateSection: { marginTop: 12, borderTop: "1px solid rgba(148,163,184,0.14)", paddingTop: 12 },
+  compactRow: { width: "100%", maxWidth: "100%", minWidth: 0, border: "1px solid rgba(148,163,184,0.14)", borderRadius: 16, padding: 10, display: "flex", alignItems: "flex-start", gap: 10, boxShadow: "0 10px 22px rgba(0,0,0,0.18)", background: "rgba(2,6,23,0.42)", boxSizing: "border-box", overflow: "hidden" },
+  compactCode: { minWidth: 52, height: 42, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(57,216,111,0.16)", color: "#86efac", fontSize: 13, fontWeight: 1000, border: "1px solid rgba(57,216,111,0.22)" },
+  compactSub: { minWidth: 0, maxWidth: "100%", fontSize: 13, color: "rgba(203,213,225,0.74)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: 800 },
+  compactTime: { fontSize: 11, color: "rgba(203,213,225,0.58)", fontWeight: 1000, whiteSpace: "nowrap", flexShrink: 0 },
+  orderCard: { width: "100%", maxWidth: "100%", minWidth: 0, border: "1px solid rgba(148,163,184,0.16)", borderRadius: 18, padding: 12, display: "flex", alignItems: "flex-start", gap: 10, boxShadow: "0 14px 30px rgba(0,0,0,0.22)", background: "linear-gradient(180deg, rgba(15,23,42,0.98), rgba(2,6,23,0.92))", boxSizing: "border-box", overflow: "hidden" },
+  cardBody: { flex: 1, minWidth: 0, display: "grid", gap: 8 },
+  cardNameWrap: { minWidth: 0, maxWidth: "100%", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: "1 1 180px", overflow: "hidden" },
+  codePill: { width: 50, minWidth: 50, height: 50, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center", background: "#39d86f", color: "#03140a", fontSize: 14, fontWeight: 1000, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.22), 0 10px 20px rgba(57,216,111,0.20)" },
+  compactName: { minWidth: 0, maxWidth: "100%", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15, fontWeight: 1000, letterSpacing: 0.2, color: "#f8fafc" },
+  cardLabel: { fontSize: 10, fontWeight: 1000, letterSpacing: 0.7, color: "rgba(147,197,253,0.82)", marginTop: 2 },
+  addressStrong: { fontSize: 14, fontWeight: 1000, color: "#f8fafc", lineHeight: 1.25, overflowWrap: "anywhere" },
+  addressWarn: { fontSize: 13, fontWeight: 1000, color: "#fde68a", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.22)", borderRadius: 12, padding: "7px 9px", lineHeight: 1.25, overflowWrap: "anywhere" },
+  moneyGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(115px, 1fr))", gap: 6, borderRadius: 14, background: "rgba(15,23,42,0.74)", border: "1px solid rgba(148,163,184,0.12)", padding: 8, fontSize: 12, color: "#e2e8f0" },
+  moneyLabel: { color: "rgba(203,213,225,0.70)", fontWeight: 900 },
+  debtStrong: { color: "#fecaca", fontWeight: 1000 },
+  debtInline: { color: "#fecaca" },
+  cardFooterRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", minWidth: 0 },
+  compactOpen: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 74, height: 32, padding: "0 12px", borderRadius: 999, background: "rgba(59,130,246,0.20)", border: "1px solid rgba(96,165,250,0.30)", color: "#bfdbfe", fontSize: 11, fontWeight: 1000, letterSpacing: 0.3, flexShrink: 0 },
+  modalOverlay: { position: "fixed", inset: 0, background: "rgba(2,6,23,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60 },
+  modalCard: { width: "min(720px, 100%)", maxWidth: "100%", maxHeight: "90vh", overflow: "auto", background: "#0f172a", color: "#f8fafc", borderRadius: 20, border: "1px solid rgba(148,163,184,0.22)", padding: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.42)", boxSizing: "border-box" },
+  modalKicker: { fontSize: 11, fontWeight: 1000, color: "#93c5fd", letterSpacing: 0.7, marginBottom: 4 },
+  detailGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10, marginTop: 10 },
+  detailBox: { borderRadius: 16, border: "1px solid rgba(148,163,184,0.16)", background: "rgba(2,6,23,0.42)", padding: 12, display: "grid", gap: 6, minWidth: 0 },
+  detailLabel: { fontSize: 10, fontWeight: 1000, letterSpacing: 0.7, color: "rgba(147,197,253,0.86)" },
+  detailValue: { fontSize: 14, fontWeight: 1000, color: "#f8fafc", overflowWrap: "anywhere" },
+  detailSub: { fontSize: 12, fontWeight: 800, color: "rgba(203,213,225,0.72)" },
+  paymentRows: { display: "grid", gap: 6, fontSize: 13 },
+  actionGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 },
+  actionBtn: { minHeight: 42, borderRadius: 12, border: "1px solid rgba(96,165,250,0.28)", background: "rgba(37,99,235,0.18)", color: "#dbeafe", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 12px", fontWeight: 1000, textDecoration: "none", cursor: "pointer", boxSizing: "border-box" },
+  actionBtnDisabled: { minHeight: 42, borderRadius: 12, border: "1px solid rgba(148,163,184,0.14)", background: "rgba(148,163,184,0.08)", color: "rgba(203,213,225,0.42)", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 12px", fontWeight: 1000, cursor: "not-allowed", boxSizing: "border-box" },
 };
