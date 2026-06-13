@@ -4,6 +4,7 @@
 # TEPIHA — RIAN-MAIN (SPEC & LOGJIKA)
 
 
+
 Kjo README është “source of truth” për rregullat e aplikacionit. Qëllimi: kur bëjmë ndryshime, i targetojmë saktë pjesët në source pa i prishur pjesët tjera.
 
 ---
