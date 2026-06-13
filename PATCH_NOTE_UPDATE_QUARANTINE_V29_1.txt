@@ -1,0 +1,16 @@
+PATCH V29.1 — BUILD FIX ONLY
+
+Version unchanged:
+2.0.35-vite-update-quarantine-v29
+RESET-2026-04-27-VITE-UPDATE-QUARANTINE-V29
+
+Changed file:
+components/ServiceWorkerRegister.jsx
+
+Fix:
+- Removed orphan legacy controller message implementation left after V29 quarantine.
+- Fixed malformed syntax around postLegacyControllerMessage(): stray `}) {` is gone.
+- Kept V29 update quarantine logic intact: no updateSW apply, no skipWaiting, no controller postMessage, no reload, no cache delete, no SW unregister.
+
+Scope:
+- No DB/Supabase/orders/outbox/payment/status/Pastrimi/Gati/ARKA/design changes.

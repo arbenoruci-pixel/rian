@@ -1,0 +1,13 @@
+PATCH: GATI module-load root-fix attempt + watchdog softening
+
+Changed files:
+- index.html
+- components/ChunkLoadRuntime.jsx
+- components/RootResumeWatchdog.jsx
+- components/RuntimeIncidentUploader.jsx
+
+Intent:
+1) Root-fix direction for top-level /assets/index-*.js boot failure.
+2) One-shot asset boot rescue with cache-bust reload, no infinite loop.
+3) Stale epoch scrub for old chunk markers/logs.
+4) Keep richer chunk diagnostics and false-panic softening.

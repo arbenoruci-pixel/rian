@@ -1,0 +1,38 @@
+PATCH NOTE — PASTRIMI LOCAL MIRROR FALSE POSITIVES V4
+
+Changed files:
+- app/pastrimi/page.jsx
+
+What changed:
+- Adds fail-open operator problem classification for Pastrimi reconciliation.
+- LOCAL_NOT_SYNCED now requires real evidence:
+  - _local === true
+  - localOnly === true unless synced mirror signals override it
+  - _synced === false or synced === false
+  - matching pending/error outbox operation
+  - tepiha_order_save_trace_v1 contains db_verify_failed / supabase_insert_error / outbox insert failure for the same code/local_oid.
+- Rows with synced=true or _synced=true, _local=false, no pending/error outbox, and no failed save trace are classified internally as STALE_SYNCED_LOCAL_MIRROR and hidden from the operator problem panel.
+- BASE_CACHE / LOCAL / PAGE_SNAPSHOT candidates are checked against the correct live table before being shown as problems.
+- transport_orders candidates are verified only against public.transport_orders by id, code_str, client_tcode, data->>id, data->client->>code, and data->client->>tcode.
+- orders candidates are verified only against public.orders by id, local_oid, data->>local_oid, and code fallback.
+- If a live DB match exists with status pastrim/pastrimi, the local mirror/cache row is treated as already covered by DB and not shown as a problem.
+- If a live DB match exists with status gati/done/delivered/dorzim/dorezuar/etc., the stale local/cache row is classified internally as superseded and hidden from the Pastrimi problem panel.
+- Problem panel remains for true unsynced local rows, true failed outbox rows, recent failed save traces, and true search/cache ghost cards with no DB/local/outbox detail.
+
+Safety confirmations:
+- No SQL.
+- No DB schema change.
+- No DB reset.
+- No ARKA change.
+- No payroll change.
+- No company budget change.
+- No transport finance change.
+- No code release or reuse.
+- No cleanup for code 732.
+- No localStorage or IndexedDB clearing.
+- No automatic DB repair.
+- No automatic Pastrimi sync/creation from problem cards.
+
+Validation:
+- app/pastrimi/page.jsx passed direct JSX/esbuild transform.
+- Full Vite production build completed successfully. Existing unrelated duplicate-key warnings remain in app/dispatch/page.jsx.

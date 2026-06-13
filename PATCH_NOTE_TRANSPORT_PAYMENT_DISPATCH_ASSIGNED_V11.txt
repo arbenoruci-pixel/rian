@@ -1,0 +1,23 @@
+PATCH: TRANSPORT PAYMENT VERIFY + DISPATCH ASSIGNED STATUS V11
+
+Scope:
+- Built on top of rian-main-transport-self-entry-db-verify-v10-no-root.zip.
+- No DB schema/RPC changes.
+- No service worker/cache source changes.
+- No mass update/delete for existing orders or T-codes.
+
+Fix 1: Transport “Krye pagesën”
+- Transport cash payment now routes through ARKA_ACTION.TRANSPORT_ORDER_PAYMENT and requires a verified arka_pending_payments row before UI success.
+- Verification checks: payment id exists, transport_order_id matches, transport_code_str matches when available, amount matches, type=TRANSPORT, source_module=TRANSPORT, and created_by_pin matches the actor PIN.
+- ARKA engine verifies the payment row after insert or duplicate detection and returns paymentVerified=true plus verifiedPayment/payment/row.
+- Double tap is blocked in the transport payment screens with in-flight refs plus the deterministic ARKA idempotency key.
+- If ARKA insert/update/verify fails, the UI shows a real ARKA error instead of marking payment success from local state only.
+
+Fix 2: Dispatch-created transport orders
+- Dispatch-created orders assigned to a transporter are saved as status=assigned and data.status=assigned.
+- Assignment rewrites for pre-pickup transport rows now keep the row in TË REJA instead of moving it directly to PIKAP.
+- Transport item/board accept/start flow moves assigned/new/inbox/pranim/dispatched orders to pickup and records accepted/started metadata.
+
+Expected acceptance:
+- T-code payment creates/returns arka_pending_payments with type/source_module TRANSPORT, status COLLECTED, transport_order_id, transport_code_str, amount, and created_by_pin.
+- A dispatch-created assigned order appears in TË REJA first, then moves to PIKAP only after Tapin accepts/starts it.

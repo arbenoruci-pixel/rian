@@ -1,0 +1,12 @@
+PATCH: ROUTE CONTAINMENT V1
+
+Qellimi: ndal bllokimin/black screen kur deshtojne route/shared chunks ne iOS Safari/PWA.
+
+Ndryshime:
+- /pastrimi: reconcile, tombstones, arkaCashSync dhe RackLocationModal nuk jane me dependencies kritike per first route import.
+- /gati: reconcile/tombstones dhe RackLocationModal nuk jane me dependencies kritike per first route import.
+- SafeLazyRouteShell ka repair action per route_import_failure.
+- AppRoot pastron activeRouteRequest/routeTransition kur token i vjeter i perket path-it te vjeter.
+- RootResumeWatchdog zbut false panic kur shell/UI eshte i dukshem ose kur path eshte diag/debug.
+
+Nuk preket DB, write flow, outbox schema, order/payment logic.

@@ -1,0 +1,38 @@
+PATCH: /gati module-load capture + stale-epoch guard + false-panic watchdog soften
+
+ACTIVE FILES CHANGED:
+- index.html
+- components/ChunkLoadRuntime.jsx
+- components/RootResumeWatchdog.jsx
+- components/RuntimeIncidentUploader.jsx
+
+WHAT THIS PATCH DOES
+1) Stronger exact capture for module/script load failures
+- captures href
+- captures baseURI
+- captures readyState
+- captures visibilityState
+- captures online state
+- captures loadPhase (initial_load / resume_watchdog / resume_back_forward / resume_recent_hidden)
+- captures navigationType
+- captures hiddenElapsedMs
+- captures resumeActiveAgeMs / resumeReason / resumeToken
+- captures matching performance entries for the failed asset when available
+
+2) Stale epoch marker guard
+- on startup, stale markers from older app epoch are quarantined instead of left live in active keys
+- covers:
+  - tepiha_chunk_last_capture_v1
+  - tepiha_simple_last_incident_v1
+  - tepiha_boot_last_interrupted
+  - tepiha_root_resume_panic_v1
+  - tepiha_early_incident_queue_v1
+- runtime incident uploader also skips posting epoch-mismatched payloads
+
+3) Watchdog false/late panic soften after resume
+- RootResumeWatchdog now treats same-path uiReady + same-path alive snapshots as healthy even when freshness is stale from resume timing
+- avoids false boot_timeout_resume_visible_no_ui when /gati already resumed enough to be usable
+
+LIMITATION IN THIS ENVIRONMENT
+- vite binary was not installed here, so full build could not be executed in-container
+- patch was verified by direct source inspection only

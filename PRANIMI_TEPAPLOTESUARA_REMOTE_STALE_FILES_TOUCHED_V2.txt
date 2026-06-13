@@ -1,0 +1,21 @@
+Code file changed:
+- app/pranimi/page.jsx
+
+Artifact files added:
+- AUDIT_PRANIMI_TEPAPLOTESUARA_REMOTE_STALE_FILTER_V2.txt
+- PATCH_NOTE_PRANIMI_TEPAPLOTESUARA_REMOTE_STALE_FILTER_V2.txt
+- PRANIMI_TEPAPLOTESUARA_REMOTE_STALE_FILES_TOUCHED_V2.txt
+- PRANIMI_TEPAPLOTESUARA_REMOTE_STALE_TEST_PLAN_V2.txt
+- pranimi-tepaplotesuara-remote-stale-filter-v2-validation.log
+- pranimi-tepaplotesuara-remote-stale-filter-v2-build.log
+
+Modules intentionally not touched:
+- transport
+- arka
+- payroll
+- pastrim
+- gati
+- dispatch
+- service worker/cache
+- global sync engine
+- DB schema/RPC/triggers

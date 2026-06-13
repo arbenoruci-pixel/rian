@@ -1,0 +1,31 @@
+TEST PLAN — PRANIMI / TË PA PLOTËSUARA / LOCAL DRAFT RESTORE V6
+
+1. Stale remote guard regression
+   - Open PRANIMI -> TË PA PLOTËSUARA.
+   - Confirm stale Storage drafts do not reappear.
+   - Specifically, drafts/1306.json must not show as 1306 / Artan bytyqi.
+
+2. New local draft save
+   - Open PRANIMI and wait for a code to display.
+   - Type only a test name.
+   - Press HOME.
+   - Reopen PRANIMI -> TË PA PLOTËSUARA.
+   - Expected: the test draft appears as LOCAL / NOT SYNCED or equivalent local draft label.
+
+3. New local draft open
+   - Press HAP on the test draft.
+   - Expected: same code/local_oid is restored and the test name is present.
+
+4. New local draft delete
+   - Press FSHI on the test draft.
+   - Expected: it disappears from list.
+   - Code is released only when there is no matching public.orders row.
+
+5. Finalization
+   - Create a meaningful draft, open it, complete required fields, and finalize.
+   - Expected: public.orders row exists and DB verify passes.
+   - Expected: draft disappears from TË PA PLOTËSUARA after success.
+
+6. Safety checks
+   - No client should be created without order success.
+   - No stale final/pastrim/gati/dorzim order should show in TË PA PLOTËSUARA.

@@ -1,0 +1,1039 @@
+VALIDATION ARKA BULLETPROOF V1
+timestamp: 2026-06-06T18:49:30Z
+--- npm ci --ignore-scripts ---
+npm warn deprecated sourcemap-codec@1.4.8: Please use @jridgewell/sourcemap-codec instead
+npm warn deprecated multer@1.4.5-lts.2: Multer 1.x is impacted by a number of vulnerabilities, which have been patched in 2.x. You should upgrade to the latest 2.x version.
+npm warn deprecated source-map@0.8.0-beta.0: The work that was done in this beta branch won't be included in future versions
+npm warn deprecated glob@11.1.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
+added 491 packages, and audited 492 packages in 15s
+
+112 packages are looking for funding
+  run `npm fund` for details
+
+16 vulnerabilities (12 moderate, 3 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+--- node --check JS files ---
+CHECK lib/arka/arkaNetwork.js
+CHECK lib/arka/arkaClient.js
+CHECK lib/arka/arkaConstants.js
+CHECK lib/syncEngine.js
+CHECK components/payments/payService.js
+CHECK lib/arkaService.js
+CHECK lib/arka/arkaEngine.js
+CHECK lib/corporateFinance.js
+--- grep negative branch ---
+grep: -n: No such file or directory
+OK no -Math.abs(rawAmount) branch
+--- npm run build ---
+
+> tepiha-vite-converted@2.0.46-vite-fast-cache-preboot-v34-7 build
+> vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+[32m[vite:circular-deps] No circular dependencies found.[0m
+transforming...
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "page" in object literal[33m
+3644|    },
+3645|    // Dispatch Command Center dark UI overrides / additions
+3646|    page: {
+   |    ^
+3647|      minHeight: "100vh",
+3648|      background: "#070b14",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "top" in object literal[33m
+3654|      boxSizing: "border-box"
+3655|    },
+3656|    top: {
+   |    ^
+3657|      maxWidth: 960,
+3658|      width: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "title" in object literal[33m
+3665|      boxSizing: "border-box"
+3666|    },
+3667|    title: {
+   |    ^
+3668|      fontSize: 18,
+3669|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "sub" in object literal[33m
+3671|      color: "#f8fafc"
+3672|    },
+3673|    sub: {
+   |    ^
+3674|      fontSize: 12,
+3675|      color: "rgba(226,232,240,0.68)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "card" in object literal[33m
+3676|      fontWeight: 800
+3677|    },
+3678|    card: {
+   |    ^
+3679|      maxWidth: 960,
+3680|      width: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "statsGrid" in object literal[33m
+3700|      overflow: "hidden"
+3701|    },
+3702|    statsGrid: {
+   |    ^
+3703|      maxWidth: 960,
+3704|      width: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "statCard" in object literal[33m
+3709|      boxSizing: "border-box"
+3710|    },
+3711|    statCard: {
+   |    ^
+3712|      background: "rgba(15,23,42,0.92)",
+3713|      borderRadius: 16,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "statLabel" in object literal[33m
+3718|      boxSizing: "border-box"
+3719|    },
+3720|    statLabel: {
+   |    ^
+3721|      fontSize: 11,
+3722|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "statValue" in object literal[33m
+3723|      color: "rgba(203,213,225,0.72)"
+3724|    },
+3725|    statValue: {
+   |    ^
+3726|      fontSize: 28,
+3727|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "label" in object literal[33m
+3730|      color: "#f8fafc"
+3731|    },
+3732|    label: {
+   |    ^
+3733|      fontSize: 12,
+3734|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "sectionTitle" in object literal[33m
+3735|      color: "rgba(203,213,225,0.82)"
+3736|    },
+3737|    sectionTitle: {
+   |    ^
+3738|      fontWeight: 1000,
+3739|      marginBottom: 8,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "sectionHint" in object literal[33m
+3741|      letterSpacing: 0.2
+3742|    },
+3743|    sectionHint: {
+   |    ^
+3744|      fontSize: 12,
+3745|      color: "rgba(203,213,225,0.70)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "empty" in object literal[33m
+3747|      fontWeight: 700
+3748|    },
+3749|    empty: {
+   |    ^
+3750|      fontWeight: 900,
+3751|      color: "rgba(203,213,225,0.72)"
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "input" in object literal[33m
+3751|      color: "rgba(203,213,225,0.72)"
+3752|    },
+3753|    input: {
+   |    ^
+3754|      height: 44,
+3755|      borderRadius: 12,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "textarea" in object literal[33m
+3782|      fontSize: 16
+3783|    },
+3784|    textarea: {
+   |    ^
+3785|      minHeight: 70,
+3786|      borderRadius: 12,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "selectOption" in object literal[33m
+3797|      boxSizing: "border-box"
+3798|    },
+3799|    selectOption: {
+   |    ^
+3800|      background: "#0f172a",
+3801|      color: "#f8fafc"
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnGhost" in object literal[33m
+3801|      color: "#f8fafc"
+3802|    },
+3803|    btnGhost: {
+   |    ^
+3804|      border: "1px solid rgba(148,163,184,0.24)",
+3805|      background: "rgba(15,23,42,0.92)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnGhostMini" in object literal[33m
+3810|      color: "#f8fafc"
+3811|    },
+3812|    btnGhostMini: {
+   |    ^
+3813|      border: "1px solid rgba(148,163,184,0.24)",
+3814|      background: "rgba(15,23,42,0.92)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnPrimary" in object literal[33m
+3819|      cursor: "pointer"
+3820|    },
+3821|    btnPrimary: {
+   |    ^
+3822|      height: 48,
+3823|      borderRadius: 14,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnDanger" in object literal[33m
+3829|      padding: "0 16px"
+3830|    },
+3831|    btnDanger: {
+   |    ^
+3832|      height: 48,
+3833|      borderRadius: 14,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnDangerMini" in object literal[33m
+3839|      padding: "0 16px"
+3840|    },
+3841|    btnDangerMini: {
+   |    ^
+3842|      height: 38,
+3843|      borderRadius: 12,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "err" in object literal[33m
+3850|      whiteSpace: "nowrap"
+3851|    },
+3852|    err: {
+   |    ^
+3853|      background: "rgba(127,29,29,0.30)",
+3854|      border: "1px solid rgba(248,113,113,0.25)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "ok" in object literal[33m
+3859|      marginBottom: 10
+3860|    },
+3861|    ok: {
+   |    ^
+3862|      background: "rgba(6,78,59,0.32)",
+3863|      border: "1px solid rgba(52,211,153,0.24)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "suggestBox" in object literal[33m
+3868|      marginBottom: 10
+3869|    },
+3870|    suggestBox: {
+   |    ^
+3871|      position: "absolute",
+3872|      left: 0,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "suggestItem" in object literal[33m
+3880|      overflow: "hidden"
+3881|    },
+3882|    suggestItem: {
+   |    ^
+3883|      width: "100%",
+3884|      textAlign: "left",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badge" in object literal[33m
+3890|      cursor: "pointer"
+3891|    },
+3892|    badge: {
+   |    ^
+3893|      fontSize: 11,
+3894|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badgeOk" in object literal[33m
+3899|      color: "#e2e8f0"
+3900|    },
+3901|    badgeOk: {
+   |    ^
+3902|      fontSize: 11,
+3903|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badgeWarn" in object literal[33m
+3908|      color: "#86efac"
+3909|    },
+3910|    badgeWarn: {
+   |    ^
+3911|      fontSize: 11,
+3912|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badgeBad" in object literal[33m
+3917|      color: "#fde68a"
+3918|    },
+3919|    badgeBad: {
+   |    ^
+3920|      fontSize: 11,
+3921|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badgeGhost" in object literal[33m
+3926|      color: "#fecaca"
+3927|    },
+3928|    badgeGhost: {
+   |    ^
+3929|      fontSize: 11,
+3930|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "tabOn" in object literal[33m
+3935|      color: "#cbd5e1"
+3936|    },
+3937|    tabOn: {
+   |    ^
+3938|      height: 40,
+3939|      padding: "0 14px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "tabOff" in object literal[33m
+3947|      boxSizing: "border-box"
+3948|    },
+3949|    tabOff: {
+   |    ^
+3950|      height: 40,
+3951|      padding: "0 14px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "tabDangerOn" in object literal[33m
+3959|      boxSizing: "border-box"
+3960|    },
+3961|    tabDangerOn: {
+   |    ^
+3962|      height: 40,
+3963|      padding: "0 14px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "tabDangerOff" in object literal[33m
+3971|      boxSizing: "border-box"
+3972|    },
+3973|    tabDangerOff: {
+   |    ^
+3974|      height: 40,
+3975|      padding: "0 14px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "pillOn" in object literal[33m
+3983|      boxSizing: "border-box"
+3984|    },
+3985|    pillOn: {
+   |    ^
+3986|      minHeight: 38,
+3987|      padding: "0 12px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "pillOff" in object literal[33m
+3995|      boxSizing: "border-box"
+3996|    },
+3997|    pillOff: {
+   |    ^
+3998|      minHeight: 38,
+3999|      padding: "0 12px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "capacityBox" in object literal[33m
+4114|      paddingTop: 12
+4115|    },
+4116|    capacityBox: {
+   |    ^
+4117|      borderRadius: 14,
+4118|      border: "1px solid rgba(148,163,184,0.16)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "crmHitBox" in object literal[33m
+4128|      overflow: "hidden"
+4129|    },
+4130|    crmHitBox: {
+   |    ^
+4131|      borderRadius: 14,
+4132|      border: "1px solid rgba(96,165,250,0.26)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "crmHitTitle" in object literal[33m
+4135|      marginBottom: 10
+4136|    },
+4137|    crmHitTitle: {
+   |    ^
+4138|      fontSize: 12,
+4139|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "inlineDangerRow" in object literal[33m
+4140|      color: "#bfdbfe"
+4141|    },
+4142|    inlineDangerRow: {
+   |    ^
+4143|      display: "flex",
+4144|      alignItems: "center",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "inlineDangerHint" in object literal[33m
+4155|      overflow: "hidden"
+4156|    },
+4157|    inlineDangerHint: {
+   |    ^
+4158|      fontSize: 12,
+4159|      fontWeight: 800,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "updateSection" in object literal[33m
+4162|      minWidth: 180
+4163|    },
+4164|    updateSection: {
+   |    ^
+4165|      marginTop: 12,
+4166|      borderTop: "1px solid rgba(148,163,184,0.14)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactRow" in object literal[33m
+4167|      paddingTop: 12
+4168|    },
+4169|    compactRow: {
+   |    ^
+4170|      width: "100%",
+4171|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactSub" in object literal[33m
+4195|      border: "1px solid rgba(57,216,111,0.22)"
+4196|    },
+4197|    compactSub: {
+   |    ^
+4198|      minWidth: 0,
+4199|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactTime" in object literal[33m
+4205|      fontWeight: 800
+4206|    },
+4207|    compactTime: {
+   |    ^
+4208|      fontSize: 11,
+4209|      color: "rgba(203,213,225,0.58)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "orderCard" in object literal[33m
+4212|      flexShrink: 0
+4213|    },
+4214|    orderCard: {
+   |    ^
+4215|      width: "100%",
+4216|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "codePill" in object literal[33m
+4243|      overflow: "hidden"
+4244|    },
+4245|    codePill: {
+   |    ^
+4246|      width: 50,
+4247|      minWidth: 50,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactName" in object literal[33m
+4257|      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.22), 0 10px 20px rgba(57,216,111,0.20)"
+4258|    },
+4259|    compactName: {
+   |    ^
+4260|      minWidth: 0,
+4261|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactOpen" in object literal[33m
+4324|      minWidth: 0
+4325|    },
+4326|    compactOpen: {
+   |    ^
+4327|      display: "inline-flex",
+4328|      alignItems: "center",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "modalOverlay" in object literal[33m
+4340|      flexShrink: 0
+4341|    },
+4342|    modalOverlay: {
+   |    ^
+4343|      position: "fixed",
+4344|      inset: 0,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "modalCard" in object literal[33m
+4350|      zIndex: 60
+4351|    },
+4352|    modalCard: {
+   |    ^
+4353|      width: "min(720px, 100%)",
+4354|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "page" in object literal[33m
+4442|    },
+4443|    // Dispatch compact mobile command-center overrides
+4444|    page: {
+   |    ^
+4445|      minHeight: "100vh",
+4446|      background: "#070b14",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "commandCard" in object literal[33m
+4670|      whiteSpace: "nowrap"
+4671|    },
+4672|    commandCard: {
+   |    ^
+4673|      maxWidth: 960,
+4674|      width: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "commandInput" in object literal[33m
+4682|      overflow: "hidden"
+4683|    },
+4684|    commandInput: {
+   |    ^
+4685|      height: 48,
+4686|      borderRadius: 14,
+[39m
+[32m✓[39m 600 modules transformed.
+rendering chunks...
+--- npm run build retry ---
+
+> tepiha-vite-converted@2.0.46-vite-fast-cache-preboot-v34-7 build
+> vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+[32m[vite:circular-deps] No circular dependencies found.[0m
+transforming...
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "page" in object literal[33m
+3644|    },
+3645|    // Dispatch Command Center dark UI overrides / additions
+3646|    page: {
+   |    ^
+3647|      minHeight: "100vh",
+3648|      background: "#070b14",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "top" in object literal[33m
+3654|      boxSizing: "border-box"
+3655|    },
+3656|    top: {
+   |    ^
+3657|      maxWidth: 960,
+3658|      width: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "title" in object literal[33m
+3665|      boxSizing: "border-box"
+3666|    },
+3667|    title: {
+   |    ^
+3668|      fontSize: 18,
+3669|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "sub" in object literal[33m
+3671|      color: "#f8fafc"
+3672|    },
+3673|    sub: {
+   |    ^
+3674|      fontSize: 12,
+3675|      color: "rgba(226,232,240,0.68)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "card" in object literal[33m
+3676|      fontWeight: 800
+3677|    },
+3678|    card: {
+   |    ^
+3679|      maxWidth: 960,
+3680|      width: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "statsGrid" in object literal[33m
+3700|      overflow: "hidden"
+3701|    },
+3702|    statsGrid: {
+   |    ^
+3703|      maxWidth: 960,
+3704|      width: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "statCard" in object literal[33m
+3709|      boxSizing: "border-box"
+3710|    },
+3711|    statCard: {
+   |    ^
+3712|      background: "rgba(15,23,42,0.92)",
+3713|      borderRadius: 16,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "statLabel" in object literal[33m
+3718|      boxSizing: "border-box"
+3719|    },
+3720|    statLabel: {
+   |    ^
+3721|      fontSize: 11,
+3722|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "statValue" in object literal[33m
+3723|      color: "rgba(203,213,225,0.72)"
+3724|    },
+3725|    statValue: {
+   |    ^
+3726|      fontSize: 28,
+3727|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "label" in object literal[33m
+3730|      color: "#f8fafc"
+3731|    },
+3732|    label: {
+   |    ^
+3733|      fontSize: 12,
+3734|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "sectionTitle" in object literal[33m
+3735|      color: "rgba(203,213,225,0.82)"
+3736|    },
+3737|    sectionTitle: {
+   |    ^
+3738|      fontWeight: 1000,
+3739|      marginBottom: 8,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "sectionHint" in object literal[33m
+3741|      letterSpacing: 0.2
+3742|    },
+3743|    sectionHint: {
+   |    ^
+3744|      fontSize: 12,
+3745|      color: "rgba(203,213,225,0.70)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "empty" in object literal[33m
+3747|      fontWeight: 700
+3748|    },
+3749|    empty: {
+   |    ^
+3750|      fontWeight: 900,
+3751|      color: "rgba(203,213,225,0.72)"
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "input" in object literal[33m
+3751|      color: "rgba(203,213,225,0.72)"
+3752|    },
+3753|    input: {
+   |    ^
+3754|      height: 44,
+3755|      borderRadius: 12,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "textarea" in object literal[33m
+3782|      fontSize: 16
+3783|    },
+3784|    textarea: {
+   |    ^
+3785|      minHeight: 70,
+3786|      borderRadius: 12,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "selectOption" in object literal[33m
+3797|      boxSizing: "border-box"
+3798|    },
+3799|    selectOption: {
+   |    ^
+3800|      background: "#0f172a",
+3801|      color: "#f8fafc"
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnGhost" in object literal[33m
+3801|      color: "#f8fafc"
+3802|    },
+3803|    btnGhost: {
+   |    ^
+3804|      border: "1px solid rgba(148,163,184,0.24)",
+3805|      background: "rgba(15,23,42,0.92)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnGhostMini" in object literal[33m
+3810|      color: "#f8fafc"
+3811|    },
+3812|    btnGhostMini: {
+   |    ^
+3813|      border: "1px solid rgba(148,163,184,0.24)",
+3814|      background: "rgba(15,23,42,0.92)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnPrimary" in object literal[33m
+3819|      cursor: "pointer"
+3820|    },
+3821|    btnPrimary: {
+   |    ^
+3822|      height: 48,
+3823|      borderRadius: 14,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnDanger" in object literal[33m
+3829|      padding: "0 16px"
+3830|    },
+3831|    btnDanger: {
+   |    ^
+3832|      height: 48,
+3833|      borderRadius: 14,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "btnDangerMini" in object literal[33m
+3839|      padding: "0 16px"
+3840|    },
+3841|    btnDangerMini: {
+   |    ^
+3842|      height: 38,
+3843|      borderRadius: 12,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "err" in object literal[33m
+3850|      whiteSpace: "nowrap"
+3851|    },
+3852|    err: {
+   |    ^
+3853|      background: "rgba(127,29,29,0.30)",
+3854|      border: "1px solid rgba(248,113,113,0.25)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "ok" in object literal[33m
+3859|      marginBottom: 10
+3860|    },
+3861|    ok: {
+   |    ^
+3862|      background: "rgba(6,78,59,0.32)",
+3863|      border: "1px solid rgba(52,211,153,0.24)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "suggestBox" in object literal[33m
+3868|      marginBottom: 10
+3869|    },
+3870|    suggestBox: {
+   |    ^
+3871|      position: "absolute",
+3872|      left: 0,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "suggestItem" in object literal[33m
+3880|      overflow: "hidden"
+3881|    },
+3882|    suggestItem: {
+   |    ^
+3883|      width: "100%",
+3884|      textAlign: "left",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badge" in object literal[33m
+3890|      cursor: "pointer"
+3891|    },
+3892|    badge: {
+   |    ^
+3893|      fontSize: 11,
+3894|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badgeOk" in object literal[33m
+3899|      color: "#e2e8f0"
+3900|    },
+3901|    badgeOk: {
+   |    ^
+3902|      fontSize: 11,
+3903|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badgeWarn" in object literal[33m
+3908|      color: "#86efac"
+3909|    },
+3910|    badgeWarn: {
+   |    ^
+3911|      fontSize: 11,
+3912|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badgeBad" in object literal[33m
+3917|      color: "#fde68a"
+3918|    },
+3919|    badgeBad: {
+   |    ^
+3920|      fontSize: 11,
+3921|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "badgeGhost" in object literal[33m
+3926|      color: "#fecaca"
+3927|    },
+3928|    badgeGhost: {
+   |    ^
+3929|      fontSize: 11,
+3930|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "tabOn" in object literal[33m
+3935|      color: "#cbd5e1"
+3936|    },
+3937|    tabOn: {
+   |    ^
+3938|      height: 40,
+3939|      padding: "0 14px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "tabOff" in object literal[33m
+3947|      boxSizing: "border-box"
+3948|    },
+3949|    tabOff: {
+   |    ^
+3950|      height: 40,
+3951|      padding: "0 14px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "tabDangerOn" in object literal[33m
+3959|      boxSizing: "border-box"
+3960|    },
+3961|    tabDangerOn: {
+   |    ^
+3962|      height: 40,
+3963|      padding: "0 14px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "tabDangerOff" in object literal[33m
+3971|      boxSizing: "border-box"
+3972|    },
+3973|    tabDangerOff: {
+   |    ^
+3974|      height: 40,
+3975|      padding: "0 14px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "pillOn" in object literal[33m
+3983|      boxSizing: "border-box"
+3984|    },
+3985|    pillOn: {
+   |    ^
+3986|      minHeight: 38,
+3987|      padding: "0 12px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "pillOff" in object literal[33m
+3995|      boxSizing: "border-box"
+3996|    },
+3997|    pillOff: {
+   |    ^
+3998|      minHeight: 38,
+3999|      padding: "0 12px",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "capacityBox" in object literal[33m
+4114|      paddingTop: 12
+4115|    },
+4116|    capacityBox: {
+   |    ^
+4117|      borderRadius: 14,
+4118|      border: "1px solid rgba(148,163,184,0.16)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "crmHitBox" in object literal[33m
+4128|      overflow: "hidden"
+4129|    },
+4130|    crmHitBox: {
+   |    ^
+4131|      borderRadius: 14,
+4132|      border: "1px solid rgba(96,165,250,0.26)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "crmHitTitle" in object literal[33m
+4135|      marginBottom: 10
+4136|    },
+4137|    crmHitTitle: {
+   |    ^
+4138|      fontSize: 12,
+4139|      fontWeight: 1000,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "inlineDangerRow" in object literal[33m
+4140|      color: "#bfdbfe"
+4141|    },
+4142|    inlineDangerRow: {
+   |    ^
+4143|      display: "flex",
+4144|      alignItems: "center",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "inlineDangerHint" in object literal[33m
+4155|      overflow: "hidden"
+4156|    },
+4157|    inlineDangerHint: {
+   |    ^
+4158|      fontSize: 12,
+4159|      fontWeight: 800,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "updateSection" in object literal[33m
+4162|      minWidth: 180
+4163|    },
+4164|    updateSection: {
+   |    ^
+4165|      marginTop: 12,
+4166|      borderTop: "1px solid rgba(148,163,184,0.14)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactRow" in object literal[33m
+4167|      paddingTop: 12
+4168|    },
+4169|    compactRow: {
+   |    ^
+4170|      width: "100%",
+4171|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactSub" in object literal[33m
+4195|      border: "1px solid rgba(57,216,111,0.22)"
+4196|    },
+4197|    compactSub: {
+   |    ^
+4198|      minWidth: 0,
+4199|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactTime" in object literal[33m
+4205|      fontWeight: 800
+4206|    },
+4207|    compactTime: {
+   |    ^
+4208|      fontSize: 11,
+4209|      color: "rgba(203,213,225,0.58)",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "orderCard" in object literal[33m
+4212|      flexShrink: 0
+4213|    },
+4214|    orderCard: {
+   |    ^
+4215|      width: "100%",
+4216|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "codePill" in object literal[33m
+4243|      overflow: "hidden"
+4244|    },
+4245|    codePill: {
+   |    ^
+4246|      width: 50,
+4247|      minWidth: 50,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactName" in object literal[33m
+4257|      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.22), 0 10px 20px rgba(57,216,111,0.20)"
+4258|    },
+4259|    compactName: {
+   |    ^
+4260|      minWidth: 0,
+4261|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "compactOpen" in object literal[33m
+4324|      minWidth: 0
+4325|    },
+4326|    compactOpen: {
+   |    ^
+4327|      display: "inline-flex",
+4328|      alignItems: "center",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "modalOverlay" in object literal[33m
+4340|      flexShrink: 0
+4341|    },
+4342|    modalOverlay: {
+   |    ^
+4343|      position: "fixed",
+4344|      inset: 0,
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "modalCard" in object literal[33m
+4350|      zIndex: 60
+4351|    },
+4352|    modalCard: {
+   |    ^
+4353|      width: "min(720px, 100%)",
+4354|      maxWidth: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "page" in object literal[33m
+4442|    },
+4443|    // Dispatch compact mobile command-center overrides
+4444|    page: {
+   |    ^
+4445|      minHeight: "100vh",
+4446|      background: "#070b14",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "commandCard" in object literal[33m
+4670|      whiteSpace: "nowrap"
+4671|    },
+4672|    commandCard: {
+   |    ^
+4673|      maxWidth: 960,
+4674|      width: "100%",
+[39m
+[1m[33m[plugin:vite:esbuild][39m[22m [33m[plugin vite:esbuild] app/dispatch/page.jsx: [33mDuplicate key "commandInput" in object literal[33m
+4682|      overflow: "hidden"
+4683|    },
+4684|    commandInput: {
+   |    ^
+4685|      height: 48,
+4686|      borderRadius: 14,
+[39m
+[32m✓[39m 600 modules transformed.
+rendering chunks...
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/supabaseClient.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/baseCodes.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/arka/kapaku/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/arka/obligimet/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/arka/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/arka/payroll/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/arka/puntor/[pin]/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/arka/stafi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/dispatch/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/marrje-sot/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/porosit/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pranimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/board/modules/dorzim.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/board/modules/gati.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/board/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/pranimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/components/OfflineSyncRunner.jsx, /mnt/data/work_arka_bulletproof/rian-main/lib/arkaCashSync.js, /mnt/data/work_arka_bulletproof/rian-main/lib/arkaService.js, /mnt/data/work_arka_bulletproof/rian-main/lib/arkaStore.js, /mnt/data/work_arka_bulletproof/rian-main/lib/arkaWorkerSummary.js, /mnt/data/work_arka_bulletproof/rian-main/lib/baseCodes.js, /mnt/data/work_arka_bulletproof/rian-main/lib/clientBalanceDb.js, /mnt/data/work_arka_bulletproof/rian-main/lib/clientsService.js, /mnt/data/work_arka_bulletproof/rian-main/lib/companyFixedExpensesDb.js, /mnt/data/work_arka_bulletproof/rian-main/lib/corporateFinance.js, /mnt/data/work_arka_bulletproof/rian-main/lib/offlineStore.js, /mnt/data/work_arka_bulletproof/rian-main/lib/ordersDb.js, /mnt/data/work_arka_bulletproof/rian-main/lib/ordersService.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncEngine.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncRecovery.js, /mnt/data/work_arka_bulletproof/rian-main/lib/transport/transportDb.js, /mnt/data/work_arka_bulletproof/rian-main/lib/transportCodes.js, /mnt/data/work_arka_bulletproof/rian-main/lib/transportCore/syncEngine.js, /mnt/data/work_arka_bulletproof/rian-main/lib/transportOrdersDb.js, /mnt/data/work_arka_bulletproof/rian-main/lib/usersDb.js, /mnt/data/work_arka_bulletproof/rian-main/lib/usersService.js, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/localDb.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/homeSearch.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncRecovery.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/offlineStore.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncManager.js, /mnt/data/work_arka_bulletproof/rian-main/lib/transportCore/syncEngine.js, /mnt/data/work_arka_bulletproof/rian-main/lib/transportOrdersDb.js, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/offlineStore.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/baseCodes.js, /mnt/data/work_arka_bulletproof/rian-main/lib/baseMasterCache.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncEngine.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncManager.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncRecovery.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/marrje-sot/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pranimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/pranimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/components/OfflineSyncRunner.jsx, /mnt/data/work_arka_bulletproof/rian-main/lib/arkaStore.js, /mnt/data/work_arka_bulletproof/rian-main/lib/offlineSyncClient.js, /mnt/data/work_arka_bulletproof/rian-main/lib/ordersDb.js, /mnt/data/work_arka_bulletproof/rian-main/lib/transportCore/syncEngine.js, /mnt/data/work_arka_bulletproof/rian-main/lib/transportOrdersDb.js, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/syncRecovery.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/syncEngine.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncManager.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/components/OfflineSyncRunner.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/syncEngine.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/syncManager.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/offlineSyncClient.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncBootstrap.js, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/transportCore/syncEngine.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/syncManager.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/transportCore/syncBootstrap.js, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/usersDb.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/homeSearch.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/dispatch/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/board/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/login/page.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/components/SmartSmsModal.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/components/OfflineFirstWarmup.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pranimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/board/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/pranimi/page.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/ordersService.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/dispatch/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/fletore/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/k/[id]/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/llogaria-ime/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pranimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/lib/arkaCashSync.js, /mnt/data/work_arka_bulletproof/rian-main/lib/rackLocations.js, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/components/RackLocationModal.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/components/OfflineFirstWarmup.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/transport/board/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/item/page.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/transport/board/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/components/OfflineFirstWarmup.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/components/PosModal.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/components/OfflineFirstWarmup.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pranimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/pranimi/page.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/offlineSyncClient.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/components/payments/payService.js, /mnt/data/work_arka_bulletproof/rian-main/lib/arka/arkaClient.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/pageSnapshotCache.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/homeSearch.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/baseMasterCache.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/lib/homeSearch.js, /mnt/data/work_arka_bulletproof/rian-main/lib/syncManager.js but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/gati/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/pranimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/lib/ordersDb.js, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/baseCodes.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/app/login/page.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/pranimi/page.jsx, /mnt/data/work_arka_bulletproof/rian-main/app/transport/pranimi/page.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/lib/ordersDb.js is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/app/pastrimi/page.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/app/pranimi/page.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/arka/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/components/OfflineFirstWarmup.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/arka/obligimet/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/arka/payroll/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/arka/stafi/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/transport/menu/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/components/OfflineFirstWarmup.jsx, /mnt/data/work_arka_bulletproof/rian-main/components/TransportMenuSafeRouteShell.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/transport/fletore/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/transport/item/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/transport/pay/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) /mnt/data/work_arka_bulletproof/rian-main/app/transport/ngarkim-sot/page.jsx is dynamically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx but also statically imported by /mnt/data/work_arka_bulletproof/rian-main/src/generated/routes.generated.jsx, dynamic import will not move module into another chunk.
+[39m
+computing gzip size...
+[2mdist/[22m[32mmanifest.webmanifest                        [39m[1m[2m    0.38 kB[22m[1m[22m
+[2mdist/[22m[32mindex.html                                  [39m[1m[2m  147.07 kB[22m[1m[22m[2m │ gzip:  29.25 kB[22m
+[2mdist/[22m[2massets/[22m[35mindex-DBqNhi-A.css                   [39m[1m[2m   34.24 kB[22m[1m[22m[2m │ gzip:   6.58 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-VvxAZ7yv.js                     [39m[1m[2m    0.15 kB[22m[1m[22m[2m │ gzip:   0.15 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-A_RPSMyP.js                     [39m[1m[2m    0.29 kB[22m[1m[22m[2m │ gzip:   0.26 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-CS9jmco-.js                     [39m[1m[2m    0.29 kB[22m[1m[22m[2m │ gzip:   0.26 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-KdQKMduH.js                     [39m[1m[2m    0.29 kB[22m[1m[22m[2m │ gzip:   0.26 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-BUC-Yg7q.js                     [39m[1m[2m    0.29 kB[22m[1m[22m[2m │ gzip:   0.26 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-D_o91hEB.js                     [39m[1m[2m    0.29 kB[22m[1m[22m[2m │ gzip:   0.26 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-Cr8hzs1N.js                     [39m[1m[2m    0.30 kB[22m[1m[22m[2m │ gzip:   0.27 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-DdBOsTVL.js                     [39m[1m[2m    0.31 kB[22m[1m[22m[2m │ gzip:   0.27 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-CAETOWyi.js                     [39m[1m[2m    0.80 kB[22m[1m[22m[2m │ gzip:   0.50 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-Cp9EeucI.js                     [39m[1m[2m    0.84 kB[22m[1m[22m[2m │ gzip:   0.56 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-ClGRI3sX.js                     [39m[1m[2m    0.84 kB[22m[1m[22m[2m │ gzip:   0.56 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-ClL5jQG3.js                     [39m[1m[2m    0.84 kB[22m[1m[22m[2m │ gzip:   0.56 kB[22m
+[2mdist/[22m[2massets/[22m[36mvirtual_pwa-register-Kg6XPB5q.js     [39m[1m[2m    0.97 kB[22m[1m[22m[2m │ gzip:   0.55 kB[22m
+[2mdist/[22m[2massets/[22m[36mtombstones-jQ6Uzr8m.js               [39m[1m[2m    1.77 kB[22m[1m[22m[2m │ gzip:   0.77 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-BR9eBIz4.js                     [39m[1m[2m    1.78 kB[22m[1m[22m[2m │ gzip:   0.58 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-BSIKq4kk.js                     [39m[1m[2m    3.03 kB[22m[1m[22m[2m │ gzip:   1.43 kB[22m
+[2mdist/[22m[2massets/[22m[36mworkbox-window.prod.es5-vqzQaGvo.js  [39m[1m[2m    5.72 kB[22m[1m[22m[2m │ gzip:   2.35 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-B61YDyAJ.js                     [39m[1m[2m   13.89 kB[22m[1m[22m[2m │ gzip:   4.51 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-BTGdfiaZ.js                     [39m[1m[2m   14.17 kB[22m[1m[22m[2m │ gzip:   3.67 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-BHHzZJ87.js                     [39m[1m[2m   16.59 kB[22m[1m[22m[2m │ gzip:   5.76 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-BGNCtGxe.js                     [39m[1m[2m   17.48 kB[22m[1m[22m[2m │ gzip:   5.69 kB[22m
+[2mdist/[22m[2massets/[22m[36mpurify.es-BwoZCkIS.js                [39m[1m[2m   22.03 kB[22m[1m[22m[2m │ gzip:   8.77 kB[22m
+[2mdist/[22m[2massets/[22m[36mpage-CzSjEPzb.js                     [39m[1m[2m   27.81 kB[22m[1m[22m[2m │ gzip:   6.68 kB[22m
+[2mdist/[22m[2massets/[22m[36mindex.es-Sj4wwLaz.js                 [39m[1m[2m  150.69 kB[22m[1m[22m[2m │ gzip:  51.55 kB[22m
+[2mdist/[22m[2massets/[22m[36mindex-Clmspp8c.js                    [39m[1m[33m3,014.49 kB[39m[22m[2m │ gzip: 780.51 kB[22m
+[33m
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[32m✓ built in 14.76s[39m
+
+PWA v1.2.0
+mode      generateSW
+precache  46 entries (3329.67 KiB)
+files generated
+  dist/vite-sw.js
+  dist/workbox-fad3c38c.js
+BUILD_EXIT: 0

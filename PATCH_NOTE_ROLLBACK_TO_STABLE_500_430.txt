@@ -1,0 +1,46 @@
+ROLLBACK PATCH — RESTORE STABLE 500/430 CORE FLOW
+
+Purpose:
+Restore the app to the stable 500/430 state before the root-cause diagnostic / Pastrimi reconciliation patch chain.
+This is intended to undo the operational UI disruption caused by diagnostic/problem-panel patches.
+
+Files restored from rian-main 500 430.zip:
+- app/pranimi/page.jsx
+- app/pastrimi/page.jsx
+- lib/ordersService.js
+- lib/syncEngine.js
+- lib/syncManager.js
+- lib/baseCodes.js
+- app/debug-lite/page.jsx
+- src/generated/routes.generated.jsx
+
+What this rollback removes/undoes from active code paths:
+- PRANIMI root-cause trace imports/logic
+- PASTRIMI problem/reconciliation panel logic
+- LOCAL / NOT SYNCED diagnostic UI added by the patch chain
+- modified sync payload changes from the patch chain
+- lazy code reservation changes if they were deployed
+- debug route registration in src/generated/routes.generated.jsx
+
+Important manual cleanup if present:
+- Delete app/debug/local-cache/page.jsx if it exists in the working tree.
+- Delete lib/orderSaveTrace.js if it exists and no file imports it.
+These were new diagnostic files and are not part of the stable 500/430 baseline.
+A ZIP patch cannot reliably delete files in every deployment workflow, so verify manually.
+
+No SQL.
+No DB schema change.
+No DB reset.
+No ARKA/payroll/company budget/transport finance changes.
+No code release/reuse for 637 or 732.
+No cache clearing.
+
+Known result:
+This rollback restores the stable behavior. It does NOT include a new fix for the original 732/Rinor Latifi case because that original root cause was not proven safely. The later pa_numer PGRST204 error was produced by the diagnostic patch chain and should be removed from the active path by this rollback.
+
+Deploy plan:
+1. Apply this no-root patch.
+2. Confirm app builds.
+3. Test one normal PRANIMI save.
+4. Confirm it appears normally in PASTRIMI.
+5. Do not clear Bujar cache and do not release code 732 until separately investigated.

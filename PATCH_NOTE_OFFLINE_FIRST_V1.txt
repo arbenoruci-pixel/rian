@@ -1,0 +1,49 @@
+OFFLINE-FIRST V1 PATCH
+
+Goal:
+- App should depend much less on internet after one successful online open.
+- Critical route chunks are warmed/cached after boot.
+- Orders continue using local queue and sync slowly in background.
+- Avoid reload loops when dynamic imports fail while offline.
+
+Changed files:
+- index.html
+- package.json
+- lib/appEpoch.js
+- vite.config.js
+- src/AppRoot.jsx
+- components/OfflineFirstWarmup.jsx
+- lib/lazyWithReload.jsx
+- components/OfflineSyncRunner.jsx
+- components/SyncStarter.jsx
+- lib/syncBootstrap.js
+
+Main changes:
+1. Added OfflineFirstWarmup runtime.
+   After app opens online and visible, it warms:
+   - route shells: /, /pranimi, /pastrimi, /gati, /marrje-sot, /arka, /transport, /transport/menu, /transport/board
+   - critical route modules/chunks via safe dynamic imports
+   - key runtime chunks like SmartSmsModal, PosModal, RackLocationModal, OfflineSyncRunner, SyncStarter, RuntimeIncidentUploader, SessionDock
+
+2. Mounted warmup safely in AppRoot after the service worker registration delay.
+   It is isolated in RuntimeBoundary so a warmup failure cannot black-screen the app.
+
+3. Enabled offline runtime in browser context too.
+   This helps Safari testing behave closer to Homescreen/PWA mode.
+
+4. VitePWA runtime caching:
+   - business route navigations switched to StaleWhileRevalidate for faster cached shell opening
+   - static /assets chunks switched to CacheFirst because Vite hashed assets are immutable
+
+5. Dynamic import failure behavior:
+   - lazyWithReload no longer schedules reload when device is offline.
+   - It shows the dark fallback instead of causing a reload loop.
+
+6. Sync cadence slowed down:
+   - passive heartbeat/retry moved to 5 minutes
+   - minimum passive gap moved to 60 seconds
+   - online/outbox/manual triggers still exist, but background retries are calmer.
+
+No DB schema changes.
+No Supabase schema changes.
+No production data reset.

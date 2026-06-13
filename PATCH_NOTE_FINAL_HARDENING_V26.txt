@@ -1,0 +1,20 @@
+PATCH N / V26 — Final runtime hardening
+Version: 2.0.31-vite-final-hardening-v26
+Epoch: RESET-2026-04-26-VITE-FINAL-HARDENING-V26
+
+Scope:
+- No DB/schema/orders/outbox/payment/status/business-flow changes.
+- Hardened manual repair / SW kill tools with explicit manual/confirm guards.
+- Updated legacy SW labels to V26 and required manual=true for destructive messages.
+- Changed Vite static asset runtime caching from CacheFirst to StaleWhileRevalidate and moved buckets to V26.
+- Added ARKA main page-level timeout guards and reloadInFlight watchdog.
+- Made chunk fallback overlay dismissible and auto-hide on route/UI ready.
+- Removed hard navigation from LocalErrorBoundary Home action and /k retry.
+- Removed direct SKIP_WAITING from lazyWithReload fallback.
+
+Acceptance checks:
+1. No normal auto reload/replace paths added.
+2. Destructive SW/cache tools require explicit manual/confirm guards.
+3. ARKA main cannot leave reloadInFlightRef stuck indefinitely.
+4. Static asset cache bucket names are V26.
+5. Global chunk fallback overlay is dismissible and auto-hides when app recovers.

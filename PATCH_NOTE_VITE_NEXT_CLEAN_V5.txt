@@ -1,0 +1,29 @@
+PATCH: VITE NEXT CLEAN V5
+
+Purpose:
+- Deep-clean active Next.js compatibility imports after migration to Vite.
+- Keep Vite + React Router as source of truth.
+- Avoid touching DB, Supabase, orders, outbox, write flow, or business logic.
+
+Changed:
+- Added lib/routerCompat.jsx for Link/useRouter/usePathname/useSearchParams/useParams/redirect compatibility without importing next/*.
+- Added lib/dynamicCompat.jsx for dynamic lazy components without next/dynamic.
+- Added lib/scriptCompat.jsx for script rendering without next/script.
+- Replaced active next/link and next/navigation imports with routerCompat.
+- Replaced active next/dynamic and next/script imports with Vite-safe compat modules.
+- Removed next/* aliases from vite.config.js.
+- Removed next/server from lib/apiService.js; now uses native Response.
+- Added tools/remove-nextjs-remnants.mjs to delete dead Next App Router files/folders.
+- Added DEEP_SCAN_NEXTJS_TO_VITE_CLEAN_V5.md with scan results.
+
+Intentionally kept:
+- Legacy _next detection in diagnostics/service-worker cleanup while old iOS PWA caches may still exist.
+- styled-jsx dependency and Vite Babel plugin because active UI files still use <style jsx> blocks.
+
+Not touched:
+- DB
+- Supabase
+- orders
+- outbox
+- write flow
+- business logic

@@ -1,0 +1,22 @@
+PATCH NOTE — PRANIMI / TË PA PLOTËSUARA / LOCAL DRAFT RESTORE V6
+
+Problem live after V5:
+- V5 correctly hid stale remote drafts, including legacy Storage ghosts.
+- A new incomplete draft created locally by typing a name and pressing HOME did not appear in "TË PA PLOTËSUARA".
+
+Root cause:
+- V5 made the render gate strict, but the code-pool guard treated local drafts like remote drafts when base_code_pool had not yet reflected the held/reserved state.
+- For a just-created local draft, the browser already has a meaningful local reservation marker, but base_code_pool can briefly be available/missing/unknown while the async hold catches up.
+- The V5 code-pool guard also deleted local draft mirrors/reservations on a code-pool-only verdict, which is unsafe for a new local draft.
+
+Fix:
+- Keep remote Storage drafts strict: remote drafts still require canonical file identity, DB anti-join, and code lifecycle guard.
+- Allow local-only drafts to render when the browser has a meaningful local draft reservation marker, as long as the code is not marked used.
+- Stop deleting local draft data on code-pool-only guard failure. Final/order matches are still handled by the DB guard.
+- This restores the intended flow: type any meaningful info, press HOME, then the draft appears locally in "TË PA PLOTËSUARA".
+
+Scope:
+- app/pranimi/page.jsx only.
+- No DB schema/RPC changes.
+- No Storage mass cleanup.
+- No changes to transport, arka, pastrim, gati, dispatch, service worker, or global sync.

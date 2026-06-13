@@ -1,0 +1,37 @@
+TEST PLAN — PRANIMI / TË PA PLOTËSUARA DB DRAFTS V7
+
+1. New meaningful draft
+- Open PRANIMI.
+- Type only a random name.
+- Press HOME.
+- Expected: if online, app saves public.orders row with status='incomplete' and data.status='incomplete'.
+- Expected: returning to TË PA PLOTËSUARA shows the draft.
+- Expected: another worker/device can see it after opening TË PA PLOTËSUARA.
+
+2. Blank draft
+- Open PRANIMI, receive a code, enter no meaningful data, press HOME.
+- Expected: no public.orders row is created.
+- Expected: TË PA PLOTËSUARA does not show a blank draft.
+
+3. Open draft
+- Open the DB-backed draft from TË PA PLOTËSUARA.
+- Expected: same code and same local_oid are restored.
+- Expected: no new code is issued.
+
+4. Finalize draft
+- Open the draft, add required m2/items, press VAZHDO.
+- Expected: same public.orders row/local_oid becomes status='pastrim' or the existing flow status.
+- Expected: final DB verify passes before success/SMS/print.
+- Expected: draft disappears from TË PA PLOTËSUARA.
+- Expected: base_code_pool is marked used only after final DB verify.
+
+5. Delete draft
+- Create a DB-backed incomplete draft.
+- Press FSHI.
+- Expected: only that draft-like public.orders row is deleted.
+- Expected: no final/active orders are touched.
+- Expected: code is released if no final order exists for the code.
+
+6. Stale Storage regression
+- Open TË PA PLOTËSUARA.
+- Expected: old Storage ghosts such as drafts/1306.json do not appear because Storage drafts are ignored by the visible list.

@@ -1,0 +1,12 @@
+OFFLINE-FIRST-V2
+
+Targeted fixes after screenshots showing pwa-repair still reporting route-containment and inline runtime fallback blocking on smartSms chunk.
+
+Changes:
+- Bumped app epoch/build to RESET-2026-04-25-OFFLINE-FIRST-V2 / 2.0.5-offline-first-v2.
+- Updated public/pwa-repair.html hard-coded build/epoch; it previously still displayed route-containment-v1 and reopened the app with the old epoch.
+- Narrowed index.html inline runtime fallback so non-critical modulepreload failures such as smartSms do not replace the whole app with fullscreen fallback. Route/panel chunks are left to SafeLazyRouteShell/LocalErrorBoundary.
+- Bumped VitePWA runtime cache names to v2.
+- Bumped OfflineFirstWarmup keys/version and sends current asset URLs to the active SW via WARM_CACHE when available.
+
+No DB schema changes. No Supabase write-flow changes. No outbox/order format changes.

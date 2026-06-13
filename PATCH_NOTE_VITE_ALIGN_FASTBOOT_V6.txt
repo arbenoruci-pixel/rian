@@ -1,0 +1,26 @@
+VITE ALIGN FASTBOOT V6
+
+Build: 2.0.9-vite-align-fastboot-v6
+Epoch: RESET-2026-04-25-VITE-ALIGN-FASTBOOT-V6
+
+Purpose:
+- Align all active runtime markers so Safari/PWA cannot show V4 while package/appEpoch says V5.
+- Restore faster boot by keeping Home/login/offline eager and moving heavy business routes back behind SafeLazyRouteShell.
+- Keep the no-stuck/passive update behavior: no auto reload, no fullscreen update blocker, no registration.update() on every visibilitychange.
+- Leave DB, Supabase, orders, outbox, sync/write flow untouched.
+
+Changed:
+- index.html: build/epoch/rescue/staleness marker aligned to V6.
+- lib/appEpoch.js: APP_DATA_EPOCH and APP_VERSION aligned to V6.
+- package.json/package-lock.json: package version aligned to V6.
+- public/pwa-repair.html: repair page marker aligned to V6.
+- public/manifest.json and public/manifest.webmanifest: start_url/id aligned to V6.
+- public/sw.js: SW build label aligned, still does not clients.claim active sessions.
+- vite.config.js: cache buckets bumped to v4.
+- src/generated/routes.generated.jsx: /pranimi, /pastrimi, /gati, /marrje-sot, /arka, /transport and /transport/board moved from eager imports to SafeLazyRouteShell.
+- src/AppRoot.jsx: runtime label aligned to fastboot mode.
+
+Next.js scan:
+- Active Vite runtime imports no longer use next/link, next/navigation, next/dynamic, next/script, or next/server.
+- Dead legacy files still exist under app/api/** and src/shims/next-server.d.ts. They are not active in the Vite runtime because the active API source is root api/** plus server/index.mjs.
+- If using local git, run: node tools/remove-nextjs-remnants.mjs

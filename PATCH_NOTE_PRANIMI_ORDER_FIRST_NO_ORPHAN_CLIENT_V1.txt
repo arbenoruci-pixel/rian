@@ -1,0 +1,47 @@
+PATCH: PRANIMI / BAZ - order-first save, no orphan client
+Version: V1 surgical patch
+Date: 2026-06-05
+
+Scope touched:
+- app/pranimi/page.jsx
+
+Problem fixed:
+- PRANIMI/BAZ could create or reuse a clients row before the public.orders row was inserted and verified.
+- If order save failed after client creation, UI could leave a real client row without an order row.
+
+Behavior after patch:
+1. New PRANIMI create flow treats public.orders save/verify as the primary success gate.
+2. For new client orders, client master sync is deferred until after the order row is saved and verified.
+3. Online create now writes public.orders directly with local_oid safety data before client master linking.
+4. UI success, SMS, print/confirm path is reached only after DB verification finds the order row.
+5. Offline mode remains local/outbox only and does not create a real clients row before a verified order exists.
+6. base_code_pool is marked used only after public.orders is verified.
+7. Post-order client linking may create/reuse a client row and patch the verified order with client_id/client metadata.
+8. If a client row was created in this same flow and order save/verify fails, cleanup is attempted only for that exact new client and only when it is not linked to any order.
+9. If cleanup cannot be proven safe, the client is not deleted; the UI shows a real error/local warning and does not show normal success/SMS.
+
+DB verification strengthened:
+- numeric server order id presence
+- local_oid
+- code
+- client_phone when present
+- client_name presence
+- status
+- data.status
+- pieces
+- m2_total
+- price_total
+
+What was intentionally not changed:
+- No DB schema changes
+- No RPC/triggers added
+- No existing orders touched
+- No existing clients touched
+- No existing base_code_pool data touched
+- No cleanup/migration
+- No transport/arka/payroll/pastrim/gati/dispatch/service-worker/global-sync refactor
+
+SQL/RPC note:
+- No DB/RPC was executed.
+- This patch is forward-only and frontend-side.
+- A true DB-atomic guarantee would require a reviewed RPC/transaction later, but it was not required for this surgical patch.

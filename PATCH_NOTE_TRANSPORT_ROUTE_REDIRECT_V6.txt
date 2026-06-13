@@ -1,0 +1,29 @@
+PATCH NOTE — TRANSPORT ROUTE REDIRECT V6
+
+Read-only finding from rian-main 500 368.zip:
+- /transport was already eager in src/generated/routes.generated.jsx.
+- The failing module from the screenshot was @/app/transport/page.jsx.
+- That file is only a small redirect shell to /transport/board; it does not contain transport business logic.
+- The same module was still referenced by OfflineFirstWarmup through a dynamic import.
+
+Fix:
+- src/generated/routes.generated.jsx
+  - removed the static import of @/app/transport/page.jsx
+  - changed /transport to redirect directly to /transport/board
+- components/OfflineFirstWarmup.jsx
+  - removed /transport from ROUTE_URLS
+  - removed TRANSPORT_HOME dynamic warmer import of @/app/transport/page.jsx
+
+Why:
+- The app should stop trying to load @/app/transport/page.jsx entirely.
+- /transport/board remains the real transport UI and is already eager.
+
+Not touched:
+- DB schema
+- orders / transport data
+- ARKA
+- payments
+- payroll
+- Service Worker / cache / runtime
+- offlineStore / outbox
+- Transport Board business logic

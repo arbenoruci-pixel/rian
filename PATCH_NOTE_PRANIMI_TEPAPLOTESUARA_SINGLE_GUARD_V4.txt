@@ -1,0 +1,44 @@
+PATCH NOTE — PRANIMI / “TË PA PLOTËSUARA” — SINGLE GUARD V4
+
+Changed only app/pranimi/page.jsx.
+
+What changed:
+1. Added canonical draft identity helpers:
+   - getPranimiDraftFileKey()
+   - isPranimiRemoteDraftLike()
+   - isPranimiLegacyNumericRemoteDraft()
+   - collectPranimiDraftAliasKeys()
+
+2. Unsafe remote draft summaries are now fail-closed:
+   - Any remote draft file named drafts/<number>.json is hidden before DB anti-join and before render.
+   - Any REMOTE summary that does not carry its original Storage file key is hidden too.
+   - This handles stale legacy objects like drafts/1306.json even if payload code/name still looks meaningful.
+
+3. The existing DB anti-join remains in place:
+   - local_oid / data.local_oid / lifecycle local_oid
+   - legacy order id filename
+   - code match
+   - non-draft statuses block the draft.
+
+4. Added render-level hard guard:
+   - pushDraftsToState() refuses unsafe legacy numeric remote drafts.
+   - uniqueDrafts also refuses unsafe legacy numeric remote drafts.
+
+5. HAP/FSHI now receive the full draft object, not just id:
+   - This preserves remote_file_key/file_key during open/delete checks.
+   - HAP blocks legacy numeric remote drafts immediately.
+   - FSHI blocks legacy numeric remote drafts immediately and does not release code pool for them.
+
+6. Alias cleanup/suppression:
+   - hideBlockedDraftFromUi() removes/suppresses all aliases, not just one id.
+   - deleteDraft() cleans local/cache state by all aliases.
+
+What is intentionally not changed:
+- No DB schema/RPC changes.
+- No Storage mass delete.
+- No transport/arka/pastrim/gati/dispatch changes.
+- No existing data cleanup or migration.
+
+Expected live result:
+- 1306 / Artan bytyqi must disappear because it comes from drafts/1306.json, a legacy numeric remote Storage object.
+- 788 / Adem Demolli can remain if it has no matching public.orders row and exists as a real local/incomplete draft.

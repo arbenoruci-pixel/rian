@@ -1,0 +1,31 @@
+PATCH I — AppRoot Runtime Static Deferred / No Runtime Lazy Chunks
+Version: 2.0.26-vite-static-runtime-v21
+Epoch: RESET-2026-04-26-VITE-STATIC-RUNTIME-V21
+
+Scope:
+- AppRoot runtime modules are now static top-level imports.
+- Runtime modules still mount after first paint via DeferredMount delays.
+- AppRoot runtime dynamic-import path was removed for runtime modules.
+- Existing LocalErrorBoundary runtime wrapper stays silent with renderFallback={() => null}.
+- Runtime diagnostic failure keys from older versions are cleared once on V21 first boot only.
+- Optional reconcile modulepreload failure is suppressed as non-fatal and logged as optional helper failure.
+
+Delays:
+- ChunkLoadRuntime: 1500ms
+- RootResumeWatchdog: 2000ms
+- ServiceWorkerRegister: 2100ms
+- SessionDock: 2800ms
+- OfflineSyncRunner: 3600ms
+- SyncStarter: 3900ms
+- RuntimeIncidentUploader: 4500ms
+- OfflineFirstWarmup: 5600ms
+
+Not touched:
+- DB / Supabase schema
+- orders
+- outbox format
+- payment / status logic
+- local-first writes
+- Home design
+- Pastrimi local fallback logic
+- search flow

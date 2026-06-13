@@ -1,0 +1,17 @@
+PATCH V34.2 — SAFE SCREEN SELF-REPORT + VERSION CHECK
+
+Scope: diagnostic-only patch.
+
+Changed:
+- public/sw-navigation-diag.js
+  Adds safe-screen embedded navigation JSON, current timeout event, last 20 navigation events, SW epoch/version, response/outcome details, controlled client count, COPY NAV LOG button, and cache-busted PROBE / DIAG RAW / HOME / RETRY links.
+- public/__tepiha_version.txt
+  Static production marker: V34.2-SAFE-SCREEN-SELF-REPORT.
+- lib/appEpoch.js, index.html, package.json/package-lock.json
+  Version marker bump only, so /diag-raw and HTML can prove whether the React bundle is updated.
+
+Not touched:
+- DB / Supabase / orders / outbox / payments / ARKA
+- business localStorage / IndexedDB
+- readiness chain / UI_READY / routeAlive
+- Service Worker activation behavior / skipWaiting / clients.claim / cache purge / unregister / reload/replace

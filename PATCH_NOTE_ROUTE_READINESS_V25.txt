@@ -1,0 +1,40 @@
+PATCH M / V25 — Route Readiness + Visible-Stuck Kill
+Version: 2.0.30-vite-route-readiness-v25
+Epoch: RESET-2026-04-26-VITE-ROUTE-READINESS-V25
+
+Goal:
+Stop the remaining global/visible-stuck loops identified after V24. The patch keeps DB/orders/outbox/payment/status/Pastrimi→Gati business logic untouched.
+
+Main changes:
+1. Route readiness is no longer inferred from component mount, first paint, or first interactive.
+   - src/generated/routes.generated.jsx records those as diagnostic-only.
+   - src/AppRoot.jsx clears transition only on route_ui_ready or explicit tepiha:force-route-settled.
+
+2. Pastrimi exact-search fail-open.
+   - app/pastrimi/page.jsx adds a 2.6s fail-open timeout for exact search/openId flows.
+   - If an exact searched row does not recover quickly, Pastrimi shows the local list instead of staying on "Po e hapim...".
+   - The search waiting message is marked data-visible-stuck-candidate.
+
+3. Marrje-Sot DB timeout fail-open.
+   - app/marrje-sot/page.jsx wraps DB fetches with a 3.5s timeout.
+   - The 2.2s visible-stuck guard now stops loading and shows local cache or a safe empty/error state.
+
+4. ARKA subroutes timeout fail-open.
+   - app/arka/stafi/page.jsx, app/arka/payroll/page.jsx, app/arka/obligimet/page.jsx wrap DB reads with timeout guards.
+   - Timeout/failure no longer leaves fullscreen loaders running indefinitely.
+
+5. Update/reload doors reduced.
+   - components/ServiceWorkerRegister.jsx uses updateSW(false), does not SKIP_WAITING from the normal update banner, and does not reload/replace after legacy repair.
+   - lib/routerCompat.jsx and src/shims/next-navigation.js convert router.refresh()/redirect() hard reload/replace doors into diagnostic/no-browser-replace behavior.
+   - public/pwa-repair.html and public/sw-kill.js no longer auto-reload after manual repair/kill actions.
+
+6. Cache buckets bumped.
+   - vite.config.js cache buckets moved to v25 to avoid carrying v23 Workbox cache names into the next deploy.
+
+Not touched:
+- Supabase schema
+- orders table/payload
+- outbox format
+- payment/status logic
+- Pastrimi → Gati business flow
+- ARKA calculations

@@ -1,0 +1,24 @@
+PATCH V9 — TRANSPORT PRANIMI EAGER ROUTE
+
+Real-code finding from rian-main 500 369.zip:
+- /transport/pranimi is still registered through SafeLazyRouteShell in src/generated/routes.generated.jsx.
+- The live screenshot shows the app stuck at MODULE: @/app/transport/pranimi/page.jsx.
+- app/transport/pranimi/page.jsx exists and has a valid default export, so this is a route/module loading failure mode, not a missing file/default export.
+
+Minimal fix:
+- Add static eager import for @/app/transport/pranimi/page.jsx.
+- Change /transport/pranimi from safeLazyElement(...) to eagerElement(...).
+
+Files changed:
+- src/generated/routes.generated.jsx
+
+Not touched:
+- DB schema
+- transport_orders / orders data
+- ARKA
+- payments
+- payroll
+- Service Worker/cache/runtime
+- offlineStore/outbox
+- Transport Pranimi business logic
+- Smart SMS logic

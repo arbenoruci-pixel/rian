@@ -1,0 +1,37 @@
+PATCH: Transport self-entry DB save / verify hardening
+
+Problem confirmed from live test:
+- SMS false-success was stopped, but Transport self-entry could still stay only in local/offline queue.
+- Root cause in frontend save flow: a stale localStorage flag `transport_offline_mode_v1` could mark the page as offline even when the app/browser was online.
+- The create path then skipped direct `transport_orders` insert and went straight to `enqueueTransportOrder()`.
+- Catch fallback could also re-label an online DB/verify error as queue if an older pending op existed for the same draft id.
+
+Changed file:
+- app/transport/pranimi/page.jsx
+
+Fix:
+1. Added `isBrowserTransportOffline()` and made browser `navigator.onLine === false` the only automatic queue condition.
+2. Removed the sticky offline flag from the online/create decision.
+3. On page load, stale `transport_offline_mode_v1` is cleared when browser is online.
+4. Direct online save now always attempts `insertTransportOrder(payload)` first, then verifies the row from `public.transport_orders` by id.
+5. If direct insert returns an error, the app attempts DB verify once in case the write committed but the response was lost.
+6. If browser remains online and DB verify fails, the UI receives a real `TRANSPORT_ORDER_*` error with `noOfflineQueue`; it does not silently enqueue.
+7. Queue fallback is allowed only when the browser is actually offline.
+8. Existing old pending queue entries no longer cause an online verify failure to be displayed as “LOCAL / NOT SYNCED”.
+
+Acceptance focus:
+- Tapin self-entry online should create a real `transport_orders` row.
+- SMS/WhatsApp opens only after DB verify succeeds.
+- `transport_clients` alone is not treated as success.
+- `transport_orders.data` keeps:
+  - status / data.status
+  - order_origin = TRANSPORT_SELF_ENTRY for TRANSPORT self-entry
+  - created_by_pin / created_by_role
+  - transport_pin / driver_pin
+  - code_str / code_n consistency
+- If DB row is missing while online, app shows a real DB/verify error and does not call it production-safe success.
+
+Validation:
+- `npm ci --ignore-scripts --no-audit --no-fund`
+- `npm run build` completed successfully.
+- Build kept pre-existing warnings in app/dispatch/page.jsx about duplicate style keys and chunk-size warnings; no build-blocking error.
