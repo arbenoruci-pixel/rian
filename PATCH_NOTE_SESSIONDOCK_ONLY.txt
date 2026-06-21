@@ -1,0 +1,15 @@
+TEPIHA PATCH — SESSIONDOCK ONLY RE-ENABLE TEST
+
+What this patch does:
+- Keeps AuthGate post-boot listeners ENABLED
+- Re-enables SessionDock only
+- Keeps other root motors OFF:
+  - BootReadyMark
+  - ServiceWorkerRegister
+  - OfflineSyncRunner
+  - SyncStarter
+- Keeps critical routes eager
+- Keeps home safe-mode flags enabled
+
+Goal:
+- Determine whether SessionDock is the first root runtime layer that reintroduces the white/black screen.

@@ -1,0 +1,68 @@
+AUDIT - PRANIMI / BAZ / TE PA PLOTESUARA - REMOTE STALE DRAFTS V2
+
+Scope checked:
+- app/pranimi/page.jsx
+- existing direct draft helpers inside the same file
+- existing Storage draft path: tepiha-photos/drafts/*.json
+- existing public.orders verification path used by PRANIMI
+
+Current flow locations:
+1. Code shown/reserved on PRANIMI open:
+   - tryReserveCodeInBackground(...)
+   - writeDraftReservationLocal(...)
+   - holdBaseCodeForDraft(...)
+   - session key base_order_code:<local_oid>
+
+2. Local draft save:
+   - buildDraftSnapshot()
+   - snapshotHasMeaningfulWork(...)
+   - upsertDraftLocal(...)
+   - readAllDraftsLocal()/readLocalDraftSummaries()
+
+3. Remote draft save/list/read/delete:
+   - upsertDraftRemote(...)
+   - listDraftsRemote(...)
+   - readDraftRemote(...)
+   - deleteDraftRemote(...)
+
+4. TE PA PLOTESUARA list:
+   - openDrafts()
+   - refreshDrafts(...)
+   - fetchRemoteDraftsSummary(...)
+   - readLocalDraftSummaries(...)
+   - filterDraftSummariesAgainstDb(...)
+   - uniqueDrafts memo + render sheet
+
+5. Open/delete draft:
+   - loadDraftIntoForm(...)
+   - deleteDraft(...)
+
+6. Final save/DB verify:
+   - handleContinue(...)
+   - verifyBaseOrderInDbBySafetyIds(...)
+   - assertBaseOrderReservationMatch(...)
+   - finishSuccess(...)
+
+Root cause confirmed by DB/Storage audit:
+- Remote Storage has stale tepiha-photos/drafts/*.json objects.
+- Some match public.orders by local_oid.
+- Some match public.orders.data.local_oid / data.pranimi_code_lifecycle.local_oid.
+- Some legacy files match public.orders.id, e.g. drafts/<order_id>.json.
+- Previous UI guard only checked limited local_oid/code cases, so stale remote drafts could render.
+
+Parallel flows present:
+- localStorage draft mirror
+- remote Storage draft mirror
+- current session snapshot
+- base_order_code:<local_oid>
+- base_code_pool reservation/used lifecycle
+- public.orders final order row
+- offline/outbox/local sync flow
+
+V2 patch direction:
+- Keep the patch inside app/pranimi/page.jsx.
+- Treat public.orders as source of truth for TE PA PLOTESUARA visibility.
+- Before render, exclude every draft with a matching non-draft/non-incomplete public.orders row using a bulk DB anti-join guard.
+- Also block HAP and FSHI if a stale draft slips into local UI state.
+- Do not mass-delete Storage.
+- Delete remote draft objects only after final order DB verify succeeds.

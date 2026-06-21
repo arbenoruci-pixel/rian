@@ -1,0 +1,56 @@
+PRANIMI / BAZ order-first no-orphan test plan
+
+1. Normal new client save
+   - Open PRANIMI / BAZ.
+   - Create a new test client with a valid phone number.
+   - Press VAZHDO / save.
+   - Expected: public.orders row exists before UI success/SMS/print.
+   - Expected fields: code, client_name, client_phone, local_oid, status, data.status, pieces/items, m2_total, price_total/pay.
+
+2. Code pool check
+   - After normal save, verify base_code_pool for that code is used only after the order row exists.
+   - Expected: no code is marked used for a failed/unverified order.
+
+3. Forced order save failure after client-sync point
+   - Simulate/fail the order save or DB verify during PRANIMI create.
+   - Expected: no normal success, no SMS, no print.
+   - Expected: no client row is created before the verified order for a new client.
+   - If a same-flow client was created later and link/order verification fails, cleanup runs only if the client has no order link.
+
+4. Offline save
+   - Turn the browser/device offline.
+   - Save from PRANIMI / BAZ.
+   - Expected: local/outbox warning only.
+   - Expected: no real clients DB row is created while public.orders is not verified.
+   - Expected: no SMS/print/normal success.
+
+5. Existing client / edit safety
+   - Save using an existing selected client and edit an existing BAZ order.
+   - Expected: existing reuse/edit still works.
+   - Expected: no unrelated transport/arka/payroll/pastrim/gati/dispatch behavior changes.
+
+6. Audit query after test window
+   - Run the query below after the new test.
+   - Expected: 0 rows for the new test client/order.
+
+Audit query draft:
+
+select
+  c.id,
+  c.code,
+  c.full_name,
+  c.phone,
+  c.created_at,
+  c.updated_at
+from public.clients c
+where coalesce(c.created_at, c.updated_at)::date = current_date
+  and not exists (
+    select 1
+    from public.orders o
+    where o.client_id = c.id
+       or (c.code is not null and o.code = c.code)
+       or regexp_replace(coalesce(o.client_phone, ''), '\\D', '', 'g') = regexp_replace(coalesce(c.phone, ''), '\\D', '', 'g')
+       or (o.data->>'client_master_id') = c.id::text
+       or (o.data->'client'->>'id') = c.id::text
+  )
+order by coalesce(c.created_at, c.updated_at) desc;

@@ -1,0 +1,11 @@
+SMART SMS FIX
+
+Ndryshuar:
+- lib/smartSms.js
+- components/SmartSmsModal.jsx
+
+Cka u bo:
+- WhatsApp tash perdor normalizim me numer internacional dhe app deep-link me fallback web.
+- Viber nuk perdor ma chat-by-number jo-stabil; perdor forward/share me tekst te gatshem.
+- SMS perdor numer te kanonizuar me prefiks internacional.
+- Butonat e Smart SMS nuk jane ma anchor te thjeshta; hapen me handler me te sigurt ne iPhone/Safari.

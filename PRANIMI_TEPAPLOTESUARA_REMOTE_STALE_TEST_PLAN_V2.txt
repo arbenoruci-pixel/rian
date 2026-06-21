@@ -1,0 +1,46 @@
+TEST PLAN - PRANIMI / TE PA PLOTESUARA - REMOTE STALE DRAFT FILTER V2
+
+1. Open BAZ / PRANIMI and open TE PA PLOTESUARA.
+   Expected: stale Storage drafts matching public.orders are not visible.
+
+2. Confirm these known stale rows are hidden if present in Storage list:
+   - code 1318 / Shpresa braina / status pastrim
+   - code 1239 / rexhep canolli / status pastrim
+   - code 1219 / jakup osmani / status gati
+   - code 1182 / luan preshrva / status dorzim
+   - code 809 / Arsim Mustafa / status dorzim / legacy drafts/<order_id>.json
+   - code 841 / Fatime x / status dorzim / legacy drafts/<order_id>.json
+
+3. Create a real meaningful incomplete draft:
+   - open PRANIMI
+   - type name or phone
+   - leave without finalizing
+   Expected: it appears in TE PA PLOTESUARA with same code/local_oid.
+
+4. Open that real draft from TE PA PLOTESUARA.
+   Expected: same local_oid and same code are restored. No new code is assigned.
+
+5. Finalize that draft.
+   Expected:
+   - public.orders row exists
+   - local_oid and code match
+   - DB verify passes before success/SMS/print
+   - draft is removed from TE PA PLOTESUARA
+   - remote drafts/<local_oid>.json is removed after DB verify
+   - legacy drafts/<order_id>.json is also removed if it exists
+
+6. Try to click HAP on a stale draft that matches public.orders.
+   Expected: HAP is blocked, form does not load, code is not changed.
+
+7. Try to click FSHI on a stale draft that matches public.orders.
+   Expected: FSHI is blocked, code is not released, remote Storage object is not mass-deleted by this action.
+
+8. Offline/local behavior:
+   - create local draft while offline
+   - verify it shows as LOCAL / NOT SYNCED
+   - verify no final success is shown without DB verify
+
+9. Audit query after tests:
+   - clients created without orders should remain 0 for new tests
+   - final/active orders should not appear in TE PA PLOTESUARA
+   - stale Storage drafts may still exist until separate reviewed cleanup, but UI list must hide them

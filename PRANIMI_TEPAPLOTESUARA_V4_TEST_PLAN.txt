@@ -1,0 +1,25 @@
+TEST PLAN — PRANIMI / “TË PA PLOTËSUARA” V4
+
+1. Open PRANIMI and open “TË PA PLOTËSUARA”.
+   Expected: drafts/1306.json must not render. 1306 / Artan bytyqi disappears.
+
+2. Verify real local draft 788 / Adem Demolli.
+   Expected: it may remain if it has no public.orders match and is a meaningful incomplete draft.
+
+3. Click HAP on a real draft.
+   Expected: same local_oid/code is restored; no new code is assigned.
+
+4. Click FSHI on a real draft.
+   Expected: draft disappears; code release is attempted only for that real draft.
+
+5. If any legacy numeric remote draft is somehow in state/cache, click HAP/FSHI.
+   Expected: HAP/FSHI are blocked; no code is released; list refreshes.
+
+6. Finalize a real draft.
+   Expected: public.orders row is verified, code is marked used, draft disappears, remote drafts/<local_oid>.json cleanup is attempted after DB verify.
+
+7. Re-run SQL count for Storage stale objects.
+   Expected: stale objects may still exist in Storage, but UI visible stale remote numeric drafts should be 0.
+
+8. Regression checks.
+   Expected: no changes in transport, arka, pastrim, gati, dispatch flows.

@@ -1,0 +1,23 @@
+ROLLBACK PATCH — V33 to V32-DIAG
+
+Version: 2.0.39-vite-true-ui-ready-diag-v32
+Epoch: RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32
+
+Purpose:
+- Remove live V33 readiness-chain behavior that caused Home Screen/PWA black screen with no incident.
+- Restore V32-DIAG readiness behavior for production stabilization.
+
+Changed:
+- package.json and package-lock.json version back to V32-DIAG.
+- lib/appEpoch.js epoch/version back to V32-DIAG.
+- index.html build markers and inline APP_EPOCH/BUILD_ID back to V32-DIAG.
+- lib/routeAlive.js restored markRouteUiAlive() to set UI_READY, FIRST_UI_READY, data-ui-ready, and tepiha:first-ui-ready.
+- src/generated/routes.generated.jsx restored RouteLifecycleProbe to trust first-ui-ready/route-ui-alive/data-ui-ready and to mark ready after first interactive timer like V32.
+- V33 page-level Suspense fallback wrappers reverted to fallback=null on the routes touched by V33.
+
+Not touched:
+- DB schema, Supabase tables, orders payload, outbox format, payment/status logic, Pastrimi -> Gati business flow, ARKA calculations, business localStorage keys, IndexedDB, or Service Worker activation behavior.
+
+Read-only diagnosis:
+- V33 black screen likely came from removing UI_READY from routeAlive while several pages still rely on markRouteUiAlive/useRouteAlive/RouteLifecycleProbe readiness signals.
+- /diag-raw visualIncidents existed in V33 source, but if the app route itself failed to render or old cached /diag-raw was served, the section would not appear in copied JSON.

@@ -1,0 +1,61 @@
+PATCH NOTE — PRANIMI / BAZ / “TE PAPLOTESUARA”
+Patch: PRANIMI_TEPAPLOTESUARA_SAFE_CODE_LIFECYCLE_V1
+
+Scope kept surgical:
+- app/pranimi/page.jsx
+- lib/baseCodes.js
+- patch/audit/test note files only
+
+No DB schema changes were executed.
+No RPC changes were executed.
+No existing orders, clients, code pool rows, or historical data were modified.
+
+What changed:
+
+1) Draft/code lifecycle on PRANIMI open
+- When a new PRANIMI session displays/keeps a code, the app writes a local reservation record keyed by local_oid.
+- The record stores code, local_oid/draft_id, created_by_pin, created_at, last_activity_at, and has_meaningful_work=false.
+- For blank sessions, the app refreshes the DB lease to 1 hour through the existing base_code_pool columns.
+
+2) Blank draft release
+- Blank reservations older than 1 hour are released on mount, online, pageshow, visibility resume, and a 5-minute interval while PRANIMI is open.
+- Blank drafts are not written to the “TE PAPLOTESUARA” local/remote draft list.
+- Blank release clears only that draft/local_oid reservation and never creates a client or order.
+
+3) Meaningful draft detection
+- Name and phone now count as meaningful work.
+- Existing meaningful signals remain: notes, photos, m2/items, stairs, staza/tepih rows, and payments.
+- Meaningful drafts are saved to local mirror and remote draft storage.
+- Meaningful drafts extend/hold the code reservation with a long lease using holdBaseCodeForDraft().
+
+4) “TE PAPLOTESUARA” list safety
+- List merges remote drafts with local draft mirrors.
+- List filters every draft against public.orders by local_oid and removes finalized orders from the list.
+- List requires meaningful work and a real code.
+- List dedupes by local_oid/id rather than code, so stale selectedClient/code reuse does not hide the actual draft.
+- Local-only drafts show source label “LOCAL / NOT SYNCED”.
+
+5) Opening an incomplete draft
+- Loading a draft restores the draft’s own local_oid/draft_id.
+- Loading a draft restores the draft’s own code.
+- Loading a draft clears stale selectedClient/client-match state.
+- Loading a draft no longer assigns a fresh code unless the draft truly has no code and needs repair.
+
+6) Finalizing a draft
+- The previous order-first DB verify gate remains the success gate.
+- After finishSuccess(), the draft is removed from “TE PAPLOTESUARA” and its PRANIMI draft reservation metadata is cleared.
+- SMS/print/success remain behind DB order verification.
+
+7) Deleting an incomplete draft
+- Delete removes the draft from local/remote list state.
+- Delete calls releaseLocksForCode() with that draft local_oid/code.
+- releaseLocksForCode() checks public.orders first and will not release a code once an order exists.
+- releaseLocksForCode() only releases reservations owned by this worker or unowned reservations.
+
+8) base code helper safety
+- Added holdBaseCodeForDraft() to refresh code reservation metadata for drafts.
+- Converted releaseLocksForCode() from no-op to guarded DB release.
+- No code is pushed back into the local pool after release; future reuse must come from DB reservation flow.
+
+Known operational note:
+- The frontend can release expired blank reservations when PRANIMI is open/resumed/online. Server-side expiry while every device is closed still depends on the existing base code lease/RPC cleanup behavior.

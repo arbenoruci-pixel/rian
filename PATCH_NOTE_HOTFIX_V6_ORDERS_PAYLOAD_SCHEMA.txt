@@ -1,0 +1,35 @@
+HOTFIX V6 — REMOVE NON-SCHEMA FIELDS FROM ORDERS SUPABASE PAYLOAD
+
+Files changed:
+- app/pranimi/page.jsx
+  - Removed top-level pa_numer and save_attempt_id from the PRANIMI orders payload.
+  - Keeps pa_numer, save_attempt_id, phone_digits, and local_oid inside payload.data only.
+
+- lib/syncEngine.js
+  - Sanitizes public.orders insert/upsert/update payloads before Supabase writes.
+  - Removes non-schema top-level fields such as pa_numer, save_attempt_id, phone_digits, oid, synced/local/debug/problem fields.
+  - Preserves pa_numer, save_attempt_id, phone_digits, and local_oid inside data JSON before stripping top-level fields.
+
+- lib/syncManager.js
+  - Keeps outbox payload safer by avoiding top-level pa_numer/save_attempt_id/phone_digits for base orders.
+  - Keeps save_attempt_id inside data so diagnostic tracing still works.
+
+- lib/ordersService.js
+  - Adds the same public.orders payload sanitizer for direct order update/create/upsert calls.
+  - Transport payload behavior remains handled by the existing transport sanitizer.
+
+Confirmations:
+- No SQL.
+- No DB schema change.
+- No DB reset.
+- No ARKA changes.
+- No payroll changes.
+- No company budget changes.
+- No transport finance changes.
+- No code release/reuse for 637 or 732.
+- No cache clearing.
+- No automatic Pastrimi repair.
+- No photos/base64/blobs added to trace.
+
+Purpose:
+Fix PGRST204 caused by sending pa_numer as a top-level field to public.orders, where pa_numer is not a real column. After this patch, pa_numer remains in data.pa_numer only.

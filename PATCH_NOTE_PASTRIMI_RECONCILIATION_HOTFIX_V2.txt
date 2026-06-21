@@ -1,0 +1,29 @@
+PASTRIMI RECONCILIATION HOTFIX V2
+
+Changed files:
+- app/pastrimi/page.jsx
+- PATCH_NOTE_PASTRIMI_RECONCILIATION_HOTFIX_V2.txt
+
+What changed:
+- Normalizes Pastrimi row source labels to lowercase.
+- Accepts DB source labels: orders, public.orders, base_orders, transport_orders, public.transport_orders, including uppercase variants such as ORDERS and TRANSPORT_ORDERS.
+- Makes reconciliation fail-open for DB source rows: DB rows from orders or transport_orders remain NORMAL_DB_ORDER unless explicitly marked local/cache/outbox/page/master snapshot.
+- Keeps transport_orders rows normal even when their DB id is UUID.
+- Prevents confirmed DB-source rows from being pushed into the problem/stale panel.
+- Filters visible problem rows so DB-source rows are not displayed as STALE SEARCH CARD.
+
+Safety confirmations:
+- No SQL.
+- No DB schema change.
+- No DB reset.
+- No ARKA change.
+- No payroll change.
+- No company budget change.
+- No transport finance change.
+- No code release or reuse.
+- No cache clearing.
+- No automatic Pastrimi repair or DB row creation.
+
+Expected result:
+- Real DB rows such as 754, 801, 800, 795 and transport T-codes stay in the normal PASTRIMI list.
+- Only true local/outbox/search-cache-only ghost cards can appear in the problem section.

@@ -1,0 +1,34 @@
+PATCH: Dispatch + Transport cancellation / soft-delete flow
+
+Goal:
+- Dispatch can remove/cancel failed, invalid, or client-cancelled transport orders from active lists.
+- Transporter can cancel an order from the Inbox action sheet without DB id mismatch.
+- Cancelled/failed rows are treated as terminal/inactive for fletore and daily backup views.
+
+Safety:
+- No DB schema changes.
+- No hard delete from DB.
+- No ARKA/payments/payroll changes.
+- No Service Worker/cache/runtime changes.
+- No offlineStore/outbox changes.
+
+Implementation:
+1) app/dispatch/page.jsx
+- Replaced ONLINE-only removal with general Dispatch soft-cancel.
+- Adds FSHI POROSINË for pre-pickup / failed / already cancelled transport rows.
+- Sets status='cancelled' and writes audit metadata into data:
+  cancelled_at, cancelled_by, cancellation_reason, dispatch_removed, dispatch_hidden.
+- Cancelled/hidden rows are filtered from active Dispatch lists.
+- Failed rows can be opened or removed from Dispatch.
+
+2) app/transport/board/page.jsx + app/transport/board/modules/inbox.jsx
+- Fixed the transporter ANULO bug where the module passed the whole order object but board expected only id.
+- Transporter is prompted for cancellation reason.
+- Soft-cancel writes status='cancelled' and cancellation metadata in data.
+- Cancelled row is removed from local board cache/list immediately and reloads safely.
+
+3) app/transport/fletore/page.jsx, app/fletore/page.jsx, api/cron/backup.js, app/api/cron/backup/route.js
+- Treat cancelled/canceled/failed/deleted/void statuses as inactive/terminal so cancelled orders do not stay in active fletore/backup lists.
+
+Build note:
+- npm run build could not run in sandbox because node_modules/vite are not installed in the uploaded ZIP environment.

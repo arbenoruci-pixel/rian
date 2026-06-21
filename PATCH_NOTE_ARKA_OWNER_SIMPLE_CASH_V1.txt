@@ -1,0 +1,44 @@
+PATCH: ARKA OWNER SIMPLE CASH V1
+
+QELLIMI
+- Thjeshton ARKEN kryesore per pronarin.
+- Kartelat e punetoreve shfaqin vetem numrat kryesore:
+  1) MORI NGA KLIENTET
+  2) SHPENZIME
+  3) AVANS
+  4) DOREZUAR
+  5) MBETET ME DOREZU
+
+FORMULA
+MBETET ME DOREZU = MORI NGA KLIENTET - SHPENZIME - AVANS - DOREZUAR
+
+CFARE NDRYSHON
+- app/arka/page.jsx
+  - ARKA admin/owner shfaq kartela te thjeshta per cdo punetor.
+  - Shtohen butonat: HAP DETAJET, PRANO CASH, SHTO SHPENZIM, SHTO AVANS.
+  - PRANO CASH pranon handoff-et pending per ate punetor.
+  - SHTO SHPENZIM perdor hyrjen ekzistuese te shpenzimeve.
+  - SHTO AVANS regjistron avans ne strukturat ekzistuese te ARKES, pa DB schema change.
+
+- app/arka/puntor/[pin]/page.jsx
+  - Detajet e punetorit hapen owner-first: porosite e inkasuara, shpenzimet, avanset, dorezimet.
+  - Ne fund shfaqet prape MBETET ME DOREZU.
+  - Pamja e vjeter/avancuar mbetet e fshehur pas “HAP PAMJEN E VJETER / AVANCUAR”.
+
+- app/arka/arka.css
+  - Stilim i kartelave owner-friendly, i thjeshte dhe mobile-friendly.
+
+- lib/arkaWorkerSummary.js
+  - DOREZUAR llogaritet vetem kur handoff-i eshte ACCEPTED, qe mos te ngaterrohet pending me dorezuar.
+
+SCOPE I SIGURTE
+- Nuk prek DB schema.
+- Nuk prek GATI.
+- Nuk prek PASTRIMI.
+- Nuk prek TRANSPORT.
+- Nuk prek payments flow jashte ARKES.
+- Nuk ndryshon status flow te porosive.
+
+KONTROLL
+- Syntax check me TypeScript transpile: OK per 3 file kryesore JSX/JS.
+- Full npm build nuk u ekzekutua ne kete ambient sepse projekti ne ZIP nuk ka dependencies/node_modules aktive.

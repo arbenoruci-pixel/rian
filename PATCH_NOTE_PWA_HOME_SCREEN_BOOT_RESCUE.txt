@@ -1,0 +1,36 @@
+PATCH NOTE: PWA HOME SCREEN BOOT RESCUE
+
+Scope:
+- Runtime/UI safety only.
+- No DB changes.
+- No Supabase write flow changes.
+- No outbox format changes.
+- No business logic changes.
+- No private route document-cache changes.
+
+Changed:
+1) index.html
+- Added early PWA/Home Screen boot watchdog before React starts.
+- Arms only in standalone/PWA mode, or with ?pwaBootRescue=1 / ?bootRescue=1.
+- If React does not mark UI ready within 5600ms, shows a dark HTML fallback instead of black screen.
+- Fallback includes:
+  - TEPIHA NUK U NIS
+  - PROVO PËRSËRI
+  - HAP NË SAFARI
+  - PASTRO CACHE / RIPARO APP
+  - COPY BOOT DIAG
+- COPY BOOT DIAG works without React.
+- RIPARO APP unregisters service workers, clears TEPIHA runtime caches only, clears stale boot/chunk markers, then reloads with cache-bust.
+- Does not clear session, outbox, local orders, or local data cache.
+- Adds SW epoch/controller check at launch and logs mismatch to tepiha_pwa_boot_rescue_log_v1.
+- If PWA launches with SW epoch mismatch and UI is still not ready after a short guard, it shows the same local boot-rescue panel with the update warning.
+
+2) src/generated/routes.generated.jsx
+- /diag-raw payload now includes:
+  - tepiha_pwa_boot_rescue_last_v1
+  - tepiha_pwa_boot_rescue_log_v1
+  - window.__TEPIHA_PWA_SW_EPOCH_CHECK__
+
+New localStorage keys:
+- tepiha_pwa_boot_rescue_last_v1
+- tepiha_pwa_boot_rescue_log_v1

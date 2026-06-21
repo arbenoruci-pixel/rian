@@ -1,0 +1,27 @@
+TEPIHA V7 - Quiet Update / No Repeating Banner
+
+Version: 2.0.10-vite-quiet-update-v7
+Epoch: RESET-2026-04-25-VITE-QUIET-UPDATE-V7
+
+Purpose:
+- Stop the repeated bottom update banner after deploy/cache mismatch.
+- Hide the visible build/version marker from normal users.
+- Keep app usable with no forced reload and no fullscreen blocker.
+
+Changes:
+- index.html clears old tepiha_update_available_v1 at startup.
+- index.html no longer dispatches visual update events for passive SW/cache mismatch.
+- index.html keeps the build marker DOM for diagnostics but hides it with display:none.
+- ServiceWorkerRegister.jsx no longer auto-shows stored update banners from localStorage.
+- ServiceWorkerRegister.jsx clears old stored passive update keys.
+- ServiceWorkerRegister.jsx shows the visual update banner only with debug query (?showUpdateBanner=1 or ?debugUpdateBanner=1).
+- lazyWithReload.jsx no longer writes tepiha_update_available_v1 or dispatches the global update event.
+- lazyWithReload.jsx fallback changed from bottom update banner to a local static module-load notice.
+
+Not touched:
+- DB
+- Supabase
+- orders
+- outbox
+- sync/write flow
+- business logic

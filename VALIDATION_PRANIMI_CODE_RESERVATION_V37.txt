@@ -1,0 +1,17 @@
+PRANIMI CODE RESERVATION V37 — FINAL VALIDATION
+Date: 2026-06-20
+
+PASS  node --check lib/baseCodeAllocatorServer.js
+PASS  node --check lib/pranimiCodeReserveServer.js
+PASS  node --check api/base-codes/reserve.js
+PASS  node --check api/pranimi/reserve-code.js
+PASS  node --check server/index.mjs
+PASS  npm run test:pranimi-code
+PASS  node tools/verify-pranimi-final-lifecycle.mjs
+PASS  npm run cycles:strict
+PASS  npm run build
+
+Build completed with existing Vite chunk/dynamic-import warnings only. No build errors.
+The delivery ZIP intentionally excludes node_modules and dist.
+Database hardening migration:
+  supabase/sql/base_codes_reservation_hardening_20260620.sql

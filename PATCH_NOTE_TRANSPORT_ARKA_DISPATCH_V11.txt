@@ -1,0 +1,70 @@
+PATCH V11 — TRANSPORT ARKA PAYMENT VERIFY + DISPATCH ASSIGNED WORKFLOW
+
+Base used:
+- rian-main-transport-self-entry-db-verify-v10-no-root.zip
+
+Files changed:
+- app/transport/pranimi/page.jsx
+- app/transport/pay/page.jsx
+- app/transport/board/page.jsx
+- app/transport/item/page.jsx
+- app/dispatch/page.jsx
+- lib/arka/arkaEngine.js
+- lib/arkaCashSync.js
+
+1) Fix: “Krye pagesën” now creates and verifies ARKA payment
+
+What changed:
+- The transport payment button no longer depends on the generic cash wrapper as the success source.
+- The transport payment flow now calls ARKA_ACTION.TRANSPORT_ORDER_PAYMENT directly through /api/arka/transaction.
+- The server-side ARKA engine creates the arka_pending_payments row with:
+  - type = TRANSPORT
+  - source_module = TRANSPORT
+  - status = COLLECTED
+  - transport_order_id
+  - transport_code_str
+  - amount
+  - created_by_pin / created_by_name / created_by_role
+- Success is returned only after DB verify confirms a matching arka_pending_payments row exists.
+- Verification checks transport_order_id, transport_code_str, amount, type, source_module, status and created_by_pin.
+- If ARKA insert/verify fails, the UI shows a real ARKA error and does not continue as success.
+- Double-tap protection is added with a local ref guard plus existing UI busy state, API runtime lock, idempotency key and duplicate detection.
+- lib/arkaCashSync.js also validates transport ARKA responses so any older caller using recordCashMove/createPendingCashPayment cannot report success without a verified transport payment row.
+
+Expected payment test:
+1. Open T347 or create a fresh test order.
+2. Press “Krye pagesën”.
+3. Query arka_pending_payments by transport_order_id or transport_code_str.
+4. A row should exist with type/source_module TRANSPORT, status COLLECTED, amount equal to order due, created_by_pin = 1968, transport_order_id filled and transport_code_str filled.
+5. Double tap should not create duplicate active rows for the same transport_order_id + amount + PIN.
+6. Daily handoff should include the collected transport payment.
+
+2) Fix: dispatch-created assigned orders go to TË REJA first
+
+What changed:
+- Dispatch create/assign now saves assigned transport orders as status = assigned, not pickup.
+- data.status is also set to assigned for the new dispatch-created transport order payload.
+- Plan/assignment updates use assigned for pre-pickup transport statuses.
+- Transport board already includes assigned in pre-pickup/TË REJA statuses.
+- Transport accept/start flow moves assigned/new/inbox/dispatched/pranim to pickup.
+- app/transport/item/page.jsx now exposes PRANO for assigned/new/inbox/pranim/accepted and stamps accepted/start metadata when moving to pickup.
+- app/transport/board/page.jsx also stamps accepted/start metadata when a board action moves to pickup.
+
+Expected dispatch test:
+1. Dispatch creates a new test order for Tapin.
+2. DB row before driver acceptance should be status = assigned and data.status = assigned.
+3. Order should appear in TË REJA, not directly in PIKAP.
+4. When Tapin accepts/starts, status should become pickup and data.status should become pickup.
+5. PIKAP should contain orders accepted/started by the transporter.
+
+Not touched:
+- No DB schema changes.
+- No RPC changes.
+- No service worker/cache logic changes.
+- No mass update/delete.
+- Existing orders/T-codes are not modified by the patch.
+
+Validation done in sandbox:
+- npm ci --ignore-scripts --no-audit --no-fund completed successfully.
+- Syntax/JSX transform check passed for all changed JS/JSX files with esbuild.
+- npm run build was attempted, but did not complete inside the sandbox time window; the visible output reached Vite module transform and showed only existing duplicate style-key warnings in app/dispatch/page.jsx before timeout. Treat live acceptance tests as required before production-safe signoff.

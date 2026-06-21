@@ -1,0 +1,41 @@
+PATCH P / V28 — Supabase Runtime Guard
+Version: 2.0.34-vite-supabase-guard-v28
+Epoch: RESET-2026-04-27-VITE-SUPABASE-GUARD-V28
+
+Scope: runtime stability only. No DB schema, RLS, orders payload, outbox format, payment/status flow, Pastrimi→Gati business flow, ARKA calculations, design, business localStorage, or IndexedDB changes.
+
+Changes:
+1. lib/supabaseClient.js
+   - Added withSupabaseTimeout(), storageWithTimeout(), fetchWithTimeout().
+   - Added a small client-side Supabase slow/circuit guard: markSupabaseSlow() and shouldPreferLocal().
+   - Existing .from/.rpc/auth query timeout behavior remains intact.
+
+2. Storage/photo/draft protection
+   - app/pranimi/page.jsx: photo uploads, draft upload/list/download/remove, shared price storage, and background order JSON upload now have storage timeouts.
+   - Remote draft scan now caps list size and downloads drafts with limited concurrency.
+   - app/pastrimi/page.jsx: photo upload timeout.
+   - app/gati/page.jsx: signed URL creation, signed URL fetch, and return/photo upload timeouts.
+   - app/transport/pranimi/page.jsx, app/transport/board/modules/dorzim.jsx, app/transport/board/modules/gati.jsx, components/transport/TransportInlineEdit.jsx: transport photo uploads now have storage timeouts.
+   - lib/arkaStore.js and lib/offlineStore.js storage uploads now use storageWithTimeout().
+
+3. Save/sync responsiveness
+   - app/pranimi/page.jsx: VAZHDO no longer waits indefinitely for syncNow(); it waits briefly, then continues local-first and lets sync continue in the background.
+   - app/transport/pranimi/page.jsx: transport save uses the same bounded sync wait.
+   - lib/syncEngine.js: per-op timeout, storage upload timeout, and max sync run duration guard.
+   - components/OfflineSyncRunner.jsx: respects Supabase slow guard and wraps repair/sync kicks with timeouts.
+
+4. Login/Auth path
+   - app/login/page.jsx: /api/auth/login fetch now has a 7s AbortController timeout and shows a clear DB timeout message.
+   - api/auth/login.js: server-side login queries and device approval writes now have per-call timeout guards.
+
+5. Version/cache markers
+   - package.json, package-lock.json, lib/appEpoch.js, index.html, vite.config.js, public/sw.js, public/pwa-repair.html, public/sw-kill.js, and ChunkLoadRuntime markers updated to V28.
+   - Vite PWA cache buckets updated to v28.
+
+Acceptance checks:
+- Storage calls used during active routes no longer wait forever.
+- Pranimi/Transport VAZHDO cannot be held indefinitely by syncNow().
+- upload_storage sync op cannot pin the sync runner indefinitely.
+- OfflineSyncRunner avoids extra pressure during Supabase slow windows.
+- Login cannot remain busy indefinitely if Supabase/API hangs.
+- No business data deletion, DB schema changes, RLS changes, orders/outbox format changes, or payment/status logic changes.

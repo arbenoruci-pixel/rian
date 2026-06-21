@@ -1,0 +1,10 @@
+PATCH V34.7 — FAST CACHE PREBOOT
+
+Scope: runtime/navigation shell only. No DB, Supabase, orders, outbox, payments, ARKA, business localStorage, IndexedDB, status/payment/delivery logic, UI_READY, routeAlive, skipWaiting, clients.claim, unregister, reload/replace, or aggressive cache purge changes.
+
+Changes:
+- Adds fast verified cached-shell return in public/sw-navigation-diag.js so app routes do not wait up to 10s when a verified shell already exists.
+- Keeps background network refresh to update verified shell/assets without blocking the user.
+- Keeps V34.6 boot asset guard behavior for JS/CSS/fonts/assets.
+- Adds dark preboot inline paint in index.html to avoid white flash before React/CSS starts.
+- Version markers bumped to V34.7.

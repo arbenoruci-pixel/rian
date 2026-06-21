@@ -1,0 +1,24 @@
+PATCH V32-DIAG — TRUE UI READY + VISUAL INCIDENT BLACKBOX
+
+Version: 2.0.39-vite-true-ui-ready-diag-v32
+Epoch: RESET-2026-04-27-VITE-TRUE-UI-READY-DIAG-V32
+
+Purpose:
+- Diagnostic add-on for black screen without normal incidents.
+- Captures visual blank/false UI ready/root became blank cases before and after React.
+- Stores evidence in localStorage keys:
+  * tepiha_blackbox_events_v32diag
+  * tepiha_last_boot_trace_v32diag
+  * tepiha_last_visual_incident_v32diag
+  * tepiha_visual_incident_log_v32diag
+
+Changed:
+- index.html: smart visual blackbox before React, global error/rejection/resource listeners, timed visual checks, MutationObserver.
+- src/main.jsx: logs main_module_loaded and react_render_called to blackbox.
+- src/AppRoot.jsx: logs approot_mounted to blackbox.
+- lib/markRealUiReady.js: logs real UI ready source to blackbox.
+- app/pastrimi/page.jsx: fail-open ready marker uses markRealUiReady + blackbox log.
+- package/version/cache buckets bumped to V32 diagnostic build.
+
+No DB/Supabase/orders/outbox/payment/status/ARKA calculation changes.
+No reload/replace/cache delete/SW unregister/skipWaiting/clients.claim.

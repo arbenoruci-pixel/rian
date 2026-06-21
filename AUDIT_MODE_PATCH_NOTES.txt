@@ -1,0 +1,26 @@
+AUDIT MODE PATCH — GATI
+
+Çka u shtua:
+- AUDIT MODE toggle në GATI
+- audit layer i ndarë nga statusi operativ
+- ruajtje e auditit në orders.data.audit
+- audit history për çdo porosi
+- discrepancy queue automatike
+- verified badges në listë
+- audit summary në krye të GATI
+- panel audit për kontroll të shpejtë fizik
+- flow special për "IU DHA KLIENTIT" me payment snapshot
+
+Nuk është prekur:
+- PRANIMI
+- PASRTRIMI
+- ARKA
+- flow normal i pagesës / dorëzimit
+
+Ruajtja:
+- ruan lokal + cache
+- provon save remote
+- nëse remote dështon, e fut në offline sync queue
+
+Build check:
+- npm run build = OK

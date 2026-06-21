@@ -1,0 +1,17 @@
+HOME LOGIN / LOGOUT RESTORE
+
+U ndreqen keto pjese:
+- app/page.jsx
+- components/SessionDock.jsx
+- app/login/page.jsx
+- app/transport/login/page.jsx
+
+Cka u be:
+- ne HOME u shtua top action bar me LOG IN ose LLOGARIA + LOG OUT
+- HOME tash rifreskon session state kur ndryshon localStorage ose session event
+- SessionDock nuk shfaqet ne / qe mos me u dyfishu me HOME buttons
+- logout tash ben clear + session event + hard redirect te /login?force=1
+- login dhe transport login dergojne session refresh event pas hyrjes
+
+Qellimi:
+- me e kthy login/logout ne home me punu si perpara pa prek DB dhe pa prek rrjedhat tjera te app-it.

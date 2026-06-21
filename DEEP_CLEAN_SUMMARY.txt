@@ -1,0 +1,21 @@
+DEEP CLEAN SUMMARY
+
+1. U NDREQ
+- Session source u unifikua te lib/sessionStore.js
+- Logout tani pastron edhe residue legacy keys
+- Transport role bridging u unifikua me admin-role helpers
+- Startup isolation skip tani ka retry real për AuthGate / SW / SyncStarter / OfflineSyncRunner
+- Root auth/device auto-approval u harmonizua me role helpers
+
+2. U FSHI
+- sw.js (root duplicate source)
+- app/transport/_redirect.jsx (orphan legacy redirect)
+
+3. U LA SI LEGACY
+- app/layout.jsx
+- app/api/**
+- shadow alias wrapper pages
+
+4. MBETI PËR MË VONË
+- Portim/archivim më agresiv i app/api/** nëse vendoset me e heq krejt shtresën legacy
+- Cleanup më i thellë i inline visibility watchdog nëse del nevojë pas testimit live

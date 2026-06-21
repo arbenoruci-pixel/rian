@@ -1,0 +1,34 @@
+PATCH NOTE — PRANIMI / “TË PA PLOTËSUARA” — RENDER GATE V5
+
+Scope:
+- Only app/pranimi/page.jsx was changed.
+- No DB schema/RPC/triggers were changed.
+- No Storage mass cleanup was performed.
+- No transport/arka/pastrim/gati/dispatch files were changed.
+
+Live issue after V4:
+- UI still rendered two REMOTE drafts.
+- Code 1306 / Artan bytyqi was already proven stale through live SQL: Storage object drafts/1306.json matched public.orders.id=1306 with status dorzim.
+- This means the visible list could still be fed by old in-memory/cache state or by remote summaries that had not passed the latest guard path before render.
+
+Fix in V5:
+1. Added a final render gate for the “TË PA PLOTËSUARA” list.
+   - uniqueDrafts now uses shouldDraftSummaryRender(), the same guard used before setDrafts().
+   - This prevents stale in-memory state from rendering while refresh is running.
+
+2. Added a UI verification marker for remote drafts.
+   - Remote drafts are only allowed to render after filterDraftSummariesAgainstDb() marks them with _draft_ui_guard.
+   - Old/cached remote items without this marker are hidden.
+
+3. Open Drafts now clears stale state immediately.
+   - setDrafts([]) runs before refresh.
+   - remote cache is invalidated.
+   - UI shows “DUKE VERIFIKUAR DRAFTAT...” until DB/storage guard finishes.
+
+4. Remote source label now becomes “REMOTE / DB CHECKED” only after DB anti-join passes.
+   - If the user still sees plain “REMOTE”, the deployed bundle is old/cached.
+   - If a draft appears with “REMOTE / DB CHECKED”, it has passed the V5 list guard.
+
+Expected result:
+- 1306 / Artan bytyqi should not appear.
+- 788 / Adem Demolli may remain only if it passes the DB guard as a real incomplete draft.

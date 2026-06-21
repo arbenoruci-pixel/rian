@@ -1,0 +1,89 @@
+TEST PLAN — PRANIMI / BAZ / “TE PAPLOTESUARA”
+Patch: PRANIMI_TEPAPLOTESUARA_SAFE_CODE_LIFECYCLE_V1
+
+Pre-check:
+- Use a test worker PIN.
+- Open browser devtools localStorage and confirm base_order_code:<local_oid> and pranimi_draft_reservation:<local_oid> behavior.
+- Use a test client/order only.
+
+Test A — open PRANIMI, do not enter info
+1. Open /pranimi.
+2. Confirm a code is displayed.
+3. Confirm localStorage has pranimi_draft_reservation:<local_oid> with has_meaningful_work=false.
+4. Open “TE PAPLOTESUARA”.
+Expected: the blank draft is not listed.
+5. Simulate age >1 hour by editing created_at/last_activity_at older than 1 hour, then trigger visibility/page reload/online.
+Expected: the code reservation is released and no client/order is created.
+
+Test B — enter name or phone, leave without finalizing
+1. Open /pranimi.
+2. Enter only a name, or only a phone.
+3. Leave using HOME or wait for autosave.
+Expected: draft appears in “TE PAPLOTESUARA”.
+Expected: same code and same local_oid are stored.
+Expected: no public.orders final row exists yet.
+
+Test C — open incomplete draft
+1. Open “TE PAPLOTESUARA”.
+2. Press HAP on the draft from Test B.
+Expected: same local_oid/draft_id is restored.
+Expected: same code is restored.
+Expected: no new code is assigned.
+Expected: name/phone/items/payments/notes/photos restore correctly.
+
+Test D — finalize incomplete draft
+1. Open draft from Test B/C.
+2. Complete required fields and press VAZHDO.
+Expected: public.orders row is created.
+Expected: public.orders.local_oid equals the draft local_oid.
+Expected: public.orders.code equals the draft code.
+Expected: DB verify passes before success/SMS/print.
+Expected: base_code_pool status becomes used only after order verification.
+Expected: draft no longer appears in “TE PAPLOTESUARA”.
+
+Test E — delete incomplete draft
+1. Create a meaningful draft with a new code.
+2. Open “TE PAPLOTESUARA”.
+3. Press FSHI.
+Expected: draft disappears from list.
+Expected: base_code_pool reservation is released if no order exists for that code.
+Expected: no client orphan is created.
+Expected: if an order already exists for the code, the code is not released.
+
+Test F — list filtering
+1. Create/finalize one draft.
+2. Reopen “TE PAPLOTESUARA”.
+Expected: finalized public.orders rows do not appear.
+Expected: pastrim/gati/dorzim final orders do not appear through stale draft cache.
+Expected: blank drafts and ghosts without meaningful work/code do not appear.
+Expected: local unsynced meaningful drafts display “LOCAL / NOT SYNCED”.
+
+Test G — audit queries for new test data
+Run after test saves:
+
+-- New clients created today without an order by phone/code should be 0 for the test client.
+select c.id, c.code, c.full_name, c.phone, c.created_at
+from public.clients c
+where c.created_at::date = current_date
+  and not exists (
+    select 1
+    from public.orders o
+    where o.client_id = c.id
+       or normalize_phone(o.client_phone) = normalize_phone(c.phone)
+       or o.code = c.code
+  );
+
+-- Final orders should not be present as draft JSON for the same local_oid.
+-- Check with the app list plus Storage drafts/<local_oid>.json if needed.
+
+-- Expired blank reservations should be clear after the app sweep or existing RPC expiry cleanup.
+select code, status, reserved_by, reserved_at, lease_expires_at
+from public.base_code_pool
+where status = 'reserved'
+  and lease_expires_at < now();
+
+Validation performed in patch workspace:
+- node --check lib/baseCodes.js: passed.
+- TypeScript parser parseDiagnostics for app/pranimi/page.jsx: 0.
+- TypeScript parser parseDiagnostics for lib/baseCodes.js: 0.
+- npm run build could not complete because node_modules/vite is missing in the ZIP workspace.

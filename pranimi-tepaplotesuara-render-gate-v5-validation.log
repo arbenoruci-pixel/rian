@@ -1,0 +1,31 @@
+Validation: PRANIMI TE PAPLOTESUARA render gate v5
+Changed file parse:
+typescript_transpile_diagnostics=0
+Guard checks:
+91:const PRANIMI_DRAFT_GUARD_VERSION = 'v5_code_pool_and_storage_single_gate_2026_06_05';
+92:const PRANIMI_TEPAPLOTESUARA_UI_GUARD_VERSION = 'tepaplotesuara-v5-verified-before-render';
+1187:function isPranimiRemoteDraftUiVerified(draft = {}) {
+1189:  return String(draft?._draft_ui_guard || '') === PRANIMI_TEPAPLOTESUARA_UI_GUARD_VERSION;
+1192:function markPranimiDraftUiVerified(draft = {}) {
+1197:    _draft_ui_guard: remote ? PRANIMI_TEPAPLOTESUARA_UI_GUARD_VERSION : (draft?._draft_ui_guard || ''),
+1198:    source: remote ? 'REMOTE / DB CHECKED' : (draft?.source || 'LOCAL / NOT SYNCED'),
+1599:async function filterDraftSummariesAgainstDb(items = []) {
+1661:    out.push(markPranimiDraftUiVerified(item));
+1793:  const [draftsRefreshing, setDraftsRefreshing] = useState(false);
+1798:      .filter((d) => shouldDraftSummaryRender(d))
+2520:    const cacheFresh = !forceRemote && draftRemoteCacheRef.current?.version === PRANIMI_DRAFT_GUARD_VERSION && (now - Number(draftRemoteCacheRef.current?.ts || 0) < 30000);
+2524:      const cached = await filterDraftSummariesAgainstDb(cachedRaw);
+2532:      const cached = await filterDraftSummariesAgainstDb(cachedRaw);
+2544:      const merged = await filterDraftSummariesAgainstDb([...remoteRaw, ...localRaw]);
+2547:        version: PRANIMI_DRAFT_GUARD_VERSION,
+2555:      const local = await filterDraftSummariesAgainstDb(readLocalDraftSummaries());
+3143:        version: PRANIMI_DRAFT_GUARD_VERSION,
+3167:  function shouldDraftSummaryRender(d = {}) {
+3171:      if (isPranimiRemoteDraftLike(d) && !isPranimiRemoteDraftUiVerified(d)) return false;
+3183:      .filter((d) => shouldDraftSummaryRender(d))
+4646:            version: PRANIMI_DRAFT_GUARD_VERSION,
+4896:            version: PRANIMI_DRAFT_GUARD_VERSION,
+5402:  function openDrafts() {
+5403:    try { draftRemoteCacheRef.current = { version: PRANIMI_DRAFT_GUARD_VERSION, ts: 0, items: [] }; } catch {}
+5640:        version: PRANIMI_DRAFT_GUARD_VERSION,
+6319:              {draftsRefreshing ? <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)', fontWeight: 900 }}>DUKE VERIFIKUAR DRAFTAT...</div> : uniqueDrafts.length === 0 ? <div style={{ textAlign: 'center', padding: '18px 0', color: 'rgba(255,255,255,0.7)' }}>S’ka “të pa plotsuara”.</div> : (

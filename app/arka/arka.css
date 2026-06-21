@@ -1,0 +1,479 @@
+.arka-shell{min-height:100vh;background:#000;color:#e5e7eb;}
+.arka-container{max-width:980px;margin:0 auto;padding:16px;}
+
+.arka-top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:4px 0 12px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:14px;}
+.arka-title{font-size:14px;font-weight:900;letter-spacing:0.06em;text-transform:uppercase;}
+.arka-sub{font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(229,231,235,.55);}
+
+.arka-back{font-size:10px;font-weight:900;letter-spacing:0.18em;text-transform:uppercase;padding:8px 10px;border:1px solid rgba(255,255,255,.10);border-radius:10px;background:rgba(0,0,0,.4);}
+.arka-back:hover{background:rgba(255,255,255,.06);}
+
+.arka-card{background:rgba(11,15,20,.92);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:14px;box-shadow:0 0 0 1px rgba(59,130,246,.06), 0 10px 24px rgba(0,0,0,.55);}
+.arka-card-title{font-size:10px;font-weight:900;letter-spacing:0.18em;text-transform:uppercase;color:rgba(229,231,235,.65);margin-bottom:10px;}
+
+.arka-grid{display:grid;grid-template-columns:1fr;gap:12px;}
+@media(min-width:640px){.arka-grid{grid-template-columns:repeat(2,1fr);}}
+@media(min-width:900px){.arka-grid{grid-template-columns:repeat(3,1fr);}}
+
+.arka-tile{display:flex;flex-direction:column;gap:8px;min-height:92px;justify-content:space-between;}
+.arka-tile-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.arka-icon{width:34px;height:34px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.16);border:1px solid rgba(59,130,246,.25);font-size:16px;}
+.arka-tile-name{font-size:12px;font-weight:950;letter-spacing:0.14em;text-transform:uppercase;}
+.arka-tile-desc{font-size:10px;letter-spacing:0.10em;text-transform:uppercase;color:rgba(229,231,235,.55);line-height:1.4;}
+
+.arka-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);font-size:10px;font-weight:950;letter-spacing:0.18em;text-transform:uppercase;}
+.arka-btn:hover{background:rgba(255,255,255,.06);}
+.arka-btn-primary{border-color:rgba(59,130,246,.35);background:rgba(59,130,246,.18);}
+.arka-btn-primary:hover{background:rgba(59,130,246,.26);}
+.arka-btn-danger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.14);}
+.arka-btn-danger:hover{background:rgba(239,68,68,.22);}
+
+.arka-input{width:100%;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;color:#fff;font-size:12px;}
+.arka-input:focus{outline:none;border-color:rgba(59,130,246,.45);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
+
+.arkaSimplePage{display:flex;flex-direction:column;gap:14px}
+.arkaSimpleTop{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:6px 0 12px;border-bottom:1px solid rgba(255,255,255,.08)}
+.arkaSimpleEyebrow{font-size:10px;font-weight:900;letter-spacing:.22em;text-transform:uppercase;color:rgba(229,231,235,.55)}
+.arkaSimpleTitle{margin:6px 0 4px;font-size:24px;line-height:1.05;font-weight:950;letter-spacing:.03em;text-transform:uppercase;color:#fff}
+.arkaSimpleSub{font-size:11px;line-height:1.45;letter-spacing:.08em;text-transform:uppercase;color:rgba(229,231,235,.64);max-width:720px}
+.arkaSimpleNav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.arkaTopBtn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 12px;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);font-size:10px;font-weight:950;letter-spacing:.18em;text-transform:uppercase;color:#fff;text-decoration:none}
+.arkaTopBtn:hover{background:rgba(255,255,255,.08)}
+.arkaLoaderCard,.arkaSectionCard,.arkaActionPanel,.arkaHeroSingle{background:rgba(11,15,20,.92);border:1px solid rgba(255,255,255,.08);border-radius:16px;box-shadow:0 10px 28px rgba(0,0,0,.32)}
+.arkaLoaderCard{padding:18px 16px;font-size:12px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.72)}
+.arkaHeroSingle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px}
+.arkaHeroDue{font-size:28px;font-weight:1000;letter-spacing:.01em;color:#fff}
+.arkaMiniStat{display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);min-height:80px}
+.arkaMiniStat.small{min-height:72px;padding:10px}
+.arkaMiniStatLabel{font-size:10px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;color:rgba(229,231,235,.56)}
+.arkaMiniStatValue{font-size:18px;font-weight:950;line-height:1.1;color:#fff}
+
+.arkaMiniStat.action{width:100%;text-align:left;cursor:pointer;transition:transform .12s ease, background .18s ease,border-color .18s ease;align-items:flex-start}
+.arkaMiniStat.action:hover{transform:translateY(-1px);background:rgba(59,130,246,.10);border-color:rgba(59,130,246,.24)}
+.arkaMiniStat.action.open{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.28)}
+.arkaMiniStatSub{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:rgba(229,231,235,.58);margin-top:auto}
+.arkaSectionCard .arkaTinyBtn{margin-top:12px}
+.arkaMiniStat.ok{background:rgba(16,185,129,.10);border-color:rgba(16,185,129,.24)}
+.arkaMiniStat.warn{background:rgba(245,158,11,.10);border-color:rgba(245,158,11,.24)}
+.arkaMiniStat.info{background:rgba(59,130,246,.10);border-color:rgba(59,130,246,.24)}
+.arkaMiniStat.muted{background:rgba(148,163,184,.10);border-color:rgba(148,163,184,.2)}
+.arkaMiniStat.strong{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.18)}
+.arkaMiniStat.neutral{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08)}
+.adminTopGrid,.workerOnlyGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.arkaSplitGrid{display:grid;grid-template-columns:1fr;gap:14px}
+.arkaSplitGrid.detailPage{grid-template-columns:1fr}
+.arkaSectionCard{padding:14px}
+.arkaSectionTitle{font-size:12px;font-weight:950;letter-spacing:.18em;text-transform:uppercase;color:#fff}
+.arkaSectionSub{margin-top:4px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(229,231,235,.56)}
+.arkaSectionHeadCompact{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+.arkaSectionDivider{height:1px;background:rgba(255,255,255,.08);margin:14px 0}
+.arkaWorkerList{display:flex;flex-direction:column;gap:10px}
+.arkaWorkerCard{display:flex;flex-direction:column;gap:12px;padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:#fff}
+.arkaWorkerCard:hover{background:rgba(255,255,255,.06)}
+.arkaWorkerTop{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.arkaWorkerName{font-size:14px;font-weight:950;letter-spacing:.06em;color:#fff}
+.arkaWorkerMeta{margin-top:4px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(229,231,235,.54)}
+.arkaWorkerBadge{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.12);font-size:10px;font-weight:950;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.arkaWorkerBadge.ok{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.28);color:#6ee7b7}
+.arkaWorkerBadge.warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.28);color:#fcd34d}
+.arkaWorkerBadge.info{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.28);color:#93c5fd}
+.arkaWorkerBadge.idle{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12);color:#cbd5e1}
+.arkaWorkerStats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.arkaWorkerFoot{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(229,231,235,.58)}
+.arkaWorkerFoot.muted{color:rgba(229,231,235,.48)}
+.arkaPendingRow,.arkaHistoryRow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-top:1px solid rgba(255,255,255,.07)}
+.arkaPendingRow:first-of-type,.arkaHistoryRow:first-of-type{border-top:none;padding-top:0}
+.arkaPendingName,.arkaHistoryTitle{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#fff}
+.arkaPendingMeta,.arkaHistoryMeta{margin-top:4px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(229,231,235,.54)}
+.arkaPendingRight{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.arkaPendingAmount,.arkaHistoryAmount{font-size:14px;font-weight:950;color:#fff;white-space:nowrap}
+.arkaPendingActions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+.arkaTinyBtn,.arkaSolidBtn{display:inline-flex;align-items:center;justify-content:center;border-radius:12px;font-weight:950;letter-spacing:.16em;text-transform:uppercase}
+.arkaTinyBtn{min-height:30px;padding:0 10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);font-size:10px;color:#fff}
+.arkaTinyBtn.ok{background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.28);color:#6ee7b7}
+.arkaTinyBtn.bad{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.28);color:#fca5a5}
+.arkaActionPanel{padding:14px;display:flex;flex-direction:column;gap:12px}
+.arkaActionPanel.emphasis{border-color:rgba(59,130,246,.24);background:rgba(59,130,246,.08)}
+.arkaActionHeader{font-size:11px;font-weight:950;letter-spacing:.18em;text-transform:uppercase;color:#fff}
+.arkaInlineForm{display:grid;grid-template-columns:1fr;gap:8px}
+.arkaField{width:100%;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.38);color:#fff;font-size:13px}
+.arkaField.small{max-width:180px}
+.arkaField:focus{outline:none;border-color:rgba(59,130,246,.36);box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+.arkaSolidBtn{min-height:42px;padding:0 14px;border:1px solid rgba(59,130,246,.30);background:rgba(59,130,246,.18);color:#fff;font-size:10px}
+.arkaSolidBtn.big{min-height:46px;font-size:11px}
+.arkaSolidBtn:disabled,.arkaTinyBtn:disabled{opacity:.55}
+.arkaEmpty{padding:10px 0;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(229,231,235,.52)}
+
+@media (min-width:760px){
+  .adminTopGrid{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .workerOnlyGrid{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .arkaSplitGrid{grid-template-columns:minmax(0,1.6fr) minmax(320px,.9fr)}
+  .arkaSplitGrid.detailPage{grid-template-columns:1fr 1fr}
+  .arkaWorkerStats{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .arkaInlineForm{grid-template-columns:minmax(140px,180px) 1fr auto}
+}
+
+@media (max-width:759px){
+  .arkaSimpleTop,.arkaHeroSingle,.arkaWorkerTop,.arkaPendingRow,.arkaHistoryRow{flex-direction:column;align-items:flex-start}
+  .arkaSimpleNav{justify-content:flex-start}
+  .arkaPendingRight{width:100%;align-items:flex-start}
+  .arkaPendingActions{justify-content:flex-start}
+  .arkaHeroDue{font-size:24px}
+}
+
+
+.adminObligationGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.arkaObligationHero{border-color:rgba(59,130,246,.18);background:linear-gradient(180deg, rgba(59,130,246,.08), rgba(11,15,20,.92));}
+.obligationTopGrid{margin-bottom:0}
+.obligationForm{grid-template-columns:1fr;align-items:center}
+.arkaCheckRow{display:inline-flex;align-items:center;gap:8px;min-height:42px;padding:0 10px;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:#fff}
+.arkaCheckRow input{accent-color:#3b82f6}
+@media (min-width:760px){
+  .adminObligationGrid{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .obligationForm{grid-template-columns:minmax(180px,1.2fr) 140px 120px auto auto}
+}
+
+
+.arkaWorkerSimpleRow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 18px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02);color:#fff;transition:.18s ease}
+.arkaWorkerSimpleRow:hover{background:rgba(255,255,255,.05)}
+.arkaWorkerSimpleRow.active{border-color:rgba(16,185,129,.28);background:linear-gradient(180deg,rgba(16,185,129,.10),rgba(16,185,129,.05))}
+.arkaWorkerSimpleMain{min-width:0;display:flex;flex-direction:column;gap:8px}
+.arkaWorkerSimpleOpen{margin-left:auto;white-space:nowrap;font-size:15px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.82)}
+.arkaWorkerSimpleRow .arkaWorkerBadge{align-self:flex-start;position:static;max-width:max-content}
+
+@media (max-width: 760px){
+  .arkaWorkerSimpleRow{align-items:flex-start;flex-direction:column}
+  .arkaWorkerSimpleOpen{margin-left:0;align-self:flex-end}
+}
+
+.arkaMealTools{display:grid;grid-template-columns:1fr;gap:8px}
+.arkaMealToolbar{display:flex;flex-wrap:wrap;gap:8px}
+.arkaMealGrid{display:grid;grid-template-columns:1fr;gap:10px}
+.arkaMealChip{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;width:100%;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#fff;text-align:left;transition:transform .12s ease, border-color .18s ease, background .18s ease, opacity .18s ease}
+.arkaMealChip span{display:block;font-size:12px;font-weight:950;letter-spacing:.04em;text-transform:uppercase;color:#fff}
+.arkaMealChip small{display:block;font-size:10px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;color:rgba(229,231,235,.64)}
+.arkaMealChip.eligible:hover{transform:translateY(-1px);border-color:rgba(59,130,246,.26);background:rgba(59,130,246,.10)}
+.arkaMealChip.active{border-color:rgba(59,130,246,.36);background:rgba(59,130,246,.14);box-shadow:0 0 0 1px rgba(59,130,246,.20) inset}
+.arkaMealChip.active span::before{content:'✓ ';color:#93c5fd}
+.arkaMealChip.disabled{opacity:.48;background:rgba(255,255,255,.02);border-style:dashed;cursor:not-allowed}
+.arkaMealAutoBox,.arkaMealSelectedBox{padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04)}
+.arkaMealAutoTitle,.arkaMealSelectedTitle{font-size:10px;font-weight:950;letter-spacing:.18em;text-transform:uppercase;color:rgba(229,231,235,.60);margin-bottom:8px}
+.arkaMealAutoValue{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#fff}
+.arkaMealAutoValue.ok{color:#dbeafe}
+.arkaMealAutoValue.muted{color:rgba(229,231,235,.58)}
+.arkaMealSelectedList{display:flex;flex-wrap:wrap;gap:8px}
+.arkaMealPill{display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase;color:#fff}
+.arkaMealPill small{font-size:9px;font-weight:900;letter-spacing:.08em;color:rgba(229,231,235,.72)}
+.arkaMealPill.auto{background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.28);color:#dbeafe}
+.arkaMealSelectedEmpty{font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(229,231,235,.54)}
+
+@media (min-width:760px){
+  .arkaMealGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .arkaMealTools{grid-template-columns:minmax(0,1fr) auto}
+}
+
+.arkaSectionTopStats{margin:12px 0 10px}
+.arkaSectionTopStats .arkaMiniStat{min-height:74px}
+.arkaSectionTopStats.singleTwo{grid-template-columns:repeat(1,minmax(0,1fr))}
+
+@media (min-width:760px){
+  .arkaSectionTopStats{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .arkaSectionTopStats.singleTwo{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+/* Owner-friendly ARKA summary patch */
+.ownerTotalsGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ownerSimpleCard{gap:14px;border-color:rgba(59,130,246,.16);background:linear-gradient(180deg,rgba(59,130,246,.07),rgba(255,255,255,.03))}
+.arkaOwnerFormulaGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.arkaOwnerFormulaGrid .arkaMiniStat.strong{grid-column:1/-1;border-color:rgba(34,197,94,.34);background:rgba(34,197,94,.12)}
+.arkaFormulaLine{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.28);font-size:10px;font-weight:950;letter-spacing:.10em;text-transform:uppercase;color:rgba(229,231,235,.70);line-height:1.45}
+.arkaWorkerActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.arkaWorkerActions .arkaTopBtn{width:100%;min-height:40px}
+.arkaWorkerActions .arkaTopBtn:disabled{opacity:.45;cursor:not-allowed}
+.ownerFormulaBox{border-color:rgba(34,197,94,.22);background:rgba(34,197,94,.08)}
+.ownerDetailGrid{grid-template-columns:1fr}
+.arkaAdvancedDetails{border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.025);padding:10px}
+.arkaAdvancedSummary{cursor:pointer;list-style:none;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);font-size:10px;font-weight:950;letter-spacing:.16em;text-transform:uppercase;color:rgba(229,231,235,.72)}
+.arkaAdvancedSummary::-webkit-details-marker{display:none}
+.arkaAdvancedDetails[open] .arkaAdvancedSummary{margin-bottom:12px;background:rgba(59,130,246,.10);border-color:rgba(59,130,246,.24);color:#fff}
+@media (min-width:760px){
+  .ownerTotalsGrid{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .arkaOwnerFormulaGrid{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .arkaOwnerFormulaGrid .arkaMiniStat.strong{grid-column:auto}
+  .arkaWorkerActions{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .ownerDetailGrid{grid-template-columns:1fr 1fr}
+}
+
+/* ARKA V3 clean cash-first driver/dispatch layout */
+.arkaHeroMainDue{border-color:rgba(34,197,94,.28);background:linear-gradient(180deg,rgba(34,197,94,.10),rgba(11,15,20,.94));}
+.arkaHeroDueHuge{font-size:clamp(36px,10vw,64px);line-height:.95;font-weight:1000;letter-spacing:-.055em;color:#dcfce7;white-space:nowrap;text-align:right}
+.cleanCashGrid .arkaMiniStat{min-height:76px}
+.arkaCashListCard{border-color:rgba(34,197,94,.30);background:rgba(20,83,45,.16)}
+.arkaCashTotalPill{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(34,197,94,.30);background:rgba(34,197,94,.12);font-size:13px;font-weight:1000;color:#dcfce7;white-space:nowrap}
+.arkaCashCompactList{display:grid;gap:8px;margin-top:12px}
+.arkaCashCompactRow{border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(0,0,0,.18);overflow:hidden}
+.arkaCashCompactRow[open]{border-color:rgba(59,130,246,.26);background:rgba(59,130,246,.08)}
+.arkaCashCompactSummary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px 12px;color:#fff}
+.arkaCashCompactSummary::-webkit-details-marker{display:none}
+.arkaCashCode{display:inline-flex;align-items:center;justify-content:center;min-width:46px;min-height:30px;padding:0 10px;border-radius:999px;border:1px solid rgba(59,130,246,.28);background:rgba(59,130,246,.12);font-size:11px;font-weight:1000;letter-spacing:.08em;color:#dbeafe;white-space:nowrap}
+.arkaCashName{font-size:12px;font-weight:950;letter-spacing:.045em;text-transform:uppercase;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arkaCashNameWrap{min-width:0;display:flex;flex-direction:column;gap:2px}
+.arkaCashStamp{display:block;font-size:10px;line-height:1.15;font-weight:800;letter-spacing:.04em;color:rgba(229,231,235,.62);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arkaCashAmount{font-size:15px;font-weight:1000;letter-spacing:-.02em;color:#fff;white-space:nowrap}
+.arkaCashCompactDetails{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 11px 68px;font-size:10px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;color:rgba(229,231,235,.62)}
+.arkaCashCompactDetails span{display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07)}
+.arkaCashCompactRow.mini .arkaCashCompactSummary{padding:8px 9px;gap:8px}.arkaCashCompactRow.mini .arkaCashCode{min-width:42px;min-height:26px;font-size:10px}.arkaCashCompactRow.mini .arkaCashName{font-size:11px}.arkaCashCompactRow.mini .arkaCashAmount{font-size:13px}.arkaCashCompactRow.mini .arkaCashCompactDetails{padding-left:60px}
+.arkaCashMore{font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase;color:rgba(229,231,235,.58);padding:4px 2px}
+.arkaMainHandoffBtn{width:100%;margin-top:12px;border-color:rgba(59,130,246,.42);background:rgba(59,130,246,.22)}
+.compactWorkerCard{gap:10px}.arkaWorkerDueLine{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;border-radius:14px;border:1px solid rgba(34,197,94,.30);background:rgba(34,197,94,.11)}.arkaWorkerDueLine span{font-size:10px;font-weight:950;letter-spacing:.16em;text-transform:uppercase;color:rgba(220,252,231,.78)}.arkaWorkerDueLine b{font-size:24px;line-height:1;font-weight:1000;letter-spacing:-.035em;color:#dcfce7;white-space:nowrap}
+.arkaOwnerFormulaGrid.compactStats{grid-template-columns:repeat(3,minmax(0,1fr))}.arkaWorkerActions.mainOnly{grid-template-columns:repeat(2,minmax(0,1fr))}.arkaInlineAdminTools{border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.025);padding:8px}.arkaInlineAdminTools summary{list-style:none;cursor:pointer;font-size:10px;font-weight:950;letter-spacing:.16em;text-transform:uppercase;color:rgba(229,231,235,.58)}.arkaInlineAdminTools summary::-webkit-details-marker{display:none}.arkaInlineAdminTools[open] summary{margin-bottom:8px;color:#fff}.arkaWorkerActions.adminTools{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:759px){.arkaHeroMainDue{align-items:flex-start}.arkaHeroDueHuge{text-align:left;font-size:42px}.arkaCashCompactSummary{grid-template-columns:auto minmax(0,1fr);grid-template-areas:'code amount' 'name name'}.arkaCashCode{grid-area:code}.arkaCashNameWrap{grid-area:name}.arkaCashName{white-space:normal;line-height:1.25}.arkaCashAmount{grid-area:amount;justify-self:end}.arkaCashCompactDetails{padding-left:12px}.arkaOwnerFormulaGrid.compactStats{grid-template-columns:1fr 1fr}}
+
+/* Cash accept review modal: shows exact gross / commission / base before dispatch accepts. */
+.arkaModalBackdrop{
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  background:rgba(0,0,0,.72);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+}
+.arkaCashReviewModal{
+  width:min(980px,100%);
+  max-height:88vh;
+  overflow:auto;
+  border:1px solid rgba(148,163,184,.28);
+  border-radius:24px;
+  background:#0b1020;
+  box-shadow:0 24px 80px rgba(0,0,0,.55);
+  padding:16px;
+}
+.arkaReviewHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px;}
+.arkaReviewTitle{font-size:18px;font-weight:900;letter-spacing:.08em;color:#f8fafc;}
+.arkaReviewSub{font-size:12px;font-weight:800;letter-spacing:.08em;color:#94a3b8;margin-top:6px;}
+.arkaReviewTotals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0;}
+.arkaReviewWarn{border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.12);color:#fde68a;border-radius:14px;padding:10px 12px;font-weight:800;margin:10px 0;}
+.arkaReviewTableWrap{overflow:auto;border:1px solid rgba(148,163,184,.18);border-radius:16px;}
+.arkaReviewTable{width:100%;border-collapse:collapse;font-size:13px;min-width:640px;}
+.arkaReviewTable th,.arkaReviewTable td{padding:10px 12px;border-bottom:1px solid rgba(148,163,184,.14);text-align:left;white-space:nowrap;}
+.arkaReviewTable th{color:#93c5fd;font-size:11px;letter-spacing:.12em;font-weight:900;background:rgba(15,23,42,.9);}
+.arkaReviewTable td{color:#e5e7eb;font-weight:800;}
+.arkaReviewActions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px;}
+.arkaTopBtn.ok{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.14);color:#bbf7d0;}
+@media(max-width:720px){.arkaReviewTotals{grid-template-columns:repeat(2,minmax(0,1fr));}.arkaReviewHead{flex-direction:column;}.arkaCashReviewModal{padding:12px;border-radius:18px;}}
+
+/* FAZA 3B.1B-1: standalone EXPENSE classification modal */
+.arkaExpenseModalBackdrop{
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  padding:18px;
+  padding-bottom:calc(18px + env(safe-area-inset-bottom));
+  background:rgba(0,0,0,.78);
+  backdrop-filter:blur(10px);
+}
+.arkaExpenseModalCard{
+  width:min(720px,100%);
+  max-height:min(88vh,760px);
+  overflow:auto;
+  border-radius:20px;
+  border:1px solid rgba(255,255,255,.12);
+  background:linear-gradient(180deg,rgba(11,15,20,.98),rgba(0,0,0,.98));
+  box-shadow:0 24px 80px rgba(0,0,0,.72);
+  padding:16px;
+  color:#fff;
+}
+.arkaExpenseModalHeader{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+}
+.arkaExpenseModalTitle{
+  font-size:14px;
+  font-weight:1000;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:#fff;
+}
+.arkaExpenseModalSub{
+  margin-top:5px;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:rgba(229,231,235,.58);
+}
+.arkaExpenseReviewBox{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  margin-bottom:12px;
+}
+.arkaExpenseReviewBox div{
+  min-width:0;
+  padding:10px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+}
+.arkaExpenseReviewBox div.wide{grid-column:1/-1}
+.arkaExpenseReviewBox span,
+.arkaExpenseBeneficiaryGrid label,
+.arkaExpenseNoteBox label{
+  display:block;
+  margin-bottom:5px;
+  font-size:9px;
+  font-weight:950;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:rgba(229,231,235,.54);
+}
+.arkaExpenseReviewBox strong{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:12px;
+  font-weight:950;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:#fff;
+}
+.arkaExpenseDecisionGrid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:8px;
+  margin:12px 0;
+}
+.arkaExpenseDecisionBtn{
+  min-height:44px;
+  padding:0 12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.04);
+  color:#fff;
+  font-size:10px;
+  font-weight:1000;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.arkaExpenseDecisionBtn.active{
+  border-color:rgba(16,185,129,.42);
+  background:rgba(16,185,129,.16);
+  color:#d1fae5;
+}
+.arkaExpenseDecisionBtn.active.warn{
+  border-color:rgba(245,158,11,.42);
+  background:rgba(245,158,11,.16);
+  color:#fef3c7;
+}
+.arkaExpenseDecisionBtn.active.bad{
+  border-color:rgba(239,68,68,.42);
+  background:rgba(239,68,68,.16);
+  color:#fecaca;
+}
+.arkaExpenseBeneficiaryGrid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:8px;
+  margin:12px 0;
+}
+.arkaExpenseNoteBox{margin:12px 0}
+.arkaExpenseNoteBox textarea.arkaField{
+  min-height:86px;
+  resize:vertical;
+  padding-top:11px;
+  line-height:1.35;
+}
+.arkaExpenseWarning{
+  margin:12px 0;
+  padding:11px 12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.10);
+  font-size:10px;
+  font-weight:950;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  line-height:1.45;
+}
+.arkaExpenseWarning.ok{background:rgba(16,185,129,.10);border-color:rgba(16,185,129,.28);color:#d1fae5}
+.arkaExpenseWarning.warn{background:rgba(245,158,11,.10);border-color:rgba(245,158,11,.28);color:#fef3c7}
+.arkaExpenseWarning.bad{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.28);color:#fecaca}
+.arkaExpenseModalActions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  padding-top:8px;
+}
+@media (min-width:760px){
+  .arkaExpenseModalBackdrop{align-items:center}
+  .arkaExpenseDecisionGrid{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .arkaExpenseBeneficiaryGrid{grid-template-columns:1fr 1fr}
+}
+@media (max-width:759px){
+  .arkaExpenseModalCard{border-bottom-left-radius:0;border-bottom-right-radius:0}
+  .arkaExpenseReviewBox{grid-template-columns:1fr}
+  .arkaExpenseModalHeader,.arkaExpenseModalActions{flex-direction:column;align-items:stretch}
+}
+
+.arkaExpenseRequestGrid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:8px;
+  margin:12px 0;
+}
+.arkaExpenseRequestBtn{
+  border:1px solid rgba(148,163,184,.22);
+  background:rgba(15,23,42,.92);
+  color:#e5e7eb;
+  border-radius:14px;
+  padding:12px 10px;
+  font-weight:950;
+  letter-spacing:.03em;
+  text-align:center;
+}
+.arkaExpenseRequestBtn.active{
+  border-color:rgba(16,185,129,.55);
+  background:rgba(16,185,129,.16);
+  color:#d1fae5;
+}
+.arkaExpenseRequestBtn.active.warn{
+  border-color:rgba(245,158,11,.55);
+  background:rgba(245,158,11,.16);
+  color:#fef3c7;
+}
+.arkaExpenseRequestBadge{
+  display:inline-flex;
+  align-items:center;
+  width:max-content;
+  max-width:100%;
+  margin-top:6px;
+  padding:5px 8px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,.22);
+  background:rgba(15,23,42,.82);
+  color:#e5e7eb;
+  font-size:11px;
+  font-weight:950;
+  letter-spacing:.03em;
+}
+.arkaExpenseRequestBadge.business{
+  border-color:rgba(16,185,129,.35);
+  background:rgba(16,185,129,.10);
+  color:#d1fae5;
+}
+.arkaExpenseRequestBadge.personal{
+  border-color:rgba(245,158,11,.35);
+  background:rgba(245,158,11,.10);
+  color:#fef3c7;
+}
+@media (min-width:760px){
+  .arkaExpenseRequestGrid{grid-template-columns:repeat(3,minmax(0,1fr));}
+}

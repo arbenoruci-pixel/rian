@@ -1,0 +1,28 @@
+PATCH L / V24 — Global loop kill + visible-stuck fail-open
+
+Version: 2.0.29-vite-global-loop-kill-v24
+Epoch: RESET-2026-04-26-VITE-GLOBAL-LOOP-KILL-V24
+
+Scope:
+- No DB changes.
+- No Supabase schema changes.
+- No orders/outbox/payment/status payload changes.
+- No Pastrimi -> Gati business logic change.
+
+Fixes:
+1. AppRoot route tracker now settles route transitions on route_first_paint/route_first_interactive and with 1200ms/3600ms soft timeout.
+2. Pastrimi marks UI ready immediately after local cache snapshot and cannot stay globally blocked by remote timeout.
+3. Pastrimi loading watchdog falls back to local rows after 2800ms.
+4. Pastrimi visible list renders whenever local/visible rows exist, even if a remote refresh is still in flight.
+5. GATI triggerFatalCacheHeal is diagnostic-only and no longer deletes local orders/offline queue.
+6. lazyWithReload no longer calls window.location.replace/reload after update request.
+7. ServiceWorkerRegister manual update handler no longer auto reloads after update preparation.
+8. index.html adds visible-stuck watchdog for cases where root is visible but stuck on DUKE HAPUR / loading / route fallback.
+9. PWA staleness/boot rescue repair paths are no-reload/no-cache-delete diagnostic-only in this patch.
+
+Acceptance:
+- Hard refresh cannot force automatic reload loop from lazyWithReload or ServiceWorkerRegister.
+- Route transition cannot remain inFlight forever after first paint/interactive.
+- Pastrimi opens from cache/local snapshot before remote refresh.
+- Remote timeout logs diagnostic but does not hold global app hostage.
+- No destructive business storage purge was added.

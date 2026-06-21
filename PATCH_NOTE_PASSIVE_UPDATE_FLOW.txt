@@ -1,0 +1,36 @@
+PASSIVE UPDATE FLOW PATCH
+
+Qellimi:
+- Ndalo fullscreen/force refresh gjate session-it aktiv kur kapet stale chunk pas deploy-it.
+- Kthe update-in ne "Version i ri gati — Rifresko kur te kesh kohe".
+- Update aktivizohet vetem manualisht nga butoni PERDITESO ose ne clean launch.
+
+Files:
+1) lib/lazyWithReload.jsx
+- Nuk ben me automatic window.location.reload() kur dynamic import/chunk deshton.
+- Ruan incidentin/update marker ne localStorage.
+- Shfaq banner te vogel fixed-bottom me PERDITESO + HOME.
+- Ka timeout escape 15s ne manual update.
+
+2) components/ServiceWorkerRegister.jsx
+- onNeedRefresh nuk e thirr me updateSW(true) automatikisht.
+- Shfaq passive update banner.
+- registration.update() mbetet vetem check pasiv ne visibility/interval.
+- Butoni PERDITESO e aplikon update-in manualisht me escape timeout.
+
+3) vite.config.js
+- registerType: prompt
+- Workbox clientsClaim: false
+- Workbox skipWaiting: false
+- Kjo e mban SW update passive gjate session-it aktiv.
+
+4) index.html
+- Inline runtime import fallback nuk e mbulon UI-ne me fullscreen nese UI ekzistuese eshte ready.
+- Ne ate rast shfaq banner te vogel dhe e le app-in aktive.
+
+Nuk prek:
+- DB
+- orders
+- outbox
+- Supabase schema
+- write flow

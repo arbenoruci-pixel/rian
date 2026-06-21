@@ -1,0 +1,24 @@
+PATCH K — Hard Refresh Fail-Open / No App-Wide Block
+
+Version: 2.0.28-vite-hard-refresh-failopen-v23
+Epoch: RESET-2026-04-26-VITE-HARD-REFRESH-FAILOPEN-V23
+
+Scope:
+- Adds an inline Safe Shell in index.html that runs before React and before route chunks can block the UI.
+- Safe Shell appears after hard refresh/module/chunk failure when app/root does not reach UI-ready.
+- Safe Shell works in Chrome, Safari, and PWA/homescreen; it is not limited to standalone PWA mode.
+- Old fullscreen rescue panels now delegate to Safe Shell instead of trapping the whole app behind a blocking repair screen.
+- React mount in src/main.jsx is wrapped so a mount failure opens Safe Shell instead of leaving a blank/black screen.
+- Service Worker updates remain prompt/manual only; a small update banner is shown and no auto reload is triggered.
+- Vite PWA cleanupOutdatedCaches is disabled to keep old hashed chunks available across deploys and reduce stale-index/missing-chunk failures.
+- Vercel headers: index.html and vite-sw.js are no-cache/no-store; hashed /assets are long immutable cache.
+- ChunkLoadRuntime treats UI-ready modulepreload failures as nonfatal globally.
+- versionGuard is diagnostic-only on epoch change and no longer deletes local orders/outbox/queues/payments or runtime caches automatically.
+
+Acceptance checks:
+1. Hard refresh with missing/stale JS should show Safe Shell instead of black screen or infinite blocking refresh.
+2. Safe Shell does not touch DB, Supabase, orders, outbox, payments, statuses, or IndexedDB.
+3. No automatic location reload/replace is added by this patch.
+4. Service Worker update remains user-click/manual only.
+5. Pastrimi -> Gati business flow is untouched.
+6. Home design/search/business logic are untouched.
