@@ -85,7 +85,7 @@ const GATI_EDIT_TO_PRANIMI_BACKUP_KEY = 'tepiha_gati_edit_to_pranimi_backup_v1';
 const PRANIMI_ACTIVE_EDIT_BRIDGE_KEY = 'tepiha_pranimi_active_edit_bridge_v1';
 const CURRENT_SESSION_KEY = 'tepiha_pranimi_current_session_v1';
 const CURRENT_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-const PRANIMI_BLANK_DRAFT_RELEASE_MS = 60 * 60 * 1000;
+const PRANIMI_BLANK_DRAFT_RELEASE_MS = 30 * 60 * 1000;
 const PRANIMI_DRAFT_RESERVATION_PREFIX = 'pranimi_draft_reservation:';
 const PRANIMI_BG_META_TIMEOUT_MS = 2500;
 const PRANIMI_BG_POOL_TIMEOUT_MS = 11000;
@@ -3945,9 +3945,28 @@ export default function PranimiPage() {
   async function commitDraftAndAdvanceCodeBestEffort() {
     try {
       if (!oid) return true;
-      if (!hasStartedWork()) return true;
       try { if (draftTimer.current) clearTimeout(draftTimer.current); } catch {}
       try { if (remoteDraftTimerRef.current) clearTimeout(remoteDraftTimerRef.current); } catch {}
+
+      // V39.1 ROOT FIX: leaving PRANIMI with an empty/opened-only draft must
+      // release its code immediately. It must not be saved to Te Pa Plotesuarat,
+      // must not create a client, and must not block the next PRANIMI open.
+      if (!hasStartedWork()) {
+        const id = String(oidRef.current || oid || '').trim();
+        const meta = readDraftReservationLocal(id) || {
+          local_oid: id,
+          draft_id: id,
+          code: normalizeCode(codeRawRef.current || codeRaw || readSessionReservedBaseCode(id) || null),
+          created_by_pin: resolvePranimiActorPin(actor),
+          has_meaningful_work: false,
+        };
+        await releaseBlankDraftReservation(meta, 'home_or_exit_empty_no_info_release');
+        try { removeDraftLocal(id); } catch {}
+        try { removeDraftReservationLocal(id); } catch {}
+        try { clearCurrentSessionLocal(); } catch {}
+        return true;
+      }
+
       const draft = buildDraftSnapshot();
       persistCurrentDraftLocalSync('home_or_exit_local_first');
       const ok = await persistMeaningfulDraft(draft, 'home_or_exit');
