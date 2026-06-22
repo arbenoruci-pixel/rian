@@ -1,0 +1,8 @@
+PRANIMI V473 VALIDATION
+
+PASS: node tools/verify-pranimi-code-allocator.mjs
+PASS: node tools/verify-pranimi-new-client-mode-v473.mjs
+PASS: npm run build
+
+Build environment validation completed before packaging.
+Packaging requirement: no node_modules and no dist in the delivery ZIP.

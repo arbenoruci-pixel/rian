@@ -212,11 +212,15 @@ export default function HomePage() {
       lastStatus: String(result?.status || '').trim(),
       createdAt: Date.now(),
     };
-    try { window.sessionStorage?.setItem('tepiha_existing_client_handoff_v1', JSON.stringify(handoff)); } catch {}
+    try {
+      window.sessionStorage?.removeItem('tepiha_pranimi_reset_on_show_v1');
+      window.sessionStorage?.setItem('tepiha_existing_client_handoff_v1', JSON.stringify(handoff));
+    } catch {}
     const params = new URLSearchParams();
     if (name) params.set('name', name);
     if (phone) params.set('phone', phone);
     if (code) params.set('code', code);
+    if (handoff.clientId) params.set('clientId', String(handoff.clientId));
     params.set('from', 'home_old_search');
     params.set('existingClient', '1');
     router.push(`/pranimi?${params.toString()}`);
@@ -371,7 +375,7 @@ export default function HomePage() {
         <h2 className="section-title">⚙️ ZGJEDH MODULIN</h2>
 
         <div className="modules-grid">
-          <Link href="/pranimi?fresh=1" prefetch={false} className="mod-card">
+          <Link href="/pranimi?fresh=1" prefetch={false} className="mod-card" onClick={() => { try { window.sessionStorage?.removeItem('tepiha_existing_client_handoff_v1'); window.sessionStorage?.setItem('tepiha_pranimi_reset_on_show_v1', '1'); } catch {} }}>
             <div className="mod-icon icon-pranimi">🧾</div>
             <div className="mod-info">
               <div className="mod-title">PRANIMI</div>

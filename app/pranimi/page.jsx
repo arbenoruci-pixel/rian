@@ -85,6 +85,13 @@ const GATI_EDIT_TO_PRANIMI_BACKUP_KEY = 'tepiha_gati_edit_to_pranimi_backup_v1';
 const PRANIMI_ACTIVE_EDIT_BRIDGE_KEY = 'tepiha_pranimi_active_edit_bridge_v1';
 const CURRENT_SESSION_KEY = 'tepiha_pranimi_current_session_v1';
 const CURRENT_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const PRANIMI_EXISTING_CLIENT_HANDOFF_KEY = 'tepiha_existing_client_handoff_v1';
+const PRANIMI_EXISTING_HANDOFF_MAX_AGE_MS = 30 * 60 * 1000;
+const PRANIMI_ENTRY_MODE_NEW = 'NEW_CLIENT_MODE';
+const PRANIMI_ENTRY_MODE_EXISTING = 'EXPLICIT_EXISTING_CLIENT_MODE';
+const PRANIMI_ENTRY_MODE_RESUME = 'EXPLICIT_RESUME_CURRENT_SESSION';
+const PRANIMI_ENTRY_MODE_EDIT = 'EDIT_EXISTING_ORDER_MODE';
+const PRANIMI_ENTRY_MODE_DRAFT = 'EXPLICIT_DRAFT_RESUME_MODE';
 const PRANIMI_BLANK_DRAFT_RELEASE_MS = 30 * 60 * 1000;
 const PRANIMI_DRAFT_RESERVATION_PREFIX = 'pranimi_draft_reservation:';
 const PRANIMI_BG_META_TIMEOUT_MS = 2500;
@@ -508,6 +515,68 @@ function safeJsonParse(s, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function readPranimiEntryIntent() {
+  const fallback = { mode: PRANIMI_ENTRY_MODE_NEW, source: 'default_new_entry', clientId: '', code: null, name: '', phone: '' };
+  try {
+    if (typeof window === 'undefined') return fallback;
+    const params = new URLSearchParams(String(window.location?.search || ''));
+    const from = String(params.get('from') || '').trim();
+    if (from === 'pastrimi-edit' || from === 'gati-edit') {
+      return { ...fallback, mode: PRANIMI_ENTRY_MODE_EDIT, source: from };
+    }
+    if (params.get('resumeCurrent') === '1') {
+      return { ...fallback, mode: PRANIMI_ENTRY_MODE_RESUME, source: 'explicit_resume_current' };
+    }
+
+    const existingRequested = params.get('existingClient') === '1';
+    let handoff = null;
+    try {
+      const raw = window.sessionStorage?.getItem(PRANIMI_EXISTING_CLIENT_HANDOFF_KEY);
+      const parsed = raw ? safeJsonParse(raw, null) : null;
+      const createdAt = Number(parsed?.createdAt || parsed?.created_at || 0);
+      if (parsed && (!createdAt || (Date.now() - createdAt) <= PRANIMI_EXISTING_HANDOFF_MAX_AGE_MS)) handoff = parsed;
+    } catch {}
+
+    if (existingRequested) {
+      const clientId = String(params.get('clientId') || handoff?.clientId || handoff?.client_id || '').trim();
+      const code = normalizeCode(params.get('code') || handoff?.clientCode || handoff?.code || null);
+      const name = String(params.get('name') || handoff?.name || '').trim();
+      const phone = String(params.get('phone') || handoff?.phone || '').trim();
+      if (clientId || (code != null && (name || phone))) {
+        return {
+          mode: PRANIMI_ENTRY_MODE_EXISTING,
+          source: from || String(handoff?.source || 'explicit_existing_client'),
+          clientId,
+          code,
+          name,
+          phone,
+        };
+      }
+      return { ...fallback, source: 'invalid_existing_client_handoff_rejected' };
+    }
+
+    return { ...fallback, source: params.get('fresh') ? 'fresh_new_entry' : 'plain_new_entry' };
+  } catch {
+    return fallback;
+  }
+}
+
+function clearPranimiEntryHandoff() {
+  try { window.sessionStorage?.removeItem(PRANIMI_EXISTING_CLIENT_HANDOFF_KEY); } catch {}
+}
+
+function cleanPranimiEntryUrl() {
+  try {
+    if (typeof window === 'undefined') return;
+    const next = new URL(window.location.href);
+    const from = String(next.searchParams.get('from') || '').trim();
+    ['fresh', 'existingClient', 'clientId', 'code', 'name', 'phone', 'resumeCurrent'].forEach((key) => next.searchParams.delete(key));
+    if (from === 'home_old_search' || from === 'global_home_search') next.searchParams.delete('from');
+    const query = next.searchParams.toString();
+    window.history.replaceState({}, '', query ? `${next.pathname}?${query}${next.hash || ''}` : `${next.pathname}${next.hash || ''}`);
+  } catch {}
 }
 
 async function settleWithin(promise, ms, fallbackValue) {
@@ -2419,12 +2488,68 @@ export default function PranimiPage() {
   const pranimiBgSyncTimerRef = useRef(null);
   const pranimiBgSyncStateRef = useRef({ running: false, lastAt: 0, lastReason: '' });
   const codeRawRef = useRef('');
-  const newOrderUrlClientRef = useRef({ code: '', name: '', phone: '' });
+  const newOrderUrlClientRef = useRef({ id: '', code: '', name: '', phone: '', explicit: false });
+  const pranimiEntryModeRef = useRef(PRANIMI_ENTRY_MODE_NEW);
+  const clientContextTokenRef = useRef(0);
   const oidRef = useRef('');
   const uiReadyMarkedRef = useRef(false);
   const priceSourceRef = useRef('new');
   const phoneInputRef = useRef(null);
   const latestDuplicateInputRef = useRef({ phoneDigits: '', fullName: '' });
+
+  function beginPranimiClientContext(mode = PRANIMI_ENTRY_MODE_NEW, reason = 'context_change') {
+    clientContextTokenRef.current = Number(clientContextTokenRef.current || 0) + 1;
+    pranimiEntryModeRef.current = String(mode || PRANIMI_ENTRY_MODE_NEW);
+    appendPranimiCodeDebug('pranimi_client_context_rotated', {
+      token: clientContextTokenRef.current,
+      mode: pranimiEntryModeRef.current,
+      reason: String(reason || 'context_change'),
+      local_oid: String(oidRef.current || ''),
+    });
+    return clientContextTokenRef.current;
+  }
+
+  function isPranimiClientContextCurrent(token, expectedOid = '') {
+    if (Number(token) !== Number(clientContextTokenRef.current || 0)) return false;
+    const expected = String(expectedOid || '').trim();
+    return !expected || expected === String(oidRef.current || '').trim();
+  }
+
+  function restoreActiveDraftAssignedCode(reason = 'restore_active_temp_assignment') {
+    const activeOid = String(oidRef.current || oid || '').trim();
+    const assigned = normalizeCode(getAssignedPranimiCode(activeOid));
+    if (assigned != null) {
+      codeRawRef.current = String(assigned);
+      setCodeRaw(String(assigned));
+      setCodeReserveUi({ status: 'ready', message: '', raw: '' });
+      appendPranimiCodeDebug('active_temp_assignment_restored', { local_oid: activeOid || null, code: assigned, reason });
+      return assigned;
+    }
+    codeRawRef.current = '';
+    setCodeRaw('');
+    setCodeReserveUi({ status: 'reserving', message: 'DUKE VERIFIKU KODIN…', raw: '' });
+    if (activeOid) tryReserveCodeInBackground(activeOid, reason, { attempt: 0, delayMs: 0, force: true });
+    return null;
+  }
+
+  function clearSelectedClientBinding(reason = 'clear_selected_client', options = {}) {
+    beginPranimiClientContext(PRANIMI_ENTRY_MODE_NEW, reason);
+    newOrderUrlClientRef.current = { id: '', code: '', name: '', phone: '', explicit: false };
+    setSelectedClient(null);
+    setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
+    setClientMatchDecision({ matchKey: '', mode: '', candidate: null });
+    setOldClientDebt(0);
+    setClientQuery('');
+    setClientHits([]);
+    if (options?.clearIdentity === true) {
+      setName('');
+      setPhone('');
+      setNoPhone(false);
+      setClientPhotoUrl('');
+      latestDuplicateInputRef.current = { phoneDigits: '', fullName: '' };
+    }
+    return restoreActiveDraftAssignedCode(reason);
+  }
 
   useEffect(() => {
     codeRawRef.current = String(codeRaw || '');
@@ -2715,6 +2840,7 @@ export default function PranimiPage() {
   }
 
   function hydrateFromPastrimiEdit(payload) {
+    beginPranimiClientContext(PRANIMI_ENTRY_MODE_EDIT, 'hydrate_edit_bridge');
     try {
       if (typeof window !== 'undefined' && payload) {
         const raw = JSON.stringify(payload);
@@ -2771,8 +2897,9 @@ export default function PranimiPage() {
     setPhone(cleanPhone);
     setNoPhone(!cleanPhone);
     setClientPhotoUrl(String(client?.photoUrl || client?.photo || ord?.client_photo_url || ordData?.client_photo_url || ''));
-    newOrderUrlClientRef.current = { code: '', name: '', phone: '' };
+    newOrderUrlClientRef.current = { id: '', code: '', name: '', phone: '', explicit: false };
     setSelectedClient(null);
+    setClientMatchDecision({ matchKey: '', mode: '', candidate: null });
     setClientQuery('');
     setClientHits([]);
 
@@ -2802,44 +2929,50 @@ export default function PranimiPage() {
     setCreating(false);
   }
 
-  async function resetForNewOrder() {
+  async function resetForNewOrder(options = {}) {
     try {
       setCreating(true);
       setIsBridgeEditMode(false);
       editBridgeRef.current = null;
       clearActiveEditBridge();
       try { clearCurrentSessionLocal(); } catch {}
+
+      const entryIntent = (options?.entryIntent && typeof options.entryIntent === 'object')
+        ? options.entryIntent
+        : readPranimiEntryIntent();
+      const explicitExisting = entryIntent?.mode === PRANIMI_ENTRY_MODE_EXISTING;
+      beginPranimiClientContext(explicitExisting ? PRANIMI_ENTRY_MODE_EXISTING : PRANIMI_ENTRY_MODE_NEW, entryIntent?.source || 'reset_new_order');
+
+      // A normal PRANIMI entry is always a clean new-client form. Old handoffs,
+      // selected clients, current-session mirrors and query prefill cannot hydrate it.
+      if (!explicitExisting) clearPranimiEntryHandoff();
+      const permanentCode = explicitExisting ? String(normalizeCode(entryIntent?.code || null) || '').trim() : '';
+      const explicitName = explicitExisting ? String(entryIntent?.name || '').trim() : '';
+      const explicitPhone = explicitExisting ? String(entryIntent?.phone || '').trim() : '';
+      const explicitClientId = explicitExisting ? String(entryIntent?.clientId || '').trim() : '';
+      newOrderUrlClientRef.current = explicitExisting
+        ? { id: explicitClientId, code: permanentCode, name: explicitName, phone: explicitPhone, explicit: true }
+        : { id: '', code: '', name: '', phone: '', explicit: false };
+      clearPranimiEntryHandoff();
+      cleanPranimiEntryUrl();
+
+      setName('');
+      setPhone('');
+      setNoPhone(false);
+      setOldClientDebt(0);
+      setClientPhotoUrl('');
+      setSelectedClient(null);
+      setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
+      setClientMatchDecision({ matchKey: '', mode: '', candidate: null });
+      setClientQuery('');
+      setClientHits([]);
+      setShowClientSearch(false);
+      latestDuplicateInputRef.current = { phoneDigits: '', fullName: '' };
+
       const id = makePranimiLocalOid();
       oidRef.current = String(id);
       setOid(id);
       unsuppressDraftId(id);
-
-      let urlCode = '';
-      let urlName = '';
-      let urlPhone = '';
-      if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        urlCode = params.get('code') || '';
-        urlName = params.get('name') || '';
-        urlPhone = params.get('phone') || '';
-      }
-
-      try {
-        if (typeof window !== 'undefined' && (urlCode || urlName || urlPhone)) {
-          const next = new URL(window.location.href);
-          next.searchParams.delete('code');
-          next.searchParams.delete('name');
-          next.searchParams.delete('phone');
-          window.history.replaceState({}, '', `${next.pathname}${next.search}`);
-        }
-      } catch {}
-
-      const permanentCode = String(normalizeCode(urlCode || '') || '').trim();
-      newOrderUrlClientRef.current = {
-        code: permanentCode || '',
-        name: urlName ? String(urlName) : '',
-        phone: urlPhone ? String(urlPhone) : '',
-      };
 
       // URL/draft/session code is not authoritative for a new PRANIMI create.
       // Always display a fresh sessionReservedCode tied to this local_oid.
@@ -2868,10 +3001,10 @@ export default function PranimiPage() {
         void tryReserveCodeInBackground(id, 'reserve_deferred_after_exception');
       }
 
-      const nextNamePrefill = urlName ? String(urlName) : '';
+      const nextNamePrefill = explicitExisting ? explicitName : '';
       let nextPhonePrefill = '';
-      if (urlPhone) {
-        nextPhonePrefill = normalizeMatchPhone(urlPhone);
+      if (explicitExisting && explicitPhone) {
+        nextPhonePrefill = normalizeMatchPhone(explicitPhone);
       }
 
       setName(nextNamePrefill);
@@ -2883,10 +3016,11 @@ export default function PranimiPage() {
         setNoPhone(false);
       }
       setClientPhotoUrl('');
-      // Never create a fake selectedClient with id:null from URL/draft/session code.
-      // Existing-client code is trusted only after phone match + worker confirmation.
+      // A historical client is accepted only through explicit handoff/search and exact DB verification.
+      // A normal new-client entry stays blank and cannot hydrate by allocated code.
       setSelectedClient(null);
       setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
+      setClientMatchDecision({ matchKey: '', mode: '', candidate: null });
       setClientQuery('');
       setClientHits([]);
 
@@ -2924,11 +3058,14 @@ export default function PranimiPage() {
     let alive = true;
     let forceResetOnShow = false;
     let editBridgeUrl = false;
+    const entryIntent = readPranimiEntryIntent();
     try {
-      const search = String(window?.location?.search || '');
-      editBridgeUrl = search.includes('from=pastrimi-edit') || search.includes('from=gati-edit');
-      forceResetOnShow = !editBridgeUrl && sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1';
-      if (forceResetOnShow || editBridgeUrl) sessionStorage.removeItem(RESET_ON_SHOW_KEY);
+      editBridgeUrl = entryIntent?.mode === PRANIMI_ENTRY_MODE_EDIT;
+      const resetMarker = sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1';
+      // Plain/fresh/existing-client entry always starts a new local_oid. Only an
+      // explicit resumeCurrent=1 may hydrate CURRENT_SESSION_KEY on page mount.
+      forceResetOnShow = !editBridgeUrl && (resetMarker || entryIntent?.mode !== PRANIMI_ENTRY_MODE_RESUME);
+      if (resetMarker || editBridgeUrl) sessionStorage.removeItem(RESET_ON_SHOW_KEY);
     } catch {}
 
     (async () => {
@@ -2972,7 +3109,7 @@ export default function PranimiPage() {
               localBootMode = 'bridge_edit';
               localBootMeta = { hasPayload: true };
             } else {
-              const currentSession = forceResetOnShow ? null : readCurrentSessionLocal();
+              const currentSession = entryIntent?.mode === PRANIMI_ENTRY_MODE_RESUME ? readCurrentSessionLocal() : null;
               if (currentSession?.id && sessionSnapshotHasContent(currentSession)) {
                 try { logDebugEvent('pranimi_resume_current_session', { id: String(currentSession?.id || ''), hasCode: !!String(currentSession?.codeRaw || currentSession?.code || '').trim() }); } catch {}
                 applyDraftSnapshotToForm(currentSession, currentSession?.id || '');
@@ -2981,9 +3118,9 @@ export default function PranimiPage() {
                 localBootMeta = { id: String(currentSession?.id || ''), hasCode: !!String(currentSession?.codeRaw || currentSession?.code || '').trim() };
               } else {
                 try { logDebugEvent('pranimi_reset_for_new_order_start', {}); } catch {}
-                await resetForNewOrder();
-                localBootMode = 'reset_new_order';
-                localBootMeta = { forced: !!forceResetOnShow };
+                await resetForNewOrder({ entryIntent });
+                localBootMode = entryIntent?.mode === PRANIMI_ENTRY_MODE_EXISTING ? 'explicit_existing_client_new_order' : 'reset_new_order';
+                localBootMeta = { forced: !!forceResetOnShow, entryMode: entryIntent?.mode || PRANIMI_ENTRY_MODE_NEW, entrySource: entryIntent?.source || '' };
                 try { logDebugEvent('pranimi_reset_for_new_order_end', {}); } catch {}
               }
             }
@@ -3030,6 +3167,14 @@ export default function PranimiPage() {
     };
 
     const onPageShow = () => {
+      try {
+        if (sessionStorage.getItem(RESET_ON_SHOW_KEY) === '1') {
+          sessionStorage.removeItem(RESET_ON_SHOW_KEY);
+          clearPranimiEntryHandoff();
+          void resetForNewOrder({ entryIntent: { mode: PRANIMI_ENTRY_MODE_NEW, source: 'pageshow_reset_marker', clientId: '', code: null, name: '', phone: '' } });
+          return;
+        }
+      } catch {}
       void releaseExpiredBlankDraftReservations('pageshow_expired_blank_sweep');
       queueBackgroundMetaSync('pageshow_resume', 150);
       const activeOid = String(oidRef.current || '').trim();
@@ -3392,6 +3537,7 @@ export default function PranimiPage() {
     setShowClientSearch(false);
     setPhone('');
     setNoPhone(false);
+    restoreActiveDraftAssignedCode('phone_match_cancelled_restore_temp_code');
     try { if (typeof window !== 'undefined') window.__tepiha_phone_match_declined = false; } catch {}
 
     appendPranimiCodeDebug('existing_phone_client_prompt_back_to_data', {
@@ -3413,6 +3559,8 @@ export default function PranimiPage() {
   }
 
   async function applyClientMatchChoice(mode, payload = clientMatchPrompt) {
+    const contextToken = Number(clientContextTokenRef.current || 0);
+    const contextOid = String(oidRef.current || oid || '').trim();
     const matchKey = String(payload?.matchKey || '').trim();
     const cand = payload?.candidate || null;
     const choiceMode = String(mode || '');
@@ -3441,6 +3589,10 @@ export default function PranimiPage() {
 
     try {
       const verdict = await verifyExistingPranimiClientCode(candId, codeNum, candPhoneRaw, candName);
+      if (!isPranimiClientContextCurrent(contextToken, contextOid)) {
+        appendPranimiCodeDebug('existing_client_verify_ignored_stale_context', { local_oid: contextOid || null, selected_client_id: candId || null, selected_client_code: codeNum });
+        return;
+      }
       if (!verdict?.ok) throw Object.assign(new Error(verdict?.reason || 'EXISTING_CLIENT_CODE_NOT_VERIFIED'), { code: verdict?.reason || 'EXISTING_CLIENT_CODE_NOT_VERIFIED' });
       const codeVal = String(normalizeCode(verdict.code));
       if (!codeVal) throw Object.assign(new Error('EXISTING_CLIENT_VERIFIED_CODE_EMPTY'), { code: 'EXISTING_CLIENT_VERIFIED_CODE_EMPTY' });
@@ -3457,10 +3609,9 @@ export default function PranimiPage() {
       if (candPhone) { setPhone(candPhone); setNoPhone(false); } else { setPhone(''); setNoPhone(true); }
       if (cand?.photo_url) setClientPhotoUrl(String(cand.photo_url || ''));
     } catch (error) {
-      codeRawRef.current = '';
-      setCodeRaw('');
+      if (!isPranimiClientContextCurrent(contextToken, contextOid)) return;
       setSelectedClient(null);
-      setCodeReserveUi({ status: 'error', message: 'KODI I KLIENTIT NUK U VERIFIKUA', raw: String(error?.code || error?.message || error || '') });
+      restoreActiveDraftAssignedCode('existing_client_verify_failed_restore_temp_code');
       appendPranimiCodeDebug('existing_phone_client_db_verify_blocked', { local_oid: String(oidRef.current || oid || ''), matchKey, selected_client_id: candId, selected_client_code: codeNum, error: String(error?.code || error?.message || error || '') });
       alert('Kodi i klientit nuk u verifikua exact në DB. Zgjedhja u ndal për siguri.');
     }
@@ -6256,6 +6407,7 @@ export default function PranimiPage() {
 
 
   function applyDraftSnapshotToForm(d, fallbackId = '') {
+    beginPranimiClientContext(PRANIMI_ENTRY_MODE_DRAFT, 'load_incomplete_draft');
     const nextId = String(d?.local_oid || d?.draft_lifecycle?.local_oid || d?.id || fallbackId || '').trim() || makePranimiLocalOid();
     if (!nextId) return;
     const previousId = String(oidRef.current || oid || '').trim();
@@ -6308,10 +6460,11 @@ export default function PranimiPage() {
     setPhone(nextPhone);
     setNoPhone(Boolean(d?.noPhone) || !nextPhone);
     setClientPhotoUrl(d?.clientPhotoUrl || '');
-    newOrderUrlClientRef.current = { code: '', name: '', phone: '' };
+    newOrderUrlClientRef.current = { id: '', code: '', name: '', phone: '', explicit: false };
     // Draft/session/cache code is non-authoritative. Phone match + worker confirmation is required.
     setSelectedClient(null);
     setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
+    setClientMatchDecision({ matchKey: '', mode: '', candidate: null });
 
     setTepihaRows(Array.isArray(d?.tepihaRows) && d.tepihaRows.length ? d.tepihaRows.map((r) => ({ ...r, qty: String(r?.qty ?? '0') })) : []);
     setStazaRows(Array.isArray(d?.stazaRows) && d.stazaRows.length ? d.stazaRows.map((r) => ({ ...r, qty: String(r?.qty ?? '0') })) : []);
@@ -7113,14 +7266,8 @@ KOMPANIA JONI`;
               aria-label="Mbyll klientin"
               title="ANULO KLIENTIN"
               onClick={() => {
-                try { setName(''); } catch {}
-                try { setPhone(''); } catch {}
-                try { setNoPhone(false); } catch {}
-                try { setClientPhotoUrl(''); } catch {}
-                try { setOldClientDebt(0); } catch {}
-                try { setClientQuery(''); } catch {}
-                try { setClientHits([]); } catch {}
-                // Keep the active reserved BAZ code tied to this local_oid; clearing client fields must not replace/burn the draft code.
+                clearSelectedClientBinding('client_card_closed_restore_temp_code', { clearIdentity: true });
+                // Keep and restore the active reserved BAZ code tied to this local_oid.
               }}
             >
               ✕
@@ -7520,6 +7667,8 @@ KOMPANIA JONI`;
                       type="button"
                       className="apple-result-row"
                       onClick={async () => {
+                        const contextToken = Number(clientContextTokenRef.current || 0);
+                        const contextOid = String(oidRef.current || oid || '').trim();
                         const cId = String(c?.id || '').trim();
                         const cCode = normalizeCode(c?.code || null);
                         codeRawRef.current = '';
@@ -7527,6 +7676,10 @@ KOMPANIA JONI`;
                         setCodeReserveUi({ status: 'reserving', message: 'DUKE VERIFIKU KODIN E KLIENTIT…', raw: '' });
                         try {
                           const verdict = await verifyExistingPranimiClientCode(cId, cCode, c?.phone || '', c?.name || '');
+                          if (!isPranimiClientContextCurrent(contextToken, contextOid)) {
+                            appendPranimiCodeDebug('selected_client_search_verify_ignored_stale_context', { local_oid: contextOid || null, selected_client_id: cId || null, selected_client_code: cCode });
+                            return;
+                          }
                           if (!verdict?.ok) throw Object.assign(new Error(verdict?.reason || 'EXISTING_CLIENT_CODE_NOT_VERIFIED'), { code: verdict?.reason || 'EXISTING_CLIENT_CODE_NOT_VERIFIED' });
                           const verifiedCode = String(normalizeCode(verdict.code));
                           if (c.name) setName(String(c.name));
@@ -7542,8 +7695,9 @@ KOMPANIA JONI`;
                           setClientHits([]);
                           setShowClientSearch(false);
                         } catch (error) {
+                          if (!isPranimiClientContextCurrent(contextToken, contextOid)) return;
                           setSelectedClient(null);
-                          setCodeReserveUi({ status: 'error', message: 'KODI I KLIENTIT NUK U VERIFIKUA', raw: String(error?.code || error?.message || error || '') });
+                          restoreActiveDraftAssignedCode('selected_client_search_verify_failed_restore_temp_code');
                           appendPranimiCodeDebug('selected_client_code_db_verify_blocked', { local_oid: String(oidRef.current || oid || ''), selected_client_id: cId || null, selected_client_code: cCode, error: String(error?.code || error?.message || error || '') });
                           alert('Kodi i klientit nuk u verifikua në DB. Zgjedhja u ndal për siguri.');
                         }
@@ -7584,7 +7738,19 @@ KOMPANIA JONI`;
 
               <div className="field-group">
                 <label className="label">EMRI & MBIEMRI</label>
-                <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="EMRI I KLIENTIT" />
+                <input
+                  className="input"
+                  value={name}
+                  onChange={(e) => {
+                    const nextName = e.target.value;
+                    setName(nextName);
+                    const selectedName = normalizeMatchName(selectedClient?.name || '');
+                    if (selectedClient?.id && selectedName && selectedName !== normalizeMatchName(nextName)) {
+                      clearSelectedClientBinding('selected_client_name_changed_restore_temp_code');
+                    }
+                  }}
+                  placeholder="EMRI I KLIENTIT"
+                />
               </div>
 
               <div className="field-group">
@@ -7605,9 +7771,7 @@ KOMPANIA JONI`;
                       }
                       const selectedPhoneDigits = normalizeMatchPhone(selectedClient?.phone || '');
                       if (selectedClient?.id && selectedPhoneDigits && selectedPhoneDigits !== digits) {
-                        setSelectedClient(null);
-                        setOldClientDebt(0);
-                        setClientMatchDecision({ matchKey: '', mode: '', candidate: null });
+                        clearSelectedClientBinding('selected_client_phone_changed_restore_temp_code');
                       }
                     }}
                     inputMode="numeric"
@@ -7625,9 +7789,7 @@ KOMPANIA JONI`;
                       } else {
                         setNoPhone(true);
                         setPhone('');
-                        setSelectedClient(null);
-                        setOldClientDebt(0);
-                        setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
+                        clearSelectedClientBinding('selected_client_switched_to_no_phone_restore_temp_code');
                       }
                     }}
                   >

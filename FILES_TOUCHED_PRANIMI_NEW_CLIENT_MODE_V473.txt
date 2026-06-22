@@ -1,0 +1,10 @@
+app/pranimi/page.jsx
+app/page.jsx
+app/baza/page.jsx
+components/GlobalHomeSearch.jsx
+tools/verify-pranimi-new-client-mode-v473.mjs
+package.json
+PATCH_NOTE_PRANIMI_NEW_CLIENT_MODE_V473.md
+FILES_TOUCHED_PRANIMI_NEW_CLIENT_MODE_V473.txt
+PRANIMI_NEW_CLIENT_MODE_V473_TEST_PLAN.txt
+PRANIMI_NEW_CLIENT_MODE_V473_VALIDATION.txt

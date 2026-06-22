@@ -14,7 +14,7 @@ export default function BazaMenuPage() {
         <h2 className="card-title">MODULET E BAZËS</h2>
 
         <div className="home-nav">
-          <Link prefetch={false} className="home-btn" href="/pranimi?fresh=1">
+          <Link prefetch={false} className="home-btn" href="/pranimi?fresh=1" onClick={() => { try { window.sessionStorage?.removeItem('tepiha_existing_client_handoff_v1'); window.sessionStorage?.setItem('tepiha_pranimi_reset_on_show_v1', '1'); } catch {} }}>
             <span>🧾</span>
             <div>
               <div>PRANIMI</div>

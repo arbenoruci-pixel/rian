@@ -519,12 +519,16 @@ export default function GlobalHomeSearch() {
       createdAt: Date.now(),
     };
 
-    try { window.sessionStorage?.setItem('tepiha_existing_client_handoff_v1', JSON.stringify(handoff)); } catch {}
+    try {
+      window.sessionStorage?.removeItem('tepiha_pranimi_reset_on_show_v1');
+      window.sessionStorage?.setItem('tepiha_existing_client_handoff_v1', JSON.stringify(handoff));
+    } catch {}
 
     const params = new URLSearchParams();
     if (name) params.set('name', name);
     if (phone) params.set('phone', phone);
     if (code) params.set('code', code);
+    if (handoff.clientId) params.set('clientId', String(handoff.clientId));
     params.set('from', 'global_home_search');
     params.set('existingClient', '1');
 

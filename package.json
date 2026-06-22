@@ -14,7 +14,8 @@
     "cycles:strict": "CIRCULAR_FAIL=1 node tools/viteCircularDependencyPlugin.mjs --fail",
     "test:pranimi-code": "node tools/verify-pranimi-code-reservation.mjs",
     "test:pranimi-allocator": "node tools/verify-pranimi-code-allocator.mjs",
-    "test:dispatch-date": "node tools/verify-dispatch-marrje-date-fix.mjs"
+    "test:dispatch-date": "node tools/verify-dispatch-marrje-date-fix.mjs",
+    "test:pranimi-new-client-mode": "node tools/verify-pranimi-new-client-mode-v473.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",
