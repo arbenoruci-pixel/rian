@@ -2292,6 +2292,26 @@ function formatKod(v, isOnline){
   return isOnline ? "…" : "—";
 }
 
+function readDraftDisplayCode(d = {}) {
+  const data = readPlainObject(d?.data);
+  const life = {
+    ...readPlainObject(data?.pranimi_code_lifecycle),
+    ...readPlainObject(data?.draft_lifecycle),
+    ...readPlainObject(d?.draft_lifecycle),
+  };
+  const code = normalizeCode(
+    d?.codeRaw ??
+    d?.code ??
+    data?.code ??
+    data?.client_code ??
+    data?.client?.code ??
+    life?.code ??
+    life?.final_code ??
+    null
+  );
+  return code == null ? '' : String(code);
+}
+
 function friendlyCodeReserveMessage(raw = '') {
   const text = String(raw || '').toUpperCase();
   if (!text) return '';
@@ -7217,9 +7237,9 @@ KOMPANIA JONI`;
                 uniqueDrafts.map((d) => (
                   <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <div style={{ background: '#16a34a', color: '#0b0b0b', padding: '8px 10px', borderRadius: 10, fontWeight: 900, minWidth: 56, textAlign: 'center' }}>…</div>
+                      <div style={{ background: '#16a34a', color: '#0b0b0b', padding: '8px 10px', borderRadius: 10, fontWeight: 900, minWidth: 56, textAlign: 'center' }}>{readDraftDisplayCode(d) || '…'}</div>
                       <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>
-                        <div style={{ fontWeight: 800 }}>KODI: VERIFIKOHET KUR HAPET</div>
+                        <div style={{ fontWeight: 800 }}>KODI: {readDraftDisplayCode(d) || 'VERIFIKOHET KUR HAPET'}</div>
                         <div style={{ opacity: 0.92, fontWeight: 700 }}>{d.name || 'PA EMËR'}</div>
                         <div style={{ opacity: 0.82 }}>{d.phone ? `${phonePrefix} ${d.phone}` : 'PA TELEFON'}</div>
                         {d.source ? <div style={{ opacity: 0.78, fontWeight: 900 }}>{d.source}</div> : null}
