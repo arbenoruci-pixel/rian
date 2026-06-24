@@ -746,6 +746,54 @@ function writeDraftReservationLocal(meta = {}) {
   }
 }
 
+
+function readLockedDraftOwnerPinFromPool(row = {}, localOid = '', code = null) {
+  try {
+    if (!row || typeof row !== 'object') return '';
+    const status = String(row?.status || row?.pool_status || '').trim().toLowerCase();
+    if (status !== 'reserved') return '';
+    const rowCode = normalizeCode(row?.code ?? row?.pool_code ?? row?.base_code ?? null);
+    const expectedCode = normalizeCode(code);
+    if (expectedCode != null && rowCode != null && String(rowCode) !== String(expectedCode)) return '';
+    const sid = String(row?.draft_session_id || row?.local_oid || '').trim();
+    const expectedOid = String(localOid || '').trim();
+    if (expectedOid && sid && sid !== expectedOid) return '';
+    return normalizeRealPin(row?.reserved_by || row?.pin || '');
+  } catch {
+    return '';
+  }
+}
+
+function resolveDraftCodeLifecyclePin({ localOid = '', code = null, fallbackPin = '', draft = null, poolRow = null } = {}) {
+  const id = String(localOid || '').trim();
+  const candidate = normalizeCode(code);
+  const fallback = normalizeRealPin(fallbackPin);
+
+  const poolOwnerPin = readLockedDraftOwnerPinFromPool(poolRow, id, candidate);
+  if (poolOwnerPin) return poolOwnerPin;
+
+  try {
+    const meta = readDraftReservationLocal(id) || {};
+    const metaCode = normalizeCode(meta?.code ?? meta?.codeRaw ?? null);
+    const metaPin = normalizeRealPin(meta?.created_by_pin || meta?.pin || meta?.reserved_by || '');
+    if (metaPin && (candidate == null || metaCode == null || String(metaCode) === String(candidate))) return metaPin;
+  } catch {}
+
+  try {
+    const life = {
+      ...(((draft?.draft_lifecycle && typeof draft.draft_lifecycle === 'object') ? draft.draft_lifecycle : {})),
+      ...(((draft?.pranimi_code_lifecycle && typeof draft.pranimi_code_lifecycle === 'object') ? draft.pranimi_code_lifecycle : {})),
+      ...(((draft?.data?.pranimi_code_lifecycle && typeof draft.data.pranimi_code_lifecycle === 'object') ? draft.data.pranimi_code_lifecycle : {})),
+      ...(((draft?.data?.draft_lifecycle && typeof draft.data.draft_lifecycle === 'object') ? draft.data.draft_lifecycle : {})),
+    };
+    const lifeCode = normalizeCode(life?.code ?? life?.final_code ?? draft?.code ?? draft?.codeRaw ?? null);
+    const lifePin = normalizeRealPin(life?.pin || life?.created_by_pin || life?.reserved_by || draft?.reserved_by || '');
+    if (lifePin && (candidate == null || lifeCode == null || String(lifeCode) === String(candidate))) return lifePin;
+  } catch {}
+
+  return fallback;
+}
+
 function removeDraftReservationLocal(localOid = '') {
   try {
     const key = draftReservationKey(localOid);
@@ -2755,24 +2803,32 @@ export default function PranimiPage() {
 
   // Restored draft codes are candidates only. The central allocator verifies/adopts
   // the exact PIN+draft assignment before the badge is populated.
-  async function verifyRestoredDraftCodeOrAllocate(id, restoredCode, draft = {}, fallbackId = '') {
+  async function verifyRestoredDraftCodeOrAllocate(id, restoredCode, draft = {}, fallbackId = '', options = {}) {
     const targetId = String(id || '').trim();
     if (!targetId) return;
     const activePin = resolvePranimiActorPin(getActor() || actor || null);
+    const lifecyclePin = resolveDraftCodeLifecyclePin({
+      localOid: targetId,
+      code: restoredCode,
+      fallbackPin: activePin,
+      draft,
+      poolRow: options?.poolRow || options?.codePoolVerdict?.row || null,
+    });
     codeRawRef.current = '';
     setCodeRaw('');
     setCodeReserveUi({ status: 'reserving', message: 'DUKE VERIFIKU KODIN…', raw: '' });
     try {
       if (!activePin) throw Object.assign(new Error('PIN-I REAL I PUNËTORIT MUNGON'), { code: 'MISSING_REAL_ACTOR_PIN' });
-      const result = await allocatePranimiCode(activePin, targetId, restoredCode, snapshotHasMeaningfulWork(draft));
+      if (!lifecyclePin) throw Object.assign(new Error('PIN-I I DRAFTIT/KODIT NUK U GJET'), { code: 'MISSING_CODE_LIFECYCLE_PIN' });
+      const result = await allocatePranimiCode(lifecyclePin, targetId, restoredCode, snapshotHasMeaningfulWork(draft));
       if (String(oidRef.current || '') !== targetId) return;
       const code = normalizeCode(result?.code);
       if (code == null) throw new Error('RESTORE_ALLOCATOR_EMPTY_CODE');
       codeRawRef.current = String(code);
       setCodeRaw(String(code));
-      writeDraftReservationLocal({ local_oid: targetId, code, created_by_pin: activePin, created_at: draft?.created_at || draft?.draft_lifecycle?.created_at || getDraftCreatedAt(targetId), has_meaningful_work: snapshotHasMeaningfulWork(draft), reason: result?.source || 'RESTORED_DB_VERIFIED' });
+      writeDraftReservationLocal({ local_oid: targetId, code, created_by_pin: lifecyclePin, opened_by_pin: activePin, created_at: draft?.created_at || draft?.draft_lifecycle?.created_at || getDraftCreatedAt(targetId), has_meaningful_work: snapshotHasMeaningfulWork(draft), reason: result?.source || 'RESTORED_DB_VERIFIED' });
       setCodeReserveUi({ status: 'ready', message: '', raw: '' });
-      appendPranimiCodeDebug('draft_code_restored_by_one_way_allocator', { local_oid: targetId, draft_id: String(draft?.id || fallbackId || '').trim() || null, final_code: code, source: result?.source || null });
+      appendPranimiCodeDebug('draft_code_restored_by_one_way_allocator', { local_oid: targetId, draft_id: String(draft?.id || fallbackId || '').trim() || null, final_code: code, source: result?.source || null, active_pin: activePin || null, lifecycle_pin: lifecyclePin || null });
     } catch (error) {
       if (String(oidRef.current || '') !== targetId) return;
       const errorCode = String(error?.code || '');
@@ -2780,7 +2836,7 @@ export default function PranimiPage() {
       codeRawRef.current = '';
       setCodeRaw('');
       setCodeReserveUi({ status: 'error', message: friendlyCodeReserveMessage(errorText), raw: `${errorCode}:${errorText}` });
-      appendPranimiCodeDebug('draft_code_restore_blocked', { local_oid: targetId, rejected_code: normalizeCode(restoredCode), error_code: errorCode, error: errorText });
+      appendPranimiCodeDebug('draft_code_restore_blocked', { local_oid: targetId, rejected_code: normalizeCode(restoredCode), error_code: errorCode, error: errorText, active_pin: activePin || null, lifecycle_pin: lifecyclePin || null });
       // An ambiguous DB result keeps the allocator binding/proof for retry. A completed
       // rejection is handled inside the allocator before one controlled re-assignment.
     }
@@ -5168,6 +5224,12 @@ export default function PranimiPage() {
       const codeLifecycleMode = isBaseEdit
         ? 'EDIT_EXISTING_ORDER'
         : (resolvedSelectedClientCode ? 'EXISTING_CLIENT_HISTORICAL_CODE' : 'NEW_ASSIGNED_CODE');
+      const displayedCodeBeforeVerify = normalizeCode(codeRawRef.current || codeRaw || getAssignedPranimiCode(codeDraftId));
+      let finalCodeLifecyclePin = resolveDraftCodeLifecyclePin({
+        localOid: codeDraftId,
+        code: displayedCodeBeforeVerify,
+        fallbackPin: finalActorPin,
+      }) || finalActorPin;
       let resolvedCodeRaw = '';
       let normCodeNow = '';
       let verifiedCodeResult = null;
@@ -5194,7 +5256,8 @@ export default function PranimiPage() {
           finalCodeReason = 'EXISTING_CLIENT_HISTORICAL_CODE_DB_VERIFIED';
         } else {
           const displayedCandidate = normalizeCode(codeRawRef.current || codeRaw || getAssignedPranimiCode(codeDraftId));
-          const result = await allocatePranimiCode(finalActorPin, codeDraftId, displayedCandidate, true);
+          finalCodeLifecyclePin = resolveDraftCodeLifecyclePin({ localOid: codeDraftId, code: displayedCandidate, fallbackPin: finalActorPin }) || finalActorPin;
+          const result = await allocatePranimiCode(finalCodeLifecyclePin, codeDraftId, displayedCandidate, true);
           resolvedCodeRaw = String(normalizeCode(result?.code) || '');
           if (!resolvedCodeRaw) throw new Error('ONE_WAY_ALLOCATOR_EMPTY_CODE');
           verifiedCodeResult = result?.verdict || result?.assignment || result;
@@ -5209,6 +5272,7 @@ export default function PranimiPage() {
         appendPranimiCodeDebug('pranimi_final_code_one_way_verified', {
           local_oid: codeDraftId,
           pin: finalActorPin,
+          lifecycle_pin: finalCodeLifecyclePin || finalActorPin,
           final_code: normalizeCode(resolvedCodeRaw),
           lifecycle_mode: codeLifecycleMode,
           final_code_reason: finalCodeReason,
@@ -5223,6 +5287,7 @@ export default function PranimiPage() {
         appendPranimiCodeDebug('pranimi_final_code_one_way_blocked', {
           local_oid: codeDraftId,
           pin: finalActorPin,
+          lifecycle_pin: finalCodeLifecyclePin || finalActorPin,
           lifecycle_mode: codeLifecycleMode,
           error_code: verifyCode,
           error: verifyMsg,
@@ -5292,6 +5357,7 @@ export default function PranimiPage() {
             save_attempt_id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `save_${Date.now()}_${Math.random().toString(16).slice(2)}`,
             local_oid: stableLocalOid || String(shadowOrderId || oid),
             pin: resolvePranimiActorPin(actor) || null,
+            code_lifecycle_pin: finalCodeLifecyclePin || finalActorPin || null,
             online: onlineForClientLookup,
             draft_code_raw: normalizeCode(codeRawRef.current || codeRaw || null),
             selected_client_id: resolvedSelectedClientId || null,
@@ -5781,9 +5847,9 @@ export default function PranimiPage() {
         if (!exactOrderId) return { ok: false, reason: 'FINAL_ORDER_ID_MISSING_FOR_CODE_LIFECYCLE' };
         if (codeLifecycleMode === 'EDIT_EXISTING_ORDER') return { ok: true, skipped: true, reason: 'EDIT_KEEPS_EXISTING_CODE', orderId: exactOrderId };
         if (codeLifecycleMode === 'EXISTING_CLIENT_HISTORICAL_CODE') {
-          return finalizeExistingClientPranimiCode(finalActorPin, codeDraftId, persistedClientCode, exactOrderId);
+          return finalizeExistingClientPranimiCode(finalCodeLifecyclePin || finalActorPin, codeDraftId, persistedClientCode, exactOrderId);
         }
-        return consumePranimiCode(finalActorPin, codeDraftId, persistedClientCode, exactOrderId, finalClientPhone);
+        return consumePranimiCode(finalCodeLifecyclePin || finalActorPin, codeDraftId, persistedClientCode, exactOrderId, finalClientPhone);
       };
 
       const finishSuccess = (verifiedRowForDraftCleanup = {}, codeLifecycleResult = {}) => {
@@ -5792,7 +5858,7 @@ export default function PranimiPage() {
         if (codeLifecycleMode !== 'EDIT_EXISTING_ORDER') {
           const assignedForAck = normalizeCode(codeLifecycleResult?.tempCode ?? codeLifecycleResult?.code ?? getAssignedPranimiCode(codeDraftId));
           if (assignedForAck != null) {
-            const ack = acknowledgeFinalizedPranimiCode(finalActorPin, codeDraftId, assignedForAck, verifiedOrderIdForDraftCleanup);
+            const ack = acknowledgeFinalizedPranimiCode(finalCodeLifecyclePin || finalActorPin, codeDraftId, assignedForAck, verifiedOrderIdForDraftCleanup);
             if (!ack?.ok) {
               appendPranimiCodeDebug('final_code_local_ack_blocked', { local_oid: codeDraftId, order_id: verifiedOrderIdForDraftCleanup || null, code: assignedForAck, reason: ack?.reason || 'ACK_FAILED' });
               setLocalSyncWarning({ severity: 'red', title: 'ORDER U RUAJT, POR LIFECYCLE I KODIT NUK U MBYLL', subtitle: 'CODE ACK FAILED', status_label: 'DB VERIFIED / CODE ACK FAILED', message: 'MOS E KRIJO ORDERIN PRAPË. LAJMËRO ADMININ.', payload });
@@ -6406,7 +6472,7 @@ export default function PranimiPage() {
   }
 
 
-  function applyDraftSnapshotToForm(d, fallbackId = '') {
+  function applyDraftSnapshotToForm(d, fallbackId = '', options = {}) {
     beginPranimiClientContext(PRANIMI_ENTRY_MODE_DRAFT, 'load_incomplete_draft');
     const nextId = String(d?.local_oid || d?.draft_lifecycle?.local_oid || d?.id || fallbackId || '').trim() || makePranimiLocalOid();
     if (!nextId) return;
@@ -6447,7 +6513,7 @@ export default function PranimiPage() {
       codeRawRef.current = '';
       setCodeRaw('');
       setCodeReserveUi({ status: 'reserving', message: 'DUKE VERIFIKU KODIN…', raw: '' });
-      void verifyRestoredDraftCodeOrAllocate(nextId, restoredDraftCode, d, fallbackId);
+      void verifyRestoredDraftCodeOrAllocate(nextId, restoredDraftCode, d, fallbackId, { codePoolVerdict: options?.codePoolVerdict || null, poolRow: options?.poolRow || options?.codePoolVerdict?.row || null });
     } else {
       codeRawRef.current = '';
       setCodeRaw('');
@@ -6555,7 +6621,7 @@ export default function PranimiPage() {
       }
 
       unsuppressDraftId(targetId);
-      applyDraftSnapshotToForm(draftToOpen, targetId);
+      applyDraftSnapshotToForm(draftToOpen, targetId, { codePoolVerdict: openCodePoolVerdict });
       if (remoteDraft) {
         try { collectPranimiDraftAliasKeys(draftToOpen, { id: targetId, file_key: targetFileKey }).forEach((alias) => removeDraftLocal(alias)); } catch {}
       }

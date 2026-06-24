@@ -231,7 +231,8 @@ assert.doesNotMatch(page, /\.from\(\s*['"](?:clients|orders)['"]\s*\)\s*\.delete
 assert.match(page, /async function applyClientMatchChoice/);
 assert.match(page, /existing_phone_client_confirmed_db_verified/);
 assert.match(page, /verifyExistingPranimiClientCode\(candId, codeNum/);
-assert.match(page, /consumePranimiCode\(finalActorPin, codeDraftId, persistedClientCode, exactOrderId/);
+assert.match(page, /resolveDraftCodeLifecyclePin/);
+assert.match(page, /consumePranimiCode\(finalCodeLifecyclePin \|\| finalActorPin, codeDraftId, persistedClientCode, exactOrderId/);
 assert.match(page, /DRAFTI\/KODI ËSHTË I BLOKUAR/);
 assert.match(page, /function shouldDraftSummaryRender[\s\S]*snapshotHasMeaningfulWork\(d\)[\s\S]*return true/);
 assert.doesNotMatch(page.match(/function shouldDraftSummaryRender[\s\S]*?\n  }\n/)?.[0] || '', /normalizeCode|codeRaw|KOD_MUNGON/);
