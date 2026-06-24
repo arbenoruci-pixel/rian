@@ -259,6 +259,10 @@ const PASTRIMI_RESOLVED_LOCAL_PROBLEMS_KEY = 'tepiha_resolved_local_problems_v1'
 const PASTRIMI_RESOLVED_LOCAL_PROBLEM_TOMBSTONES_KEY = 'tepiha_resolved_local_problem_tombstones_v1';
 const PASTRIMI_RESOLVED_LOCAL_PROBLEMS_LIMIT = 250;
 const PASTRIMI_PROBLEM_ORDER_SELECT = 'id,local_oid,status,created_at,updated_at,data,code,client_id,client_name,client_phone,price_total,m2_total,pieces,paid_cash,is_paid_upfront';
+// V474: Pastrimi 4-day delay review is disabled.
+// The list must not auto-open/force reason prompts or block pause/ready/payment flows
+// when staffing is short. Rows can still be moved to GATI manually.
+const PASTRIM_DELAY_REVIEW_ENABLED = false;
 const PASTRIM_DELAY_REVIEW_DAYS = 4;
 const PASTRIM_DELAY_REVIEW_MS = PASTRIM_DELAY_REVIEW_DAYS * 24 * 60 * 60 * 1000;
 const PASTRIM_DELAY_NEXT_REVIEW_MS = 24 * 60 * 60 * 1000;
@@ -3597,13 +3601,13 @@ function getPastrimDelayReviewInfo(row = {}, nowMs = Date.now()) {
   const review = readPastrimDelayReview(row);
   const nextReviewMs = pastrimTimeMs(review?.next_review_at || order?.pastrim_delay_next_review_at || null);
   const nextReviewActive = isPastrim && nextReviewMs > Number(nowMs || Date.now());
-  const warning = isPastrim && !isTransport && ageMs >= PASTRIM_DELAY_REVIEW_MS;
+  const warning = PASTRIM_DELAY_REVIEW_ENABLED && isPastrim && !isTransport && ageMs >= PASTRIM_DELAY_REVIEW_MS;
   return {
     isPastrim,
     isTransport,
     warning,
-    due: warning && !nextReviewActive,
-    softWarning: warning && nextReviewActive,
+    due: PASTRIM_DELAY_REVIEW_ENABLED && warning && !nextReviewActive,
+    softWarning: PASTRIM_DELAY_REVIEW_ENABLED && warning && nextReviewActive,
     started_at: pastrimIsoFromMs(startedMs),
     started_ms: startedMs,
     age_days: Math.floor(ageDaysExact),
@@ -3805,6 +3809,7 @@ function PastrimiPageInner() {
   }, [staffUsers, transportUserLookup]);
 
   useEffect(() => {
+    if (!PASTRIM_DELAY_REVIEW_ENABLED) return;
     if (loading || editMode || pastrimDelayReview?.open) return;
     const dueRow = (Array.isArray(orders) ? orders : []).find((row) => isPastrimDelayReviewDue(row));
     if (!dueRow) return;
@@ -6343,11 +6348,8 @@ ${destinationLine}
 
   const PASTRIM_FILTER_CHIPS = [
     { key: 'all', label: 'Të gjitha' },
-    { key: 'over4', label: 'Mbi 4 ditë' },
     { key: 'unpacked', label: 'Pa paketu' },
     { key: 'debt', label: 'Me borxh' },
-    { key: 'snooze', label: 'Snooze' },
-    { key: 'due', label: 'Due tani' },
   ];
 
   function openFirstPastrimDelayReview() {
@@ -6439,7 +6441,7 @@ ${destinationLine}
         ) : null}
       </section>
 
-      {(() => {
+      {PASTRIM_DELAY_REVIEW_ENABLED ? (() => {
         const dueCount = pastrimDelayReviewSummary.dueCount;
         const softCount = pastrimDelayReviewSummary.softCount;
         const totalCount = pastrimDelayReviewSummary.count;
@@ -6496,7 +6498,7 @@ ${destinationLine}
             ) : null}
           </section>
         );
-      })()}
+      })() : null}
 
       {showCacheWarning ? (
         <section className="card" style={{ padding: 10, border: '1px solid rgba(245,158,11,.35)', background: 'rgba(245,158,11,.10)', color: '#fde68a', fontSize: 12, fontWeight: 900 }}>
