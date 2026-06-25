@@ -1458,6 +1458,78 @@ async function verifyPranimiDbDraftSaved(draft = {}) {
   }
 }
 
+async function safeDirectPranimiDraftWrite(row = {}, reason = 'autosave_db_draft') {
+  const localOid = String(row?.local_oid || row?.data?.local_oid || '').trim();
+  if (!localOid) return { ok: false, reason: 'DIRECT_DRAFT_LOCAL_OID_REQUIRED' };
+
+  const existingHit = await findBaseOrderByLocalOidAny(localOid, PRANIMI_DRAFT_ORDER_SELECT);
+  const existing = existingHit?.row || null;
+  if (existing && isBlockingPranimiDraftOrder(existing)) {
+    return { ok: false, blocked: true, reason: 'DIRECT_DRAFT_FINAL_ORDER_EXISTS', row: existing };
+  }
+
+  const variants = [
+    buildPranimiDbDraftRowForTopStatus(row, PRANIMI_DB_DRAFT_STATUS),
+    buildPranimiDbDraftRowForTopStatus(row, PRANIMI_DB_DRAFT_FALLBACK_TOP_STATUS),
+  ];
+  let lastError = null;
+
+  if (existing?.id) {
+    const expectedUpdatedAt = String(existing?.updated_at || '').trim();
+    if (!expectedUpdatedAt) return { ok: false, blocked: true, reason: 'DIRECT_DRAFT_CAS_TIMESTAMP_MISSING', row: existing };
+
+    for (let i = 0; i < variants.length; i += 1) {
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .update(variants[i])
+          .eq('id', existing.id)
+          .eq('updated_at', expectedUpdatedAt)
+          .select(PRANIMI_DRAFT_ORDER_SELECT)
+          .maybeSingle();
+        if (error) throw error;
+        if (data) return { ok: true, row: data, via: i === 0 ? 'direct_cas_incomplete' : 'direct_cas_pranim_fallback' };
+
+        const currentHit = await findBaseOrderByLocalOidAny(localOid, PRANIMI_DRAFT_ORDER_SELECT);
+        const current = currentHit?.row || null;
+        return {
+          ok: false,
+          blocked: true,
+          reason: current && isBlockingPranimiDraftOrder(current)
+            ? 'DIRECT_DRAFT_FINAL_ORDER_WON_RACE'
+            : 'DIRECT_DRAFT_COMPARE_AND_SWAP_LOST',
+          row: current || existing,
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    return { ok: false, reason: 'DIRECT_DRAFT_UPDATE_FAILED', error: lastError };
+  }
+
+  for (let i = 0; i < variants.length; i += 1) {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .insert(variants[i])
+        .select(PRANIMI_DRAFT_ORDER_SELECT)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) return { ok: true, row: data, via: i === 0 ? 'direct_insert_incomplete' : 'direct_insert_pranim_fallback' };
+    } catch (error) {
+      lastError = error;
+      const currentHit = await findBaseOrderByLocalOidAny(localOid, PRANIMI_DRAFT_ORDER_SELECT);
+      const current = currentHit?.row || null;
+      if (current && isBlockingPranimiDraftOrder(current)) {
+        return { ok: false, blocked: true, reason: 'DIRECT_DRAFT_FINAL_ORDER_WON_INSERT_RACE', row: current };
+      }
+      if (current) return { ok: false, blocked: true, reason: 'DIRECT_DRAFT_CONCURRENT_ROW_EXISTS', row: current };
+    }
+  }
+
+  return { ok: false, reason: 'DIRECT_DRAFT_INSERT_FAILED', error: lastError };
+}
+
 async function upsertDraftDb(draft = {}, reason = 'autosave_db_draft') {
   try {
     if (!draft?.id || !snapshotHasMeaningfulWork(draft)) return false;
@@ -1500,28 +1572,28 @@ async function upsertDraftDb(draft = {}, reason = 'autosave_db_draft') {
       reason,
     });
 
-    let primaryError = null;
-    try {
-      await withSupabaseTimeout(
-        upsertOrderRecord('orders', buildPranimiDbDraftRowForTopStatus(row, PRANIMI_DB_DRAFT_STATUS), { onConflict: 'local_oid' }),
-        9000,
-        'PRANIMI_DB_DRAFT_UPSERT_TIMEOUT',
-        { source: 'upsertDraftDb:directIncomplete', local_oid: row.local_oid, code: row.code, reason }
-      );
-    } catch (error) {
-      primaryError = error;
-      appendPranimiCodeDebug('db_draft_direct_incomplete_failed_try_pranim', {
+    // V476: the direct fallback is compare-and-swap only. Never use an
+    // unconditional upsert on local_oid, because a late draft write could race
+    // a final save and downgrade PASRIM back to PRANIM.
+    const directWrite = await withSupabaseTimeout(
+      safeDirectPranimiDraftWrite(row, reason),
+      9000,
+      'PRANIMI_DB_DRAFT_SAFE_DIRECT_TIMEOUT',
+      { source: 'upsertDraftDb:safeDirectCas', local_oid: row.local_oid, code: row.code, reason }
+    ).catch((error) => ({ ok: false, reason: 'DIRECT_DRAFT_SAFE_WRITE_THROW', error }));
+
+    if (!directWrite?.ok) {
+      appendPranimiCodeDebug('db_draft_safe_direct_blocked_or_failed', {
         local_oid: row.local_oid,
         code: row.code,
-        error: String(error?.message || error || ''),
+        direct_reason: directWrite?.reason || 'UNKNOWN',
+        blocked: !!directWrite?.blocked,
+        current_order_id: directWrite?.row?.id || null,
+        current_status: readPranimiDraftOrderStatus(directWrite?.row || {}),
+        error: String(directWrite?.error?.message || directWrite?.error || ''),
         reason,
       });
-      await withSupabaseTimeout(
-        upsertOrderRecord('orders', buildPranimiDbDraftRowForTopStatus(row, PRANIMI_DB_DRAFT_FALLBACK_TOP_STATUS), { onConflict: 'local_oid' }),
-        9000,
-        'PRANIMI_DB_DRAFT_UPSERT_FALLBACK_TIMEOUT',
-        { source: 'upsertDraftDb:directPranimFallback', local_oid: row.local_oid, code: row.code, reason }
-      );
+      return false;
     }
 
     const verify = await verifyPranimiDbDraftSaved({ ...draft, local_oid: row.local_oid, codeRaw: row.code, code: row.code });
@@ -1530,7 +1602,7 @@ async function upsertDraftDb(draft = {}, reason = 'autosave_db_draft') {
         local_oid: row.local_oid,
         code: row.code,
         verify_reason: verify?.reason || 'UNKNOWN',
-        direct_primary_error: primaryError ? String(primaryError?.message || primaryError || '') : null,
+        direct_write_via: directWrite?.via || null,
         reason,
       });
       return false;
@@ -2451,6 +2523,7 @@ export default function PranimiPage() {
   const [creating, setCreating] = useState(true);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [savingContinue, setSavingContinue] = useState(false);
+  const finalSaveInFlightRef = useRef(false);
 
   const [oid, setOid] = useState('');
   const [codeRaw, setCodeRaw] = useState('');
@@ -2544,6 +2617,10 @@ export default function PranimiPage() {
   const priceSourceRef = useRef('new');
   const phoneInputRef = useRef(null);
   const latestDuplicateInputRef = useRef({ phoneDigits: '', fullName: '' });
+
+  useEffect(() => {
+    finalSaveInFlightRef.current = !!savingContinue;
+  }, [savingContinue]);
 
   function beginPranimiClientContext(mode = PRANIMI_ENTRY_MODE_NEW, reason = 'context_change') {
     clientContextTokenRef.current = Number(clientContextTokenRef.current || 0) + 1;
@@ -2978,6 +3055,7 @@ export default function PranimiPage() {
     setArkaRecordedPaid(arkaPaid);
     setPayMethod(String(pay?.method || ord?.payMethod || ordData?.payMethod || 'CASH'));
     setNotes(String(ord?.notes || ordData?.notes || ''));
+    finalSaveInFlightRef.current = false;
     setSavingContinue(false);
     setPhotoUploading(false);
     setShowWizard(false);
@@ -3096,7 +3174,8 @@ export default function PranimiPage() {
       setPayMethod('CASH');
       setNotes('');
 
-      setSavingContinue(false);
+      finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
       setPhotoUploading(false);
     } catch {
     } finally {
@@ -3908,7 +3987,7 @@ export default function PranimiPage() {
     try {
       if (!draft?.id) return false;
       const draftId = String(draft?.id || draft?.local_oid || '').trim();
-      if (draftId && (isDraftSuppressed(draftId) || savingContinue)) return false;
+      if (draftId && (isDraftSuppressed(draftId) || savingContinue || finalSaveInFlightRef.current)) return false;
       const meaningful = snapshotHasMeaningfulWork(draft);
       markDraftReservationFromSnapshot(draft, reason);
       if (!meaningful) return false;
@@ -3932,10 +4011,16 @@ export default function PranimiPage() {
         await renewPranimiCodeLease(resolvePranimiActorPin(actor), draft.id, draftCode, true).catch(() => ({ ok: false }));
       }
 
+      // A final save may start while an autosave is awaiting lease renewal.
+      // Re-check the mutable ref before any DB draft write.
+      if (isDraftSuppressed(draftId) || finalSaveInFlightRef.current) return false;
+
       const onlineNow = (() => {
         try { return typeof navigator === 'undefined' ? true : navigator.onLine !== false; } catch { return true; }
       })();
-      const dbDraftOk = onlineNow ? await upsertDraftDb(draft, reason) : false;
+      const dbDraftOk = (onlineNow && !isDraftSuppressed(draftId) && !finalSaveInFlightRef.current)
+        ? await upsertDraftDb(draft, reason)
+        : false;
       // V7: shared incomplete drafts live in public.orders. Do not create new
       // Supabase Storage draft JSON objects; old Storage ghosts stay filtered out.
       try { if (showDraftsSheet) void refreshDrafts({ includeRemote: true, forceRemote: true }); } catch {}
@@ -4967,7 +5052,7 @@ export default function PranimiPage() {
 
   async function handleContinue() {
     if (!validateBeforeContinue()) return;
-    if (savingContinue || photoUploading) return;
+    if (savingContinue || finalSaveInFlightRef.current || photoUploading) return;
 
     const finalActorPin = resolvePranimiActorPin(actor);
     if (!finalActorPin) {
@@ -4986,6 +5071,7 @@ export default function PranimiPage() {
       }
     } catch {}
 
+    finalSaveInFlightRef.current = true;
     setSavingContinue(true);
     try {
       const finalizingOid = String(oidRef.current || oid || '').trim();
@@ -5158,7 +5244,8 @@ export default function PranimiPage() {
           final_code: normalizeCode(codeRawRef.current || codeRaw || null),
           final_code_reason: 'AWAITING_EXISTING_PHONE_CLIENT_CONFIRMATION',
         });
-        setSavingContinue(false);
+        finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
         return true;
       };
 
@@ -5203,7 +5290,8 @@ export default function PranimiPage() {
           });
         } catch {}
         alert('Nuk u verifikua klienti ekzistues. Kontrollo internetin ose zgjedhe klientin nga popup-i.');
-        setSavingContinue(false);
+        finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
         return;
       }
 
@@ -5293,7 +5381,8 @@ export default function PranimiPage() {
           error: verifyMsg,
         });
         alert('DB ERROR: Kodi nuk u verifikua në rrugën zyrtare. Ruajtja u ndal; i njëjti draft/kod ruhet për retry.');
-        setSavingContinue(false);
+        finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
         return;
       }
 
@@ -5558,7 +5647,8 @@ export default function PranimiPage() {
               });
             } catch {}
             alert(`KUJDES: Ky numër/emër duket se i takon klientit ekzistues me kod ${syncedClientMaster?.existingCode || syncedClientMaster?.code || '—'}. Kodi permanent nuk u ndryshua. Zgjedhe klientin ekzistues nga popup-i ose kontrollo emrin/telefonin para ruajtjes.`);
-            setSavingContinue(false);
+            finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
             return;
           }
 
@@ -5584,7 +5674,8 @@ export default function PranimiPage() {
             );
             if (syncedClientCode && String(syncedClientCode) !== String(persistedClientCode) && !allowExistingClientDifferentOrderCode) {
               alert('KUJDES: Kodi i klientit permanent nuk përputhet me kodin e porosisë. Ruajtja u ndal për siguri.');
-              setSavingContinue(false);
+              finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
               return;
             }
 
@@ -5636,7 +5727,8 @@ export default function PranimiPage() {
           online: onlineForClientLookup,
           last_error: warning?.last_error || null,
         });
-        setSavingContinue(false);
+        finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
       };
 
       const markPranimiLocalMirrorUnsynced = async (reason = 'DB_VERIFY_FAILED', extra = {}) => {
@@ -5757,7 +5849,20 @@ export default function PranimiPage() {
           createdClientForLink = postOrderClient?.createdInThisFlow ? postOrderClient : null;
           if (!applySyncedClientMasterToPayload(postOrderClient)) return verifiedDbRow;
 
+          const finalLinkStatus = String(payload?.status || targetStatus || 'pastrim').trim() || 'pastrim';
+          applyPranimiFinalLifecycleToPayload(payload, {
+            status: finalLinkStatus,
+            localOid: stableLocalOid || String(shadowOrderId || oid),
+            saveAttemptId: payload?.data?.pranimi_code_lifecycle?.save_attempt_id || '',
+            verifyState: 'DB_VERIFIED',
+            source: 'DB_FINAL',
+            draftSource: 'FINAL / CLIENT MASTER LINK',
+            serverId: String(verifiedDbRow?.id || ''),
+          });
           const linkPatch = {
+            // V476: never inherit a stale PRANIM top status during the post-save
+            // client link. The final stage is explicit in both top-level and data.
+            status: finalLinkStatus,
             client_id: payload.client_id || null,
             client_name: payload.client_name || null,
             client_phone: payload.client_phone || '',
@@ -5804,6 +5909,105 @@ export default function PranimiPage() {
           });
           return verifiedDbRow;
         }
+      };
+
+      const ensureFinalOrderStatusBeforeCodeConsume = async (verifiedDbRow = {}) => {
+        const dbOrderId = String(verifiedDbRow?.id || '').trim();
+        if (!dbOrderId) return { ok: false, reason: 'FINAL_STATUS_ORDER_ID_MISSING', row: verifiedDbRow };
+
+        const finalStatus = String(payload?.status || targetStatus || 'pastrim').trim() || 'pastrim';
+        let lastReason = 'FINAL_STATUS_NOT_VERIFIED';
+        let lastRow = verifiedDbRow;
+
+        for (let attempt = 1; attempt <= 2; attempt += 1) {
+          try {
+            applyPranimiFinalLifecycleToPayload(payload, {
+              status: finalStatus,
+              localOid: stableLocalOid || String(shadowOrderId || oid),
+              saveAttemptId: payload?.data?.pranimi_code_lifecycle?.save_attempt_id || '',
+              verifyState: 'DB_VERIFIED',
+              source: 'DB_FINAL',
+              draftSource: 'FINAL / STATUS RACE GUARD',
+              serverId: dbOrderId,
+            });
+
+            await withSupabaseTimeout(
+              updateOrderRecord('orders', dbOrderId, {
+                status: finalStatus,
+                code: persistedClientCode,
+                client_id: payload?.client_id || null,
+                client_name: payload?.client_name || null,
+                client_phone: payload?.client_phone || '',
+                data: payload.data,
+                updated_at: new Date().toISOString(),
+              }),
+              PRANIMI_CONTINUE_ORDER_LINK_MS,
+              'PRANIMI_FINAL_STATUS_GUARD_TIMEOUT',
+              { source: 'handleContinue:finalStatusRaceGuard', order_id: dbOrderId, attempt, status: finalStatus }
+            );
+
+            const recheck = await verifyBaseOrderInDbBySafetyIds(payload, {
+              local_oid: stableLocalOid || String(shadowOrderId || oid),
+              save_attempt_id: payload?.data?.pranimi_code_lifecycle?.save_attempt_id || '',
+              code: persistedClientCode,
+            });
+            lastRow = recheck?.row || lastRow;
+            if (!recheck?.found) {
+              lastReason = 'FINAL_STATUS_DB_ROW_NOT_FOUND';
+            } else {
+              const strict = assertBaseOrderReservationMatch(recheck.row, {
+                local_oid: stableLocalOid || String(shadowOrderId || oid),
+                code: persistedClientCode,
+                client_name: payload?.client_name || '',
+                client_phone: payload?.client_phone || '',
+                status: finalStatus,
+                pieces: payload?.pieces,
+                m2_total: payload?.m2_total,
+                price_total: payload?.price_total,
+              });
+              const topStatus = readPranimiBaseOrderStatus(recheck.row);
+              const dataStatus = readPranimiBaseOrderDataStatus(recheck.row);
+              if (strict.ok
+                && topStatus === finalStatus
+                && dataStatus === finalStatus
+                && isPranimiFinalOrderRow(recheck.row)) {
+                appendPranimiCodeDebug('final_status_race_guard_verified', {
+                  local_oid: stableLocalOid || String(shadowOrderId || oid),
+                  order_id: dbOrderId,
+                  code: persistedClientCode,
+                  status: finalStatus,
+                  attempt,
+                });
+                return { ok: true, reason: 'FINAL_STATUS_VERIFIED', row: recheck.row };
+              }
+              lastReason = strict?.reason || 'FINAL_STATUS_MISMATCH_AFTER_WRITE';
+              appendPranimiCodeDebug('final_status_race_guard_retry', {
+                local_oid: stableLocalOid || String(shadowOrderId || oid),
+                order_id: dbOrderId,
+                code: persistedClientCode,
+                expected_status: finalStatus,
+                db_status: topStatus || null,
+                db_data_status: dataStatus || null,
+                reason: lastReason,
+                attempt,
+              });
+            }
+          } catch (error) {
+            lastReason = error?.code || error?.message || 'FINAL_STATUS_GUARD_THROW';
+            appendPranimiCodeDebug('final_status_race_guard_error', {
+              local_oid: stableLocalOid || String(shadowOrderId || oid),
+              order_id: dbOrderId,
+              code: persistedClientCode,
+              status: finalStatus,
+              reason: String(lastReason),
+              attempt,
+            });
+          }
+
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 180));
+        }
+
+        return { ok: false, reason: lastReason, row: lastRow };
       };
 
       if (clientMasterSyncBlockingFailure) {
@@ -5862,7 +6066,8 @@ export default function PranimiPage() {
             if (!ack?.ok) {
               appendPranimiCodeDebug('final_code_local_ack_blocked', { local_oid: codeDraftId, order_id: verifiedOrderIdForDraftCleanup || null, code: assignedForAck, reason: ack?.reason || 'ACK_FAILED' });
               setLocalSyncWarning({ severity: 'red', title: 'ORDER U RUAJT, POR LIFECYCLE I KODIT NUK U MBYLL', subtitle: 'CODE ACK FAILED', status_label: 'DB VERIFIED / CODE ACK FAILED', message: 'MOS E KRIJO ORDERIN PRAPË. LAJMËRO ADMININ.', payload });
-              setSavingContinue(false);
+              finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
               return false;
             }
           }
@@ -6014,7 +6219,8 @@ export default function PranimiPage() {
           try { setShowMsgSheet(false); } catch {}
           setResetAfterSmsClose(true);
           setSmsModal({ open: true, phone: smsPhone, text: smsText });
-          setSavingContinue(false);
+          finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
           return;
         }
 
@@ -6022,7 +6228,8 @@ export default function PranimiPage() {
         try { setPendingNavTo(targetNav); } catch {}
         try { setShowWizard(false); } catch {}
         try { setShowMsgSheet(false); } catch {}
-        setSavingContinue(false);
+        finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
         void resetForNewOrder();
         try { router.push(targetNav); } catch {}
         return true;
@@ -6058,7 +6265,8 @@ export default function PranimiPage() {
               setPendingUpfrontCashPayment(null);
             } catch (error) {
               alert(`ARKA PROBLEM: ndryshimi u ruajt, por pagesa nuk u verifikua. Mos e mbyll si sukses normal. ${String(error?.message || error || '')}`);
-              setSavingContinue(false);
+              finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
               return;
             }
           }
@@ -6209,7 +6417,8 @@ export default function PranimiPage() {
               allow_sms_after_ack: false,
               is_base_edit: !!isBaseEdit,
             });
-            setSavingContinue(false);
+            finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
             return;
           }
 
@@ -6272,7 +6481,8 @@ export default function PranimiPage() {
               setPendingUpfrontCashPayment(null);
             } catch (error) {
               alert(`ARKA PROBLEM: order-i u ruajt në DB, por pagesa upfront nuk u verifikua. Mos e mbyll si sukses normal. ${String(error?.message || error || '')}`);
-              setSavingContinue(false);
+              finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
               return;
             }
           }
@@ -6303,6 +6513,37 @@ export default function PranimiPage() {
             });
           }
           verifiedDbRow = await linkVerifiedOrderToClientMaster(verifiedDbRow);
+
+          // V476 final barrier: status must still be final in both columns after
+          // every post-save/client-link write. Code consumption is blocked until
+          // PASRIM/GATI/DORZIM is re-written and read back exactly.
+          const finalStatusGuard = await ensureFinalOrderStatusBeforeCodeConsume(verifiedDbRow);
+          if (!finalStatusGuard?.ok) {
+            appendPranimiCodeDebug('final_status_not_confirmed_code_consume_blocked', {
+              local_oid: stableLocalOid || String(shadowOrderId || oid),
+              order_id: String(verifiedDbRow?.id || ''),
+              code: persistedClientCode,
+              expected_status: payload?.status || targetStatus,
+              reason: finalStatusGuard?.reason || 'FINAL_STATUS_NOT_CONFIRMED',
+            });
+            setLocalSyncWarning({
+              severity: 'red',
+              title: 'ORDER U RUAJT, POR STATUSI FINAL NUK U KONFIRMUA',
+              subtitle: 'DB VERIFIED / FINAL STATUS PENDING',
+              status_label: 'FINAL STATUS PENDING',
+              message: 'MOS E KRIJO ORDERIN PRAPË. Kodi nuk u konsumua derisa PASRIM/GATI të konfirmohet në DB. Lajmëro adminin.',
+              problem_title: 'PRANIMI FINAL STATUS NOT CONFIRMED',
+              last_error: finalStatusGuard?.reason || 'FINAL_STATUS_NOT_CONFIRMED',
+              payload,
+              local_oid: stableLocalOid || String(shadowOrderId || oid),
+              server_id: String(verifiedDbRow?.id || ''),
+            });
+            finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
+            return;
+          }
+          verifiedDbRow = finalStatusGuard.row || verifiedDbRow;
+
           let codeLifecycleResult = null;
           try {
             codeLifecycleResult = await finalizeCodeLifecycleForVerifiedOrder(verifiedDbRow);
@@ -6329,7 +6570,8 @@ export default function PranimiPage() {
               local_oid: codeDraftId,
               server_id: String(verifiedDbRow?.id || ''),
             });
-            setSavingContinue(false);
+            finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
             return;
           }
           try {
@@ -6457,7 +6699,8 @@ export default function PranimiPage() {
       }
     } catch (err) {
       alert('DB ERROR: ' + (err?.message || 'Unknown error'));
-      setSavingContinue(false);
+      finalSaveInFlightRef.current = false;
+    setSavingContinue(false);
       return;
     }
   }
