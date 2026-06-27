@@ -508,8 +508,8 @@ export default function GlobalHomeSearch() {
     const code = cleanClientCode(result?.clientCode || result?.code || '');
     const handoff = {
       source: 'global_home_search',
-      clientId: result?.clientId || result?.id || null,
-      lastOrderId: result?.id || null,
+      clientId: result?.clientId || null,
+      lastOrderId: result?.orderId || result?.id || null,
       clientCode: code,
       code,
       code_n: Number(code) || null,

@@ -202,8 +202,8 @@ export default function HomePage() {
     const code = cleanClientCode(result?.code || '');
     const handoff = {
       source: 'home_old_search',
-      clientId: result?.clientId || result?.id || null,
-      lastOrderId: result?.id || null,
+      clientId: result?.clientId || null,
+      lastOrderId: result?.orderId || result?.id || null,
       clientCode: code,
       code,
       code_n: Number(code) || null,

@@ -450,6 +450,84 @@ async function searchClientsLive(q) {
     };
   });
 }
+
+async function resolveExplicitExistingClientHandoff({ clientId = '', code = null, name = '', phone = '' } = {}) {
+  const wantedId = String(clientId || '').trim();
+  const wantedCode = normalizeCode(code ?? null);
+  const wantedName = String(name || '').trim();
+  const wantedPhoneDigits = normalizeMatchPhone(phone || '');
+
+  const normalizeClientRow = (row = {}) => {
+    const full = String(
+      row?.full_name ||
+      row?.name ||
+      [row?.first_name || '', row?.last_name || ''].filter(Boolean).join(' ') ||
+      wantedName ||
+      ''
+    ).trim().replace(/\s+/g, ' ');
+    const dbPhone = String(row?.phone || '').trim();
+    return {
+      id: String(row?.id || '').trim(),
+      code: String(normalizeCode(row?.code ?? wantedCode ?? null) || '').trim(),
+      name: full,
+      phone: dbPhone || phone || '',
+      photo_url: row?.photo_url || '',
+      full_name: row?.full_name || full,
+      first_name: row?.first_name || '',
+      last_name: row?.last_name || '',
+    };
+  };
+
+  const isUsable = (row = {}) => {
+    const id = String(row?.id || '').trim();
+    const rowCode = normalizeCode(row?.code ?? null);
+    if (!id || rowCode == null) return false;
+    if (wantedCode != null && String(rowCode) !== String(wantedCode)) return false;
+    const dbPhoneDigits = normalizeMatchPhone(row?.phone || '');
+    if (wantedPhoneDigits && dbPhoneDigits && wantedPhoneDigits !== dbPhoneDigits) return false;
+    return true;
+  };
+
+  try {
+    if (wantedId) {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id, code, full_name, first_name, last_name, phone, photo_url, updated_at')
+        .eq('id', wantedId)
+        .limit(1)
+        .maybeSingle();
+      if (!error && data && isUsable(data)) return normalizeClientRow(data);
+    }
+  } catch {}
+
+  try {
+    if (wantedCode != null) {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id, code, full_name, first_name, last_name, phone, photo_url, updated_at')
+        .eq('code', wantedCode)
+        .order('updated_at', { ascending: false })
+        .limit(5);
+      if (!error && Array.isArray(data)) {
+        const exactPhone = data.find((row) => isUsable(row) && (!wantedPhoneDigits || normalizeMatchPhone(row?.phone || '') === wantedPhoneDigits));
+        if (exactPhone) return normalizeClientRow(exactPhone);
+        const exactCode = data.find((row) => isUsable(row));
+        if (exactCode) return normalizeClientRow(exactCode);
+      }
+    }
+  } catch {}
+
+  try {
+    const lookup = wantedPhoneDigits || wantedName || (wantedCode != null ? String(wantedCode) : '');
+    if (lookup) {
+      const hits = await searchClientsLive(lookup);
+      const exact = (Array.isArray(hits) ? hits : []).find((row) => isUsable(row));
+      if (exact) return normalizeClientRow(exact);
+    }
+  } catch {}
+
+  return null;
+}
  
 async function uploadPhoto(file, oid, key) {
   if (!file || !oid) return null;
@@ -3084,8 +3162,22 @@ export default function PranimiPage() {
       const explicitName = explicitExisting ? String(entryIntent?.name || '').trim() : '';
       const explicitPhone = explicitExisting ? String(entryIntent?.phone || '').trim() : '';
       const explicitClientId = explicitExisting ? String(entryIntent?.clientId || '').trim() : '';
+      const verifiedExistingClient = explicitExisting
+        ? await resolveExplicitExistingClientHandoff({
+            clientId: explicitClientId,
+            code: permanentCode,
+            name: explicitName,
+            phone: explicitPhone,
+          }).catch(() => null)
+        : null;
+      const lockedExistingCode = explicitExisting
+        ? String(normalizeCode(verifiedExistingClient?.code ?? permanentCode ?? null) || '').trim()
+        : '';
+      const lockedExistingId = explicitExisting ? String(verifiedExistingClient?.id || '').trim() : '';
+      const lockedExistingName = explicitExisting ? String(verifiedExistingClient?.name || explicitName || '').trim() : '';
+      const lockedExistingPhone = explicitExisting ? String(verifiedExistingClient?.phone || explicitPhone || '').trim() : '';
       newOrderUrlClientRef.current = explicitExisting
-        ? { id: explicitClientId, code: permanentCode, name: explicitName, phone: explicitPhone, explicit: true }
+        ? { id: lockedExistingId, code: lockedExistingCode, name: lockedExistingName, phone: lockedExistingPhone, explicit: true }
         : { id: '', code: '', name: '', phone: '', explicit: false };
       clearPranimiEntryHandoff();
       cleanPranimiEntryUrl();
@@ -3108,37 +3200,62 @@ export default function PranimiPage() {
       setOid(id);
       unsuppressDraftId(id);
 
-      // URL/draft/session code is not authoritative for a new PRANIMI create.
-      // Always display a fresh sessionReservedCode tied to this local_oid.
-      codeRawRef.current = '';
-      setCodeRaw('');
-      appendPranimiCodeDebug('new_pranimi_session_started', {
-        local_oid: id,
-        url_code_ignored_for_new_create: permanentCode || null,
-        final_code_reason: permanentCode ? 'URL_CODE_IGNORED_SESSION_RESERVED_PENDING' : 'SESSION_RESERVED_PENDING',
-      });
-      try {
-        const online = typeof navigator === 'undefined' ? true : navigator.onLine;
-        setNetState({ ok: !!online, reason: online ? '' : 'NO_INTERNET' });
-        if (!online) {
-          try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-          try { setOfflineMode(true); } catch {}
-          try { setShowOfflinePrompt(true); } catch {}
+      if (explicitExisting) {
+        if (lockedExistingId && lockedExistingCode) {
+          codeRawRef.current = String(lockedExistingCode);
+          setCodeRaw(String(lockedExistingCode));
+          setCodeReserveUi({ status: 'ready', message: '', raw: '' });
+          appendPranimiCodeDebug('explicit_existing_client_session_started_locked_code', {
+            local_oid: id,
+            selected_client_id: lockedExistingId,
+            selected_client_code: lockedExistingCode,
+            source: entryIntent?.source || '',
+            final_code_reason: 'EXPLICIT_EXISTING_CLIENT_FROM_SEARCH_LOCKED_BEFORE_FORM',
+          });
         } else {
-          try { localStorage.removeItem(OFFLINE_MODE_KEY); } catch {}
-          try { setOfflineMode(false); } catch {}
-          try { setShowOfflinePrompt(false); } catch {}
+          codeRawRef.current = '';
+          setCodeRaw('');
+          setCodeReserveUi({ status: 'error', message: 'KLIENTI EKZISTUES NUK U VERIFIKUA — ZGJEDHE NGA KËRKIMI', raw: 'EXISTING_CLIENT_HANDOFF_NOT_VERIFIED' });
+          appendPranimiCodeDebug('explicit_existing_client_handoff_not_verified_no_temp_code', {
+            local_oid: id,
+            url_client_id: explicitClientId || null,
+            url_code: permanentCode || null,
+            source: entryIntent?.source || '',
+          });
         }
-        void tryReserveCodeInBackground(id, online ? 'online_pranimi_open' : 'offline_pranimi_open');
-      } catch {
-        setNetState({ ok: false, reason: 'CODE_RESERVE_DEFERRED' });
-        void tryReserveCodeInBackground(id, 'reserve_deferred_after_exception');
+      } else {
+        // URL/draft/session code is not authoritative for a new PRANIMI create.
+        // Always display a fresh sessionReservedCode tied to this local_oid.
+        codeRawRef.current = '';
+        setCodeRaw('');
+        appendPranimiCodeDebug('new_pranimi_session_started', {
+          local_oid: id,
+          url_code_ignored_for_new_create: permanentCode || null,
+          final_code_reason: permanentCode ? 'URL_CODE_IGNORED_SESSION_RESERVED_PENDING' : 'SESSION_RESERVED_PENDING',
+        });
+        try {
+          const online = typeof navigator === 'undefined' ? true : navigator.onLine;
+          setNetState({ ok: !!online, reason: online ? '' : 'NO_INTERNET' });
+          if (!online) {
+            try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
+            try { setOfflineMode(true); } catch {}
+            try { setShowOfflinePrompt(true); } catch {}
+          } else {
+            try { localStorage.removeItem(OFFLINE_MODE_KEY); } catch {}
+            try { setOfflineMode(false); } catch {}
+            try { setShowOfflinePrompt(false); } catch {}
+          }
+          void tryReserveCodeInBackground(id, online ? 'online_pranimi_open' : 'offline_pranimi_open');
+        } catch {
+          setNetState({ ok: false, reason: 'CODE_RESERVE_DEFERRED' });
+          void tryReserveCodeInBackground(id, 'reserve_deferred_after_exception');
+        }
       }
 
-      const nextNamePrefill = explicitExisting ? explicitName : '';
+      const nextNamePrefill = explicitExisting ? lockedExistingName : '';
       let nextPhonePrefill = '';
-      if (explicitExisting && explicitPhone) {
-        nextPhonePrefill = normalizeMatchPhone(explicitPhone);
+      if (explicitExisting && lockedExistingPhone) {
+        nextPhonePrefill = normalizeMatchPhone(lockedExistingPhone);
       }
 
       setName(nextNamePrefill);
@@ -3149,12 +3266,18 @@ export default function PranimiPage() {
         setPhone('');
         setNoPhone(false);
       }
-      setClientPhotoUrl('');
+      setClientPhotoUrl(explicitExisting ? String(verifiedExistingClient?.photo_url || '') : '');
       // A historical client is accepted only through explicit handoff/search and exact DB verification.
       // A normal new-client entry stays blank and cannot hydrate by allocated code.
-      setSelectedClient(null);
+      const lockedDecisionCandidate = (explicitExisting && lockedExistingId && lockedExistingCode)
+        ? { id: lockedExistingId, code: String(lockedExistingCode), name: lockedExistingName, phone: lockedExistingPhone }
+        : null;
+      setSelectedClient(lockedDecisionCandidate);
       setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
-      setClientMatchDecision({ matchKey: '', mode: '', candidate: null });
+      setClientMatchDecision(lockedDecisionCandidate
+        ? { matchKey: `explicit_existing:${lockedExistingId}:${lockedExistingCode}`, mode: 'use_existing', candidate: lockedDecisionCandidate }
+        : { matchKey: '', mode: '', candidate: null }
+      );
       setClientQuery('');
       setClientHits([]);
 
@@ -5184,7 +5307,41 @@ export default function PranimiPage() {
         });
       }
 
-      let resolvedSelectedClient = (selectedClient && (isBaseEdit || (rawSelectedClientId && isStrongBaseClientNamePhoneMatch(selectedClient, { name, phone: currentCanonicalPhone })))) ? selectedClient : null;
+      // V477.1 — explicit existing-client lock from search must survive to final save.
+      // When the session was opened through the explicit existing-client handoff
+      // (KRIJO POROSI TË RE PËR KËTË KLIENT) the client was already exact-DB-verified
+      // at boot (resolveExplicitExistingClientHandoff) and is re-verified below through
+      // verifyExistingPranimiClientCode before the historical code is accepted. The
+      // typed phone/name strong-match gate is meant for MANUALLY typed clients, not for
+      // an intentionally selected existing client, so it must not be required here.
+      // Without this, a phoneless (or placeholder-phone) existing client would fail the
+      // strong phone match and silently fall back to a freshly allocated NEW code.
+      // The lock is honoured only while the still-selected client matches the locked
+      // id AND code, so a later manual client change (which clears selectedClient) or a
+      // different selected client cannot force the historical lifecycle.
+      const explicitLockRef = (newOrderUrlClientRef.current && typeof newOrderUrlClientRef.current === 'object') ? newOrderUrlClientRef.current : null;
+      const explicitLockId = String(explicitLockRef?.id || '').trim();
+      const explicitLockCodeNum = normalizeCode(explicitLockRef?.code || null);
+      const isExplicitLockedSelectedClient = !!(
+        explicitLockRef?.explicit === true &&
+        explicitLockId &&
+        explicitLockCodeNum != null &&
+        selectedClient &&
+        rawSelectedClientId &&
+        rawSelectedClientId === explicitLockId &&
+        rawSelectedClientCode != null &&
+        String(rawSelectedClientCode) === String(explicitLockCodeNum)
+      );
+      let resolvedSelectedClient = (selectedClient && (isBaseEdit || isExplicitLockedSelectedClient || (rawSelectedClientId && isStrongBaseClientNamePhoneMatch(selectedClient, { name, phone: currentCanonicalPhone })))) ? selectedClient : null;
+      if (isExplicitLockedSelectedClient) {
+        appendPranimiCodeDebug('explicit_existing_client_lock_preserved_for_final_save', {
+          local_oid: stableLocalOid || String(oid || ''),
+          selected_client_id: explicitLockId,
+          selected_client_code: explicitLockCodeNum,
+          has_phone_match: isStrongBaseClientNamePhoneMatch(selectedClient, { name, phone: currentCanonicalPhone }),
+          final_code_reason: 'EXPLICIT_EXISTING_CLIENT_LOCK_KEPT_HISTORICAL_CODE',
+        });
+      }
       let returningClient = null;
       let finalNamePhoneClient = null;
       let finalLiveLookupFailed = false;
