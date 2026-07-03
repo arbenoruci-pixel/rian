@@ -122,7 +122,9 @@ export async function recordOrderCashPayment(...args) {
   });
 
   if (result?.offlineQueued || result?.queued || result?.localOnly) {
-    await queueOptimisticDeliveryPatch(input);
+    // SAFETY V501: never mark an order paid/dorzim from the client when the
+    // ARKA row exists only as an outbox item. The queued ARKA transaction will
+    // update the order atomically after it reaches /api/arka/transaction.
     const optimisticPayment = {
       id: result?.queuedOpId || result?.idempotencyKey || null,
       status: 'OFFLINE_QUEUED',
@@ -133,14 +135,32 @@ export async function recordOrderCashPayment(...args) {
       idempotency_key: result?.idempotencyKey || null,
     };
     return {
-      ok: true,
+      ok: false,
       ...(result || {}),
+      queued: true,
+      offlineQueued: true,
       pending: true,
       direct: false,
       payment: optimisticPayment,
       row: optimisticPayment,
-      order: { id: orderId, status: 'dorzim', data: input.rawOrder || null, offlineQueued: true },
-      mode: 'ARKA_ENGINE_BASE_ORDER_PAYMENT_OFFLINE_QUEUED',
+      error: 'ARKA_PAYMENT_QUEUED_NOT_MARKED_PAID',
+      mode: 'ARKA_ENGINE_BASE_ORDER_PAYMENT_OFFLINE_QUEUED_SAFE',
+    };
+  }
+
+  const payment = result?.payment || result?.row || null;
+  const order = result?.order || null;
+  if (!payment?.id || !order?.id) {
+    return {
+      ok: false,
+      ...(result || {}),
+      pending: false,
+      direct: false,
+      row: payment,
+      payment,
+      order,
+      error: 'ARKA_PAYMENT_OR_ORDER_VERIFY_FAILED',
+      mode: 'ARKA_ENGINE_BASE_ORDER_PAYMENT_VERIFY_FAILED',
     };
   }
 
@@ -149,7 +169,9 @@ export async function recordOrderCashPayment(...args) {
     ...(result || {}),
     pending: true,
     direct: false,
-    row: result?.payment || result?.row || null,
+    payment,
+    row: payment,
+    order,
     mode: 'ARKA_ENGINE_BASE_ORDER_PAYMENT',
   };
 }

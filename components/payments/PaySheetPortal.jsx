@@ -1,5 +1,4 @@
 'use client';
-import { enqueueOutboxItem } from '@/lib/syncManager';
 import React, { useEffect, useMemo, useState } from "react";
 
 /**
@@ -138,31 +137,24 @@ export default function PaySheetPortal({ open, order, onClose, onSubmit }) {
         ts: Date.now(),
       };
 
-      const offlinePatch = {
-        id: payload.order_id,
-        order_id: payload.order_id,
-        table: order?.table || 'orders',
-        data: {
-          paid: round2(paidToDate + registerExact),
-          paid_eur: round2(paidToDate + registerExact),
-          paid_cash: round2((Number(order?.paid_cash || 0) || 0) + registerExact),
-          updated_at: new Date().toISOString(),
-        },
-        payment_payload: payload,
-      };
-
       const mustQueueOffline =
         (typeof navigator !== 'undefined' && navigator.onLine === false) ||
         !payload.order_id;
 
       if (mustQueueOffline) {
-        enqueueOutboxItem({ op: 'update', kind: 'payment_update', table: offlinePatch.table, payload: offlinePatch, uniqueValue: code });
-        onClose?.();
+        setPayErr('NUK KA INTERNET. Pagesa CASH nuk shënohet si e paguar pa u regjistruar në ARKË. Provo prapë kur të kthehet lidhja.');
         return;
       }
 
-      // YOU CONNECT THIS to your real insert/update logic
-      if (onSubmit) await onSubmit(payload);
+      // SAFETY V502: pagesa CASH duhet te kaloje gjithmone ne ARKA transaction.
+      // Mos e mbyll sheet-in nese prindi nuk ka handler per ARKA ose handler-i kthen gabim.
+      if (typeof onSubmit !== 'function') {
+        throw new Error('PAGESA_NUK_KA_ARKA_SUBMIT_HANDLER');
+      }
+      const submitRes = await onSubmit(payload);
+      if (submitRes?.ok === false) {
+        throw new Error(submitRes?.error || 'ARKA_PAYMENT_FAILED');
+      }
 
       // close on success
       onClose?.();
@@ -170,28 +162,8 @@ export default function PaySheetPortal({ open, order, onClose, onSubmit }) {
       const msg = String(e && (e.message || e.toString()) || '');
       const shouldQueueOffline = /load failed|failed to fetch|fetch failed|networkerror|network request failed/i.test(msg) || (typeof navigator !== 'undefined' && navigator.onLine === false);
       if (shouldQueueOffline) {
-        try {
-          enqueueOutboxItem({
-            op: 'update',
-            kind: 'payment_update',
-            table: order?.table || 'orders',
-            uniqueValue: code,
-            payload: {
-              id: order?.id ?? order?.order_id ?? null,
-              order_id: order?.id ?? order?.order_id ?? null,
-              table: order?.table || 'orders',
-              data: {
-                paid: round2(paidToDate + registerExact),
-                paid_eur: round2(paidToDate + registerExact),
-                paid_cash: round2((Number(order?.paid_cash || 0) || 0) + registerExact),
-                updated_at: new Date().toISOString(),
-              },
-              payment_payload: payload,
-            },
-          });
-          onClose?.();
-          return;
-        } catch {}
+        setPayErr('NUK KA INTERNET. Pagesa CASH nuk shënohet si e paguar pa u regjistruar në ARKË. Provo prapë kur të kthehet lidhja.');
+        return;
       }
       setPayErr(
         (e && (e.message || e.toString())) || "DIÇKA SHKOI GABIM GJATË PAGESËS."

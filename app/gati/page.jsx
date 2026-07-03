@@ -2829,7 +2829,7 @@ function GatiPageInner() {
         .eq('order_id', idNum)
         .eq('type', 'IN')
         .eq('source_module', 'BASE')
-        .in('status', ['PENDING', 'PENDING_DISPATCH_APPROVAL'])
+        .in('status', ['PENDING', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL', 'ACCEPTED_BY_DISPATCH'])
         .order('created_at', { ascending: false })
         .limit(20);
 
@@ -3079,37 +3079,52 @@ BORXHI PAS: ${newDebt.toFixed(2)}€
     const optimisticPayload = withOptimisticArkaRecordedPaid(payload, applied);
 
     setPayBusy(true);
-    setPayErr('U regjistru — sinkronizimi vazhdon në background.');
+    setPayErr('Duke regjistru pagesën dhe dorëzimin...');
 
     try {
+      // SAFETY V501: ARKA must be the first remote write for CASH payments.
+      // The server transaction inserts/reuses arka_pending_payments and updates
+      // the order in one verified flow. We only close the UI after that succeeds.
+      let finalPayload = optimisticPayload;
+
       if (applied > 0) {
-        const tx = buildFastPaymentTransaction({
-          payload,
-          amount: applied,
-          pinData,
-          method: payMethod,
+        setPayErr('Duke regjistru pagesën në ARKË...');
+        const payRes = await recordOrderCashPayment({
+          ...payload,
+          payment_external_id: idempotencyKey,
           idempotencyKey,
-        });
-        try { await queueFastPaymentTransaction(tx); } catch (queueErr) { try { console.warn('[GATI FAST CONFIRM] queue failed; live call will continue', queueErr); } catch {} }
+          idempotency_key: idempotencyKey,
+        }, applied, pinData, payMethod);
+        if (!payRes?.ok || !payRes?.payment?.id || !payRes?.order?.id) {
+          throw new Error(payRes?.error || 'ARKA_PAYMENT_VERIFY_FAILED');
+        }
+        const engineOrder = payRes.order || {};
+        const engineData = (engineOrder?.data && typeof engineOrder.data === 'object') ? engineOrder.data : {};
+        finalPayload = {
+          ...payload,
+          ...engineData,
+          id: String(engineOrder.id || payload.id || orderId),
+          status: engineOrder.status || engineData.status || 'dorzim',
+          state: engineOrder.status || engineData.status || 'dorzim',
+          updated_at: engineOrder.updated_at || engineData.updated_at || actionAt,
+          delivered_at: engineData.delivered_at || payload.delivered_at || actionAt,
+          picked_up_at: engineData.picked_up_at || payload.picked_up_at || actionAt,
+          pay: {
+            ...(payload.pay || {}),
+            ...(engineData.pay || {}),
+          },
+        };
+      } else {
+        await closeOrderStatusWithVerification(orderId, payload);
       }
 
-      await finalizeDeliveredUi(optimisticPayload);
+      await finalizeDeliveredUi(finalPayload);
       showFastPayNotice('U konfirmu. Mund të vazhdosh me klientin tjetër.', 'ok', 3200);
       setPayBusy(false);
-
-      void finishFastDeliverySync({
-        payload,
-        optimisticPayload,
-        applied,
-        pinData,
-        method: payMethod,
-        orderId,
-        idempotencyKey,
-      });
     } catch (err) {
       const rawReason = String(err?.response?.error || err?.message || err || '').trim();
       const friendlyNetworkReason = /load failed|failed to fetch|arka_network_unreachable|arka_offline|network/i.test(rawReason)
-        ? 'RRJETI NUK U PËRGJIGJ. Pagesa mbetet për sync në background nëse u ruajt në outbox.'
+        ? 'RRJETI NUK U PËRGJIGJ. Pagesa nuk shënohet si e paguar pa u regjistruar në ARKË. Provo prapë kur të kthehet lidhja.'
         : rawReason;
       const reasonLine = friendlyNetworkReason ? `
 

@@ -275,17 +275,26 @@ where ch.status = 'ACCEPTED'
   and cbl.source_type = 'cash_handoff'
   and cbl.source_id::text = ch.id::text;
 
--- Close the two false pending payments from the old Marrje date bug.
--- These came from orders that were only updated today, not actually delivered/picked today.
+-- Close only truly false pending payments from the old Marrje date bug.
+-- SAFETY V501: never auto-reject a payment when the linked order is already
+-- dorzim/paid/debt=0. Those rows represent real client handoff payments and
+-- must stay active for ARKA/order alignment.
 update public.arka_pending_payments app
 set status = 'REJECTED',
     note = concat_ws(' | ', nullif(app.note, ''), 'AUTO_REJECT_FALSE_PENDING_UPDATED_AT_DATE_FILTER_20260621'),
     handoff_note = concat_ws(' | ', nullif(app.handoff_note, ''), 'AUTO_REJECT_FALSE_PENDING_UPDATED_AT_DATE_FILTER_20260621'),
     updated_at = now()
+from public.orders o
 where app.id in (1617, 1618)
+  and app.order_id = o.id
   and app.status = 'PENDING'
   and app.created_by_pin::text = '2020'
   and app.order_id in (2071, 2120)
+  and not (
+    lower(coalesce(o.status, o.data->>'status', '')) = 'dorzim'
+    and coalesce((o.data->'pay'->>'paid')::numeric, 0) >= round(app.amount::numeric, 2)
+    and coalesce((o.data->'pay'->>'debt')::numeric, 0) = 0
+  )
   and not exists (
     select 1
     from public.cash_handoff_items chi
