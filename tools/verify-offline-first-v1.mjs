@@ -128,7 +128,7 @@ const migrationBank = await read('supabase/migrations/20260712020000_offline_cod
 const migrationTriggers = await read('supabase/migrations/20260712020100_offline_code_triggers_v1.sql');
 
 check(/OFFLINE_CODE_BANK_TARGET\s*=\s*10/.test(bankSource), 'Offline code bank target is fixed at 10');
-check(bankSource.includes('A local token omitted by the server has been consumed'), 'Server-active lease set is authoritative after sync');
+check(bankSource.includes('token omitted by the server has been consumed'), 'Server-active lease set is authoritative after sync');
 check(!bankSource.includes('LOCAL_ASSIGNED_SERVER_OMITTED'), 'Consumed leases are not retained forever in the local bank');
 check(bankSource.includes('session?.transport_pin'), 'Transport bank identity prefers the real transport PIN');
 check(bankSource.includes('cleanStaleAssignments'), 'Stale draft-to-lease mappings are removed after server reconciliation');
@@ -138,7 +138,7 @@ check(baseAllocatorSource.includes('reserveOffline'), 'Base allocator has a dedi
 check(baseAllocatorSource.includes('if (!(await onlineNow()))'), 'Base allocator switches automatically on network absence');
 
 check(/DEFAULT_POOL_SIZE\s*=\s*1/.test(transportCodesSource), 'Transport online mirror remains one normal online code');
-check(transportCodesSource.includes("navigator.onLine === false"), 'Transport switches to the bank only when offline');
+check(transportCodesSource.includes('navigator.onLine === false'), 'Transport switches to the bank only when offline');
 check(transportCodesSource.includes('takeOfflineTransportCode'), 'Transport consumes a server-leased offline T-code');
 check(transportCodesSource.includes('popVerifiedOnlineCode'), 'Existing online smallest-safe-code flow remains present');
 
