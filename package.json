@@ -1,13 +1,13 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.59-smart-tracking-copy-v1",
+  "version": "2.0.60-offline-first-v1",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
     "dev:api": "node server/index.mjs --dev",
-    "build": "npm run test:smart-sms-exact && vite build",
+    "build": "npm run test:offline-first && npm run test:smart-sms-exact && vite build",
     "preview": "vite preview",
     "server": "node server/index.mjs",
     "cycles": "node tools/viteCircularDependencyPlugin.mjs",
@@ -20,7 +20,8 @@
     "test:pranimi-existing-client-lock": "node tools/verify-pranimi-existing-client-direct-lock-v477-1.mjs",
     "test:transport-permanent-tcode": "node tools/verify-transport-permanent-tcode-v2.mjs",
     "test:transport-server-atomic": "node tools/verify-transport-server-atomic-v2.mjs",
-    "test:smart-sms-exact": "node tools/verify-smart-sms-exact-order-v1.mjs"
+    "test:smart-sms-exact": "node tools/verify-smart-sms-exact-order-v1.mjs",
+    "test:offline-first": "node tools/verify-offline-first-v1.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",
