@@ -1,4 +1,5 @@
 import { buildOrderTrackUrl, buildSmartSmsText } from '../lib/smartSms.js';
+import { rewriteCustomerTrackingText } from '../lib/customerTrackingCopy.js';
 
 const checks = [];
 
@@ -74,10 +75,49 @@ check(transportAcceptedText.includes('Tepihat e juaj u pranuan'), 'Transport cus
 check(!transportAcceptedText.includes('Porosia juaj'), 'Transport customer wording no longer says “Porosia juaj”');
 check(transportAcceptedText.includes(`/k/${transportUuid}?src=transport`), 'Transport Smart SMS contains the exact UUID link');
 
+check(
+  rewriteCustomerTrackingText('Ndiqeni progresin e porosisë suaj në kohë reale.') ===
+    'Tepihat e juaj – ndiqeni progresin në kohë reale.',
+  'Public tracking subtitle says “Tepihat e juaj”',
+);
+
+check(
+  rewriteCustomerTrackingText('Po marrim të dhënat e porosisë suaj.') ===
+    'Po marrim të dhënat për tepihat e juaj.',
+  'Public tracking loading copy refers to the customer rugs',
+);
+
+check(
+  rewriteCustomerTrackingText('Statusi i Porosisë') === 'Statusi i Tepihave',
+  'Public tracking status title says “Statusi i Tepihave”',
+);
+
+check(
+  rewriteCustomerTrackingText('🚐 Marrja e Porosisë') === '🚐 Marrja e Tepihave',
+  'Transport timeline says “Marrja e Tepihave”',
+);
+
+check(
+  rewriteCustomerTrackingText('Porosia ndodhet në Depo!') === 'Tepihat ndodhen në Depo!',
+  'Depot notice refers to the customer rugs',
+);
+
+const customerPageCopy = rewriteCustomerTrackingText([
+  'Ndiqeni progresin e porosisë suaj në kohë reale.',
+  'Po marrim të dhënat e porosisë suaj.',
+  'Statusi i Porosisë',
+  'Porosia ndodhet në Depo!',
+  'Sipas rregullores, porosia është kthyer në depo.',
+  'Keni zgjedhur rikthimin e porosisë.',
+].join('\n'));
+
+check(customerPageCopy.includes('Tepihat e juaj'), 'Combined public page copy includes “Tepihat e juaj”');
+check(!/porosi/i.test(customerPageCopy), 'Combined public page copy contains no customer-facing “porosi” wording');
+
 const failed = checks.filter((item) => !item.ok);
 if (failed.length) {
-  console.error(`\n${failed.length} Smart SMS check(s) failed.`);
+  console.error(`\n${failed.length} Smart SMS/tracking check(s) failed.`);
   process.exit(1);
 }
 
-console.log(`PASS: ${checks.length} Smart SMS exact-order checks passed.`);
+console.log(`PASS: ${checks.length} Smart SMS/tracking exact-order checks passed.`);
