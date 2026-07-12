@@ -123,9 +123,11 @@ const bankSource = await read('lib/offlineCodeBank.js');
 const baseAllocatorSource = await read('lib/pranimiCodeAllocator.js');
 const transportCodesSource = await read('lib/transportCodes.js');
 const runtimeSource = await read('lib/offlineRuntime.js');
+const sessionSource = await read('lib/sessionStore.js');
 const mainSource = await read('src/main.jsx');
 const migrationBank = await read('supabase/migrations/20260712020000_offline_code_bank_v1.sql');
 const migrationTriggers = await read('supabase/migrations/20260712020100_offline_code_triggers_v1.sql');
+const migrationOwnerCap = await read('supabase/migrations/20260712020200_offline_code_owner_cap_v1.sql');
 
 check(/OFFLINE_CODE_BANK_TARGET\s*=\s*10/.test(bankSource), 'Offline code bank target is fixed at 10');
 check(bankSource.includes('token omitted by the server has been consumed'), 'Server-active lease set is authoritative after sync');
@@ -141,6 +143,7 @@ check(/DEFAULT_POOL_SIZE\s*=\s*1/.test(transportCodesSource), 'Transport online 
 check(transportCodesSource.includes('navigator.onLine === false'), 'Transport switches to the bank only when offline');
 check(transportCodesSource.includes('takeOfflineTransportCode'), 'Transport consumes a server-leased offline T-code');
 check(transportCodesSource.includes('popVerifiedOnlineCode'), 'Existing online smallest-safe-code flow remains present');
+check(transportCodesSource.includes('session?.transport_pin'), 'Transport online and offline allocators use the same real owner PIN');
 
 check(runtimeSource.includes('BASE_ACTIVE_STATUSES'), 'Offline snapshot caches Base workflow states');
 check(runtimeSource.includes('TRANSPORT_ACTIVE_STATUSES'), 'Offline snapshot caches Transport workflow states');
@@ -151,14 +154,22 @@ check(runtimeSource.includes('isDirtyLocalRow'), 'Remote snapshots never overwri
 check(runtimeSource.includes("window.addEventListener('offline'"), 'Browser offline event activates offline mode');
 check(runtimeSource.includes("window.addEventListener('online'"), 'Browser online event triggers reconnect and refresh');
 check(mainSource.includes('installOfflineRuntime();'), 'Offline runtime is installed globally at app startup');
+check(sessionSource.includes("'tepiha:session-changed'"), 'Session changes emit a runtime refresh signal');
+check(mainSource.includes('installOfflineSessionRefreshBridge();'), 'Login immediately refreshes snapshots and offline code banks');
 
 check(migrationBank.includes('create table if not exists public.offline_code_leases'), 'Migration creates the server-side lease table');
 check(migrationBank.includes('alter table public.offline_code_leases enable row level security'), 'Lease table has RLS enabled');
 check(migrationBank.includes('revoke all on table public.offline_code_leases'), 'Lease tokens are not directly readable by app roles');
-check(migrationBank.includes('least(greatest(coalesce(p_target,10),1),10)'), 'Server enforces a maximum of 10 active offline codes');
+check(migrationBank.includes('least(greatest(coalesce(p_target,10),1),10)'), 'Server enforces a maximum request size of 10 offline codes');
 check(migrationBank.includes('for update skip locked'), 'Server allocator uses row locks to prevent duplicate leases');
 check(migrationBank.includes('reserve_base_offline_codes'), 'Migration includes Base offline reservation RPC');
 check(migrationBank.includes('reserve_transport_offline_codes'), 'Migration includes Transport offline reservation RPC');
+
+check(migrationOwnerCap.includes("'offline-bank:base:'||clean_pin,0"), 'Base reservation is serialized at the user level');
+check(migrationOwnerCap.includes("'offline-bank:transport:'||clean_owner,0"), 'Transport reservation is serialized at the user level');
+check(migrationOwnerCap.includes('ten exclusive codes per user'), 'Corrective migration documents the per-user cap');
+check(!migrationOwnerCap.includes("'offline-bank:base:'||clean_pin||':'||clean_device"), 'Base cap cannot be multiplied by changing device ID');
+check(!migrationOwnerCap.includes("'offline-bank:transport:'||clean_owner||':'||clean_device"), 'Transport cap cannot be multiplied by changing device ID');
 
 check(migrationTriggers.includes('offline_base_code_lease_before_write'), 'Base DB trigger binds an offline lease before upsert');
 check(migrationTriggers.includes('mark_base_code_used_after_verify'), 'Base DB trigger finalizes only after the exact order exists');
