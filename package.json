@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.57-transport-permanent-tcode-v2",
+  "version": "2.0.58-smart-sms-exact-order-v1",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
@@ -19,11 +19,12 @@
     "test:pranimi-final-status": "node tools/verify-pranimi-final-status-race-v476.mjs",
     "test:pranimi-existing-client-lock": "node tools/verify-pranimi-existing-client-direct-lock-v477-1.mjs",
     "test:transport-permanent-tcode": "node tools/verify-transport-permanent-tcode-v2.mjs",
-    "test:transport-server-atomic": "node tools/verify-transport-server-atomic-v2.mjs"
+    "test:transport-server-atomic": "node tools/verify-transport-server-atomic-v2.mjs",
+    "test:smart-sms-exact": "node tools/verify-smart-sms-exact-order-v1.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",
-    "cors": "^2.8.5",
+    "cors": "^4.21.2",
     "express": "^4.21.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.2",
