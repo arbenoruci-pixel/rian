@@ -120,6 +120,7 @@ const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 }
 
 const bankSource = await read('lib/offlineCodeBank.js');
+const localDbSource = await read('lib/localDb.js');
 const baseAllocatorSource = await read('lib/pranimiCodeAllocator.js');
 const transportCodesSource = await read('lib/transportCodes.js');
 const runtimeSource = await read('lib/offlineRuntime.js');
@@ -134,6 +135,11 @@ check(bankSource.includes('token omitted by the server has been consumed'), 'Ser
 check(!bankSource.includes('LOCAL_ASSIGNED_SERVER_OMITTED'), 'Consumed leases are not retained forever in the local bank');
 check(bankSource.includes('session?.transport_pin'), 'Transport bank identity prefers the real transport PIN');
 check(bankSource.includes('cleanStaleAssignments'), 'Stale draft-to-lease mappings are removed after server reconciliation');
+
+check(localDbSource.includes('precommitOfflineCodeBankMeta'), 'Offline bank has a synchronous local durability precommit');
+check(/export async function putValue\(storeName, value\) \{\s*precommitOfflineCodeBankMeta\(storeName, value\);\s*const db = await openAppDb\(\);/m.test(localDbSource), 'Offline bank precommit runs before the first IndexedDB await');
+check(localDbSource.includes('tepiha_offline_code_bank_summary_v1'), 'Durable precommit updates the synchronous bank summary');
+check(localDbSource.includes("tepiha:offline-code-bank-changed"), 'Durable precommit refreshes the visible offline bank state immediately');
 
 check(baseAllocatorSource.includes("source: 'OFFLINE_BANK'"), 'Base allocator supports an explicit offline-bank source');
 check(baseAllocatorSource.includes('reserveOffline'), 'Base allocator has a dedicated offline reservation dependency');
