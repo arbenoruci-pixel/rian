@@ -178,10 +178,29 @@ function installVitePreloadPassiveGuard() {
   } catch {}
 }
 
+function installOfflineSessionRefreshBridge() {
+  if (typeof window === 'undefined') return;
+  let timer = null;
+  try {
+    window.addEventListener('tepiha:session-changed', () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        try {
+          window.__TEPIHA_OFFLINE_RUNTIME__?.refresh?.({
+            source: 'session-changed',
+            forceClients: false,
+          });
+        } catch {}
+      }, 180);
+    }, { passive: true });
+  } catch {}
+}
+
 installVitePreloadPassiveGuard();
 detectLegacyServiceWorkerPassively();
 installCustomerTrackingCopyFix();
 installOfflineRuntime();
+installOfflineSessionRefreshBridge();
 
 try {
   window.__TEPIHA_REACT_READY__ = true;
