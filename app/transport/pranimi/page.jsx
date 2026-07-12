@@ -1,8 +1,14 @@
 "use client";
 import { computeM2FromRows } from '@/lib/baseCodes';
-import { reserveTransportCode } from '@/lib/transportCodes';
+import { clearTransportCodeReservationForOrder, getTransportCodeReservationForOrder, releaseTransportCodeIfUnused, reserveTransportCode } from '@/lib/transportCodes';
 import { normalizePhoneDigits } from '@/lib/transport/clientCodes';
-import { upsertTransportClient, insertTransportOrder } from '@/lib/transport/transportDb';
+import { findTransportClientByPhoneOnly as findTransportClientByPhoneCanonical, insertTransportOrder } from '@/lib/transport/transportDb';
+import {
+  isValidTransportPhoneDigits,
+  normalizeTransportPhoneKey,
+  sameTransportPhoneDigits as sameTransportPhone,
+  transportPhoneDigitVariants as buildTransportPhoneVariants,
+} from '@/lib/transport/phone';
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import { supabase, storageWithTimeout, withSupabaseTimeout } from '@/lib/supabaseClient';
@@ -245,39 +251,6 @@ function readClientCodeMap(tid) {
   } catch {
     return {};
   }
-}
-
-function normalizeTransportPhoneKey(value) {
-  let digits = normalizePhoneDigits(value);
-  if (digits.startsWith('00383')) digits = digits.slice(5);
-  else if (digits.startsWith('383') && digits.length >= 10) digits = digits.slice(3);
-  if (digits.startsWith('0') && digits.length >= 8) digits = digits.replace(/^0+/, '');
-  return digits;
-}
-
-function isValidTransportPhoneDigits(value) {
-  const key = normalizeTransportPhoneKey(value);
-  return key.length >= 8;
-}
-
-function buildTransportPhoneVariants(value) {
-  const raw = normalizePhoneDigits(value);
-  const key = normalizeTransportPhoneKey(raw);
-  const variants = new Set();
-  if (raw) variants.add(raw);
-  if (key) {
-    variants.add(key);
-    variants.add(`0${key}`);
-    variants.add(`383${key}`);
-    variants.add(`00383${key}`);
-  }
-  return Array.from(variants).filter(Boolean);
-}
-
-function sameTransportPhone(a, b) {
-  const ka = normalizeTransportPhoneKey(a);
-  const kb = normalizeTransportPhoneKey(b);
-  return !!ka && !!kb && ka === kb;
 }
 
 function normalizeTransportStatusForVerify(value = '') {
@@ -539,8 +512,11 @@ async function findTransportClientByPhoneOnly(phoneValue, options = {}) {
     if (typeof query?.timeout === 'function') query = query.timeout(timeoutMs, 'TRANSPORT_PHONE_CLIENT_TIMEOUT');
     if (signal && typeof query?.abortSignal === 'function') query = query.abortSignal(signal);
     const { data, error } = await query;
-    if (!error) (Array.isArray(data) ? data : []).forEach(pushCandidate);
-  } catch {}
+    if (error) throw error;
+    (Array.isArray(data) ? data : []).forEach(pushCandidate);
+  } catch (error) {
+    throw new Error(`TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED: ${error?.message || error || 'UNKNOWN'}`);
+  }
 
   if (!candidates.length) {
     // If transport_clients is missing a row, recover from global transport order history.
@@ -861,11 +837,16 @@ function readAllDraftsLocal(scopeTid = '') {
     .sort((a, b) => (b.ts || 0) - (a.ts || 0));
 }
 function buildDraftPayload(d = {}, scopeTid = '') {
+  const nextPrefix = String(d?.phonePrefix || '+383').trim() || '+383';
+  const nextPhone = String(d?.phone || '').trim();
   return {
     ...d,
     id: d.id,
     ts: Date.now(),
     transport_id: String(scopeTid || d?.transport_id || '').trim() || null,
+    phonePrefix: nextPrefix,
+    phone: nextPhone,
+    phoneFull: String(d?.phoneFull || buildTransportPhoneDigits(nextPrefix, nextPhone) || '').trim(),
     addressDesc: d?.addressDesc ?? '',
     gpsLat: d?.gpsLat ?? '',
     gpsLng: d?.gpsLng ?? '',
@@ -1215,31 +1196,7 @@ function PranimiPageInner() {
   }, []);
 
 
-  useEffect(() => {
-    if (creating || isEdit || !oid) return;
-    if (codeRaw && normalizeTcode(codeRaw) !== 'T0') return;
-
-    const tid = getCurrentDraftTransportId();
-    if (!tid) return;
-
-    // Keep the worker-friendly behavior: show an official order T-code shortly after opening.
-    // Existing transport_clients.tcode is only a client identity now; it must not replace the order code.
-    try { clearTimeout(codeWarmupTimerRef.current); } catch {}
-    let alive = true;
-    codeWarmupTimerRef.current = setTimeout(() => {
-      void (async () => {
-        const fresh = await getOrReserveTransportCode(tid, { oid }).catch(() => '');
-        if (!alive || !fresh) return;
-        setCodeRaw(normalizeTcode(fresh));
-      })();
-    }, 650);
-
-    return () => {
-      alive = false;
-      try { clearTimeout(codeWarmupTimerRef.current); } catch {}
-    };
-  }, [creating, isEdit, oid, actor?.role, me?.transport_id, assignTid, codeRaw, clientTcode]);
-
+  // T-codes are allocated only on final save for a genuinely new client.
   useEffect(() => {
     try {
       const browserOffline = isBrowserTransportOffline();
@@ -1419,6 +1376,7 @@ function PranimiPageInner() {
         codeRaw,
         name,
         phone,
+        phonePrefix,
         tepihaRows,
         stazaRows,
         stairsQty,
@@ -1571,9 +1529,9 @@ function PranimiPageInner() {
       }
       setClientId(c.id || null);
       if (tc && tc !== 'T0') {
-        // transport_clients.tcode identifies the client only.
-        // Never copy it into codeRaw, otherwise old/cancelled/deferred T-codes leak into new orders.
+        // The Transport client keeps one permanent T-code across every visit.
         setClientTcode(tc);
+        setCodeRaw(tc);
       }
       if (c.address) setAddressDesc(c.address);
       if (c.gps_lat !== '' && c.gps_lat != null) setGpsLat(c.gps_lat);
@@ -1605,8 +1563,8 @@ function PranimiPageInner() {
   function resetAcceptedTransportClientIdentity() {
       setClientId(null);
       setClientTcode('');
-      // Do not clear codeRaw here: codeRaw is the official reserved order code.
-      // Phone/client changes must not swap the order code with a transport_clients.tcode.
+      setCodeRaw('');
+      // A changed phone starts a fresh identity lookup. No T-code is reserved before final save.
       setTransportClientMatchPrompt({ open: false, matchKey: '', candidate: null, phoneDigits: '' });
       setTransportClientMatchDecision({ matchKey: '', mode: '' });
   }
@@ -1661,6 +1619,9 @@ function PranimiPageInner() {
       const code = normalizeTcode(codeRaw || clientTcode);
       const phoneFull = buildTransportPhoneDigits(phonePrefix, phone);
       return {
+        id: oid,
+        order_id: oid,
+        public_order_id: oid,
         client_name: String(name || '').trim(),
         client_phone: phoneFull,
         phone: phoneFull,
@@ -1765,11 +1726,22 @@ function PranimiPageInner() {
       const phoneDigits = normalizePhoneDigits(phoneFull);
       const phoneKey = normalizeTransportPhoneKey(phoneFull);
       const phoneIsValidForMatch = isValidTransportPhoneDigits(phoneKey);
+      if (!phoneIsValidForMatch) {
+        setSavingContinue(false);
+        alert('TELEFONI NUK ËSHTË VALID. SHKRUAJ NUMËR ME SË PAKU 8 SHIFRA.');
+        return;
+      }
       const actorPin = String(actor?.pin || me?.pin || me?.transport_pin || '').trim();
       const actorName = String(actor?.name || me?.name || me?.full_name || me?.username || displayTransportName(actorPin, transportUserNameMap, '') || '').trim();
       let existingPhoneClient = null;
       if (!isEdit && phoneIsValidForMatch) {
-        existingPhoneClient = await findTransportClientByPhoneOnly(phoneFull, { timeoutMs: 5500 }).catch(() => null);
+        try {
+          existingPhoneClient = await findTransportClientByPhoneCanonical(phoneFull, { timeoutMs: 5500 });
+        } catch (lookupError) {
+          setSavingContinue(false);
+          alert(`NUK U VERIFIKUA TELEFONI NË DB. POROSIA NUK U RUAJT. ${lookupError?.message || ''}`.trim());
+          return;
+        }
         if (existingPhoneClient && !isSelectedTransportPhoneClient(existingPhoneClient)) {
           const matchKey = buildTransportPhoneMatchKey(existingPhoneClient, phoneFull);
           if (!(String(transportClientMatchDecision?.matchKey || '') === matchKey && transportClientMatchDecision?.mode === 'use_existing')) {
@@ -1781,36 +1753,54 @@ function PranimiPageInner() {
         }
       }
 
-      const acceptedExistingByPhone = Boolean(existingPhoneClient || isAcceptedTransportClientForCurrentPhone());
-      let clientBookTcode = String((existingPhoneClient?.tcode || (acceptedExistingByPhone ? clientTcode : '')) || '').toUpperCase().trim();
+      const acceptedExistingByPhone = isEdit ? isAcceptedTransportClientForCurrentPhone() : Boolean(existingPhoneClient);
+      let clientBookTcode = officialTransportCode(existingPhoneClient?.tcode || (acceptedExistingByPhone ? clientTcode : ''));
       let nextClientId = existingPhoneClient?.id || (acceptedExistingByPhone ? clientId : null) || null;
+      if (!isEdit && acceptedExistingByPhone && clientBookTcode) {
+        const staleDraftReservation = getTransportCodeReservationForOrder(oid);
+        if (staleDraftReservation && staleDraftReservation !== clientBookTcode) {
+          try { await releaseTransportCodeIfUnused(staleDraftReservation, ''); } catch {}
+        }
+        clearTransportCodeReservationForOrder(oid);
+      }
+      let reservedNewTcode = '';
+      let officialOrderTcode = '';
 
-      // New order code is always official and reserved for this order/session.
-      // Existing transport_clients.tcode / data.client.tcode are client identity only.
-      let officialOrderTcode = officialTransportCode(codeRaw);
-      if (!isEdit && (!officialOrderTcode || officialOrderTcode === 'T0')) {
+      if (isEdit) {
+        officialOrderTcode = officialTransportCode(
+          editDataForTransport?.transport_client_tcode ||
+          editDataForTransport?.client_tcode ||
+          editDataForTransport?.client?.transport_client_tcode ||
+          clientBookTcode ||
+          editDataForTransport?.code_str ||
+          editDataForTransport?.order_code ||
+          codeRaw
+        );
+      } else if (acceptedExistingByPhone) {
+        officialOrderTcode = clientBookTcode;
+      } else {
         try {
           const fresh = await getOrReserveTransportCode(tid, { oid });
-          if (fresh) {
-            officialOrderTcode = officialTransportCode(fresh);
-            setCodeRaw(officialOrderTcode);
-          }
-        } catch {}
+          officialOrderTcode = officialTransportCode(fresh);
+          reservedNewTcode = officialOrderTcode;
+        } catch (reserveError) {
+          setSavingContinue(false);
+          alert(`S'U REZERVUA T-KODI PËR KLIENTIN E RI. ${reserveError?.message || ''}`.trim());
+          return;
+        }
       }
-      if (isEdit) {
-        officialOrderTcode = officialTransportCode(editDataForTransport?.code_str || editDataForTransport?.order_code || codeRaw || clientBookTcode);
-      }
-      if (!officialOrderTcode || officialOrderTcode === 'T0' || officialOrderTcode === '0') {
-        // S’ka kod => ruaje si draft dhe mos e humb klientin
-        try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
-        try { localStorage.setItem(OFFLINE_MODE_KEY, '1'); } catch {}
-        alert('⚠️ S’MORI T-KOD. U RUAJT SI DRAFT. Provo prap kur të ketë lidhje.');
+
+      if (!officialOrderTcode || officialOrderTcode === 'T0') {
+        try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw, name, phone, phonePrefix, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
+        alert('S’MORI T-KOD. U RUAJT SI DRAFT. Provo prap online.');
         setSavingContinue(false);
         return;
       }
-      // Do not create/update transport_clients before transport_order is verified.
-      // Live test showed client-only success can happen; SMS must wait for DB transport_order.
+
+      clientBookTcode = clientBookTcode || officialOrderTcode;
       setCodeRaw(officialOrderTcode);
+      setClientTcode(clientBookTcode);
+      // DB/RPC creates or reuses the client and verifies the exact order before Smart SMS.
       const order = {
           id: oid, ts: Date.now(),
           client: { id: nextClientId, tcode: officialOrderTcode, name: cleanClientName, phone: phoneFull, code: officialOrderTcode, order_code: officialOrderTcode, official_order_code: officialOrderTcode, transport_client_tcode: clientBookTcode || null, photoUrl: clientPhotoUrl, address: addressDesc, gps: { lat: gpsLat || null, lng: gpsLng || null } },
@@ -1819,24 +1809,8 @@ function PranimiPageInner() {
           notes
       };
       
-      // Visit number (how many times this client has had an order)
-      let visitNr = 1;
-      try {
-        if (clientBookTcode) {
-          const vrows = await listTransportOrders({
-            select: 'visit_nr',
-            eq: { client_tcode: clientBookTcode },
-            orderBy: 'visit_nr',
-            ascending: false,
-            limit: 1,
-          }).catch(() => []);
-          if (Array.isArray(vrows) && vrows[0]) {
-            const last = Number(vrows[0].visit_nr || 0);
-            visitNr = (Number.isFinite(last) ? last : 0) + 1;
-          }
-        }
-      } catch {}
-      if (!Number.isFinite(visitNr) || visitNr < 1) visitNr = 1;
+      // The DB assigns visit_nr under an advisory lock for the permanent client T-code.
+      const visitNr = null;
       const pickupDate = String(searchParams?.get('pickup_date') || searchParams?.get('date') || '').trim() || localYmd();
       const pickupSlot = String(searchParams?.get('pickup_slot') || searchParams?.get('slot') || '').trim().toLowerCase() || defaultTransportPickupSlot();
       const nextStatus = isEdit ? getAdvancedTransportStatus(editRowStatus, createStatus) : createStatus;
@@ -1910,9 +1884,9 @@ function PranimiPageInner() {
           await updateTransportOrderById(oid, payload);
           await withSupabaseTimeout(syncNow({ scope: 'transport', source: 'transport_pranimi_edit' }), 3000, 'TRANSPORT_PRANIMI_EDIT_SYNC_FAST_TIMEOUT', { source: 'transport_pranimi_edit' }).catch(() => ({ ok: false, deferred: true }));
         } else {
-          // Online path: write transport_order directly and verify the DB row before any SMS/WhatsApp success.
-          // Offline/local queue is still supported, but it is explicitly NOT a success state and does not open SMS.
-          await createTransportOrderOnlineVerifiedOrQueue(
+          // Atomic DB path: phone lookup, permanent client T-code and exact order UUID
+          // are verified before Smart SMS can open.
+          const verifiedOrder = await createTransportOrderOnlineVerifiedOrQueue(
             payload,
             {
               id: oid,
@@ -1933,49 +1907,27 @@ function PranimiPageInner() {
             { forceOffline: isBrowserTransportOffline(), netOk: netState?.ok }
           );
 
-          // Only after transport_order exists remotely, create/reuse the transport_client.
-          // This prevents the live failure mode: transport_client row + SMS, but no transport_order in PIKAP.
-          const clientLink = await upsertTransportClient({
-            id: nextClientId || undefined,
-            name: cleanClientName,
-            phone: phoneFull,
-            phone_digits: phoneDigits,
-            tcode: clientBookTcode || officialOrderTcode,
-            address: addressDesc || '',
-            gps_lat: gpsLat ?? null,
-            gps_lng: gpsLng ?? null,
-            notes: notes || ''
-          }).catch((err) => ({ ok: false, error: String(err?.message || err || 'TRANSPORT_CLIENT_LINK_FAILED') }));
-
-          if (clientLink?.ok && (clientLink?.id || clientLink?.client_id)) {
-            nextClientId = clientLink?.id || clientLink?.client_id || nextClientId || null;
-            clientBookTcode = String((clientLink?.tcode || clientBookTcode || '') || '').toUpperCase().trim();
-            setClientId(nextClientId || null);
-            setClientTcode(clientBookTcode);
-
-            const linkedData = {
-              ...(payload.data || {}),
-              client_id: nextClientId || null,
-              transport_client_tcode: clientBookTcode || null,
-              client: {
-                ...((payload.data?.client && typeof payload.data.client === 'object') ? payload.data.client : {}),
-                id: nextClientId || null,
-                transport_client_tcode: clientBookTcode || null,
-              },
-            };
-            await updateTransportOrderById(oid, {
-              client_id: nextClientId || null,
-              updated_at: new Date().toISOString(),
-              data: linkedData,
-            }).catch((linkErr) => {
-              console.warn('transport_order client_id link failed after verified create:', linkErr?.message || linkErr);
-            });
-          } else {
-            console.warn('transport_client link skipped/failed after verified order create:', clientLink?.error || 'UNKNOWN');
+          nextClientId = verifiedOrder?.client_id || nextClientId || null;
+          clientBookTcode = officialTransportCode(
+            verifiedOrder?.client_tcode ||
+            verifiedOrder?.data?.transport_client_tcode ||
+            verifiedOrder?.data?.client?.transport_client_tcode ||
+            clientBookTcode ||
+            officialOrderTcode
+          );
+          if (!nextClientId || !clientBookTcode) {
+            throw decorateTransportSaveError(new Error('TRANSPORT_CLIENT_LINK_NOT_VERIFIED'), { noOfflineQueue: true });
           }
+          if (clientBookTcode !== officialOrderTcode) {
+            throw decorateTransportSaveError(new Error(`TRANSPORT_PERMANENT_TCODE_MISMATCH: ${officialOrderTcode} / ${clientBookTcode}`), { noOfflineQueue: true });
+          }
+          setClientId(nextClientId);
+          setClientTcode(clientBookTcode);
+          setCodeRaw(clientBookTcode);
         }
 
         removeDraftLocal(oid);
+        clearTransportCodeReservationForOrder(oid);
         setSavingContinue(false);
 
         if(autoMsgAfterSave) { setMsgKind('start'); setShowMsgSheet(true); } // ✅ HAP MESAZHIN
@@ -1996,6 +1948,9 @@ function PranimiPageInner() {
               }
             }
           } catch {}
+          if (!queuedTransportOffline && reservedNewTcode) {
+            try { await releaseTransportCodeIfUnused(reservedNewTcode, tid); } catch {}
+          }
           if (!queuedTransportOffline) {
             try {
               upsertDraftLocal(buildDraftPayload({
@@ -2003,6 +1958,7 @@ function PranimiPageInner() {
                 codeRaw: officialOrderTcode || codeRaw,
                 name,
                 phone,
+                phonePrefix,
                 tepihaRows,
                 stazaRows,
                 stairsQty,
@@ -2208,7 +2164,11 @@ function PranimiPageInner() {
   // --- DRAFTS ---
   function openDrafts() { setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); setShowDraftsSheet(true); }
   function loadDraft(d) {
-      setOid(d.id); setCodeRaw(d.codeRaw); setName(d.name || ''); setPhone(d.phone || ''); 
+      const draftPhone = splitTransportPhoneForForm(
+        d?.phoneFull || (d?.phonePrefix ? `${d.phonePrefix}${d?.phone || ''}` : d?.phone || ''),
+        d?.phonePrefix || phonePrefix
+      );
+      setOid(d.id); setCodeRaw(d.codeRaw); setName(d.name || ''); setPhonePrefix(draftPhone.prefix); setPhone(draftPhone.local); 
       setTepihaRows(d.tepihaRows||[]); setStazaRows(d.stazaRows||[]); setClientPaid(d.clientPaid||0);
       priceSourceRef.current = 'draft';
       setPricePerM2(Number(d.pricePerM2 || PRICE_DEFAULT));
@@ -2269,6 +2229,7 @@ function PranimiPageInner() {
             codeRaw,
             name,
             phone,
+            phonePrefix,
             tepihaRows,
             stazaRows,
             stairsQty,

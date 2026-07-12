@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.55-arka-order-integrity-v502",
+  "version": "2.0.57-transport-permanent-tcode-v2",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
@@ -17,7 +17,9 @@
     "test:dispatch-date": "node tools/verify-dispatch-marrje-date-fix.mjs",
     "test:pranimi-new-client-mode": "node tools/verify-pranimi-new-client-mode-v473.mjs",
     "test:pranimi-final-status": "node tools/verify-pranimi-final-status-race-v476.mjs",
-    "test:pranimi-existing-client-lock": "node tools/verify-pranimi-existing-client-direct-lock-v477-1.mjs"
+    "test:pranimi-existing-client-lock": "node tools/verify-pranimi-existing-client-direct-lock-v477-1.mjs",
+    "test:transport-permanent-tcode": "node tools/verify-transport-permanent-tcode-v2.mjs",
+    "test:transport-server-atomic": "node tools/verify-transport-server-atomic-v2.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",

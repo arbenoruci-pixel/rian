@@ -13,6 +13,7 @@ const SLOT_OPTIONS = [
   { value: 'evening', label: 'MBRËMJE', time: '18:00 – 21:00', startHour: 18, endHour: 21 },
 ];
 const CLOSED_STATUSES = new Set(['done', 'cancelled', 'canceled', 'rejected']);
+const PUBLIC_BOOKING_ID_KEY = 'tepiha_public_booking_uuid_v2';
 
 function getTodayYmd(now = new Date()) {
   const y = now.getFullYear();
@@ -66,6 +67,27 @@ async function loadCapacityForDate(dateYmd) {
   return { total, slotCounts };
 }
 
+function createPublicBookingUuid() {
+  try { if (globalThis?.crypto?.randomUUID) return globalThis.crypto.randomUUID(); } catch {}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const r = Math.floor(Math.random() * 16);
+    const v = ch === 'x' ? r : ((r & 0x3) | 0x8);
+    return v.toString(16);
+  });
+}
+
+function getOrCreatePublicBookingUuid() {
+  try {
+    const stored = String(globalThis?.sessionStorage?.getItem(PUBLIC_BOOKING_ID_KEY) || '').trim();
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(stored)) return stored;
+    const next = createPublicBookingUuid();
+    globalThis?.sessionStorage?.setItem(PUBLIC_BOOKING_ID_KEY, next);
+    return next;
+  } catch {
+    return createPublicBookingUuid();
+  }
+}
+
 const EMPTY_FORM = {
   name: '',
   phone: '',
@@ -92,6 +114,8 @@ export default function PremiumBookingPage() {
   const [submitError, setSubmitError] = useState('');
   const uiReadyMarkedRef = useRef(false);
   const submitAbortRef = useRef(null);
+  const bookingIdRef = useRef('');
+  if (!bookingIdRef.current) bookingIdRef.current = getOrCreatePublicBookingUuid();
 
   const successInfo = useMemo(() => {
     const ok = searchParams?.get('ok') === '1';
@@ -114,6 +138,9 @@ export default function PremiumBookingPage() {
 
   useEffect(() => {
     setHydrated(true);
+    if (successInfo) {
+      try { globalThis?.sessionStorage?.removeItem(PUBLIC_BOOKING_ID_KEY); } catch {}
+    }
     const now = new Date();
     const todayYmd = getTodayYmd(now);
     const defaultSlot = getDefaultSlot(now);
@@ -354,6 +381,7 @@ export default function PremiumBookingPage() {
         {displayError ? <div style={styles.errorBox}>⚠️ {displayError}</div> : null}
 
         <form onSubmit={handleSubmit} style={styles.formContainer}>
+          <input type="hidden" name="bookingId" value={bookingIdRef.current} />
           <input type="hidden" name="pickupSlot" value={formData.pickupSlot || ''} />
           <input type="hidden" name="pickupWindow" value={selectedSlotLabel || ''} />
           <input type="hidden" name="lat" value={formData.lat ?? ''} />

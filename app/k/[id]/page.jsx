@@ -53,11 +53,14 @@ function formatMoney(value) {
 
 function getCode(order) {
   return String(
-    order?.code_str ||
-      order?.client_tcode ||
+    order?.client_tcode ||
+      order?.data?.transport_client_tcode ||
+      order?.data?.client_tcode ||
+      order?.data?.client?.transport_client_tcode ||
+      order?.data?.client?.tcode ||
+      order?.code_str ||
       order?.code ||
       order?.data?.code ||
-      order?.data?.client_tcode ||
       '-'
   );
 }
@@ -117,9 +120,9 @@ function OrderTrackingPageInner() {
           }
         }
 
-        // Tracking i transportit duhet të pranojë si T43 ashtu edhe 43.
-        // Për këto raste provo gjithmonë client_tcode te transport_orders para fallback-eve të tjera.
-        if (!resolved && (srcHint === 'transport' || isTransportCode || isShortNumeric)) {
+        // Kodet e vjetra T43/43 vazhdojne te hapen si fallback. UUID-ja e SMS Smart
+        // kalon direkt ne lookup sipas ID-se ekzakte dhe nuk kerkon klientin me T-kod.
+        if (!resolved && (isTransportCode || isShortNumeric)) {
           const transportLookupKey = isShortNumeric ? `T${rawId}` : rawId.toUpperCase();
           const transportByCode = await findLatestOrderByCode('transport_orders', transportLookupKey, '*');
           if (transportByCode) {

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { APP_VERSION, APP_DATA_EPOCH } from '../lib/appEpoch.js';
-import { sanitizeTransportOrderPayload } from '../lib/transport/sanitize.js';
+import { createTransportOrderAtomicServer, isValidTransportPhoneServer } from '../lib/transport/transportServer.js';
 import backupLatestHandler from '../api/backup/latest.js';
 import backupRunHandler from '../api/backup/run.js';
 import backupDatesHandler from '../api/backup/dates.js';
@@ -361,6 +361,7 @@ app.post('/api/public-booking', upload.none(), async (req, res) => {
   const SLOT_WINDOWS = { morning: '09:00 – 13:00', evening: '18:00 – 21:00' };
   try {
     const form = req.body || {};
+    const bookingId = cleanText(form.bookingId || form.booking_id);
     const name = cleanText(form.name);
     const phone = cleanText(form.phone);
     const address = cleanText(form.address);
@@ -374,6 +375,9 @@ app.post('/api/public-booking', upload.none(), async (req, res) => {
 
     if (!name || !phone || !address || !pickupDate || !pickupSlot) {
       return res.redirect(303, `/porosit?err=${encodeURIComponent('Ju lutem plotësoni fushat e detyrueshme dhe zgjidhni orarin.')}`);
+    }
+    if (!isValidTransportPhoneServer(phone)) {
+      return res.redirect(303, `/porosit?err=${encodeURIComponent('Numri i telefonit nuk është valid.')}`);
     }
     if (!SLOT_WINDOWS[pickupSlot]) {
       return res.redirect(303, `/porosit?err=${encodeURIComponent('Orari i zgjedhur nuk është valid.')}`);
@@ -408,9 +412,18 @@ app.post('/api/public-booking', upload.none(), async (req, res) => {
         pickup_window: pickupWindow,
       },
     };
-    const payload = sanitizeTransportOrderPayload(rawPayload);
-    const { error } = await admin.from('transport_orders').insert(payload).select('id').maybeSingle();
-    if (error) throw error;
+    const created = await createTransportOrderAtomicServer(admin, {
+      id: bookingId,
+      client_name: name,
+      client_phone: phone,
+      address,
+      gps_lat: lat,
+      gps_lng: lng,
+      status: 'inbox',
+      owner: 'ONLINE_BOOKING',
+      data: rawPayload.data,
+    });
+    if (!created?.ok || !created?.data?.id) throw new Error('PUBLIC_BOOKING_TRANSPORT_ORDER_NOT_VERIFIED');
 
     const nextUrl = new URL('/porosit', 'http://local');
     nextUrl.searchParams.set('ok', '1');

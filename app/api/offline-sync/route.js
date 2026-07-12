@@ -5,13 +5,40 @@
  - Nuk bllokon queue-n e pajisjes lokale!
 */
 
+import { createHash } from 'node:crypto';
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeTransportOrderPayload } from '@/lib/transport/sanitize';
+import { createTransportOrderAtomicServer } from '@/lib/transport/transportServer';
 import { runArkaTransaction } from '@/lib/arka/arkaEngine';
 export const dynamic = 'force-dynamic';
 
 const PG_DUPLICATE = "23505";
+
+function stableTransportOrderUuid(value) {
+  const raw = String(value || '').trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw)) return raw;
+  const hex = createHash('sha256').update(`transport-offline:${raw || 'missing'}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+function readTransportOfflineCode(row = {}) {
+  const data = row?.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {};
+  const client = data?.client && typeof data.client === 'object' && !Array.isArray(data.client) ? data.client : {};
+  return String(
+    row?.code_str ||
+    row?.client_tcode ||
+    data?.code_str ||
+    data?.order_code ||
+    data?.official_order_code ||
+    data?.order_tcode ||
+    data?.transport_client_tcode ||
+    client?.transport_client_tcode ||
+    client?.tcode ||
+    client?.code ||
+    ''
+  ).trim();
+}
 
 function pickTable(body) {
   const t = String(
@@ -268,32 +295,64 @@ export async function POST(req) {
       const row = { ...(raw || {}) };
 
       // ------------------------------------------
-      // TRANSPORT: upsert straight into transport_orders
+      // TRANSPORT: exact UUID + atomic permanent-T-code save.
+      // This route must never bypass the same phone lookup used by Self Entry.
       // ------------------------------------------
       if (table === "transport_orders") {
-        // Ensure we have a stable id
-        const oid = String(row.id || row.local_oid || localId || "").trim();
-        if (oid) row.id = oid;
-        if (!row.local_oid && row.id) row.local_oid = String(row.id);
-        if (!row.data || typeof row.data !== 'object') {
-          row.data = {
-            client: {
-              name: row.client_name || 'Offline',
-              phone: row.client_phone || '',
+        const rawLocalId = String(row.id || row.local_oid || localId || "").trim();
+        const orderId = stableTransportOrderUuid(rawLocalId);
+        const rowData = row?.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {};
+        const rowClient = rowData?.client && typeof rowData.client === 'object' && !Array.isArray(rowData.client) ? rowData.client : {};
+        const clientName = String(row.client_name || rowData.client_name || rowClient.name || 'Offline').trim();
+        const clientPhone = String(row.client_phone || rowData.client_phone || rowClient.phone || '').trim();
+        const suppliedCode = readTransportOfflineCode(row);
+        const owner = String(
+          row.code_owner ||
+          rowData.created_by_pin ||
+          rowData.transport_pin ||
+          rowData.driver_pin ||
+          'OFFLINE_SYNC'
+        ).trim() || 'OFFLINE_SYNC';
+
+        try {
+          const created = await createTransportOrderAtomicServer(supabase, {
+            id: orderId,
+            code_str: suppliedCode,
+            client_tcode: suppliedCode,
+            client_name: clientName,
+            client_phone: clientPhone,
+            address: rowData.address || rowClient.address || '',
+            gps_lat: rowData.gps_lat ?? rowClient.gps_lat ?? rowClient.gps?.lat ?? null,
+            gps_lng: rowData.gps_lng ?? rowClient.gps_lng ?? rowClient.gps?.lng ?? null,
+            status: row.status || rowData.status || 'pickup',
+            owner,
+            data: {
+              ...rowData,
+              ...row,
+              id: undefined,
+              local_oid: rawLocalId || orderId,
+              order_id: orderId,
+              public_order_id: orderId,
+              client: {
+                ...rowClient,
+                name: clientName,
+                phone: clientPhone,
+              },
             },
-            status: row.status || 'pickup',
-          };
+          });
+          if (!created?.ok || !created?.data?.id) throw new Error('TRANSPORT_OFFLINE_ORDER_NOT_VERIFIED');
+          return NextResponse.json({
+            ok: true,
+            localId: rawLocalId || orderId,
+            id: created.data.id,
+            client_id: created.data.client_id,
+            client_tcode: created.data.client_tcode,
+            visit_nr: created.data.visit_nr,
+            table,
+          }, { status: 200 });
+        } catch (transportError) {
+          return NextResponse.json({ ok: false, error: String(transportError?.message || transportError) }, { status: 200 });
         }
-        if (!row.status) row.status = "pickup";
-
-        const insertRow = stripNonSchemaCols(row, table);
-
-        const { error } = await supabase
-          .from("transport_orders")
-          .upsert(insertRow, { onConflict: "id" });
-
-        if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
-        return NextResponse.json({ ok: true, localId: row.local_oid || row.id, table }, { status: 200 });
       }
 
       // Normalizimi i ID-ve

@@ -37,7 +37,7 @@ function readActor() {
 }
 
 function getCode(row) {
-  const s = String(row?.code_str || row?.data?.code_str || row?.data?.order_code || row?.data?.order_tcode || row?.data?.official_order_code || row?.order_code || row?.client_tcode || row?.data?.client_tcode || row?.code || "").trim();
+  const s = String(row?.client_tcode || row?.data?.transport_client_tcode || row?.data?.client_tcode || row?.data?.client?.transport_client_tcode || row?.data?.client?.tcode || row?.code_str || row?.data?.code_str || row?.data?.order_code || row?.data?.order_tcode || row?.data?.official_order_code || row?.order_code || row?.code || "").trim();
   if (s) return s;
   const v = row?.visit_nr ?? row?.visit_no ?? null;
   if (Number.isFinite(Number(v)) && Number(v) > 0) return `T${Number(v)}`;

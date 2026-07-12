@@ -156,7 +156,7 @@ function TransportPayPageInner() {
         throw new Error('GABIM: PIN-i nuk ekziston ose llogaria nuk është aktive!');
       }
 
-      const transportCode = String(row.code_str || row.client_tcode || row?.data?.client?.tcode || "").trim().toUpperCase();
+      const transportCode = String(row.client_tcode || row?.data?.transport_client_tcode || row?.data?.client?.transport_client_tcode || row?.data?.client?.tcode || row.code_str || "").trim().toUpperCase();
       const transportM2 = Number(row?.data?.pay?.m2 ?? row?.data?.m2_total ?? row?.data?.totals?.m2 ?? 0) || 0;
       const transportNote = `TRANSPORT PAGESË ${money(applied)}€ • ${row.client_name || ""} • ${transportCode || "T-KOD"} • ${transportM2.toFixed(2)} m²`;
 

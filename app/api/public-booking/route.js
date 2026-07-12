@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClientOrThrow } from '@/lib/supabaseAdminClient';
-import { sanitizeTransportOrderPayload } from '@/lib/transport/sanitize';
+import { createTransportOrderAtomicServer, isValidTransportPhoneServer } from '@/lib/transport/transportServer';
 
 const SLOT_WINDOWS = {
   morning: '09:00 – 13:00',
@@ -40,6 +40,7 @@ export async function POST(req) {
   try {
     const form = await req.formData();
 
+    const bookingId = cleanText(form.get('bookingId') || form.get('booking_id'));
     const name = cleanText(form.get('name'));
     const phone = cleanText(form.get('phone'));
     const address = cleanText(form.get('address'));
@@ -54,48 +55,50 @@ export async function POST(req) {
     if (!name || !phone || !address || !pickupDate || !pickupSlot) {
       return redirectWith(req, { err: 'Ju lutem plotësoni fushat e detyrueshme dhe zgjidhni orarin.' });
     }
-
+    if (!isValidTransportPhoneServer(phone)) {
+      return redirectWith(req, { err: 'Numri i telefonit nuk është valid.' });
+    }
     if (!SLOT_WINDOWS[pickupSlot]) {
       return redirectWith(req, { err: 'Orari i zgjedhur nuk është valid.' });
     }
 
     const admin = createAdminClientOrThrow();
     const submittedAt = new Date().toISOString();
-
-    const rawPayload = {
-      client_name: name,
-      client_phone: phone,
-      status: 'inbox',
-      data: {
-        client: {
-          name,
-          phone,
-          address,
-          gps_lat: lat,
-          gps_lng: lng,
-          gps: lat != null && lng != null ? { lat, lng } : null,
-        },
-        pieces: pieces || 0,
-        note,
-        source: 'facebook_web',
-        created_by: 'ONLINE',
-        order_origin: 'ONLINE_WEB',
-        submitted_at: submittedAt,
+    const created = await withTimeout(
+      createTransportOrderAtomicServer(admin, {
+        id: bookingId,
+        client_name: name,
+        client_phone: phone,
+        address,
         gps_lat: lat,
         gps_lng: lng,
-        defer_dispatch_code: true,
-        pickup_date: pickupDate,
-        pickup_slot: pickupSlot,
-        pickup_window: pickupWindow,
-      },
-    };
-
-    const payload = sanitizeTransportOrderPayload(rawPayload);
-    const { error } = await withTimeout(
-      admin.from('transport_orders').insert(payload).select('id').maybeSingle(),
-      12000
+        status: 'inbox',
+        owner: 'ONLINE_BOOKING',
+        data: {
+          client: {
+            name,
+            phone,
+            address,
+            gps_lat: lat,
+            gps_lng: lng,
+            gps: lat != null && lng != null ? { lat, lng } : null,
+          },
+          pieces: pieces || 0,
+          note,
+          source: 'facebook_web',
+          created_by: 'ONLINE',
+          order_origin: 'ONLINE_WEB',
+          submitted_at: submittedAt,
+          gps_lat: lat,
+          gps_lng: lng,
+          pickup_date: pickupDate,
+          pickup_slot: pickupSlot,
+          pickup_window: pickupWindow,
+        },
+      }),
+      12000,
     );
-    if (error) throw error;
+    if (!created?.ok || !created?.data?.id) throw new Error('PUBLIC_BOOKING_TRANSPORT_ORDER_NOT_VERIFIED');
 
     return redirectWith(req, {
       ok: '1',

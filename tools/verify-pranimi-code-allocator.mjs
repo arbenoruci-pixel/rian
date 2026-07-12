@@ -209,7 +209,8 @@ const sql = read('supabase/sql/pranimi_code_oneway_allocator_20260621.sql');
 const backupSql = read('supabase/sql/pranimi_code_oneway_allocator_20260621_BACKUP_AND_VERIFY.sql');
 const pkg = JSON.parse(read('package.json'));
 
-assert.match(pkg.version, /v39-1-pro-audit$/);
+// Release suffix may advance for a Transport-only patch; allocator invariants below remain authoritative.
+assert.match(pkg.version, /(?:v39-1-pro-audit|transport-permanent-tcode-v2)$/);
 assert.equal((baseCodes.match(/\.rpc\(\s*['"]get_or_assign_pranimi_code['"]/g) || []).length, 1);
 assert.doesNotMatch(baseCodes, /\.rpc\(\s*['"](?:reserve_base_codes_batch|reserve_base_codes_batch_simple|reserve_or_reuse_base_code_for_pin)['"]/);
 assert.doesNotMatch(baseCodes, /highest\s*\+\s*1|Math\.max\([^\n]*highest|fillPoolToTarget|generate_series/i);

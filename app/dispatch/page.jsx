@@ -3,13 +3,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/lib/routerCompat.jsx";
 import { getOrderTable } from "@/lib/orderSource";
-import { createOrderRecord, listMixedOrderRecords, updateOrderData, updateOrderRecord } from "@/lib/ordersService";
+import { listMixedOrderRecords, updateOrderData, updateOrderRecord } from "@/lib/ordersService";
 import { listUsers } from "@/lib/usersDb";
 import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
 import { supabase } from "@/lib/supabaseClient";
-import { markTransportCodeUsed, reserveTransportCode } from "@/lib/transportCodes";
-import { findTransportClientByPhoneOnly, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits, upsertTransportClient } from "@/lib/transport/transportDb";
+import { clearTransportCodeReservationForOrder, releaseTransportCodeIfUnused, reserveTransportCode } from "@/lib/transportCodes";
+import { findTransportClientByPhoneOnly, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -151,8 +151,8 @@ function getAddress(row) {
 }
 function getOrderCode(row) {
   return s(
-    row?.code_str || row?.data?.code_str || row?.data?.order_code || row?.data?.order_tcode || row?.data?.official_order_code || row?.order_code || row?.t_code || row?.data?.t_code ||
-    row?.client_tcode || row?.data?.client_tcode || row?.data?.client?.tcode || row?.data?.client?.code || row?.code || row?.data?.code || row?.id
+    row?.client_tcode || row?.data?.transport_client_tcode || row?.data?.client_tcode || row?.data?.client?.transport_client_tcode || row?.data?.client?.tcode || row?.data?.client?.code ||
+    row?.code_str || row?.data?.code_str || row?.data?.order_code || row?.data?.order_tcode || row?.data?.official_order_code || row?.order_code || row?.t_code || row?.data?.t_code || row?.code || row?.data?.code || row?.id
   );
 }
 function getTransportClientId(row) {
@@ -172,584 +172,31 @@ function getDispatchPhoneDigits(value) {
   return normalizeTransportPhoneKey(value);
 }
 
-const DISPATCH_DIRECT_AVAILABLE_STATUSES = ['available', 'free', 'released'];
-const DISPATCH_DIRECT_USED_STATUS = 'used';
+// Transport T-code allocation is centralized in transportCodes.js.
+// Dispatch never prefetches or buffers codes; it reserves one code only after the
+// final phone lookup confirms a genuinely new client.
 
-function dispatchTransportPoolRowCode(row = {}) {
-  return normTCode(row?.code_str || row?.code_n || row?.code || row?.transport_code || '');
-}
-
-const DISPATCH_TCODE_QUERY_TIMEOUT_MS = 4200;
-const DISPATCH_TCODE_CLAIM_TIMEOUT_MS = 3200;
-const DISPATCH_TCODE_HISTORY_CHUNK_SIZE = 64;
-const DISPATCH_TCODE_RESERVE_DEADLINE_MS = 15000;
-
-function dispatchIsOptionalSchemaError(error) {
-  const code = String(error?.code || '').toUpperCase();
-  const message = String(error?.message || error || '');
-  return ['42703', '42P01', '22P02', 'PGRST100', 'PGRST204'].includes(code)
-    || /column .* does not exist/i.test(message)
-    || /relation .* does not exist/i.test(message)
-    || /could not find .* column/i.test(message)
-    || /invalid input syntax for type (?:integer|bigint|uuid)/i.test(message);
-}
-
-function dispatchHistoryQueryError(label, error) {
-  const detail = String(error?.message || error || 'UNKNOWN_ERROR').trim();
-  const wrapped = new Error(`${label}: ${detail}`);
-  wrapped.code = error?.code || 'DISPATCH_TCODE_HISTORY_QUERY_FAILED';
-  wrapped.cause = error;
-  return wrapped;
-}
-
-async function dispatchHistoryRows(label, buildQuery, options = {}) {
+function createDispatchOrderUuid() {
   try {
-    let query = buildQuery();
-    if (typeof query?.timeout === 'function') {
-      query = query.timeout(DISPATCH_TCODE_QUERY_TIMEOUT_MS, label);
-    }
-    const { data, error } = await query;
-    if (error) throw error;
-    return Array.isArray(data) ? data : [];
-  } catch (error) {
-    if (options?.optionalSchema && dispatchIsOptionalSchemaError(error)) return [];
-    throw dispatchHistoryQueryError(label, error);
-  }
-}
-
-function dispatchCollectHistoryCodes(rows = [], target = new Set()) {
-  for (const row of Array.isArray(rows) ? rows : []) {
-    let data = row?.data;
-    if (typeof data === 'string') {
-      try { data = JSON.parse(data); } catch { data = null; }
-    }
-    data = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
-    const client = data?.client && typeof data.client === 'object' && !Array.isArray(data.client) ? data.client : {};
-    const values = [
-      row?.code_str,
-      row?.code_n,
-      row?.client_tcode,
-      row?.transport_code_str,
-      row?.order_code,
-      row?.tcode,
-      row?.code,
-      row?.client_code,
-      row?.transport_code,
-      data?.code_str,
-      data?.code_n,
-      data?.code,
-      data?.order_code,
-      data?.order_tcode,
-      data?.official_order_code,
-      data?.client_tcode,
-      data?.transport_code,
-      client?.code,
-      client?.tcode,
-      client?.transport_client_tcode,
-    ];
-    for (const value of values) {
-      const code = normTCode(value);
-      if (code && code !== 'T0') target.add(code);
-    }
-  }
-  return target;
-}
-
-function dispatchPostgrestInValues(values = []) {
-  return (Array.isArray(values) ? values : [])
-    .map((value) => String(value ?? '').trim())
-    .filter(Boolean)
-    .join(',');
-}
-
-async function dispatchCodesWithRealHistory(codes = []) {
-  const cleanCodes = Array.from(new Set((Array.isArray(codes) ? codes : [])
-    .map(normTCode)
-    .filter((code) => code && code !== 'T0')));
-  if (!cleanCodes.length) return new Set();
-
-  const numericCodes = cleanCodes
-    .map((code) => tCodeNumber(code))
-    .filter((value) => Number.isFinite(value) && value > 0);
-  const resultLimit = Math.min(Math.max(cleanCodes.length * 8, 32), 1200);
-  const codeList = dispatchPostgrestInValues(cleanCodes);
-  const numberList = dispatchPostgrestInValues(numericCodes);
-  const dataFilters = [
-    `data->>code_str.in.(${codeList})`,
-    `data->>order_code.in.(${codeList})`,
-    `data->>order_tcode.in.(${codeList})`,
-    `data->>official_order_code.in.(${codeList})`,
-    `data->>client_tcode.in.(${codeList})`,
-    ...(numberList ? [
-      `data->>code.in.(${numberList})`,
-      `data->>code_n.in.(${numberList})`,
-    ] : []),
-  ].join(',');
-
-  const tasks = [
-    dispatchHistoryRows(
-      'DISPATCH_TCODE_ORDERS_CODE_STR_TIMEOUT',
-      () => supabase.from('transport_orders').select('code_str').in('code_str', cleanCodes).limit(resultLimit)
-    ),
-    dispatchHistoryRows(
-      'DISPATCH_TCODE_ORDERS_CODE_N_TIMEOUT',
-      () => supabase.from('transport_orders').select('code_n').in('code_n', numericCodes).limit(resultLimit),
-      { optionalSchema: true }
-    ),
-    dispatchHistoryRows(
-      'DISPATCH_TCODE_ORDERS_CLIENT_CODE_TIMEOUT',
-      () => supabase.from('transport_orders').select('client_tcode').in('client_tcode', cleanCodes).limit(resultLimit),
-      { optionalSchema: true }
-    ),
-    dispatchHistoryRows(
-      'DISPATCH_TCODE_ORDERS_DATA_TIMEOUT',
-      () => supabase.from('transport_orders').select('data').or(dataFilters).limit(resultLimit),
-      { optionalSchema: true }
-    ),
-    dispatchHistoryRows(
-      'DISPATCH_TCODE_CLIENTS_TIMEOUT',
-      () => supabase.from('transport_clients').select('tcode').in('tcode', cleanCodes).limit(resultLimit)
-    ),
-    dispatchHistoryRows(
-      'DISPATCH_TCODE_PAYMENTS_CODE_TIMEOUT',
-      () => supabase.from('arka_pending_payments').select('transport_code_str').eq('type', 'TRANSPORT').in('transport_code_str', cleanCodes).limit(resultLimit),
-      { optionalSchema: true }
-    ),
-    dispatchHistoryRows(
-      'DISPATCH_TCODE_PAYMENTS_ORDER_TEXT_TIMEOUT',
-      () => supabase.from('arka_pending_payments').select('order_code').eq('type', 'TRANSPORT').in('order_code', cleanCodes).limit(resultLimit),
-      { optionalSchema: true }
-    ),
-    dispatchHistoryRows(
-      'DISPATCH_TCODE_PAYMENTS_ORDER_NUM_TIMEOUT',
-      () => supabase.from('arka_pending_payments').select('order_code').eq('type', 'TRANSPORT').in('order_code', numericCodes).limit(resultLimit),
-      { optionalSchema: true }
-    ),
-  ];
-
-  const groups = await Promise.all(tasks);
-  const used = new Set();
-  groups.forEach((rows) => dispatchCollectHistoryCodes(rows, used));
-  return used;
-}
-
-async function dispatchCodeHasRealHistory(code) {
-  const c = normTCode(code);
-  if (!c || c === 'T0') return true;
-  const used = await dispatchCodesWithRealHistory([c]);
-  return used.has(c);
-}
-
-function isDispatchTcodeClientConflict(error) {
-  const msg = String(error?.message || error || '');
-  return /T-CODE\s+T?\d+\s+ËSHTË I ZËNË/i.test(msg)
-    || /T-CODE\s+T?\d+\s+ESHTE I ZENE/i.test(msg)
-    || /Krijo klient të ri me T-code tjetër/i.test(msg)
-    || /Krijo klient te ri me T-code tjeter/i.test(msg);
-}
-
-async function dispatchClaimTransportCode(code, owner, poolRow = null) {
-  const c = normTCode(code);
-  const n = tCodeNumber(c);
-  if (!c || !n) return false;
-
-  const payloads = [
-    { status: DISPATCH_DIRECT_USED_STATUS, owner_id: owner || 'DISPATCH' },
-    { status: DISPATCH_DIRECT_USED_STATUS },
-  ];
-  const rowId = s(poolRow?.id);
-  const rawValues = Array.from(new Set([
-    poolRow?.code,
-    poolRow?.code_str,
-    poolRow?.code_n,
-    poolRow?.transport_code,
-    n,
-    String(n),
-    c,
-  ].map((value) => String(value ?? '').trim()).filter(Boolean)));
-
-  for (const payload of payloads) {
-    if (rowId) {
-      try {
-        let query = supabase
-          .from('transport_code_pool')
-          .update(payload)
-          .in('status', DISPATCH_DIRECT_AVAILABLE_STATUSES)
-          .eq('id', rowId)
-          .select('*')
-          .limit(1);
-        if (typeof query?.timeout === 'function') {
-          query = query.timeout(DISPATCH_TCODE_CLAIM_TIMEOUT_MS, 'DISPATCH_TCODE_CLAIM_TIMEOUT');
-        }
-        const { data, error } = await query;
-        if (error) throw error;
-        return Array.isArray(data) && data.length > 0;
-      } catch (error) {
-        // Some older pools do not expose id/owner_id. Retry the compatible path.
-        if (!payload.owner_id && !dispatchIsOptionalSchemaError(error)) throw error;
-      }
-    }
-
-    for (const raw of rawValues) {
-      try {
-        let query = supabase
-          .from('transport_code_pool')
-          .update(payload)
-          .in('status', DISPATCH_DIRECT_AVAILABLE_STATUSES)
-          .eq('code', raw)
-          .select('*')
-          .limit(1);
-        if (typeof query?.timeout === 'function') {
-          query = query.timeout(DISPATCH_TCODE_CLAIM_TIMEOUT_MS, 'DISPATCH_TCODE_CLAIM_TIMEOUT');
-        }
-        const { data, error } = await query;
-        if (error) throw error;
-        if (Array.isArray(data) && data.length > 0) return true;
-      } catch (error) {
-        if (payload.owner_id) break;
-        if (!dispatchIsOptionalSchemaError(error)) throw error;
-      }
-    }
-  }
-
-  return false;
-}
-
-function dispatchNormalizeRpcCodes(data) {
-  const rows = Array.isArray(data) ? data : (data == null ? [] : [data]);
-  return Array.from(new Set(rows.map((item) => {
-    if (typeof item === 'string' || typeof item === 'number') return normTCode(item);
-    return normTCode(item?.code_str || item?.code || item?.code_n || item?.transport_code || '');
-  }).filter((code) => code && code !== 'T0'))).sort((a, b) => (tCodeNumber(a) || 0) - (tCodeNumber(b) || 0));
-}
-
-function dispatchCacheReservedCode(oid, code) {
-  try {
-    const cacheKey = oid ? `transport_order_code_v1__${oid}` : '';
-    if (cacheKey && typeof localStorage !== 'undefined') localStorage.setItem(cacheKey, code);
+    if (globalThis?.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   } catch {}
-}
-
-async function dispatchPoolRowsByCodes(values, label) {
-  try {
-    let query = supabase
-      .from('transport_code_pool')
-      .select('*')
-      .in('status', DISPATCH_DIRECT_AVAILABLE_STATUSES)
-      .in('code', values)
-      .limit(Math.max(Array.isArray(values) ? values.length : 0, 1));
-    if (typeof query?.timeout === 'function') {
-      query = query.timeout(DISPATCH_TCODE_QUERY_TIMEOUT_MS, label);
-    }
-    const { data, error } = await query;
-    if (error) throw error;
-    return Array.isArray(data) ? data : [];
-  } catch (error) {
-    // Mixed deployments store pool.code either as T123 text or as 123 numeric.
-    // A type mismatch on one representation is expected; a network timeout is not.
-    if (dispatchIsOptionalSchemaError(error)) return [];
-    throw error;
-  }
-}
-
-async function dispatchLoadAvailablePoolWindow(startN, batchSize) {
-  const count = Math.max(1, Number(batchSize) || 1);
-  const tCodes = Array.from({ length: count }, (_, idx) => `T${startN + idx}`);
-  const numericCodes = Array.from({ length: count }, (_, idx) => startN + idx);
-  const settled = await Promise.allSettled([
-    dispatchPoolRowsByCodes(tCodes, 'DISPATCH_TCODE_POOL_TEXT_TIMEOUT'),
-    dispatchPoolRowsByCodes(numericCodes, 'DISPATCH_TCODE_POOL_NUM_TIMEOUT'),
-  ]);
-
-  const rows = [];
-  const seen = new Set();
-  let hardError = null;
-  settled.forEach((result) => {
-    if (result.status === 'rejected') {
-      hardError = hardError || result.reason;
-      return;
-    }
-    for (const row of result.value || []) {
-      const key = s(row?.id) || `${s(row?.code)}|${s(row?.code_str)}|${s(row?.code_n)}`;
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      rows.push(row);
-    }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const r = Math.floor(Math.random() * 16);
+    const v = ch === 'x' ? r : ((r & 0x3) | 0x8);
+    return v.toString(16);
   });
-
-  if (!rows.length && hardError) throw hardError;
-  return rows;
 }
 
-async function reserveDispatchCodeViaRpc(owner, deadlineMs) {
-  // Ask the fallback RPC for exactly one code. Older implementations mark
-  // every returned code as claimed, so requesting a batch here would strand extras.
-  const attempts = [
-    { p_owner_id: owner || 'DISPATCH', p_n: 1 },
-    { p_reserved_by: owner || 'DISPATCH', p_count: 1 },
-  ];
-
-  for (const args of attempts) {
-    if (Date.now() >= deadlineMs) return '';
-    try {
-      let query = supabase.rpc('reserve_transport_codes_batch', args);
-      if (typeof query?.timeout === 'function') {
-        query = query.timeout(DISPATCH_TCODE_QUERY_TIMEOUT_MS, 'DISPATCH_TCODE_RPC_TIMEOUT');
-      }
-      const { data, error } = await query;
-      if (error) throw error;
-      const codes = dispatchNormalizeRpcCodes(data);
-      if (!codes.length) continue;
-      const used = await dispatchCodesWithRealHistory(codes);
-      const safe = codes.find((code) => !used.has(code));
-      if (safe) return safe;
-    } catch {}
-  }
-  return '';
-}
-
-async function reserveDispatchSmallestTransportCode(owner, opts = {}) {
-  const oid = String(opts?.oid || '').trim();
-  const maxProbe = Math.min(Math.max(Number(opts?.maxProbe || 2500) || 2500, 50), 5000);
-  const batchSize = 250;
-  const deadlineMs = Date.now() + DISPATCH_TCODE_RESERVE_DEADLINE_MS;
-  let directError = null;
-
-  try {
-    for (let startN = 1; startN <= maxProbe; startN += batchSize) {
-      if (Date.now() >= deadlineMs) throw new Error('DISPATCH_TCODE_RESERVATION_DEADLINE');
-      const windowSize = Math.min(batchSize, maxProbe - startN + 1);
-      const rows = await dispatchLoadAvailablePoolWindow(startN, windowSize);
-      const candidates = rows
-        .map((row) => {
-          const code = dispatchTransportPoolRowCode(row);
-          return { row, code, n: tCodeNumber(code) || 0 };
-        })
-        .filter((item) => item.code && item.n >= startN && item.n < startN + windowSize)
-        .sort((a, b) => a.n - b.n);
-
-      for (let offset = 0; offset < candidates.length; offset += DISPATCH_TCODE_HISTORY_CHUNK_SIZE) {
-        if (Date.now() >= deadlineMs) throw new Error('DISPATCH_TCODE_RESERVATION_DEADLINE');
-        const chunk = candidates.slice(offset, offset + DISPATCH_TCODE_HISTORY_CHUNK_SIZE);
-        const used = await dispatchCodesWithRealHistory(chunk.map((item) => item.code));
-
-        for (const item of chunk) {
-          if (used.has(item.code)) continue;
-          if (Date.now() >= deadlineMs) throw new Error('DISPATCH_TCODE_RESERVATION_DEADLINE');
-          const claimed = await dispatchClaimTransportCode(item.code, owner, item.row);
-          if (!claimed) continue;
-          dispatchCacheReservedCode(oid, item.code);
-          return item.code;
-        }
-      }
-    }
-  } catch (error) {
-    directError = error;
-    console.warn('DISPATCH_FAST_TCODE_DIRECT_FAILED', error);
-  }
-
-  const rpcCode = await reserveDispatchCodeViaRpc(owner, deadlineMs);
-  if (rpcCode) {
-    dispatchCacheReservedCode(oid, rpcCode);
-    return rpcCode;
-  }
-
-  const detail = String(directError?.message || '').trim();
-  throw new Error(`NUK U GJET T-CODE I LIRË BRENDA KUFIRIT TË SHPEJTË. PROVO PRAPË. ${detail}`.trim());
-}
-
-const DISPATCH_CODE_BUFFER_TARGET = 2;
-const dispatchCodeWarmInFlight = new Map();
-const DISPATCH_CODE_BUFFER_MAX_AGE_MS = 30 * 60 * 1000;
-
-function dispatchCodeBufferKey(owner = 'DISPATCH') {
-  return `dispatch_tcode_buffer_v3_lowwindow__${String(owner || 'DISPATCH').replace(/[^a-zA-Z0-9_-]+/g, '_')}`;
-}
-
-function dispatchCodeHoldOwner(owner = 'DISPATCH') {
-  return `DISPATCH_HOLD_${String(owner || 'DISPATCH').replace(/[^a-zA-Z0-9_-]+/g, '_')}_${Date.now()}`;
-}
-
-function canUseDispatchLocalStorage() {
-  return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
-}
-
-function normalizeDispatchBufferEntry(entry) {
-  if (!entry) return null;
-  const code = normTCode(typeof entry === 'string' ? entry : entry.code);
-  if (!code || code === 'T0') return null;
-  const reservedAt = Number(typeof entry === 'object' ? entry.reservedAt : Date.now()) || Date.now();
-  return { code, reservedAt };
-}
-
-function readDispatchCodeBuffer(owner = 'DISPATCH') {
-  if (!canUseDispatchLocalStorage()) return [];
-  try {
-    const raw = localStorage.getItem(dispatchCodeBufferKey(owner));
-    const arr = raw ? JSON.parse(raw) : [];
-    const seen = new Set();
-    return (Array.isArray(arr) ? arr : [])
-      .map(normalizeDispatchBufferEntry)
-      .filter(Boolean)
-      .filter((entry) => {
-        if (Date.now() - Number(entry.reservedAt || 0) > DISPATCH_CODE_BUFFER_MAX_AGE_MS) return false;
-        if (seen.has(entry.code)) return false;
-        seen.add(entry.code);
-        return true;
-      })
-      .sort((a, b) => tCodeNumber(a.code) - tCodeNumber(b.code));
-  } catch {
-    return [];
-  }
-}
-
-function writeDispatchCodeBuffer(owner = 'DISPATCH', entries = []) {
-  if (!canUseDispatchLocalStorage()) return [];
-  const seen = new Set();
-  const clean = (Array.isArray(entries) ? entries : [])
-    .map(normalizeDispatchBufferEntry)
-    .filter(Boolean)
-    .filter((entry) => {
-      if (seen.has(entry.code)) return false;
-      seen.add(entry.code);
-      return true;
-    })
-    .sort((a, b) => tCodeNumber(a.code) - tCodeNumber(b.code))
-    .slice(0, DISPATCH_CODE_BUFFER_TARGET);
-  try {
-    localStorage.setItem(dispatchCodeBufferKey(owner), JSON.stringify(clean));
-  } catch {}
-  return clean;
-}
-
-function popDispatchBufferedCode(owner = 'DISPATCH') {
-  const current = readDispatchCodeBuffer(owner);
-  if (!current.length) return '';
-  const [first, ...rest] = current;
-  writeDispatchCodeBuffer(owner, rest);
-  return normTCode(first.code);
-}
-
-async function releaseDispatchBufferedCodeIfUnused(code) {
-  const c = normTCode(code);
-  if (!c || c === 'T0') return false;
-  const hasHistory = await dispatchCodeHasRealHistory(c);
-  if (hasHistory) return false;
-  try {
-    const { error } = await supabase
-      .from('transport_code_pool')
-      .update({ status: 'available', owner_id: 'POOL' })
-      .eq('code', c)
-      .eq('status', DISPATCH_DIRECT_USED_STATUS);
-    return !error;
-  } catch {
-    return false;
-  }
-}
-
-async function releaseExpiredDispatchBufferCodes(owner = 'DISPATCH') {
-  if (!canUseDispatchLocalStorage()) return;
-  let raw = [];
-  try {
-    raw = JSON.parse(localStorage.getItem(dispatchCodeBufferKey(owner)) || '[]');
-  } catch {
-    raw = [];
-  }
-  if (!Array.isArray(raw) || !raw.length) return;
-
-  const fresh = [];
-  const expired = [];
-  for (const item of raw) {
-    const entry = normalizeDispatchBufferEntry(item);
-    if (!entry) continue;
-    if (Date.now() - Number(entry.reservedAt || 0) > DISPATCH_CODE_BUFFER_MAX_AGE_MS) expired.push(entry);
-    else fresh.push(entry);
-  }
-
-  writeDispatchCodeBuffer(owner, fresh);
-  for (const entry of expired) {
-    try { await releaseDispatchBufferedCodeIfUnused(entry.code); } catch {}
-  }
-}
-
-async function warmDispatchCodeBuffer(owner = 'DISPATCH', opts = {}) {
-  const bufferOwner = String(owner || 'DISPATCH').trim() || 'DISPATCH';
-  const existingWarm = dispatchCodeWarmInFlight.get(bufferOwner);
-  if (existingWarm) return existingWarm;
-
-  const task = (async () => {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      return readDispatchCodeBuffer(bufferOwner).map((entry) => entry.code);
-    }
-
-    // Expired holds are removed from the local buffer immediately and released in
-    // the background. They must never delay the next interactive reservation.
-    void releaseExpiredDispatchBufferCodes(bufferOwner).catch(() => {});
-
-    let buffer = readDispatchCodeBuffer(bufferOwner);
-    const target = Math.min(Math.max(Number(opts.target || DISPATCH_CODE_BUFFER_TARGET) || DISPATCH_CODE_BUFFER_TARGET, 1), DISPATCH_CODE_BUFFER_TARGET);
-
-    for (let i = 0; i < 5 && buffer.length < target; i += 1) {
-      const holdOwner = dispatchCodeHoldOwner(bufferOwner);
-      let code = '';
-      try {
-        code = normTCode(await reserveDispatchSmallestTransportCode(holdOwner, { oid: `dispatch_buffer_${bufferOwner}_${Date.now()}_${i}` }));
-      } catch (error) {
-        console.warn('DISPATCH_TCODE_WARM_FAILED', error);
-        break;
-      }
-      if (!code || code === 'T0') break;
-      if (!buffer.some((entry) => entry.code === code)) {
-        buffer.push({ code, reservedAt: Date.now() });
-        buffer = writeDispatchCodeBuffer(bufferOwner, buffer);
-      }
-    }
-
-    return buffer.map((entry) => entry.code);
-  })();
-
-  dispatchCodeWarmInFlight.set(bufferOwner, task);
-  try {
-    return await task;
-  } finally {
-    if (dispatchCodeWarmInFlight.get(bufferOwner) === task) {
-      dispatchCodeWarmInFlight.delete(bufferOwner);
-    }
-  }
-}
-
-async function getDispatchBufferedTransportCode(owner = 'DISPATCH', opts = {}) {
-  const bufferOwner = String(owner || 'DISPATCH').trim() || 'DISPATCH';
-  let buffered = popDispatchBufferedCode(bufferOwner);
-  if (buffered) return buffered;
-
-  // When the page warm-up is already claiming one code, give it a brief chance
-  // to finish instead of launching a duplicate scan from the DËRGO click.
-  const warming = dispatchCodeWarmInFlight.get(bufferOwner);
-  if (warming) {
-    try {
-      await Promise.race([
-        warming,
-        new Promise((resolve) => setTimeout(resolve, 1200)),
-      ]);
-    } catch {}
-    buffered = popDispatchBufferedCode(bufferOwner);
-    if (buffered) return buffered;
-  }
-
-  // Emergency path: bounded fast reservation when no ready code exists.
-  const holdOwner = dispatchCodeHoldOwner(bufferOwner);
-  return normTCode(await reserveDispatchSmallestTransportCode(holdOwner, opts));
-}
-
-async function ensureDispatchTransportClientLink({ name, phone, address, existingPhoneClient, verifiedPhoneClient = undefined, tcodeOwner, reservedOrderCode }) {
+async function prepareDispatchTransportClientLink({ name, phone, address, existingPhoneClient, verifiedPhoneClient = undefined, tcodeOwner, orderId }) {
   const cleanName = s(name);
   const cleanPhone = onlyDigits(phone);
   const phoneDigits = getDispatchPhoneDigits(cleanPhone);
+  const reservationOid = String(orderId || '').trim();
 
   if (!isValidTransportPhoneDigits(phoneDigits)) {
     throw new Error("TELEFONI NUK ËSHTË VALID. SHKRUAJ NUMËR ME SË PAKU 8 SHIFRA.");
   }
+  if (!reservationOid) throw new Error('TRANSPORT_ORDER_UUID_MISSING');
 
   let liveClient = verifiedPhoneClient;
   if (verifiedPhoneClient === undefined) {
@@ -760,57 +207,42 @@ async function ensureDispatchTransportClientLink({ name, phone, address, existin
     }
   }
 
+  // The final DB lookup is authoritative. A cached CRM/card hit may prefill the form,
+  // but it cannot turn a DB-confirmed new phone into an existing client.
   const selectedClient = liveClient && dispatchSamePhone(getClientPhone(liveClient) || liveClient?.phone_digits || liveClient?.phone, cleanPhone)
     ? liveClient
-    : (existingPhoneClient && dispatchSamePhone(getClientPhone(existingPhoneClient) || existingPhoneClient?.phone_digits || existingPhoneClient?.phone, cleanPhone) ? existingPhoneClient : null);
+    : null;
 
-  let clientId = selectedClient ? getTransportClientId(selectedClient) : "";
-  let tcode = selectedClient ? getTransportTCode(selectedClient) : "";
+  const clientId = selectedClient ? getTransportClientId(selectedClient) : '';
+  let tcode = selectedClient ? getTransportTCode(selectedClient) : '';
+  let reservedNewTcode = '';
 
-  if (!tcode) {
-    tcode = normTCode(reservedOrderCode || '');
-  }
   if (!tcode) {
     try {
-      tcode = normTCode(await reserveTransportCode(tcodeOwner || "DISPATCH", { oid: `dispatch_client_${Date.now()}` }));
+      reservedNewTcode = normTCode(await reserveTransportCode(tcodeOwner || 'DISPATCH', { oid: reservationOid }));
+      tcode = reservedNewTcode;
     } catch (error) {
-      throw new Error(`NUK U REZERVUA T-CODE. POROSIA NUK U RUAJT. ${error?.message || ''}`.trim());
+      throw new Error(`NUK U REZERVUA T-CODE PËR KLIENTIN E RI. ${error?.message || ''}`.trim());
     }
   }
+  if (!tcode) throw new Error('NUK U GJET / KRIJUA T-CODE. POROSIA NUK U RUAJT.');
 
-  if (!tcode) {
-    throw new Error("NUK U GJET / KRIJUA T-CODE. POROSIA NUK U RUAJT.");
-  }
-
-  const upsertResult = await upsertTransportClient({
-    ...(clientId ? { id: clientId } : {}),
-    name: cleanName,
-    phone: cleanPhone,
-    phone_digits: phoneDigits,
-    tcode,
-    address: s(address),
-  });
-
-  if (!upsertResult?.ok || !(upsertResult?.id || clientId)) {
-    throw new Error(upsertResult?.error || "TRANSPORT_CLIENT_LINK_FAILED");
-  }
-
-  const linkedTcode = normTCode(upsertResult?.tcode || tcode);
-  const linkedClientId = upsertResult?.id || clientId;
-  if (!linkedClientId || !linkedTcode) {
-    throw new Error("TRANSPORT_CLIENT_LINK_INCOMPLETE");
-  }
-
+  // Client creation/reuse happens inside create_transport_order together with the
+  // exact order UUID. This prevents an orphan client when the order insert fails.
   return {
-    clientId: linkedClientId,
-    tcode: linkedTcode,
+    clientId: clientId || null,
+    tcode,
+    reservedNewTcode,
+    reservationOid,
     name: cleanName,
     phone: cleanPhone,
     phoneDigits,
-    source: getTransportClientSource(selectedClient) || "transport_clients",
+    address: s(address),
+    source: getTransportClientSource(selectedClient) || 'transport_clients',
     rowId: selectedClient?.row_id || selectedClient?.id || null,
   };
 }
+
 function dispatchSafePhoneMatch(a, b) {
   const aa = getDispatchPhoneDigits(a);
   const bb = getDispatchPhoneDigits(b);
@@ -2255,16 +1687,6 @@ export default function DispatchPage() {
 
   useEffect(() => {
     if (!accessChecked || !accessAllowed) return undefined;
-    const actor = getActor() || null;
-    const bufferOwner = String(actor?.pin || 'DISPATCH').trim() || 'DISPATCH';
-    const t = setTimeout(() => {
-      void warmDispatchCodeBuffer(bufferOwner, { target: 1 }).catch(() => {});
-    }, 450);
-    return () => clearTimeout(t);
-  }, [accessChecked, accessAllowed]);
-
-  useEffect(() => {
-    if (!accessChecked || !accessAllowed) return undefined;
     let channel = null;
     let pollTimer = 0;
     const scheduleLiveRefresh = (delay = 450) => {
@@ -2769,6 +2191,9 @@ export default function DispatchPage() {
     setBusy(true);
     setErr("");
     setMsg("");
+    let pendingReservedTcode = '';
+    let pendingCodeOwner = '';
+    let pendingOrderId = '';
     try {
       const pickedDriver = drivers.find((d) => String(d?.id || "") === String(driverId || "")) || null;
       const pickedDriverName = String(pickedDriver?.name || pickedDriver?.full_name || "").trim();
@@ -2778,69 +2203,36 @@ export default function DispatchPage() {
       const cleanAddress = s(address);
       const cleanNote = s(note);
       const existingPhoneClient = phoneHit && dispatchSamePhone(getClientPhone(phoneHit) || phoneHit?.phone_digits || phoneHit?.phone, cleanPhone) ? phoneHit : null;
-      let verifiedPhoneClient = existingPhoneClient || undefined;
-      if (verifiedPhoneClient === undefined) {
-        let rawPhoneClient = null;
-        try {
-          rawPhoneClient = await findTransportClientByPhoneOnly(cleanPhone, { timeoutMs: 5500 });
-        } catch (error) {
-          throw new Error(`NUK U VERIFIKUA KLIENTI ME TELEFON. POROSIA NUK U RUAJT. ${error?.message || ''}`.trim());
-        }
-        verifiedPhoneClient = rawPhoneClient && dispatchSamePhone(getClientPhone(rawPhoneClient) || rawPhoneClient?.phone_digits || rawPhoneClient?.phone, cleanPhone)
-          ? rawPhoneClient
-          : null;
-      }
+      // A cached card may prefill the form only. prepareDispatchTransportClientLink
+      // always repeats the live DB lookup immediately before code allocation.
+      const verifiedPhoneClient = undefined;
       const actorNow = getActor() || null;
       const poolOwner = pickedDriverPin || String(actorNow?.pin || '').trim() || 'DISPATCH';
-      const dispatchBufferOwner = String(actorNow?.pin || 'DISPATCH').trim() || 'DISPATCH';
-      let officialOrderCode = '';
-      let clientLink = null;
-      let lastTcodeConflict = null;
-
-      for (let attempt = 0; attempt < 6; attempt += 1) {
-        const dispatchOid = `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${attempt}`;
-        try {
-          officialOrderCode = normTCode(await getDispatchBufferedTransportCode(dispatchBufferOwner, { oid: dispatchOid }));
-        } catch (error) {
-          throw new Error(`NUK U REZERVUA T-CODE ZYRTAR. POROSIA NUK U RUAJT. ${error?.message || ''}`.trim());
-        }
-
-        if (!officialOrderCode) {
-          throw new Error('NUK U REZERVUA T-CODE ZYRTAR. POROSIA NUK U RUAJT.');
-        }
-
-        try {
-          clientLink = await ensureDispatchTransportClientLink({
-            name: cleanName,
-            phone: cleanPhone,
-            address: cleanAddress,
-            existingPhoneClient,
-            verifiedPhoneClient,
-            tcodeOwner: poolOwner,
-            reservedOrderCode: officialOrderCode,
-          });
-          break;
-        } catch (error) {
-          if (isDispatchTcodeClientConflict(error)) {
-            lastTcodeConflict = error;
-            void releaseDispatchBufferedCodeIfUnused(officialOrderCode).catch(() => {});
-            officialOrderCode = '';
-            continue;
-          }
-          throw error;
-        }
-      }
-
-      if (!clientLink) {
-        throw new Error(`NUK U GJET T-CODE I LIRË PËR KËTË KLIENT. ${lastTcodeConflict?.message || ''}`.trim());
+      const orderId = createDispatchOrderUuid();
+      pendingOrderId = orderId;
+      pendingCodeOwner = poolOwner;
+      const clientLink = await prepareDispatchTransportClientLink({
+        name: cleanName,
+        phone: cleanPhone,
+        address: cleanAddress,
+        existingPhoneClient,
+        verifiedPhoneClient,
+        tcodeOwner: poolOwner,
+        orderId,
+      });
+      pendingReservedTcode = clientLink.reservedNewTcode || '';
+      let officialOrderCode = normTCode(clientLink.tcode);
+      if (!officialOrderCode) {
+        throw new Error('TRANSPORT_CLIENT_TCODE_MISSING');
       }
       // Dispatch-created orders assigned to a driver must appear in TË REJA first.
       // PIKAP starts only after the transporter accepts/starts the order.
       const assignedStatus = driverId ? "assigned" : "inbox";
       const nowIso = new Date().toISOString();
       const payload = {
+        id: orderId,
         status: assignedStatus,
-        client_id: clientLink.clientId,
+        client_id: clientLink.clientId || null,
         client_tcode: officialOrderCode,
         code_str: officialOrderCode,
         code_n: tCodeNumber(officialOrderCode),
@@ -2848,7 +2240,7 @@ export default function DispatchPage() {
         client_phone: clientLink.phone,
         data: {
           client: {
-            id: clientLink.clientId,
+            id: clientLink.clientId || null,
             tcode: officialOrderCode,
             code: officialOrderCode,
             transport_client_tcode: clientLink.tcode || null,
@@ -2859,7 +2251,9 @@ export default function DispatchPage() {
             phone_digits: clientLink.phoneDigits,
             address: cleanAddress,
           },
-          client_id: clientLink.clientId,
+          order_id: orderId,
+          public_order_id: orderId,
+          client_id: clientLink.clientId || null,
           client_tcode: officialOrderCode,
           code_str: officialOrderCode,
           order_code: officialOrderCode,
@@ -2901,12 +2295,26 @@ export default function DispatchPage() {
         },
       };
 
-      if (!payload.client_id || !payload.client_tcode || !payload.code_str || !payload.data?.client?.id || !payload.data?.client?.tcode) {
-        throw new Error("TRANSPORT_CLIENT_LINK_INCOMPLETE");
+      if (!payload.id || !payload.client_tcode || !payload.code_str || !payload.client_phone || !payload.data?.client?.tcode) {
+        throw new Error("TRANSPORT_ORDER_PAYLOAD_INCOMPLETE");
       }
 
-      const createdRecord = await createOrderRecord("transport_orders", payload);
-      void markTransportCodeUsed(officialOrderCode, poolOwner).catch(() => {});
+      const createResult = await insertTransportOrder({ ...payload, code_owner: poolOwner });
+      if (!createResult?.ok) throw new Error(createResult?.error || 'TRANSPORT_ORDER_CREATE_FAILED');
+      const createdRecord = createResult.data;
+      const savedOrderId = String(createdRecord?.id || '').trim();
+      const savedClientId = String(createdRecord?.client_id || '').trim();
+      const savedTcode = normTCode(createdRecord?.client_tcode || createdRecord?.data?.transport_client_tcode || createdRecord?.data?.client?.tcode || '');
+      const savedCode = normTCode(createdRecord?.code_str || createdRecord?.data?.code_str || '');
+      if (savedOrderId !== orderId) throw new Error('TRANSPORT_ORDER_UUID_VERIFY_FAILED');
+      if (!savedClientId) throw new Error('TRANSPORT_CLIENT_LINK_NOT_VERIFIED');
+      if (!savedTcode || savedCode !== savedTcode) throw new Error(`TRANSPORT_PERMANENT_TCODE_VERIFY_FAILED: ${savedCode || '-'} / ${savedTcode || '-'}`);
+      if (!dispatchSamePhone(createdRecord?.client_phone || createdRecord?.data?.client?.phone || '', cleanPhone)) throw new Error('TRANSPORT_ORDER_PHONE_VERIFY_FAILED');
+      if (!(Number(createdRecord?.visit_nr) > 0)) throw new Error('TRANSPORT_VISIT_NR_VERIFY_FAILED');
+
+      officialOrderCode = savedTcode;
+      pendingReservedTcode = '';
+      clearTransportCodeReservationForOrder(orderId);
       setMsg(`U DËRGUA ${officialOrderCode} ✅`);
       setBusy(false);
       setCreateOpen(false);
@@ -2920,7 +2328,7 @@ export default function DispatchPage() {
       setPhoneHit(null);
       resetSmartCreateFillStatus();
       try {
-        const createdItem = createdRecord?.data || createdRecord?.item || createdRecord?.record || payload;
+        const createdItem = createdRecord || payload;
         setAllRows((prev) => keepDispatchTransportOnly([
           {
             ...payload,
@@ -2931,11 +2339,14 @@ export default function DispatchPage() {
           ...(Array.isArray(prev) ? prev : []),
         ]));
       } catch {}
-      void warmDispatchCodeBuffer(dispatchBufferOwner).catch(() => {});
       try {
         void loadRows();
       } catch {}
     } catch (e) {
+      if (pendingReservedTcode) {
+        try { await releaseTransportCodeIfUnused(pendingReservedTcode, pendingCodeOwner); } catch {}
+      }
+      if (pendingOrderId) clearTransportCodeReservationForOrder(pendingOrderId);
       setErr(e?.message || "GABIM");
     } finally {
       setBusy(false);
@@ -2980,24 +2391,22 @@ export default function DispatchPage() {
         assigned_at: new Date().toISOString(),
         defer_dispatch_code: false,
       };
-      const actorNow = getActor() || null;
-      const planPoolOwner = pickedDriverPin || String(actorNow?.pin || '').trim() || 'DISPATCH';
-      let assignedOrderCode = normTCode(selectedRow?.code_str || selectedRow?.data?.code_str || selectedRow?.data?.order_code || '');
-      let reservedPlanCode = '';
-      if (rowTable === "transport_orders" && (!assignedOrderCode || selectedRow?.data?.defer_dispatch_code === true || String(selectedRow?.data?.defer_dispatch_code || "").toLowerCase() === "true")) {
-        try {
-          reservedPlanCode = normTCode(await reserveTransportCode(planPoolOwner, { oid: `dispatch_plan_${selectedRow.id}_${Date.now()}` }));
-        } catch (error) {
-          throw new Error(`NUK U REZERVUA T-CODE ZYRTAR PËR ASSIGNMENT. ${error?.message || ''}`.trim());
-        }
-        if (!reservedPlanCode) throw new Error('NUK U REZERVUA T-CODE ZYRTAR PËR ASSIGNMENT.');
-        assignedOrderCode = reservedPlanCode;
-        nextData.code_str = assignedOrderCode;
-        nextData.order_code = assignedOrderCode;
-        nextData.client_tcode = assignedOrderCode;
-        nextData.dispatch_code_reserved_at = new Date().toISOString();
-        nextData.official_order_code = assignedOrderCode;
-        nextData.order_tcode = assignedOrderCode;
+      const assignedClientTcode = rowTable === 'transport_orders'
+        ? normTCode(getTransportTCode(selectedRow) || selectedRow?.client_tcode || selectedRow?.data?.transport_client_tcode || selectedRow?.data?.client?.tcode || '')
+        : '';
+      if (rowTable === 'transport_orders' && !assignedClientTcode) {
+        throw new Error('T-KODI PERMANENT I KLIENTIT MUNGON. ASSIGNMENT NUK U RUAJT.');
+      }
+      if (assignedClientTcode) {
+        nextData.client_tcode = assignedClientTcode;
+        nextData.transport_client_tcode = assignedClientTcode;
+        nextData.client = {
+          ...((nextData.client && typeof nextData.client === 'object') ? nextData.client : {}),
+          tcode: assignedClientTcode,
+          code: assignedClientTcode,
+          client_tcode: assignedClientTcode,
+          transport_client_tcode: assignedClientTcode,
+        };
       }
       const currentStatus = getDbTruthStatus(selectedRow) || "";
       const nextStatus = rowTable === "transport_orders"
@@ -3005,16 +2414,9 @@ export default function DispatchPage() {
         : (editDriver ? "assigned" : "inbox");
       if (nextStatus) nextData.status = nextStatus;
       const planPatch = { updated_at: new Date().toISOString(), data: nextData };
-      if (assignedOrderCode) planPatch.code_str = assignedOrderCode;
-      if (reservedPlanCode) {
-        planPatch.code_n = tCodeNumber(reservedPlanCode);
-        planPatch.client_tcode = assignedOrderCode;
-      }
+      if (assignedClientTcode) planPatch.client_tcode = assignedClientTcode;
       if (nextStatus) planPatch.status = nextStatus;
       await updateOrderRecord(rowTable, selectedRow.id, planPatch);
-      if (reservedPlanCode) {
-        try { await markTransportCodeUsed(reservedPlanCode, planPoolOwner); } catch {}
-      }
       setSelectedRow(null);
       await loadRows();
     } catch (e) {

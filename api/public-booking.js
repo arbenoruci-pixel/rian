@@ -1,5 +1,6 @@
 import multer from 'multer';
-import { createAdminClientOrThrow, cleanText, safeNumberOrNull, sanitizeTransportOrderPayload, redirect } from './_helpers.js';
+import { createAdminClientOrThrow, cleanText, safeNumberOrNull, redirect } from './_helpers.js';
+import { createTransportOrderAtomicServer, isValidTransportPhoneServer } from '../lib/transport/transportServer.js';
 
 export const config = {
   api: {
@@ -38,6 +39,7 @@ export default async function handler(req, res) {
     await runMiddleware(req, res, upload.none());
     const form = req.body || {};
 
+    const bookingId = cleanText(form.bookingId || form.booking_id);
     const name = cleanText(form.name);
     const phone = cleanText(form.phone);
     const address = cleanText(form.address);
@@ -51,6 +53,9 @@ export default async function handler(req, res) {
 
     if (!name || !phone || !address || !pickupDate || !pickupSlot) {
       return redirectWith(res, { err: 'Ju lutem plotësoni fushat e detyrueshme dhe zgjidhni orarin.' });
+    }
+    if (!isValidTransportPhoneServer(phone)) {
+      return redirectWith(res, { err: 'Numri i telefonit nuk është valid.' });
     }
     if (!SLOT_WINDOWS[pickupSlot]) {
       return redirectWith(res, { err: 'Orari i zgjedhur nuk është valid.' });
@@ -86,9 +91,18 @@ export default async function handler(req, res) {
       },
     };
 
-    const payload = sanitizeTransportOrderPayload(rawPayload);
-    const { error } = await admin.from('transport_orders').insert(payload).select('id').maybeSingle();
-    if (error) throw error;
+    const created = await createTransportOrderAtomicServer(admin, {
+      id: bookingId,
+      client_name: name,
+      client_phone: phone,
+      address,
+      gps_lat: lat,
+      gps_lng: lng,
+      status: 'inbox',
+      owner: 'ONLINE_BOOKING',
+      data: rawPayload.data,
+    });
+    if (!created?.ok || !created?.data?.id) throw new Error('PUBLIC_BOOKING_TRANSPORT_ORDER_NOT_VERIFIED');
 
     return redirectWith(res, {
       ok: '1',

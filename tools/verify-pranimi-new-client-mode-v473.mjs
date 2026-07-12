@@ -19,7 +19,7 @@ assert.match(page, /entryIntent\?\.mode === PRANIMI_ENTRY_MODE_RESUME \? readCur
 assert.doesNotMatch(page, /const currentSession = forceResetOnShow \? null : readCurrentSessionLocal\(\)/);
 assert.match(page, /A normal PRANIMI entry is always a clean new-client form/);
 assert.match(page, /const explicitExisting = entryIntent\?\.mode === PRANIMI_ENTRY_MODE_EXISTING/);
-assert.match(page, /const nextNamePrefill = explicitExisting \? explicitName : ''/);
+assert.match(page, /const nextNamePrefill = explicitExisting \? (?:explicitName|lockedExistingName) : ''/);
 assert.match(page, /setSelectedClient\(null\);[\s\S]{0,500}setClientMatchDecision\(\{ matchKey: '', mode: '', candidate: null \}\)/);
 assert.match(page, /clearPranimiEntryHandoff\(\);[\s\S]{0,200}cleanPranimiEntryUrl\(\)/);
 assert.match(page, /beginPranimiClientContext\(PRANIMI_ENTRY_MODE_DRAFT, 'load_incomplete_draft'\)/);

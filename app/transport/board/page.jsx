@@ -139,7 +139,13 @@ function isTransportBoardVisibleStatus(value = '') {
 
 function getTransportDisplayCode(row = {}) {
   const raw = String(
-    row?.code_str
+    row?.client_tcode
+      || row?.data?.transport_client_tcode
+      || row?.data?.client_tcode
+      || row?.data?.client?.transport_client_tcode
+      || row?.data?.client?.tcode
+      || row?.data?.client?.code
+      || row?.code_str
       || row?.data?.code_str
       || row?.data?.order_code
       || row?.data?.order_tcode
@@ -147,10 +153,6 @@ function getTransportDisplayCode(row = {}) {
       || row?.order_code
       || row?.t_code
       || row?.data?.t_code
-      || row?.client_tcode
-      || row?.data?.client_tcode
-      || row?.data?.client?.tcode
-      || row?.data?.client?.code
       || row?.code
       || ''
   ).trim();
