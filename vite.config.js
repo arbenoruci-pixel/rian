@@ -56,7 +56,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        importScripts: ['/sw-navigation-diag.js?v=3502'],
+        importScripts: ['/sw-navigation-diag.js?v=3503'],
         globPatterns: ['**/*.{js,css,ico,png,svg,webp,webmanifest,json,woff2}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         cleanupOutdatedCaches: false,
@@ -77,7 +77,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.mode === 'navigate' && /^\/(?:pranimi|pastrimi|gati|arka(?:\/.*)?|transport(?:\/.*)?|marrje-sot|dispatch|fletore|baza|search|worker)(?:\/.*)?$/.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'tepiha-vite-business-routes-v38-fast-bank',
+              cacheName: 'tepiha-vite-business-routes-v39-offline-queued-success',
               networkTimeoutSeconds: 4,
               cacheableResponse: {
                 statuses: [0, 200],
@@ -94,7 +94,7 @@ export default defineConfig({
             // Keep cached hashed chunks available while checking the network in background.
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'tepiha-vite-static-assets-v38-fast-bank',
+              cacheName: 'tepiha-vite-static-assets-v39-offline-queued-success',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -109,7 +109,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-media-v38-fast-bank',
+              cacheName: 'tepiha-vite-media-v39-offline-queued-success',
               cacheableResponse: {
                 statuses: [0, 200],
               },
