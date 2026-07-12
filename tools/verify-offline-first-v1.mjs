@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPranimiCodeAllocatorCore } from '../lib/pranimiCodeAllocator.js';
+import { putValue } from '../lib/localDb.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -34,7 +35,72 @@ function memoryStorage() {
   };
 }
 
+function memoryLocalStorage() {
+  const map = new Map();
+  return {
+    get length() { return map.size; },
+    getItem(key) { return map.has(String(key)) ? map.get(String(key)) : null; },
+    setItem(key, value) { map.set(String(key), String(value)); },
+    removeItem(key) { map.delete(String(key)); },
+    key(index) { return Array.from(map.keys())[Number(index)] ?? null; },
+  };
+}
+
 const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+// Regression for the iPhone/Airplane-Mode race: the bank must be copied to
+// localStorage before IndexedDB finishes (or even if iOS suspends that transaction).
+{
+  const originalWindow = globalThis.window;
+  const originalIndexedDb = globalThis.indexedDB;
+  const localStorage = memoryLocalStorage();
+  let indexedDbOpenCalls = 0;
+
+  globalThis.window = {
+    localStorage,
+    dispatchEvent() {},
+  };
+  globalThis.indexedDB = {
+    open() {
+      indexedDbOpenCalls += 1;
+      return {}; // Intentionally never resolves: simulates suspension mid-IDB open.
+    },
+  };
+
+  const deviceId = '06490cfe-b3b3-4cdf-b56d-c3d537c9225f';
+  const ownerId = '4563';
+  const items = Array.from({ length: 10 }, (_, index) => ({
+    state: 'available',
+    code: String(500 + index),
+    lease_token: `00000000-0000-4000-8000-${String(500 + index).padStart(12, '0')}`,
+    lease_expires_at: future,
+  }));
+  const bank = {
+    key: `offline_code_bank_v1:base:${ownerId}:${deviceId}`,
+    version: 'offline-code-bank-v1',
+    scope: 'base',
+    owner_id: ownerId,
+    device_id: deviceId,
+    items,
+    refreshed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  void putValue('meta', bank);
+
+  const cacheKey = `tepiha_offline_code_bank_cache_v1:base:${ownerId}:${deviceId}`;
+  const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+  const summary = JSON.parse(localStorage.getItem('tepiha_offline_code_bank_summary_v1') || 'null');
+  check(indexedDbOpenCalls === 1, 'Durability test reaches the intentionally suspended IndexedDB open');
+  check(Array.isArray(cached?.items) && cached.items.length === 10, 'Offline bank is durable in localStorage before IndexedDB completes');
+  check(summary?.base?.available === 10 && summary?.base?.total === 10, 'Offline bank summary immediately reports 10/10 before IndexedDB completes');
+  check(summary?.base?.durable_precommit === true, 'Offline bank summary records the durable precommit path');
+
+  if (originalWindow === undefined) delete globalThis.window;
+  else globalThis.window = originalWindow;
+  if (originalIndexedDb === undefined) delete globalThis.indexedDB;
+  else globalThis.indexedDB = originalIndexedDb;
+}
 
 {
   const storage = memoryStorage();
