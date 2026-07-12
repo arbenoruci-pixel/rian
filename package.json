@@ -7,7 +7,7 @@
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
     "dev:api": "node server/index.mjs --dev",
-    "build": "vite build",
+    "build": "npm run test:smart-sms-exact && vite build",
     "preview": "vite preview",
     "server": "node server/index.mjs",
     "cycles": "node tools/viteCircularDependencyPlugin.mjs",
