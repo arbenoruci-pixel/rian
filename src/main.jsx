@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import AppRoot from './AppRoot.jsx';
 import { installCustomerTrackingCopyFix } from '../lib/customerTrackingCopy.js';
+import { installOfflineRuntime } from '../lib/offlineRuntime.js';
 
 function blackboxLog(name, details = null) {
   try { window.__TEPIHA_BLACKBOX__?.log?.(name, details); } catch {}
@@ -180,6 +181,7 @@ function installVitePreloadPassiveGuard() {
 installVitePreloadPassiveGuard();
 detectLegacyServiceWorkerPassively();
 installCustomerTrackingCopyFix();
+installOfflineRuntime();
 
 try {
   window.__TEPIHA_REACT_READY__ = true;
