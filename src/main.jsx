@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import AppRoot from './AppRoot.jsx';
 import { installCustomerTrackingCopyFix } from '../lib/customerTrackingCopy.js';
 import { installOfflineRuntime } from '../lib/offlineRuntime.js';
+import { installOfflineCodeBankWarmup } from '../lib/offlineCodeBankWarmup.js';
 
 function blackboxLog(name, details = null) {
   try { window.__TEPIHA_BLACKBOX__?.log?.(name, details); } catch {}
@@ -199,6 +200,7 @@ function installOfflineSessionRefreshBridge() {
 installVitePreloadPassiveGuard();
 detectLegacyServiceWorkerPassively();
 installCustomerTrackingCopyFix();
+installOfflineCodeBankWarmup();
 installOfflineRuntime();
 installOfflineSessionRefreshBridge();
 
