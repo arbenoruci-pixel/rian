@@ -1,7 +1,7 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.60-offline-first-v1",
+  "version": "2.0.61-offline-bank-durable-v1",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
@@ -33,7 +33,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.30.1",
-    "styled-jsx": "^5.1.7"
+    "styled-jsx": "^1.5.7"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
