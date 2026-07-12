@@ -56,7 +56,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        importScripts: ['/sw-navigation-diag.js?v=3501'],
+        importScripts: ['/sw-navigation-diag.js?v=3502'],
         globPatterns: ['**/*.{js,css,ico,png,svg,webp,webmanifest,json,woff2}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         cleanupOutdatedCaches: false,
@@ -77,7 +77,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.mode === 'navigate' && /^\/(?:pranimi|pastrimi|gati|arka(?:\/.*)?|transport(?:\/.*)?|marrje-sot|dispatch|fletore|baza|search|worker)(?:\/.*)?$/.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'tepiha-vite-business-routes-v37-code',
+              cacheName: 'tepiha-vite-business-routes-v38-fast-bank',
               networkTimeoutSeconds: 4,
               cacheableResponse: {
                 statuses: [0, 200],
@@ -91,10 +91,10 @@ export default defineConfig({
           },
           {
             urlPattern: ({ request, url }) => request.destination === 'script' || request.destination === 'style' || url.pathname.startsWith('/assets/'),
-            // PATCH V28: keep cached hashed chunks available while checking the network in background.
+            // Keep cached hashed chunks available while checking the network in background.
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'tepiha-vite-static-assets-v37-code',
+              cacheName: 'tepiha-vite-static-assets-v38-fast-bank',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -109,7 +109,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-media-v37-code',
+              cacheName: 'tepiha-vite-media-v38-fast-bank',
               cacheableResponse: {
                 statuses: [0, 200],
               },
