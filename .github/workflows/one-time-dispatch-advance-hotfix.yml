@@ -1,0 +1,137 @@
+name: One-time dispatch advance hotfix
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-time-dispatch-advance-hotfix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply targeted hotfix
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'app/arka/payroll/page.jsx',
+              '''  async function handleAddAdvance() {\n    if (!advanceModal || !masterPin) {\n      alert("Kërkohet Master PIN për këtë veprim.");\n      return;\n    }''',
+              '''  async function handleAddAdvance() {\n    if (!advanceModal) return;''',
+              'remove false Master PIN gate for dispatch advances',
+          )
+
+          replace_once(
+              'app/arka/payroll/page.jsx',
+              "idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [advanceModal?.pin || '', 'ADVANCE', amt]),",
+              "idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [advanceModal?.pin || '', 'ADVANCE', amt], { randomSuffix: true }),",
+              'payroll advance unique idempotency key',
+          )
+
+          replace_once(
+              'app/arka/page.jsx',
+              "idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [worker?.pin || actor?.pin || '', 'ADVANCE', amount]),",
+              "idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [worker?.pin || actor?.pin || '', 'ADVANCE', amount], { randomSuffix: true }),",
+              'arka card advance unique idempotency key',
+          )
+
+          replace_once(
+              'lib/appEpoch.js',
+              "export const APP_VERSION = '2.0.64-arka-final-integrity-v3';",
+              "export const APP_VERSION = '2.0.65-dispatch-advance-v1';",
+              'app version bump',
+          )
+
+          test_path = Path('tools/verify-dispatch-advance-v1.mjs')
+          test_path.write_text(r'''import fs from 'node:fs';
+
+const payroll = fs.readFileSync('app/arka/payroll/page.jsx', 'utf8');
+const arka = fs.readFileSync('app/arka/page.jsx', 'utf8');
+const engine = fs.readFileSync('lib/arka/arkaEngine.js', 'utf8');
+
+const handleStart = payroll.indexOf('async function handleAddAdvance()');
+const handleEnd = payroll.indexOf('const payableAmount', handleStart);
+const handle = handleStart >= 0 && handleEnd > handleStart ? payroll.slice(handleStart, handleEnd) : '';
+
+const checks = [
+  ['dispatch advance handler exists', handleStart >= 0],
+  ['advance no longer requires Master PIN', !handle.includes('!masterPin') && !handle.includes('Kërkohet Master PIN për këtë veprim')],
+  ['payroll advance uses per-submission idempotency', /ADVANCE', amt\], \{ randomSuffix: true \}/.test(handle)],
+  ['arka worker card advance uses per-submission idempotency', /ADVANCE', amount\], \{ randomSuffix: true \}/.test(arka)],
+  ['server accepts legacy ADVANCE type', engine.includes("if (type === 'ADVANCE') return 'ADVANCE'")),
+  ['server verifies actor before transaction', engine.includes('const verifiedActor = await assertActorAllowed')),
+];
+
+let failed = 0;
+for (const [name, ok] of checks) {
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`);
+  if (!ok) failed += 1;
+}
+if (failed) process.exit(1);
+console.log(`PASS — ${checks.length} dispatch advance controls verified.`);
+''', encoding='utf-8')
+
+          package_path = Path('package.json')
+          package = json.loads(package_path.read_text(encoding='utf-8'))
+          package['version'] = '2.0.65-dispatch-advance-v1'
+          scripts = package.setdefault('scripts', {})
+          scripts['test:dispatch-advance'] = 'node tools/verify-dispatch-advance-v1.mjs'
+          build = scripts.get('build', '')
+          marker = 'npm run test:dispatch-advance'
+          if marker not in build:
+              if 'vite build' not in build:
+                  raise SystemExit('package build script missing vite build marker')
+              scripts['build'] = build.replace('vite build', f'{marker} && vite build', 1)
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          lock_path = Path('package-lock.json')
+          if lock_path.exists():
+              lock = json.loads(lock_path.read_text(encoding='utf-8'))
+              lock['version'] = '2.0.65-dispatch-advance-v1'
+              if isinstance(lock.get('packages'), dict) and isinstance(lock['packages'].get(''), dict):
+                  lock['packages']['']['version'] = '2.0.65-dispatch-advance-v1'
+              lock_path.write_text(json.dumps(lock, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          Path('.github/workflows/one-time-dispatch-advance-hotfix.yml').unlink()
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify build
+        run: npm run build
+
+      - name: Commit verified hotfix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/arka/payroll/page.jsx app/arka/page.jsx lib/appEpoch.js package.json package-lock.json tools/verify-dispatch-advance-v1.mjs .github/workflows/one-time-dispatch-advance-hotfix.yml
+          git commit -m "fix dispatch advance entry"
+          git push origin HEAD:main
