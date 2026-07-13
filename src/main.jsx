@@ -5,6 +5,7 @@ import { installCustomerTrackingCopyFix } from '../lib/customerTrackingCopy.js';
 import { installOfflineRuntime } from '../lib/offlineRuntime.js';
 import { installOfflineCodeBankWarmup } from '../lib/offlineCodeBankWarmup.js';
 import { installOfflineQueuedOrderUiGuard } from '../lib/offlineQueuedOrderUiGuard.js';
+import { installDispatchAdvanceBridge } from '../lib/dispatchAdvanceBridge.js';
 
 function blackboxLog(name, details = null) {
   try { window.__TEPIHA_BLACKBOX__?.log?.(name, details); } catch {}
@@ -204,6 +205,7 @@ installCustomerTrackingCopyFix();
 installOfflineCodeBankWarmup();
 installOfflineRuntime();
 installOfflineQueuedOrderUiGuard();
+installDispatchAdvanceBridge();
 installOfflineSessionRefreshBridge();
 
 try {
