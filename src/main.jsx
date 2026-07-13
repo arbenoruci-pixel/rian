@@ -6,6 +6,7 @@ import { installOfflineRuntime } from '../lib/offlineRuntime.js';
 import { installOfflineCodeBankWarmup } from '../lib/offlineCodeBankWarmup.js';
 import { installOfflineQueuedOrderUiGuard } from '../lib/offlineQueuedOrderUiGuard.js';
 import { installDispatchAdvanceBridge } from '../lib/dispatchAdvanceBridge.js';
+import { installTransportMultiLocationBridge } from '../lib/transportMultiLocationBridge.js';
 
 function blackboxLog(name, details = null) {
   try { window.__TEPIHA_BLACKBOX__?.log?.(name, details); } catch {}
@@ -206,6 +207,7 @@ installOfflineCodeBankWarmup();
 installOfflineRuntime();
 installOfflineQueuedOrderUiGuard();
 installDispatchAdvanceBridge();
+installTransportMultiLocationBridge();
 installOfflineSessionRefreshBridge();
 
 try {
