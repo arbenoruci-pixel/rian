@@ -483,59 +483,13 @@ function normalizeTransportClientCandidate(c = {}) {
   };
 }
 
+
 async function findTransportClientByPhoneOnly(phoneValue, options = {}) {
-  const variants = buildTransportPhoneVariants(phoneValue);
-  const phoneKey = normalizeTransportPhoneKey(phoneValue);
-  if (!isValidTransportPhoneDigits(phoneKey)) return null;
-
-  const timeoutMs = Number(options?.timeoutMs || 5000);
-  const signal = options?.signal || null;
-  const candidates = [];
-  const seen = new Set();
-  const pushCandidate = (row = {}) => {
-    const c = normalizeTransportClientCandidate(row);
-    const cPhoneKey = normalizeTransportPhoneKey(c.phone_digits || c.phone || '');
-    if (!cPhoneKey || cPhoneKey !== phoneKey) return;
-    const key = String(c.id || c.tcode || `${cPhoneKey}:${c.name}`).trim();
-    if (key && seen.has(key)) return;
-    if (key) seen.add(key);
-    candidates.push(c);
-  };
-
-  try {
-    let query = supabase
-      .from('transport_clients')
-      .select('id, tcode, name, phone, phone_digits, address, gps_lat, gps_lng, updated_at')
-      .in('phone_digits', variants)
-      .order('updated_at', { ascending: false })
-      .limit(5);
-    if (typeof query?.timeout === 'function') query = query.timeout(timeoutMs, 'TRANSPORT_PHONE_CLIENT_TIMEOUT');
-    if (signal && typeof query?.abortSignal === 'function') query = query.abortSignal(signal);
-    const { data, error } = await query;
-    if (error) throw error;
-    (Array.isArray(data) ? data : []).forEach(pushCandidate);
-  } catch (error) {
-    throw new Error(`TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED: ${error?.message || error || 'UNKNOWN'}`);
-  }
-
-  if (!candidates.length) {
-    // If transport_clients is missing a row, recover from global transport order history.
-    // Candidate acceptance still requires same normalized phone_digits, never name or T-code alone.
-    try {
-      const orderHits = await searchTransportClientCandidatesByOrders({
-        transportId: '',
-        query: variants[0] || phoneValue,
-        limit: 20,
-        signal,
-        timeoutMs: Math.max(3500, Math.min(timeoutMs, 7000)),
-        timeoutLabel: 'TRANSPORT_PHONE_ORDER_HISTORY_GLOBAL_TIMEOUT',
-      }).catch(() => []);
-      (Array.isArray(orderHits) ? orderHits : []).forEach(pushCandidate);
-    } catch {}
-  }
-
-  candidates.sort((a, b) => String(b?.updated_at || b?.row?.updated_at || '').localeCompare(String(a?.updated_at || a?.row?.updated_at || '')));
-  return candidates[0] || null;
+  // TRANSPORT_PHONE_FAST_RPC_V2
+  return findTransportClientByPhoneCanonical(phoneValue, {
+    ...(options || {}),
+    timeoutMs: Math.max(Number(options?.timeoutMs || 0), 15000),
+  });
 }
 
 async function searchClientsLive(transportId, q, options = {}) {
