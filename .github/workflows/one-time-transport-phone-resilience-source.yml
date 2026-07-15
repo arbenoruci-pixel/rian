@@ -1,0 +1,44 @@
+name: One-time transport phone resilience source fix
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-time-transport-phone-resilience-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-source-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Apply and verify source fix
+        run: node tools/apply-transport-phone-resilience-v2.mjs
+
+      - name: Remove one-time workflow
+        run: rm .github/workflows/one-time-transport-phone-resilience-source.yml
+
+      - name: Commit source fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/transport/transportDb.js app/transport/pranimi/page.jsx lib/transportMultiLocationBridge.js .github/workflows/one-time-transport-phone-resilience-source.yml
+          if git diff --cached --quiet; then
+            echo "No source changes required."
+            exit 0
+          fi
+          git commit -m "fix transport phone lookup timeout"
+          git push origin HEAD:main
