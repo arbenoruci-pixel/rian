@@ -36,7 +36,6 @@ function printFile(relative) {
   console.log(`===== END ${relative} =====`);
 }
 
-printFile('lib/scanner/pipeline.js');
-printFile('lib/scanner/quality.js');
-printFile('lib/scanner/geometry.js');
+printFile('components/ScannerLab.jsx');
+printFile('lib/scanner/session.js');
 console.log('Exported scanner debug sources.');
