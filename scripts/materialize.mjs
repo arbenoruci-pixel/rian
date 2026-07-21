@@ -16,6 +16,8 @@ for (const [relative, content] of Object.entries(files)) {
 }
 console.log(`Materialized ${Object.keys(files).length} isolated scanner-lab files from ${parts.length} archive parts.`);
 console.log('Scanner lab files:', Object.keys(files).sort().join(', '));
+console.log('\n--- lib/scanner/constants.js diagnostic ---');
+console.log(fs.readFileSync(path.join(root, 'lib/scanner/constants.js'), 'utf8'));
 
 function printMatches(relative, pattern) {
   const lines = fs.readFileSync(path.join(root, relative), 'utf8').split('\n');
