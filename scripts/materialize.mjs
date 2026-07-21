@@ -15,3 +15,4 @@ for (const [relative, content] of Object.entries(files)) {
   fs.writeFileSync(target, content);
 }
 console.log(`Materialized ${Object.keys(files).length} isolated scanner-lab files from ${parts.length} archive parts.`);
+console.log('Scanner lab files:', Object.keys(files).sort().join(', '));
