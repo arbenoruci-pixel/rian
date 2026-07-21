@@ -27,15 +27,15 @@ function printMatches(relative, pattern, before = 10, after = 24) {
 
 printMatches(
   'components/ScannerLab.jsx',
-  /Boundary|boundary|curve|Curve|handle|Handle|reviewBoundary|CornerEditor|Auto-fix|six|16-point/i,
-  16,
-  34,
+  /BoundaryEditor|boundaryHandles|updateBoundaryPoint|reviewBoundary|Auto-fix|edge points/i,
+  12,
+  28,
 );
 printMatches(
-  'lib/scanner/curveModel.js',
-  /BOUNDARY|boundary|handle|curve|point|Coons|export/i,
-  8,
-  20,
+  'lib/scanner/curvedBoundary.js',
+  /SIDE|SIDES|boundaryFromCorners|boundaryHandles|boundaryPathPoints|updateBoundaryPoint|export function|extractCurvedDocument|refineBoundaryFromImage/i,
+  18,
+  64,
 );
 printMatches(
   'lib/scanner/qualityBot.js',
