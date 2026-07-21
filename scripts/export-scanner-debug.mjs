@@ -26,4 +26,17 @@ fs.writeFileSync(
   path.join(outDir, 'index.json'),
   `${JSON.stringify({ files: files.map(file => `${file.replaceAll('/', '__')}.txt`) }, null, 2)}\n`,
 );
+
+function printFile(relative) {
+  const source = fs.readFileSync(path.join(root, relative), 'utf8');
+  console.log(`===== BEGIN ${relative} =====`);
+  source.split('\n').forEach((line, index) => {
+    console.log(`${String(index + 1).padStart(4, '0')}: ${line}`);
+  });
+  console.log(`===== END ${relative} =====`);
+}
+
+printFile('lib/scanner/pipeline.js');
+printFile('lib/scanner/quality.js');
+printFile('lib/scanner/geometry.js');
 console.log('Exported scanner debug sources.');
