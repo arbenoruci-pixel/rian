@@ -38,8 +38,8 @@ printMatches(
   64,
 );
 printMatches(
-  'lib/scanner/qualityBot.js',
-  /export|auto|quality|enhance|filter/i,
-  5,
-  12,
+  'tests/curved-boundary.test.mjs',
+  /16-point|boundaryHandles|handles|assert/i,
+  6,
+  18,
 );
