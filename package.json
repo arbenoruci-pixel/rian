@@ -6,7 +6,7 @@
   "scripts": {
     "predev": "node scripts/materialize.mjs",
     "dev": "next dev --hostname 0.0.0.0",
-    "prebuild": "node scripts/materialize.mjs",
+    "prebuild": "node scripts/materialize.mjs && node scripts/export-scanner-debug.mjs",
     "build": "next build",
     "start": "next start",
     "pretest": "node scripts/materialize.mjs",
