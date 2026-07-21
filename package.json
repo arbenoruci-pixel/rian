@@ -1,15 +1,15 @@
 {
   "name": "road-ready-scanner-lab",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "node scripts/materialize.mjs && node scripts/apply-scanner-lite-v020.mjs",
+    "predev": "node scripts/materialize.mjs && node scripts/apply-scanner-lite-v020.mjs && node scripts/apply-scanner-delivery-v021.mjs",
     "dev": "next dev --hostname 0.0.0.0",
-    "prebuild": "node scripts/materialize.mjs && node scripts/apply-scanner-lite-v020.mjs && node --test tests/*.test.mjs",
+    "prebuild": "node scripts/materialize.mjs && node scripts/apply-scanner-lite-v020.mjs && node scripts/apply-scanner-delivery-v021.mjs && node --test tests/*.test.mjs",
     "build": "next build",
     "start": "next start",
-    "pretest": "node scripts/materialize.mjs && node scripts/apply-scanner-lite-v020.mjs",
+    "pretest": "node scripts/materialize.mjs && node scripts/apply-scanner-lite-v020.mjs && node scripts/apply-scanner-delivery-v021.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
