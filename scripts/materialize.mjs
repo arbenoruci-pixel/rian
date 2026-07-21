@@ -16,3 +16,17 @@ for (const [relative, content] of Object.entries(files)) {
 }
 console.log(`Materialized ${Object.keys(files).length} isolated scanner-lab files from ${parts.length} archive parts.`);
 console.log('Scanner lab files:', Object.keys(files).sort().join(', '));
+
+function printMatches(relative, pattern) {
+  const lines = fs.readFileSync(path.join(root, relative), 'utf8').split('\n');
+  const indexes = lines.map((line, index) => pattern.test(line) ? index : -1).filter(index => index >= 0);
+  const wanted = new Set();
+  for (const index of indexes) {
+    for (let cursor = Math.max(0, index - 4); cursor <= Math.min(lines.length - 1, index + 6); cursor += 1) wanted.add(cursor);
+  }
+  console.log(`\n--- ${relative} diagnostic ---`);
+  [...wanted].sort((a, b) => a - b).forEach(index => console.log(`${String(index + 1).padStart(4, '0')}: ${lines[index]}`));
+}
+
+printMatches('lib/scanner/runtime.js', /opencv|window\.cv|script|runtime|engine|load/i);
+printMatches('components/ScannerLab.jsx', /engine|runtime|opencv|open camera|import photo|status/i);
