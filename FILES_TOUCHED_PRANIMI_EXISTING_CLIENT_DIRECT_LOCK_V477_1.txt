@@ -1,4 +1,0 @@
-app/pranimi/page.jsx
-package.json
-tools/verify-pranimi-existing-client-direct-lock-v477-1.mjs
-PATCH_NOTE_PRANIMI_EXISTING_CLIENT_DIRECT_LOCK_V477_1.md

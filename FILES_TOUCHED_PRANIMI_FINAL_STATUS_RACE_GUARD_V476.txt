@@ -1,8 +1,0 @@
-app/pranimi/page.jsx
-lib/ordersService.js
-lib/pranimiDraftDb.js
-package.json
-tools/verify-pranimi-final-status-race-v476.mjs
-PATCH_NOTE_PRANIMI_FINAL_STATUS_RACE_GUARD_V476.md
-FILES_TOUCHED_PRANIMI_FINAL_STATUS_RACE_GUARD_V476.txt
-PRANIMI_FINAL_STATUS_RACE_GUARD_V476_VALIDATION.log

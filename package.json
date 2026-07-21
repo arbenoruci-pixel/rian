@@ -1,47 +1,25 @@
 {
-  "name": "tepiha-vite-converted",
+  "name": "road-ready-scanner-lab",
+  "version": "0.1.0",
   "private": true,
-  "version": "2.0.64-arka-final-integrity-v3",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
-    "dev:web": "vite",
-    "dev:api": "node server/index.mjs --dev",
-    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs",
-    "build": "npm run test:offline-first && npm run test:offline-queued-success && npm run test:smart-sms-exact && npm run test:arka-final-integrity && vite build",
-    "preview": "vite preview",
-    "server": "node server/index.mjs",
-    "cycles": "node tools/viteCircularDependencyPlugin.mjs",
-    "cycles:strict": "CIRCULAR_FAIL=1 node tools/viteCircularDependencyPlugin.mjs --fail",
-    "test:pranimi-code": "node tools/verify-pranimi-code-reservation.mjs",
-    "test:pranimi-allocator": "node tools/verify-pranimi-code-allocator.mjs",
-    "test:dispatch-date": "node tools/verify-dispatch-marrje-date-fix.mjs",
-    "test:pranimi-new-client-mode": "node tools/verify-pranimi-new-client-mode-v473.mjs",
-    "test:pranimi-final-status": "node tools/verify-pranimi-final-status-race-v476.mjs",
-    "test:pranimi-existing-client-lock": "node tools/verify-pranimi-existing-client-direct-lock-v477-1.mjs",
-    "test:transport-permanent-tcode": "node tools/verify-transport-permanent-tcode-v2.mjs",
-    "test:transport-server-atomic": "node tools/verify-transport-server-atomic-v2.mjs",
-    "test:smart-sms-exact": "node tools/verify-smart-sms-exact-order-v1.mjs",
-    "test:offline-first": "node tools/verify-offline-first-v1.mjs",
-    "test:offline-queued-success": "node tools/verify-offline-queued-success-ui-v1.mjs",
-    "test:arka-final-integrity": "node tools/verify-arka-final-integrity-v3.mjs"
+    "predev": "node scripts/materialize.mjs",
+    "dev": "next dev --hostname 0.0.0.0",
+    "prebuild": "node scripts/materialize.mjs",
+    "build": "next build",
+    "start": "next start",
+    "pretest": "node scripts/materialize.mjs",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.48.0",
-    "cors": "^2.8.5",
-    "express": "^4.21.2",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.2",
-    "multer": "^1.4.5-lts.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.30.1",
-    "styled-jsx": "^5.1.7"
+    "jspdf": "4.2.1",
+    "next": "16.2.9",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "concurrently": "^9.1.2",
-    "vite": "^5.4.10",
-    "vite-plugin-pwa": "^1.2.0"
-  }
+  "engines": {
+    "node": "22.x"
+  },
+  "packageManager": "npm@10.9.2"
 }
