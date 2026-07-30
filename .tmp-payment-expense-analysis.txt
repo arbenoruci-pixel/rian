@@ -1,0 +1,99 @@
+=== PAYMENT CONFIRM TEXT ===
+app/pastrimi/page.jsx:5910:    const question = `${label ? `${label}\n\n` : ''}KLIENTI A PO I MERR TEPIHAT TASH?\n\nOK / PO = regjistro pagesën dhe kalo direkt në DORZIM.\nCancel / JO = regjistro pagesën, por lëje në PASTRIMI si të paguar.`;
+app/pastrimi/page.jsx:6243:          confirmText="KRYEJ PAGESËN"
+app/pastrimi/page.jsx:7372:            confirmText="KRYEJ PAGESËN"
+app/transport/pranimi/page.jsx:2526:          confirmText="KRYEJ PAGESËN"
+app/pranimi/page.jsx:8026:        <PosModal open={showPaySheet} onClose={() => setShowPaySheet(false)} title="PAGESA (ARKË)" subtitle={`KODI: ${formatKod(codeRaw, netState.ok)} • ${name}`} total={totalEuro} alreadyPaid={Number(clientPaid || 0)} amount={payAdd} setAmount={setPayAdd} payChips={PAY_CHIPS} confirmText="KRYEJ PAGESËN" cancelText="ANULO" disabled={savingContinue} onConfirm={applyPayAndClose} />
+components/PosModal.jsx:21:  confirmText = 'KRYEJ PAGESËN',
+
+=== PASTRIMI PAYMENT FUNCTIONS ===
+app/pastrimi/page.jsx:9:import { requirePaymentPin } from '@/lib/paymentPin';
+app/pastrimi/page.jsx:28:import { recordOrderCashPayment } from '@/components/payments/payService';
+app/pastrimi/page.jsx:29:import { createPendingCashPayment } from '@/lib/arkaCashSync';
+app/pastrimi/page.jsx:4108:      const ok = window.confirm('Ky problem do te fshihet vetem nga ky telefon. Nuk do te futet ne DB. Vazhdo?');
+app/pastrimi/page.jsx:4165:      const ok = window.confirm('Ky order do të futet në DB si PASTRIM. Vazhdo?');
+app/pastrimi/page.jsx:5064:    const res = await createPendingCashPayment({
+app/pastrimi/page.jsx:5133:      const actor = await requirePaymentPin({ label: 'PIN për PASTRIM DELAY REVIEW' });
+app/pastrimi/page.jsx:5181:          const payRes = await recordOrderCashPayment({
+app/pastrimi/page.jsx:5912:      return window.confirm(question) ? 'dorzim' : 'pastrim';
+app/pastrimi/page.jsx:5958:    const pinData = await requirePaymentPin({ label: pinLabel });
+app/pastrimi/page.jsx:5963:        const payRes = await recordOrderCashPayment({
+app/pastrimi/page.jsx:6090:    const pinData = await requirePaymentPin({ label: pinLabel });
+app/pastrimi/page.jsx:6132:      const payRes = await recordOrderCashPayment({
+app/pastrimi/page.jsx:6418:              if (!window.confirm('A jeni të sigurt që doni të pastroni ghost cache për PASTRIMI?')) return;
+components/payments/payService.js:42:  // 1) recordOrderCashPayment({ orderId, code, clientName, amount, ... })
+components/payments/payService.js:43:  // 2) recordOrderCashPayment(orderPayload, amount, pinData, payMethod)
+components/payments/payService.js:85:export async function recordOrderCashPayment(...args) {
+lib/arkaCashSync.js:446:export async function createPendingCashPayment(payload = {}) {
+lib/arkaCashSync.js:569:  return createPendingCashPayment({ ...payload, amount: amt });
+lib/arkaCashSync.js:776:  return createPendingCashPayment({
+lib/arkaService.js:454:      ? window.confirm('Po vazhdon pa ushqim të regjistruar për sot. A është saktë?')
+
+=== EXPENSE FUNCTIONS ===
+app/arka/arka.css:329:.arkaExpenseNoteBox label{
+app/arka/arka.css:388:.arkaExpenseNoteBox{margin:12px 0}
+app/arka/arka.css:389:.arkaExpenseNoteBox textarea.arkaField{
+app/arka/puntor/[pin]/page.jsx:14:  createExpenseEntry,
+app/arka/puntor/[pin]/page.jsx:68:const EXPENSE_REQUEST_TAG = 'ARKA_EXPENSE_REQUEST_V1';
+app/arka/puntor/[pin]/page.jsx:76:    .replace(/\n?ARKA_EXPENSE_REQUEST_V1[^\n]*/gi, '')
+app/arka/puntor/[pin]/page.jsx:83:  const parts = [`${EXPENSE_REQUEST_TAG} type=${type}`];
+app/arka/puntor/[pin]/page.jsx:755:  const [expenseAmount, setExpenseAmount] = useState('');
+app/arka/puntor/[pin]/page.jsx:756:  const [expenseNote, setExpenseNote] = useState('SHPENZIM');
+app/arka/puntor/[pin]/page.jsx:1206:  async function addExpense() {
+app/arka/puntor/[pin]/page.jsx:1207:    const amount = parseAmountInput(expenseAmount);
+app/arka/puntor/[pin]/page.jsx:1222:      await createExpenseEntry({
+app/arka/puntor/[pin]/page.jsx:1225:        note: buildExpenseRequestNote(expenseNote || 'SHPENZIM', request),
+app/arka/puntor/[pin]/page.jsx:1230:      setExpenseAmount('');
+app/arka/puntor/[pin]/page.jsx:1231:      setExpenseNote('SHPENZIM');
+app/arka/puntor/[pin]/page.jsx:1237:      alert('✅ SHPENZIMI U REGJISTRUA SI KËRKESË NË PRITJE.');
+app/arka/puntor/[pin]/page.jsx:1272:        action: ARKA_ACTION.EXPENSE_REQUEST,
+app/arka/puntor/[pin]/page.jsx:1283:        idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [workerPin, 'ADVANCE', amount]),
+app/arka/puntor/[pin]/page.jsx:1592:                <input className="arkaField small" inputMode="decimal" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} placeholder="10" />
+app/arka/puntor/[pin]/page.jsx:1593:                <input className="arkaField" value={expenseNote} onChange={(e) => setExpenseNote(e.target.value)} placeholder="SHPENZIM" />
+app/arka/puntor/[pin]/page.jsx:1619:                <button type="button" className="arkaSolidBtn" disabled={busy} onClick={addExpense}>RUAJ SHPENZIM</button>
+app/arka/payroll/page.jsx:664:        action: ARKA_ACTION.EXPENSE_REQUEST,
+app/arka/payroll/page.jsx:675:        idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [advanceModal?.pin || '', 'ADVANCE', amt]),
+app/arka/obligimet/page.jsx:241:  async function addExpense() {
+app/arka/obligimet/page.jsx:397:                <button type="button" className="arkaSolidBtn" disabled={budgetBusy} onClick={addExpense}>+ SHTO</button>
+app/arka/page.jsx:16:  createExpenseEntry,
+app/arka/page.jsx:113:const EXPENSE_REQUEST_TAG = 'ARKA_EXPENSE_REQUEST_V1';
+app/arka/page.jsx:121:    .replace(/\n?ARKA_EXPENSE_REQUEST_V1[^\n]*/gi, '')
+app/arka/page.jsx:128:  const parts = [`${EXPENSE_REQUEST_TAG} type=${type}`];
+app/arka/page.jsx:139:  const match = raw.match(/ARKA_EXPENSE_REQUEST_V1\s+type=([A-Z_]+)(?:;\s*beneficiary_pin=([^;\n]*))?(?:;\s*beneficiary_name=([^\n]*))?/i);
+app/arka/page.jsx:269:function cleanWorkerExpenseNote(row = {}) {
+app/arka/page.jsx:1385:            meta={`${fmtPaymentStamp(row?.created_at) || fmtDate(row?.created_at)} • ${cleanWorkerExpenseNote(row).toUpperCase()}${row?.approved_by_name ? ` • ${String(row.approved_by_name).toUpperCase()}` : ''}${row?.handoff_note ? ` • ${String(row.handoff_note).toUpperCase()}` : ''}`}
+app/arka/page.jsx:2175:            <div className="arkaExpenseNoteBox">
+app/arka/page.jsx:2199:function WorkerSummaryCard({ item, busy = '', onAcceptCash, onAddExpense, onAddAdvance }) {
+app/arka/page.jsx:2232:      <details className="arkaInlineAdminTools"><summary>ADMIN</summary><div className="arkaWorkerActions adminTools"><button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddExpense?.(item)}>SHTO SHPENZIM</button><button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddAdvance?.(item)}>SHTO AVANS</button></div></details>
+app/arka/page.jsx:2254:  const [expenseAmount, setExpenseAmount] = useState('');
+app/arka/page.jsx:2399:      await createExpenseEntry({
+app/arka/page.jsx:2418:      action: ARKA_ACTION.EXPENSE_REQUEST,
+app/arka/page.jsx:2429:      idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [worker?.pin || actor?.pin || '', 'ADVANCE', amount]),
+app/arka/page.jsx:3082:    const amount = parseAmountInput(expenseAmount);
+app/arka/page.jsx:3094:      await createExpenseEntry({
+app/arka/page.jsx:3103:      setExpenseAmount('');
+app/arka/page.jsx:3109:      alert('✅ SHPENZIMI U REGJISTRUA SI KËRKESË NË PRITJE.');
+app/arka/page.jsx:3479:                  <div className="arkaHistoryMeta">{cleanWorkerExpenseNote(row)}</div>
+app/arka/page.jsx:3522:                <input className="arkaField small" inputMode="decimal" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} placeholder="20" />
+app/arka/page.jsx:3664:                    <WorkerSummaryCard item={item} busy={busy} onAcceptCash={acceptWorkerCashFromCard} onAddExpense={addWorkerExpenseFromCard} onAddAdvance={addWorkerAdvanceFromCard} />
+lib/arka/arkaConstants.js:31:  EXPENSE_REQUEST: 'EXPENSE_REQUEST',
+lib/arka/arkaEngine.js:143:  ARKA_ACTION.EXPENSE_REQUEST,
+lib/arka/arkaEngine.js:1185:      return { ok: true, action: ARKA_ACTION.EXPENSE_REQUEST, duplicate: true, existing: true, payment: duplicate, row: duplicate };
+lib/arka/arkaEngine.js:1228:  return { ok: true, action: ARKA_ACTION.EXPENSE_REQUEST, payment: row, row };
+lib/arka/arkaEngine.js:2827:    case ARKA_ACTION.EXPENSE_REQUEST:
+lib/arka/permissions.js:19:export function canAddExpense(role) {
+lib/arkaRequestsDb.js:12:const TABLE = 'arka_expense_requests';
+lib/arkaRequestsDb.js:110:  if (source === 'ARKA') return 'EXPENSE_REQUEST_ARKA';
+lib/arkaRequestsDb.js:111:  return 'EXPENSE_REQUEST';
+lib/resetEngine.js:14:  PUNTOR: { canSeeTotals: false, canAddExpense: true,  canSeePayments: true },
+lib/resetEngine.js:15:  TRANSPORT:{ canSeeTotals: false, canAddExpense: false, canSeePayments: false },
+lib/resetEngine.js:16:  ADMIN:  { canSeeTotals: true,  canAddExpense: true,  canSeePayments: true }
+lib/arkaCashSync.js:464:    : (isExtra ? ARKA_ACTION.EXPENSE_REQUEST : ARKA_ACTION.BASE_ORDER_PAYMENT);
+lib/arkaCashSync.js:766:    error: 'LEGACY_OWED_STATUS_WRITE_DISABLED_USE_EXPENSE_REQUEST_OR_AUDIT_VOID',
+lib/arkaService.js:599:    action: ARKA_ACTION.EXPENSE_REQUEST,
+lib/arkaService.js:611:    idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [actorPin, 'TIMA', amt]),
+lib/arkaService.js:617:export async function createExpenseEntry({
+lib/arkaService.js:630:    action: ARKA_ACTION.EXPENSE_REQUEST,
+lib/arkaService.js:642:    idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [actorPin, 'EXPENSE', amt]),
+lib/dispatchAdvanceBridge.js:113:        ARKA_ACTION.EXPENSE_REQUEST,
+lib/dispatchAdvanceBridge.js:121:      action: ARKA_ACTION.EXPENSE_REQUEST,
