@@ -1,0 +1,36 @@
+name: One-time analyze payment and expense blocks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-analyze-payment-expense-blocks.yml
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Collect focused source context
+        shell: bash
+        run: |
+          {
+            echo '=== PAYMENT CONFIRM TEXT ==='
+            grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E 'KLIENTI A PO I MERR TEPIHAT TASH|regjistro pagesën|regjistro pagesen|KRYEJ PAGES' app lib components src || true
+            echo
+            echo '=== PASTRIMI PAYMENT FUNCTIONS ==='
+            grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E 'recordOrderCashPayment|createPendingCashPayment|requirePaymentPin|payment.*busy|saving.*payment|confirm\(' app/pastrimi components/payments lib/arka* || true
+            echo
+            echo '=== EXPENSE FUNCTIONS ==='
+            grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E 'createExpenseEntry|addExpense|EXPENSE_REQUEST|SHPENZIMI U REGJISTRUA|expenseAmount|expenseNote' app lib components || true
+          } > .tmp-payment-expense-analysis.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .tmp-payment-expense-analysis.txt
+          git commit -m "analyze payment and expense blocking paths"
+          git push origin HEAD:main
