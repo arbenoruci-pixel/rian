@@ -1,0 +1,21 @@
+name: One-time find mirror banner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-find-mirror-banner.yml
+
+permissions:
+  contents: read
+
+jobs:
+  find-banner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find mirror banner source
+        shell: bash
+        run: |
+          echo '=== exact / related matches ==='
+          grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E 'PASQYRA E FUNDIT|Pasqyra:|Kode B:|Në pritje:|Ne pritje:' . || true
