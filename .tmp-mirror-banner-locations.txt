@@ -1,0 +1,6 @@
+./.github/workflows/one-time-find-mirror-banner.yml:22:          grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E 'PASQYRA E FUNDIT|Pasqyra:|Kode B:|Në pritje:|Ne pritje:' . > .tmp-mirror-banner-locations.txt || true
+./lib/payrollMonthClose.js:189:    if (pendingHandoff > 0) warnings.push(`Ka dorëzim në pritje: €${pendingHandoff.toFixed(2)}`);
+./lib/offlineRuntime.js:401:    ? 'OFFLINE • PASQYRA E FUNDIT'
+./lib/offlineRuntime.js:406:    `Pasqyra: ${humanTime(state.snapshot_at)}`,
+./lib/offlineRuntime.js:407:    `Në pritje: ${Number(state.pending || 0)}`,
+./lib/offlineRuntime.js:408:    `Kode B: ${Number(baseBank.available || 0)}/${Number(baseBank.target || 10)}`,
