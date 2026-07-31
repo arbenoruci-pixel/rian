@@ -19,6 +19,7 @@ jobs:
       - name: Locate phone composition and call links
         shell: bash
         run: |
+          echo 'transport phone analyzer run v2'
           {
             echo '=== TEL LINKS ==='
             grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E "tel:|window\.location.*tel|href=.*phone|callPhone|openPhone" app lib components src || true
