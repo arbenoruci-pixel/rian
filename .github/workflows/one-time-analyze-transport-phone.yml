@@ -1,0 +1,33 @@
+name: One-time analyze transport phone
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-analyze-transport-phone.yml
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Locate phone composition and call links
+        shell: bash
+        run: |
+          {
+            echo '=== TEL LINKS ==='
+            grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E "tel:|window\.location.*tel|href=.*phone|callPhone|openPhone" app lib components src || true
+            echo
+            echo '=== PHONE NORMALIZERS ==='
+            grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E "normalize.*phone|phone.*normalize|phonePrefix|client_phone|transport_clients" app lib components src || true
+          } > .tmp-transport-phone-analysis.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .tmp-transport-phone-analysis.txt
+          git commit -m "analyze transport phone corruption paths"
+          git push origin HEAD:main
