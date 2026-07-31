@@ -1,0 +1,591 @@
+=== TEL LINKS ===
+app/dispatch/page.jsx:767:  return phone ? `tel:${phone}` : "";
+app/dispatch/page.jsx:998:  if (r.phoneOriginal) chips.push({ label: `TEL: ${r.phoneOriginal}${r.phoneNormalized && r.phoneNormalized !== r.phoneOriginal ? ` → ${r.phoneNormalized}` : ""}`, kind: "ok" });
+app/dispatch/page.jsx:1296:    `Tel: ${normalizeKosovoPhone(getClientPhone(row)).normalized || getClientPhone(row) || "—"}`,
+app/dispatch/page.jsx:1312:      `Tel: ${phoneText}`,
+app/dispatch/page.jsx:1320:    `Tel: ${phoneText}`,
+app/dispatch/page.jsx:1368:  if (label === "THIRR KLIENTIN PARA SE ME SHKU") return `Para se me shku, thirre klientin: ${name}\nTel: ${phone}\nAdresa: ${address}\nKodi: ${code}`;
+app/dispatch/page.jsx:1369:  if (label === "KLIENTI KËRKON LOKACION") return `Klienti ${name} kërkon lokacion/koordinim. Dërgo lokacionin ose thirre para nisjes.\nTel: ${phone}\nAdresa: ${address}\nKodi: ${code}`;
+app/dispatch/page.jsx:1370:  if (label === "KLIENTI KËRKON ZBRITJE") return `Kujdes: klienti ${name} kërkon zbritje. Mos ndrysho çmim në teren pa aprovim.\nTel: ${phone}\nKodi: ${code}`;
+app/dispatch/page.jsx:1371:  if (label === "KUJDES: PAGESA NË DORËZIM") return `Kujdes: pagesa duhet me u marrë në dorëzim te klienti ${name}.\nTel: ${phone}\nAdresa: ${address}\nKodi: ${code}`;
+app/dispatch/page.jsx:1933:      window.location.href = `tel:${tel}`;
+app/dispatch/page.jsx:2781:            <div style={ui.crmHitSub}>TEL: {getClientPhone(phoneHit) || phoneHit?.phone_digits || "PA TEL"}</div>
+app/dispatch/page.jsx:3082:                {selectedPhoneLink ? <a href={selectedPhoneLink} style={ui.actionBtn}>THIRR</a> : null}
+app/k/[id]/page.jsx:498:            <a href={`tel:${COMPANY_PHONE}`} style={styles.callBtn}>
+app/pastrimi/page.jsx:3187:  return `tel:${compact}`;
+app/pastrimi/page.jsx:7193:                      <span>📞 Tel: {clientPhoneHref ? <a href={clientPhoneHref} style={{ color: '#93c5fd', fontWeight: 1000, textDecoration: 'underline' }}>{clientPhone}</a> : (clientPhone || '—')}</span>
+app/transport/item/page.jsx:593:            <button style={ui.btnSoft} onClick={() => window.location.href = `tel:${meta.phone}`} disabled={!meta.phone}>
+app/transport/board/modules/inbox.jsx:22:Tel: +38344735312`;
+app/transport/board/modules/inbox.jsx:31:  return clean ? `tel:${clean}` : '';
+app/transport/pranimi/page.jsx:1627:        `Tel: ${COMPANY_PHONE_DISPLAY}`,
+app/transport/pranimi/buildStartMessage.patch.js:22:    `Tel: ${COMPANY_PHONE_DISPLAY}`
+lib/smartSms.js:1:const INFO_FOOTER = 'Për info:\nKompania JONI\nTel: +38344735312';
+lib/transport/board/shared.js:99:  if (ph) window.open(`tel:${canonicalizePhone(ph)}`, '_self');
+src/shims/next-link.jsx:16:  return /^(https?:|mailto:|tel:|sms:|whatsapp:|viber:)/i.test(href || '');
+
+=== PHONE NORMALIZERS ===
+app/search/page.jsx:105:  const phone = row?.client_phone || row?.data?.client?.phone || row?.client?.phone || row?.phone || "";
+app/marrje-sot/page.jsx:295:    phone: cleanText(row?.client_phone || data?.client_phone || data?.client?.phone || row?.phone || data?.phone, ''),
+app/marrje-sot/page.jsx:320:    phone: cleanText(detail?.phone || detail?.client_phone || data?.client_phone || data?.client?.phone, ''),
+app/marrje-sot/page.jsx:339:  const select = 'id, code, status, client_name, client_phone, pieces, m2_total, price_total, data, created_at, updated_at, delivered_at, picked_up_at';
+app/nxirr-local/page.jsx:277:function normalizePhone(raw) {
+app/nxirr-local/page.jsx:294:  const phoneFromText = normalizePhone(text.match(PHONE_RE)?.[0] || '');
+app/nxirr-local/page.jsx:309:    phone: normalizePhone(phone) || phoneFromText,
+app/dispatch/page.jsx:12:import { findTransportClientByPhoneOnly, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
+app/dispatch/page.jsx:137:  return onlyDigits(row?.client_phone || row?.data?.client?.phone || row?.data?.client_phone || row?.data?.phone || row?.phone || "");
+app/dispatch/page.jsx:159:  return s(row?.client_id || row?.data?.client_id || row?.data?.client?.id || (row?.source === "transport_clients" ? row?.id : ""));
+app/dispatch/page.jsx:172:  return normalizeTransportPhoneKey(value);
+app/dispatch/page.jsx:241:    source: getTransportClientSource(selectedClient) || 'transport_clients',
+app/dispatch/page.jsx:808:function normalizeKosovoPhone(raw) {
+app/dispatch/page.jsx:937:    phoneNormalized: "",
+app/dispatch/page.jsx:961:    const phoneNorm = normalizeContactPhone(phoneOriginal);
+app/dispatch/page.jsx:972:      phoneNormalized: phoneNorm.normalized,
+app/dispatch/page.jsx:998:  if (r.phoneOriginal) chips.push({ label: `TEL: ${r.phoneOriginal}${r.phoneNormalized && r.phoneNormalized !== r.phoneOriginal ? ` → ${r.phoneNormalized}` : ""}`, kind: "ok" });
+app/dispatch/page.jsx:1074:    contactPhoneNormalized: "",
+app/dispatch/page.jsx:1173:function normalizeContactPhone(raw) {
+app/dispatch/page.jsx:1237:    const phoneNorm = normalizeContactPhone(phoneOriginal);
+app/dispatch/page.jsx:1245:      contactPhoneNormalized: phoneNorm.normalized,
+app/dispatch/page.jsx:1296:    `Tel: ${normalizeKosovoPhone(getClientPhone(row)).normalized || getClientPhone(row) || "—"}`,
+app/dispatch/page.jsx:1307:  const phoneText = r.phoneNormalized || r.phoneOriginal || "—";
+app/dispatch/page.jsx:1308:  const contactOnlyNeedsAddress = !!(r.name || r.phoneOriginal || r.phoneNormalized) && !r.address && !r.schedule && !r.pieces;
+app/dispatch/page.jsx:1344:  const tel = normalizeKosovoPhone(getClientPhone(row)).normalized || getClientPhone(row) || "—";
+app/dispatch/page.jsx:1360:  const phone = normalizeKosovoPhone(getClientPhone(row)).normalized || getClientPhone(row) || "—";
+app/dispatch/page.jsx:1365:    const list = (rows || []).slice(0, 30).map((r, idx) => `${idx + 1}. ${getDispatchCardCode(r)} • ${getClientName(r) || "PA EMËR"} • ${normalizeKosovoPhone(getClientPhone(r)).normalized || getClientPhone(r) || "PA TEL"} • ${getAddress(r) || "PA ADRESË"} • ${getScheduleText(r)}`).join("\n");
+app/dispatch/page.jsx:1413:  const norm = normalizeKosovoPhone(phoneValue);
+app/dispatch/page.jsx:1906:    return parsed?.phoneNormalized || parsed?.phoneOriginal || "";
+app/dispatch/page.jsx:1920:    openDispatchMessage(channel, parsed?.phoneNormalized || parsed?.phoneOriginal || "", buildSmartPasteAddressRequestText(parsed));
+app/dispatch/page.jsx:1926:      const norm = normalizeContactPhone(phoneValue);
+app/dispatch/page.jsx:1927:      const tel = norm.normalized || norm.original || phoneValue;
+app/dispatch/page.jsx:1946:    if (parsed?.phoneOriginal || parsed?.phoneNormalized) setPhone(parsed.phoneNormalized || parsed.phoneOriginal);
+app/dispatch/page.jsx:2001:    const phoneNorm = normalizeKosovoPhone(selectedPhone).normalized || selectedPhone;
+app/dispatch/page.jsx:2164:  const smartPasteHasPhone = !!(smartPasteResult?.phoneNormalized || smartPasteResult?.phoneOriginal);
+app/dispatch/page.jsx:2240:        client_phone: clientLink.phone,
+app/dispatch/page.jsx:2291:            source: clientLink.source || "transport_clients",
+app/dispatch/page.jsx:2298:      if (!payload.id || !payload.client_tcode || !payload.code_str || !payload.client_phone || !payload.data?.client?.tcode) {
+app/dispatch/page.jsx:2312:      if (!dispatchSamePhone(createdRecord?.client_phone || createdRecord?.data?.client?.phone || '', cleanPhone)) throw new Error('TRANSPORT_ORDER_PHONE_VERIFY_FAILED');
+app/dispatch/page.jsx:2784:            <div style={ui.crmHitSub}>BURIMI: {phoneHit?.source === "transport_clients" ? "TRANSPORT_CLIENTS" : "TRANSPORT ORDER HISTORY"} • {niceDate(phoneHit?.updated_at || phoneHit?.created_at)}</div>
+app/fletore/page.jsx:51:  const phoneOfClient = (c) => String(c?.phone || c?.client_phone || "").trim() || "-";
+app/fletore/page.jsx:136:      client_phone: String(o?.client_phone || o?.phone || "").trim(),
+app/llogaria-ime/page.jsx:199:            select: 'id,code,status,client_name,client_phone,created_at,updated_at,data',
+app/llogaria-ime/page.jsx:210:            select: 'id,code_str,client_tcode,status,client_name,client_phone,created_at,updated_at,transport_id,data',
+app/pastrimi/page.jsx:154:    phone: row?.client_phone || data?.client_phone || data?.client?.phone || '',
+app/pastrimi/page.jsx:261:const PASTRIMI_PROBLEM_ORDER_SELECT = 'id,local_oid,status,created_at,updated_at,data,code,client_id,client_name,client_phone,price_total,m2_total,pieces,paid_cash,is_paid_upfront';
+app/pastrimi/page.jsx:347:  const clientPhone = String(client?.phone || ord?.client_phone || ordData?.client_phone || '').trim();
+app/pastrimi/page.jsx:357:    client_phone: clientPhone,
+app/pastrimi/page.jsx:394:    client_phone: compactOrder.client_phone,
+app/pastrimi/page.jsx:494:    fetchedData?.client_phone,
+app/pastrimi/page.jsx:495:    fetchedRow?.client_phone,
+app/pastrimi/page.jsx:497:    itemOrder?.client_phone,
+app/pastrimi/page.jsx:559:    client_phone: clientPhone,
+app/pastrimi/page.jsx:998:  const phoneRaw = String(row?.phone || row?.client_phone || row?.client?.phone || order?.client_phone || order?.client?.phone || '').trim();
+app/pastrimi/page.jsx:1189:    fetchPastrimiRowsByColumn('orders', 'id,local_oid,status,created_at,updated_at,data,code,client_name,client_phone', 'local_oid', orderLocalOids),
+app/pastrimi/page.jsx:1190:    fetchPastrimiRowsByColumn('orders', 'id,local_oid,status,created_at,updated_at,data,code,client_name,client_phone', 'id', orderIds),
+app/pastrimi/page.jsx:1191:    fetchPastrimiRowsByColumn('orders', 'id,local_oid,status,created_at,updated_at,data,code,client_name,client_phone', 'code', orderCodes),
+app/pastrimi/page.jsx:1192:    fetchPastrimiRowsByColumn('transport_orders', 'id,status,created_at,updated_at,data,client_tcode,code_str,code_n,client_name,client_phone', 'id', transportIds),
+app/pastrimi/page.jsx:1193:    fetchPastrimiRowsByColumn('transport_orders', 'id,status,created_at,updated_at,data,client_tcode,code_str,code_n,client_name,client_phone', 'client_tcode', transportCodes),
+app/pastrimi/page.jsx:1194:    fetchPastrimiRowsByColumn('transport_orders', 'id,status,created_at,updated_at,data,client_tcode,code_str,code_n,client_name,client_phone', 'code_str', transportCodes),
+app/pastrimi/page.jsx:1215:      phone: row?.client_phone || order?.client?.phone || order?.client_phone || '',
+app/pastrimi/page.jsx:1233:      phone: row?.client_phone || order?.client?.phone || order?.client_phone || '',
+app/pastrimi/page.jsx:1291:  const phoneDigits = String(rowOrMarker?.phone || rowOrMarker?.client_phone || info?.phone || order?.client_phone || order?.client?.phone || '').replace(/\D+/g, '');
+app/pastrimi/page.jsx:1426:    client_phone: info.phone || null,
+app/pastrimi/page.jsx:1692:    `Telefoni: ${row?.client_phone || order?.client_phone || order?.client?.phone || '—'}`,
+app/pastrimi/page.jsx:1750:function normalizePastrimiResolverPhoneDigits(value = '') {
+app/pastrimi/page.jsx:1757:function normalizePastrimiResolverPhone(value = '') {
+app/pastrimi/page.jsx:1761:  const digits = normalizePastrimiResolverPhoneDigits(raw);
+app/pastrimi/page.jsx:1831:  const phoneFull = normalizePastrimiResolverPhone(phone);
+app/pastrimi/page.jsx:1866:  const rawPhone = String(info?.phone || order?.client_phone || order?.client?.phone || '').trim();
+app/pastrimi/page.jsx:1867:  return Boolean(order?.no_phone === true || isPastrimiNoPhonePlaceholder(rawPhone) || !normalizePastrimiResolverPhone(rawPhone));
+app/pastrimi/page.jsx:1873:  return Boolean(normalizePastrimiResolverPhone(rawPhone));
+app/pastrimi/page.jsx:1881:  const clientDigits = normalizePastrimiResolverPhoneDigits(client?.phone || '');
+app/pastrimi/page.jsx:1882:  const problemDigits = normalizePastrimiResolverPhoneDigits(info.phone || '');
+app/pastrimi/page.jsx:1988:    const phoneClientCode = normalizeCode(scan.phoneClient?.code || null);
+app/pastrimi/page.jsx:2007:  const phoneFull = normalizePastrimiResolverPhone(info.phone);
+app/pastrimi/page.jsx:2023:    client_phone: noPhone ? '' : phoneFull,
+app/pastrimi/page.jsx:2075:  const phoneFull = normalizePastrimiResolverPhone(info.phone);
+app/pastrimi/page.jsx:2082:      const permanentCode = normalizeCode(byPhone?.code || null);
+app/pastrimi/page.jsx:2141:    client_phone: noPhone ? '' : (data.client_phone || ''),
+app/pastrimi/page.jsx:2566:          phone: view.client?.phone || p.client?.phone || p.client_phone || '',
+app/pastrimi/page.jsx:2603:          phone: view.client?.phone || p.client?.phone || p.client_phone || '',
+app/pastrimi/page.jsx:2747:      phone: order.client?.phone || order.client_phone || '',
+app/pastrimi/page.jsx:2799:    phone: row?.client_phone || order?.client_phone || order?.client?.phone || '',
+app/pastrimi/page.jsx:2833:          phone: order?.client?.phone || order?.client_phone || '',
+app/pastrimi/page.jsx:2859:      'id,status,created_at,updated_at,data,code,client_name,client_phone,local_oid',
+app/pastrimi/page.jsx:3711:  const phonePrefix = '+383';
+app/pastrimi/page.jsx:4519:      phone: row?.client_phone || order?.client?.phone || order?.client_phone || '',
+app/pastrimi/page.jsx:4628:              select: 'id,local_oid,status,created_at,data,code,client_name,client_phone',
+app/pastrimi/page.jsx:4665:          name: row.client_name || order.client?.name || order.client_name || 'Pa Emër', phone: row.client_phone || order.client?.phone || order.client_phone || '',
+app/pastrimi/page.jsx:4923:            fetchOrderByIdSafe('orders', safeDbId, 'id,local_oid,status,created_at,updated_at,data,code,client_name,client_phone'),
+app/pastrimi/page.jsx:5083:      clientPhone: row?.phone || order?.client_phone || order?.client?.phone || null,
+app/pastrimi/page.jsx:5146:        fresh = await fetchOrderByIdSafe('orders', numericId, 'id,local_oid,code,status,client_name,client_phone,price_total,updated_at,created_at,data', { timeoutMs: 9000 });
+app/pastrimi/page.jsx:5187:            clientPhone: fresh?.client_phone || currentData?.client_phone || currentData?.client?.phone || row?.phone || '',
+app/pastrimi/page.jsx:5285:        phone: fresh?.client_phone || row?.phone || currentData?.client_phone || currentData?.client?.phone || '',
+app/pastrimi/page.jsx:5333:        client: { name: name.trim(), phone: phonePrefix + (phone || ''), code: normalizeCode(codeRaw), photoUrl: clientPhotoUrl || '' },
+app/pastrimi/page.jsx:5580:      smsOrder?.client_phone ||
+app/pastrimi/page.jsx:5581:      smsOrder?.data?.client_phone ||
+app/pastrimi/page.jsx:5585:      smsOrder?.fullOrder?.client_phone ||
+app/pastrimi/page.jsx:5811:          smsOrder?.client_phone ||
+app/pastrimi/page.jsx:5812:          smsOrder?.data?.client_phone ||
+app/pastrimi/page.jsx:5967:          clientPhone: normalizePastrimiResolverPhone(phone) || `${phonePrefix}${phone}`,
+app/pastrimi/page.jsx:5978:            client_phone: normalizePastrimiResolverPhone(phone) || `${phonePrefix}${phone}`,
+app/pastrimi/page.jsx:6017:          fetchOrderByIdSafe('orders', orderId, 'id,local_oid,status,created_at,updated_at,data,code,client_name,client_phone,price_total'),
+app/pastrimi/page.jsx:6043:        phone: baseOrder?.client?.phone || baseOrder?.client_phone || row?.phone || dbRow?.client_phone || '',
+app/pastrimi/page.jsx:6104:      client_phone: baseOrder?.client_phone || baseOrder?.client?.phone || rowPayOrder.phone || '',
+app/pastrimi/page.jsx:6126:      phone: nextOrder.client?.phone || nextOrder.client_phone || rowPayOrder.phone || '',
+app/pastrimi/page.jsx:6192:          <div className="field-group"><label className="label">TELEFONI</label><div className="row"><input className="input small" value={phonePrefix} readOnly /><input className="input" value={phone} onChange={e => setPhone(e.target.value)} /></div></div>
+app/pastrimi/page.jsx:6291:          o?.phone || o?.client_phone || o?.fullOrder?.client_phone || o?.data?.client_phone || ''
+app/pastrimi/page.jsx:7102:        const clientPhone = String(orderData?.client_phone || orderData?.client?.phone || paketimiOrder?.phone || '').trim();
+app/transport/item/page.jsx:11:import { buildSmsLink, normalizePhoneForWhatsApp } from "@/lib/smartSms";
+app/transport/item/page.jsx:60:    row?.client_phone ||
+app/transport/item/page.jsx:63:    row?.data?.client_phone ||
+app/transport/item/page.jsx:67:  return normalizePhoneForWhatsApp(p);
+app/transport/fletore/page.jsx:41:  return String(c?.phone || c?.client_phone || "").trim() || "-";
+app/transport/fletore/page.jsx:332:        setNotice("KUJDES: transport_clients nuk u lexua plotësisht. Fletorja po përdor transport_orders si burim kryesor live.");
+app/transport/fletore/page.jsx:354:          const hay = `${String(o?.client_name || "")} ${String(o?.client_phone || "")} ${code} ${String(o?.status || "")} ${String(group?.name || "")}`.toLowerCase();
+app/transport/board/modules/inbox.jsx:25:function normalizePhone(phone) {
+app/transport/board/modules/inbox.jsx:30:  const clean = normalizePhone(phone);
+app/transport/board/modules/inbox.jsx:35:  const clean = normalizePhone(phone);
+app/transport/board/modules/inbox.jsx:183:    order?.client_phone ||
+app/transport/board/modules/gati.jsx:137:    row?.client_phone ||
+app/transport/board/modules/gati.jsx:138:    d?.client_phone ||
+app/transport/board/modules/gati.jsx:796:      client_phone_present: !!getClientPhone(row),
+app/transport/board/page.jsx:1408:          `?select=id,code_str,client_id,client_name,client_phone,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id` +
+app/transport/board/page.jsx:1441:          select: 'id,code_str,client_id,client_name,client_phone,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id',
+app/transport/board/page.jsx:1474:          select: 'id,code_str,client_id,client_name,client_phone,client_tcode,visit_nr,status,created_at,updated_at,ready_at,data,transport_id',
+app/transport/board/page.jsx:1720:      order?.client_phone ||
+app/transport/board/page.jsx:1721:      order?.data?.client_phone ||
+app/transport/board/page.jsx:1951:    const phoneDigits = String(order?.client_phone || order?.data?.client?.phone || '').replace(/\D+/g, '');
+app/transport/board/page.jsx:1958:        .from('transport_clients')
+app/transport/board/page.jsx:1964:        .from('transport_clients')
+app/transport/board/page.jsx:1971:      console.warn('transport_clients GPS update failed:', clientErr);
+app/transport/board/page.jsx:2785:                    const phone = String(it?.client_phone || it?.data?.client?.phone || '').trim();
+app/transport/pranimi/page.jsx:4:import { normalizePhoneDigits } from '@/lib/transport/clientCodes';
+app/transport/pranimi/page.jsx:8:  normalizeTransportPhoneKey,
+app/transport/pranimi/page.jsx:329:  const expectedPhoneKey = normalizeTransportPhoneKey(expected?.phone || '');
+app/transport/pranimi/page.jsx:330:  const rowPhoneKey = normalizeTransportPhoneKey(row?.client_phone || rowData?.client_phone || rowClient?.phone || '');
+app/transport/pranimi/page.jsx:455:  const phoneKey = normalizeTransportPhoneKey(phoneDigits || candidate?.phone_digits || candidate?.phone || '');
+app/transport/pranimi/page.jsx:461:  const phoneRaw = String(c?.phone || c?.client_phone || c?.phone_digits || '').trim();
+app/transport/pranimi/page.jsx:462:  const phoneDigits = normalizePhoneDigits(c?.phone_digits || phoneRaw || '');
+app/transport/pranimi/page.jsx:464:  const source = c?.source || 'transport_clients';
+app/transport/pranimi/page.jsx:503:  const qDigits = normalizePhoneDigits(qq);
+app/transport/pranimi/page.jsx:505:  const isTCode = /^t\d+$/i.test(qLower) || (qLower.startsWith('t') && normalizePhoneDigits(qLower.slice(1)).length > 0);
+app/transport/pranimi/page.jsx:506:  const tDigits = isTCode ? normalizePhoneDigits(qLower.replace(/^t/i, '')) : '';
+app/transport/pranimi/page.jsx:514:      normalizePhoneDigits(x?.phone_digits || x?.phone || ''),
+app/transport/pranimi/page.jsx:528:    const digits = normalizePhoneDigits(c?.phone_digits || c?.phone || '');
+app/transport/pranimi/page.jsx:532:      source: c?.source || 'transport_clients',
+app/transport/pranimi/page.jsx:559:      .from('transport_clients')
+app/transport/pranimi/page.jsx:794:  const nextPrefix = String(d?.phonePrefix || '+383').trim() || '+383';
+app/transport/pranimi/page.jsx:801:    phonePrefix: nextPrefix,
+app/transport/pranimi/page.jsx:856:  const digits = normalizePhoneDigits(compact || raw);
+app/transport/pranimi/page.jsx:864:    const codeDigits = normalizePhoneDigits(opt.code);
+app/transport/pranimi/page.jsx:877:  return { prefix: fallbackPrefix, local: normalizeTransportPhoneKey(digits) || digits };
+app/transport/pranimi/page.jsx:900:    phone: String(firstTransportValue(c?.phone, c?.client_phone, d?.client_phone, nestedOrder?.client_phone, row?.client_phone, row?.phone) || '').trim(),
+app/transport/pranimi/page.jsx:932:  const [phonePrefix, setPhonePrefix] = useState('+383');
+app/transport/pranimi/page.jsx:1096:                  const phoneParts = splitTransportPhoneForForm(editClient.phone, phonePrefix);
+app/transport/pranimi/page.jsx:1097:                  setPhonePrefix(phoneParts.prefix || '+383');
+app/transport/pranimi/page.jsx:1273:      const digits = normalizePhoneDigits(q);
+app/transport/pranimi/page.jsx:1274:      const isT = /^t\d+$/i.test(q) || (q.toLowerCase().startsWith('t') && normalizePhoneDigits(q.slice(1)).length > 0);
+app/transport/pranimi/page.jsx:1333:        phonePrefix,
+app/transport/pranimi/page.jsx:1380:    const phoneFull = buildTransportPhoneDigits(phonePrefix, phone || '');
+app/transport/pranimi/page.jsx:1396:  }, [phonePrefix, phone]);
+app/transport/pranimi/page.jsx:1478:        setPhonePrefix(pref.code);
+app/transport/pranimi/page.jsx:1481:        const localDigits = normalizeTransportPhoneKey(c.phone_digits || fullPhone);
+app/transport/pranimi/page.jsx:1502:      if (cCode && cCode !== 'T0' && normalizeTcode(clientTcode || '') === cCode && sameTransportPhone(c.phone_digits || c.phone, phonePrefix + phone)) return true;
+app/transport/pranimi/page.jsx:1507:      const phoneKey = normalizeTransportPhoneKey(phonePrefix + phone);
+app/transport/pranimi/page.jsx:1536:      if (prefix !== phonePrefix && (clientId || clientTcode || transportClientMatchDecision?.mode)) {
+app/transport/pranimi/page.jsx:1539:      setPhonePrefix(prefix);
+app/transport/pranimi/page.jsx:1546:      const phoneFull = buildTransportPhoneDigits(phonePrefix, phone || '');
+app/transport/pranimi/page.jsx:1547:      const phoneKey = normalizeTransportPhoneKey(phoneFull);
+app/transport/pranimi/page.jsx:1569:  }, [creating, isEdit, actor?.role, me?.transport_id, assignTid, phonePrefix, phone, clientId, clientTcode, codeRaw, transportClientMatchDecision?.matchKey, transportClientMatchDecision?.mode, transportClientMatchPrompt?.open, transportClientMatchPrompt?.matchKey]);
+app/transport/pranimi/page.jsx:1574:      const phoneFull = buildTransportPhoneDigits(phonePrefix, phone);
+app/transport/pranimi/page.jsx:1580:        client_phone: phoneFull,
+app/transport/pranimi/page.jsx:1679:      const phoneFull = buildTransportPhoneDigits(phonePrefix, phone);
+app/transport/pranimi/page.jsx:1680:      const phoneDigits = normalizePhoneDigits(phoneFull);
+app/transport/pranimi/page.jsx:1681:      const phoneKey = normalizeTransportPhoneKey(phoneFull);
+app/transport/pranimi/page.jsx:1748:        try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw, name, phone, phonePrefix, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
+app/transport/pranimi/page.jsx:1779:          client_phone: phoneFull,
+app/transport/pranimi/page.jsx:1796:            client_phone: phoneFull,
+app/transport/pranimi/page.jsx:1915:                phonePrefix,
+app/transport/pranimi/page.jsx:1972:              phone: buildTransportPhoneDigits(phonePrefix, phone),
+app/transport/pranimi/page.jsx:2015:        client_phone: buildTransportPhoneDigits(phonePrefix, phone),
+app/transport/pranimi/page.jsx:2063:            clientPhone: buildTransportPhoneDigits(phonePrefix, phone) || null,
+app/transport/pranimi/page.jsx:2122:        d?.phoneFull || (d?.phonePrefix ? `${d.phonePrefix}${d?.phone || ''}` : d?.phone || ''),
+app/transport/pranimi/page.jsx:2123:        d?.phonePrefix || phonePrefix
+app/transport/pranimi/page.jsx:2125:      setOid(d.id); setCodeRaw(d.codeRaw); setName(d.name || ''); setPhonePrefix(draftPhone.prefix); setPhone(draftPhone.local); 
+app/transport/pranimi/page.jsx:2186:            phonePrefix,
+app/transport/pranimi/page.jsx:2281:                      const digits = normalizePhoneDigits(candidate.phone_digits || candidate.phone);
+app/transport/pranimi/page.jsx:2282:                      const candidatePhoneKey = normalizeTransportPhoneKey(candidate.phone_digits || candidate.phone || digits);
+app/transport/pranimi/page.jsx:2283:                      const queryPhoneKey = normalizeTransportPhoneKey(clientQuery);
+app/transport/pranimi/page.jsx:2284:                      const currentPhoneKey = normalizeTransportPhoneKey(phonePrefix + phone);
+app/transport/pranimi/page.jsx:2293:                          setPhonePrefix(pref.code);
+app/transport/pranimi/page.jsx:2296:                          setPhone(normalizeTransportPhoneKey(digits));
+app/transport/pranimi/page.jsx:2345:                  <div className="client-selected-phone">{String(phone || '').replace(/\D+/g, '') ? `${phonePrefix} ${String(phone || '').replace(/\D+/g, '')}` : 'PA TELEFON'}</div>
+app/transport/pranimi/page.jsx:2473:                  <button type="button" className="prefixBtn" onClick={() => setShowPrefixSheet(true)}>{phonePrefix}</button>
+app/transport/pranimi/page.jsx:2633:        phone={buildTransportPhoneDigits(phonePrefix, phone)}
+app/transport/pay/page.jsx:175:        clientPhone: row.client_phone || row?.data?.client?.phone || null,
+app/transport/pay/page.jsx:224:  const phone = row?.client_phone || (row?.data?.client?.phone || "");
+app/pranimi/page.jsx:62:const PRANIMI_DRAFT_ORDER_SELECT = 'id,status,local_oid,code,client_name,client_phone,updated_at,created_at,data';
+app/pranimi/page.jsx:118:function normalizeKosovoPhone(raw, prefix = '+383') {
+app/pranimi/page.jsx:119:  const digits = normalizeMatchPhone(raw);
+app/pranimi/page.jsx:222:function normalizeMatchPhone(raw) {
+app/pranimi/page.jsx:246:  const digits = normalizeMatchPhone(raw);
+app/pranimi/page.jsx:270:  const inputPhone = normalizeMatchPhone(phone);
+app/pranimi/page.jsx:271:  const candidatePhone = normalizeMatchPhone(candidate?.phone || candidate?.client_phone || '');
+app/pranimi/page.jsx:290:  const phoneDigits = normalizeMatchPhone(phone);
+app/pranimi/page.jsx:305:    const phoneNorm = normalizeMatchPhone(row?.phone || row?.client_phone || '');
+app/pranimi/page.jsx:311:      phone: String(row?.phone || row?.client_phone || '').trim(),
+app/pranimi/page.jsx:458:  const wantedPhoneDigits = normalizeMatchPhone(phone || '');
+app/pranimi/page.jsx:486:    const dbPhoneDigits = normalizeMatchPhone(row?.phone || '');
+app/pranimi/page.jsx:512:        const exactPhone = data.find((row) => isUsable(row) && (!wantedPhoneDigits || normalizeMatchPhone(row?.phone || '') === wantedPhoneDigits));
+app/pranimi/page.jsx:513:        if (exactPhone) return normalizeClientRow(exactPhone);
+app/pranimi/page.jsx:684:    client_phone: payload?.client_phone || data?.client_phone || client?.phone || fallback?.client_phone || '',
+app/pranimi/page.jsx:688:async function findBaseOrderByLocalOidAny(localOid = '', selectCols = 'id,local_oid,code,status,client_name,client_phone,price_total,m2_total,pieces,paid_cash,is_paid_upfront,updated_at,data') {
+app/pranimi/page.jsx:718:  const selectCols = 'id,local_oid,code,status,client_name,client_phone,price_total,m2_total,pieces,paid_cash,is_paid_upfront,updated_at,data';
+app/pranimi/page.jsx:918:  return String(row?.client_phone || data?.client_phone || client?.phone || '').trim();
+app/pranimi/page.jsx:947:  const expectedPhone = normalizeMatchPhone(expected?.client_phone || '');
+app/pranimi/page.jsx:953:  const dbPhone = normalizeMatchPhone(readPranimiBaseOrderPhone(row));
+app/pranimi/page.jsx:990:    return { ok: false, reason: 'CLIENT_PHONE_MISMATCH', expectedPhone, dbPhone, expectedCode, dbCode, expectedLocalOid, dbLocalOid, serverId };
+app/pranimi/page.jsx:1209:    if (normalizeMatchPhone(d?.phone || d?.client?.phone || '')) return true;
+app/pranimi/page.jsx:1335:  const phoneDigits = normalizeMatchPhone(canonicalPhone);
+app/pranimi/page.jsx:1359:    client_phone: canonicalPhone || '',
+app/pranimi/page.jsx:1386:    client_phone: canonicalPhone || '',
+app/pranimi/page.jsx:1721:    phone: String(row?.client_phone || data?.client_phone || data?.phone || data?.client?.phone || '').trim(),
+app/pranimi/page.jsx:2005:  const phone = normalizeMatchPhone(
+app/pranimi/page.jsx:2007:    draft?.client_phone ||
+app/pranimi/page.jsx:2009:    data?.client_phone ||
+app/pranimi/page.jsx:2505:      phone: String(d.phone || d?.client?.phone || dData?.client_phone || dData?.client?.phone || '').replace(/^\+383\s*/, '').replace(/\D+/g, ''),
+app/pranimi/page.jsx:2599:  const phonePrefix = '+383';
+app/pranimi/page.jsx:2767:    return normalizeKosovoPhone(value, phonePrefix);
+app/pranimi/page.jsx:2776:      phoneDigits: normalizeMatchPhone(phone),
+app/pranimi/page.jsx:3067:    const rawPhone = String(client?.phone || ord?.client_phone || ordData?.client_phone || '');
+app/pranimi/page.jsx:3068:    const cleanPhone = normalizeMatchPhone(rawPhone);
+app/pranimi/page.jsx:3258:        nextPhonePrefill = normalizeMatchPhone(lockedExistingPhone);
+app/pranimi/page.jsx:3686:          const phone = String(row?.client_phone || data?.client?.phone || data?.client_phone || '').trim();
+app/pranimi/page.jsx:3773:      phone_digits: normalizeMatchPhone(phone),
+app/pranimi/page.jsx:3784:      phone: String(cand?.phone || cand?.client_phone || '').trim(),
+app/pranimi/page.jsx:3834:    const candPhoneRaw = String(cand?.phone || cand?.client_phone || '').trim();
+app/pranimi/page.jsx:3866:      const candPhone = normalizeMatchPhone(candPhoneRaw);
+app/pranimi/page.jsx:3879:    const phoneDigits = normalizeMatchPhone(phone);
+app/pranimi/page.jsx:3885:      const promptDigits = normalizeMatchPhone(clientMatchPrompt?.phoneDigits || clientMatchPrompt?.candidate?.phone || '');
+app/pranimi/page.jsx:4014:  }, [phonePrefix, phone, noPhone]);
+app/pranimi/page.jsx:4026:    const safePhone = canonicalPhone ? normalizeMatchPhone(canonicalPhone) : '';
+app/pranimi/page.jsx:4811:    const phoneFull = `${phonePrefix}${normalizeMatchPhone(digits)}`;
+app/pranimi/page.jsx:4812:    const phoneKey = normalizeMatchPhone(phoneFull);
+app/pranimi/page.jsx:4821:      const rowPhone = normalizeMatchPhone(row?.phone || row?.client_phone || phoneFull || '');
+app/pranimi/page.jsx:4829:        phone: String(row?.phone || row?.client_phone || phoneFull || '').trim(),
+app/pranimi/page.jsx:4861:          const p = normalizeMatchPhone(item?.phone || '');
+app/pranimi/page.jsx:4870:          const p = normalizeMatchPhone(item?.phone || '');
+app/pranimi/page.jsx:4887:    const phoneDigits = normalizeMatchPhone(rawPhone);
+app/pranimi/page.jsx:4889:    const phoneFull = `${phonePrefix}${phoneDigits}`;
+app/pranimi/page.jsx:4895:      const candidatePhone = normalizeMatchPhone(row?.phone || row?.client_phone || '');
+app/pranimi/page.jsx:4907:        phone: String(row?.phone || row?.client_phone || rawPhone || '').trim(),
+app/pranimi/page.jsx:4917:        'PRANIMI_FINAL_CLIENT_PHONE_LOOKUP_TIMEOUT',
+app/pranimi/page.jsx:4945:    const phoneDigits = noPhoneMode ? '' : normalizeMatchPhone(rawPhone || '');
+app/pranimi/page.jsx:4947:    const phoneFull = noPhoneMode ? placeholderPhone : (hasValidPhone ? `${phonePrefix}${phoneDigits}` : '');
+app/pranimi/page.jsx:5057:      if (!phoneFull) throw new Error('CLIENT_PHONE_REQUIRED_FOR_MASTER_ROW');
+app/pranimi/page.jsx:5085:            if (byPhone?.id) return normalizeClientOut(byPhone, 'phone_duplicate_existing_client', {
+app/pranimi/page.jsx:5149:      const phoneOnlyCode = normalizeCode(phoneOnlyRow?.code ?? null);
+app/pranimi/page.jsx:5166:      const existingPhone = normalizeMatchPhone(existingByCode?.phone || '');
+app/pranimi/page.jsx:5292:      const currentPhoneDigits = normalizeMatchPhone(currentCanonicalPhone || phone || '');
+app/pranimi/page.jsx:5370:          matchKey: buildClientMatchKey({ reason: 'phone_exact', phoneDigits: currentPhoneDigits, fullName: normalizeMatchName(name || ''), code: codeNum, id: candId }),
+app/pranimi/page.jsx:5375:            phone: String(candidate?.phone || candidate?.client_phone || currentCanonicalPhone || '').trim(),
+app/pranimi/page.jsx:5566:      const finalClientPhoneDigits = noPhone ? '' : normalizeMatchPhone(finalClientPhone || '');
+app/pranimi/page.jsx:5574:        client_phone: finalClientPhone,
+app/pranimi/page.jsx:5588:          client_phone: finalClientPhone,
+app/pranimi/page.jsx:5600:          existing_phone_client_phone: declinedPhoneCandidate?.phone || null,
+app/pranimi/page.jsx:5659:        client_phone: finalClientPhone || '',
+app/pranimi/page.jsx:5686:      const verifiedOwnerPhone = normalizeMatchPhone(verifiedOwner?.phone || '');
+app/pranimi/page.jsx:5703:        payload.client_phone = payload.client_phone || payload.data.client.phone || '';
+app/pranimi/page.jsx:5708:          finalSelectedClient: resolvedSelectedClient ? { id: resolvedSelectedClient?.id || null, code: normalizeCode(resolvedSelectedClient?.code || null), name: resolvedSelectedClient?.name || '', phone: resolvedSelectedClient?.phone || '' } : null,
+app/pranimi/page.jsx:5734:          const masterSyncPhoneDigits = noPhone ? '' : normalizeMatchPhone(finalClientPhone || getCanonicalClientPhone() || phone || '');
+app/pranimi/page.jsx:5825:            payload.client_phone = syncedClientMasterPhone || payload.client_phone || '';
+app/pranimi/page.jsx:5849:            payload.data.client_phone = noPhone ? '' : (syncedClientMasterPhone || payload.data.client_phone || '');
+app/pranimi/page.jsx:5951:        payload.client_phone = syncedClientMasterPhone || payload.client_phone || '';
+app/pranimi/page.jsx:5964:        payload.data.client_phone = noPhone ? '' : (syncedClientMasterPhone || payload.data.client_phone || '');
+app/pranimi/page.jsx:6025:            client_phone: payload.client_phone || '',
+app/pranimi/page.jsx:6058:              expected: { code: persistedClientCode, client_phone: finalClientPhone },
+app/pranimi/page.jsx:6097:                client_phone: payload?.client_phone || '',
+app/pranimi/page.jsx:6119:                client_phone: payload?.client_phone || '',
+app/pranimi/page.jsx:6307:          client_phone: payload?.client_phone || getCanonicalClientPhone(),
+app/pranimi/page.jsx:6318:            phone: payload?.client_phone || getCanonicalClientPhone(),
+app/pranimi/page.jsx:6338:            client_phone: payload?.client_phone || getCanonicalClientPhone(),
+app/pranimi/page.jsx:6344:              phone: payload?.client_phone || getCanonicalClientPhone(),
+app/pranimi/page.jsx:6364:          smsOrderPayload?.client_phone ||
+app/pranimi/page.jsx:6366:          smsOrderPayload?.data?.client_phone ||
+app/pranimi/page.jsx:6397:          payload.client_phone = '';
+app/pranimi/page.jsx:6398:          payload.data.client_phone = '';
+app/pranimi/page.jsx:6495:          'id,local_oid,code,status,client_name,client_phone,updated_at,data'
+app/pranimi/page.jsx:6540:            client_phone: payload?.client_phone || '',
+app/pranimi/page.jsx:6563:                expected: { code: persistedClientCode, client_phone: finalClientPhone },
+app/pranimi/page.jsx:6775:            expected: { code: persistedClientCode, client_phone: finalClientPhone },
+app/pranimi/page.jsx:6808:              expected: { code: persistedClientCode, client_phone: finalClientPhone },
+app/pranimi/page.jsx:6925:    const nextPhone = normalizeMatchPhone(d?.phone || d?.client?.phone || '');
+app/pranimi/page.jsx:7200:      orderOverride?.client_phone ||
+app/pranimi/page.jsx:7203:      orderOverride?.data?.client_phone ||
+app/pranimi/page.jsx:7227:      client_phone: targetPhone,
+app/pranimi/page.jsx:7293:    const clientPhone = payload?.client_phone || data?.client_phone || data?.client?.phone || getCanonicalClientPhone() || '';
+app/pranimi/page.jsx:7378:    else result = await consumePranimiCode(pin, draftId, code, orderId, payload?.client_phone || data?.client_phone || '');
+app/pranimi/page.jsx:7541:          client_phone: payload?.client_phone || data?.client_phone || data?.client?.phone || getCanonicalClientPhone(),
+app/pranimi/page.jsx:7553:            phone: payload?.client_phone || data?.client_phone || data?.client?.phone || getCanonicalClientPhone(),
+app/pranimi/page.jsx:7572:          smsOrderPayload?.client_phone ||
+app/pranimi/page.jsx:7574:          smsOrderPayload?.data?.client_phone ||
+app/pranimi/page.jsx:7757:                <div className="client-selected-phone">{noPhone ? 'PA NUMËR' : (String(phone || '').replace(/\D+/g, '') ? `${phonePrefix} ${String(phone || '').replace(/\D+/g, '')}` : 'PA TELEFON')}</div>
+app/pranimi/page.jsx:7876:                        <div style={{ opacity: 0.82 }}>{d.phone ? `${phonePrefix} ${d.phone}` : 'PA TELEFON'}</div>
+app/pranimi/page.jsx:8090:                    <div className="client-selected-phone">{phonePrefix} {String(normalizeMatchPhone(clientMatchPrompt?.candidate?.phone || '')) || '—'} • KODI {String(clientMatchPrompt?.candidate?.code || '—')}</div>
+app/pranimi/page.jsx:8173:                      <div className="apple-result-sub">{phonePrefix} {String(c.phone || '')}</div>
+app/pranimi/page.jsx:8225:                  <input className="input small" value={phonePrefix} readOnly disabled={noPhone} />
+app/pranimi/page.jsx:8231:                      const digits = normalizeMatchPhone(e.target.value || '');
+app/pranimi/page.jsx:8238:                      const selectedPhoneDigits = normalizeMatchPhone(selectedClient?.phone || '');
+app/pranimi/page.jsx:8240:                        clearSelectedClientBinding('selected_client_phone_changed_restore_temp_code');
+app/api/sync/route.js:150:    .select('id,code,client_name,client_phone,status,price_total,data')
+app/api/sync/route.js:190:  const clientPhone = patchData.client_phone || asObj(patchData.client).phone || order.client_phone || '';
+app/api/offline-sync/route.js:181:        .select('id,code,client_name,client_phone,status,price_total,data')
+app/api/offline-sync/route.js:217:      const clientPhone = dataObj.client_phone || asObj(dataObj.client).phone || order.client_phone || '';
+app/api/offline-sync/route.js:307:        const clientPhone = String(row.client_phone || rowData.client_phone || rowClient.phone || '').trim();
+app/api/offline-sync/route.js:323:            client_phone: clientPhone,
+app/api/offline-sync/route.js:367:      const hasClient = (row.client_name?.trim() || orderData.client?.name?.trim() || row.client_phone?.trim() || orderData.client?.phone?.trim());
+app/api/offline-sync/route.js:391:              client: { name: row.client_name || 'Offline', phone: row.client_phone || '' },
+app/api/cron/backup/route.js:120:      sb.from('orders').select('id,code,client_name,client_phone,status,created_at,updated_at,data,total').order('created_at', { ascending: false }).limit(5000),
+app/api/cron/backup/route.js:121:      sb.from('transport_orders').select('id,code_str,client_tcode,client_name,client_phone,status,created_at,updated_at,data,transport_id,visit_nr').order('created_at', { ascending: false }).limit(5000),
+app/api/cron/backup/route.js:137:        client_phone: String(row?.client_phone || client?.phone || '').trim(),
+app/api/cron/backup/route.js:152:        client_phone: String(row?.client_phone || client?.phone || '').trim(),
+app/api/cron/backup/route.js:172:        { label: 'Tel', value: (r) => r.client_phone || '-' },
+app/api/cron/backup/route.js:185:          { label: 'Tel', value: (r) => r.client_phone || '-' },
+app/api/backup/run/route.js:54:      const client_phone = c ? String(c.phone || '') : String(o?.client_phone || o?.clientPhone || '');
+app/api/backup/run/route.js:58:        client_phone: client_phone || null,
+app/api/backup/latest/route.js:67:    const client_phone = c ? String(c.phone || '') : String(o?.client_phone || o?.clientPhone || '');
+app/api/backup/latest/route.js:71:      client_phone: client_phone || null,
+app/api/backup/_lib/utils.js:40:    const phone = (o.client_phone || c.phone || '').trim();
+app/api/backup/_lib/dbdaily.js:39:      client_phone: client?.phone || o?.client_phone || null,
+app/api/backup/_lib/dbdaily.js:63:    const phone = c?.phone || c?.client_phone || c?.telefon || c?.tel || '';
+app/api/backup/_lib/dbdaily.js:81:      phone: o?.client_phone || '',
+app/api/transport/fletore/route.js:61:    row?.client_phone ||
+app/api/transport/fletore/route.js:73:  const phone = normPhone(row?.client_phone || client?.phone || '');
+app/api/transport/fletore/route.js:107:      .select('id,created_at,updated_at,code_str,client_id,client_tcode,client_name,client_phone,status,data,transport_id,visit_nr,ready_at')
+app/api/transport/fletore/route.js:117:      sb.from('transport_clients').select('*').order('created_at', { ascending: true }).limit(5000),
+app/api/transport/fletore/route.js:151:        client_phone: pickClientPhone(row, data, clientRow),
+app/api/transport/fletore/route.js:174:          const key = `${String(order?.code || '').trim()}|${normPhone(order?.client_phone)}`;
+app/api/transport/fletore/route.js:175:          if (!String(order?.code || '').trim() && !normPhone(order?.client_phone)) continue;
+app/api/transport/fletore/route.js:181:            phone: String(order?.client_phone || '-').trim() || '-',
+app/api/public-booking/route.js:71:        client_phone: phone,
+app/gati/page.jsx:477:    phone: row?.client_phone || data?.client_phone || data?.client?.phone || '',
+app/gati/page.jsx:572:  const clientPhone = String(client?.phone || ord?.client_phone || ordData?.client_phone || '').trim();
+app/gati/page.jsx:582:    client_phone: clientPhone,
+app/gati/page.jsx:619:    client_phone: compactOrder.client_phone,
+app/gati/page.jsx:664:    phone: order.client?.phone || order.client_phone || '',
+app/gati/page.jsx:1413:      'id,status,ready_at,picked_up_at,created_at,updated_at,data,code,client_name,client_phone',
+app/gati/page.jsx:1423:    order.client_phone = data.client_phone || order.client_phone || order.client?.phone || '';
+app/gati/page.jsx:1428:      phone: order.client?.phone || data.client_phone || order.client_phone || '',
+app/gati/page.jsx:1589:        select: 'id,status,ready_at,picked_up_at,delivered_at,local_oid,created_at,updated_at,data,code,client_name,client_phone',
+app/gati/page.jsx:1871:            phone: row.client_phone || order.client_phone || order.client?.phone || order.data?.client_phone || order.data?.client?.phone || '',
+app/gati/page.jsx:1975:              phone: exactRow?.client_phone || exactOrder?.client_phone || exactOrder?.client?.phone || '',
+app/gati/page.jsx:2404:          fresh = await fetchOrderByIdSafe('orders', Number(id), 'id,local_oid,code,status,client_name,client_phone,updated_at,created_at,data', { timeoutMs: GATI_DB_TIMEOUT_MS });
+app/gati/page.jsx:2497:      smsOrder?.client_phone ||
+app/gati/page.jsx:2498:      smsOrder?.data?.client_phone ||
+app/gati/page.jsx:2643:        phone: order.client?.phone || order.client_phone || row.phone || '',
+app/gati/page.jsx:2733:      clientPhone: payload?.client_phone || payload?.client?.phone || null,
+app/gati/page.jsx:2940:      client_phone: baseOrder?.client_phone || baseOrder?.client?.phone || payOrder?.phone || '',
+app/gati/page.jsx:2969:      phone: payload.client?.phone || payload.client_phone || payOrder?.phone || '',
+app/gati/page.jsx:3018:        phone: payload.client_phone || payload.client?.phone || '',
+app/gati/page.jsx:3349:        client_phone: baseOrder?.client_phone || baseOrder?.data?.client_phone || baseOrder?.client?.phone || null,
+app/gati/page.jsx:3415:      ord.client.phone = ord.client.phone || ord.client_phone || row?.phone || '';
+lib/smartSms.js:135:export function normalizePhone(phone) {
+lib/smartSms.js:140:  const raw = normalizePhone(phone);
+lib/smartSms.js:170:export function normalizePhoneForWhatsApp(phone) {
+lib/smartSms.js:508:  const clean = normalizePhoneForWhatsApp(phone);
+lib/smartSms.js:514:  const clean = normalizePhoneForWhatsApp(phone);
+lib/smartSms.js:557:  normalizePhone,
+lib/smartSms.js:559:  normalizePhoneForWhatsApp,
+lib/reconcile/reconcile.js:82:  const phone = String(row?.phone || row?.client_phone || fullOrder?.client_phone || fullOrder?.client?.phone || '').trim();
+lib/reconcile/reconcile.js:131:      client_phone: fullOrder?.client_phone || phone,
+lib/reconcile/pendingMutations.js:41:    phone: input?.phone || patch?.client_phone || patch?.client?.phone || '',
+lib/reconcile/pendingMutations.js:97:    phone: patch?.client_phone || patch?.client?.phone || '',
+lib/offlineQueueSync.js:64:  const clientPhone = order?.client_phone || order?.client?.phone || order?.phone || '';
+lib/offlineQueueSync.js:71:    client_phone: clientPhone || '',
+lib/syncRecovery.js:81:  const clientPhone = order?.client_phone || order?.client?.phone || order?.phone || '';
+lib/syncRecovery.js:88:    client_phone: clientPhone || '',
+lib/syncRecovery.js:321:  const clientPhone = firstPresent(row?.client_phone, data?.client_phone, nestedOrder?.client_phone, client?.phone, data?.phone, row?.phone, '');
+lib/syncRecovery.js:322:  safe.client_phone = String(clientPhone || '');
+lib/syncRecovery.js:352:        ...(safe.client_phone ? { phone: safe.client_phone } : {}),
+lib/syncRecovery.js:363:  const selectCols = 'id,local_oid,code,status,client_name,client_phone,price_total,m2_total,pieces,paid_cash,is_paid_upfront,updated_at,data';
+lib/offlineCodeBank.js:705:        p_client_phone: String(options?.clientPhone || options?.client_phone || ''),
+lib/syncEngine.js:175:  let query = supabase.from('orders').select('id,code,client_name,client_phone,status,price_total,data');
+lib/syncEngine.js:257:  const clientPhone = patchData?.client_phone || patchData?.client?.phone || order?.client_phone || mergedData?.client_phone || mergedData?.client?.phone || '';
+lib/syncEngine.js:751:function normalizePhoneLoose(value) {
+lib/syncEngine.js:785:  return normalizePhoneLoose(
+lib/syncEngine.js:786:    row?.client_phone ||
+lib/syncEngine.js:788:    data?.client_phone ||
+lib/syncEngine.js:790:    nestedOrder?.client_phone ||
+lib/syncEngine.js:818:  const ownerPhone = normalizePhoneLoose(owner?.phone || '');
+lib/syncEngine.js:851:      .select('client_id,client_name,client_phone,data,updated_at')
+lib/syncEngine.js:862:      const ownerPhone = String(row?.client_phone || nested?.client_phone || nestedClient?.phone || '').trim();
+lib/syncEngine.js:901:    next.client_phone = ownerPhone;
+lib/syncEngine.js:902:    data.client_phone = ownerPhone;
+lib/syncEngine.js:904:    next.client_phone = '';
+lib/syncEngine.js:905:    data.client_phone = '';
+lib/syncEngine.js:927:function normalizeNoPhoneOrderPayload(clean = {}, row = {}) {
+lib/syncEngine.js:936:    data?.client_phone,
+lib/syncEngine.js:937:    next?.client_phone,
+lib/syncEngine.js:938:    row?.client_phone,
+lib/syncEngine.js:942:    next.client_phone = '';
+lib/syncEngine.js:943:    data.client_phone = '';
+lib/syncEngine.js:982:    const existingHasRealPhone = !!normalizePhoneLoose(existing?.phone || '');
+lib/syncEngine.js:1046:  let next = normalizeNoPhoneOrderPayload(clean, row);
+lib/syncEngine.js:1114:    clean?.client_phone,
+lib/syncEngine.js:1115:    row?.client_phone,
+lib/syncEngine.js:1116:    data?.client_phone,
+lib/syncEngine.js:1117:    nestedOrder?.client_phone,
+lib/syncEngine.js:1123:    clean.client_phone = '';
+lib/syncEngine.js:1124:    data.client_phone = '';
+lib/syncEngine.js:1129:  } else if (clientPhone !== undefined) clean.client_phone = clientPhone;
+lib/syncEngine.js:1172:  const selectCols = 'id,local_oid,code,status,client_name,client_phone,price_total,m2_total,pieces,paid_cash,is_paid_upfront,updated_at,data';
+lib/syncEngine.js:1293:    .select('id,local_oid,code,status,client_name,client_phone,price_total,m2_total,pieces,paid_cash,is_paid_upfront,updated_at,data')
+lib/syncEngine.js:1319:  const selectCols = 'id,local_oid,code,status,client_name,client_phone,price_total,m2_total,pieces,paid_cash,is_paid_upfront,updated_at,data';
+lib/syncEngine.js:1367:      clean = normalizeNoPhoneOrderPayload(clean, row);
+lib/syncEngine.js:1383:        clean = normalizeNoPhoneOrderPayload(clean, row);
+lib/arka/arkaEngine.js:307:    'client_phone',
+lib/arka/arkaEngine.js:591:    .select('id,status,data,code,client_name,client_phone,price_total,updated_at,created_at')
+lib/arka/arkaEngine.js:604:    .select('id,status,data,code_str,client_tcode,client_name,client_phone,updated_at,created_at')
+lib/arka/arkaEngine.js:691:  const updated = await updateById(sb, 'orders', order.id, patch, orderUpdateVariants, { select: 'id,status,data,code,client_name,client_phone,price_total,updated_at' });
+lib/arka/arkaEngine.js:728:    const { data, error } = await sb.from('transport_orders').update(variant).eq('id', row.id).select('id,status,data,code_str,client_tcode,client_name,client_phone,updated_at').maybeSingle();
+lib/arka/arkaEngine.js:959:    client_phone: cleanText(payload.clientPhone || payload.client_phone || order.client_phone || client.phone, '') || null,
+lib/arka/arkaEngine.js:993:    client_phone: cleanText(payload.clientPhone || payload.client_phone || row.client_phone || client.phone, '') || null,
+lib/arka/arkaEngine.js:1213:    client_phone: null,
+lib/arka/arkaEngine.js:2728:    client_phone: row.client_phone || null,
+lib/syncManager.js:176:  if (includeTables.length && includeTables.every((v) => v === 'transport_orders' || v === 'transport_clients')) return true;
+lib/syncManager.js:177:  if (excludeTables.includes('transport_orders') || excludeTables.includes('transport_clients')) return false;
+lib/syncManager.js:241:  if (!String(next?.client_phone || '').trim()) {
+lib/syncManager.js:243:    if (clientPhone) next.client_phone = clientPhone;
+lib/offlineStore.js:189:    client_phone: String(payload?.client_phone || data?.client_phone || client?.phone || ''),
+lib/arkaWorkerSummary.js:147:    .select('id,code,status,client_name,client_phone,created_at,updated_at,data,total,price_total')
+lib/homeSearch.js:17:export function normalizePhone(value) {
+lib/homeSearch.js:188:    row?.client_phone,
+lib/homeSearch.js:194:    data?.client_phone,
+lib/homeSearch.js:511:  const phone = normalizePhone(result.phone);
+lib/homeSearch.js:524:  if (qText && phone && normalizeText(phone).includes(qText)) return true;
+lib/homeSearch.js:587:    : [kind, normalizePhone(item.phone || ''), normalizeText(item.name || '')].join('|');
+lib/homeSearch.js:783:          .select('id,code,client_name,client_phone,status,data,created_at,updated_at')
+lib/homeSearch.js:803:          .select('id,code_n,code_str,client_name,client_phone,status,data,created_at,updated_at')
+lib/transportMultiLocationBridge.js:24:function normalizePhoneKey(value) {
+lib/transportMultiLocationBridge.js:124:      normalizePhoneKey(args?.p_client_phone) === state.selected.phoneKey
+lib/transportMultiLocationBridge.js:151:  const phoneKey = normalizePhoneKey(fields?.phone);
+lib/transportMultiLocationBridge.js:168:  const phoneKey = normalizePhoneKey(fields?.phone);
+lib/transportMultiLocationBridge.js:206:  const phoneKey = normalizePhoneKey(fields.phone);
+lib/transportMultiLocationBridge.js:253:  const phoneKey = normalizePhoneKey(fields.phone);
+lib/transportMultiLocationBridge.js:312:    const phoneKey = normalizePhoneKey(fields.phone);
+lib/transportMultiLocationBridge.js:359:    if (event.target === fields.textarea && state.selected?.phoneKey === normalizePhoneKey(fields.phone)) {
+lib/transportMultiLocationBridge.js:390:    const phoneKey = normalizePhoneKey(fields.phone);
+lib/transportOfflineSync.js:68:    draft?.client_phone ||
+lib/transportOfflineSync.js:71:    data?.client_phone ||
+lib/transportOfflineSync.js:83:  const prefix = String(draft?.phonePrefix || draft?.phone_prefix || data?.phonePrefix || '+383').trim() || '+383';
+lib/transportOfflineSync.js:188:        client_phone: phone,
+lib/transportOfflineSync.js:196:          client_phone: phone,
+lib/arkaCashSync.js:271:    client_phone: payload.client_phone || payload.phone || null,
+lib/arkaCashSync.js:485:    clientPhone: payload.clientPhone || payload.client_phone || payload.phone || null,
+lib/baseCodes.js:185:  try { const { data, error } = await withTimeout(supabase.rpc('mark_base_code_used_after_verify', { p_code: code, p_pin: pin, p_draft_session_id: draftSessionId, p_order_id: orderId, p_client_phone: String(opts?.clientPhone || '').trim() || null }), RPC_TIMEOUT_MS, 'MARK_USED_RPC_TIMEOUT'); if (error) return { ok: false, reason: 'CONSUME_RESULT_AMBIGUOUS', error }; return data?.ok === true ? { ...data, ok: true } : { ok: false, reason: data?.reason || 'CONSUME_VERIFY_REFUSED', data }; }
+lib/baseCodes.js:197:    const a = phoneDigits(phone), b = phoneDigits(data.phone); if (a && b && a !== b) return { ok: false, reason: 'EXISTING_CLIENT_PHONE_MISMATCH' };
+lib/transportCore/syncEngine.js:249:  if (!String(next?.client_phone || '').trim()) {
+lib/transportCore/syncEngine.js:251:    if (clientPhone) next.client_phone = clientPhone;
+lib/transportCore/syncEngine.js:342:    .from('transport_clients')
+lib/transportCore/syncEngine.js:355:  if (table === 'transport_clients') {
+lib/transportCore/scope.js:24:  return t === 'transport_orders' || t === 'transport_clients';
+lib/transport/board/shared.js:2:import { normalizePhoneForWhatsApp, canonicalizePhone } from '../../smartSms';
+lib/transport/board/shared.js:23:  const raw = item?.client_phone || item?.data?.client_phone || item?.data?.client?.phone || item?.data?.phone || item?.phone || '';
+lib/transport/board/shared.js:24:  return normalizePhoneForWhatsApp(raw);
+lib/transport/transportServer.js:4:  normalizeTransportPhoneKey,
+lib/transport/transportServer.js:12:export const normalizeTransportPhoneKeyServer = normalizeTransportPhoneKey;
+lib/transport/transportServer.js:50:  const key = normalizeTransportPhoneKeyServer(phone);
+lib/transport/transportServer.js:57:    const rowKey = normalizeTransportPhoneKeyServer(row?.phone_digits || row?.phone || '');
+lib/transport/transportServer.js:64:    clientRows.push({ ...row, tcode, source: 'transport_clients' });
+lib/transport/transportServer.js:69:    .from('transport_clients')
+lib/transport/transportServer.js:73:  if (direct?.error) throw new Error(`TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED: ${errorText(direct.error)}`);
+lib/transport/transportServer.js:80:      .from('transport_clients')
+lib/transport/transportServer.js:83:    if (fallback?.error) throw new Error(`TRANSPORT_CLIENT_PHONE_FALLBACK_FAILED: ${errorText(fallback.error)}`);
+lib/transport/transportServer.js:93:  // A small number of historical orders may predate transport_clients. Reuse their
+lib/transport/transportServer.js:94:  // T-code only when every row for the normalized phone agrees on exactly one code.
+lib/transport/transportServer.js:101:    const rowPhone = row?.client_phone || data?.client_phone || client?.phone || '';
+lib/transport/transportServer.js:102:    if (normalizeTransportPhoneKeyServer(rowPhone) !== key) return;
+lib/transport/transportServer.js:137:    .select('id,client_id,client_tcode,code_str,client_name,client_phone,data,created_at,updated_at')
+lib/transport/transportServer.js:138:    .in('client_phone', variants)
+lib/transport/transportServer.js:147:    .select('id,client_id,client_tcode,code_str,client_name,client_phone,data,created_at,updated_at')
+lib/transport/transportServer.js:203:  const rowPhone = normalizeTransportPhoneKeyServer(row.client_phone || row?.data?.client_phone || row?.data?.client?.phone || '');
+lib/transport/transportServer.js:204:  const wantedPhone = normalizeTransportPhoneKeyServer(phone);
+lib/transport/transportServer.js:219: * - Existing phone: reuse transport_clients.tcode and consume no code.
+lib/transport/transportServer.js:228:  const phone = String(input?.client_phone || input?.phone || '').trim();
+lib/transport/transportServer.js:297:  const rpcPhone = existingClient?.source === 'transport_clients' && existingClient?.phone
+lib/transport/transportServer.js:305:    p_client_phone: rpcPhone,
+lib/transport/transportDb.js:8:  normalizeTransportPhoneKey,
+lib/transport/transportDb.js:15:  normalizeTransportPhoneKey,
+lib/transport/transportDb.js:52:  const phone = String(row?.phone || row?.client_phone || row?.phone_digits || client?.phone || data?.client_phone || data?.phone || '').trim();
+lib/transport/transportDb.js:57:    source: source || row?.source || (isOrder ? 'transport_orders' : 'transport_clients'),
+lib/transport/transportDb.js:75:  const phoneKey = normalizeTransportPhoneKey(phoneValue);
+lib/transport/transportDb.js:99:    payload = await runLookup(timeoutMs, 'TRANSPORT_CLIENT_PHONE_TIMEOUT');
+lib/transport/transportDb.js:105:      payload = await runLookup(Math.max(timeoutMs, 20000), 'TRANSPORT_CLIENT_PHONE_RETRY_TIMEOUT');
+lib/transport/transportDb.js:109:      throw new Error('TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED: ' + retryMessage + (firstMessage && firstMessage !== retryMessage ? ' | FIRST: ' + firstMessage : ''));
+lib/transport/transportDb.js:123:    throw new Error('TRANSPORT_CLIENT_PHONE_LOOKUP_INVALID_RESPONSE:' + (status || 'EMPTY'));
+lib/transport/transportDb.js:128:    payload?.candidate?.source || (payload?.source_mode === 'MASTER' ? 'transport_clients' : 'transport_orders'),
+lib/transport/transportDb.js:130:  const candidatePhoneKey = normalizeTransportPhoneKey(candidate?.phone_digits || candidate?.phone || '');
+lib/transport/transportDb.js:132:    throw new Error('TRANSPORT_CLIENT_PHONE_RPC_MISMATCH:' + phoneKey + ':' + (candidatePhoneKey || '-'));
+lib/transport/transportDb.js:170:    const payload = sanitizeTransportClientPayload(input, { tcode: normalizedTcode, name, phoneDigits: phone_digits });
+lib/transport/transportDb.js:180:          .from('transport_clients')
+lib/transport/transportDb.js:192:        const incomingPhoneKey = normalizeTransportPhoneKey(phone_digits || phone || '');
+lib/transport/transportDb.js:193:        const currentPhoneKey = normalizeTransportPhoneKey(current?.phone_digits || current?.phone || '');
+lib/transport/transportDb.js:197:            error: `TRANSPORT_CLIENT_PHONE_MISMATCH: ${normTCode(current?.tcode || normalizedTcode) || 'KLIENTI'} i takon telefonit ${current?.phone || current?.phone_digits || '-'}, jo ${phone || phone_digits || '-'}. Krijo klient të ri.`
+lib/transport/transportDb.js:208:          .from('transport_clients')
+lib/transport/transportDb.js:226:        .from('transport_clients')
+lib/transport/transportDb.js:232:      if (findErr) return { ok: false, error: `TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED: ${findErr.message || findErr}` };
+lib/transport/transportDb.js:239:        const existingTcode = normTCode(phoneMatch.tcode || '') || normalizedTcode;
+lib/transport/transportDb.js:245:            .from('transport_clients')
+lib/transport/transportDb.js:260:        .from('transport_clients')
+lib/transport/transportDb.js:269:        const incomingPhoneKey = normalizeTransportPhoneKey(phone_digits || phone || '');
+lib/transport/transportDb.js:270:        const ownerPhoneKey = normalizeTransportPhoneKey(tcodeRow?.phone_digits || tcodeRow?.phone || '');
+lib/transport/transportDb.js:274:            error: `T-CODE ${normalizedTcode} ËSHTË I ZËNË NGA ${tcodeRow?.name || 'KLIENT TJETËR'} (${tcodeRow?.phone || tcodeRow?.phone_digits || '-'}). Krijo klient të ri me T-code tjetër.`
+lib/transport/transportDb.js:281:            ? sanitizeSharedTransportClientPayload({ ...payload, tcode: normalizedTcode, search_code: '' }, { mode: 'upsert', tcode: normalizedTcode, name, phoneDigits: phone_digits || String(Date.now()) })
+lib/transport/transportDb.js:284:            .from('transport_clients')
+lib/transport/transportDb.js:297:        ? sanitizeSharedTransportClientPayload({ ...payload, search_code: '' }, { mode: 'upsert', tcode: normalizedTcode, name, phoneDigits: phone_digits || String(Date.now()) })
+lib/transport/transportDb.js:300:        .from('transport_clients')
+lib/transport/transportDb.js:340:  const wantedPhone = normalizeTransportPhoneKey(expected?.phone || '');
+lib/transport/transportDb.js:341:  const rowPhone = normalizeTransportPhoneKey(row?.client_phone || row?.data?.client_phone || row?.data?.client?.phone || '');
+lib/transport/transportDb.js:376:      input?.client_phone || input?.clientPhone || clientData?.phone || dataObj?.client_phone || '',
+lib/transport/transportDb.js:464:      client_phone: clientPhone,
+lib/transport/transportDb.js:471:    const rpcPhone = existingPhoneClient?.source === 'transport_clients' && existingPhoneClient?.phone
+lib/transport/transportDb.js:479:      p_client_phone: rpcPhone,
+lib/transport/bridgeMeta.js:110:    clientPhone: String(row?.client_phone || data?.client?.phone || data?.client_phone || row?.phone || '').trim(),
+lib/transport/clientCodes.js:6:export function normalizePhoneDigits(v) {
+lib/transport/clientCodes.js:35:  const pd = normalizePhoneDigits(phoneDigits);
+lib/transport/sanitize.js:280:  // Do NOT derive code_str from client_tcode / transport_clients.tcode / data.client.code,
+lib/transport/sanitize.js:333:  const clientPhone = String(base.client_phone || clientObj.phone || '').trim();
+lib/transport/sanitize.js:334:  if (clientPhone) out.client_phone = clientPhone;
+lib/transport/phone.js:62:export function normalizeTransportPhoneKey(value) {
+lib/transport/phone.js:67:  return normalizeTransportPhoneKey(value).length >= 8;
+lib/transport/phone.js:98:  const aa = normalizeTransportPhoneKey(a);
+lib/transport/phone.js:99:  const bb = normalizeTransportPhoneKey(b);
+lib/baseMasterCache.js:330:    client_phone: row?.client_phone || data?.client_phone || data?.client?.phone || '',
+lib/transportCodes.js:148:      .from('transport_clients')
+lib/transportCodes.js:157:        .from('transport_clients')
+lib/transportOrdersDb.js:127:  if (!next.client_phone && typeof client.phone === 'string' && String(client.phone || '').trim()) {
+lib/transportOrdersDb.js:128:    next.client_phone = String(client.phone || '').trim();
+lib/transportOrdersDb.js:152:    .from('transport_clients')
+lib/transportOrdersDb.js:173:    phone: c?.phone || hit?.client_phone || '',
+lib/transportOrdersDb.js:350:    client_phone: client.phone || '',
+lib/transportOrdersDb.js:495:      payload: { table: 'transport_clients', ...patch },
+lib/transportOrdersDb.js:503:    .from('transport_clients')
+lib/transportOrdersDb.js:606:    select: 'id, transport_id, client_tcode, client_name, client_phone, code_str, data, created_at, updated_at',
+lib/offlineRuntime.js:252:      .from('transport_clients')
+lib/offlineRuntime.js:297:    table: 'transport_clients',
+lib/offlineRuntime.js:298:    _table: 'transport_clients',
+lib/offlineRuntime.js:467:      transport_clients: refreshClients ? transportClients.length : Number(previous?.counts?.transport_clients || 0),
+lib/pranimiDraftDb.js:2:const PRANIMI_DRAFT_SELECT = 'id,status,local_oid,code,client_name,client_phone,pieces,m2_total,price_total,paid_cash,is_paid_upfront,note,updated_at,created_at,data';
+lib/pranimiDraftDb.js:121:    client_phone: row?.client_phone ?? dataIn?.client_phone ?? '',
+lib/pranimiDraftDb.js:160:    client_phone: row?.client_phone ?? data.client_phone ?? '',
+lib/ordersDb.js:251:    client_phone: normPhone(order?.client_phone || order?.client?.phone),
+lib/ordersDb.js:398:      .from('transport_clients')
+lib/ordersDb.js:409:  if (digits.length >= 3) orParts.push(`client_phone.ilike.%${digits}%`);
+lib/ordersDb.js:412:    .select('client_name, client_phone, client_code, updated_at')
+lib/ordersDb.js:419:    phone: r.client_phone,
+components/transport/TransportEditModal.jsx:50:    setPhone(String(d?.client?.phone || item?.client_phone || '').trim());
+components/transport/TransportEditModal.jsx:88:        client_phone: ph || null,
+components/transport/TransportInlineEdit.jsx:88:  const [phonePrefix, setPhonePrefix] = useState(fullPhone.startsWith('+') ? fullPhone.match(/^\+\d+/)?.[0] || '+383' : '+383');
+components/transport/TransportInlineEdit.jsx:194:    const ph = (String(phonePrefix || '').trim() + String(phone || '').trim()).replace(/\s+/g, '');
+components/transport/TransportInlineEdit.jsx:240:        client_phone: ph,
+components/transport/TransportInlineEdit.jsx:277:            <input className="input small" value={phonePrefix} onChange={e => setPhonePrefix(e.target.value)} />
+components/payments/payService.js:115:    clientPhone: input.clientPhone || input.client_phone || input.phone || null,
