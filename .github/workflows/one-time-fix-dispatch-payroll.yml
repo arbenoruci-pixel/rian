@@ -26,7 +26,6 @@ jobs:
           p = Path('app/arka/payroll/page.jsx')
           s = p.read_text()
 
-          # Dispatch uses their own authenticated PIN; admin/master may still use Master PIN.
           anchor = "  const normalizedRole = String(actor?.role || '').toUpperCase();\n  const isAdminUser = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);"
           replacement = anchor + "\n  const isDispatchUser = normalizedRole === 'DISPATCH';\n  const payrollActorPin = String(isDispatchUser ? (actor?.pin || '') : (masterPin || actor?.pin || '')).trim();"
           if anchor not in s:
@@ -126,7 +125,6 @@ jobs:
           s = s.replace(old_calc, new_calc, 1)
 
           s = s.replace("`Neto për pagesë: ${euro(netAmount)}\\n\\n` +", "`Cash i njohur në rrogë: ${euro(cashCreditAmount)}\\n` +\n      `Shtesë që jep kompania: ${euro(netAmount)}\\n` +\n      `Rroga e mbyllur gjithsej: ${euro(netAmount + cashCreditAmount)}\\n\\n` +", 1)
-
           s = s.replace("actorPin: String(masterPin || '').trim(),", "actorPin: payrollActorPin,", 1)
           s = s.replace("actorName: actor?.name || 'MASTER USER',", "actorName: actor?.name || (isDispatchUser ? 'DISPATCH' : 'MASTER USER'),", 1)
           s = s.replace("""        manualAdvanceAmount,
@@ -134,8 +132,6 @@ jobs:
         cashCreditAmount,
         cashPaymentIds: useWorkerCash ? (salaryModal?.cashPaymentIds || []) : [],
         idempotencyKey:""", 1)
-          s = s.replace("`: `✅ Rroga u pagua për ${workerName || workerPin}. Neto: ${euro(netAmount)}.`", "`: `✅ Rroga u mbyll për ${workerName || workerPin}. Kompania dha ${euro(netAmount)}${cashCreditAmount > 0 ? ` dhe ${euro(cashCreditAmount)} u njohën nga cash-i i punëtorit` : ''}.`", 1)
-
           p.write_text(s)
 
           p = Path('lib/arka/arkaEngine.js')
@@ -153,7 +149,6 @@ jobs:
           if old not in s:
             raise SystemExit('engine amount anchor not found')
           s = s.replace(old, new, 1)
-
           s = s.replace("`AVANS ${idempotentMoneyKey(advanceAmount)}€`,", "`AVANS ${idempotentMoneyKey(advanceAmount)}€`,\n      cashCreditAmount > 0 ? `CASH I NJOHUR ${idempotentMoneyKey(cashCreditAmount)}€` : '',", 1)
 
           marker = """    const createdAt = nowIso();
@@ -195,7 +190,6 @@ jobs:
           s = s.replace(marker, insertion, 1)
           p.write_text(s)
 
-          # Version/cache bump.
           p = Path('lib/appEpoch.js')
           s = p.read_text()
           s = re.sub(r"export const APP_VERSION = '[^']+';", "export const APP_VERSION = '2.0.66-dispatch-payroll-cash-credit-v1';", s, count=1)
