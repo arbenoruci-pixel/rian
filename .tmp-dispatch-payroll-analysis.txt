@@ -1,0 +1,1433 @@
+=== MASTER PIN / PAYROLL ===
+app/dispatch/page.jsx:3030:          <div style={ui.modalCard} onClick={(e) => e.stopPropagation()}>
+app/arka/puntor/[pin]/page.jsx:445:  // Payroll cash-clear view must deduct only active/unsettled expenses.
+app/arka/puntor/[pin]/page.jsx:1039:  const payrollAccount = useMemo(() => {
+app/arka/puntor/[pin]/page.jsx:1060:    const baseSalary = n(worker?.salary);
+app/arka/puntor/[pin]/page.jsx:1062:    const netPayable = baseSalary + commissionStillPayable - advancesDeducted;
+app/arka/puntor/[pin]/page.jsx:1064:      baseSalary,
+app/arka/puntor/[pin]/page.jsx:1389:          {canManage ? <Link prefetch={false} href="/arka/payroll" className="arkaTopBtn">PAYROLL</Link> : null}
+app/arka/puntor/[pin]/page.jsx:1416:          <section className="arkaSectionCard payrollClearBlock ownerSimpleCard arkaHeroMainDue">
+app/arka/puntor/[pin]/page.jsx:1431:          <section className="arkaSectionCard payrollClearBlock arkaCashListCard">
+app/arka/puntor/[pin]/page.jsx:1443:                    AVANSI ËSHTË PARA QË KOMPANIA IA JEP PUNTORIT DHE ZBRITET NGA RROGA MUJORE. NUK PREK CASH-IN E KLIENTËVE.
+app/arka/puntor/[pin]/page.jsx:1508:              <div className="arkaSectionSub">KOMISIONI ËSHTË HESAP PAYROLL. NË EKRANIN KRYESOR SHFAQET VETËM SA MBAHET NGA CASH-I.</div>
+app/arka/puntor/[pin]/page.jsx:1510:                <Stat label="KOMISION I FITUAR" value={euro(payrollAccount.transportCommissionTotal)} tone="warn" />
+app/arka/puntor/[pin]/page.jsx:1511:                <Stat label="KOMISION I MBAJTUR NGA CASH" value={euro(payrollAccount.commissionHeldFromCash)} tone="ok" />
+app/arka/puntor/[pin]/page.jsx:1512:                <Stat label="KOMISION ENDE PËR PAGESË" value={euro(payrollAccount.commissionStillPayable)} tone="strong" />
+app/arka/puntor/[pin]/page.jsx:1515:                payrollAccount.commissionRows.length ? payrollAccount.commissionRows.slice(0, 20).map((row) => (
+app/arka/puntor/[pin]/page.jsx:1518:                      <div className="arkaHistoryTitle">{row.code} — {row.m2.toFixed(2)} m² × {euro(payrollAccount.commissionRate)} = {euro(row.commission)}</div>
+app/arka/puntor/[pin]/page.jsx:1529:            <summary className="arkaAdvancedSummary">HAP PAYROLL</summary>
+app/arka/puntor/[pin]/page.jsx:1530:            <section className="arkaSectionCard payrollClearBlock">
+app/arka/puntor/[pin]/page.jsx:1531:              <div className="arkaSectionTitle">4. PAYROLL</div>
+app/arka/puntor/[pin]/page.jsx:1532:              <div className="arkaSectionSub">RROGA DHE KOMISIONI JANË HESAP I NDARË NGA CASH-I PËR DORËZIM.</div>
+app/arka/puntor/[pin]/page.jsx:1534:                <Stat label="RROGA" value={euro(payrollAccount.baseSalary)} tone="neutral" />
+app/arka/puntor/[pin]/page.jsx:1535:                <Stat label="KOMISION I FITUAR" value={euro(payrollAccount.transportCommissionTotal)} tone="warn" />
+app/arka/puntor/[pin]/page.jsx:1536:                <Stat label="MBAJTUR NGA CASH" value={euro(payrollAccount.commissionHeldFromCash)} tone="ok" />
+app/arka/puntor/[pin]/page.jsx:1537:                <Stat label="KOMISION ENDE PËR PAGESË" value={euro(payrollAccount.commissionStillPayable)} tone="info" />
+app/arka/puntor/[pin]/page.jsx:1538:                <Stat label="AVANSE PAYROLL" value={euro(payrollAccount.advancesDeducted)} tone="muted" />
+app/arka/puntor/[pin]/page.jsx:1539:                <Stat label="NETO PËR PAGESË" value={euro(payrollAccount.netPayable)} tone="strong" />
+app/arka/puntor/[pin]/page.jsx:1542:                <div className="arkaActionHeader">NETO PËR PAGESË: {euro(payrollAccount.netPayable)}</div>
+app/arka/puntor/[pin]/page.jsx:1543:                <div className="arkaSimpleSub">RROGA + KOMISION ENDE PËR PAGESË − AVANSET PAYROLL</div>
+app/arka/puntor/[pin]/page.jsx:1544:                <div className="arkaSimpleSub">{euro(payrollAccount.baseSalary)} + {euro(payrollAccount.commissionStillPayable)} − {euro(payrollAccount.advancesDeducted)}</div>
+app/arka/payroll/page.jsx:11:import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow, isPayrollEligibleWorker } from "@/lib/payrollMonthClose";
+app/arka/payroll/page.jsx:201:  if (status === "CLEARED_PAID") return { label: "RROGË / SHLYER", tone: "green" };
+app/arka/payroll/page.jsx:208:const MONTH_CLOSE_EXCLUDED_CASH_TYPES = new Set(['EXPENSE', 'TIMA', 'MEAL_PAYMENT', 'MEAL_COVERED', 'ADVANCE', 'SALARY_PAYMENT']);
+app/arka/payroll/page.jsx:251:export default function PayrollPage() {
+app/arka/payroll/page.jsx:254:  const [masterPin, setMasterPin] = useState("");
+app/arka/payroll/page.jsx:266:    salary: "",
+app/arka/payroll/page.jsx:267:    salary_day: "",
+app/arka/payroll/page.jsx:272:  const [salaryModal, setSalaryModal] = useState(null);
+app/arka/payroll/page.jsx:277:  const [payrollMonth, setPayrollMonth] = useState(() => getCurrentPayrollMonth());
+app/arka/payroll/page.jsx:278:  const [payrollMonthRows, setPayrollMonthRows] = useState([]);
+app/arka/payroll/page.jsx:279:  const [payrollMonthLoading, setPayrollMonthLoading] = useState(false);
+app/arka/payroll/page.jsx:280:  const [payrollMonthError, setPayrollMonthError] = useState("");
+app/arka/payroll/page.jsx:285:  const [selectedPayrollRow, setSelectedPayrollRow] = useState(null);
+app/arka/payroll/page.jsx:330:    void reloadMonthlyPayrollPreview(payrollMonth);
+app/arka/payroll/page.jsx:331:  }, [actor?.pin, isAdminUser, payrollMonth]);
+app/arka/payroll/page.jsx:336:      const st = await withTimeout(listUserRecords({ orderBy: "name", ascending: true, eq: { is_active: true } }), DB_TIMEOUT_MS, 'arka_payroll_users_timeout');
+app/arka/payroll/page.jsx:342:      }), DB_TIMEOUT_MS, 'arka_payroll_debts_timeout');
+app/arka/payroll/page.jsx:354:        console.warn('PATCH M V25: ARKA/PAYROLL DB timeout/failure; fail-open instead of stuck loader.', err);
+app/arka/payroll/page.jsx:361:  async function reloadMonthlyPayrollPreview(monthValue = payrollMonth) {
+app/arka/payroll/page.jsx:362:    const month = String(monthValue || getCurrentPayrollMonth()).slice(0, 7);
+app/arka/payroll/page.jsx:365:    setPayrollMonthLoading(true);
+app/arka/payroll/page.jsx:366:    setPayrollMonthError("");
+app/arka/payroll/page.jsx:371:        .from("payroll_month_closes")
+app/arka/payroll/page.jsx:384:          .from("payroll_month_close_items")
+app/arka/payroll/page.jsx:393:        setPayrollMonthRows([]);
+app/arka/payroll/page.jsx:414:          .eq("status", "SALARY_PAID")
+app/arka/payroll/page.jsx:415:          .ilike("note", `%RROGA ${month}%`)
+app/arka/payroll/page.jsx:464:      const payrollRows = rows.map((row) => ({
+app/arka/payroll/page.jsx:488:      setPayrollMonthRows(payrollRows);
+app/arka/payroll/page.jsx:511:      console.warn("PRO PAYROLL PREVIEW LOAD ERROR", err);
+app/arka/payroll/page.jsx:512:      setPayrollMonthRows([]);
+app/arka/payroll/page.jsx:515:      setPayrollMonthError(normalizeDbError(err));
+app/arka/payroll/page.jsx:517:      setPayrollMonthLoading(false);
+app/arka/payroll/page.jsx:524:    const ok = window.confirm("Kjo pagesë nuk do të llogaritet për payroll/MASTER cash. Pagesa origjinale nuk fshihet. Vazhdo?");
+app/arka/payroll/page.jsx:541:        created_by_pin: String(actor?.pin || masterPin || '2380'),
+app/arka/payroll/page.jsx:554:          await reloadMonthlyPayrollPreview(payrollMonth);
+app/arka/payroll/page.jsx:561:      await reloadMonthlyPayrollPreview(payrollMonth);
+app/arka/payroll/page.jsx:573:      salary: String(u.salary ?? ""),
+app/arka/payroll/page.jsx:574:      salary_day: String(u.salary_day ?? ""),
+app/arka/payroll/page.jsx:585:    const dayRaw = Number(editForm.salary_day || 0);
+app/arka/payroll/page.jsx:587:      salary: Number(editForm.salary || 0),
+app/arka/payroll/page.jsx:588:      salary_day: dayRaw >= 1 && dayRaw <= 31 ? dayRaw : null,
+app/arka/payroll/page.jsx:620:  function openSalaryModal(u) {
+app/arka/payroll/page.jsx:622:    const baseSalary = Number(u.salary || 0);
+app/arka/payroll/page.jsx:627:    setSalaryModal({
+app/arka/payroll/page.jsx:629:      baseSalary,
+app/arka/payroll/page.jsx:649:    if (!advanceModal || !masterPin) {
+app/arka/payroll/page.jsx:650:      alert("Kërkohet Master PIN për këtë veprim.");
+app/arka/payroll/page.jsx:690:    if (!salaryModal) return 0;
+app/arka/payroll/page.jsx:691:    const baseSalary = Number(salaryModal.baseSalary || 0);
+app/arka/payroll/page.jsx:692:    const personalAdvance = Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0);
+app/arka/payroll/page.jsx:693:    return Math.max(0, baseSalary - personalAdvance);
+app/arka/payroll/page.jsx:694:  }, [salaryModal]);
+app/arka/payroll/page.jsx:696:  async function handlePaySalary() {
+app/arka/payroll/page.jsx:697:    if (!salaryModal || !masterPin) {
+app/arka/payroll/page.jsx:698:      alert("Kërkohet Master PIN për pagesën e rrogës.");
+app/arka/payroll/page.jsx:703:    const workerPin = String(salaryModal?.pin || '').trim();
+app/arka/payroll/page.jsx:704:    const workerName = String(salaryModal?.name || '').trim();
+app/arka/payroll/page.jsx:705:    const baseSalary = Number(salaryModal?.baseSalary || 0);
+app/arka/payroll/page.jsx:706:    const autoAdvanceAmount = Number(salaryModal?.autoDebt || 0);
+app/arka/payroll/page.jsx:707:    const manualAdvanceAmount = Number(salaryModal?.manualAdvance || 0);
+app/arka/payroll/page.jsx:715:    if (!/^\d{4}-\d{2}$/.test(String(payrollMonth || ''))) {
+app/arka/payroll/page.jsx:716:      alert("Muaji i payroll nuk është valid.");
+app/arka/payroll/page.jsx:721:      `Konfirmo pagesën e rrogës për ${workerName || workerPin}:\n\n` +
+app/arka/payroll/page.jsx:722:      `Muaji: ${payrollMonth}\n` +
+app/arka/payroll/page.jsx:723:      `Rroga bazë: ${euro(baseSalary)}\n` +
+app/arka/payroll/page.jsx:726:      `Sistemi do ta zbresë buxhetin, do krijojë ledger OUT dhe marker SALARY_PAYMENT/SALARY_PAID.`
+app/arka/payroll/page.jsx:733:        action: ARKA_ACTION.PAYROLL_SALARY_PAYMENT,
+app/arka/payroll/page.jsx:734:        actorPin: String(masterPin || '').trim(),
+app/arka/payroll/page.jsx:737:        workerId: salaryModal?.id || null,
+app/arka/payroll/page.jsx:740:        monthKey: payrollMonth,
+app/arka/payroll/page.jsx:742:        baseSalary,
+app/arka/payroll/page.jsx:746:        idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.PAYROLL_SALARY_PAYMENT, [payrollMonth, workerPin]),
+app/arka/payroll/page.jsx:748:      if (!res?.ok) throw new Error(res?.error || 'SALARY_PAYMENT_FAILED');
+app/arka/payroll/page.jsx:751:        ? `✅ Rroga për ${workerName || workerPin} ishte e regjistruar më herët për ${payrollMonth}. Nuk u krijua pagesë e dytë.`
+app/arka/payroll/page.jsx:752:        : `✅ Rroga u pagua për ${workerName || workerPin}. Neto: ${euro(netAmount)}.`
+app/arka/payroll/page.jsx:754:      setSalaryModal(null);
+app/arka/payroll/page.jsx:756:      await reloadMonthlyPayrollPreview(payrollMonth);
+app/arka/payroll/page.jsx:765:    if (!salaryModal || !masterPin) {
+app/arka/payroll/page.jsx:766:      alert("Kërkohet Master PIN për këtë veprim.");
+app/arka/payroll/page.jsx:769:    const totalToMove = Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0);
+app/arka/payroll/page.jsx:776:      `A dëshironi t'i kaloni avanset (${euro(totalToMove)}) në borxh afatgjatë për ${salaryModal.name}?`
+app/arka/payroll/page.jsx:783:      const workerPin = String(salaryModal?.pin || '').trim();
+app/arka/payroll/page.jsx:784:      const workerName = String(salaryModal?.name || '').trim();
+app/arka/payroll/page.jsx:808:          actorPin: String(masterPin || workerPin || 'MASTER'),
+app/arka/payroll/page.jsx:809:          actorName: `Payroll ${String(workerName || workerPin || '').trim()}`.trim(),
+app/arka/payroll/page.jsx:817:      const nextLongTerm = Number(salaryModal.longTermDebt || 0) + totalToMove;
+app/arka/payroll/page.jsx:824:        .eq("id", salaryModal.id);
+app/arka/payroll/page.jsx:827:      alert(`✅ Avanset u kaluan në borxh afatgjatë për ${salaryModal.name}.`);
+app/arka/payroll/page.jsx:828:      setSalaryModal(null);
+app/arka/payroll/page.jsx:830:      await reloadMonthlyPayrollPreview(payrollMonth);
+app/arka/payroll/page.jsx:841:    const ok = window.confirm(`A jeni i sigurt që dëshironi të fshini punëtorin ${u?.name || ''} nga lista e rrogave?`);
+app/arka/payroll/page.jsx:846:      if (salaryModal?.id === u.id) setSalaryModal(null);
+app/arka/payroll/page.jsx:862:      .filter(isPayrollEligibleWorker)
+app/arka/payroll/page.jsx:868:        const baseSalary = Number(u.salary || 0);
+app/arka/payroll/page.jsx:874:          baseSalary,
+app/arka/payroll/page.jsx:880:  const monthlyPayrollPreview = useMemo(() => buildMonthlyPayrollPreview({
+app/arka/payroll/page.jsx:882:    paymentRows: payrollMonthRows,
+app/arka/payroll/page.jsx:883:    month: payrollMonth,
+app/arka/payroll/page.jsx:884:  }), [financeCards, payrollMonthRows, payrollMonth]);
+app/arka/payroll/page.jsx:886:  const monthlyPayrollTotals = useMemo(() => {
+app/arka/payroll/page.jsx:887:    return (monthlyPayrollPreview || []).reduce((acc, row) => {
+app/arka/payroll/page.jsx:899:        acc.paidTotal += Number(row.salaryPaidAmount || 0);
+app/arka/payroll/page.jsx:903:  }, [monthlyPayrollPreview]);
+app/arka/payroll/page.jsx:905:  const selectedPayrollDetails = useMemo(() => {
+app/arka/payroll/page.jsx:906:    if (!selectedPayrollRow) return null;
+app/arka/payroll/page.jsx:907:    return (monthlyPayrollPreview || []).find((row) => row.key === selectedPayrollRow.key) || null;
+app/arka/payroll/page.jsx:908:  }, [monthlyPayrollPreview, selectedPayrollRow]);
+app/arka/payroll/page.jsx:910:  const selectedPayrollOpenCashRows = useMemo(() => {
+app/arka/payroll/page.jsx:911:    const workerPin = String(selectedPayrollDetails?.pin || "").trim();
+app/arka/payroll/page.jsx:913:    return (Array.isArray(payrollMonthRows) ? payrollMonthRows : [])
+app/arka/payroll/page.jsx:926:  }, [payrollMonthRows, selectedPayrollDetails?.pin]);
+app/arka/payroll/page.jsx:928:  const selectedPayrollOpenCashTotal = useMemo(() => {
+app/arka/payroll/page.jsx:929:    return selectedPayrollOpenCashRows.reduce((sum, row) => sum + Number(row?.amount || 0), 0);
+app/arka/payroll/page.jsx:930:  }, [selectedPayrollOpenCashRows]);
+app/arka/payroll/page.jsx:932:  const selectedPayrollIsHybridTransport = selectedPayrollDetails?.is_hybrid_transport === true;
+app/arka/payroll/page.jsx:933:  const selectedPayrollCommissionRateM2 = Number(selectedPayrollDetails?.commission_rate_m2 || 0);
+app/arka/payroll/page.jsx:934:  const selectedPayrollShowHybridCash = selectedPayrollIsHybridTransport && selectedPayrollCommissionRateM2 > 0;
+app/arka/payroll/page.jsx:936:  const selectedPayrollHybridCashRows = useMemo(() => {
+app/arka/payroll/page.jsx:937:    if (!selectedPayrollShowHybridCash) return [];
+app/arka/payroll/page.jsx:938:    return selectedPayrollOpenCashRows.map((row) => buildHybridCashDisplayRow(row, selectedPayrollCommissionRateM2));
+app/arka/payroll/page.jsx:939:  }, [selectedPayrollOpenCashRows, selectedPayrollShowHybridCash, selectedPayrollCommissionRateM2]);
+app/arka/payroll/page.jsx:941:  const selectedPayrollHybridCashTotals = useMemo(() => {
+app/arka/payroll/page.jsx:942:    return selectedPayrollHybridCashRows.reduce((acc, item) => {
+app/arka/payroll/page.jsx:949:  }, [selectedPayrollHybridCashRows]);
+app/arka/payroll/page.jsx:951:  function getFinanceWorkerForPayrollRow(row) {
+app/arka/payroll/page.jsx:960:  function openPayrollPayModal(row) {
+app/arka/payroll/page.jsx:961:    const worker = getFinanceWorkerForPayrollRow(row);
+app/arka/payroll/page.jsx:963:    openSalaryModal(worker);
+app/arka/payroll/page.jsx:967:    const rows = Array.isArray(payrollMonthRows) ? payrollMonthRows : [];
+app/arka/payroll/page.jsx:983:    const payrollNet = Number(monthlyPayrollTotals?.net || 0);
+app/arka/payroll/page.jsx:998:    const afterPayments = companyCash - essentialTotal - payrollNet;
+app/arka/payroll/page.jsx:1004:    if (companyCash < payrollNet + essentialTotal) reasons.push(`Cash-i i kompanisë nuk mjafton për rroga + obligime esenciale: mungojnë ${euro((payrollNet + essentialTotal) - companyCash)}`);
+app/arka/payroll/page.jsx:1013:      companyCash >= payrollNet + essentialTotal &&
+app/arka/payroll/page.jsx:1019:      month: payrollMonth,
+app/arka/payroll/page.jsx:1035:      payrollNet,
+app/arka/payroll/page.jsx:1036:      okWorkers: monthlyPayrollTotals.okCount,
+app/arka/payroll/page.jsx:1037:      blockedWorkers: monthlyPayrollTotals.blockedCount,
+app/arka/payroll/page.jsx:1042:  }, [payrollMonthRows, monthCloseSummary, monthlyPayrollTotals, payrollMonth]);
+app/arka/payroll/page.jsx:1044:  const payrollGroups = useMemo(() => {
+app/arka/payroll/page.jsx:1045:    const rows = Array.isArray(monthlyPayrollPreview) ? monthlyPayrollPreview : [];
+app/arka/payroll/page.jsx:1052:  }, [monthlyPayrollPreview]);
+app/arka/payroll/page.jsx:1056:    Number(monthClosePreview?.payrollNet || 0) + Number(monthClosePreview?.essentialTotal || 0) - Number(monthClosePreview?.companyCash || 0)
+app/arka/payroll/page.jsx:1068:      <button type="button" className={`workerRow ${tone}`} key={row.key} onClick={() => setSelectedPayrollRow(row)}>
+app/arka/payroll/page.jsx:1092:    <div className="payrollPage">
+app/arka/payroll/page.jsx:1094:        <div className="topbar payrollHeader">
+app/arka/payroll/page.jsx:1096:            <div className="eyebrow">ARKA / PAYROLL</div>
+app/arka/payroll/page.jsx:1098:            <p className="subtitle">Kontroll para pagesës së rrogave.</p>
+app/arka/payroll/page.jsx:1106:              onClick={() => reloadMonthlyPayrollPreview(payrollMonth)}
+app/arka/payroll/page.jsx:1107:              disabled={payrollMonthLoading}
+app/arka/payroll/page.jsx:1109:              {payrollMonthLoading ? "PO LEXOHET..." : "RIFRESKO"}
+app/arka/payroll/page.jsx:1118:              <span>Master PIN</span>
+app/arka/payroll/page.jsx:1121:                value={masterPin}
+app/arka/payroll/page.jsx:1123:                onChange={(e) => setMasterPin(onlyDigits(e.target.value))}
+app/arka/payroll/page.jsx:1135:                <span>{payrollMonth}</span>
+app/arka/payroll/page.jsx:1137:                <p>Snapshot read-only nga payroll_month_closes.</p>
+app/arka/payroll/page.jsx:1145:            {payrollMonthError ? <div className="proError">Gabim në snapshot: {payrollMonthError}</div> : null}
+app/arka/payroll/page.jsx:1152:                  value={payrollMonth}
+app/arka/payroll/page.jsx:1153:                  onChange={(e) => setPayrollMonth(e.target.value || getCurrentPayrollMonth())}
+app/arka/payroll/page.jsx:1157:                <span>Payroll status</span>
+app/arka/payroll/page.jsx:1164:              <div className="moneyTile danger"><span>PAYROLL OUT</span><strong>{euro(closedMonthSnapshot?.total_net_pay)}</strong><small>{Number(closedMonthSnapshot?.total_workers || 0)} punëtorë</small></div>
+app/arka/payroll/page.jsx:1165:              <div className="moneyTile info"><span>RROGA BAZË</span><strong>{euro(closedMonthSnapshot?.total_salary_base)}</strong><small>Advances: {euro(closedMonthSnapshot?.total_advances)}</small></div>
+app/arka/payroll/page.jsx:1177:                <h3>SNAPSHOT I RROGAVE</h3>
+app/arka/payroll/page.jsx:1200:              <span>{payrollMonth}</span>
+app/arka/payroll/page.jsx:1201:              <h2>{monthClosePreview.safe ? 'SAFE PËR PAYROLL' : 'NUK ËSHTË SAFE'}</h2>
+app/arka/payroll/page.jsx:1212:          {payrollMonthError ? <div className="proError">Gabim në preview: {payrollMonthError}</div> : null}
+app/arka/payroll/page.jsx:1220:                value={payrollMonth}
+app/arka/payroll/page.jsx:1221:                onChange={(e) => setPayrollMonth(e.target.value || getCurrentPayrollMonth())}
+app/arka/payroll/page.jsx:1225:              <span>Payroll status</span>
+app/arka/payroll/page.jsx:1233:            <div className="moneyTile info"><span>PAYROLL NET</span><strong>{euro(monthClosePreview.payrollNet)}</strong><small>{monthClosePreview.okWorkers} OK · {monthClosePreview.blockedWorkers} bllokuar</small></div>
+app/arka/payroll/page.jsx:1234:            <div className={`moneyTile ${monthClosePreview.afterPayments >= 0 ? 'good' : 'danger'}`}><span>MBETET PAS PAGESAVE</span><strong>{euro(monthClosePreview.afterPayments)}</strong><small>Pas obligimeve dhe rrogave</small></div>
+app/arka/payroll/page.jsx:1365:              <span>{payrollGroups.blocked.length}</span>
+app/arka/payroll/page.jsx:1368:              {payrollGroups.blocked.length ? payrollGroups.blocked.map((row) => renderWorkerRow(row, 'blocked')) : <div className="emptyCompact">Asnjë punëtor nuk e bllokon payroll-in.</div>}
+app/arka/payroll/page.jsx:1375:              <span>{payrollGroups.ok.length}</span>
+app/arka/payroll/page.jsx:1378:              {payrollGroups.ok.length ? payrollGroups.ok.map((row) => renderWorkerRow(row, 'ok')) : <div className="emptyCompact">Nuk ka punëtorë OK për pagesë.</div>}
+app/arka/payroll/page.jsx:1385:              <span>{payrollGroups.review.length}</span>
+app/arka/payroll/page.jsx:1388:              {payrollGroups.review.length ? payrollGroups.review.map((row) => renderWorkerRow(row, 'review')) : <div className="emptyCompact">Nuk ka punëtorë për kontroll shtesë.</div>}
+app/arka/payroll/page.jsx:1395:              <span>{payrollGroups.paid.length}</span>
+app/arka/payroll/page.jsx:1398:              {payrollGroups.paid.length ? payrollGroups.paid.map((row) => renderWorkerRow(row, 'paid')) : <div className="emptyCompact">Nuk ka punëtorë të paguar për këtë muaj.</div>}
+app/arka/payroll/page.jsx:1403:            <summary>SI LLOGARITET PAYROLL?</summary>
+app/arka/payroll/page.jsx:1405:              <div><span>Rroga bazë total</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
+app/arka/payroll/page.jsx:1406:              <div><span>Zbritet nga rroga</span><strong>{euro(monthlyPayrollTotals.deductions)}</strong></div>
+app/arka/payroll/page.jsx:1407:              <div><span>Avans bartet</span><strong>{euro(monthlyPayrollTotals.carryOver)}</strong></div>
+app/arka/payroll/page.jsx:1408:              <div><span>Cash hapur</span><strong>{euro(monthlyPayrollTotals.openCash)}</strong></div>
+app/arka/payroll/page.jsx:1409:              <div><span>Dorëzim në pritje</span><strong>{euro(monthlyPayrollTotals.pendingHandoff)}</strong></div>
+app/arka/payroll/page.jsx:1410:              <div><span>Paguar këtë muaj</span><strong>{euro(monthlyPayrollTotals.paidTotal)}</strong></div>
+app/arka/payroll/page.jsx:1412:            <p>Rroga mujore llogaritet nga rroga bazë minus avansi personal. Cash-i i hapur dhe dorëzimi në pritje përdoren vetëm për bllokim/kontroll.</p>
+app/arka/payroll/page.jsx:1422:                <div className="editTitle">Rregullo Parametrat e Rrogës</div>
+app/arka/payroll/page.jsx:1429:                <span>Rroga bazë (€)</span>
+app/arka/payroll/page.jsx:1433:                  className="fieldInput salaryField"
+app/arka/payroll/page.jsx:1434:                  value={editForm.salary}
+app/arka/payroll/page.jsx:1435:                  onChange={(e) => setEditForm({ ...editForm, salary: onlyDigits(e.target.value) })}
+app/arka/payroll/page.jsx:1441:                <span>Dita e rrogës (1–31)</span>
+app/arka/payroll/page.jsx:1446:                  value={editForm.salary_day}
+app/arka/payroll/page.jsx:1447:                  onChange={(e) => setEditForm({ ...editForm, salary_day: onlyDigits(e.target.value) })}
+app/arka/payroll/page.jsx:1490:      {selectedPayrollDetails && (
+app/arka/payroll/page.jsx:1494:            if (e.target === e.currentTarget) setSelectedPayrollRow(null);
+app/arka/payroll/page.jsx:1497:          <div className="fullModal payrollDetailModal">
+app/arka/payroll/page.jsx:1500:                <div className="modalEyebrow">DETAJE TË RROGËS</div>
+app/arka/payroll/page.jsx:1501:                <div className="modalTitle">{selectedPayrollDetails.name}</div>
+app/arka/payroll/page.jsx:1502:                <div className="modalWorker">PIN {selectedPayrollDetails.pin || "—"} · {payrollMonth}</div>
+app/arka/payroll/page.jsx:1504:              <button className="closeBtn" onClick={() => setSelectedPayrollRow(null)}>✕</button>
+app/arka/payroll/page.jsx:1509:                <span>Rroga bazë</span>
+app/arka/payroll/page.jsx:1510:                <strong>{euro(selectedPayrollDetails.gross)}</strong>
+app/arka/payroll/page.jsx:1514:                <strong>{euro(selectedPayrollDetails.deductions)}</strong>
+app/arka/payroll/page.jsx:1518:                <strong>{euro(selectedPayrollDetails.net)}</strong>
+app/arka/payroll/page.jsx:1522:                <strong>{euro(selectedPayrollDetails.salaryPaidAmount || 0)}</strong>
+app/arka/payroll/page.jsx:1527:              <div className="formulaTitle">Formula e rrogës</div>
+app/arka/payroll/page.jsx:1529:                RROGA BAZË {euro(selectedPayrollDetails.baseSalary)}
+app/arka/payroll/page.jsx:1530:                {" - "} AVANS PERSONAL {euro(selectedPayrollDetails.advancesTotal)}
+app/arka/payroll/page.jsx:1531:                {" = "} NETO {euro(selectedPayrollDetails.net)}
+app/arka/payroll/page.jsx:1534:                Vetëm avansi personal zbritet nga rroga. Komisioni, ushqimi, shpenzimet e kompanisë, borxhi informativ dhe cash-i i klientëve nuk e ulin rrogën mujore në këtë ekran.
+app/arka/payroll/page.jsx:1540:                <h3>PAGA QË LLOGARITET</h3>
+app/arka/payroll/page.jsx:1541:                <p><span>Rroga bazë</span><strong>{euro(selectedPayrollDetails.baseSalary)}</strong></p>
+app/arka/payroll/page.jsx:1542:                <p><span>Komision ditor informativ</span><strong>{euro(selectedPayrollDetails.transportCommission)}</strong></p>
+app/arka/payroll/page.jsx:1543:                <p><span>Transport m²</span><strong>{Number(selectedPayrollDetails.transportM2 || 0).toFixed(2)} m²</strong></p>
+app/arka/payroll/page.jsx:1547:                <h3>ZBRITET NGA RROGA</h3>
+app/arka/payroll/page.jsx:1548:                <p><span>Avans personal</span><strong>{euro(selectedPayrollDetails.advancesTotal)}</strong></p>
+app/arka/payroll/page.jsx:1555:                <p><span>Cash hapur</span><strong>{euro(selectedPayrollDetails.openCash)}</strong></p>
+app/arka/payroll/page.jsx:1556:                <p><span>Dorëzim në pritje</span><strong>{euro(selectedPayrollDetails.pendingHandoff)}</strong></p>
+app/arka/payroll/page.jsx:1557:                <p><span>Status</span><strong>{selectedPayrollDetails.statusLabel}</strong></p>
+app/arka/payroll/page.jsx:1567:                <strong>{selectedPayrollShowHybridCash ? euro(selectedPayrollHybridCashTotals.baseHandover) : euro(selectedPayrollOpenCashTotal)}</strong>
+app/arka/payroll/page.jsx:1570:              {selectedPayrollShowHybridCash && selectedPayrollOpenCashRows.length ? (
+app/arka/payroll/page.jsx:1573:                  <p><span>CASH BRUTO NGA KLIENTËT</span><strong>{euro(selectedPayrollHybridCashTotals.gross)}</strong></p>
+app/arka/payroll/page.jsx:1574:                  <p><span>KOMISION I MBAJTUR NGA PUNËTORI</span><strong>{euro(selectedPayrollHybridCashTotals.commissionKept)}</strong></p>
+app/arka/payroll/page.jsx:1575:                  <p><span>DUHET ME DORËZU NË BAZË</span><strong>{euro(selectedPayrollHybridCashTotals.baseHandover)}</strong></p>
+app/arka/payroll/page.jsx:1579:              {selectedPayrollOpenCashRows.length ? (
+app/arka/payroll/page.jsx:1581:                  {selectedPayrollShowHybridCash ? selectedPayrollHybridCashRows.map((item) => (
+app/arka/payroll/page.jsx:1595:                  )) : selectedPayrollOpenCashRows.map((payment) => (
+app/arka/payroll/page.jsx:1613:              {selectedPayrollShowHybridCash ? (
+app/arka/payroll/page.jsx:1615:                  <p><span>CASH BRUTO NGA KLIENTËT</span><strong>{euro(selectedPayrollHybridCashTotals.gross)}</strong></p>
+app/arka/payroll/page.jsx:1616:                  <p><span>KOMISION I MBAJTUR</span><strong>{euro(selectedPayrollHybridCashTotals.commissionKept)}</strong></p>
+app/arka/payroll/page.jsx:1617:                  <p><span>DUHET ME DORËZU NË BAZË</span><strong>{euro(selectedPayrollHybridCashTotals.baseHandover)}</strong></p>
+app/arka/payroll/page.jsx:1622:                  <strong>{euro(selectedPayrollOpenCashTotal)}</strong>
+app/arka/payroll/page.jsx:1627:            {selectedPayrollDetails.warnings.length ? (
+app/arka/payroll/page.jsx:1631:                  {selectedPayrollDetails.warnings.map((w) => {
+app/arka/payroll/page.jsx:1632:                    const isHybridCashWarning = selectedPayrollShowHybridCash && /^Ka cash të hapur:/i.test(String(w || ""));
+app/arka/payroll/page.jsx:1636:                          <li>Cash bruto i hapur: {euro(selectedPayrollHybridCashTotals.gross)}</li>
+app/arka/payroll/page.jsx:1637:                          <li>Komision i mbajtur: {euro(selectedPayrollHybridCashTotals.commissionKept)}</li>
+app/arka/payroll/page.jsx:1638:                          <li>Duhet me dorëzu në bazë: {euro(selectedPayrollHybridCashTotals.baseHandover)}</li>
+app/arka/payroll/page.jsx:1648:                {selectedPayrollDetails.statusKind === 'paid'
+app/arka/payroll/page.jsx:1650:                  : 'Ky puntor është OK për pagesë. Nuk ka cash/dorëzim që e bllokon rrogën.'}
+app/arka/payroll/page.jsx:1659:                  const row = selectedPayrollDetails;
+app/arka/payroll/page.jsx:1660:                  setSelectedPayrollRow(null);
+app/arka/payroll/page.jsx:1661:                  openAdvanceModal(getFinanceWorkerForPayrollRow(row));
+app/arka/payroll/page.jsx:1670:                  const row = selectedPayrollDetails;
+app/arka/payroll/page.jsx:1671:                  setSelectedPayrollRow(null);
+app/arka/payroll/page.jsx:1672:                  startFinanceEdit(getFinanceWorkerForPayrollRow(row));
+app/arka/payroll/page.jsx:1675:                EDITO RROGËN / PARAMETRAT
+app/arka/payroll/page.jsx:1680:                disabled={selectedPayrollDetails.statusKind !== 'ok'}
+app/arka/payroll/page.jsx:1682:                  const row = selectedPayrollDetails;
+app/arka/payroll/page.jsx:1683:                  setSelectedPayrollRow(null);
+app/arka/payroll/page.jsx:1684:                  openPayrollPayModal(row);
+app/arka/payroll/page.jsx:1687:                💳 PAGUAJ RROGËN
+app/arka/payroll/page.jsx:1690:            {selectedPayrollDetails.statusKind !== 'ok' ? (
+app/arka/payroll/page.jsx:1717:              Çdo avans që shton këtu ruhet si hyrje reale dhe llogaritet vetë te payroll-i. Nuk ke nevojë me e mbledh dorazi.
+app/arka/payroll/page.jsx:1751:                <strong>TE PAGA</strong>
+app/arka/payroll/page.jsx:1790:      {salaryModal && (
+app/arka/payroll/page.jsx:1794:            if (e.target === e.currentTarget) setSalaryModal(null);
+app/arka/payroll/page.jsx:1800:                <div className="modalEyebrow">Smart Payroll</div>
+app/arka/payroll/page.jsx:1802:                <div className="modalWorker">{salaryModal.name}</div>
+app/arka/payroll/page.jsx:1804:              <button className="closeBtn" onClick={() => setSalaryModal(null)}>✕</button>
+app/arka/payroll/page.jsx:1809:                <div className="bigNumberCard salaryPayoutCard">
+app/arka/payroll/page.jsx:1812:                  <small>Formula fikse: Rroga bazë − avansi personal. Nuk ka zgjedhje manuale këtu.</small>
+app/arka/payroll/page.jsx:1815:                <div className="salaryFormulaBox">
+app/arka/payroll/page.jsx:1818:                    RROGA BAZË {euro(salaryModal.baseSalary)}
+app/arka/payroll/page.jsx:1819:                    {" - "} AVANS PERSONAL {euro(Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0))}
+app/arka/payroll/page.jsx:1825:                  <div className="summaryRow salaryRow">
+app/arka/payroll/page.jsx:1826:                    <span>Rroga bazë</span>
+app/arka/payroll/page.jsx:1827:                    <strong>{euro(salaryModal.baseSalary)}</strong>
+app/arka/payroll/page.jsx:1831:                    <strong>{euro(Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0))}</strong>
+app/arka/payroll/page.jsx:1835:                    <strong>{euro(salaryModal.longTermDebt)}</strong>
+app/arka/payroll/page.jsx:1840:                  ✅ Në këtë ekran nga rroga zbritet vetëm avansi personal. Ushqimi, komisioni, shpenzimet dhe borxhi informativ nuk zbriten nga rroga mujore.
+app/arka/payroll/page.jsx:1844:                  <button className="greenCta" disabled={actionBusy} onClick={handlePaySalary}>
+app/arka/payroll/page.jsx:1845:                    PAGUAJ RROGËN • {euro(payableAmount)}
+app/arka/payroll/page.jsx:1882:        .payrollPage {
+app/arka/payroll/page.jsx:2045:        .salaryField {
+app/arka/payroll/page.jsx:2165:        .metric.salary {
+app/arka/payroll/page.jsx:2296:        .salaryPayoutCard {
+app/arka/payroll/page.jsx:2300:        .salaryFormulaBox {
+app/arka/payroll/page.jsx:2307:        .salaryFormulaBox .formulaTitle {
+app/arka/payroll/page.jsx:2312:        .salaryFormulaBox .formulaLine {
+app/arka/payroll/page.jsx:2317:        .summaryRow.salaryRow {
+app/arka/payroll/page.jsx:2484:        .proPayrollPanel {
+app/arka/payroll/page.jsx:2522:        .payrollRules {
+app/arka/payroll/page.jsx:2528:        .payrollRules div {
+app/arka/payroll/page.jsx:2538:        .payrollRules span {
+app/arka/payroll/page.jsx:2550:        .payrollRules strong {
+app/arka/payroll/page.jsx:2781:        .payrollDetailModal { max-width: 1100px; }
+app/arka/payroll/page.jsx:3080:          .payrollPage { padding: 18px 12px 28px; }
+app/arka/payroll/page.jsx:3102:          .payrollRules {
+app/arka/payroll/page.jsx:3122:        /* UI-ONLY REDESIGN: ARKA / PAYROLL financial dashboard */
+app/arka/payroll/page.jsx:3123:        .payrollPage {
+app/arka/payroll/page.jsx:3132:        .payrollHeader {
+app/arka/payroll/page.jsx:3515:        .detailBox, .breakdownCard, .salaryFormulaBox, .summaryRow, .warningBox, .advanceIntro, .advanceHintCard, .historyCard {
+app/arka/payroll/page.jsx:3544:          .payrollPage { padding: 10px 9px calc(120px + env(safe-area-inset-bottom)); }
+app/arka/payroll/page.jsx:3545:          .payrollHeader { gap: 10px; }
+app/arka/payroll/page.jsx:3566:        .payrollPage .workerList {
+app/arka/payroll/page.jsx:3571:        .payrollPage .workerRow {
+app/arka/payroll/page.jsx:3587:        .payrollPage .workerRow.blocked {
+app/arka/payroll/page.jsx:3591:        .payrollPage .workerRow.ok {
+app/arka/payroll/page.jsx:3595:        .payrollPage .workerRow.review {
+app/arka/payroll/page.jsx:3599:        .payrollPage .workerRow.paid {
+app/arka/payroll/page.jsx:3603:        .payrollPage .workerLeft {
+app/arka/payroll/page.jsx:3611:        .payrollPage .workerLeft strong {
+app/arka/payroll/page.jsx:3619:        .payrollPage .workerLeft small {
+app/arka/payroll/page.jsx:3627:        .payrollPage .workerRight {
+app/arka/payroll/page.jsx:3635:        .payrollPage .workerRight b {
+app/arka/payroll/page.jsx:3644:        .payrollPage .miniBadge {
+app/arka/payroll/page.jsx:3658:        .payrollPage .miniBadge.blocked {
+app/arka/payroll/page.jsx:3664:        .payrollPage .miniBadge.ok,
+app/arka/payroll/page.jsx:3665:        .payrollPage .miniBadge.paid {
+app/arka/payroll/page.jsx:3671:        .payrollPage .miniBadge.review {
+app/arka/payroll/page.jsx:3677:        .payrollPage .workerRow em {
+app/arka/payroll/page.jsx:3693:        .payrollPage .payrollDetailModal {
+app/arka/payroll/page.jsx:3704:        .payrollPage .payrollDetailModal .modalTop {
+app/arka/payroll/page.jsx:3712:        .payrollPage .payrollDetailModal .modalEyebrow {
+app/arka/payroll/page.jsx:3721:        .payrollPage .payrollDetailModal .modalTitle {
+app/arka/payroll/page.jsx:3730:        .payrollPage .payrollDetailModal .modalWorker {
+app/arka/payroll/page.jsx:3738:        .payrollPage .payrollDetailModal .closeBtn {
+app/arka/payroll/page.jsx:3754:        .payrollPage .payrollDetailModal .detailGrid {
+app/arka/payroll/page.jsx:3761:        .payrollPage .payrollDetailModal .detailBox {
+app/arka/payroll/page.jsx:3770:        .payrollPage .payrollDetailModal .detailBox span {
+app/arka/payroll/page.jsx:3781:        .payrollPage .payrollDetailModal .detailBox strong {
+app/arka/payroll/page.jsx:3791:        .payrollPage .payrollDetailModal .detailBox.good { border-color: rgba(34, 197, 94, .30) !important; }
+app/arka/payroll/page.jsx:3792:        .payrollPage .payrollDetailModal .detailBox.warn { border-color: rgba(245, 158, 11, .34) !important; }
+app/arka/payroll/page.jsx:3793:        .payrollPage .payrollDetailModal .detailBox.main { border-color: rgba(59, 130, 246, .34) !important; }
+app/arka/payroll/page.jsx:3794:        .payrollPage .payrollDetailModal .detailBox.paidBox { border-color: rgba(148, 163, 184, .22) !important; }
+app/arka/payroll/page.jsx:3796:        .payrollPage .payrollDetailModal .detailFormula {
+app/arka/payroll/page.jsx:3805:        .payrollPage .payrollDetailModal .formulaTitle {
+app/arka/payroll/page.jsx:3815:        .payrollPage .payrollDetailModal .formulaLine {
+app/arka/payroll/page.jsx:3822:        .payrollPage .payrollDetailModal .formulaNote {
+app/arka/payroll/page.jsx:3830:        .payrollPage .payrollDetailModal .breakdownGrid {
+app/arka/payroll/page.jsx:3837:        .payrollPage .payrollDetailModal .breakdownCard {
+app/arka/payroll/page.jsx:3845:        .payrollPage .payrollDetailModal .breakdownCard.infoOnly { border-color: rgba(59, 130, 246, .25) !important; }
+app/arka/payroll/page.jsx:3846:        .payrollPage .payrollDetailModal .breakdownCard.deductOnly { border-color: rgba(245, 158, 11, .30) !important; }
+app/arka/payroll/page.jsx:3847:        .payrollPage .payrollDetailModal .breakdownCard.blockOnly { border-color: rgba(248, 113, 113, .28) !important; }
+app/arka/payroll/page.jsx:3849:        .payrollPage .payrollDetailModal .breakdownCard h3 {
+app/arka/payroll/page.jsx:3859:        .payrollPage .payrollDetailModal .breakdownCard p {
+app/arka/payroll/page.jsx:3871:        .payrollPage .payrollDetailModal .breakdownCard p strong {
+app/arka/payroll/page.jsx:3879:        .payrollPage .payrollDetailModal .workerCashDeliverySection {
+app/arka/payroll/page.jsx:3888:        .payrollPage .payrollDetailModal .workerCashDeliveryHead {
+app/arka/payroll/page.jsx:3896:        .payrollPage .payrollDetailModal .workerCashDeliveryHead h3 {
+app/arka/payroll/page.jsx:3906:        .payrollPage .payrollDetailModal .workerCashDeliveryHead p {
+app/arka/payroll/page.jsx:3914:        .payrollPage .payrollDetailModal .workerCashDeliveryHead strong {
+app/arka/payroll/page.jsx:3922:        .payrollPage .payrollDetailModal .hybridCashSummary {
+app/arka/payroll/page.jsx:3932:        .payrollPage .payrollDetailModal .hybridCashSummary h3 {
+app/arka/payroll/page.jsx:3942:        .payrollPage .payrollDetailModal .hybridCashSummary p {
+app/arka/payroll/page.jsx:3954:        .payrollPage .payrollDetailModal .hybridCashSummary p strong {
+app/arka/payroll/page.jsx:3962:        .payrollPage .payrollDetailModal .workerCashDeliveryList {
+app/arka/payroll/page.jsx:3967:        .payrollPage .payrollDetailModal .workerCashDeliveryRow {
+app/arka/payroll/page.jsx:3978:        .payrollPage .payrollDetailModal .workerCashDeliveryMain {
+app/arka/payroll/page.jsx:3984:        .payrollPage .payrollDetailModal .workerCashDeliveryMain strong {
+app/arka/payroll/page.jsx:3992:        .payrollPage .payrollDetailModal .workerCashDeliveryMain span {
+app/arka/payroll/page.jsx:4000:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta {
+app/arka/payroll/page.jsx:4007:        .payrollPage .payrollDetailModal .workerCashDeliveryRow.hybrid {
+app/arka/payroll/page.jsx:4011:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta b {
+app/arka/payroll/page.jsx:4019:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta.hybridMeta {
+app/arka/payroll/page.jsx:4024:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta.hybridMeta p {
+app/arka/payroll/page.jsx:4037:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta.hybridMeta p span {
+app/arka/payroll/page.jsx:4045:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta.hybridMeta p b {
+app/arka/payroll/page.jsx:4053:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta span,
+app/arka/payroll/page.jsx:4054:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta small {
+app/arka/payroll/page.jsx:4061:        .payrollPage .payrollDetailModal .workerCashDeliveryEmpty {
+app/arka/payroll/page.jsx:4071:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal {
+app/arka/payroll/page.jsx:4081:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal span {
+app/arka/payroll/page.jsx:4090:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal strong {
+app/arka/payroll/page.jsx:4098:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal.hybridTotals {
+app/arka/payroll/page.jsx:4103:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal.hybridTotals p {
+app/arka/payroll/page.jsx:4111:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal.hybridTotals p span {
+app/arka/payroll/page.jsx:4120:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal.hybridTotals p strong {
+app/arka/payroll/page.jsx:4128:        .payrollPage .payrollDetailModal .detailWarnings,
+app/arka/payroll/page.jsx:4129:        .payrollPage .payrollDetailModal .detailOk,
+app/arka/payroll/page.jsx:4130:        .payrollPage .payrollDetailModal .detailPayGuard {
+app/arka/payroll/page.jsx:4139:        .payrollPage .payrollDetailModal .detailWarnings {
+app/arka/payroll/page.jsx:4145:        .payrollPage .payrollDetailModal .detailWarnings strong {
+app/arka/payroll/page.jsx:4152:        .payrollPage .payrollDetailModal .detailWarnings ul {
+app/arka/payroll/page.jsx:4157:        .payrollPage .payrollDetailModal .detailWarnings li { margin: 3px 0; }
+app/arka/payroll/page.jsx:4159:        .payrollPage .payrollDetailModal .detailOk {
+app/arka/payroll/page.jsx:4165:        .payrollPage .payrollDetailModal .detailPayGuard {
+app/arka/payroll/page.jsx:4171:        .payrollPage .payrollDetailModal .detailActions {
+app/arka/payroll/page.jsx:4178:        .payrollPage .payrollDetailModal .detailActions button {
+app/arka/payroll/page.jsx:4190:        .payrollPage .payrollDetailModal .detailActions .detailPayBtn {
+app/arka/payroll/page.jsx:4198:        .payrollPage .payrollDetailModal .detailActions .detailPayBtn:disabled {
+app/arka/payroll/page.jsx:4205:          .payrollPage .payrollDetailModal {
+app/arka/payroll/page.jsx:4212:          .payrollPage .payrollDetailModal .modalTop {
+app/arka/payroll/page.jsx:4217:          .payrollPage .payrollDetailModal .detailGrid {
+app/arka/payroll/page.jsx:4222:          .payrollPage .payrollDetailModal .detailBox {
+app/arka/payroll/page.jsx:4227:          .payrollPage .payrollDetailModal .detailBox span {
+app/arka/payroll/page.jsx:4232:          .payrollPage .payrollDetailModal .detailBox strong {
+app/arka/payroll/page.jsx:4236:          .payrollPage .payrollDetailModal .breakdownGrid {
+app/arka/payroll/page.jsx:4241:          .payrollPage .payrollDetailModal .workerCashDeliveryHead,
+app/arka/payroll/page.jsx:4242:          .payrollPage .payrollDetailModal .workerCashDeliveryRow,
+app/arka/payroll/page.jsx:4243:          .payrollPage .payrollDetailModal .workerCashDeliveryTotal {
+app/arka/payroll/page.jsx:4248:          .payrollPage .payrollDetailModal .workerCashDeliveryMeta {
+app/arka/payroll/page.jsx:4253:          .payrollPage .payrollDetailModal .workerCashDeliveryTotal {
+app/arka/payroll/page.jsx:4257:          .payrollPage .payrollDetailModal .detailActions {
+app/arka/payroll/page.jsx:4261:          .payrollPage .payrollDetailModal .detailActions .detailPayBtn {
+app/arka/payroll/page.jsx:4267:        .payrollPage .adminCashSection {
+app/arka/payroll/page.jsx:4271:        .payrollPage .adminCashSummaryCard {
+app/arka/payroll/page.jsx:4287:        .payrollPage .adminCashSummaryCard span {
+app/arka/payroll/page.jsx:4295:        .payrollPage .adminCashSummaryCard strong {
+app/arka/payroll/page.jsx:4303:        .payrollPage .adminCashSummaryCard small {
+app/arka/payroll/page.jsx:4311:        .payrollPage .adminCashSummaryCard b {
+app/arka/payroll/page.jsx:4323:        .payrollPage .adminCashDetailsPanel {
+app/arka/payroll/page.jsx:4331:        .payrollPage .adminCashDetailsHead {
+app/arka/payroll/page.jsx:4340:        .payrollPage .adminCashDetailsHead strong {
+app/arka/payroll/page.jsx:4346:        .payrollPage .adminCashDetailsHead small {
+app/arka/payroll/page.jsx:4354:        .payrollPage .adminCashClassSummaryGrid {
+app/arka/payroll/page.jsx:4361:        .payrollPage .adminCashClassSummary {
+app/arka/payroll/page.jsx:4368:        .payrollPage .adminCashClassSummary span {
+app/arka/payroll/page.jsx:4377:        .payrollPage .adminCashClassSummary strong {
+app/arka/payroll/page.jsx:4385:        .payrollPage .adminCashClassSummary small {
+app/arka/payroll/page.jsx:4393:        .payrollPage .adminCashClassSummary.real_candidate { border-color: rgba(34, 197, 94, .30); }
+app/arka/payroll/page.jsx:4394:        .payrollPage .adminCashClassSummary.test { border-color: rgba(239, 68, 68, .38); }
+app/arka/payroll/page.jsx:4395:        .payrollPage .adminCashClassSummary.suspicious { border-color: rgba(245, 158, 11, .40); }
+app/arka/payroll/page.jsx:4396:        .payrollPage .adminCashClassSummary.excluded { border-color: rgba(59, 130, 246, .35); }
+app/arka/payroll/page.jsx:4398:        .payrollPage .adminCashFilterChips {
+app/arka/payroll/page.jsx:4405:        .payrollPage .adminCashFilterChips button {
+app/arka/payroll/page.jsx:4416:        .payrollPage .adminCashFilterChips button.active {
+app/arka/payroll/page.jsx:4422:        .payrollPage .adminCashClassBadge {
+app/arka/payroll/page.jsx:4436:        .payrollPage .adminCashClassBadge.real {
+app/arka/payroll/page.jsx:4441:        .payrollPage .adminCashClassBadge.test {
+app/arka/payroll/page.jsx:4446:        .payrollPage .adminCashClassBadge.suspicious {
+app/arka/payroll/page.jsx:4451:        .payrollPage .adminCashClassBadge.excluded {
+app/arka/payroll/page.jsx:4457:        .payrollPage .adminCashMarkMessage {
+app/arka/payroll/page.jsx:4468:        .payrollPage .adminCashMarkBtn {
+app/arka/payroll/page.jsx:4480:        .payrollPage .adminCashMarkBtn:disabled {
+app/arka/payroll/page.jsx:4485:        .payrollPage .adminCashExcludedNote {
+app/arka/payroll/page.jsx:4498:          .payrollPage .adminCashClassSummaryGrid {
+app/arka/payroll/page.jsx:4503:        .payrollPage .adminCashTableWrap {
+app/arka/payroll/page.jsx:4510:        .payrollPage .adminCashTable {
+app/arka/payroll/page.jsx:4519:        .payrollPage .adminCashTable th,
+app/arka/payroll/page.jsx:4520:        .payrollPage .adminCashTable td {
+app/arka/payroll/page.jsx:4528:        .payrollPage .adminCashTable th {
+app/arka/payroll/page.jsx:4536:        .payrollPage .adminCashTable td:nth-child(10) {
+app/arka/payroll/page.jsx:4542:        .payrollPage .shell {
+app/arka/payroll/page.jsx:4547:          .payrollPage .workerRow {
+app/arka/payroll/page.jsx:4552:          .payrollPage .workerLeft strong {
+app/arka/payroll/page.jsx:4556:          .payrollPage .workerRight b {
+app/arka/stafi/page.jsx:70:  const [masterPin, setMasterPin] = useState("");
+app/arka/stafi/page.jsx:169:    if (!masterPin) return alert("Shkruaj Master PIN-in për ta aprovuar pajisjen.");
+app/arka/stafi/page.jsx:341:            <Link prefetch={false} href="/arka/payroll" className="navBtn primaryGhost">FINANCAT / PAYROLL</Link>
+app/arka/stafi/page.jsx:356:              <span className="statLabel">Master PIN</span>
+app/arka/stafi/page.jsx:363:              value={masterPin}
+app/arka/stafi/page.jsx:366:                setMasterPin(val);
+app/arka/obligimet/page.jsx:10:import { isPayrollEligibleWorker } from '@/lib/payrollMonthClose';
+app/arka/obligimet/page.jsx:89:  const payrollUsers = (users || []).filter((u) => isPayrollEligibleWorker(u) && n(u?.salary) > 0);
+app/arka/obligimet/page.jsx:90:  const payrollGross = payrollUsers.reduce((sum, u) => sum + n(u?.salary), 0);
+app/arka/obligimet/page.jsx:91:  const payrollDeductions = payrollUsers.reduce((sum, u) => sum + n(u?.avans_manual) + n(u?.borxh_afatgjat), 0);
+app/arka/obligimet/page.jsx:92:  const payrollNet = Math.max(0, payrollGross - payrollDeductions);
+app/arka/obligimet/page.jsx:97:  const obligationsTotal = payrollNet + fixedTotal;
+app/arka/obligimet/page.jsx:98:  const essentialNeed = payrollNet + essentialFixed;
+app/arka/obligimet/page.jsx:106:  return { payrollUsers, payrollGross, payrollDeductions, payrollNet, fixedTotal, essentialFixed, available, obligationsTotal, essentialNeed, gap, essentialGap, daysLeft, targetPerDay, essentialTargetPerDay, monthIn, monthOut };
+app/arka/obligimet/page.jsx:353:          <div className="arkaSimpleSub">SHIH SA KUSHTON PAYROLL-I, CILAT JANË SHPENZIMET FIKSE, SA CASH KEMI NË KOMPANI DHE SA NA MUNGOJNË PËR SHPENZIMET E DOMOSDOSHME.</div>
+app/arka/obligimet/page.jsx:361:          <Link prefetch={false} href="/arka/payroll" className="arkaTopBtn">PAYROLL</Link>
+app/arka/obligimet/page.jsx:370:            <Mini label="PAYROLL NETO" value={euro(summary.payrollNet)} tone="info" />
+app/arka/obligimet/page.jsx:382:                <Mini label="PAYROLL BRUTO" value={euro(summary.payrollGross)} tone="neutral" />
+app/arka/obligimet/page.jsx:383:                <Mini label="ZBRITJE PAYROLL" value={euro(summary.payrollDeductions)} tone="muted" />
+app/arka/obligimet/page.jsx:426:              <div className="arkaSectionTitle">PAYROLL</div>
+app/arka/obligimet/page.jsx:427:              <div className="arkaSectionSub">KJO LEXOHET DIREKT NGA PAYROLL-I — VETËM STAFI AKTIV</div>
+app/arka/obligimet/page.jsx:428:              {(summary.payrollUsers || []).length ? summary.payrollUsers.map((u) => (
+app/arka/obligimet/page.jsx:432:                    <div className="arkaHistoryMeta">DITA {u.salary_day || '—'} • ZBRITJE {euro(n(u.avans_manual) + n(u.borxh_afatgjat))}</div>
+app/arka/obligimet/page.jsx:434:                  <div className="arkaHistoryAmount">{euro(u.salary)}</div>
+app/arka/obligimet/page.jsx:436:              )) : <div className="arkaEmpty">S’KA PAGA TË KONFIGURUARA.</div>}
+app/arka/kapaku/page.jsx:7:import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow } from "@/lib/payrollMonthClose";
+app/arka/kapaku/page.jsx:21:  "SALARY_PAYMENT",
+app/arka/kapaku/page.jsx:49:  if (key === "PAYROLL_MONTH_CLOSE") return "MBYLLJE RROGASH";
+app/arka/kapaku/page.jsx:232:    const month = getCurrentPayrollMonth();
+app/arka/kapaku/page.jsx:305:    const payrollRows = buildMonthlyPayrollPreview({
+app/arka/kapaku/page.jsx:308:      month: getCurrentPayrollMonth(),
+app/arka/kapaku/page.jsx:310:    const payrollNet = payrollRows.reduce((sum, row) => sum + n(row?.net), 0);
+app/arka/kapaku/page.jsx:325:      - payrollNet
+app/arka/kapaku/page.jsx:343:      payrollRows,
+app/arka/kapaku/page.jsx:344:      payrollNet,
+app/arka/kapaku/page.jsx:526:            <div className="arkaSectionTitle">OBLIGIME / RROGA / BLOCKERS</div>
+app/arka/kapaku/page.jsx:532:          <MiniStat label="Rroga neto" value={money(computed.payrollNet)} tone="warn" />
+app/arka/kapaku/page.jsx:538:        <ReadError label="Payroll users" error={state.errors.users} />
+app/arka/kapaku/page.jsx:539:        <ReadError label="Payroll payments" error={state.errors.monthPayments} />
+app/arka/kapaku/page.jsx:557:          <RowLine label="- Rroga neto" value={money(computed.payrollNet)} />
+app/arka/page.jsx:1413:        <HistoryMetricLine label="Bllokon payroll" value={(totals.openCashTotal > 0 || totals.openExpenseTotal > 0 || (totals.pendingCount || 0) > 0 || (totals.collectedCount || 0) > 0) ? 'PO' : 'JO'} />
+app/arka/page.jsx:3251:          {canManage ? <Link href="/arka/payroll" prefetch={false} className="arkaTopBtn">PAYROLL</Link> : null}
+app/llogaria-ime/page.jsx:289:    const salary = n(userRow?.salary);
+app/llogaria-ime/page.jsx:304:    const neto = salary + bonusTransport + bonusUshqim + transportCommission - advances - debt;
+app/llogaria-ime/page.jsx:320:      salary,
+app/llogaria-ime/page.jsx:359:          <p>RROGA • AVANSET • BORXHET • CASH</p>
+app/llogaria-ime/page.jsx:381:            <StatCard label="RROGA BAZË" value={fmt(summary.salary)} sub="Rroga bazë" accent="neutral" />
+app/llogaria-ime/page.jsx:387:            <StatCard label="NETO AKTUALE" value={fmt(summary.neto)} sub={hasAnyBonus ? 'Bazë + bonuse - avanse - borxhe' : 'Rroga - avanse - borxhe'} accent={netTone} />
+app/llogaria-ime/page.jsx:390:            <div className="panelHead"><div><h3>GJENDJA AKTUALE</h3><p>Përmbledhje e saktë e rrogës, bonuseve dhe detyrimeve të tua.</p></div></div>
+app/llogaria-ime/page.jsx:392:              <div className="detailRow"><span>Rroga bazë</span><strong>{fmt(summary.salary)}</strong></div>
+app/llogaria-ime/page.jsx:400:              <div className="detailRow totalRow"><span>{hasAnyBonus ? 'NETO = RROGA + BONUS TRANSPORT + BONUS USHQIM + KOMISION TRANSPORTI - AVANSE - BORXHE' : 'NETO = RROGA - AVANSE - BORXHE'}</span><strong>{fmt(summary.neto)}</strong></div>
+app/page.jsx:199:    event?.stopPropagation?.();
+app/page.jsx:360:                          <button className="go-btn" type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openSearchResult(result); }}>
+app/page.jsx:452:              <div className="mod-sub">Rroga, avanset, borxhet dhe cash-i yt</div>
+app/transport/board/modules/inbox.jsx:727:          <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/gati.jsx:1073:          <div style={ui.toolsSheet} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/gati.jsx:1100:          <div style={{ ...ui.toolsSheet, margin: 'auto', maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/gati.jsx:1165:          <div style={{ ...ui.toolsSheet, margin: 'auto', maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/dorezimet.jsx:149:          <div style={{ ...ui.toolsSheet, width: 'min(760px, 100%)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', borderRadius: 22 }} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/depo.jsx:212:          <div style={{ ...ui.toolsSheet, width: 'min(760px, 100%)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', borderRadius: 22 }} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/ngarkim.jsx:153:              <div style={ui.rowRight} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/ngarkim.jsx:192:          <div style={ui.toolsSheet} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/dorzim.jsx:257:              <div style={ui.rowRight} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/dorzim.jsx:306:          <div style={{ ...ui.toolsSheet, width: 'min(760px, 100%)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', borderRadius: 22 }} onClick={(e) => e.stopPropagation()}>
+app/transport/board/modules/dorzim.jsx:418:          <div style={{ ...ui.toolsSheet, width: 'min(760px, 100%)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', borderRadius: 22 }} onClick={(e) => e.stopPropagation()}>
+app/transport/pranimi/page.jsx:2451:            <div className="modal-content dark add-client-modal" onClick={(e) => e.stopPropagation()}>
+app/transport/pranimi/page.jsx:2535:          <div className="modal-content dark" onClick={(e) => e.stopPropagation()}>
+app/transport/pranimi/page.jsx:2570:          <div className="draftsModal" onClick={(e) => e.stopPropagation()}>
+app/transport/pranimi/page.jsx:2607:            <div className="modalCenter" onClick={e => e.stopPropagation()}>
+app/pranimi/page.jsx:7924:        <div className="wiz-backdrop" onClick={(e) => e.stopPropagation()}>
+app/pranimi/page.jsx:7925:          <div className="apple-sheet compact" onClick={(e) => e.stopPropagation()} style={{ border: localSyncWarning?.severity === 'red' ? '1px solid rgba(248,113,113,0.55)' : '1px solid rgba(250,204,21,0.55)', boxShadow: localSyncWarning?.severity === 'red' ? '0 24px 80px rgba(127,29,29,0.45)' : '0 24px 80px rgba(113,63,18,0.42)' }}>
+app/pranimi/page.jsx:8031:          <div className="modal-content dark" onClick={(e) => e.stopPropagation()}>
+app/pranimi/page.jsx:8071:          <div className="apple-sheet compact" onClick={(e) => e.stopPropagation()}>
+app/pranimi/page.jsx:8113:          <div className="apple-sheet compact" onClick={(e) => e.stopPropagation()}>
+app/pranimi/page.jsx:8187:          <div className="apple-sheet compact" onClick={(e) => e.stopPropagation()}>
+app/api/admin/devices/route.js:12:    const master_pin = normalizePin(body?.master_pin, { min: 3, max: 12 }) || '';
+app/api/admin/devices/route.js:15:    let isAuthorized = !!(expectedAdminPin && master_pin && master_pin === expectedAdminPin);
+app/api/admin/devices/route.js:18:    const { data: master } = await supabase.from('tepiha_users').select('id, pin, role').eq('pin', master_pin).maybeSingle();
+lib/arka/arkaConstants.js:8:  SALARY_PAID: 'SALARY_PAID',
+lib/arka/arkaConstants.js:9:  SETTLED_IN_SALARY: 'SETTLED_IN_SALARY',
+lib/arka/arkaConstants.js:19:  SALARY_PAYMENT: 'SALARY_PAYMENT',
+lib/arka/arkaConstants.js:38:  PAYROLL_SALARY_PAYMENT: 'PAYROLL_SALARY_PAYMENT',
+lib/arka/arkaEngine.js:109:function buildSalaryPaymentIdempotencyKey({ monthKey, workerPin } = {}) {
+lib/arka/arkaEngine.js:113:  return [ARKA_ACTION.PAYROLL_SALARY_PAYMENT, month, pin].map((part) => stableToken(part)).join(':');
+lib/arka/arkaEngine.js:150:  ARKA_ACTION.PAYROLL_SALARY_PAYMENT,
+lib/arka/arkaEngine.js:158:  ARKA_ACTION.PAYROLL_SALARY_PAYMENT,
+lib/arka/arkaEngine.js:1585:  if ([ARKA_PAYMENT_TYPE.MEAL_PAYMENT, ARKA_PAYMENT_TYPE.MEAL_COVERED, ARKA_PAYMENT_TYPE.SALARY_PAYMENT, ARKA_PAYMENT_TYPE.EXPENSE, ARKA_PAYMENT_TYPE.TIMA, 'ADVANCE'].includes(type)) return ARKA_SOURCE_MODULE.ARKA;
+lib/arka/arkaEngine.js:2472:async function findExistingSalaryPayment(sb, { monthKey, workerPin, idempotencyKey } = {}) {
+lib/arka/arkaEngine.js:2482:        .eq('type', ARKA_PAYMENT_TYPE.SALARY_PAYMENT)
+lib/arka/arkaEngine.js:2483:        .eq('status', ARKA_PAYMENT_STATUS.SALARY_PAID)
+lib/arka/arkaEngine.js:2496:      .eq('type', ARKA_PAYMENT_TYPE.SALARY_PAYMENT)
+lib/arka/arkaEngine.js:2497:      .eq('status', ARKA_PAYMENT_STATUS.SALARY_PAID)
+lib/arka/arkaEngine.js:2499:      .ilike('note', `%RROGA ${month}%`)
+lib/arka/arkaEngine.js:2510:async function collectAdvanceRowsForSalary(sb, { workerPin, workerName } = {}) {
+lib/arka/arkaEngine.js:2520:    // Salary payment must clear only advances that were deducted from salary.
+lib/arka/arkaEngine.js:2566:async function payrollSalaryPayment(sb, payload = {}) {
+lib/arka/arkaEngine.js:2573:  const baseSalary = money(payload.baseSalary || payload.base_salary);
+lib/arka/arkaEngine.js:2582:  const idempotencyKey = cleanText(payload.idempotencyKey || payload.idempotency_key || buildSalaryPaymentIdempotencyKey({ monthKey, workerPin }), '');
+lib/arka/arkaEngine.js:2583:  return withRuntimeLock(`salary_payment:${monthKey}:${workerPin}`, async () => {
+lib/arka/arkaEngine.js:2584:    const existing = await findExistingSalaryPayment(sb, { monthKey, workerPin, idempotencyKey });
+lib/arka/arkaEngine.js:2585:    if (existing) return { ok: true, action: ARKA_ACTION.PAYROLL_SALARY_PAYMENT, existing: true, duplicate: true, salaryPayment: existing, row: existing };
+lib/arka/arkaEngine.js:2596:        category: 'SALARY',
+lib/arka/arkaEngine.js:2597:        sourceType: 'salary_payment',
+lib/arka/arkaEngine.js:2600:        note: `RROGA ${monthKey} • ${workerName} • NET ${idempotentMoneyKey(amount)}€ • AVANS ${idempotentMoneyKey(advanceAmount)}€`,
+lib/arka/arkaEngine.js:2606:      `RROGA ${monthKey}`,
+lib/arka/arkaEngine.js:2610:      `BAZË ${idempotentMoneyKey(baseSalary)}€`,
+lib/arka/arkaEngine.js:2615:    const salaryPayment = await insertRow(sb, PENDING_TABLE, {
+lib/arka/arkaEngine.js:2617:      status: ARKA_PAYMENT_STATUS.SALARY_PAID,
+lib/arka/arkaEngine.js:2619:      type: ARKA_PAYMENT_TYPE.SALARY_PAYMENT,
+lib/arka/arkaEngine.js:2623:      handoff_note: `SALARY_PAID:${monthKey}:${workerPin}`,
+lib/arka/arkaEngine.js:2638:    const advanceRows = await collectAdvanceRowsForSalary(sb, { workerPin, workerName });
+lib/arka/arkaEngine.js:2641:        status: ARKA_PAYMENT_STATUS.SETTLED_IN_SALARY,
+lib/arka/arkaEngine.js:2646:        handoff_note: `SETTLED_IN_SALARY:${monthKey}:${workerPin}`,
+lib/arka/arkaEngine.js:2653:      action: ARKA_ACTION.PAYROLL_SALARY_PAYMENT,
+lib/arka/arkaEngine.js:2654:      salaryPayment,
+lib/arka/arkaEngine.js:2655:      row: salaryPayment,
+lib/arka/arkaEngine.js:2833:    case ARKA_ACTION.PAYROLL_SALARY_PAYMENT:
+lib/arka/arkaEngine.js:2834:      return payrollSalaryPayment(sb, guardedPayload);
+lib/payrollMonthClose.js:18:const EXCLUDED_PAYROLL_ROLES = new Set([
+lib/payrollMonthClose.js:28:const EXCLUDED_PAYROLL_PINS = new Set(['2380']);
+lib/payrollMonthClose.js:30:export function isPayrollEligibleWorker(worker = {}) {
+lib/payrollMonthClose.js:36:  if (EXCLUDED_PAYROLL_PINS.has(pin)) return false;
+lib/payrollMonthClose.js:37:  if (EXCLUDED_PAYROLL_ROLES.has(role)) return false;
+lib/payrollMonthClose.js:47:  if (status === 'SALARY_PAID' || type === 'SALARY_PAYMENT') {
+lib/payrollMonthClose.js:48:    const marker = `${clean(row?.note)} ${clean(row?.payroll_month)} ${clean(row?.month)}`.toUpperCase();
+lib/payrollMonthClose.js:114:export function getCurrentPayrollMonth(date = new Date()) {
+lib/payrollMonthClose.js:122:  const safeMonth = /^\d{4}-\d{2}$/.test(String(month || '')) ? String(month) : getCurrentPayrollMonth();
+lib/payrollMonthClose.js:133:export function buildMonthlyPayrollPreview({ workers = [], paymentRows = [], month = getCurrentPayrollMonth() } = {}) {
+lib/payrollMonthClose.js:134:  const safeMonth = String(month || getCurrentPayrollMonth()).slice(0, 7);
+lib/payrollMonthClose.js:136:  const eligibleWorkers = (Array.isArray(workers) ? workers : []).filter(isPayrollEligibleWorker);
+lib/payrollMonthClose.js:140:    const baseSalary = n(worker?.salary ?? worker?.baseSalary);
+lib/payrollMonthClose.js:158:    const salaryPaidRows = workerRows.filter((row) => up(row?.status) === 'SALARY_PAID' || up(row?.type) === 'SALARY_PAYMENT');
+lib/payrollMonthClose.js:172:    const salaryPaidAmount = amountOf(salaryPaidRows);
+lib/payrollMonthClose.js:173:    const salaryPaidAt = salaryPaidRows
+lib/payrollMonthClose.js:179:    // Payroll monthly salary rule:
+lib/payrollMonthClose.js:180:    // Monthly salary is affected only by personal advances.
+lib/payrollMonthClose.js:182:    const gross = baseSalary;
+lib/payrollMonthClose.js:190:    if (carryOver > 0) warnings.push(`Avansi kalon rrogën, bartet: €${carryOver.toFixed(2)}`);
+lib/payrollMonthClose.js:191:    if (baseSalary <= 0) warnings.push('Mungon rroga bazë');
+lib/payrollMonthClose.js:195:    if (salaryPaidRows.length > 0) {
+lib/payrollMonthClose.js:213:      baseSalary,
+lib/payrollMonthClose.js:223:      salaryPaidAmount,
+lib/payrollMonthClose.js:224:      salaryPaidAt,
+lib/dispatchAdvanceBridge.js:48:function isPayrollAdvanceButton(button) {
+lib/dispatchAdvanceBridge.js:50:  if (String(window.location?.pathname || '') !== '/arka/payroll') return false;
+lib/dispatchAdvanceBridge.js:152:    if (!isPayrollAdvanceButton(button)) return;
+lib/dispatchAdvanceBridge.js:157:    event.stopPropagation();
+lib/dispatchAdvanceBridge.js:158:    event.stopImmediatePropagation?.();
+lib/payrollDb.js:38:export async function upsertPayrollProfile(profile) {
+lib/payrollDb.js:74:    'tepiha_payroll_profiles',
+lib/payrollDb.js:81:export async function getPayrollProfile(userId) {
+lib/payrollDb.js:83:    .from('tepiha_payroll_profiles')
+lib/payrollDb.js:91:export async function listPayrollMoves(userId, limit = 30) {
+lib/payrollDb.js:93:    .from('tepiha_payroll_moves')
+lib/payrollDb.js:102:export async function addPayrollMove(move) {
+lib/payrollDb.js:106:  // OUT = money goes out from us (advance/salary/bonus, or debt added as liability)
+lib/payrollDb.js:163:  const r0 = await supabase.from('tepiha_payroll_moves').insert(base).select().maybeSingle();
+lib/payrollDb.js:168:      const r = await supabase.from('tepiha_payroll_moves').insert(p).select().maybeSingle();
+lib/payrollDb.js:178:// RROGA/AVANS/BONUS are treated as payments (decrease debt) by default.
+components/ChunkLoadRuntime.jsx:316:  try { event?.stopImmediatePropagation?.(); } catch {}
+components/ChunkLoadRuntime.jsx:317:  try { event?.stopPropagation?.(); } catch {}
+components/ApprovalsPopup.jsx:188:            onClick={(e) => e.stopPropagation()}
+components/GlobalHomeSearch.jsx:503:    event?.stopPropagation?.();
+components/GlobalHomeSearch.jsx:664:                          <button type="button" className="ghs-open-result" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openSearchResult(result); }}>
+components/transport/TransportEditModal.jsx:102:      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+components/transport/TransportInlineEdit.jsx:367:    <div className="modal-content dark" onClick={(e) => e.stopPropagation()}>
+components/OwedCashPopup.jsx:133:        onClick={(e) => e.stopPropagation()}
+components/SmartSmsModal.jsx:329:        onClick={(event) => event.stopPropagation()}
+components/SmartSmsModal.jsx:330:        onTouchMove={(event) => event.stopPropagation()}
+src/generated/routes.generated.jsx:32:import ArkaPayrollPageEager from '@/app/arka/payroll/page.jsx';
+src/generated/routes.generated.jsx:51:const Page3 = lazyRoute(() => import('@/app/arka/payroll/page.jsx'), '@/app/arka/payroll/page.jsx');
+src/generated/routes.generated.jsx:662:  { path: '/arka/payroll', element: eagerElement(ArkaPayrollPageEager, '/arka/payroll') },
+
+=== DISPATCH ROLE / CASH HANDOFF ===
+app/arka/arka.css:207:/* ARKA V3 clean cash-first driver/dispatch layout */
+app/arka/arka.css:232:/* Cash accept review modal: shows exact gross / commission / base before dispatch accepts. */
+app/arka/puntor/[pin]/page.jsx:19:import { listWorkerDebtRows, submitWorkerCashToDispatch } from '@/lib/corporateFinance';
+app/arka/puntor/[pin]/page.jsx:170:          {handedStamp ? <span className="arkaCashStamp">DORËZUAR: {handedStamp}</span> : null}
+app/arka/puntor/[pin]/page.jsx:196:const OPEN_FOR_DISPATCH_STATUSES = new Set(['PENDING', 'COLLECTED']);
+app/arka/puntor/[pin]/page.jsx:197:const ACCEPTED_HISTORY_STATUSES = new Set(['ACCEPTED_BY_DISPATCH', 'APPROVED', 'ACCEPTED']);
+app/arka/puntor/[pin]/page.jsx:198:const CLOSED_OR_REJECTED_PAYMENT_STATUSES = new Set(['ACCEPTED_BY_DISPATCH', 'APPROVED', 'ACCEPTED', 'REJECTED', 'REFUZUAR', 'OWED', 'WORKER_DEBT', 'ADVANCE']);
+app/arka/puntor/[pin]/page.jsx:199:const CASH_ACCOUNTABILITY_STATUSES = new Set(['COLLECTED', 'ACCEPTED_BY_DISPATCH', 'APPROVED']);
+app/arka/puntor/[pin]/page.jsx:200:const TRANSPORT_COMMISSION_DONE_STATUSES = new Set(['DONE', 'DELIVERED', 'DORZUAR', 'DOREZUAR', 'DORËZUAR']);
+app/arka/puntor/[pin]/page.jsx:204:    collectedTotal: 0, pendingTotal: 0, expenseTotal: 0, mealPaymentTotal: 0, mealFromExpensesTotal: 0, mealSelfTotal: 0, mealCoveredTotal: 0, timaTotal: 0, deliveredTodayTotal: 0, deliveredEarlierTotal: 0, deliveredTotal: 0, toHandoverToday: 0, toHandoverWithPending: 0, advancesTotal: 0, debtTotal: 0, activityBaseToday: false, collectedRows: [], pendingRows: [], baseCollectedRows: [], basePendingRows: [], transportCollectedRows: [], transportPendingRows: [], expenseRows: [], expenseOnlyRows: [], expenseMealRows: [], timaRows: [], mealPaymentRows: [], mealCoveredRows: [], deliveredRows: [], deliveredTodayRows: [], deliveredEarlierRows: [], transportCodeRows: [], isHybridTransport: false, commissionRateM2: 0.5, transportCollectedM2: 0, transportPendingM2: 0, hybridCommissionCollected: 0, hybridCommissionWithPending: 0, hybridBaseShareCollected: 0, hybridBaseShareWithPending: 0,
+app/arka/puntor/[pin]/page.jsx:259:function isOpenForDispatch(row, targetPin) {
+app/arka/puntor/[pin]/page.jsx:261:  if (!OPEN_FOR_DISPATCH_STATUSES.has(status)) return false;
+app/arka/puntor/[pin]/page.jsx:446:  // Anything already attached to a handoff has already reduced the worker's handoff cash.
+app/arka/puntor/[pin]/page.jsx:623:    .from('cash_handoffs')
+app/arka/puntor/[pin]/page.jsx:716:    .in('status', ['done', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar'])
+app/arka/puntor/[pin]/page.jsx:772:  const canManage = ['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(safeUpper(actor?.role));
+app/arka/puntor/[pin]/page.jsx:800:      if (handoffRes.status === 'rejected') issues.push(cleanErrorMessage(handoffRes.reason, 'CASH_HANDOFFS'));
+app/arka/puntor/[pin]/page.jsx:972:    const rawOpenRows = sortRowsDesc(allPayments.filter((row) => isOpenForDispatch(row, pin))).map((row) => buildCashDueRow(row, dueOptions));
+app/arka/puntor/[pin]/page.jsx:976:    const dispatchOpenRows = openRows.filter((row) => OPEN_FOR_DISPATCH_STATUSES.has(safeUpper(row?.status)));
+app/arka/puntor/[pin]/page.jsx:999:      dispatchOpenRows,
+app/arka/puntor/[pin]/page.jsx:1035:      remainingToHandOver: totalDueToBase,
+app/arka/puntor/[pin]/page.jsx:1073:  }, [worker, completedTransportOrders, summary.advancesTotal, cashAccount.transportCommissionHeldTotal]);
+app/arka/puntor/[pin]/page.jsx:1075:  const cashRemainingToHandOver = cashAccount.totalDueToBase;
+app/arka/puntor/[pin]/page.jsx:1108:      window.dispatchEvent(new Event('arka:refresh'));
+app/arka/puntor/[pin]/page.jsx:1318:    if (!sameWorker || cashRemainingToHandOver <= 0) return;
+app/arka/puntor/[pin]/page.jsx:1323:        return alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI QË MOS TË KRIJOHET HANDOFF I DYFISHTË.');
+app/arka/puntor/[pin]/page.jsx:1325:      const count = Array.isArray(cashAccount?.dispatchOpenRows) ? cashAccount.dispatchOpenRows.length : 0;
+app/arka/puntor/[pin]/page.jsx:1335:      const estimatedNet = Math.max(0, +(cashRemainingToHandOver - mealDeduct).toFixed(2));
+app/arka/puntor/[pin]/page.jsx:1336:      const ok = window.confirm(`A DON ME I DORËZU TE DISPATCH ${estimatedNet.toFixed(2)}€?
+app/arka/puntor/[pin]/page.jsx:1342:      await submitWorkerCashToDispatch({ actor });
+app/arka/puntor/[pin]/page.jsx:1345:      alert('✅ DORËZIMI U DËRGUA TE DISPATCH.');
+app/arka/puntor/[pin]/page.jsx:1366:  const ownerRemainingTotal = cashAccount.remainingToHandOver;
+app/arka/puntor/[pin]/page.jsx:1368:  const openPaymentGroups = buildPaymentDisplayGroups(cashAccount.dispatchOpenRows);
+app/arka/puntor/[pin]/page.jsx:1419:            {sameWorker ? (<button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={busy || cashRemainingToHandOver <= 0 || n(cashAccount?.duplicateTransportCashCount) > 0} onClick={handoffMine}>DORËZO TE DISPATCH — {euro(cashRemainingToHandOver)}</button>) : null}
+app/arka/puntor/[pin]/page.jsx:1423:          <div className="arkaWorkerStats adminTopGrid ownerTotalsGrid cleanCashGrid">
+app/arka/puntor/[pin]/page.jsx:1425:            <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(cashAccount.visibleCommissionHistoryTotal)} tone="warn" />
+app/arka/puntor/[pin]/page.jsx:1432:            <div className="arkaSectionHeadCompact"><div><div className="arkaSectionTitle">KLIENTËT</div><div className="arkaSectionSub">T-CODE • EMRI • PËR BAZË</div></div><div className="arkaCashTotalPill">{euro(cashRemainingToHandOver)}</div></div>
+app/arka/puntor/[pin]/page.jsx:1433:            <div className="arkaCashCompactList">{openPaymentGroups.length ? openPaymentGroups.slice(0,60).map((row)=><CashClientCompactRow key={`open_due_group_${row.key}`} row={row} workerName={workerFirstName} />) : <div className="arkaEmpty">S’KA KLIENTË ME CASH I MARRË PËR DISPATCH.</div>}</div>
+app/arka/puntor/[pin]/page.jsx:1478:              <div className="arkaSectionSub">KËTO JANË ACCEPTED_BY_DISPATCH / APPROVED. DEFAULT JANË TË MBYLLURA.</div>
+app/arka/puntor/[pin]/page.jsx:1500:              )) : <div className="arkaEmpty">S’KA PAGESA TË PRANUARA NGA DISPATCH.</div>}
+app/arka/puntor/[pin]/page.jsx:1557:            <Stat label="TOTAL DORËZUAR" value={euro(summary.deliveredTotal)} tone="strong" />
+app/arka/puntor/[pin]/page.jsx:1558:            <Stat label="ME DORËZU SOT" value={euro(summary.toHandoverToday)} tone="strong" />
+app/arka/puntor/[pin]/page.jsx:1559:            <Stat label="ME DORËZU + PENDING" value={euro(summary.toHandoverWithPending)} tone="info" />
+app/arka/puntor/[pin]/page.jsx:1590:              <div className="arkaSimpleSub">PUNTORI PROPOZON TIPIN. ADMIN / DISPATCH E KONFIRMON VENDIMIN FINAL.</div>
+app/arka/puntor/[pin]/page.jsx:1706:              <div className="arkaSectionSub">COLLECTED/PENDING JANË CASH AKTIV. ACCEPTED_BY_DISPATCH SHFAQET SI HISTORI E DORËZUAR.</div>
+app/arka/puntor/[pin]/page.jsx:1793:              <div className="arkaSectionSub">TIMA E PRANUAR NGA DISPATCH HYRT NË LLOGARITJE.</div>
+app/arka/puntor/[pin]/page.jsx:1841:              <div className="arkaSectionSub">DORËZUAR SOT, MË HERËT DHE TOTALI JANË TË NDARË.</div>
+app/arka/puntor/[pin]/page.jsx:1843:                <Stat label="DORËZUAR SOT" value={euro(summary.deliveredTodayTotal)} tone="ok" />
+app/arka/puntor/[pin]/page.jsx:1844:                <Stat label="DORËZUAR MË HERËT" value={euro(summary.deliveredEarlierTotal)} tone="neutral" />
+app/arka/puntor/[pin]/page.jsx:1845:                <Stat label="TOTAL DORËZUAR" value={euro(summary.deliveredTotal)} tone="strong" />
+app/arka/puntor/[pin]/page.jsx:1864:                <Stat label="ME DORËZU SOT" value={euro(summary.toHandoverToday)} tone="strong" />
+app/arka/puntor/[pin]/page.jsx:1865:                <Stat label="ME DORËZU ME PENDING" value={euro(summary.toHandoverWithPending)} tone="info" />
+app/arka/puntor/[pin]/page.jsx:1872:                <div className="arkaPendingRight"><div className="arkaHistoryAmount">{euro(summary.toHandoverToday)}</div></div>
+app/arka/puntor/[pin]/page.jsx:1879:                <div className="arkaPendingRight"><div className="arkaHistoryAmount">{euro(summary.toHandoverWithPending)}</div></div>
+app/arka/payroll/page.jsx:122:function workerCashDisplayCode(row) {
+app/arka/payroll/page.jsx:130:function workerCashIsTransport(row) {
+app/arka/payroll/page.jsx:148:  const m2 = workerCashIsTransport(row) ? extractM2FromPayment(row) : 0;
+app/arka/payroll/page.jsx:208:const MONTH_CLOSE_EXCLUDED_CASH_TYPES = new Set(['EXPENSE', 'TIMA', 'MEAL_PAYMENT', 'MEAL_COVERED', 'ADVANCE', 'SALARY_PAYMENT']);
+app/arka/payroll/page.jsx:214:  if (status !== 'ACCEPTED_BY_DISPATCH') return false;
+app/arka/payroll/page.jsx:292:  const isAdminUser = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);
+app/arka/payroll/page.jsx:305:      if (!["ADMIN", "ADMIN_MASTER", "DISPATCH", "OWNER", "PRONAR", "SUPERADMIN"].includes(role)) {
+app/arka/payroll/page.jsx:902:    }, { gross: 0, deductions: 0, net: 0, carryOver: 0, openCash: 0, pendingHandoff: 0, okCount: 0, blockedCount: 0, reviewCount: 0, paidCount: 0, paidTotal: 0 });
+app/arka/payroll/page.jsx:972:    const dispatchRows = cashRows.filter((row) => String(row?.status || '').toUpperCase() === 'PENDING_DISPATCH_APPROVAL');
+app/arka/payroll/page.jsx:975:      return !['PENDING', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL'].includes(status);
+app/arka/payroll/page.jsx:995:    const pendingDispatch = dispatchRows.reduce((sum, row) => sum + Number(row?.amount || 0), 0);
+app/arka/payroll/page.jsx:1003:    if (pendingDispatch > 0) reasons.push(`Ka cash në pritje dispatch: ${euro(pendingDispatch)}`);
+app/arka/payroll/page.jsx:1012:      pendingDispatch <= 0 &&
+app/arka/payroll/page.jsx:1029:      pendingDispatch,
+app/arka/payroll/page.jsx:1030:      pendingDispatchCount: dispatchRows.length,
+app/arka/payroll/page.jsx:1165:              <div className="moneyTile info"><span>RROGA BAZË</span><strong>{euro(closedMonthSnapshot?.total_salary_base)}</strong><small>Advances: {euro(closedMonthSnapshot?.total_advances)}</small></div>
+app/arka/payroll/page.jsx:1171:              <div className="smallTile warn"><span>DISPATCH NË PRITJE</span><strong>{euro(closedMonthSnapshot?.total_pending_dispatch_at_close)}</strong><small>Snapshot</small></div>
+app/arka/payroll/page.jsx:1239:            <div className="smallTile warn"><span>NË PRITJE DISPATCH</span><strong>{euro(monthClosePreview.pendingDispatch)}</strong><small>{monthClosePreview.pendingDispatchCount} raste</small></div>
+app/arka/payroll/page.jsx:1243:          <section className="workerSection reviewpay adminCashSection">
+app/arka/payroll/page.jsx:1561:            <div className="workerCashDeliverySection">
+app/arka/payroll/page.jsx:1562:              <div className="workerCashDeliveryHead">
+app/arka/payroll/page.jsx:1564:                  <h3>PAGESAT QË DUHET ME I DORËZU</h3>
+app/arka/payroll/page.jsx:1575:                  <p><span>DUHET ME DORËZU NË BAZË</span><strong>{euro(selectedPayrollHybridCashTotals.baseHandover)}</strong></p>
+app/arka/payroll/page.jsx:1580:                <div className="workerCashDeliveryList">
+app/arka/payroll/page.jsx:1582:                    <div className="workerCashDeliveryRow hybrid" key={item?.row?.id || `${item?.row?.created_at}_${item?.row?.amount}`}>
+app/arka/payroll/page.jsx:1583:                      <div className="workerCashDeliveryMain">
+app/arka/payroll/page.jsx:1584:                        <strong>{workerCashDisplayCode(item?.row)}</strong>
+app/arka/payroll/page.jsx:1587:                      <div className="workerCashDeliveryMeta hybridMeta">
+app/arka/payroll/page.jsx:1596:                    <div className="workerCashDeliveryRow" key={payment?.id || `${payment?.created_at}_${payment?.amount}`}>
+app/arka/payroll/page.jsx:1597:                      <div className="workerCashDeliveryMain">
+app/arka/payroll/page.jsx:1598:                        <strong>{workerCashDisplayCode(payment)}</strong>
+app/arka/payroll/page.jsx:1601:                      <div className="workerCashDeliveryMeta">
+app/arka/payroll/page.jsx:1610:                <div className="workerCashDeliveryEmpty">Nuk ka pagesa të hapura për dorëzim.</div>
+app/arka/payroll/page.jsx:1614:                <div className="workerCashDeliveryTotal hybridTotals">
+app/arka/payroll/page.jsx:1617:                  <p><span>DUHET ME DORËZU NË BAZË</span><strong>{euro(selectedPayrollHybridCashTotals.baseHandover)}</strong></p>
+app/arka/payroll/page.jsx:1620:                <div className="workerCashDeliveryTotal">
+app/arka/payroll/page.jsx:1638:                          <li>Duhet me dorëzu në bazë: {euro(selectedPayrollHybridCashTotals.baseHandover)}</li>
+app/arka/payroll/page.jsx:1804:              <button className="closeBtn" onClick={() => setSalaryModal(null)}>✕</button>
+app/arka/payroll/page.jsx:3879:        .payrollPage .payrollDetailModal .workerCashDeliverySection {
+app/arka/payroll/page.jsx:3888:        .payrollPage .payrollDetailModal .workerCashDeliveryHead {
+app/arka/payroll/page.jsx:3896:        .payrollPage .payrollDetailModal .workerCashDeliveryHead h3 {
+app/arka/payroll/page.jsx:3906:        .payrollPage .payrollDetailModal .workerCashDeliveryHead p {
+app/arka/payroll/page.jsx:3914:        .payrollPage .payrollDetailModal .workerCashDeliveryHead strong {
+app/arka/payroll/page.jsx:3962:        .payrollPage .payrollDetailModal .workerCashDeliveryList {
+app/arka/payroll/page.jsx:3967:        .payrollPage .payrollDetailModal .workerCashDeliveryRow {
+app/arka/payroll/page.jsx:3978:        .payrollPage .payrollDetailModal .workerCashDeliveryMain {
+app/arka/payroll/page.jsx:3984:        .payrollPage .payrollDetailModal .workerCashDeliveryMain strong {
+app/arka/payroll/page.jsx:3992:        .payrollPage .payrollDetailModal .workerCashDeliveryMain span {
+app/arka/payroll/page.jsx:4000:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta {
+app/arka/payroll/page.jsx:4007:        .payrollPage .payrollDetailModal .workerCashDeliveryRow.hybrid {
+app/arka/payroll/page.jsx:4011:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta b {
+app/arka/payroll/page.jsx:4019:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta.hybridMeta {
+app/arka/payroll/page.jsx:4024:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta.hybridMeta p {
+app/arka/payroll/page.jsx:4037:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta.hybridMeta p span {
+app/arka/payroll/page.jsx:4045:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta.hybridMeta p b {
+app/arka/payroll/page.jsx:4053:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta span,
+app/arka/payroll/page.jsx:4054:        .payrollPage .payrollDetailModal .workerCashDeliveryMeta small {
+app/arka/payroll/page.jsx:4061:        .payrollPage .payrollDetailModal .workerCashDeliveryEmpty {
+app/arka/payroll/page.jsx:4071:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal {
+app/arka/payroll/page.jsx:4081:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal span {
+app/arka/payroll/page.jsx:4090:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal strong {
+app/arka/payroll/page.jsx:4098:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal.hybridTotals {
+app/arka/payroll/page.jsx:4103:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal.hybridTotals p {
+app/arka/payroll/page.jsx:4111:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal.hybridTotals p span {
+app/arka/payroll/page.jsx:4120:        .payrollPage .payrollDetailModal .workerCashDeliveryTotal.hybridTotals p strong {
+app/arka/payroll/page.jsx:4241:          .payrollPage .payrollDetailModal .workerCashDeliveryHead,
+app/arka/payroll/page.jsx:4242:          .payrollPage .payrollDetailModal .workerCashDeliveryRow,
+app/arka/payroll/page.jsx:4243:          .payrollPage .payrollDetailModal .workerCashDeliveryTotal {
+app/arka/payroll/page.jsx:4248:          .payrollPage .payrollDetailModal .workerCashDeliveryMeta {
+app/arka/payroll/page.jsx:4253:          .payrollPage .payrollDetailModal .workerCashDeliveryTotal {
+app/arka/stafi/page.jsx:90:  const canManageStaff = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);
+app/arka/stafi/page.jsx:109:      if (!["ADMIN", "ADMIN_MASTER", "DISPATCH", "OWNER", "PRONAR", "SUPERADMIN"].includes(role)) {
+app/arka/stafi/page.jsx:466:                      {["ADMIN", "PUNTOR", "DISPATCH", "TRANSPORT"].map((r) => (
+app/arka/obligimet/page.jsx:23:const MANAGER_ROLES = new Set(['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN']);
+app/arka/kapaku/page.jsx:42:  return pin === "2380" || ["MASTER", "ADMIN", "ADMIN_MASTER", "SUPERADMIN", "DISPATCH"].includes(role);
+app/arka/kapaku/page.jsx:47:  if (key === "WORKER_TO_DISPATCH") return "PRANIM NGA DISPATCH";
+app/arka/kapaku/page.jsx:49:  if (key === "PAYROLL_MONTH_CLOSE") return "MBYLLJE RROGASH";
+app/arka/kapaku/page.jsx:314:    const workerCashRows = openCashRows.filter((row) => String(row?.created_by_pin || "").trim() !== "2380");
+app/arka/kapaku/page.jsx:316:    const workerCash = workerCashRows.reduce((sum, row) => sum + n(row?.amount), 0);
+app/arka/kapaku/page.jsx:317:    const openCashBlockers = masterCash + workerCash;
+app/arka/kapaku/page.jsx:319:    const pendingDispatch = (state.handoffs || []).reduce((sum, row) => sum + n(row?.amount || row?.total_amount), 0);
+app/arka/kapaku/page.jsx:327:      - pendingDispatch
+app/arka/kapaku/page.jsx:345:      workerCash,
+app/arka/kapaku/page.jsx:348:      pendingDispatch,
+app/arka/kapaku/page.jsx:533:          <MiniStat label="Cash i hapur workers" value={money(computed.workerCash)} tone={computed.workerCash > 0 ? "warn" : "ok"} />
+app/arka/kapaku/page.jsx:535:          <MiniStat label="Në pritje dispatch" value={money(computed.pendingDispatch)} tone={computed.pendingDispatch > 0 ? "warn" : "ok"} />
+app/arka/kapaku/page.jsx:541:        <ReadError label="Në pritje dispatch" error={state.errors.handoffs} />
+app/arka/kapaku/page.jsx:559:          <RowLine label="- Në pritje dispatch" value={money(computed.pendingDispatch)} />
+app/arka/page.jsx:20:  listCashHandoffRecords,
+app/arka/page.jsx:30:  acceptDispatchHandoff,
+app/arka/page.jsx:31:  listPendingDispatchHandoffs,
+app/arka/page.jsx:32:  rejectDispatchHandoff,
+app/arka/page.jsx:33:  submitWorkerCashToDispatch,
+app/arka/page.jsx:51:const NON_PAYMENT_STATUSES = new Set(['OWED', 'REJECTED', 'WORKER_DEBT', 'ADVANCE', 'PENDING_DISPATCH_APPROVAL', 'ACCEPTED_BY_DISPATCH']);
+app/arka/page.jsx:54:const MANAGER_PENDING_HANDOFF_SELECT = 'id,amount,status,worker_pin,worker_name,submitted_at,note,cash_handoff_items(*)';
+app/arka/page.jsx:62:    .in('status', ['PENDING', 'PENDING_DISPATCH_APPROVAL'])
+app/arka/page.jsx:167:  if (s === 'PENDING') return 'NË PRITJE ADMIN/DISPATCH';
+app/arka/page.jsx:169:  if (s === 'ACCEPTED_BY_DISPATCH' || s === 'ACCEPTED') return 'PRANUAR';
+app/arka/page.jsx:348:  return roleIsWorker(role) || safeUpper(role) === 'DISPATCH';
+app/arka/page.jsx:351:  return ['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(safeUpper(role));
+app/arka/page.jsx:532:  return ['ACCEPTED', 'ACCEPTED_BY_DISPATCH'].includes(safeUpper(status));
+app/arka/page.jsx:535:  return ['PENDING', 'PENDING_DISPATCH_APPROVAL'].includes(safeUpper(status));
+app/arka/page.jsx:541:  if (s === 'PENDING_DISPATCH_APPROVAL') return 'DËRGUAR TE DISPATCH';
+app/arka/page.jsx:542:  if (s === 'ACCEPTED_BY_DISPATCH' || s === 'ACCEPTED') return 'PRANUAR NGA BAZA';
+app/arka/page.jsx:543:  if (s === 'REJECTED' || s === 'REFUZUAR') return 'KTHYER NGA DISPATCH';
+app/arka/page.jsx:857:    withArkaTimeout(listCashHandoffRecords({
+app/arka/page.jsx:901:  return ['ACCEPTED_BY_DISPATCH', 'APPROVED', 'ACCEPTED'].includes(status);
+app/arka/page.jsx:920:  const dispatchOpenRows = [...collectedRows, ...pendingRows];
+app/arka/page.jsx:921:  const rawCashBreakdownRows = (Array.isArray(dispatchOpenRows) ? dispatchOpenRows : []).map((row) => buildCashBreakdownRow(row, worker, { transportOrdersById }));
+app/arka/page.jsx:929:  const dispatchGrossTotal = sumCashField(cashBreakdownRows, 'gross');
+app/arka/page.jsx:934:  const baseCashForDispatchTotal = sumCashField(cashBreakdownRows, 'baseAmount');
+app/arka/page.jsx:938:  const timaRows = extras.filter((row) => typeOf(row) === 'TIMA' && statusOf(row) === 'ACCEPTED_BY_DISPATCH');
+app/arka/page.jsx:961:  const cashFromClientsTotal = dispatchGrossTotal;
+app/arka/page.jsx:962:  const visiblePaidHistoryTotal = +(dispatchGrossTotal + acceptedGrossTotal).toFixed(2);
+app/arka/page.jsx:963:  const visibleBaseHistoryTotal = +(baseCashForDispatchTotal + acceptedBaseTotal).toFixed(2);
+app/arka/page.jsx:966:  const handedCashTotal = pendingHandoffTotal;
+app/arka/page.jsx:967:  const remainingToHandover = Math.max(0, baseCashForDispatchTotal);
+app/arka/page.jsx:969:  const dueTotal = baseCashForDispatchTotal;
+app/arka/page.jsx:975:    status = 'DËRGUAR TE DISPATCH';
+app/arka/page.jsx:977:  } else if (remainingToHandover > 0) {
+app/arka/page.jsx:1018:    baseCashForDispatchTotal,
+app/arka/page.jsx:1029:    remainingToHandover,
+app/arka/page.jsx:1185:  if (s === 'PENDING_DISPATCH_APPROVAL') return 'DËRGUAR TE DISPATCH';
+app/arka/page.jsx:1186:  if (s === 'ACCEPTED_BY_DISPATCH' || s === 'ACCEPTED') return 'PRANUAR';
+app/arka/page.jsx:1278:    if (workerHandoffs.some((row) => isAcceptedHandoffStatus(row?.status))) dayStatus = openCashTotal > 0 || openExpenseTotal > 0 ? 'PJESËRISHT PRANUAR' : 'PRANUAR';
+app/arka/page.jsx:1279:    if (workerHandoffs.some((row) => isPendingHandoffStatus(row?.status))) dayStatus = 'DËRGUAR TE DISPATCH';
+app/arka/page.jsx:1347:        <HistoryMetricLine label="Dorëzime te dispatch" value={euro(totals.handoffTotal)} />
+app/arka/page.jsx:1360:            tone={['ACCEPTED_BY_DISPATCH', 'ACCEPTED'].includes(safeUpper(row.status)) ? 'ok' : ['PENDING', 'COLLECTED'].includes(safeUpper(row.status)) ? 'warn' : 'neutral'}
+app/arka/page.jsx:1366:        <div className="arkaSectionTitle">DORËZIMET TE DISPATCH</div>
+app/arka/page.jsx:1388:            tone={statusOf(row) === 'ACCEPTED_BY_DISPATCH' ? 'ok' : ['PENDING', 'COLLECTED'].includes(statusOf(row)) ? 'warn' : 'neutral'}
+app/arka/page.jsx:1402:            tone={statusOf(row) === 'ACCEPTED_BY_DISPATCH' ? 'ok' : 'warn'}
+app/arka/page.jsx:1411:        <HistoryMetricLine label="Cash i pa dorëzuar" value={euro(totals.openCashTotal)} />
+app/arka/page.jsx:1518:          {handedStamp ? <span className="arkaCashStamp">DORËZUAR: {handedStamp}</span> : null}
+app/arka/page.jsx:1535:  const items = Array.isArray(row?.cash_handoff_items) ? row.cash_handoff_items : [];
+app/arka/page.jsx:1665:  const items = Array.isArray(row?.cash_handoff_items) ? row.cash_handoff_items : [];
+app/arka/page.jsx:1703:  const hasStoredHandoffItems = Array.isArray(row?.cash_handoff_items) && row.cash_handoff_items.length > 0;
+app/arka/page.jsx:1727:  // cash_handoff_items.amount is stored as NET/PËR BAZË for hybrid rows.
+app/arka/page.jsx:1873:      await acceptDispatchHandoff({ handoffId: row.id, actor });
+app/arka/page.jsx:1887:      await rejectDispatchHandoff({ handoffId: row.id, actor, note });
+app/arka/page.jsx:1906:          <div className="arkaPendingMeta">{cashStatusLabel(isPendingHandoffStatus(row?.status) ? 'PENDING_DISPATCH_APPROVAL' : row?.status)}</div>
+app/arka/page.jsx:1916:          <CashClientCompactRow key={`handoff_client_${row.id}_${client.id}`} row={{ code: client?.code, clientName: client?.clientName, baseAmount: client?.baseAmount, gross: client?.gross, commission: client?.commission, typeLabel: 'DORËZIM' }} mini />
+app/arka/page.jsx:2181:              <div className="arkaExpenseWarning ok">BUSINESS_EXPENSE E MBYLL EXPENSE SI ACCEPTED_BY_DISPATCH DHE PLOTËSON AUDIT.</div>
+app/arka/page.jsx:2199:function WorkerSummaryCard({ item, busy = '', onAcceptCash, onAddExpense, onAddAdvance }) {
+app/arka/page.jsx:2203:  const due = n(item?.baseCashForDispatchTotal ?? item?.remainingToHandover);
+app/arka/page.jsx:2204:  // IMPORTANT: dispatch acceptance must use NET/PËR BAZË totals,
+app/arka/page.jsx:2206:  const visiblePaid = n(item?.visibleBaseHistoryTotal ?? item?.baseCashForDispatchTotal ?? item?.remainingToHandover ?? item?.dueTotal);
+app/arka/page.jsx:2226:      {cashRows.length ? <div className="arkaCashCompactList adminMini">{cashRows.slice(0,4).map((row)=><CashClientCompactRow key={`worker_cash_${item?.worker?.pin}_${row.id || row.created_at}`} row={row} workerName={workerFirstName} mini />)}{cashRows.length > 4 ? <div className="arkaCashMore">+ {cashRows.length - 4} TJERA</div> : null}</div> : null}
+app/arka/page.jsx:2227:      {!cashRows.length && historyRows.length ? <div className="arkaCashCompactList adminMini">{historyRows.slice(0,3).map((row)=><CashClientCompactRow key={`worker_history_${item?.worker?.pin}_${row.id || row.created_at}`} row={row} workerName={workerFirstName} mini />)}{historyRows.length > 3 ? <div className="arkaCashMore">+ {historyRows.length - 3} HISTORI</div> : null}</div> : null}
+app/arka/page.jsx:2258:  const [expandedWorkerCashLineKey, setExpandedWorkerCashLineKey] = useState('');
+app/arka/page.jsx:2284:  const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(role));
+app/arka/page.jsx:2354:  function acceptWorkerCashFromCard(item) {
+app/arka/page.jsx:2360:    setCashAcceptReview(buildWorkerHandoffReview(item));
+app/arka/page.jsx:2378:        await acceptDispatchHandoff({ handoffId: row.id, actor });
+app/arka/page.jsx:2455:    // Use NET/base totals for dispatch-facing cards and acceptance totals.
+app/arka/page.jsx:2456:    cashFromClientsTotal: workerCards.reduce((sum, item) => sum + n(item?.visibleBaseHistoryTotal ?? item?.baseCashForDispatchTotal ?? item?.remainingToHandover ?? item?.dueTotal), 0),
+app/arka/page.jsx:2462:    remainingToHandover: workerCards.reduce((sum, item) => sum + n(item?.baseCashForDispatchTotal ?? item?.remainingToHandover), 0),
+app/arka/page.jsx:2561:          .from('cash_handoffs')
+app/arka/page.jsx:2562:          .select('*, cash_handoff_items(*)')
+app/arka/page.jsx:2714:          || n(b?.remainingToHandover) - n(a?.remainingToHandover)
+app/arka/page.jsx:2741:        withArkaTimeout(listPendingDispatchHandoffs(MANAGER_SECONDARY_LIMIT, MANAGER_PENDING_HANDOFF_SELECT), 'pending_dispatch_handoffs', 4200).catch((err) => swallowToEmpty('handoffs', err)),
+app/arka/page.jsx:2834:            try { window.dispatchEvent(new CustomEvent('tepiha:force-route-settled', { detail: { path: '/arka', source: 'arka_reload_watchdog_v26' } })); } catch {}
+app/arka/page.jsx:3161:      const rows = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
+app/arka/page.jsx:3162:      const total = n(workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
+app/arka/page.jsx:3163:      const grossTotal = n(workerSnapshot?.cashFromClientsTotal ?? workerSnapshot?.collectedGrossTotal ?? workerSnapshot?.collectedTotal);
+app/arka/page.jsx:3165:      if (!workerSnapshot || total <= 0 || !rows.length) return alert('🔴 NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
+app/arka/page.jsx:3166:      if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) {
+app/arka/page.jsx:3167:        return alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI QË MOS TË KRIJOHET HANDOFF I DYFISHTË.');
+app/arka/page.jsx:3180:        `A DON ME I DORËZU TE DISPATCH ${estimatedNet.toFixed(2)}€?
+app/arka/page.jsx:3193:      await submitWorkerCashToDispatch({ actor });
+app/arka/page.jsx:3195:      alert('✅ DORËZIMI U DËRGUA TE DISPATCH.');
+app/arka/page.jsx:3205:  const workerCashLines = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
+app/arka/page.jsx:3206:  const workerGrossTotal = n(workerSnapshot?.cashFromClientsTotal ?? workerSnapshot?.collectedGrossTotal ?? workerSnapshot?.collectedTotal);
+app/arka/page.jsx:3208:  const workerBaseForDispatchTotal = n(workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.dueTotal);
+app/arka/page.jsx:3243:          <h1 className="arkaSimpleTitle">{canManage ? 'ADMIN / DISPATCH ARKA' : 'ARKA IME E DITËS'}</h1>
+app/arka/page.jsx:3269:            <div className="arkaHeroDueHuge">{euro(workerBaseForDispatchTotal)}</div>
+app/arka/page.jsx:3275:                <div className="arkaSectionTitle">DORËZO TE DISPATCH</div>
+app/arka/page.jsx:3277:              <div className="arkaCashTotalPill">{euro(workerBaseForDispatchTotal)}</div>
+app/arka/page.jsx:3281:                <div className="arkaWorkerStats workerOnlyGrid cleanCashGrid">
+app/arka/page.jsx:3282:                  <Stat label="DUHET ME DORËZU NË BAZË" value={euro(workerBaseForDispatchTotal)} tone="strong" />
+app/arka/page.jsx:3288:              <div className="arkaWorkerStats workerOnlyGrid cleanCashGrid">
+app/arka/page.jsx:3289:                <Stat label="CASH PËR DORËZIM" value={euro(workerBaseForDispatchTotal)} tone="strong" />
+app/arka/page.jsx:3298:                if (isClientsSectionOpen) setExpandedWorkerCashLineKey('');
+app/arka/page.jsx:3317:                  <div className="arkaSectionSub">{workerCashLines.length} KLIENTË</div>
+app/arka/page.jsx:3320:                  <div className="arkaCashTotalPill">TOTAL PËR BAZË: {euro(workerBaseForDispatchTotal)}</div>
+app/arka/page.jsx:3348:                    <b>{euro(workerBaseForDispatchTotal)}</b>
+app/arka/page.jsx:3353:                  {workerCashLines.length ? workerCashLines.map((row, index) => {
+app/arka/page.jsx:3355:                    const isOpen = expandedWorkerCashLineKey === rowKey;
+app/arka/page.jsx:3373:                          onClick={() => setExpandedWorkerCashLineKey(isOpen ? '' : rowKey)}
+app/arka/page.jsx:3510:            <button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={submitHandoff}>{busy === 'handoff' ? '...' : `DORËZO TE DISPATCH — ${euro(workerBaseForDispatchTotal)}`}</button>
+app/arka/page.jsx:3511:            {n(workerSnapshot?.cashDuplicateTransportCount) > 0 ? <div className="arkaReviewWarn">U gjet duplicate transport cash. Dorëzimi u ndalua për siguri.</div> : null}
+app/arka/page.jsx:3519:              <div className="arkaSimpleSub">PUNTORI VETËM PROPOZON TIPIN. ADMIN / DISPATCH E KONFIRMON VENDIMIN FINAL.</div>
+app/arka/page.jsx:3617:            <Stat label="NË DORË TE SHOFERËT" value={euro(totals.remainingToHandover)} tone="strong" />
+app/arka/page.jsx:3664:                    <WorkerSummaryCard item={item} busy={busy} onAcceptCash={acceptWorkerCashFromCard} onAddExpense={addWorkerExpenseFromCard} onAddAdvance={addWorkerAdvanceFromCard} />
+app/arka/page.jsx:3676:                  <PendingHandoffRow row={row} actor={actor} workerSummary={workerCardsByPin.get(String(row?.worker_pin || '').trim())} onReviewAccept={acceptWorkerCashFromCard} onDone={handlePendingHandoffDone} />
+app/dispatch/page.jsx:21:const DISPATCH_LOAD_LIMIT_ORDERS = 96;
+app/dispatch/page.jsx:22:const DISPATCH_LOAD_LIMIT_TRANSPORT = 160;
+app/dispatch/page.jsx:23:const DISPATCH_SEARCH_LIMIT_ORDERS = 120;
+app/dispatch/page.jsx:24:const DISPATCH_SEARCH_LIMIT_TRANSPORT = 140;
+app/dispatch/page.jsx:31:const DISPATCH_TIMELINE_STEPS = [
+app/dispatch/page.jsx:40:  "U DORËZUA TE KLIENTI",
+app/dispatch/page.jsx:54:const TRANSPORT_PRE_PICKUP_STATUSES = new Set(["", "new", "inbox", "pending", "scheduled", "draft", "pranim", "dispatched", "assigned", "accepted"]);
+app/dispatch/page.jsx:55:const DISPATCH_CANCELLED_STATUSES = new Set(["cancelled", "canceled", "anuluar", "annulled", "void", "deleted", "removed"]);
+app/dispatch/page.jsx:56:const DISPATCH_CANCEL_VISIBLE_MS = 24 * 60 * 60 * 1000;
+app/dispatch/page.jsx:70:    return s(data.status || data.transport_status || data.dispatch_status);
+app/dispatch/page.jsx:82:  // Dispatch assignment must land in TË REJA first. The transporter moves it
+app/dispatch/page.jsx:87:const DISPATCH_ACCESS_ROLES = new Set(["DISPATCH", "ADMIN", "ADMIN_MASTER", "OWNER", "PRONAR", "SUPERADMIN"]);
+app/dispatch/page.jsx:89:function canAccessDispatch(actor) {
+app/dispatch/page.jsx:90:  return DISPATCH_ACCESS_ROLES.has(up(actor?.role));
+app/dispatch/page.jsx:171:function getDispatchPhoneDigits(value) {
+app/dispatch/page.jsx:176:// Dispatch never prefetches or buffers codes; it reserves one code only after the
+app/dispatch/page.jsx:179:function createDispatchOrderUuid() {
+app/dispatch/page.jsx:190:async function prepareDispatchTransportClientLink({ name, phone, address, existingPhoneClient, verifiedPhoneClient = undefined, tcodeOwner, orderId }) {
+app/dispatch/page.jsx:193:  const phoneDigits = getDispatchPhoneDigits(cleanPhone);
+app/dispatch/page.jsx:212:  const selectedClient = liveClient && dispatchSamePhone(getClientPhone(liveClient) || liveClient?.phone_digits || liveClient?.phone, cleanPhone)
+app/dispatch/page.jsx:222:      reservedNewTcode = normTCode(await reserveTransportCode(tcodeOwner || 'DISPATCH', { oid: reservationOid }));
+app/dispatch/page.jsx:246:function dispatchSafePhoneMatch(a, b) {
+app/dispatch/page.jsx:247:  const aa = getDispatchPhoneDigits(a);
+app/dispatch/page.jsx:248:  const bb = getDispatchPhoneDigits(b);
+app/dispatch/page.jsx:256:function dispatchSamePhone(a, b) {
+app/dispatch/page.jsx:257:  return dispatchSafePhoneMatch(a, b) || sameTransportPhoneDigits(a, b);
+app/dispatch/page.jsx:259:function dispatchPhoneSearchReady(value) {
+app/dispatch/page.jsx:260:  return getDispatchPhoneDigits(value).length >= 7;
+app/dispatch/page.jsx:263:function isEditableActiveDispatchOrder(row) {
+app/dispatch/page.jsx:264:  if (!row || !isDispatchTransportRow(row)) return false;
+app/dispatch/page.jsx:266:  if (DISPATCH_CANCELLED_STATUSES.has(status)) return false;
+app/dispatch/page.jsx:271:function findActiveDispatchOrderForPhone(rows = [], phoneValue = '') {
+app/dispatch/page.jsx:272:  const phoneKey = getDispatchPhoneDigits(phoneValue);
+app/dispatch/page.jsx:273:  if (!dispatchPhoneSearchReady(phoneKey)) return null;
+app/dispatch/page.jsx:274:  const matches = keepDispatchTransportOnly(Array.isArray(rows) ? rows : [])
+app/dispatch/page.jsx:275:    .filter((row) => isEditableActiveDispatchOrder(row))
+app/dispatch/page.jsx:276:    .filter((row) => dispatchSamePhone(getClientPhone(row) || row?.phone_digits || row?.phone, phoneKey))
+app/dispatch/page.jsx:283:function isDispatchTransportRow(row) {
+app/dispatch/page.jsx:306:function keepDispatchTransportOnly(rows) {
+app/dispatch/page.jsx:307:  return mergeById(Array.isArray(rows) ? rows : []).filter(isDispatchTransportRow);
+app/dispatch/page.jsx:309:function shouldHideDispatchCode(row) {
+app/dispatch/page.jsx:310:  if (isDispatchTransportRow(row)) return false;
+app/dispatch/page.jsx:313:  return row?.data?.defer_dispatch_code !== false;
+app/dispatch/page.jsx:315:function getDispatchCardCode(row) {
+app/dispatch/page.jsx:316:  if (shouldHideDispatchCode(row)) return 'ONLINE';
+app/dispatch/page.jsx:321:  if (["new", "inbox", "pranim", "dispatched", "assigned"].includes(x)) return "PA PLAN";
+app/dispatch/page.jsx:324:  if (["delivery", "dorzim", "dorëzim", "dorezim", "dorezuar", "dorëzuar", "dorzuar", "marrje"].includes(x)) return "DORZIM";
+app/dispatch/page.jsx:326:  if (DISPATCH_CANCELLED_STATUSES.has(x)) return "ANULUAR";
+app/dispatch/page.jsx:353:  if (["phone", "dispatch", "manual"].includes(rawSource)) return "phone";
+app/dispatch/page.jsx:358:  if (isDispatchTransportRow(row)) return "TRANSPORT";
+app/dispatch/page.jsx:401:function isDispatchRemovedRow(row) {
+app/dispatch/page.jsx:404:    data.dispatch_removed ||
+app/dispatch/page.jsx:405:    data.dispatch_hidden ||
+app/dispatch/page.jsx:406:    data.dispatch_archived ||
+app/dispatch/page.jsx:407:    data.deleted_from_dispatch ||
+app/dispatch/page.jsx:413:  const raw = rawStatus(getDbTruthStatus(row) || data.dispatch_status || "");
+app/dispatch/page.jsx:414:  return DISPATCH_CANCELLED_STATUSES.has(raw) || !!(data.cancelled || data.canceled || data.cancelled_at || data.canceled_at);
+app/dispatch/page.jsx:418:  const raw = data.cancelled_at || data.canceled_at || data.dispatch_removed_at || data.failed_at || data.unsuccessful_at || row?.updated_at || row?.created_at;
+app/dispatch/page.jsx:422:function isRecentDispatchCancellation(row) {
+app/dispatch/page.jsx:424:  if (!(isCancelledRow(row) || isFailedRow(row) || isDispatchRemovedRow(row))) return false;
+app/dispatch/page.jsx:427:  return Date.now() - ms <= DISPATCH_CANCEL_VISIBLE_MS;
+app/dispatch/page.jsx:431:  return s(data.cancellation_reason || data.cancel_reason || data.dispatch_removed_reason || data.failed_note || data.reason || data.unsuccess_reason || data.note || "PA ARSYE");
+app/dispatch/page.jsx:435:  return s(data.cancelled_by || data.dispatch_removed_by || data.transport_name || data.driver_name || data.actor || "-");
+app/dispatch/page.jsx:441:  if (data.dispatch_removed_by || data.dispatch_removed_at || data.dispatch_hidden) return "DISPATCH";
+app/dispatch/page.jsx:451:  return ["DONE", "GATI", "ANULUAR"].includes(st) || isFailedRow(row) || isDispatchRemovedRow(row);
+app/dispatch/page.jsx:453:function canDispatchRemoveRow(row) {
+app/dispatch/page.jsx:454:  if (!isDispatchTransportRow(row)) return false;
+app/dispatch/page.jsx:455:  if (isDoneDispatchRow(row)) return false;
+app/dispatch/page.jsx:456:  if (isDispatchRemovedRow(row) || isCancelledRow(row) || isFailedRow(row)) return true;
+app/dispatch/page.jsx:460:const DISPATCH_DONE_STATUSES = new Set([
+app/dispatch/page.jsx:464:  "dorezuar",
+app/dispatch/page.jsx:465:  "dorëzuar",
+app/dispatch/page.jsx:468:function isDoneDispatchRow(row) {
+app/dispatch/page.jsx:473:    DISPATCH_DONE_STATUSES.has(raw) ||
+app/dispatch/page.jsx:494:  if (!isDoneDispatchRow(row)) return false;
+app/dispatch/page.jsx:499:  if (!isDispatchTransportRow(row)) return false;
+app/dispatch/page.jsx:500:  if (isDispatchRemovedRow(row) || isCancelledRow(row) || isFailedRow(row)) return false;
+app/dispatch/page.jsx:502:  if (isDoneDispatchRow(row)) {
+app/dispatch/page.jsx:510:  const raw = s(getDbTruthStatus(row) || data.transport_status || data.dispatch_status).toLowerCase();
+app/dispatch/page.jsx:513:  if (data.delivered_at || data.customer_delivered_at || data.delivery_done_at || ["done", "delivered", "dorezuar", "dorzuar", "dorëzuar"].includes(raw)) return 8;
+app/dispatch/page.jsx:524:  return DISPATCH_TIMELINE_STEPS[transportStageIndex(row)] || DISPATCH_TIMELINE_STEPS[0];
+app/dispatch/page.jsx:619:function dispatchStatusLabel(rowOrStatus) {
+app/dispatch/page.jsx:622:  const raw = rawStatus(row ? (getDbTruthStatus(row) || data.transport_status || data.dispatch_status) : rowOrStatus);
+app/dispatch/page.jsx:623:  if (["assigned", "inbox", "new", "pranim", "dispatched", "scheduled", "pending", "draft", "accepted", "pranuar", "pranu"].includes(raw)) return "E PLANIFIKUAR";
+app/dispatch/page.jsx:629:  if (["done", "delivered", "dorzuar", "dorezuar", "dorëzuar"].includes(raw)) return "E DORËZUAR";
+app/dispatch/page.jsx:636:  const label = dispatchStatusLabel(row);
+app/dispatch/page.jsx:691:  const raw = rawStatus(getDbTruthStatus(row) || data.transport_status || data.dispatch_status || "");
+app/dispatch/page.jsx:703:  const raw = rawStatus(getDbTruthStatus(row) || row?.data?.transport_status || row?.data?.dispatch_status || "");
+app/dispatch/page.jsx:707:  const raw = rawStatus(getDbTruthStatus(row) || row?.data?.transport_status || row?.data?.dispatch_status || "");
+app/dispatch/page.jsx:712:    getDispatchCardCode(row),
+app/dispatch/page.jsx:721:    dispatchStatusLabel(row),
+app/dispatch/page.jsx:758:  const code = getDispatchCardCode(row);
+app/dispatch/page.jsx:763:  return `Përshëndetje ${name},\nPorosia juaj ${code} është në statusin: ${dispatchStatusLabel(row)}.\nTotali është ${moneyDash(pay.total)}, paguar ${moneyDash(pay.paid)}, borxhi ${moneyDash(pay.debt)}.\nAdresa: ${address}.\nShoferi/orari: ${driver} ${schedule}.`;
+app/dispatch/page.jsx:777:const DISPATCH_DISCOUNT_RE = /(ma\s*lir[eë]?|m[ëe]\s*lir[eë]?|zbritje|lir\b|çmim|cmim|qmim|shum[eë]|presion|rabat|ulje)/i;
+app/dispatch/page.jsx:932:function emptyDispatchPasteResult(raw = "") {
+app/dispatch/page.jsx:954:function parseDispatchPasteText(raw) {
+app/dispatch/page.jsx:957:    if (!text) return emptyDispatchPasteResult("");
+app/dispatch/page.jsx:959:    const contact = parseDispatchContactImport(text);
+app/dispatch/page.jsx:978:      wantsDiscount: DISPATCH_DISCOUNT_RE.test(text),
+app/dispatch/page.jsx:989:    return { ...emptyDispatchPasteResult(raw), error: error?.message || "PARSER_ERROR" };
+app/dispatch/page.jsx:994:  const r = result || emptyDispatchPasteResult("");
+app/dispatch/page.jsx:1023:  const r = result || emptyDispatchPasteResult("");
+app/dispatch/page.jsx:1069:function emptyDispatchContactImportResult(raw = "") {
+app/dispatch/page.jsx:1231:function parseDispatchContactImport(raw) {
+app/dispatch/page.jsx:1234:    if (!text) return emptyDispatchContactImportResult("");
+app/dispatch/page.jsx:1257:    return { ...emptyDispatchContactImportResult(raw), error: error?.message || "CONTACT_IMPORT_PARSER_ERROR" };
+app/dispatch/page.jsx:1262:  return DISPATCH_DISCOUNT_RE.test(s(value));
+app/dispatch/page.jsx:1271:    hasDiscountLanguage([data.note, data.client_note, data.customer_note, data.dispatch_note, data.original_text, row?.note].join(" "))
+app/dispatch/page.jsx:1275:function getDispatchWarnings(row) {
+app/dispatch/page.jsx:1285:function dispatchTaskLabel(row) {
+app/dispatch/page.jsx:1286:  const label = dispatchStatusLabel(row).toLowerCase();
+app/dispatch/page.jsx:1298:    `Kodi: ${getDispatchCardCode(row) || "—"}`,
+app/dispatch/page.jsx:1299:    `Detyra: ${dispatchTaskLabel(row)}`,
+app/dispatch/page.jsx:1306:  const r = parsed || emptyDispatchPasteResult("");
+app/dispatch/page.jsx:1330:  const r = result || emptyDispatchPasteResult("");
+app/dispatch/page.jsx:1341:function replaceDispatchPlaceholders(template, row) {
+app/dispatch/page.jsx:1343:  const code = getDispatchCardCode(row) || "—";
+app/dispatch/page.jsx:1362:  const code = getDispatchCardCode(row) || "—";
+app/dispatch/page.jsx:1365:    const list = (rows || []).slice(0, 30).map((r, idx) => `${idx + 1}. ${getDispatchCardCode(r)} • ${getClientName(r) || "PA EMËR"} • ${normalizeKosovoPhone(getClientPhone(r)).normalized || getClientPhone(r) || "PA TEL"} • ${getAddress(r) || "PA ADRESË"} • ${getScheduleText(r)}`).join("\n");
+app/dispatch/page.jsx:1366:    return list || "Nuk ka listë të sotme në Dispatch.";
+app/dispatch/page.jsx:1380:  if (label === "KËRKON APROVIM ADMIN") return `KLIENTI KËRKON ZBRITJE. Duhet aprovim admin para se të ndryshohet çmimi. Klienti: ${name}. Kodi: ${getDispatchCardCode(row) || "—"}.`;
+app/dispatch/page.jsx:1384:async function copyDispatchPlainText(text) {
+app/dispatch/page.jsx:1432:function DispatchCard({ row, onOpen }) {
+app/dispatch/page.jsx:1433:  const code = getDispatchCardCode(row);
+app/dispatch/page.jsx:1439:  const warnings = getDispatchWarnings(row);
+app/dispatch/page.jsx:1485:  const code = getDispatchCardCode(row);
+app/dispatch/page.jsx:1509:function DispatchAccessScreen({ checking = false }) {
+app/dispatch/page.jsx:1513:        <div style={ui.accessTitle}>{checking ? "DUKE KONTROLLUAR QASJEN" : "NUK KENI QASJE NË DISPATCH"}</div>
+app/dispatch/page.jsx:1514:        <div style={ui.accessSub}>{checking ? "Ju lutem prisni." : "Ky modul hapet vetëm për DISPATCH / ADMIN."}</div>
+app/dispatch/page.jsx:1521:export default function DispatchPage() {
+app/dispatch/page.jsx:1572:  const [smartPasteResult, setSmartPasteResult] = useState(() => emptyDispatchPasteResult(""));
+app/dispatch/page.jsx:1588:      const allowed = canAccessDispatch(actor);
+app/dispatch/page.jsx:1592:      try { bootLog(allowed ? "dispatch_access_allowed" : "dispatch_access_denied", { role: actor?.role || "", hasPin: !!actor?.pin }); } catch {}
+app/dispatch/page.jsx:1605:    const markReady = (source = "dispatch_first_paint") => {
+app/dispatch/page.jsx:1608:      const path = typeof window !== "undefined" ? String(window.location?.pathname || "/dispatch") : "/dispatch";
+app/dispatch/page.jsx:1609:      try { bootLog("ui_ready", { page: "dispatch", path, source }); } catch {}
+app/dispatch/page.jsx:1610:      try { bootMarkReady({ page: "dispatch", path, source }); } catch {}
+app/dispatch/page.jsx:1620:        raf2 = window.requestAnimationFrame(() => markReady("dispatch_first_paint"));
+app/dispatch/page.jsx:1622:      timer = window.setTimeout(() => markReady("dispatch_ready_fallback"), 1800);
+app/dispatch/page.jsx:1624:      markReady("dispatch_ready_sync_fallback");
+app/dispatch/page.jsx:1654:      const merged = keepDispatchTransportOnly(
+app/dispatch/page.jsx:1658:            transport_orders: { orderBy: "updated_at", ascending: false, limit: DISPATCH_LOAD_LIMIT_TRANSPORT },
+app/dispatch/page.jsx:1671:    if (Array.isArray(allRows) && allRows.length) return keepDispatchTransportOnly(allRows);
+app/dispatch/page.jsx:1672:    return keepDispatchTransportOnly(
+app/dispatch/page.jsx:1676:          transport_orders: { orderBy: "updated_at", ascending: false, limit: DISPATCH_SEARCH_LIMIT_TRANSPORT },
+app/dispatch/page.jsx:1700:          .channel("dispatch-transport-live-v2")
+app/dispatch/page.jsx:1732:    const phoneDigits = getDispatchPhoneDigits(digits);
+app/dispatch/page.jsx:1753:        const hit = rawHit && dispatchSamePhone(getClientPhone(rawHit) || rawHit?.phone_digits || rawHit?.phone, phone) ? rawHit : null;
+app/dispatch/page.jsx:1760:            autoAddressRef.current = { phoneKey: getDispatchPhoneDigits(phone), address: hitAddress };
+app/dispatch/page.jsx:1790:    const queryPhone = getDispatchPhoneDigits(q);
+app/dispatch/page.jsx:1791:    if (!dispatchPhoneSearchReady(queryPhone)) {
+app/dispatch/page.jsx:1800:      const hits = rows.filter((row) => dispatchSamePhone(getClientPhone(row) || row?.phone_digits || row?.phone, queryPhone));
+app/dispatch/page.jsx:1804:        const rowPhone = getDispatchPhoneDigits(getClientPhone(row) || row?.phone_digits || row?.phone);
+app/dispatch/page.jsx:1825:    if (!dispatchSamePhone(rowPhone, currentPhone)) {
+app/dispatch/page.jsx:1836:    if (cleanAddress) autoAddressRef.current = { phoneKey: getDispatchPhoneDigits(cleanPhone), address: cleanAddress };
+app/dispatch/page.jsx:1853:      setNote((prev) => s(prev) || `Kërkuar nga dispatch: ${q}`);
+app/dispatch/page.jsx:1879:    setSmartPasteResult(parseDispatchPasteText(value));
+app/dispatch/page.jsx:1885:    const parsed = parseDispatchPasteText(smartPasteText);
+app/dispatch/page.jsx:1894:    setSmartPasteResult(emptyDispatchPasteResult(""));
+app/dispatch/page.jsx:1901:    return smartPasteResult?.originalText ? smartPasteResult : parseDispatchPasteText(smartPasteText);
+app/dispatch/page.jsx:1913:    return copyDispatchText(buildSmartPasteAddressRequestText(parsed), "MESAZHI PËR ADRESË U KOPJUA ✅");
+app/dispatch/page.jsx:1920:    openDispatchMessage(channel, parsed?.phoneNormalized || parsed?.phoneOriginal || "", buildSmartPasteAddressRequestText(parsed));
+app/dispatch/page.jsx:1976:  async function copyDispatchText(text, okText = "U KOPJUA ✅") {
+app/dispatch/page.jsx:1977:    const ok = await copyDispatchPlainText(text);
+app/dispatch/page.jsx:1982:  function openDispatchMessage(channel, phoneValue, text) {
+app/dispatch/page.jsx:1990:      if (channel === "viber") copyDispatchPlainText(text).catch(() => {});
+app/dispatch/page.jsx:2002:    if (kind === "phone") return copyDispatchText(phoneNorm || selectedPhone, "TEL U KOPJUA ✅");
+app/dispatch/page.jsx:2003:    if (kind === "name_phone") return copyDispatchText(`${getClientName(selectedRow) || "—"} • ${phoneNorm || "—"}`, "EMRI + TEL U KOPJUA ✅");
+app/dispatch/page.jsx:2004:    if (kind === "address") return copyDispatchText(getAddress(selectedRow) || "", "ADRESA U KOPJUA ✅");
+app/dispatch/page.jsx:2005:    if (kind === "driver") return copyDispatchText(buildDriverCopyText(selectedRow), "COPY PËR SHOFER U KOPJUA ✅");
+app/dispatch/page.jsx:2006:    if (kind === "client") return copyDispatchText(buildCustomerConfirmText(selectedRow), "COPY PËR KLIENT U KOPJUA ✅");
+app/dispatch/page.jsx:2012:    setSmartMessageText(replaceDispatchPlaceholders(template.text, selectedRow));
+app/dispatch/page.jsx:2032:    openDispatchMessage(channel, selectedPhone, smartMessageText || buildCustomerConfirmText(selectedRow));
+app/dispatch/page.jsx:2041:  const dispatchRows = useMemo(() => keepDispatchTransportOnly(allRows), [allRows]);
+app/dispatch/page.jsx:2044:    { key: "no_driver", label: "PA SHOFER", count: dispatchRows.filter((row) => !isCompletedRow(row) && rowNeedsDriver(row)).length },
+app/dispatch/page.jsx:2045:    { key: "no_address", label: "PA ADRESË", count: dispatchRows.filter((row) => !isCompletedRow(row) && !getAddress(row)).length },
+app/dispatch/page.jsx:2046:    { key: "depo", label: "DEPO", count: dispatchRows.filter((row) => !isCompletedRow(row) && isDepotRow(row)).length },
+app/dispatch/page.jsx:2047:    { key: "gati", label: "GATI", count: dispatchRows.filter((row) => !isCompletedRow(row) && isReadyRow(row)).length },
+app/dispatch/page.jsx:2048:    { key: "debt", label: "BORXH", count: dispatchRows.filter((row) => rowHasDebt(row)).length },
+app/dispatch/page.jsx:2049:    { key: "done_today", label: "DORËZUAR SOT", count: dispatchRows.filter((row) => isDoneToday(row)).length },
+app/dispatch/page.jsx:2050:  ]), [dispatchRows]);
+app/dispatch/page.jsx:2053:    const activeRows = dispatchRows.filter((row) => !isCompletedRow(row));
+app/dispatch/page.jsx:2066:  }, [dispatchRows, drivers]);
+app/dispatch/page.jsx:2071:    return dispatchRows
+app/dispatch/page.jsx:2077:  }, [dispatchRows, commandQuery, commandFilter, commandDriverFilter, drivers, commandActive]);
+app/dispatch/page.jsx:2080:    return dispatchRows.filter((row) => {
+app/dispatch/page.jsx:2084:  }, [dispatchRows, plannedDate, slot]);
+app/dispatch/page.jsx:2087:    return dispatchRows.filter((row) => {
+app/dispatch/page.jsx:2091:  }, [dispatchRows, plannedDate]);
+app/dispatch/page.jsx:2094:    return dispatchRows
+app/dispatch/page.jsx:2097:  }, [dispatchRows, todayYmd]);
+app/dispatch/page.jsx:2100:    return dispatchRows
+app/dispatch/page.jsx:2103:  }, [dispatchRows, tomorrowYmd]);
+app/dispatch/page.jsx:2106:    return dispatchRows
+app/dispatch/page.jsx:2109:  }, [dispatchRows]);
+app/dispatch/page.jsx:2112:    return dispatchRows
+app/dispatch/page.jsx:2115:  }, [dispatchRows]);
+app/dispatch/page.jsx:2118:    return dispatchRows
+app/dispatch/page.jsx:2122:  }, [dispatchRows]);
+app/dispatch/page.jsx:2125:    return dispatchRows
+app/dispatch/page.jsx:2126:      .filter((row) => isFailedRow(row) && !isDispatchRemovedRow(row) && !isCancelledRow(row))
+app/dispatch/page.jsx:2129:  }, [dispatchRows]);
+app/dispatch/page.jsx:2132:    return dispatchRows
+app/dispatch/page.jsx:2133:      .filter((row) => isRecentDispatchCancellation(row))
+app/dispatch/page.jsx:2136:  }, [dispatchRows]);
+app/dispatch/page.jsx:2140:    return dispatchRows
+app/dispatch/page.jsx:2148:  }, [dispatchRows]);
+app/dispatch/page.jsx:2169:    next.smartCreateReady = !!(s(name).length >= 2 && isValidTransportPhoneDigits(getDispatchPhoneDigits(phone)) && !next.smartCreateMissingAddress && !next.smartCreateMissingSchedule);
+app/dispatch/page.jsx:2173:  const canSend = useMemo(() => s(name).length >= 2 && isValidTransportPhoneDigits(getDispatchPhoneDigits(phone)), [name, phone]);
+app/dispatch/page.jsx:2174:  const activePhoneOrder = useMemo(() => findActiveDispatchOrderForPhone(allRows, phone), [allRows, phone]);
+app/dispatch/page.jsx:2175:  const canCreateNewDispatchOrder = canSend && !activePhoneOrder;
+app/dispatch/page.jsx:2183:      setErr(`KY TELEFON KA POROSI AKTIVE ${getDispatchCardCode(activePhoneOrder)}. NDRYSHO DATËN/ORARIN TE EDITO PLANIN, MOS KRIJO KOD TË RI.`);
+app/dispatch/page.jsx:2205:      const existingPhoneClient = phoneHit && dispatchSamePhone(getClientPhone(phoneHit) || phoneHit?.phone_digits || phoneHit?.phone, cleanPhone) ? phoneHit : null;
+app/dispatch/page.jsx:2206:      // A cached card may prefill the form only. prepareDispatchTransportClientLink
+app/dispatch/page.jsx:2210:      const poolOwner = pickedDriverPin || String(actorNow?.pin || '').trim() || 'DISPATCH';
+app/dispatch/page.jsx:2211:      const orderId = createDispatchOrderUuid();
+app/dispatch/page.jsx:2214:      const clientLink = await prepareDispatchTransportClientLink({
+app/dispatch/page.jsx:2228:      // Dispatch-created orders assigned to a driver must appear in TË REJA first.
+app/dispatch/page.jsx:2267:          created_by: "DISPATCH",
+app/dispatch/page.jsx:2268:          created_by_role: "DISPATCH",
+app/dispatch/page.jsx:2270:          created_by_name: s(actorNow?.name || actorNow?.full_name || actorNow?.role || 'DISPATCH'),
+app/dispatch/page.jsx:2271:          order_origin: "DISPATCH",
+app/dispatch/page.jsx:2272:          defer_dispatch_code: false,
+app/dispatch/page.jsx:2312:      if (!dispatchSamePhone(createdRecord?.client_phone || createdRecord?.data?.client?.phone || '', cleanPhone)) throw new Error('TRANSPORT_ORDER_PHONE_VERIFY_FAILED');
+app/dispatch/page.jsx:2332:        setAllRows((prev) => keepDispatchTransportOnly([
+app/dispatch/page.jsx:2392:        defer_dispatch_code: false,
+app/dispatch/page.jsx:2429:  async function removeDispatchRow(row) {
+app/dispatch/page.jsx:2431:    if (!canDispatchRemoveRow(row)) {
+app/dispatch/page.jsx:2432:      alert("Kjo porosi nuk fshihet nga Dispatch në këtë fazë. Nëse puna ka nisur, përdor statuset operative që të mos humbin pagesat ose gjurmët.");
+app/dispatch/page.jsx:2435:    const code = getDispatchCardCode(row);
+app/dispatch/page.jsx:2436:    const defaultReason = isFailedRow(row) ? "DËSHTOI / NUK U REALIZUA" : isCancelledRow(row) ? "ANULUAR" : "ANULUAR NGA DISPATCH";
+app/dispatch/page.jsx:2440:    const ok = window.confirm(`A je i sigurt që don me e heq këtë porosi nga Dispatch?\n\n${code} • ${up(getClientName(row) || "PA EMËR")}\nARSYE: ${cleanReason}\n\nKjo është soft-delete: porosia nuk fshihet nga DB, vetëm shënohet ANULUAR dhe largohet nga listat aktive.`);
+app/dispatch/page.jsx:2448:      const actorName = s(actorNow?.name || actorNow?.full_name || actorNow?.pin || actorNow?.role || "DISPATCH");
+app/dispatch/page.jsx:2459:        cancellation_source: "DISPATCH",
+app/dispatch/page.jsx:2460:        dispatch_removed: true,
+app/dispatch/page.jsx:2461:        dispatch_hidden: true,
+app/dispatch/page.jsx:2462:        dispatch_removed_at: nowIso,
+app/dispatch/page.jsx:2463:        dispatch_removed_by: actorName,
+app/dispatch/page.jsx:2464:        dispatch_removed_reason: cleanReason,
+app/dispatch/page.jsx:2481:  async function setDispatchReschedule(row) {
+app/dispatch/page.jsx:2491:    nextData.reschedule_by = "DISPATCH";
+app/dispatch/page.jsx:2504:    await copyDispatchText(getCopyReplyText(row), "PËRGJIGJJA U KOPJUA ✅");
+app/dispatch/page.jsx:2549:  const selectedWarnings = selectedRow ? getDispatchWarnings(selectedRow) : [];
+app/dispatch/page.jsx:2554:  if (!accessChecked) return <DispatchAccessScreen checking />;
+app/dispatch/page.jsx:2555:  if (!accessAllowed) return <DispatchAccessScreen />;
+app/dispatch/page.jsx:2561:          <div style={ui.title}>DISPATCH</div>
+app/dispatch/page.jsx:2663:                      <DispatchCard key={`command_${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />
+app/dispatch/page.jsx:2681:            <div style={ui.sectionTitle}>DISPATCH SMART CREATE</div>
+app/dispatch/page.jsx:2721:              <button type="button" style={ui.actionBtnCompact} onClick={() => copyDispatchText(buildPasteDriverCopyText(smartPasteLiveResult()), "COPY PËR SHOFER U KOPJUA ✅")}>COPY SHOFER</button>
+app/dispatch/page.jsx:2795:              KY TELEFON KA POROSI AKTIVE: {getDispatchCardCode(activePhoneOrder)} — {up(getClientName(activePhoneOrder) || "PA EMËR")}
+app/dispatch/page.jsx:2854:            {(daySlotCount >= 15 || dayTotalCount >= 30) ? <div style={ui.capacityWarn}>SLOTI/DITA ËSHTË FULL – DISPATCH MUND TË BËJË OVERRIDE</div> : null}
+app/dispatch/page.jsx:2896:          <button style={{ ...ui.btnPrimary, opacity: canCreateNewDispatchOrder && !busy ? 1 : 0.5 }} disabled={!canCreateNewDispatchOrder || busy} onClick={send}>
+app/dispatch/page.jsx:2912:          {(liveRows?.length || 0) === 0 ? <div style={ui.empty}>S'KA AKTIVITET LIVE.</div> : <div style={ui.list}>{liveRows.map((row) => <DispatchCard key={`live_panel_${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />)}</div>}
+app/dispatch/page.jsx:2932:            <div style={ui.sectionHint}>Këtu shihen porositë e anuluara nga Dispatch ose shoferi. Pas 24 orëve nuk shfaqen më në këtë listë, por mbeten të ruajtura në DB si audit.</div>
+app/dispatch/page.jsx:2946:              {activeTab === TAB_ONLINE ? "Porositë që vijnë nga forma online." : activeTab === TAB_PHONE ? "Porositë që dispatch i fut manualisht nga telefonatat." : activeTab === TAB_TOMORROW ? "Planifikimi për nesër." : "Planifikimi për sot."}
+app/dispatch/page.jsx:2953:                  <DispatchCard key={`${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />
+app/dispatch/page.jsx:2968:              {(liveRows?.length || 0) === 0 ? <div style={ui.empty}>S'KA AKTIVITET.</div> : <div style={ui.list}>{liveRows.map((row) => <DispatchCard key={`${getOrderTable(row)}_${row.id}`} row={row} onOpen={openRow} />)}</div>}
+app/dispatch/page.jsx:3016:                          <button type="button" style={ui.btnGhostMini} onClick={() => setDispatchReschedule(r)}>NDËRRO ORARIN</button>
+app/dispatch/page.jsx:3034:                <div style={ui.sectionTitle}>{getDispatchCardCode(selectedRow)} • {up(getClientName(selectedRow) || "PA EMËR")}</div>
+app/dispatch/page.jsx:3049:                <div style={ui.detailValue}>{dispatchStatusLabel(selectedRow)}</div>
+app/dispatch/page.jsx:3073:                {DISPATCH_TIMELINE_STEPS.map((step, idx) => (
+app/dispatch/page.jsx:3089:                {selectedPhone ? <button type="button" style={ui.actionBtn} onClick={() => openDispatchMessage("whatsapp", selectedPhone, smartMessageText || buildCustomerConfirmText(selectedRow))}>WHATSAPP</button> : null}
+app/dispatch/page.jsx:3090:                {selectedPhone ? <button type="button" style={ui.actionBtn} onClick={() => openDispatchMessage("viber", selectedPhone, smartMessageText || buildCustomerConfirmText(selectedRow))}>VIBER</button> : null}
+app/dispatch/page.jsx:3091:                {selectedPhone ? <button type="button" style={ui.actionBtn} onClick={() => openDispatchMessage("sms", selectedPhone, smartMessageText || buildCustomerConfirmText(selectedRow))}>SMS</button> : null}
+app/dispatch/page.jsx:3093:                <button type="button" style={ui.actionBtn} onClick={() => setDispatchReschedule(selectedRow)}>RIPLAN</button>
+app/dispatch/page.jsx:3147:                    <button type="button" style={ui.actionBtn} onClick={() => copyDispatchText(smartMessageText, "MESAZHI U KOPJUA ✅")}>COPY</button>
+app/dispatch/page.jsx:3192:            {canDispatchRemoveRow(selectedRow) ? (
+app/dispatch/page.jsx:3201:                  onClick={() => removeDispatchRow(selectedRow)}
+lib/bootLog.js:273:function dispatchIncident(reason, extra = {}) {
+lib/bootLog.js:305:    window.dispatchEvent(new CustomEvent('tepiha:simple-incident', { detail: entry }));
+lib/bootLog.js:368:    dispatchIncident('critical_event', {
+lib/syncRecovery.js:262:    window.dispatchEvent(new CustomEvent('tepiha:sync-recovery', {
+lib/syncRecovery.js:690:    window.dispatchEvent(new Event('tepiha:outbox-changed'));
+lib/syncRecovery.js:691:    window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER'));
+lib/syncRecovery.js:692:    window.dispatchEvent(new CustomEvent('tepiha:sync-recovery-repaired', {
+lib/onlineListener.js:14:      try { window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER')); } catch {}
+lib/statusEngine.js:7:  dispatched: 'dispatched',
+lib/statusEngine.js:13:  dorezuar: 'dorzim',
+lib/statusEngine.js:14:  'dorëzuar': 'dorzim',
+lib/statusEngine.js:22:  dispatched: 'dispatched',
+lib/statusEngine.js:44:  pastrim: new Set(['pastrim', 'gati', 'dispatched']),
+lib/statusEngine.js:45:  gati: new Set(['gati', 'dorzim', 'marrje', 'pastrim', 'dispatched']),
+lib/statusEngine.js:46:  dispatched: new Set(['dispatched', 'pastrim', 'gati']),
+lib/statusEngine.js:49:  unknown: new Set(['pranim', 'pastrim', 'gati', 'dispatched', 'marrje', 'dorzim']),
+lib/statusEngine.js:53:  pickup: new Set(['pickup', 'dispatched', 'loaded', 'failed']),
+lib/statusEngine.js:54:  dispatched: new Set(['dispatched', 'loaded', 'pickup', 'failed']),
+lib/statusEngine.js:59:  failed: new Set(['failed', 'dispatched', 'delivery', 'depo', 'gati', 'loaded']),
+lib/statusEngine.js:60:  unknown: new Set(['pickup', 'dispatched', 'loaded', 'gati', 'depo', 'delivery', 'failed']),
+lib/routerCompat.jsx:45:        window.dispatchEvent(new CustomEvent('tepiha:router-refresh-requested', {
+lib/routerCompat.jsx:72:      window.dispatchEvent(new CustomEvent('tepiha:router-redirect-requested', {
+lib/routerCompat.jsx:76:      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+lib/markRealUiReady.js:12:    window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready', {
+lib/markRealUiReady.js:17:    window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive', {
+lib/offlineCodeBank.js:300:function dispatchBankChanged(bank) {
+lib/offlineCodeBank.js:303:    window.dispatchEvent(new CustomEvent('tepiha:offline-code-bank-changed', {
+lib/offlineCodeBank.js:328:  dispatchBankChanged(bank);
+lib/offlineCodeBank.js:728:      window.dispatchEvent(new CustomEvent('tepiha:offline-code-lease-finished', {
+lib/syncEngine.js:191:    .in('status', ['PENDING', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL', 'ACCEPTED_BY_DISPATCH', 'HANDED'])
+lib/syncEngine.js:378:    window.dispatchEvent(new CustomEvent('tepiha:sync-status', {
+lib/syncEngine.js:415:      window.dispatchEvent(new Event('tepiha:outbox-changed'));
+lib/syncEngine.js:1790:        window.dispatchEvent(new Event('tepiha:sync-done'));
+lib/syncEngine.js:1791:        window.dispatchEvent(new Event('tepiha:outbox-changed'));
+lib/arka/arkaConstants.js:4:  PENDING_DISPATCH_APPROVAL: 'PENDING_DISPATCH_APPROVAL',
+lib/arka/arkaConstants.js:5:  ACCEPTED_BY_DISPATCH: 'ACCEPTED_BY_DISPATCH',
+lib/arka/arkaConstants.js:44:  ARKA_PAYMENT_STATUS.PENDING_DISPATCH_APPROVAL,
+lib/arka/arkaConstants.js:45:  ARKA_PAYMENT_STATUS.ACCEPTED_BY_DISPATCH,
+lib/arka/arkaConstants.js:49:  PENDING_DISPATCH_APPROVAL: 'PENDING_DISPATCH_APPROVAL',
+lib/arka/arkaConstants.js:57:  if (raw === 'HANDED') return ARKA_PAYMENT_STATUS.PENDING_DISPATCH_APPROVAL;
+lib/arka/arkaEngine.js:27:const HANDOFF_TABLE = 'cash_handoffs';
+lib/arka/arkaEngine.js:28:const HANDOFF_ITEMS_TABLE = 'cash_handoff_items';
+lib/arka/arkaEngine.js:162:  'DISPATCH',
+lib/arka/arkaEngine.js:376:    'dispatch_note',
+lib/arka/arkaEngine.js:397:    stripKeys(payload, ['dispatch_note']),
+lib/arka/arkaEngine.js:508:async function findPaymentIdsInActiveHandoffs(sb, ids = [], statuses = [ARKA_HANDOFF_STATUS.PENDING_DISPATCH_APPROVAL, ARKA_HANDOFF_STATUS.ACCEPTED]) {
+lib/arka/arkaEngine.js:532:async function paymentHasActiveHandoff(sb, paymentId, statuses = [ARKA_HANDOFF_STATUS.PENDING_DISPATCH_APPROVAL, ARKA_HANDOFF_STATUS.ACCEPTED]) {
+lib/arka/arkaEngine.js:1615:function toHandoffItem(row = {}, handoffId, profile = {}) {
+lib/arka/arkaEngine.js:1656:function applyMealDeductionToHandoffItems(items = [], deductionAmount = 0) {
+lib/arka/arkaEngine.js:1667:  // cash_handoff_items.amount has a DB CHECK that rejects negative rows.
+lib/arka/arkaEngine.js:1736:  const regularPrepared = regularPayments.map((row) => ({ row, item: toHandoffItem(row, null, profile) }));
+lib/arka/arkaEngine.js:1743:  const itemNetting = applyMealDeductionToHandoffItems(grossItems, mealTotal);
+lib/arka/arkaEngine.js:1768:    status: ARKA_HANDOFF_STATUS.PENDING_DISPATCH_APPROVAL,
+lib/arka/arkaEngine.js:1774:      kind: 'cash_handoff',
+lib/arka/arkaEngine.js:1793:        status: ARKA_PAYMENT_STATUS.PENDING_DISPATCH_APPROVAL,
+lib/arka/arkaEngine.js:1828:    const itemSum = round2((verified.cash_handoff_items || []).reduce((sum, item) => sum + money(item.amount), 0));
+lib/arka/arkaEngine.js:1852:        itemCount: Array.isArray(verified.cash_handoff_items) ? verified.cash_handoff_items.length : 0,
+lib/arka/arkaEngine.js:1885:  if (status !== ARKA_HANDOFF_STATUS.PENDING_DISPATCH_APPROVAL) {
+lib/arka/arkaEngine.js:1889:  const items = Array.isArray(verified?.cash_handoff_items) ? verified.cash_handoff_items : [];
+lib/arka/arkaEngine.js:1928:    const badStatus = regularRows.find((row) => upper(row?.status) !== ARKA_PAYMENT_STATUS.PENDING_DISPATCH_APPROVAL);
+lib/arka/arkaEngine.js:1959:  const { data, error } = await sb.rpc('submit_cash_handoff_atomic', {
+lib/arka/arkaEngine.js:1970:  if (data?.ok === false) throw new Error(data?.error || data?.message || 'SUBMIT_CASH_HANDOFF_ATOMIC_FAILED');
+lib/arka/arkaEngine.js:2025:    const missingRpc = isMissingRpcFunctionError(error, 'submit_cash_handoff_atomic') || String(error?.message || '').includes('meal_payment_ids');
+lib/arka/arkaEngine.js:2030:      throw new Error('SUBMIT_CASH_HANDOFF_ATOMIC_MEAL_RPC_REQUIRED');
+lib/arka/arkaEngine.js:2039:  const { data, error } = await sb.from(HANDOFF_TABLE).select('*, cash_handoff_items(*)').eq('id', id).maybeSingle();
+lib/arka/arkaEngine.js:2042:  return { ...data, cash_handoff_items: Array.isArray(data.cash_handoff_items) ? data.cash_handoff_items : [] };
+lib/arka/arkaEngine.js:2049:    const { data, error } = await sb.from(LEDGER_TABLE).select('*').eq('source_type', 'cash_handoff').eq('source_id', id).limit(1);
+lib/arka/arkaEngine.js:2056:    const { data, error } = await sb.from(LEDGER_TABLE).select('*').ilike('description', `%cash_handoff:${id}%`).limit(1);
+lib/arka/arkaEngine.js:2129:  const description = `PRANIM NGA DISPATCH — ${workerName || workerPin} | cash_handoff:${handoff.id}`;
+lib/arka/arkaEngine.js:2133:    category: 'WORKER_TO_DISPATCH',
+lib/arka/arkaEngine.js:2135:    source_type: 'cash_handoff',
+lib/arka/arkaEngine.js:2154:    .eq('source_type', 'cash_handoff')
+lib/arka/arkaEngine.js:2193:  const items = Array.isArray(verified?.cash_handoff_items) ? verified.cash_handoff_items : [];
+lib/arka/arkaEngine.js:2208:  const badPayment = paymentRows.find((row) => upper(row?.status) !== ARKA_PAYMENT_STATUS.ACCEPTED_BY_DISPATCH);
+lib/arka/arkaEngine.js:2249:  const { data, error } = await sb.rpc('accept_cash_handoff_atomic', {
+lib/arka/arkaEngine.js:2255:  if (data?.ok === false) throw new Error(data?.error || data?.message || 'ACCEPT_CASH_HANDOFF_ATOMIC_FAILED');
+lib/arka/arkaEngine.js:2288:  if (currentStatus !== ARKA_HANDOFF_STATUS.PENDING_DISPATCH_APPROVAL) throw new Error('HANDOFF_NOT_PENDING_DISPATCH_APPROVAL');
+lib/arka/arkaEngine.js:2290:  const items = Array.isArray(handoff.cash_handoff_items) ? handoff.cash_handoff_items : [];
+lib/arka/arkaEngine.js:2308:    dispatch_pin: actor.pin || null,
+lib/arka/arkaEngine.js:2315:    status: ARKA_PAYMENT_STATUS.ACCEPTED_BY_DISPATCH,
+lib/arka/arkaEngine.js:2337:    if (!isMissingRpcFunctionError(error, 'accept_cash_handoff_atomic')) throw error;
+lib/arka/arkaEngine.js:2349:  if (currentStatus !== ARKA_HANDOFF_STATUS.PENDING_DISPATCH_APPROVAL) throw new Error('HANDOFF_NOT_PENDING_DISPATCH_APPROVAL');
+lib/arka/arkaEngine.js:2357:    dispatch_pin: actor.pin || null,
+lib/arka/arkaEngine.js:2361:    dispatch_note: rejectNote,
+lib/arka/arkaEngine.js:2365:  const items = Array.isArray(handoff.cash_handoff_items) ? handoff.cash_handoff_items : [];
+lib/arka/arkaEngine.js:2750:      .select('id,status,cash_handoff_items(pending_payment_id)')
+lib/arka/arkaEngine.js:2755:    const ids = handoffRows.flatMap((h) => (h.cash_handoff_items || []).map((i) => normalizeDbId(i.pending_payment_id)).filter(Boolean));
+lib/arka/arkaEngine.js:2758:    return handoffRows.flatMap((h) => (h.cash_handoff_items || [])
+lib/arka/arkaEngine.js:2760:      .filter((p) => p && normalizeLegacyArkaStatus(p.status) !== ARKA_PAYMENT_STATUS.ACCEPTED_BY_DISPATCH)
+lib/arka/arkaEngine.js:2764:  await read('pending_dispatch_payment_without_valid_handoff', async () => {
+lib/arka/arkaEngine.js:2765:    const { data, error } = await sb.from(PENDING_TABLE).select('id,status').eq('status', ARKA_PAYMENT_STATUS.PENDING_DISPATCH_APPROVAL).limit(1000);
+lib/arka/arkaEngine.js:2770:    const linked = await findPaymentIdsInActiveHandoffs(sb, ids, [ARKA_HANDOFF_STATUS.PENDING_DISPATCH_APPROVAL]);
+lib/arka/arkaEngine.js:2775:    const { data, error } = await sb.from(LEDGER_TABLE).select('id,amount,source_id,source_type').eq('source_type', 'cash_handoff').limit(2000);
+lib/arka/permissions.js:21:  return r === 'ADMIN' || r === 'PUNTOR' || r === 'DISPATCH';
+lib/arka/permissions.js:24:export function needsDispatchApprovalForExpense(role, amountCent, cfg = DEFAULTS) {
+lib/arka/permissions.js:26:  if (r === 'ADMIN' || r === 'DISPATCH') return false;
+lib/arka/arkaClient.js:86:      window.dispatchEvent(new CustomEvent('tepiha:arka-offline-queued', {
+lib/syncManager.js:123:      window.dispatchEvent(new Event('tepiha:outbox-changed'));
+lib/syncManager.js:124:      window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER'));
+lib/arkaRequestsDb.js:2:// Expense/advance requests with admin/dispatch approval.
+lib/arkaRequestsDb.js:16:  return r === 'ADMIN' || r === 'ADMIN_MASTER' || r === 'DISPATCH' || r === 'OWNER';
+lib/offlineCodeBankWarmup.js:63:  try { window.dispatchEvent(new CustomEvent('tepiha:offline-code-bank-warmup', { detail })); } catch {}
+lib/offlineStore.js:21:function dispatchBaseMasterCachePatch(row) {
+lib/offlineStore.js:24:    window.dispatchEvent(new CustomEvent('tepiha:base-master-cache:patch', {
+lib/offlineStore.js:30:function dispatchBaseMasterCacheRemove(identity) {
+lib/offlineStore.js:33:    window.dispatchEvent(new CustomEvent('tepiha:base-master-cache:remove', {
+lib/offlineStore.js:240:      window.dispatchEvent(new Event('tepiha:outbox-changed'));
+lib/offlineStore.js:241:      window.dispatchEvent(new CustomEvent('tepiha:sync-dead-letter-created', { detail: { op_id: failed.op_id, summary } }));
+lib/offlineStore.js:592:    try { dispatchBaseMasterCachePatch(next); } catch {}
+lib/offlineStore.js:601:  try { dispatchBaseMasterCacheRemove(`id:${key}`); } catch {}
+lib/offlineStore.js:602:  try { dispatchBaseMasterCacheRemove(`local:${key}`); } catch {}
+lib/offlineStore.js:692:      window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER'));
+lib/offlineStore.js:778:      try { window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER')); } catch {}
+lib/offlineQueuedOrderUiGuard.js:187:    window.dispatchEvent(new CustomEvent('tepiha:offline-order-queued-success', { detail: marker }));
+lib/offlineQueuedOrderUiGuard.js:188:    window.dispatchEvent(new Event('tepiha:outbox-changed'));
+lib/payrollMonthClose.js:157:    const pendingHandoffRows = workerRows.filter((row) => up(row?.status) === 'PENDING_DISPATCH_APPROVAL');
+lib/payrollMonthClose.js:162:      return isTransportRow(row) && ['ACCEPTED_BY_DISPATCH', 'APPROVED', 'ACCEPTED', 'DONE', 'DELIVERED', 'COLLECTED'].includes(status);
+lib/payrollMonthClose.js:198:    } else if (openCash > 0 || pendingHandoff > 0) {
+lib/globalErrors.js:247:function dispatchControlledRecoveryRequest(reason = 'chunk_error', meta = {}, extra = {}) {
+lib/globalErrors.js:258:    window.dispatchEvent(new CustomEvent(CONTROLLED_RECOVERY_EVENT, { detail }));
+lib/globalErrors.js:468:        dispatchControlledRecoveryRequest('manual_retry', { source: 'fallback_ui' }, { source: 'globalErrors.fallback_ui' });
+lib/localErrorLog.js:535:    try { window.dispatchEvent(new CustomEvent('tepiha:local-error-boundary', { detail: next[0] || entry })); } catch {}
+lib/arkaWorkerSummary.js:6:const ACTIVE_DELIVERY_STATUSES = new Set(['ACCEPTED', 'ACCEPTED_BY_DISPATCH']);
+lib/arkaWorkerSummary.js:317:    if (!['PENDING', 'COLLECTED', 'ACCEPTED_BY_DISPATCH', 'PENDING_DISPATCH_APPROVAL'].includes(status)) return false;
+lib/arkaWorkerSummary.js:346:  const timaRows = openExtras.filter((row) => safeUpper(row?.type) === 'TIMA' && safeUpper(row?.status) === 'ACCEPTED_BY_DISPATCH');
+lib/arkaWorkerSummary.js:389:  const toHandoverToday = Math.max(0, collectedTotal + timaTotal - expenseTotal - mealSelfTotal);
+lib/arkaWorkerSummary.js:390:  const toHandoverWithPending = Math.max(0, collectedTotal + pendingTotal + timaTotal - expenseTotal - mealSelfTotal);
+lib/arkaWorkerSummary.js:404:    toHandoverToday,
+lib/arkaWorkerSummary.js:405:    toHandoverWithPending,
+lib/homeSearch.js:538:  if (['dorzim', 'dorezim', 'dorzuar', 'dorezuar', 'delivered', 'delivery', 'completed', 'kompletuar'].includes(status)) return 10;
+lib/homeSearch.js:757:    : (['dorzim', 'dorezim', 'dorzuar', 'dorezuar', 'delivered', 'delivery', 'marrje', 'completed', 'kompletuar'].includes(status))
+lib/lazyImportRuntime.js:254:  try { window.dispatchEvent(new CustomEvent('tepiha:timeline-event', { detail: entry })); } catch {}
+lib/lazyImportRuntime.js:263:  try { window.dispatchEvent(new CustomEvent('tepiha:route-diag', { detail: entry })); } catch {}
+lib/lazyImportRuntime.js:327:  try { window.dispatchEvent(new CustomEvent('tepiha:dom-preheal', { detail: snapshot })); } catch {}
+lib/lazyImportRuntime.js:398:    window.dispatchEvent(new CustomEvent('tepiha:chunk-capture', { detail: entry }));
+lib/lazyImportRuntime.js:619:      window.dispatchEvent(new CustomEvent('tepiha:lazy-import-failure', { detail: failure }));
+lib/transportMultiLocationBridge.js:82:    element.dispatchEvent(new Event('input', { bubbles: true }));
+lib/transportMultiLocationBridge.js:83:    element.dispatchEvent(new Event('change', { bubbles: true }));
+lib/transportOfflineSync.js:3:// Uses the same atomic save path as Self Entry/Dispatch so an existing phone
+lib/arkaCashSync.js:291:function isPendingStatusForDispatch(status) {
+lib/arkaCashSync.js:293:  return ['PENDING', 'COLLECTED', 'HANDED', 'PENDING_DISPATCH_APPROVAL'].includes(s);
+lib/arkaCashSync.js:301:  return ['PENDING', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL', 'ACCEPTED_BY_DISPATCH'].includes(String(status || '').toUpperCase());
+lib/arkaCashSync.js:319:      .in('status', ['PENDING', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL', 'ACCEPTED_BY_DISPATCH'])
+lib/arkaCashSync.js:334:      matches.find((row) => String(row?.status || '').toUpperCase() === 'PENDING_DISPATCH_APPROVAL') ||
+lib/arkaCashSync.js:793:export async function confirmHandoffByDispatch(actorPin) {
+lib/arkaCashSync.js:846:  // a worker's newer cash rows when many other pending rows exist.
+lib/arkaCashSync.js:913:    items: result?.handoff?.cash_handoff_items || [],
+lib/arkaService.js:78:export async function listCashHandoffRecords(options = {}) {
+lib/arkaService.js:80:  let q = supabase.from('cash_handoffs').select(select);
+lib/arkaService.js:88:  if (error) throwArkaDbError(error, 'SUPABASE cash_handoffs SELECT');
+lib/arkaService.js:106:  return listCashHandoffRecords({
+lib/arkaService.js:121:    const arkaVisibleRoles = new Set(['PUNTOR', 'PUNETOR', 'WORKER', 'TRANSPORT', 'DISPATCH']);
+lib/arkaService.js:151:  ARKA_PAYMENT_STATUS.PENDING_DISPATCH_APPROVAL,
+lib/arkaService.js:152:  ARKA_PAYMENT_STATUS.ACCEPTED_BY_DISPATCH,
+lib/arkaService.js:450:  if (!choice) throw new Error('DORËZIMI U NDALUA: KONFIRMO USHQIMIN PARA SE ME DORËZU.');
+lib/arkaService.js:545:        .from('cash_handoffs')
+lib/arkaService.js:569:      if (creatorPin && isBaseCashPayment && ['PENDING', 'COLLECTED', 'ACCEPTED_BY_DISPATCH', 'APPROVED'].includes(status)) {
+lib/arkaService.js:608:    status: ARKA_PAYMENT_STATUS.ACCEPTED_BY_DISPATCH,
+lib/arkaService.js:761:    in: { status: ['PENDING', 'PENDING_DISPATCH_APPROVAL'] },
+lib/arkaService.js:782:    actorName: cleanText(actor?.name, 'DISPATCH'),
+lib/arkaService.js:783:    actorRole: cleanText(actor?.role, 'DISPATCH'),
+lib/corporateFinance.js:9:const HANDOFFS_TABLE = 'cash_handoffs';
+lib/corporateFinance.js:10:const HANDOFF_ITEMS_TABLE = 'cash_handoff_items';
+lib/corporateFinance.js:14:// cash_handoffs live DB CHECK constraint allows only:
+lib/corporateFinance.js:15:// PENDING_DISPATCH_APPROVAL, ACCEPTED, REJECTED, CANCELLED.
+lib/corporateFinance.js:16:// Do not use plain PENDING for cash_handoffs; arka_pending_payments may still use it.
+lib/corporateFinance.js:17:const HANDOFF_STATUS_PENDING = 'PENDING_DISPATCH_APPROVAL';
+lib/corporateFinance.js:21:const HANDOFF_PENDING_STATUSES = ['PENDING_DISPATCH_APPROVAL'];
+lib/corporateFinance.js:200:  const items = Array.isArray(handoff?.cash_handoff_items) ? handoff.cash_handoff_items : [];
+lib/corporateFinance.js:234:function toHandoffItem(row = {}, handoffId, financeProfile = { isHybridTransport: false, commissionRateM2: 0 }) {
+lib/corporateFinance.js:438:    'dispatch_note',
+lib/corporateFinance.js:458:    stripKeys(payload, ['dispatch_note']),
+lib/corporateFinance.js:465:async function updateCashHandoffWithFallback(handoffId, payload = {}) {
+lib/corporateFinance.js:470:function normalizeCashHandoffStatus(status) {
+lib/corporateFinance.js:478:async function insertCashHandoffWithFallback(payload = {}) {
+lib/corporateFinance.js:511:export async function listWorkerReadyCash(actorPin) {
+lib/corporateFinance.js:516:  return items.filter(isCashRowReadyForDispatch);
+lib/corporateFinance.js:519:function isCashRowReadyForDispatch(row = {}) {
+lib/corporateFinance.js:528:  return Array.isArray(row?.cash_handoff_items) ? row.cash_handoff_items : [];
+lib/corporateFinance.js:604:      cash_handoff_items: items,
+lib/corporateFinance.js:611:export async function listPendingDispatchHandoffs(limit = 100, select = '*, cash_handoff_items(*)') {
+lib/corporateFinance.js:628:async function verifyDispatchHandoffAcceptedInDb(handoffId) {
+lib/corporateFinance.js:634:    .select('id,status,amount,cash_handoff_items(id,amount,pending_payment_id)')
+lib/corporateFinance.js:643:  const items = Array.isArray(handoff?.cash_handoff_items) ? handoff.cash_handoff_items : [];
+lib/corporateFinance.js:663:    const badPayment = paymentRows.find((row) => upper(row?.status) !== ARKA_PAYMENT_STATUS.ACCEPTED_BY_DISPATCH);
+lib/corporateFinance.js:672:    .eq('source_type', 'cash_handoff')
+lib/corporateFinance.js:694:async function assertDispatchAcceptCommitted(handoffId, result = {}) {
+lib/corporateFinance.js:708:  const clientVerification = await verifyDispatchHandoffAcceptedInDb(handoffId);
+lib/corporateFinance.js:719:    msg.includes('accept_cash_handoff_atomic') && (
+lib/corporateFinance.js:742:async function acceptDispatchHandoffDirectRpc(id, actor) {
+lib/corporateFinance.js:743:  const { data, error } = await supabase.rpc('accept_cash_handoff_atomic', {
+lib/corporateFinance.js:749:  if (data?.ok === false) throw new Error(data?.error || data?.message || 'ACCEPT_CASH_HANDOFF_RPC_FAILED');
+lib/corporateFinance.js:750:  return assertDispatchAcceptCommitted(id, normalizeAcceptRpcResult(data || {}));
+lib/corporateFinance.js:779:  const items = Array.isArray(handoff?.cash_handoff_items) ? handoff.cash_handoff_items : [];
+lib/corporateFinance.js:790:  // They are intentionally not inserted into cash_handoff_items because the DB
+lib/corporateFinance.js:871:export async function submitWorkerCashToDispatch({ actor, note = '', amountOverride = null }) {
+lib/corporateFinance.js:875:  const lockKey = `worker_cash_handoff:${pin}`;
+lib/corporateFinance.js:882:    const readyItems = await listWorkerReadyCash(pin);
+lib/corporateFinance.js:899:    // to know which worker is allowed to submit the cash.
+lib/corporateFinance.js:925:      mode: includeUnsettledMeals ? 'SUBMIT_CASH_HANDOFF_ATOMIC_RPC_WITH_MEAL_DEDUCT' : 'SUBMIT_CASH_HANDOFF_ATOMIC_RPC',
+lib/corporateFinance.js:933:export async function acceptDispatchHandoff({ handoffId, actor }) {
+lib/corporateFinance.js:936:  if (!actor?.pin) throw new Error('MUNGON PIN-I I DISPATCH.');
+lib/corporateFinance.js:943:    return await acceptDispatchHandoffDirectRpc(id, actor);
+lib/corporateFinance.js:965:    return assertDispatchAcceptCommitted(id, result);
+lib/corporateFinance.js:973:export async function rejectDispatchHandoff({ handoffId, actor, note = '' }) {
+lib/corporateFinance.js:976:  if (!actor?.pin) throw new Error('MUNGON PIN-I I DISPATCH.');
+lib/localDb.js:82:      window.dispatchEvent(new CustomEvent('tepiha:offline-code-bank-changed', {
+lib/safeMode.js:85:    try { window.dispatchEvent(new CustomEvent('tepiha:safe-mode', { detail: entry })); } catch {}
+lib/transportArkaStore.js:6:// - TRANSFERS: kur i dorzon te dispatch/baza (zbret nga transportusi, hyn ne ARKA e bazes)
+lib/offlineSyncClient.js:39:      window.dispatchEvent(new Event('tepiha:outbox-changed'));
+lib/offlineSyncClient.js:40:      window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER'));
+lib/transport/board/shared.js:10:    row?.data?.dispatch_attached_code ||
+lib/transport/bridgeMeta.js:38:const TRANSPORT_BASE_BLOCKED_STATUSES = new Set(['gati', 'ready', 'done', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar', 'canceled', 'cancelled', 'failed']);
+lib/dispatchAdvanceBridge.js:5:const INSTALL_KEY = '__TEPIHA_DISPATCH_ADVANCE_BRIDGE_V1__';
+lib/dispatchAdvanceBridge.js:6:const BUSY_KEY = 'dispatchAdvanceBusy';
+lib/dispatchAdvanceBridge.js:7:const IDEMPOTENCY_KEY = 'dispatchAdvanceIdempotency';
+lib/dispatchAdvanceBridge.js:79:async function saveDispatchAdvance(button) {
+lib/dispatchAdvanceBridge.js:83:  if (normalizeRole(actor?.role) !== 'DISPATCH') return;
+lib/dispatchAdvanceBridge.js:84:  if (!String(actor?.pin || '').trim()) throw new Error('MUNGON_PIN_I_DISPATCH');
+lib/dispatchAdvanceBridge.js:123:      actorName: actor?.name || 'DISPATCH',
+lib/dispatchAdvanceBridge.js:124:      actorRole: actor?.role || 'DISPATCH',
+lib/dispatchAdvanceBridge.js:145:export function installDispatchAdvanceBridge() {
+lib/dispatchAdvanceBridge.js:154:    if (normalizeRole(actor?.role) !== 'DISPATCH') return;
+lib/dispatchAdvanceBridge.js:160:    void saveDispatchAdvance(button).catch((error) => {
+lib/dispatchAdvanceBridge.js:171:export default installDispatchAdvanceBridge;
+lib/versionGuard.js:71:        window.dispatchEvent(new CustomEvent('tepiha:data-epoch-changed', {
+lib/lazyWithReload.jsx:149:function dispatchUpdateAvailable(payload) {
+lib/lazyWithReload.jsx:155:    window.dispatchEvent(new CustomEvent(UPDATE_AVAILABLE_EVENT, { detail: payload }));
+lib/lazyWithReload.jsx:438:              window.dispatchEvent(new CustomEvent('tepiha:silent-lazy-failure', { detail: entry }));
+lib/networkTrace.js:160:    window.dispatchEvent(new CustomEvent('tepiha:network-trace', { detail: entry }));
+lib/transportOrdersDb.js:80:const TRANSPORT_PRE_PICKUP_STATUSES = new Set(['', 'new', 'inbox', 'pending', 'scheduled', 'draft', 'pranim', 'dispatched', 'assigned']);
+lib/sessionStore.js:17:    window.dispatchEvent(new CustomEvent('tepiha:session-changed', {
+lib/ordersService.js:155:const TRANSPORT_PRE_PICKUP_STATUSES = new Set(['', 'new', 'inbox', 'pending', 'scheduled', 'draft', 'pranim', 'dispatched', 'assigned']);
+lib/offlineRuntime.js:27:  'new', 'inbox', 'pickup', 'pranim', 'dispatched', 'assigned', 'riplan',
+lib/offlineRuntime.js:385:      window.dispatchEvent(new CustomEvent('tepiha:offline-runtime-state', { detail: { ...state } }));
+lib/arkaWorkerUi.js:112:  const preferred = approvers.find((a) => String(a?.role || '').toUpperCase() === 'DISPATCH') || approvers[0];
+lib/roles.js:2:// DISPATCH remains an elevated operational role and is treated as admin-level
+lib/roles.js:5:export const ADMIN_ROLES = ['SUPERADMIN', 'OWNER', 'PRONAR', 'ADMIN_MASTER', 'ADMIN', 'DISPATCH'];
+lib/roles.js:16:export function isDispatch(role) {
+lib/roles.js:17:  return normalizeRole(role) === 'DISPATCH';
+lib/routeAlive.js:29:    window.dispatchEvent(new CustomEvent('tepiha:route-ui-alive', { detail: payload }));
+lib/routeAlive.js:32:    window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready', { detail: payload }));
+lib/routeAlive.js:35:    document.dispatchEvent(new CustomEvent('tepiha:route-ui-alive', { detail: payload }));
+lib/routeAlive.js:62:    window.dispatchEvent(new CustomEvent('tepiha:route-alive', { detail: payload }));
+lib/routeAlive.js:65:    document.dispatchEvent(new CustomEvent('tepiha:route-alive', { detail: payload }));
+components/ChunkLoadRuntime.jsx:30:    window.dispatchEvent(new CustomEvent('tepiha:simple-incident', {
+components/AuthGate.jsx:632:      window.dispatchEvent(new CustomEvent('tepiha:authgate-timeout-bypass', { detail: logPayload }));
+components/RootResumeWatchdog.before_false_stall_fix.jsx:202:        window.dispatchEvent(new CustomEvent('tepiha:root-resume', {
+components/RootResumeWatchdog.before_false_stall_fix.jsx:253:          window.dispatchEvent(new CustomEvent('tepiha:root-resume-stall', {
+components/ApprovalsPopup.jsx:5:import { isAdmin, isDispatch } from '@/lib/roles';
+components/ApprovalsPopup.jsx:21:// - Admin/Dispatch will see a popup and can Approve/Reject without re-entering PIN
+components/ApprovalsPopup.jsx:34:    return !!user?.pin && (isAdmin(role) || isDispatch(role));
+components/ApprovalsPopup.jsx:271:              ({items.length} NË PRITJE) • VETËM DISPATCH/ADMIN
+components/ReactAlivePing.jsx:17:        window.dispatchEvent(new CustomEvent('tepiha:react-alive', {
+components/ServiceWorkerRegister.jsx:86:    window.dispatchEvent(
+components/ServiceWorkerRegister.jsx:97:    window.dispatchEvent(
+components/ServiceWorkerRegister.jsx:148:    window.dispatchEvent(
+components/ServiceWorkerRegister.jsx:177:  try { window.dispatchEvent(new CustomEvent(PASSIVE_UPDATE_EVENT, { detail: payload })); } catch {}
+components/ServiceWorkerRegister.jsx:286:  try { window.dispatchEvent(new CustomEvent('tepiha:pwa-auto-update-before-reload', { detail })); } catch {}
+components/ServiceWorkerRegister.jsx:289:    try { window.dispatchEvent(new Event('pagehide')); } catch {}
+components/ServiceWorkerRegister.jsx:290:    try { window.dispatchEvent(new Event('beforeunload')); } catch {}
+components/GlobalHomeSearch.jsx:217:  if (safe === 'dorzim' || safe === 'dorzuar' || safe === 'dorezim' || safe === 'dorezuar' || safe === 'delivered') return 'delivery';
+components/OwedCashPopup.jsx:29:// If a worker marked some CLOSED-ARKA cash payments as BORXH (status=OWED),
+components/RootResumeWatchdog.jsx:26:  '/dispatch',
+components/RootResumeWatchdog.jsx:341:  try { window.dispatchEvent(new CustomEvent('tepiha:resume-gate-timeout-bypass', { detail: payload })); } catch {}
+components/RootResumeWatchdog.jsx:537:        window.dispatchEvent(new CustomEvent('tepiha:root-resume', {
+components/RootResumeWatchdog.jsx:635:          window.dispatchEvent(new CustomEvent('tepiha:root-resume-stall', {
+components/SafeLazyRouteShell.jsx:406:      window.dispatchEvent(new CustomEvent('tepiha:safe-route-shell-visible', {
+components/BootReadyMark.jsx:71:        window.dispatchEvent(new CustomEvent('tepiha:first-ui-ready', {
+components/GlobalErrorBoundary.jsx:90:        window.dispatchEvent(new CustomEvent('tepiha:simple-incident', {
+components/LocalErrorBoundary.jsx:56:    window.dispatchEvent(new CustomEvent('tepiha:local-error-boundary-visible', { detail }));
+components/LocalErrorBoundary.jsx:388:      window.dispatchEvent(new PopStateEvent('popstate'));
+components/LocalErrorBoundary.jsx:391:    try { window.dispatchEvent(new CustomEvent('tepiha:soft-home-request', { detail: { source: 'LocalErrorBoundary' } })); } catch {}
