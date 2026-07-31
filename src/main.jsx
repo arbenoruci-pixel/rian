@@ -6,6 +6,7 @@ import { installOfflineRuntime } from '../lib/offlineRuntime.js';
 import { installOfflineCodeBankWarmup } from '../lib/offlineCodeBankWarmup.js';
 import { installOfflineQueuedOrderUiGuard } from '../lib/offlineQueuedOrderUiGuard.js';
 import { installDispatchAdvanceBridge } from '../lib/dispatchAdvanceBridge.js';
+import { installDispatchPayrollAccessBridge } from '../lib/dispatchPayrollAccessBridge.js';
 import { installTransportMultiLocationBridge } from '../lib/transportMultiLocationBridge.js';
 
 function blackboxLog(name, details = null) {
@@ -207,6 +208,7 @@ installOfflineCodeBankWarmup();
 installOfflineRuntime();
 installOfflineQueuedOrderUiGuard();
 installDispatchAdvanceBridge();
+installDispatchPayrollAccessBridge();
 installTransportMultiLocationBridge();
 installOfflineSessionRefreshBridge();
 
