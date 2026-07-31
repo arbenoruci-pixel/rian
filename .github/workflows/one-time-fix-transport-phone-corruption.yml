@@ -19,11 +19,11 @@ jobs:
       - name: Apply strict phone selection and validation
         shell: bash
         run: |
+          echo 'run transport phone strict fix v2'
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          # Strict transport-phone validator and canonical dial value.
           p = Path('lib/transport/phone.js')
           s = p.read_text()
           old = """export function isValidTransportPhoneDigits(value) {
@@ -33,10 +33,7 @@ jobs:
           new = """export function isValidTransportPhoneDigits(value) {
             const identity = parseTransportPhoneIdentity(value);
             if (!identity.localDigits) return false;
-            // Kosovo mobile numbers have exactly 8 digits after +383 (e.g. 44xxxxxx).
-            // Reject longer values because they usually contain an appended code/ID.
             if (identity.countryCode === '383') return identity.localDigits.length === 8;
-            // Supported international numbers vary by country; keep a conservative range.
             return identity.localDigits.length >= 7 && identity.localDigits.length <= 12;
           }
 
@@ -50,13 +47,9 @@ jobs:
             raise SystemExit('phone validator target not found')
           p.write_text(s.replace(old, new, 1))
 
-          # Transport item: inspect all stored phone fields and use the first valid one.
           p = Path('app/transport/item/page.jsx')
           s = p.read_text()
-          s = s.replace(
-            'import { buildSmsLink, normalizePhoneForWhatsApp } from "@/lib/smartSms";',
-            'import { buildSmsLink } from "@/lib/smartSms";\nimport { canonicalizeTransportPhoneForDial } from "@/lib/transport/phone";'
-          )
+          s = s.replace('import { buildSmsLink, normalizePhoneForWhatsApp } from "@/lib/smartSms";', 'import { buildSmsLink } from "@/lib/smartSms";\nimport { canonicalizeTransportPhoneForDial } from "@/lib/transport/phone";')
           old = """function getPhone(row) {
             const p =
               row?.client_phone ||
@@ -70,14 +63,7 @@ jobs:
           }
 """
           new = """function getPhone(row) {
-            const candidates = [
-              row?.client_phone,
-              row?.phone,
-              row?.telefoni,
-              row?.data?.client_phone,
-              row?.data?.client?.phone,
-              row?.data?.phone,
-            ];
+            const candidates = [row?.client_phone, row?.phone, row?.telefoni, row?.data?.client_phone, row?.data?.client?.phone, row?.data?.phone];
             for (const candidate of candidates) {
               const canonical = canonicalizeTransportPhoneForDial(candidate);
               if (canonical) return canonical;
@@ -89,26 +75,16 @@ jobs:
             raise SystemExit('transport item getPhone target not found')
           p.write_text(s.replace(old, new, 1))
 
-          # Shared Transport Board actions: same strict candidate selection.
           p = Path('lib/transport/board/shared.js')
           s = p.read_text()
-          s = s.replace(
-            "import { normalizePhoneForWhatsApp, canonicalizePhone } from '../../smartSms';",
-            "import { canonicalizeTransportPhoneForDial } from '../phone';"
-          )
+          s = s.replace("import { normalizePhoneForWhatsApp, canonicalizePhone } from '../../smartSms';", "import { canonicalizeTransportPhoneForDial } from '../phone';")
           old = """export function getPhone(item) {
             const raw = item?.client_phone || item?.data?.client_phone || item?.data?.client?.phone || item?.data?.phone || item?.phone || '';
             return normalizePhoneForWhatsApp(raw);
           }
 """
           new = """export function getPhone(item) {
-            const candidates = [
-              item?.client_phone,
-              item?.data?.client_phone,
-              item?.data?.client?.phone,
-              item?.data?.phone,
-              item?.phone,
-            ];
+            const candidates = [item?.client_phone, item?.data?.client_phone, item?.data?.client?.phone, item?.data?.phone, item?.phone];
             for (const candidate of candidates) {
               const canonical = canonicalizeTransportPhoneForDial(candidate);
               if (canonical) return canonical;
@@ -122,17 +98,12 @@ jobs:
           s = s.replace("if (ph) window.open(`tel:${canonicalizePhone(ph)}`, '_self');", "if (ph) window.open(`tel:+${ph}`, '_self');")
           p.write_text(s)
 
-          # Version/cache bump for installed PWA clients.
           p = Path('lib/appEpoch.js')
-          s = p.read_text()
-          s = re.sub(r"export const APP_VERSION = '[^']+';", "export const APP_VERSION = '2.0.65-transport-phone-strict-v1';", s, count=1)
+          s = re.sub(r"export const APP_VERSION = '[^']+';", "export const APP_VERSION = '2.0.65-transport-phone-strict-v1';", p.read_text(), count=1)
           p.write_text(s)
-
           p = Path('package.json')
-          s = p.read_text()
-          s = re.sub(r'"version": "[^"]+"', '"version": "2.0.65-transport-phone-strict-v1"', s, count=1)
+          s = re.sub(r'"version": "[^"]+"', '"version": "2.0.65-transport-phone-strict-v1"', p.read_text(), count=1)
           p.write_text(s)
-
           p = Path('vite.config.js')
           s = p.read_text()
           s = re.sub(r"sw-navigation-diag\.js\?v=\d+", "sw-navigation-diag.js?v=3505", s, count=1)
@@ -141,7 +112,6 @@ jobs:
           s = re.sub(r'tepiha-vite-media-v\d+-[^\'\"]+', 'tepiha-vite-media-v41-transport-phone-strict', s)
           p.write_text(s)
           PY
-
           npm run build
           rm -f .github/workflows/one-time-analyze-transport-phone.yml .tmp-transport-phone-analysis.txt
           rm .github/workflows/one-time-fix-transport-phone-corruption.yml
