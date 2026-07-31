@@ -1,0 +1,37 @@
+name: One-time fix dispatch payroll access v2
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/one-time-fix-dispatch-payroll-access-v2.yml]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('app/arka/payroll/page.jsx')
+          s=p.read_text()
+          role="  const normalizedRole = String(actor?.role || '').toUpperCase();"
+          if "const isDispatchUser = normalizedRole === 'DISPATCH';" not in s:
+            s=s.replace(role, role+"\n  const isDispatchUser = normalizedRole === 'DISPATCH';\n  const payrollActorPin = String(isDispatchUser ? (actor?.pin || '') : (masterPin || actor?.pin || '')).trim();",1)
+          s=s.replace("if (!salaryModal || !masterPin) {\n      alert(\"Kërkohet Master PIN për pagesën e rrogës.\");", "if (!salaryModal || !payrollActorPin) {\n      alert(isDispatchUser ? \"Mungon PIN-i i Dispatch-it. Hyni përsëri.\" : \"Kërkohet Master PIN për pagesën e rrogës.\");",1)
+          s=s.replace("actorPin: String(masterPin || '').trim(),", "actorPin: payrollActorPin,",1)
+          s=s.replace("actorName: actor?.name || 'MASTER USER',", "actorName: actor?.name || (isDispatchUser ? 'DISPATCH' : 'MASTER USER'),",1)
+          p.write_text(s)
+          p=Path('lib/appEpoch.js'); s=p.read_text(); s=re.sub(r"export const APP_VERSION = '[^']+';", "export const APP_VERSION = '2.0.66-dispatch-payroll-access-v2';", s, count=1); p.write_text(s)
+          p=Path('package.json'); s=p.read_text(); s=re.sub(r'"version": "[^"]+"','"version": "2.0.66-dispatch-payroll-access-v2"',s,count=1); p.write_text(s)
+          PY
+          npm run build
+          rm -f .github/workflows/one-time-fix-dispatch-payroll.yml
+          rm -f .github/workflows/one-time-fix-dispatch-payroll-access-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/arka/payroll/page.jsx lib/appEpoch.js package.json .github/workflows/one-time-fix-dispatch-payroll.yml .github/workflows/one-time-fix-dispatch-payroll-access-v2.yml || true
+          git commit -m "allow dispatch to pay salaries with own pin"
+          git push origin HEAD:main
