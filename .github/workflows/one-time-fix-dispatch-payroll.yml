@@ -1,0 +1,221 @@
+name: One-time fix dispatch payroll
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-fix-dispatch-payroll.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Allow Dispatch payroll and add cash-credit closeout
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('app/arka/payroll/page.jsx')
+          s = p.read_text()
+
+          # Dispatch uses their own authenticated PIN; admin/master may still use Master PIN.
+          anchor = "  const normalizedRole = String(actor?.role || '').toUpperCase();\n  const isAdminUser = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);"
+          replacement = anchor + "\n  const isDispatchUser = normalizedRole === 'DISPATCH';\n  const payrollActorPin = String(isDispatchUser ? (actor?.pin || '') : (masterPin || actor?.pin || '')).trim();"
+          if anchor not in s:
+            raise SystemExit('role anchor not found')
+          s = s.replace(anchor, replacement, 1)
+
+          old = """  function openSalaryModal(u) {
+    const workerName = String(u.name || \"\").trim().toUpperCase();
+    const baseSalary = Number(u.salary || 0);
+    const autoDebt = Number(debtsMap[workerName] || 0);
+    const manualAdvance = Number(u.avans_manual || 0);
+    const longTermDebt = Number(u.borxh_afatgjat || 0);
+
+    setSalaryModal({
+      ...u,
+      baseSalary,
+      autoDebt,
+      manualAdvance,
+      totalAdvance: autoDebt + manualAdvance,
+      longTermDebt,
+    });
+    setDeductAutoAdvance(true);
+    setDeductManualAdvance(true);
+    setDeductLongTermAmount(\"\");
+    fetchWorkerHistory(u.name || \"\");
+  }
+"""
+          new = """  async function openSalaryModal(u) {
+    const workerName = String(u.name || \"\").trim().toUpperCase();
+    const workerPin = String(u.pin || '').trim();
+    const baseSalary = Number(u.salary || 0);
+    const autoDebt = Number(debtsMap[workerName] || 0);
+    const manualAdvance = Number(u.avans_manual || 0);
+    const longTermDebt = Number(u.borxh_afatgjat || 0);
+    let cashStillToHand = 0;
+    let cashPaymentIds = [];
+    try {
+      if (workerPin) {
+        const { data, error } = await supabase
+          .from('arka_pending_payments')
+          .select('id,amount,type,status,created_by_pin')
+          .eq('created_by_pin', workerPin)
+          .in('status', ['PENDING', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL'])
+          .limit(1000);
+        if (error) throw error;
+        const excludedTypes = new Set(['EXPENSE', 'TIMA', 'MEAL_PAYMENT', 'MEAL_COVERED', 'ADVANCE', 'SALARY_PAYMENT']);
+        const eligible = (Array.isArray(data) ? data : []).filter((row) => !excludedTypes.has(String(row?.type || '').toUpperCase()) && Number(row?.amount || 0) > 0);
+        cashStillToHand = eligible.reduce((sum, row) => sum + Number(row?.amount || 0), 0);
+        cashPaymentIds = eligible.map((row) => row.id).filter(Boolean);
+      }
+    } catch (error) {
+      console.warn('PAYROLL WORKER CASH LOAD FAILED', error);
+    }
+
+    setSalaryModal({
+      ...u,
+      baseSalary,
+      autoDebt,
+      manualAdvance,
+      totalAdvance: autoDebt + manualAdvance,
+      longTermDebt,
+      cashStillToHand,
+      cashPaymentIds,
+    });
+    setDeductAutoAdvance(true);
+    setDeductManualAdvance(true);
+    setDeductLongTermAmount(\"\");
+    fetchWorkerHistory(u.name || \"\");
+  }
+"""
+          if old not in s:
+            raise SystemExit('openSalaryModal target not found')
+          s = s.replace(old, new, 1)
+
+          s = s.replace("""    if (!salaryModal || !masterPin) {
+      alert(\"Kërkohet Master PIN për pagesën e rrogës.\");
+      return;
+    }""", """    if (!salaryModal || !payrollActorPin) {
+      alert(isDispatchUser ? \"Mungon PIN-i i Dispatch-it. Hyni përsëri në aplikacion.\" : \"Kërkohet Master PIN për pagesën e rrogës.\");
+      return;
+    }""", 1)
+
+          old_calc = """    const advanceAmount = autoAdvanceAmount + manualAdvanceAmount;
+    const netAmount = Number(payableAmount || 0);
+"""
+          new_calc = """    const advanceAmount = autoAdvanceAmount + manualAdvanceAmount;
+    const payrollNetAmount = Number(payableAmount || 0);
+    const cashStillToHand = Math.max(0, Number(salaryModal?.cashStillToHand || 0));
+    const useWorkerCash = cashStillToHand > 0
+      ? window.confirm(`Punëtori i ka ende ${euro(cashStillToHand)} para të klientëve për dorëzim.\\n\\nA dëshironi t'ia njihni këto para si pjesë të rrogës?\\n\\nPO = zbriten nga shuma që kompania ia jep dhe mbyllen nga cash-i i punëtorit.\\nJO = rroga paguhet normalisht dhe cash-i mbetet për dorëzim.`)
+      : false;
+    const cashCreditAmount = useWorkerCash ? Math.min(cashStillToHand, payrollNetAmount) : 0;
+    const netAmount = Math.max(0, Number((payrollNetAmount - cashCreditAmount).toFixed(2)));
+"""
+          if old_calc not in s:
+            raise SystemExit('salary calc target not found')
+          s = s.replace(old_calc, new_calc, 1)
+
+          s = s.replace("`Neto për pagesë: ${euro(netAmount)}\\n\\n` +", "`Cash i njohur në rrogë: ${euro(cashCreditAmount)}\\n` +\n      `Shtesë që jep kompania: ${euro(netAmount)}\\n` +\n      `Rroga e mbyllur gjithsej: ${euro(netAmount + cashCreditAmount)}\\n\\n` +", 1)
+
+          s = s.replace("actorPin: String(masterPin || '').trim(),", "actorPin: payrollActorPin,", 1)
+          s = s.replace("actorName: actor?.name || 'MASTER USER',", "actorName: actor?.name || (isDispatchUser ? 'DISPATCH' : 'MASTER USER'),", 1)
+          s = s.replace("""        manualAdvanceAmount,
+        idempotencyKey:""", """        manualAdvanceAmount,
+        cashCreditAmount,
+        cashPaymentIds: useWorkerCash ? (salaryModal?.cashPaymentIds || []) : [],
+        idempotencyKey:""", 1)
+          s = s.replace("`: `✅ Rroga u pagua për ${workerName || workerPin}. Neto: ${euro(netAmount)}.`", "`: `✅ Rroga u mbyll për ${workerName || workerPin}. Kompania dha ${euro(netAmount)}${cashCreditAmount > 0 ? ` dhe ${euro(cashCreditAmount)} u njohën nga cash-i i punëtorit` : ''}.`", 1)
+
+          p.write_text(s)
+
+          p = Path('lib/arka/arkaEngine.js')
+          s = p.read_text()
+          old = """  const manualAdvanceAmount = money(payload.manualAdvanceAmount || payload.manual_advance_amount);
+  const autoAdvanceAmount = money(payload.autoAdvanceAmount || payload.auto_advance_amount);
+"""
+          new = """  const manualAdvanceAmount = money(payload.manualAdvanceAmount || payload.manual_advance_amount);
+  const autoAdvanceAmount = money(payload.autoAdvanceAmount || payload.auto_advance_amount);
+  const cashCreditAmount = money(payload.cashCreditAmount || payload.cash_credit_amount);
+  const cashPaymentIds = Array.isArray(payload.cashPaymentIds || payload.cash_payment_ids)
+    ? [...new Set((payload.cashPaymentIds || payload.cash_payment_ids).map((id) => normalizeDbId(id)).filter(Boolean))]
+    : [];
+"""
+          if old not in s:
+            raise SystemExit('engine amount anchor not found')
+          s = s.replace(old, new, 1)
+
+          s = s.replace("`AVANS ${idempotentMoneyKey(advanceAmount)}€`,", "`AVANS ${idempotentMoneyKey(advanceAmount)}€`,\n      cashCreditAmount > 0 ? `CASH I NJOHUR ${idempotentMoneyKey(cashCreditAmount)}€` : '',", 1)
+
+          marker = """    const createdAt = nowIso();
+    const markerNote = [
+"""
+          insertion = """    if (cashCreditAmount > 0 && cashPaymentIds.length) {
+      const rows = await readPaymentsByIds(sb, cashPaymentIds);
+      const eligible = rows.filter((row) => normalizePin(row?.created_by_pin) === workerPin && ['PENDING', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL'].includes(upper(row?.status)));
+      const available = round2(eligible.reduce((sum, row) => sum + money(row?.amount), 0));
+      if (available + 0.01 < cashCreditAmount) throw new Error('WORKER_CASH_CREDIT_CHANGED');
+      let remainingCredit = cashCreditAmount;
+      for (const row of eligible) {
+        if (remainingCredit <= 0.009) break;
+        const rowAmount = money(row?.amount);
+        if (rowAmount > remainingCredit + 0.009) throw new Error('WORKER_CASH_PARTIAL_CREDIT_NOT_SUPPORTED');
+        const patch = {
+          status: ARKA_PAYMENT_STATUS.SALARY_PAID,
+          handoff_note: `SALARY_CREDIT:${monthKey}:${workerPin}`,
+          handed_at: nowIso(),
+          handed_by_pin: actor.pin,
+          handed_by_name: actor.name || null,
+          handed_by_role: actor.role || null,
+          approved_at: nowIso(),
+          approved_by_pin: actor.pin,
+          approved_by_name: actor.name || null,
+          updated_at: nowIso(),
+        };
+        await updateRowById(sb, PENDING_TABLE, row.id, patch);
+        remainingCredit = round2(remainingCredit - rowAmount);
+      }
+      if (remainingCredit > 0.01) throw new Error('WORKER_CASH_CREDIT_REMAINDER');
+    }
+
+    const createdAt = nowIso();
+    const markerNote = [
+"""
+          if marker not in s:
+            raise SystemExit('engine marker anchor not found')
+          s = s.replace(marker, insertion, 1)
+          p.write_text(s)
+
+          # Version/cache bump.
+          p = Path('lib/appEpoch.js')
+          s = p.read_text()
+          s = re.sub(r"export const APP_VERSION = '[^']+';", "export const APP_VERSION = '2.0.66-dispatch-payroll-cash-credit-v1';", s, count=1)
+          p.write_text(s)
+          p = Path('package.json')
+          s = p.read_text()
+          s = re.sub(r'"version": "[^"]+"', '"version": "2.0.66-dispatch-payroll-cash-credit-v1"', s, count=1)
+          p.write_text(s)
+          p = Path('vite.config.js')
+          s = p.read_text()
+          s = re.sub(r"sw-navigation-diag\.js\?v=\d+", "sw-navigation-diag.js?v=3506", s, count=1)
+          p.write_text(s)
+          PY
+
+          npm run build
+          rm -f .github/workflows/one-time-analyze-dispatch-payroll.yml .tmp-dispatch-payroll-analysis.txt
+          rm -f .github/workflows/one-time-locate-payroll-engine.yml .tmp-payroll-engine-context.txt
+          rm .github/workflows/one-time-fix-dispatch-payroll.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/arka/payroll/page.jsx lib/arka/arkaEngine.js lib/appEpoch.js package.json vite.config.js .github/workflows/one-time-analyze-dispatch-payroll.yml .tmp-dispatch-payroll-analysis.txt .github/workflows/one-time-locate-payroll-engine.yml .tmp-payroll-engine-context.txt .github/workflows/one-time-fix-dispatch-payroll.yml || true
+          git commit -m "allow dispatch payroll with worker cash credit"
+          git push origin HEAD:main
