@@ -35,3 +35,4 @@ jobs:
           git add app/arka/payroll/page.jsx lib/appEpoch.js package.json .github/workflows/one-time-fix-dispatch-payroll.yml .github/workflows/one-time-fix-dispatch-payroll-access-v2.yml || true
           git commit -m "allow dispatch to pay salaries with own pin"
           git push origin HEAD:main
+          # triggered
