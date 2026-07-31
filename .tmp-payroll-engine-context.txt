@@ -1,0 +1,652 @@
+171-  'OWNER',
+172-  'PRONAR',
+173-]);
+174-
+175-function normalizeActorRoleKey(role = '') {
+176-  return upper(role)
+177-    .replace(/[^A-Z0-9]+/g, '_')
+178-    .replace(/_+/g, '_')
+179-    .replace(/^_|_$/g, '');
+180-}
+181-
+182-function isArkaManagerRole(role = '') {
+183-  const key = normalizeActorRoleKey(role);
+184-  if (!key) return false;
+185-  if (ARKA_MANAGER_ROLE_KEYS.has(key)) return true;
+186-  const compact = key.replace(/_/g, '');
+187-  if (ARKA_MANAGER_ROLE_KEYS.has(compact)) return true;
+188-  return compact === 'ADMINISTRATOR';
+189-}
+190-
+191:async function assertActorAllowed(sb, payload = {}, action = '') {
+192-  if (!ARKA_ACTOR_REQUIRED_ACTIONS.has(action)) return actorFromPayload(payload);
+193-
+194-  const payloadActor = actorFromPayload(payload);
+195-  const actorPin = normalizePin(payloadActor.pin);
+196-  if (!actorPin) throw new Error('ACTOR_PIN_REQUIRED');
+197-
+198-  let user = null;
+199-  let actorLookupError = null;
+200-  try {
+201-    const res = await sb
+202-      .from('users')
+203-      .select('id,pin,name,role,is_active')
+204-      .eq('pin', actorPin)
+205-      .maybeSingle();
+206-    user = res?.data || null;
+207-    actorLookupError = res?.error || null;
+208-  } catch (err) {
+209-    actorLookupError = err;
+210-  }
+211-
+212-  // Some live deployments have users without is_active. In that schema, retry with
+213-  // the minimum columns instead of failing every ARKA transaction before insert.
+214-  if (actorLookupError && isMissingColumnOrFunctionError(actorLookupError)) {
+215-    const res2 = await sb
+216-      .from('users')
+217-      .select('id,pin,name,role')
+218-      .eq('pin', actorPin)
+219-      .maybeSingle();
+220-    user = res2?.data || null;
+221-    actorLookupError = res2?.error || null;
+222-  }
+223-
+224-  if (actorLookupError) throw actorLookupError;
+225-  if (!user?.pin) throw new Error('ACTOR_NOT_FOUND');
+226-  if (Object.prototype.hasOwnProperty.call(user, 'is_active') && user.is_active === false) throw new Error('ACTOR_DISABLED');
+227-
+228-  const dbRole = cleanText(user.role, '');
+229-  if (ARKA_MANAGER_ACTIONS.has(action) && !isArkaManagerRole(dbRole)) {
+230-    throw new Error('ACTOR_ROLE_NOT_ALLOWED');
+231-  }
+232-
+233-  return {
+234-    id: user.id || null,
+235-    pin: normalizePin(user.pin),
+236-    name: cleanText(user.name, payloadActor.name || actorPin),
+237-    role: dbRole || payloadActor.role || '',
+238-  };
+239-}
+240-
+241-function withVerifiedActor(payload = {}, actor = {}) {
+242-  const cleanActor = {
+243-    pin: normalizePin(actor.pin),
+244-    name: cleanText(actor.name, ''),
+245-    role: cleanText(actor.role, ''),
+246-  };
+247-  return {
+248-    ...(payload || {}),
+249-    actorPin: cleanActor.pin,
+250-    actor_pin: cleanActor.pin,
+251-    actorName: cleanActor.name,
+252-    actor_name: cleanActor.name,
+253-    actorRole: cleanActor.role,
+254-    actor_role: cleanActor.role,
+255-    actor: {
+256-      ...asObject(payload?.actor),
+257-      pin: cleanActor.pin,
+258-      name: cleanActor.name,
+259-      role: cleanActor.role,
+260-    },
+261-    user: {
+262-      ...asObject(payload?.user),
+263-      pin: cleanActor.pin,
+264-      name: cleanActor.name,
+265-      role: cleanActor.role,
+266-    },
+267-  };
+268-}
+269-
+270-function stripKeys(obj = {}, keys = []) {
+271-  const out = { ...(obj || {}) };
+272-  for (const key of keys) delete out[key];
+273-  return out;
+274-}
+275-
+276-function dedupeVariants(variants = []) {
+277-  const out = [];
+278-  const seen = new Set();
+279-  for (const variant of variants) {
+280-    const clean = Object.fromEntries(Object.entries(variant || {}).filter(([, value]) => value !== undefined));
+281-    const key = JSON.stringify(Object.keys(clean).sort().map((k) => [k, clean[k]]));
+282-    if (seen.has(key)) continue;
+283-    seen.add(key);
+284-    out.push(clean);
+285-  }
+286-  return out;
+287-}
+288-
+289-function isMissingRpcFunctionError(error, functionName = '') {
+290-  const msg = String(error?.message || error?.details || error?.hint || error || '').toLowerCase();
+291-  const fn = String(functionName || '').toLowerCase();
+292-  if (!fn || !msg.includes(fn)) return false;
+293-  return msg.includes('function') && (msg.includes('does not exist') || msg.includes('not found') || msg.includes('could not find'));
+294-}
+295-
+296-function pendingInsertVariants(payload = {}) {
+297-  const broadOptional = [
+298-    'idempotency_key',
+299-    'method',
+300-    'created_by_role',
+301-    'actor_pin',
+302-    'actor_name',
+303-    'source',
+304-    'source_ref',
+305-    'cycle_id',
+306-    'applied_cycle_id',
+307-    'client_phone',
+308-    'transport_m2',
+309-    'transport_code_str',
+310-    'transport_order_id',
+311-    'source_module',
+312-    'handoff_note',
+313-    'handed_at',
+314-    'handed_by_pin',
+315-    'handed_by_name',
+316-    'handed_by_role',
+317-    'approved_by_pin',
+318-    'approved_by_name',
+319-    'approved_at',
+320-    'updated_at',
+321-  ];
+322-  return dedupeVariants([
+323-    payload,
+324-    stripKeys(payload, ['method', 'created_by_role', 'source', 'source_ref']),
+325-    stripKeys(payload, ['method', 'created_by_role', 'source', 'source_ref', 'transport_m2']),
+326-    stripKeys(payload, ['idempotency_key']),
+327-    stripKeys(payload, ['idempotency_key', 'method', 'created_by_role', 'source', 'source_ref']),
+328-    stripKeys(payload, ['idempotency_key', 'method', 'created_by_role', 'source', 'source_ref', 'transport_m2']),
+329-    stripKeys(payload, broadOptional),
+330-    {
+331-      amount: payload.amount,
+332-      type: payload.type,
+333-      status: payload.status,
+334-      note: payload.note || null,
+335-      created_by_pin: payload.created_by_pin || null,
+336-      created_by_name: payload.created_by_name || null,
+337-      order_id: payload.order_id || null,
+338-      order_code: payload.order_code || null,
+339-      client_name: payload.client_name || null,
+340-      created_at: payload.created_at || nowIso(),
+341-    },
+342-  ]);
+343-}
+344-
+345-function handoffInsertVariants(payload = {}) {
+346-  const optional = [
+347-    'driver_pin',
+348-    'driver_name',
+349-    'total_amount',
+350-    'count_clients',
+351-    'payment_ids',
+352-    'order_ids',
+353-    'client_items',
+354-    'data',
+355-    'idempotency_key',
+356-    'submitted_at',
+357-    'updated_at',
+358-  ];
+359-  return dedupeVariants([
+360-    payload,
+361-    stripKeys(payload, ['idempotency_key']),
+362-    stripKeys(payload, ['idempotency_key', 'data', 'client_items']),
+363-    stripKeys(payload, ['idempotency_key', ...optional]),
+364-    {
+365-      worker_pin: payload.worker_pin,
+366-      worker_name: payload.worker_name,
+367-      amount: payload.amount,
+368-      status: payload.status,
+369-      note: payload.note || null,
+370-    },
+371-  ]);
+372-}
+373-
+374-function handoffUpdateVariants(payload = {}) {
+375-  const optional = [
+376-    'dispatch_note',
+377-    'note',
+378-    'driver_pin',
+379-    'driver_name',
+380-    'accepted_by_pin',
+381-    'accepted_by_name',
+382-    'accepted_at',
+383-    'rejected_by_pin',
+384-    'rejected_by_name',
+385-    'rejected_at',
+386-    'count_clients',
+387-    'total_amount',
+388-    'payment_ids',
+389-    'order_ids',
+390-    'data',
+391-    'client_items',
+392-    'company_ledger_entry_id',
+393-    'updated_at',
+394-  ];
+395-  return dedupeVariants([
+396-    payload,
+397-    stripKeys(payload, ['dispatch_note']),
+398-    stripKeys(payload, ['accepted_by_pin', 'accepted_by_name', 'accepted_at', 'rejected_by_pin', 'rejected_by_name', 'rejected_at']),
+399-    stripKeys(payload, ['driver_pin', 'driver_name', 'count_clients', 'total_amount', 'payment_ids', 'order_ids', 'data', 'client_items']),
+400-    stripKeys(payload, optional),
+401-  ]);
+402-}
+403-
+404-function pendingUpdateVariants(payload = {}) {
+405-  const optional = [
+406-    'accepted_at',
+407-    'accepted_by_pin',
+408-    'accepted_by_name',
+409-    'approved_at',
+410-    'approved_by_pin',
+411-    'approved_by_name',
+--
+2546-
+2547-async function clearManualAdvanceOnWorker(sb, { workerPin, workerId } = {}) {
+2548-  const pin = normalizePin(workerPin);
+2549-  const id = normalizeDbId(workerId);
+2550-  const patch = { avans_manual: 0, updated_at: nowIso() };
+2551-  const attempts = [];
+2552-  if (pin) attempts.push((q) => q.eq('pin', pin));
+2553-  if (id) attempts.push((q) => q.eq('id', id));
+2554-  for (const apply of attempts) {
+2555-    try {
+2556-      const { error } = await apply(sb.from('users').update(patch));
+2557-      if (!error) return true;
+2558-      if (!isMissingColumnOrFunctionError(error)) throw error;
+2559-    } catch (error) {
+2560-      if (!isMissingColumnOrFunctionError(error)) throw error;
+2561-    }
+2562-  }
+2563-  return false;
+2564-}
+2565-
+2566:async function payrollSalaryPayment(sb, payload = {}) {
+2567-  const actor = actorFromPayload(payload);
+2568-  const workerPin = normalizePin(pick(payload.workerPin, payload.worker_pin, payload.targetPin));
+2569-  const workerName = cleanText(pick(payload.workerName, payload.worker_name, payload.targetName), 'PUNËTOR');
+2570-  const workerId = normalizeDbId(pick(payload.workerId, payload.worker_id, payload.userId, payload.user_id));
+2571-  const monthKey = cleanText(payload.monthKey || payload.month_key, '').slice(0, 7);
+2572-  const amount = money(payload.amount);
+2573-  const baseSalary = money(payload.baseSalary || payload.base_salary);
+2574-  const advanceAmount = money(payload.advanceAmount || payload.advance_amount);
+2575-  const manualAdvanceAmount = money(payload.manualAdvanceAmount || payload.manual_advance_amount);
+2576-  const autoAdvanceAmount = money(payload.autoAdvanceAmount || payload.auto_advance_amount);
+2577-  if (!actor.pin) throw new Error('ACTOR_PIN_REQUIRED');
+2578-  if (!workerPin) throw new Error('WORKER_PIN_REQUIRED');
+2579-  if (!/^\d{4}-\d{2}$/.test(monthKey)) throw new Error('MONTH_KEY_INVALID');
+2580-  if (!Number.isFinite(amount) || amount < 0) throw new Error('AMOUNT_INVALID');
+2581-
+2582-  const idempotencyKey = cleanText(payload.idempotencyKey || payload.idempotency_key || buildSalaryPaymentIdempotencyKey({ monthKey, workerPin }), '');
+2583-  return withRuntimeLock(`salary_payment:${monthKey}:${workerPin}`, async () => {
+2584-    const existing = await findExistingSalaryPayment(sb, { monthKey, workerPin, idempotencyKey });
+2585-    if (existing) return { ok: true, action: ARKA_ACTION.PAYROLL_SALARY_PAYMENT, existing: true, duplicate: true, salaryPayment: existing, row: existing };
+2586-
+2587-    let budget = null;
+2588-    if (amount > 0) {
+2589-      budget = await companyBudgetSpend(sb, {
+2590-        actorPin: actor.pin,
+2591-        actorName: actor.name,
+2592-        actorRole: actor.role,
+2593-        workerPin,
+2594-        workerName,
+2595-        amount,
+2596-        category: 'SALARY',
+2597-        sourceType: 'salary_payment',
+2598-        sourceId: `${monthKey}:${workerPin}`,
+2599-        idempotencyKey,
+2600-        note: `RROGA ${monthKey} • ${workerName} • NET ${idempotentMoneyKey(amount)}€ • AVANS ${idempotentMoneyKey(advanceAmount)}€`,
+2601-      });
+2602-    }
+2603-
+2604-    const createdAt = nowIso();
+2605-    const markerNote = [
+2606-      `RROGA ${monthKey}`,
+2607-      workerName ? `PUNËTORI ${workerName}` : '',
+2608-      workerPin ? `PIN ${workerPin}` : '',
+2609-      `NET ${idempotentMoneyKey(amount)}€`,
+2610-      `BAZË ${idempotentMoneyKey(baseSalary)}€`,
+2611-      `AVANS ${idempotentMoneyKey(advanceAmount)}€`,
+2612-      idempotencyKey ? `idempotency:${idempotencyKey}` : '',
+2613-    ].filter(Boolean).join(' • ');
+2614-
+2615-    const salaryPayment = await insertRow(sb, PENDING_TABLE, {
+2616-      idempotency_key: idempotencyKey || null,
+2617-      status: ARKA_PAYMENT_STATUS.SALARY_PAID,
+2618-      amount: round2(amount),
+2619-      type: ARKA_PAYMENT_TYPE.SALARY_PAYMENT,
+2620-      source_module: ARKA_SOURCE_MODULE.ARKA,
+2621-      method: 'CASH',
+2622-      note: markerNote,
+2623-      handoff_note: `SALARY_PAID:${monthKey}:${workerPin}`,
+2624-      created_by_pin: workerPin,
+2625-      created_by_name: workerName,
+2626-      created_by_role: 'WORKER',
+2627-      handed_at: createdAt,
+2628-      handed_by_pin: actor.pin,
+2629-      handed_by_name: actor.name || null,
+2630-      handed_by_role: actor.role || null,
+2631-      approved_at: createdAt,
+2632-      approved_by_pin: actor.pin,
+2633-      approved_by_name: actor.name || null,
+2634-      created_at: createdAt,
+2635-      updated_at: createdAt,
+2636-    }, pendingInsertVariants);
+2637-
+2638-    const advanceRows = await collectAdvanceRowsForSalary(sb, { workerPin, workerName });
+2639-    if (advanceRows.length) {
+2640-      await updatePendingByIds(sb, advanceRows.map((row) => row.id), {
+2641-        status: ARKA_PAYMENT_STATUS.SETTLED_IN_SALARY,
+2642-        approved_at: createdAt,
+2643-        approved_by_pin: actor.pin,
+2644-        approved_by_name: actor.name || null,
+2645-        updated_at: createdAt,
+2646-        handoff_note: `SETTLED_IN_SALARY:${monthKey}:${workerPin}`,
+2647-      });
+2648-    }
+2649-    if (manualAdvanceAmount > 0) await clearManualAdvanceOnWorker(sb, { workerPin, workerId });
+2650-
+2651-    return {
+2652-      ok: true,
+2653-      action: ARKA_ACTION.PAYROLL_SALARY_PAYMENT,
+2654-      salaryPayment,
+2655-      row: salaryPayment,
+2656-      ledger: budget?.ledger || null,
+2657-      summary: budget?.summary || null,
+2658-      amount,
+2659-      monthKey,
+2660-      workerPin,
+2661-      advancesSettled: advanceRows.length,
+2662-      autoAdvanceAmount,
+2663-      manualAdvanceAmount,
+2664-    };
+2665-  });
+2666-}
+2667-
+2668-
+2669-async function findExistingVoidAuditForPayment(sb, paymentId, idempotencyKey = '') {
+2670-  const tag = `VOID_AUDIT_OF:${paymentId}`;
+2671-  const key = cleanText(idempotencyKey, '');
+2672-  const attempts = [];
+2673-  if (key) attempts.push({ column: 'idempotency_key', value: key, mode: 'eq' });
+2674-  attempts.push({ column: 'handoff_note', value: tag, mode: 'eq' });
+2675-  attempts.push({ column: 'note', value: tag, mode: 'ilike' });
+2676-
+2677-  for (const attempt of attempts) {
+2678-    try {
+2679-      let q = sb.from(PENDING_TABLE).select('*').eq('status', ARKA_PAYMENT_STATUS.VOIDED).limit(1);
+2680-      if (attempt.mode === 'ilike') q = q.ilike(attempt.column, `%${attempt.value}%`);
+2681-      else q = q.eq(attempt.column, attempt.value);
+2682-      const { data, error } = await q;
+2683-      if (error) throw error;
+2684-      if (Array.isArray(data) && data.length) return data[0];
+2685-    } catch (error) {
+2686-      if (!isMissingColumnOrFunctionError(error)) throw error;
+2687-    }
+2688-  }
+2689-  return null;
+2690-}
+2691-
+2692-async function voidOrReversePayment(sb, payload = {}) {
+2693-  const actor = actorFromPayload(payload);
+2694-  const paymentId = normalizeDbId(payload.paymentId || payload.payment_id || payload.rowId || payload.row_id);
+2695-  if (!paymentId) throw new Error('PAYMENT_ID_INVALID');
+2696-  if (!actor.pin) throw new Error('ACTOR_PIN_REQUIRED');
+2697-  const { data: row, error } = await sb.from(PENDING_TABLE).select('*').eq('id', paymentId).maybeSingle();
+2698-  if (error) throw error;
+2699-  if (!row?.id) throw new Error('PAYMENT_NOT_FOUND');
+2700-  const status = normalizeLegacyArkaStatus(row.status);
+2701-  const linkedToActiveHandoff = await paymentHasActiveHandoff(sb, paymentId);
+2702-  if (status === ARKA_PAYMENT_STATUS.PENDING && !linkedToActiveHandoff) {
+2703-    const { error: delErr } = await sb.from(PENDING_TABLE).delete().eq('id', paymentId).eq('status', ARKA_PAYMENT_STATUS.PENDING);
+2704-    if (delErr) throw delErr;
+2705-    return { ok: true, action: ARKA_ACTION.VOID_OR_REVERSE_PAYMENT, deleted: true, paymentId };
+2706-  }
+2707-  const createdAt = nowIso();
+2708-  const voidTag = `VOID_AUDIT_OF:${paymentId}`;
+2709-  const voidIdempotencyKey = cleanText(payload.idempotencyKey || payload.idempotency_key, '') || `${ARKA_ACTION.VOID_OR_REVERSE_PAYMENT}:${paymentId}`;
+2710-  const existingVoid = await findExistingVoidAuditForPayment(sb, paymentId, voidIdempotencyKey);
+2711-  if (existingVoid) {
+2712-    return { ok: true, action: ARKA_ACTION.VOID_OR_REVERSE_PAYMENT, alreadyVoided: true, auditOnly: true, budgetReversed: false, original: row, auditRow: existingVoid };
+2713-  }
+2714-  const noteBase = cleanText(payload.note, `VOID AUDIT ROW FOR PAYMENT #${paymentId}`);
+2715-  const auditRow = await insertRow(sb, PENDING_TABLE, {
+2716-    idempotency_key: voidIdempotencyKey,
+2717-    amount: -Math.abs(money(row.amount)),
+2718-    type: row.type || ARKA_PAYMENT_TYPE.EXPENSE,
+2719-    status: ARKA_PAYMENT_STATUS.VOIDED,
+2720-    note: noteBase.includes(voidTag) ? noteBase : `${noteBase} | ${voidTag}`,
+2721-    source_module: row.source_module || ARKA_SOURCE_MODULE.ARKA,
+2722-    order_id: row.order_id || null,
+2723-    order_code: row.order_code || null,
+2724-    transport_order_id: row.transport_order_id || null,
+2725-    transport_code_str: row.transport_code_str || null,
+2726-    transport_m2: row.transport_m2 || 0,
+2727-    client_name: row.client_name || null,
+2728-    client_phone: row.client_phone || null,
+2729-    created_by_pin: row.created_by_pin || null,
+2730-    created_by_name: row.created_by_name || null,
+2731-    approved_by_pin: actor.pin || null,
+2732-    approved_by_name: actor.name || null,
+2733-    handoff_note: `VOID_AUDIT_OF:${paymentId}`,
+2734-    created_at: createdAt,
+2735-    updated_at: createdAt,
+2736-  }, pendingInsertVariants);
+2737-  return { ok: true, action: ARKA_ACTION.VOID_OR_REVERSE_PAYMENT, auditOnly: true, budgetReversed: false, original: row, auditRow };
+2738-}
+2739-
+2740-export async function runArkaAuditReport(options = {}) {
+2741-  const sb = await getSupabaseOrThrow(options);
+2742-  const out = {};
+2743-  const read = async (key, runner) => {
+2744-    try { out[key] = await runner(); } catch (error) { out[key] = { error: String(error?.message || error) }; }
+2745-  };
+2746-
+2747-  await read('accepted_handoff_with_non_accepted_payments', async () => {
+2748-    const { data, error } = await sb
+2749-      .from(HANDOFF_TABLE)
+2750-      .select('id,status,cash_handoff_items(pending_payment_id)')
+2751-      .eq('status', ARKA_HANDOFF_STATUS.ACCEPTED)
+2752-      .limit(500);
+2753-    if (error) throw error;
+2754-    const handoffRows = Array.isArray(data) ? data : [];
+2755-    const ids = handoffRows.flatMap((h) => (h.cash_handoff_items || []).map((i) => normalizeDbId(i.pending_payment_id)).filter(Boolean));
+2756-    const payments = ids.length ? await readPaymentsByIds(sb, ids) : [];
+2757-    const byId = new Map(payments.map((p) => [String(p.id), p]));
+2758-    return handoffRows.flatMap((h) => (h.cash_handoff_items || [])
+2759-      .map((i) => byId.get(String(i.pending_payment_id)))
+2760-      .filter((p) => p && normalizeLegacyArkaStatus(p.status) !== ARKA_PAYMENT_STATUS.ACCEPTED_BY_DISPATCH)
+2761-      .map((p) => ({ handoff_id: h.id, payment_id: p.id, payment_status: p.status })));
+2762-  });
+2763-
+2764-  await read('pending_dispatch_payment_without_valid_handoff', async () => {
+2765-    const { data, error } = await sb.from(PENDING_TABLE).select('id,status').eq('status', ARKA_PAYMENT_STATUS.PENDING_DISPATCH_APPROVAL).limit(1000);
+2766-    if (error) throw error;
+2767-    const rows = Array.isArray(data) ? data : [];
+2768-    const ids = rows.map((row) => normalizeDbId(row.id)).filter(Boolean);
+2769-    if (!ids.length) return [];
+2770-    const linked = await findPaymentIdsInActiveHandoffs(sb, ids, [ARKA_HANDOFF_STATUS.PENDING_DISPATCH_APPROVAL]);
+2771-    return rows.filter((p) => !linked.has(normalizeDbId(p.id)));
+2772-  });
+2773-
+2774-  await read('duplicate_ledger_per_handoff', async () => {
+2775-    const { data, error } = await sb.from(LEDGER_TABLE).select('id,amount,source_id,source_type').eq('source_type', 'cash_handoff').limit(2000);
+2776-    if (error) throw error;
+2777-    const groups = new Map();
+2778-    for (const row of data || []) {
+2779-      const key = String(row.source_id || '');
+2780-      if (!key) continue;
+2781-      const g = groups.get(key) || { source_id: key, nr_rows: 0, total: 0, rows: [] };
+2782-      g.nr_rows += 1;
+2783-      g.total = round2(g.total + money(row.amount));
+2784-      g.rows.push(row.id);
+2785-      groups.set(key, g);
+2786-    }
+--
+2799-    });
+2800-  });
+2801-
+2802-  await read('arka_payment_accepted_but_order_active', async () => {
+2803-    const { data, error } = await sb.from(PENDING_TABLE).select('id,amount,status,order_id,type,source_module').eq('type', ARKA_PAYMENT_TYPE.IN).eq('source_module', ARKA_SOURCE_MODULE.BASE).in('status', ARKA_ACTIVE_PAYMENT_STATUSES).limit(1000);
+2804-    if (error) throw error;
+2805-    const ids = [...new Set((data || []).map((p) => normalizeDbId(p.order_id)).filter(Boolean))];
+2806-    const { data: orders, error: oErr } = ids.length ? await sb.from('orders').select('id,code,client_name,status,price_total').in('id', ids) : { data: [], error: null };
+2807-    if (oErr) throw oErr;
+2808-    const byId = new Map((orders || []).map((o) => [String(o.id), o]));
+2809-    return (data || []).map((p) => ({ payment: p, order: byId.get(String(p.order_id)) })).filter(({ order }) => ['pastrim', 'gati'].includes(String(order?.status || '').toLowerCase()));
+2810-  });
+2811-
+2812-  return { ok: true, report: out };
+2813-}
+2814-
+2815-export async function runArkaTransaction(payload = {}, options = {}) {
+2816-  const action = upper(payload.action);
+2817-  if (!Object.values(ARKA_ACTION).includes(action)) throw new Error('ARKA_ACTION_INVALID');
+2818-  const sb = await getSupabaseOrThrow(options);
+2819:  const verifiedActor = await assertActorAllowed(sb, payload, action);
+2820-  const guardedPayload = withVerifiedActor(payload, verifiedActor);
+2821-
+2822-  switch (action) {
+2823-    case ARKA_ACTION.BASE_ORDER_PAYMENT:
+2824-      return baseOrderPayment(sb, guardedPayload);
+2825-    case ARKA_ACTION.TRANSPORT_ORDER_PAYMENT:
+2826-      return transportOrderPayment(sb, guardedPayload);
+2827-    case ARKA_ACTION.EXPENSE_REQUEST:
+2828-      return expenseRequest(sb, guardedPayload);
+2829-    case ARKA_ACTION.CREATE_MEAL_DISTRIBUTION:
+2830-      return createMealDistributionAtomic(sb, guardedPayload);
+2831-    case ARKA_ACTION.COMPANY_BUDGET_SPEND:
+2832-      return companyBudgetSpend(sb, guardedPayload);
+2833-    case ARKA_ACTION.PAYROLL_SALARY_PAYMENT:
+2834-      return payrollSalaryPayment(sb, guardedPayload);
+2835-    case ARKA_ACTION.SUBMIT_HANDOFF: {
+2836-      const submitActor = actorFromPayload(guardedPayload);
+2837-      const submitPaymentIds = Array.isArray(guardedPayload.paymentIds || guardedPayload.payment_ids)
+2838-        ? [...new Set((guardedPayload.paymentIds || guardedPayload.payment_ids).map((id) => normalizeDbId(id)).filter(Boolean))]
+2839-        : [];
+2840-      const submitLockKey = `submit_handoff:${submitActor.pin || 'NO_PIN'}:${submitPaymentIds.length ? submitPaymentIds.join('-') : 'AUTO'}`;
+2841-      return withRuntimeLock(submitLockKey, () => submitHandoff(sb, guardedPayload));
+2842-    }
+2843-    case ARKA_ACTION.ACCEPT_HANDOFF:
+2844-      return acceptHandoff(sb, guardedPayload);
+2845-    case ARKA_ACTION.REJECT_HANDOFF:
+2846-      return rejectHandoff(sb, guardedPayload);
+2847-    case ARKA_ACTION.VOID_OR_REVERSE_PAYMENT:
+2848-      return voidOrReversePayment(sb, guardedPayload);
+2849-    default:
+2850-      throw new Error('ARKA_ACTION_NOT_IMPLEMENTED');
+2851-  }
+2852-}
+2853-
+2854-export default runArkaTransaction;
+=== PAYROLL UI CASH FIELDS ===
+200-  if (status === "WORKER_DEBT" || status === "OWED" || status === "REJECTED") return { label: "BORXH", tone: "red" };
+201-  if (status === "CLEARED_PAID") return { label: "RROGË / SHLYER", tone: "green" };
+202-  if (type === "IN") return { label: "DORËZIM", tone: "blue" };
+203-  return { label: status || type || "VEPRIM", tone: "slate" };
+204-}
+205-
+206-const AUTH_REPAIR_WAIT_MS = 1800;
+207-const DB_TIMEOUT_MS = 3500;
+208:const MONTH_CLOSE_EXCLUDED_CASH_TYPES = new Set(['EXPENSE', 'TIMA', 'MEAL_PAYMENT', 'MEAL_COVERED', 'ADVANCE', 'SALARY_PAYMENT']);
+209-const MONTH_CLOSE_EXPENSE_TYPES = new Set(['EXPENSE', 'MEAL_PAYMENT', 'MEAL_COVERED']);
+210-
+211-function isMonthlyExpenseRow(row) {
+212-  const type = String(row?.type || '').toUpperCase();
+213-  const status = String(row?.status || '').toUpperCase();
+214-  if (status !== 'ACCEPTED_BY_DISPATCH') return false;
+215-  return MONTH_CLOSE_EXPENSE_TYPES.has(type);
+216-}
+217-
+218-function withTimeout(promise, ms = DB_TIMEOUT_MS, label = 'db_timeout') {
+219-  let timer = null;
+220-  return Promise.race([
+221-    Promise.resolve(promise),
+222-    new Promise((_, reject) => {
+223-      timer = setTimeout(() => {
+224-        const err = new Error(label);
+225-        err.code = 'TEPIHA_TIMEOUT';
+226-        reject(err);
+227-      }, ms);
+228-    }),
+--
+406-          .gte("created_at", startIso)
+407-          .lt("created_at", endIso)
+408-          .order("created_at", { ascending: false })
+409-          .limit(3000),
+410-
+411-        supabase
+412-          .from("arka_pending_payments")
+413-          .select("*")
+414:          .eq("status", "SALARY_PAID")
+415-          .ilike("note", `%RROGA ${month}%`)
+416-          .order("created_at", { ascending: false })
+417-          .limit(500),
+418-
+419-        supabase
+420-          .from("company_budget_summary")
+421-          .select("current_balance,total_in,total_out")
+422-          .eq("id", 1)
+423-          .maybeSingle(),
+424-
+425-        supabase
+426-          .from("company_fixed_expenses")
+427-          .select("id,title,amount,due_day,essential,active")
+428-          .eq("active", true)
+429-          .order("due_day", { ascending: true })
+430-          .limit(500),
+431-
+432-        supabase
+433-          .from("arka_pending_payments")
+434-          .select("*")
+--
+718-    }
+719-
+720-    const conf = confirm(
+721-      `Konfirmo pagesën e rrogës për ${workerName || workerPin}:\n\n` +
+722-      `Muaji: ${payrollMonth}\n` +
+723-      `Rroga bazë: ${euro(baseSalary)}\n` +
+724-      `Avans që zbritet: ${euro(advanceAmount)}\n` +
+725-      `Neto për pagesë: ${euro(netAmount)}\n\n` +
+726:      `Sistemi do ta zbresë buxhetin, do krijojë ledger OUT dhe marker SALARY_PAYMENT/SALARY_PAID.`
+727-    );
+728-    if (!conf) return;
+729-
+730-    setActionBusy(true);
+731-    try {
+732-      const res = await arkaTransaction({
+733:        action: ARKA_ACTION.PAYROLL_SALARY_PAYMENT,
+734-        actorPin: String(masterPin || '').trim(),
+735-        actorName: actor?.name || 'MASTER USER',
+736-        actorRole: actor?.role || 'ADMIN',
+737-        workerId: salaryModal?.id || null,
+738-        workerPin,
+739-        workerName,
+740-        monthKey: payrollMonth,
+741-        amount: netAmount,
+742-        baseSalary,
+743-        advanceAmount,
+744-        autoAdvanceAmount,
+745-        manualAdvanceAmount,
+746:        idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.PAYROLL_SALARY_PAYMENT, [payrollMonth, workerPin]),
+747-      });
+748:      if (!res?.ok) throw new Error(res?.error || 'SALARY_PAYMENT_FAILED');
+749-
+750-      alert(res?.duplicate
+751-        ? `✅ Rroga për ${workerName || workerPin} ishte e regjistruar më herët për ${payrollMonth}. Nuk u krijua pagesë e dytë.`
+752-        : `✅ Rroga u pagua për ${workerName || workerPin}. Neto: ${euro(netAmount)}.`
+753-      );
+754-      setSalaryModal(null);
+755-      await reloadAll(true);
+756-      await reloadMonthlyPayrollPreview(payrollMonth);
+757-    } catch (err) {
+758-      alert('GABIM: ' + normalizeDbError(err));
+759-    } finally {
+760-      setActionBusy(false);
+761-    }
+762-  }
+763-
+764-  async function handleMoveAdvancesToLongTerm() {
+765-    if (!salaryModal || !masterPin) {
+766-      alert("Kërkohet Master PIN për këtë veprim.");
+767-      return;
+768-    }
