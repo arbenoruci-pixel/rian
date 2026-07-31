@@ -1,0 +1,33 @@
+name: One-time analyze dispatch payroll
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-analyze-dispatch-payroll.yml
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Locate payroll permission and closeout flow
+        shell: bash
+        run: |
+          {
+            echo '=== MASTER PIN / PAYROLL ==='
+            grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E 'MASTER.?PIN|masterPin|requireMaster|PAYROLL|SALARY|RROG|PAGA|payroll|salary' app lib components src || true
+            echo
+            echo '=== DISPATCH ROLE / CASH HANDOFF ==='
+            grep -Rni --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' -E 'DISPATCH|dispatch|cash.*handoff|dor[eë]zu|to.?hand|worker.*cash|balance.*worker|mbyll.*rrog|close.*salary' app/arka app/dispatch lib components || true
+          } > .tmp-dispatch-payroll-analysis.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .tmp-dispatch-payroll-analysis.txt
+          git commit -m "analyze dispatch payroll permissions and closeout"
+          git push origin HEAD:main
