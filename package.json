@@ -1,13 +1,13 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.64-arka-final-integrity-v3",
+  "version": "2.0.65-pastrimi-worker-groups-v1",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
     "dev:api": "node server/index.mjs --dev",
-    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs",
+    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs",
     "build": "npm run test:offline-first && npm run test:offline-queued-success && npm run test:smart-sms-exact && npm run test:arka-final-integrity && vite build",
     "preview": "vite preview",
     "server": "node server/index.mjs",
