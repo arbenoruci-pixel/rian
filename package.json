@@ -1,13 +1,13 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.68-online-truth-arka-offline-v1",
+  "version": "2.0.69-pastrimi-baza-first-v1",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
     "dev:api": "node server/index.mjs --dev",
-    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs && node tools/apply-pranimi-offline-bank-consume-v1.mjs && node tools/apply-online-db-truth-recovery-v1.mjs && node tools/apply-arka-offline-feedback-v1.mjs",
+    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs && node tools/apply-pastrimi-baza-first-v1.mjs && node tools/apply-pranimi-offline-bank-consume-v1.mjs && node tools/apply-online-db-truth-recovery-v1.mjs && node tools/apply-arka-offline-feedback-v1.mjs",
     "build": "npm run test:offline-first && npm run test:offline-queued-success && npm run test:smart-sms-exact && npm run test:arka-final-integrity && npm run test:online-db-truth && vite build",
     "preview": "vite preview",
     "server": "node server/index.mjs",
