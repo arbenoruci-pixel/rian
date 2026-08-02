@@ -1,13 +1,13 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.65-pastrimi-worker-groups-v1",
+  "version": "2.0.66-pranimi-code-finalize-v1",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
     "dev:api": "node server/index.mjs --dev",
-    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs",
+    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs && node tools/apply-pranimi-offline-bank-consume-v1.mjs",
     "build": "npm run test:offline-first && npm run test:offline-queued-success && npm run test:smart-sms-exact && npm run test:arka-final-integrity && vite build",
     "preview": "vite preview",
     "server": "node server/index.mjs",
@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",
-    "cors": "^2.8.5",
+    "cors": "^4.21.2",
     "express": "^4.21.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.2",
