@@ -8,6 +8,7 @@ import { installOfflineQueuedOrderUiGuard } from '../lib/offlineQueuedOrderUiGua
 import { installDispatchAdvanceBridge } from '../lib/dispatchAdvanceBridge.js';
 import { installDispatchPayrollAccessBridge } from '../lib/dispatchPayrollAccessBridge.js';
 import { installTransportMultiLocationBridge } from '../lib/transportMultiLocationBridge.js';
+import { installConnectivityListTransitionGuard } from '../lib/connectivityListTransitionGuard.js';
 
 function blackboxLog(name, details = null) {
   try { window.__TEPIHA_BLACKBOX__?.log?.(name, details); } catch {}
@@ -210,6 +211,7 @@ installOfflineQueuedOrderUiGuard();
 installDispatchAdvanceBridge();
 installDispatchPayrollAccessBridge();
 installTransportMultiLocationBridge();
+installConnectivityListTransitionGuard();
 installOfflineSessionRefreshBridge();
 
 try {
