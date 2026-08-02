@@ -1,14 +1,14 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.71-authoritative-offline-lists-v1",
+  "version": "2.0.72-authoritative-offline-lists-v2",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
     "dev:api": "node server/index.mjs --dev",
-    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs && node tools/apply-pastrimi-baza-first-v1.mjs && node tools/apply-gati-visual-parity-v1.mjs && node tools/apply-gati-offline-payment-v1.mjs && node tools/apply-authoritative-offline-lists-v1.mjs && node tools/apply-pranimi-offline-bank-consume-v1.mjs && node tools/apply-online-db-truth-recovery-v1.mjs && node tools/apply-arka-offline-feedback-v1.mjs",
-    "build": "npm run test:offline-first && npm run test:offline-queued-success && npm run test:smart-sms-exact && npm run test:arka-final-integrity && npm run test:online-db-truth && npm run test:gati-visual-offline && npm run test:authoritative-offline-lists && vite build",
+    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs && node tools/apply-pastrimi-baza-first-v1.mjs && node tools/apply-gati-visual-parity-v1.mjs && node tools/apply-gati-offline-payment-v1.mjs && node tools/apply-pranimi-offline-bank-consume-v1.mjs && node tools/apply-online-db-truth-recovery-v1.mjs && node tools/apply-arka-offline-feedback-v1.mjs && node tools/apply-authoritative-offline-lists-v2.mjs",
+    "build": "npm run test:offline-first && npm run test:offline-queued-success && npm run test:smart-sms-exact && npm run test:arka-final-integrity && npm run test:online-db-truth && npm run test:gati-visual-offline && npm run test:authoritative-offline-lists-v2 && vite build",
     "preview": "vite preview",
     "server": "node server/index.mjs",
     "cycles": "node tools/viteCircularDependencyPlugin.mjs",
@@ -27,7 +27,8 @@
     "test:arka-final-integrity": "node tools/verify-arka-final-integrity-v3.mjs",
     "test:online-db-truth": "node tools/verify-online-db-truth-recovery-v1.mjs",
     "test:gati-visual-offline": "node tools/verify-gati-visual-offline-payment-v1.mjs",
-    "test:authoritative-offline-lists": "node tools/verify-authoritative-offline-lists-v1.mjs"
+    "test:authoritative-offline-lists": "node tools/verify-authoritative-offline-lists-v1.mjs",
+    "test:authoritative-offline-lists-v2": "node tools/verify-authoritative-offline-lists-v2.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",
