@@ -43,6 +43,32 @@ function functionBlock(source, name) {
   return '';
 }
 
+function countText(source, text) {
+  let count = 0;
+  let from = 0;
+  while (true) {
+    const at = source.indexOf(text, from);
+    if (at < 0) return count;
+    count += 1;
+    from = at + Math.max(1, text.length);
+  }
+}
+
+function debugFunction(source, name) {
+  const declaration = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(source);
+  const block = functionBlock(source, name);
+  return {
+    name,
+    declarationIndex: declaration?.index ?? -1,
+    declarationCount: countText(source, `function ${name}(`),
+    blockLength: block.length,
+    blockHead: block.slice(0, 1400),
+    sourceModeCount: countText(source, "sourceMode !== 'DB_ONLY'"),
+    dbTruthVersionCount: countText(source, 'DbTruthVersion'),
+    localPastrimArchiveCount: countText(source, "readLocalOrdersByStatus('pastrim')"),
+  };
+}
+
 // Runtime policy simulation: 291 historical Tapin rows must never be layered
 // onto a 51-order DB snapshot. Only two explicitly pending rows may be added.
 const snapshot = Array.from({ length: 51 }, (_, index) => ({
@@ -117,6 +143,13 @@ check(!recovery.includes("try { clearPageSnapshot('gati'); } catch {}"), 'Online
 check(recovery.includes("preserved: ['pastrimi', 'gati']"), 'Recovery must record snapshot preservation');
 
 if (failures.length) {
+  console.error('AUTHORITATIVE_OFFLINE_V2_DIAG', JSON.stringify({
+    gatiPersist: debugFunction(gati, 'persistGatiPageSnapshot'),
+    pastrimPersist: debugFunction(pastrimi, 'persistPastrimPageSnapshot'),
+    pastrimFallback: debugFunction(pastrimi, 'buildPastrimFallbackRows'),
+    gatiMarkerIndex: gati.indexOf('AUTHORITATIVE_OFFLINE_LISTS_V2:GATI'),
+    pastrimMarkerIndex: pastrimi.indexOf('AUTHORITATIVE_OFFLINE_LISTS_V2:PASTRIMI'),
+  }, null, 2));
   console.error(`FAIL: ${failures.length} authoritative offline V2 check(s) failed.`);
   failures.forEach((message, index) => console.error(`${index + 1}. ${message}`));
   process.exit(1);
