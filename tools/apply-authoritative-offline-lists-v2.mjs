@@ -6,19 +6,15 @@ const RECOVERY_PATH = 'lib/onlineDbTruthRecovery.js';
 const MARKER = 'AUTHORITATIVE_OFFLINE_LISTS_V2';
 const POLICY_IMPORT = "import { isDbTruthSnapshotMeta, isStrongPendingOfflineRow, selectAuthoritativeOfflineRows } from '@/lib/authoritativeOfflineListPolicy';";
 
-function findNamedFunctionRange(source, name) {
-  const match = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(source);
-  if (!match) throw new Error(`${name}_FUNCTION_NOT_FOUND`);
-  const bodyStart = source.indexOf('{', match.index);
-  if (bodyStart < 0) throw new Error(`${name}_BODY_NOT_FOUND`);
-
+function scanMatchingDelimiter(source, start, openChar, closeChar, label) {
+  if (source[start] !== openChar) throw new Error(`${label}_OPEN_NOT_FOUND`);
   let depth = 0;
   let quote = '';
   let escaped = false;
   let lineComment = false;
   let blockComment = false;
 
-  for (let i = bodyStart; i < source.length; i += 1) {
+  for (let i = start; i < source.length; i += 1) {
     const ch = source[i];
     const next = source[i + 1] || '';
 
@@ -59,13 +55,29 @@ function findNamedFunctionRange(source, name) {
       quote = ch;
       continue;
     }
-    if (ch === '{') depth += 1;
-    if (ch === '}') {
+
+    if (ch === openChar) depth += 1;
+    if (ch === closeChar) {
       depth -= 1;
-      if (depth === 0) return { start: match.index, end: i + 1 };
+      if (depth === 0) return i;
     }
   }
-  throw new Error(`${name}_FUNCTION_UNTERMINATED`);
+  throw new Error(`${label}_UNTERMINATED`);
+}
+
+function findNamedFunctionRange(source, name) {
+  const match = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(source);
+  if (!match) throw new Error(`${name}_FUNCTION_NOT_FOUND`);
+
+  const paramsStart = source.indexOf('(', match.index);
+  if (paramsStart < 0) throw new Error(`${name}_PARAMS_NOT_FOUND`);
+  const paramsEnd = scanMatchingDelimiter(source, paramsStart, '(', ')', `${name}_PARAMS`);
+
+  let bodyStart = paramsEnd + 1;
+  while (bodyStart < source.length && /\s/.test(source[bodyStart])) bodyStart += 1;
+  if (source[bodyStart] !== '{') throw new Error(`${name}_BODY_NOT_FOUND`);
+  const bodyEnd = scanMatchingDelimiter(source, bodyStart, '{', '}', `${name}_BODY`);
+  return { start: match.index, end: bodyEnd + 1 };
 }
 
 function replaceNamedFunction(source, name, replacement) {
@@ -77,6 +89,15 @@ function ensureImport(source, line, anchor) {
   if (source.includes(line)) return source;
   if (!source.includes(anchor)) throw new Error(`IMPORT_ANCHOR_NOT_FOUND:${anchor}`);
   return source.replace(anchor, `${anchor}\n${line}`);
+}
+
+function replaceRequired(source, from, to, label) {
+  if (!source.includes(from)) throw new Error(`${label}_ANCHOR_NOT_FOUND`);
+  return source.replace(from, to);
+}
+
+function assertIncludes(source, value, label) {
+  if (!source.includes(value)) throw new Error(`${label}_MISSING_AFTER_PATCH`);
 }
 
 function patchGati() {
@@ -189,10 +210,29 @@ ${anchor}`);
   }));
 }`);
 
+  source = replaceRequired(
+    source,
+    `        const visibleOfflineRows = dedupeGatiSnapshotRows([\n          ...(Array.isArray(offlineRows) ? offlineRows : []),\n          ...(Array.isArray(syncSnapshot) ? syncSnapshot : []),\n          ...currentRows,\n        ])`,
+    `        const transitionPendingRows = [\n          ...(Array.isArray(syncSnapshot) ? syncSnapshot : []),\n          ...currentRows,\n        ].filter((row) => rowLooksPendingOrLocalGati(row));\n        const visibleOfflineRows = dedupeGatiSnapshotRows([\n          ...(Array.isArray(offlineRows) ? offlineRows : []),\n          ...transitionPendingRows,\n        ])`,
+    'GATI_OFFLINE_VISIBLE_ROWS'
+  );
+
+  source = replaceRequired(
+    source,
+    `        const keepVisibleRows = dedupeOrders([\n          ...(Array.isArray(syncSnapshot) ? syncSnapshot : []),\n          ...currentRows,\n        ])`,
+    `        const authoritativeErrorRows = await buildImmediateGatiLocalRows().catch(() => []);\n        const errorPendingRows = [\n          ...(Array.isArray(syncSnapshot) ? syncSnapshot : []),\n          ...currentRows,\n        ].filter((row) => rowLooksPendingOrLocalGati(row));\n        const keepVisibleRows = dedupeOrders([\n          ...(Array.isArray(authoritativeErrorRows) ? authoritativeErrorRows : []),\n          ...errorPendingRows,\n        ])`,
+    'GATI_ERROR_VISIBLE_ROWS'
+  );
+
   source = source.replace(
-    "// app/gati/page.jsx",
+    '// app/gati/page.jsx',
     `// app/gati/page.jsx\n// ${MARKER}:GATI`
   );
+
+  assertIncludes(source, "sourceMode !== 'DB_ONLY'", 'GATI_SNAPSHOT_WRITE_GUARD');
+  assertIncludes(source, 'gatiDbTruthVersion: GATI_DB_TRUTH_VERSION', 'GATI_SNAPSHOT_VERSION');
+  assertIncludes(source, 'transitionPendingRows', 'GATI_TRANSITION_PENDING_ONLY');
+  assertIncludes(source, 'authoritativeErrorRows', 'GATI_ERROR_PENDING_ONLY');
 
   fs.writeFileSync(GATI_PATH, source, 'utf8');
   return true;
@@ -293,10 +333,29 @@ function patchPastrimi() {
   return rows;
 }`);
 
+  if (!source.includes('async function readPendingLocalOrdersByStatus(status)')) {
+    const anchor = 'async function readLocalOrdersByStatus(status) {';
+    if (!source.includes(anchor)) throw new Error('PASTRIMI_LOCAL_STATUS_READER_ANCHOR_NOT_FOUND');
+    source = source.replace(anchor, `async function readPendingLocalOrdersByStatus(status) {
+  // ${MARKER}:PASTRIMI — compatibility path for any remaining callers.
+  // It may expose only rows with explicit outbox/local pending evidence.
+  const rows = await readLocalOrdersByStatus(status);
+  return (Array.isArray(rows) ? rows : []).filter((row) => isStrongPendingOfflineRow(row));
+}
+
+${anchor}`);
+  }
+
+  source = source.split("readLocalOrdersByStatus('pastrim')").join("readPendingLocalOrdersByStatus('pastrim')");
+
   source = source.replace(
     "'use client';",
     `'use client';\n\n// ${MARKER}:PASTRIMI`
   );
+
+  assertIncludes(source, "sourceMode !== 'DB_ONLY'", 'PASTRIMI_SNAPSHOT_WRITE_GUARD');
+  assertIncludes(source, 'pastrimiDbTruthVersion: PASTRIMI_DB_TRUTH_VERSION', 'PASTRIMI_SNAPSHOT_VERSION');
+  if (source.includes("readLocalOrdersByStatus('pastrim')")) throw new Error('PASTRIMI_STALE_LOCAL_ARCHIVE_CALL_REMAINS');
 
   fs.writeFileSync(PASTRIMI_PATH, source, 'utf8');
   return true;
