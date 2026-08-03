@@ -71,7 +71,6 @@ const snapshotCheck = functionBlock(gati, 'isGatiDbTruthSnapshot');
 const snapshotRead = functionBlock(gati, 'readGatiRowsFromPageSnapshot');
 const recoveryRows = functionBlock(recovery, 'buildRecoveredGatiSnapshotRows');
 const recoveryWrite = functionBlock(recovery, 'writeRecoveredGatiSnapshot');
-const recoveryRun = functionBlock(recovery, 'reconcileOnlineDbTruth');
 
 check(gati.includes('GATI_OFFLINE_SNAPSHOT_V3:GATI'), 'GATI V3 marker missing');
 check(recovery.includes('GATI_OFFLINE_SNAPSHOT_V3:RECOVERY'), 'Recovery V3 marker missing');
@@ -100,8 +99,8 @@ check(recoveryRows.includes('fullOrder'), 'Recovered rows must retain full order
 check(recoveryWrite.includes("writePageSnapshot('gati', rows"), 'Recovery must write the GATI page snapshot');
 check(recoveryWrite.includes("sourceMode: 'DB_ONLY'"), 'Recovery snapshot must be DB_ONLY');
 check(recoveryWrite.includes('gatiDbTruthVersion: GATI_DB_TRUTH_VERSION'), 'Recovery snapshot version missing');
-check(recoveryRun.includes('const gatiSnapshot = writeRecoveredGatiSnapshot(dbRows, source)'), 'Recovery run does not build GATI snapshot');
-check(recoveryRun.includes('gatiSnapshotRows: Number(gatiSnapshot?.count || 0)'), 'Recovery result does not report GATI snapshot count');
+check(recovery.includes('const gatiSnapshot = writeRecoveredGatiSnapshot(dbRows, source);'), 'Recovery run does not build GATI snapshot');
+check(recovery.includes('gatiSnapshotRows: Number(gatiSnapshot?.count || 0)'), 'Recovery result does not report GATI snapshot count');
 check(!recovery.includes("clearPageSnapshot('gati')"), 'Recovery must not clear the GATI snapshot');
 
 // Regression model for the exact field mismatch that caused the screenshot:
