@@ -99,7 +99,11 @@ check(recoveryRows.includes('fullOrder'), 'Recovered rows must retain full order
 check(recoveryWrite.includes("writePageSnapshot('gati', rows"), 'Recovery must write the GATI page snapshot');
 check(recoveryWrite.includes("sourceMode: 'DB_ONLY'"), 'Recovery snapshot must be DB_ONLY');
 check(recoveryWrite.includes('gatiDbTruthVersion: GATI_DB_TRUTH_VERSION'), 'Recovery snapshot version missing');
-check(recovery.includes('const gatiSnapshot = writeRecoveredGatiSnapshot(dbRows, source);'), 'Recovery run does not build GATI snapshot');
+check(
+  recovery.includes('const gatiSnapshot = writeRecoveredGatiSnapshot(dbRows, source);') ||
+  recovery.includes('const gatiSnapshot = await writeRecoveredGatiSnapshot(dbRows, source);'),
+  'Recovery run does not build GATI snapshot'
+);
 check(recovery.includes('gatiSnapshotRows: Number(gatiSnapshot?.count || 0)'), 'Recovery result does not report GATI snapshot count');
 check(!recovery.includes("clearPageSnapshot('gati')"), 'Recovery must not clear the GATI snapshot');
 
