@@ -72,10 +72,27 @@ function normalizeLegacyArgs(args) {
       user: pinData || null,
       payMethod,
       externalId: order?.payment_external_id || null,
+      statusOnFullPayment:
+        order?.statusOnFullPayment ||
+        order?.status_on_full_payment ||
+        order?.fullPaymentStatus ||
+        order?.full_payment_status ||
+        null,
     };
   }
 
   return args[0] || {};
+}
+
+function normalizeFullPaymentStatus(input = {}) {
+  const value = String(
+    input?.statusOnFullPayment ||
+    input?.status_on_full_payment ||
+    input?.fullPaymentStatus ||
+    input?.full_payment_status ||
+    ''
+  ).trim().toLowerCase();
+  return ['pastrim', 'gati', 'dorzim'].includes(value) ? value : '';
 }
 
 /**
@@ -100,6 +117,7 @@ export async function recordOrderCashPayment(...args) {
   const note =
     input.note ||
     `PAGESA ${amt}€ • #${input.code || ''} • ${input.clientName || input.name || ''}`.trim();
+  const statusOnFullPayment = normalizeFullPaymentStatus(input);
 
   const result = await arkaTransaction({
     action: ARKA_ACTION.BASE_ORDER_PAYMENT,
@@ -113,6 +131,12 @@ export async function recordOrderCashPayment(...args) {
     orderCode: input.code || input.orderCode || input.order_code || null,
     clientName: input.clientName || input.name || input.client_name || null,
     clientPhone: input.clientPhone || input.client_phone || input.phone || null,
+    ...(statusOnFullPayment ? {
+      statusOnFullPayment,
+      status_on_full_payment: statusOnFullPayment,
+      fullPaymentStatus: statusOnFullPayment,
+      full_payment_status: statusOnFullPayment,
+    } : {}),
     idempotencyKey:
       input.idempotencyKey ||
       input.idempotency_key ||
