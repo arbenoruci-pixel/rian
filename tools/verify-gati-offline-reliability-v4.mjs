@@ -7,17 +7,13 @@ const durable = fs.readFileSync('lib/gatiDurableSnapshot.js', 'utf8');
 const failures = [];
 const check = (ok, message) => { if (!ok) failures.push(message); };
 
-function functionBlock(source, name) {
-  const match = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(source);
-  if (!match) return '';
-  const bodyStart = source.indexOf('{', match.index);
-  if (bodyStart < 0) return '';
+function scanMatching(source, start, openChar, closeChar) {
   let depth = 0;
   let quote = '';
   let escaped = false;
   let lineComment = false;
   let blockComment = false;
-  for (let i = bodyStart; i < source.length; i += 1) {
+  for (let i = start; i < source.length; i += 1) {
     const ch = source[i];
     const next = source[i + 1] || '';
     if (lineComment) { if (ch === '\n') lineComment = false; continue; }
@@ -31,13 +27,27 @@ function functionBlock(source, name) {
     if (ch === '/' && next === '/') { lineComment = true; i += 1; continue; }
     if (ch === '/' && next === '*') { blockComment = true; i += 1; continue; }
     if (ch === "'" || ch === '"' || ch === '`') { quote = ch; continue; }
-    if (ch === '{') depth += 1;
-    if (ch === '}') {
+    if (ch === openChar) depth += 1;
+    if (ch === closeChar) {
       depth -= 1;
-      if (depth === 0) return source.slice(match.index, i + 1);
+      if (depth === 0) return i;
     }
   }
-  return '';
+  return -1;
+}
+
+function functionBlock(source, name) {
+  const match = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(source);
+  if (!match) return '';
+  const paramsStart = source.indexOf('(', match.index);
+  const paramsEnd = scanMatching(source, paramsStart, '(', ')');
+  if (paramsStart < 0 || paramsEnd < 0) return '';
+  let bodyStart = paramsEnd + 1;
+  while (bodyStart < source.length && /\s/.test(source[bodyStart])) bodyStart += 1;
+  if (source[bodyStart] !== '{') return '';
+  const bodyEnd = scanMatching(source, bodyStart, '{', '}');
+  if (bodyEnd < 0) return '';
+  return source.slice(match.index, bodyEnd + 1);
 }
 
 const persist = functionBlock(gati, 'persistGatiPageSnapshot');
