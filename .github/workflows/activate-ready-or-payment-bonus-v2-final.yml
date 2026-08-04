@@ -1,0 +1,83 @@
+name: Activate ready-or-payment bonus v2 final
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/activate-ready-or-payment-bonus-v2-final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: activate-ready-or-payment-bonus-v2-final
+  cancel-in-progress: false
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply final payment qualification patch
+        run: node tools/apply-base-ready-or-payment-bonus-v2-final.mjs
+
+      - name: Wire final patch and verifier into production build
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.version = '2.0.78-base-ready-or-payment-bonus-v2';
+          pkg.scripts ||= {};
+
+          const patch = 'node tools/apply-base-ready-or-payment-bonus-v2-final.mjs';
+          const parts = String(pkg.scripts.prebuild || '').split('&&').map((x) => x.trim()).filter(Boolean);
+          if (!parts.includes(patch)) parts.push(patch);
+          pkg.scripts.prebuild = parts.join(' && ');
+
+          pkg.scripts['test:base-ready-or-payment-bonus-final'] = 'node tools/verify-base-ready-or-payment-bonus-v2-final.mjs';
+          const testCall = 'npm run test:base-ready-or-payment-bonus-final';
+          let build = String(pkg.scripts.build || 'vite build');
+          if (!build.includes(testCall)) {
+            build = build.includes('vite build')
+              ? build.replace(/\s*&&\s*vite build\s*$/, ` && ${testCall} && vite build`)
+              : `${build} && ${testCall}`;
+          }
+          pkg.scripts.build = build;
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run final policy verifier
+        run: node tools/verify-base-ready-or-payment-bonus-v2-final.mjs
+
+      - name: Run full production build
+        run: npm run build
+
+      - name: Commit verified source and remove one-shot workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/activate-ready-or-payment-bonus-v2-final.yml
+          rm -f .github/workflows/finish-ready-or-payment-bonus-v2-20260804.yml
+          git config user.name 'ready-payment-bonus-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'award 48h bonus on GATI or verified full BASE payment [ready-payment-v2-final]'
+          git push origin HEAD:main
