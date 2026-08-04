@@ -17,7 +17,15 @@ const newBlock = `const GROUPS = {
   baza: { label: 'BAZA', order: 100 },
 };`;
 
-if (source.includes(newBlock)) {
+const currentFitimBlock = `const GROUPS = {
+  all: { label: 'TE GJITHA', order: 0 },
+  baza: { label: 'BAZA', order: 100 },
+  fitim: { label: 'FITIM', order: 200 },
+  blerim: { label: 'BLERIM', order: 300 },
+  tapin: { label: 'TAPIN', order: 400 },
+};`;
+
+if (source.includes(newBlock) || source.includes(currentFitimBlock)) {
   console.log('[pastrimi-baza-first-v1] already applied');
   process.exit(0);
 }
