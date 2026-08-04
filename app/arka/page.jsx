@@ -2,8 +2,10 @@
 
 import Link from '@/lib/routerCompat.jsx';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
+import ReadyBonusLiveCard from '@/components/ReadyBonusLiveCard';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getActor } from '@/lib/actorSession';
+import { computeReadyBonusDeductionForCash, listOpenBaseReadyBonusPayments } from '@/lib/baseReadyBonusClient';
 import { supabase } from '@/lib/supabaseClient';
 import { ARKA_ACTION, ARKA_SOURCE_MODULE } from '@/lib/arka/arkaConstants';
 import { arkaTransaction, buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';
@@ -47,7 +49,8 @@ const MUTATION_COOLDOWN_MS = 2600;
 const MUTATION_PRIMARY_DELAY_MS = 1400;
 const INITIAL_MANAGER_SECONDARY_DELAY_MS = 1400;
 const FOOD_DEDUCTION = 3;
-const EXTRA_TYPES = new Set(['TIMA', 'EXPENSE', 'MEAL_PAYMENT', 'MEAL_COVERED']);
+const EXTRA_TYPES = new Set(['TIMA', 'EXPENSE', 'MEAL_PAYMENT', 'MEAL_COVERED', 'READY_48H_BONUS']);
+// BASE_READY_48H_BONUS_V1:ARKA
 const NON_PAYMENT_STATUSES = new Set(['OWED', 'REJECTED', 'WORKER_DEBT', 'ADVANCE', 'PENDING_DISPATCH_APPROVAL', 'ACCEPTED_BY_DISPATCH']);
 const MANAGER_PAYMENT_SELECT = 'id,amount,type,status,note,created_at,updated_at,created_by_pin,created_by_name,handed_by_pin,handed_by_name,handed_by_role,handoff_note,client_name,order_id,order_code,source_module,transport_order_id,transport_code_str,transport_m2';
 const MANAGER_HANDOFF_SELECT = 'id,amount,status,worker_pin,worker_name,submitted_at,decided_at,note';
@@ -3091,7 +3094,7 @@ export default function ArkaPageV3() {
     if (request?.error) return alert(request.error);
     try {
       setBusy('expense');
-      await createExpenseEntry({
+      const expenseResult = await createExpenseEntry({
         actor,
         amount,
         note: buildExpenseRequestNote(title, request),
@@ -3099,14 +3102,20 @@ export default function ArkaPageV3() {
         workerName: actor?.name,
         workerRole: actor?.role,
       });
+      const expenseQueuedOffline = Boolean(expenseResult?.offlineQueued || expenseResult?.queued || expenseResult?.localOnly || expenseResult?.offline);
       setExpenseTitle('');
       setExpenseAmount('');
       setExpenseRequestType('BUSINESS_EXPENSE');
       setExpenseBeneficiaryPin('');
       setExpenseBeneficiaryName('');
       setExpenseFormOpen(false);
-      await scheduleManagerMutationRefresh(actor);
-      alert('✅ SHPENZIMI U REGJISTRUA SI KËRKESË NË PRITJE.');
+      if (!expenseQueuedOffline) await scheduleManagerMutationRefresh(actor);
+      else {
+        try { window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER')); } catch {}
+      }
+      alert(expenseQueuedOffline
+        ? '✅ SHPENZIMI U RUAJT OFFLINE. DO TË SINKRONIZOHET AUTOMATIKISHT KUR TË KETË RRJET.'
+        : '✅ SHPENZIMI U REGJISTRUA SI KËRKESË NË PRITJE.');
     } catch (e) {
       alert(`🔴 ${e?.message || 'NUK U REGJISTRUA SHPENZIMI.'}`);
     } finally {
@@ -3175,24 +3184,33 @@ export default function ArkaPageV3() {
         amountPerPerson: FOOD_DEDUCTION,
       });
       const mealDeduct = n(mealDecision?.deductAmount);
-      const estimatedNet = Math.max(0, +(total - mealDeduct).toFixed(2));
+      const openBonusRows = await listOpenBaseReadyBonusPayments(actor?.pin);
+      const readyBonusAvailable = +(openBonusRows.reduce((sum, row) => sum + n(row?.remaining_amount), 0)).toFixed(2);
+      const afterMeal = Math.max(0, +(total - mealDeduct).toFixed(2));
+      const readyBonusDeduct = computeReadyBonusDeductionForCash(afterMeal, readyBonusAvailable);
+      const estimatedNet = Math.max(0, +(afterMeal - readyBonusDeduct).toFixed(2));
       const ok = window.confirm(
         `A DON ME I DORËZU TE DISPATCH ${estimatedNet.toFixed(2)}€?
 
 ` +
         `KLIENTËT PAGUAN: ${grossTotal.toFixed(2)}€
 ` +
-        `KOMISIONI YT: ${commissionTotal.toFixed(2)}€
+        `KOMISIONI TRANSPORT: ${commissionTotal.toFixed(2)}€
 ` +
-        `${mealDecision?.confirmLine ? `${mealDecision.confirmLine}
-` : ''}` +
+        `BONUSI 48H QË E MBAN: ${readyBonusDeduct.toFixed(2)}€
+` +
+        (readyBonusAvailable > readyBonusDeduct + 0.005 ? `BONUSI QË BARTET: ${(readyBonusAvailable-readyBonusDeduct).toFixed(2)}€
+` : '') +
+        (mealDecision?.confirmLine ? `${mealDecision.confirmLine}
+` : '') +
         `${rows.length} KLIENTË PËR DORËZIM.`
       );
       if (!ok) return;
       setBusy('handoff');
-      await submitWorkerCashToDispatch({ actor });
+      const submitted = await submitWorkerCashToDispatch({ actor });
       await scheduleManagerMutationRefresh(actor);
-      alert('✅ DORËZIMI U DËRGUA TE DISPATCH.');
+      const held = n(submitted?.readyBonusTotal);
+      alert(`✅ DORËZIMI U DËRGUA TE DISPATCH.${held > 0 ? '\nBONUSI 48H I MBAJTUR NË KËTË DORËZIM: ' + held.toFixed(2) + '€' : ''}`);
     } catch (e) {
       alert(`🔴 ${e?.message || 'NUK U DËRGUA DORËZIMI.'}`);
     } finally {
@@ -3247,6 +3265,7 @@ export default function ArkaPageV3() {
         </div>
         <div className="arkaSimpleNav">
           <Link href="/" prefetch={false} className="arkaTopBtn">HOME</Link>
+          <Link href="/arka/bonuset" prefetch={false} className="arkaTopBtn">BONUSI 48H</Link>
           {canOpenKapaku ? <Link href="/arka/kapaku" prefetch={false} className="arkaTopBtn">KAPAKU I ARKËS</Link> : null}
           {canManage ? <Link href="/arka/payroll" prefetch={false} className="arkaTopBtn">PAYROLL</Link> : null}
           {canManage ? <Link href="/arka/stafi" prefetch={false} className="arkaTopBtn">STAFI</Link> : null}
@@ -3268,6 +3287,8 @@ export default function ArkaPageV3() {
             </div>
             <div className="arkaHeroDueHuge">{euro(workerBaseForDispatchTotal)}</div>
           </div>
+
+          <ReadyBonusLiveCard actor={actor} />
 
           <section className="arkaSectionCard arkaCashListCard">
             <div className="arkaSectionHeadCompact">
@@ -3613,6 +3634,25 @@ export default function ArkaPageV3() {
 
       {!loading && actor?.pin && canManage ? (
         <>
+          <ReadyBonusLiveCard actor={actor} />
+          {/* ARKA_DAILY_CONTROL_V1:ARKA — read-only daily facts for DISPATCH. */}
+          <div className="arkaSectionCard" style={{ marginBottom: 14, display: 'grid', gap: 9, border: '1px solid rgba(59,130,246,.34)', background: 'linear-gradient(135deg,rgba(30,64,175,.22),rgba(15,23,42,.82))' }}>
+            <div className="arkaSectionHeadCompact">
+              <div>
+                <div className="arkaSectionTitle">KONTROLLI DITOR</div>
+                <div className="arkaSectionSub">HYRJE / DALJE M² • CASH • SHPENZIME • KOMISIONE • ALARME</div>
+              </div>
+              <Link
+                to="/arka/ditore"
+                className="arkaSolidBtn big"
+                style={{ textDecoration: 'none', textAlign: 'center', minWidth: 150 }}
+              >
+                HAPE PAMJEN DITORE
+              </Link>
+            </div>
+            <div className="arkaSimpleSub">Shifrat llogariten direkt nga DB dhe ruhen si snapshot vetem per lexim offline. Qasja eshte vetem DISPATCH.</div>
+          </div>
+
           <div className="arkaWorkerStats adminTopGrid ownerTotalsGrid">
             <Stat label="NË DORË TE SHOFERËT" value={euro(totals.remainingToHandover)} tone="strong" />
             <Stat label="PËR PRANIM" value={euro(totals.pendingHandoffTotal)} tone="info" />

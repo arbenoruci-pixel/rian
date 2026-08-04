@@ -41,12 +41,12 @@ async function getRowsFromDbGeneral(query, mode = getHomeSearchQueryMode(query))
     if (digits.length >= 5) {
       const suffix = digits.slice(-8);
       clientQueries.push(
-        supabase.from('clients').select('id,code,full_name,first_name,last_name,phone,updated_at').ilike('phone', `%${suffix}%`).limit(30)
+        supabase.from('clients').select('id,code,full_name,first_name,last_name,phone,updated_at').ilike('phone', '%' + suffix + '%').limit(30)
       );
     }
     if (text.length >= 2 && !/^\\d+$/.test(raw.replace(/\\s+/g, ''))) {
       clientQueries.push(
-        supabase.from('clients').select('id,code,full_name,first_name,last_name,phone,updated_at').ilike('full_name', `%${raw}%`).limit(30)
+        supabase.from('clients').select('id,code,full_name,first_name,last_name,phone,updated_at').ilike('full_name', '%' + raw + '%').limit(30)
       );
     }
     const clientResponses = await Promise.all(clientQueries.map((promise) => promise.catch(() => ({ data: [], error: null }))));
@@ -56,18 +56,18 @@ async function getRowsFromDbGeneral(query, mode = getHomeSearchQueryMode(query))
     if (digits.length >= 5) {
       const suffix = digits.slice(-8);
       orderQueries.push(
-        supabase.from('orders').select('id,local_oid,code,client_id,client_name,client_phone,status,data,created_at,updated_at').ilike('client_phone', `%${suffix}%`).order('updated_at', { ascending: false }).limit(40)
+        supabase.from('orders').select('id,local_oid,code,client_id,client_name,client_phone,status,data,created_at,updated_at').ilike('client_phone', '%' + suffix + '%').order('updated_at', { ascending: false }).limit(40)
       );
       orderQueries.push(
-        supabase.from('transport_orders').select('id,code_n,code_str,client_tcode,client_name,client_phone,status,data,created_at,updated_at').ilike('client_phone', `%${suffix}%`).order('updated_at', { ascending: false }).limit(40)
+        supabase.from('transport_orders').select('id,code_n,code_str,client_tcode,client_name,client_phone,status,data,created_at,updated_at').ilike('client_phone', '%' + suffix + '%').order('updated_at', { ascending: false }).limit(40)
       );
     }
     if (text.length >= 2 && !/^\\d+$/.test(raw.replace(/\\s+/g, ''))) {
       orderQueries.push(
-        supabase.from('orders').select('id,local_oid,code,client_id,client_name,client_phone,status,data,created_at,updated_at').ilike('client_name', `%${raw}%`).order('updated_at', { ascending: false }).limit(40)
+        supabase.from('orders').select('id,local_oid,code,client_id,client_name,client_phone,status,data,created_at,updated_at').ilike('client_name', '%' + raw + '%').order('updated_at', { ascending: false }).limit(40)
       );
       orderQueries.push(
-        supabase.from('transport_orders').select('id,code_n,code_str,client_tcode,client_name,client_phone,status,data,created_at,updated_at').ilike('client_name', `%${raw}%`).order('updated_at', { ascending: false }).limit(40)
+        supabase.from('transport_orders').select('id,code_n,code_str,client_tcode,client_name,client_phone,status,data,created_at,updated_at').ilike('client_name', '%' + raw + '%').order('updated_at', { ascending: false }).limit(40)
       );
     }
     if (clientIds.size) {
@@ -105,7 +105,7 @@ function normalizeResolvedDbRow(row, table) {
   return normalizeResult({
     ...row,
     _table: table,
-    _homeSearchSource: `db-click-resolve:${table}`,
+    _homeSearchSource: 'db-click-resolve:' + table,
     _homeSearchSourceRank: 110,
   });
 }

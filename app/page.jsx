@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link, { useRouter } from '@/lib/routerCompat.jsx';
 import { APP_VERSION } from '@/lib/appEpoch';
 import useRouteAlive, { markRouteUiAlive } from '@/lib/routeAlive';
-import { buildHomeSearchHref, cleanVisiblePersonName, searchHomeLocalFirst } from '@/lib/homeSearch';
+import { buildHomeSearchHref, cleanVisiblePersonName, resolveHomeSearchTarget, searchHomeLocalFirst } from '@/lib/homeSearch';
+// HOME_SEARCH_SOLID_V1:HOME
 import { getActor } from '@/lib/actorSession';
 
 const HOME_FAST_BOOT_VERSION = 'home-old-search-restore-v20';
@@ -70,6 +71,7 @@ export default function HomePage() {
   const [didSearch, setDidSearch] = useState(false);
   const [results, setResults] = useState([]);
   const [searchMessage, setSearchMessage] = useState('');
+  const [openingResultKey, setOpeningResultKey] = useState('');
   const [canSeeDispatch, setCanSeeDispatch] = useState(false);
 
   useEffect(() => {
@@ -187,10 +189,20 @@ export default function HomePage() {
     setSearching(false);
   };
 
-  const openSearchResult = (result) => {
-    const href = buildHomeSearchHref(result);
-    if (!href) return;
-    router.push(href);
+  const openSearchResult = async (result) => {
+    const resultKey = [result?.kind, result?.orderId || result?.id, result?.code].filter(Boolean).join(':');
+    if (openingResultKey) return;
+    setOpeningResultKey(resultKey || 'opening');
+    setSearchMessage('Duke verifikuar statusin aktual në DB...');
+    try {
+      const resolved = await resolveHomeSearchTarget(result);
+      const href = resolved?.href || buildHomeSearchHref(result);
+      if (!href) throw new Error('NUK U GJET FAQJA E POROSISË.');
+      router.push(href);
+    } catch (error) {
+      setSearchMessage(String(error?.message || error || 'Porosia nuk u hap. Provo përsëri.'));
+      setOpeningResultKey('');
+    }
   };
 
 
@@ -307,7 +319,7 @@ export default function HomePage() {
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          openSearchResult(result);
+                          void openSearchResult(result);
                         }
                       }}
                     >
@@ -357,8 +369,8 @@ export default function HomePage() {
                               ➕ KRIJO POROSI TË RE PËR KËTË KLIENT
                             </button>
                           ) : null}
-                          <button className="go-btn" type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openSearchResult(result); }}>
-                            HAP ➔
+                          <button className="go-btn" type="button" disabled={!!openingResultKey} onClick={(event) => { event.preventDefault(); event.stopPropagation(); void openSearchResult(result); }}>
+                            {openingResultKey === [result?.kind, result?.orderId || result?.id, result?.code].filter(Boolean).join(':') ? 'DUKE HAPUR...' : 'HAP ➔'}
                           </button>
                         </div>
                       </div>

@@ -1,5 +1,7 @@
 'use client';
 
+// AUTHORITATIVE_OFFLINE_LISTS_V2:PASTRIMI
+
 import React, { Suspense, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import Link from '@/lib/routerCompat.jsx';
@@ -26,7 +28,12 @@ import { isDiagEnabled } from '@/lib/diagMode';
 import { listBaseCreateRecovery } from '@/lib/syncRecovery';
 import { listUsers } from '@/lib/usersDb';
 import { recordOrderCashPayment } from '@/components/payments/payService';
+import { ARKA_ACTION } from '@/lib/arka/arkaConstants';
+import { buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';
+import { enqueuePastrimiPaymentIntent, removePastrimiPaymentIntent, savePastrimiPaymentIntent } from '@/lib/pastrimiPaymentIntent';
 import { createPendingCashPayment } from '@/lib/arkaCashSync';
+import { describeReadyBonusResult, markBaseOrderReadyWithBonus, resolveBaseReadyBonusWorker } from '@/lib/baseReadyBonusClient';
+import { isDbTruthSnapshotMeta, isStrongPendingOfflineRow, selectAuthoritativeOfflineRows } from '@/lib/authoritativeOfflineListPolicy';
 
 const RackLocationModal = React.lazy(() => import('@/components/RackLocationModal'));
 
@@ -166,6 +173,10 @@ function mapBaseCacheRowToPastrim(row) {
 
 function readPastrimRowsFromBaseMasterCache(cache = null) {
   try {
+    // AUTHORITATIVE_OFFLINE_LISTS_V2:PASTRIMI — master cache must never paint an offline client list.
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    const verifiedSnapshot = readPageSnapshot('pastrimi');
+    if (offline || isPastrimiDbTruthSnapshot(verifiedSnapshot)) return [];
     return [
       ...(getBaseRowsByStatus('pastrim', cache) || []),
       ...(getBaseRowsByStatus('pastrimi', cache) || []),
@@ -203,6 +214,11 @@ function readPastrimRowsFromPageSnapshot() {
 
 function persistPastrimPageSnapshot(rows = [], meta = {}) {
   try {
+    const safeMeta = meta && typeof meta === 'object' ? meta : {};
+    const sourceMode = String(safeMeta?.sourceMode || safeMeta?.source || '').trim().toUpperCase();
+    // AUTHORITATIVE_OFFLINE_LISTS_V2:PASTRIMI — preserve the last DB snapshot during offline/fallback renders.
+    if (sourceMode !== 'DB_ONLY') return readPageSnapshot('pastrimi');
+
     const cleanRows = dedupePastrimRows((Array.isArray(rows) ? rows : []).map((row) => normalizeRenderableOrderRow(row)))
       .filter((row) => shouldShowTransportBridgeInPastrim(row))
       .map((row) => {
@@ -213,14 +229,17 @@ function persistPastrimPageSnapshot(rows = [], meta = {}) {
         }
         return next;
       });
-    const safeMeta = meta && typeof meta === 'object' ? meta : {};
-    const isDbTruthMeta = String(safeMeta?.sourceMode || safeMeta?.source || '').toUpperCase() === 'DB_ONLY';
-    const versionedMeta = isDbTruthMeta
-      ? { ...safeMeta, pastrimiDbTruthVersion: PASTRIMI_DB_TRUTH_VERSION, sourceMode: 'DB_ONLY' }
-      : safeMeta;
-    if (cleanRows.length > 0) writePageSnapshot('pastrimi', cleanRows, versionedMeta);
-    else clearPageSnapshot('pastrimi');
-  } catch {}
+
+    return writePageSnapshot('pastrimi', cleanRows, {
+      ...safeMeta,
+      source: 'DB_ONLY',
+      sourceMode: 'DB_ONLY',
+      pastrimiDbTruthVersion: PASTRIMI_DB_TRUTH_VERSION,
+      policyVersion: 'AUTHORITATIVE_OFFLINE_LISTS_V2',
+    });
+  } catch {
+    return readPageSnapshot('pastrimi');
+  }
 }
 
 // --- CONFIG ---
@@ -2467,6 +2486,13 @@ function getTransportBaseSummary(raw, userLookup = null) {
   };
 }
 
+async function readPendingLocalOrdersByStatus(status) {
+  // AUTHORITATIVE_OFFLINE_LISTS_V2:PASTRIMI — compatibility path for any remaining callers.
+  // It may expose only rows with explicit outbox/local pending evidence.
+  const rows = await readLocalOrdersByStatus(status);
+  return (Array.isArray(rows) ? rows : []).filter((row) => isStrongPendingOfflineRow(row));
+}
+
 async function readLocalOrdersByStatus(status) {
   const out = [];
   const blacklist = getGhostBlacklist();
@@ -2710,16 +2736,16 @@ function enablePastrimiSafeOfflineMode(reason = 'pastrimi_continue_offline') {
 }
 function buildImmediatePastrimLocalRows() {
   try {
+    // AUTHORITATIVE_OFFLINE_LISTS_V2:PASTRIMI — no IndexedDB archive and no master-cache merge.
     const snapshotRows = readPastrimRowsFromPageSnapshot();
-    const masterRows = (readPastrimRowsFromBaseMasterCache() || []).map((row) => normalizeRenderableOrderRow(row));
-    const pendingRows = buildPendingOutboxPastrimRows().map((row) => normalizeRenderableOrderRow(row));
-    const rows = dedupePastrimRows([
-      ...(Array.isArray(snapshotRows) ? snapshotRows : []),
-      ...(Array.isArray(masterRows) ? masterRows : []),
-      ...(Array.isArray(pendingRows) ? pendingRows : []),
-    ])
+    const pendingRows = buildPendingOutboxPastrimRows()
+      .map((row) => normalizeRenderableOrderRow(row))
+      .filter((row) => isStrongPendingOfflineRow(row));
+    const rows = dedupePastrimRows(selectAuthoritativeOfflineRows({
+      snapshotRows,
+      pendingRows,
+    }))
       .filter((row) => shouldShowTransportBridgeInPastrim(row))
-      .filter((row) => Number(row?.cope || 0) > 0 || Number(row?.m2 || 0) > 0 || String(row?.name || '').trim() !== '')
       .sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
     return rows;
   } catch {
@@ -2728,50 +2754,24 @@ function buildImmediatePastrimLocalRows() {
 }
 
 async function buildPastrimFallbackRows(trace = null, diagEnabled = false) {
-  const pageSnapshotRows = readPastrimRowsFromPageSnapshot();
-  const masterCacheRows = dedupePastrimRows([...(Array.isArray(pageSnapshotRows) ? pageSnapshotRows : []), ...(readPastrimRowsFromBaseMasterCache() || []).map((row) => normalizeRenderableOrderRow(row))]);
-  const pendingOutbox = buildPendingOutboxPastrimRows();
-  const locals = (await readLocalOrdersByStatus('pastrim')).map((x) => {
-    const order = unwrapOrderData(x.fullOrder);
-    const total = computeOrderDisplayTotal(order);
-    const paid = Number(order.pay?.paid || 0);
-    return normalizeRenderableOrderRow({
-      id: x.id,
-      local_oid: normalizeLocalOidValue(x?.local_oid, order?.local_oid, order?.oid),
-      status: normalizeStatus(order.status || x.status || 'pastrim') || 'pastrim',
-      source: 'LOCAL',
-      table: x?.table || x?._table || order?.table || order?._table || '',
-      _table: x?.table || x?._table || order?.table || order?._table || '',
-      ts: Number(order.ts || x.ts || Date.now()),
-      name: order.client?.name || order.client_name || 'Pa Emër',
-      phone: order.client?.phone || order.client_phone || '',
-      code: normalizeCode(order.client?.code || order.code || x.id),
-      m2: computeM2(order),
-      cope: computePieces(order),
-      total,
-      paid,
-      isPaid: paid >= total && total > 0,
-      isReturn: !!order?.returnInfo?.active,
-      fullOrder: order,
-      localOnly: true,
-    });
-  });
+  // AUTHORITATIVE_OFFLINE_LISTS_V2:PASTRIMI — visible offline rows come from DB truth + outbox only.
+  const snapshotRows = readPastrimRowsFromPageSnapshot();
+  const pendingRows = buildPendingOutboxPastrimRows()
+    .map((row) => normalizeRenderableOrderRow(row))
+    .filter((row) => isStrongPendingOfflineRow(row));
+  const rows = dedupePastrimRows(selectAuthoritativeOfflineRows({
+    snapshotRows,
+    pendingRows,
+  }))
+    .filter((row) => shouldShowTransportBridgeInPastrim(row))
+    .sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
 
-  const cleanLocals = locals.filter((o) => o.cope > 0 || o.m2 > 0 || (o.name && o.name.trim() !== ''));
-  const masterTokenSet = new Set((Array.isArray(masterCacheRows) ? masterCacheRows : []).flatMap((row) => getPastrimCanonicalTokens(row)));
-  const visibleLocals = cleanLocals.filter((row) => !getPastrimCanonicalTokens(row).some((token) => masterTokenSet.has(token)));
-  const visiblePendingOutbox = (Array.isArray(pendingOutbox) ? pendingOutbox : []).filter((row) => !getPastrimCanonicalTokens(row).some((token) => masterTokenSet.has(token)));
-  const dedupedLocals = dedupePastrimRows([...masterCacheRows, ...visibleLocals, ...visiblePendingOutbox]).filter((row) => shouldShowTransportBridgeInPastrim(row));
-
-  dedupedLocals.sort((a, b) => b.ts - a.ts);
-  dedupedLocals.forEach((row) => pushPastrimTrace(trace, 'offline_final', row, 'keep', 'offline_visible_row'));
+  rows.forEach((row) => pushPastrimTrace(trace, 'offline_final', row, 'keep', 'db_snapshot_or_pending_outbox'));
   if (diagEnabled) {
-    try {
-      if (typeof window !== 'undefined') window.__tepihaPastrimTrace = trace;
-    } catch {}
-    try { console.debug('[PASTRIM fallback trace]', trace); } catch {}
+    try { if (typeof window !== 'undefined') window.__tepihaPastrimTrace = trace; } catch {}
+    try { console.debug('[PASTRIM authoritative offline trace]', trace); } catch {}
   }
-  return dedupedLocals;
+  return rows;
 }
 
 
@@ -2817,7 +2817,7 @@ async function recoverExactPastrimRow(openId, options = {}) {
     try {
       const cacheRows = dedupePastrimRows([...(readPastrimRowsFromPageSnapshot() || []), ...(readPastrimRowsFromBaseMasterCache() || []).map((row) => normalizeRenderableOrderRow(row))]);
       const pendingRows = buildPendingOutboxPastrimRows().map((row) => normalizeRenderableOrderRow(row));
-      const localRows = (await readLocalOrdersByStatus('pastrim').catch(() => [])).map((x) => {
+      const localRows = (await readPendingLocalOrdersByStatus('pastrim').catch(() => [])).map((x) => {
         const order = unwrapOrderData(x.fullOrder);
         const total = computeOrderDisplayTotal(order);
         const paid = Number(order?.pay?.paid || 0);
@@ -4777,7 +4777,7 @@ function PastrimiPageInner() {
           const normalizedMasterCacheRows = (Array.isArray(masterCacheRows) ? masterCacheRows : []).map((row) => normalizeRenderableOrderRow(row));
           const normalizedPendingOutbox = (Array.isArray(pendingOutbox) ? pendingOutbox : []).map((row) => normalizeRenderableOrderRow(row));
           const normalizedProblemOutbox = buildOutboxProblemPastrimRows().map((row) => normalizeRenderableOrderRow(row));
-          const localPastrimRows = (await readLocalOrdersByStatus('pastrim').catch(() => [])).map((row) => normalizeRenderableOrderRow({
+          const localPastrimRows = (await readPendingLocalOrdersByStatus('pastrim').catch(() => [])).map((row) => normalizeRenderableOrderRow({
             ...row,
             ...(row?.fullOrder ? unwrapOrderData(row.fullOrder) : {}),
             id: row?.id || row?.local_oid || '',
@@ -5675,6 +5675,17 @@ function PastrimiPageInner() {
       if (btn) { btn.disabled = false; btn.innerText = 'GATI'; }
       return;
     }
+    let readyBonusWorker = null;
+    if (!isPastrimTransportScopedRow(o)) {
+      try { readyBonusWorker = getActor?.() || null; } catch {}
+      if (!readyBonusWorker?.pin) {
+        alert('MUNGON SESIONI I PËRDORUESIT. HYR PËRSËRI PARA SE TA BËSH GATI.');
+        if (btn) { btn.disabled = false; btn.innerText = 'GATI'; }
+        return;
+      }
+    }
+    // BASE_PAYMENT_48H_BONUS_V2:PASTRIMI — ky PIN ruan veprimin GATI; bonusin e merr PIN-i i pagesës së plotë.
+
     const resolvedReadySlotText = formatConcreteRackSlots(resolvedReadySlots);
     const resolvedReadyNote = resolvedReadyText && resolvedReadyText !== resolvedReadySlotText
       ? `📍 [${resolvedReadySlotText}] ${resolvedReadyText}`.trim()
@@ -5688,6 +5699,20 @@ function PastrimiPageInner() {
       ready_slots: resolvedReadySlots,
       ready_at: now,
       ...(existingLocalOid ? { local_oid: existingLocalOid } : {}),
+      ...(readyBonusWorker ? {
+        ready_by_pin: readyBonusWorker.pin,
+        ready_by_name: readyBonusWorker.name,
+        ready_by_role: readyBonusWorker.role,
+        base_ready_bonus_pending_v1: {
+          version: 'base-ready-48h-bonus-v1',
+          worker_pin: readyBonusWorker.pin,
+          worker_name: readyBonusWorker.name,
+          ready_at: now,
+          rate_m2: 0.10,
+          window_hours: 48,
+          sync_state: 'PENDING_OR_DB',
+        },
+      } : {}),
     };
     const baseDriverNotifyPatch = (() => {
       if (!isPastrimTransportScopedRow(o)) return {};
@@ -5704,6 +5729,9 @@ function PastrimiPageInner() {
       };
     })();
     var updatedJson = null;
+    var readyBonusResult = null;
+    // BASE_READY_48H_BONUS_V1:PASTRIMI
+    // BASE_PAYMENT_48H_BONUS_V2:PASTRIMI_RESULT
 
     try {
       const localBranch = isLocalReadyTransitionRow(o);
@@ -5758,7 +5786,31 @@ function PastrimiPageInner() {
         }, { reason: 'pastrimi_mark_ready', ttlMs: 1000 * 60 * 60 * 8 });
       } catch {}
 
-      if (localBranch) {
+      if (table === 'orders') {
+        readyBonusResult = await markBaseOrderReadyWithBonus({
+          orderRef: existingLocalOid || o.id,
+          worker: readyBonusWorker,
+          readySlots: resolvedReadySlots,
+          readyNote: resolvedReadyText,
+          readyAt: now,
+          forceQueue: localBranch || (typeof navigator !== 'undefined' && navigator.onLine === false),
+        });
+        const committedOrder = readyBonusResult?.order && typeof readyBonusResult.order === 'object' ? readyBonusResult.order : null;
+        if (committedOrder?.data && typeof committedOrder.data === 'object') {
+          updatedJson = committedOrder.data;
+        } else if (readyBonusResult?.offlineQueued) {
+          updatedJson = {
+            ...updatedJson,
+            base_ready_bonus_pending_v1: {
+              ...(updatedJson?.base_ready_bonus_pending_v1 || {}),
+              outbox_op_id: readyBonusResult?.queuedOpId || null,
+              idempotency_key: readyBonusResult?.idempotencyKey || null,
+              sync_state: 'OUTBOX_PENDING',
+            },
+          };
+        }
+        alert(`✅ U bë GATI!\n${describeReadyBonusResult(readyBonusResult)}`);
+      } else if (localBranch) {
         const { updateOrderStatus } = await import('@/lib/ordersDb');
         await updateOrderStatus(o.id, 'gati', transitionPatch);
       } else {
@@ -5776,7 +5828,7 @@ Shoferi u njoftua në listën e tij.`);
         ready_at: now,
         updated_at: now,
         _table: table,
-        _synced: !localBranch,
+        _synced: table === 'orders' ? !readyBonusResult?.offlineQueued : !localBranch,
       };
       try {
         await saveOrderLocal(optimisticReadyRow);
@@ -6060,6 +6112,8 @@ ${destinationLine}
   }
 
   async function applyRowPayAndClose() {
+    // PASTRIMI_PAYMENT_BACKGROUND_V1
+    // PASTRIMI_PAYMENT_BACKGROUND_V2
     if (!rowPayOrder || rowPayBusy) return;
 
     const cashGiven = Number((Number(rowPayAmount) || 0).toFixed(2));
@@ -6080,8 +6134,9 @@ ${destinationLine}
     const fullPaymentTargetStatus = willSettleFull
       ? askPastrimiPaidPickupTarget({ code: rowPayOrder.code, clientName: rowPayOrder.name })
       : '';
+    const pickupNow = willSettleFull && fullPaymentTargetStatus === 'dorzim';
     const destinationLine = willSettleFull
-      ? (fullPaymentTargetStatus === 'dorzim'
+      ? (pickupNow
         ? 'VEPRIMI: KLIENTI I MERR — KALO NË DORZIM'
         : 'VEPRIMI: PAGUAR — MBETET NË PASTRIMI')
       : 'VEPRIMI: PAGESË PARTIALE — MBETET STATUSI AKTUAL';
@@ -6091,13 +6146,15 @@ ${destinationLine}
     if (!pinData) return;
 
     const actionAt = new Date().toISOString();
+    const orderId = String(rowPayOrder.id || '').trim();
+    const paymentIdempotencyKey = buildArkaIdempotencyKey(ARKA_ACTION.BASE_ORDER_PAYMENT, [orderId, applied, pinData.pin]);
     const newPaid = Number((Number(rowPayOrder.paid || 0) + applied).toFixed(2));
     const newDebt = Math.max(0, Number((Number(rowPayOrder.total || 0) - newPaid).toFixed(2)));
     const baseOrder = rowPayOrder.order || {};
     const existingPay = (baseOrder?.pay && typeof baseOrder.pay === 'object') ? baseOrder.pay : {};
     const nextOrder = {
       ...baseOrder,
-      id: String(rowPayOrder.id || baseOrder?.id || ''),
+      id: orderId || String(baseOrder?.id || ''),
       status: normalizeStatus(baseOrder?.status || 'pastrim') || 'pastrim',
       code: rowPayOrder.code || baseOrder?.code || '',
       client_name: baseOrder?.client_name || baseOrder?.client?.name || rowPayOrder.name || '',
@@ -6127,49 +6184,152 @@ ${destinationLine}
       code: nextOrder.client?.code || rowPayOrder.code || '',
     };
 
-    setRowPayBusy(true);
-    try {
-      const payRes = await recordOrderCashPayment({
-        rawOrder: {
-          ...nextOrder,
-          status: fullPaymentTargetStatus || nextOrder.status || 'pastrim',
-        },
-        orderId: rowPayOrder.id,
-        code: rowPayOrder.code,
-        clientName: rowPayOrder.name,
-        clientPhone: rowPayOrder.phone,
-        amount: applied,
-        note: `PAGESË NË PASTRIMI ${applied.toFixed(2)}€ • #${rowPayOrder.code} • ${rowPayOrder.name || ''} • ${fullPaymentTargetStatus === 'dorzim' ? 'CLIENT_PICKED_UP_TO_DORZIM' : 'PAID_STAYS_PASTRIMI'}`,
-        source: 'PASTRIMI_ROW_PAY',
-        payMethod: 'CASH',
-        user: pinData,
-        ...(fullPaymentTargetStatus ? { statusOnFullPayment: fullPaymentTargetStatus } : {}),
-      });
-      if (!payRes?.ok || !payRes?.payment || !payRes?.order) throw new Error(payRes?.error || 'ARKA_VERIFY_FAILED');
-      const engineOrder = payRes.order;
-      const engineData = engineOrder?.data || nextOrder;
-      const enginePay = engineData?.pay || {};
-      const enginePaid = Number(enginePay.paid ?? engineData.clientPaid ?? newPaid) || newPaid;
-      const engineDebt = Number(enginePay.debt ?? engineData.debt ?? newDebt) || 0;
-      const engineStatus = engineOrder?.status || engineData?.status || nextOrder.status;
-      const localOrder = { ...nextOrder, ...engineData, status: engineStatus, pay: { ...nextOrder.pay, ...enginePay } };
-      try { await saveOrderLocal({ id: String(rowPayOrder.id), status: engineStatus, data: localOrder, updated_at: engineOrder?.updated_at || actionAt, _table: 'orders', _synced: true }); } catch {}
-      try { patchBaseMasterRow({ id: rowPayOrder.id, status: engineStatus, data: localOrder, updated_at: engineOrder?.updated_at || actionAt, paid_amount: enginePaid, price_total: localOrder.price_total, _table: 'orders' }); } catch {}
-      try { localStorage.setItem(`order_${rowPayOrder.id}`, JSON.stringify(localOrder)); } catch {}
+    const originalRow = (orders || []).find((o) => String(o?.id) === orderId) || null;
+    const optimisticOrder = pickupNow ? {
+      ...nextOrder,
+      status: 'dorzim',
+      state: 'dorzim',
+      delivered_at: actionAt,
+      picked_up_at: actionAt,
+      payment_sync_state: 'BACKGROUND_PENDING',
+      delivery_sync_state: 'BACKGROUND_PENDING',
+      payment_idempotency_key: paymentIdempotencyKey,
+      last_payment_by_pin: String(pinData.pin || ''),
+      last_payment_by_name: String(pinData.name || ''),
+    } : nextOrder;
 
-      setOrders((prev) => (prev || []).map((o) => String(o?.id) === String(rowPayOrder.id)
-        ? { ...o, paid: enginePaid, isPaid: engineDebt <= 0, total: Number(rowPayOrder.total || o?.total || 0), fullOrder: localOrder }
-        : o
-      ));
+    const paymentTransaction = {
+      action: ARKA_ACTION.BASE_ORDER_PAYMENT,
+      actorPin: String(pinData.pin || ''),
+      actorName: String(pinData.name || ''),
+      actorRole: String(pinData.role || ''),
+      orderId,
+      amount: applied,
+      method: 'CASH',
+      note: `PAGESË NË PASTRIMI ${applied.toFixed(2)}€ • #${rowPayOrder.code} • ${rowPayOrder.name || ''} • ${pickupNow ? 'CLIENT_PICKED_UP_TO_DORZIM' : 'PAID_STAYS_PASTRIMI'}`,
+      orderCode: rowPayOrder.code,
+      clientName: rowPayOrder.name,
+      clientPhone: rowPayOrder.phone,
+      statusOnFullPayment: fullPaymentTargetStatus || undefined,
+      status_on_full_payment: fullPaymentTargetStatus || undefined,
+      idempotencyKey: paymentIdempotencyKey,
+      idempotency_key: paymentIdempotencyKey,
+    };
+    const paymentIntent = {
+      idempotencyKey: paymentIdempotencyKey,
+      orderId,
+      code: rowPayOrder.code,
+      clientName: rowPayOrder.name,
+      pickupNow,
+      saved_at: actionAt,
+      transaction: paymentTransaction,
+    };
+
+    // Journal the command synchronously before changing the UI. This is the
+    // crash-safe handoff: even if iOS suspends the app immediately afterward,
+    // the next app open/online event moves it into the IndexedDB outbox.
+    try {
+      savePastrimiPaymentIntent(paymentIntent);
+    } catch (intentError) {
+      alert(`❌ KOMANDA NUK U RUAJT: ${intentError?.message || 'PROVO PËRSËRI.'}`);
+      return;
+    }
+
+    let durableQueueCreated = false;
+    if (pickupNow) {
+      // User-facing completion must never wait for IndexedDB, network, ARKA,
+      // bonus creation or cache refresh. Those continue below in background.
+      try { localStorage.setItem(`order_${orderId}`, JSON.stringify(optimisticOrder)); } catch {}
+      try { patchBaseMasterRow({ id: orderId, status: 'dorzim', data: optimisticOrder, updated_at: actionAt, paid_amount: newPaid, price_total: optimisticOrder.price_total, _table: 'orders' }); } catch {}
+      setOrders((prev) => (prev || []).filter((o) => String(o?.id) !== orderId));
       setRowPaySheet(false);
       setRowPayOrder(null);
       setRowPayAmount(0);
-      alert('✅ PAGESA U REGJISTRUA.');
-    } catch (err) {
-      alert(`❌ PAGESA NUK U KRYE: ${err?.message || 'PROVO PËRSËRI.'}`);
-    } finally {
       setRowPayBusy(false);
+      try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
+      void saveOrderLocal({ id: orderId, status: 'dorzim', data: optimisticOrder, updated_at: actionAt, _table: 'orders', _synced: false, _syncPending: true }).catch(() => {});
+    } else {
+      setRowPayBusy(true);
     }
+
+    const runPaymentInBackground = async () => {
+      try {
+        try {
+          await enqueuePastrimiPaymentIntent(paymentIntent);
+          durableQueueCreated = true;
+        } catch {
+          // The synchronous journal remains and will retry on app open/online.
+        }
+
+        const payRes = await recordOrderCashPayment({
+          rawOrder: {
+            ...nextOrder,
+            status: fullPaymentTargetStatus || nextOrder.status || 'pastrim',
+          },
+          orderId,
+          code: rowPayOrder.code,
+          clientName: rowPayOrder.name,
+          clientPhone: rowPayOrder.phone,
+          amount: applied,
+          note: `PAGESË NË PASTRIMI ${applied.toFixed(2)}€ • #${rowPayOrder.code} • ${rowPayOrder.name || ''} • ${pickupNow ? 'CLIENT_PICKED_UP_TO_DORZIM' : 'PAID_STAYS_PASTRIMI'}`,
+          source: 'PASTRIMI_ROW_PAY',
+          payMethod: 'CASH',
+          user: pinData,
+          idempotencyKey: paymentIdempotencyKey,
+          idempotency_key: paymentIdempotencyKey,
+          ...(fullPaymentTargetStatus ? { statusOnFullPayment: fullPaymentTargetStatus } : {}),
+        });
+
+        const queued = !!(payRes?.queued || payRes?.offlineQueued || payRes?.localOnly || payRes?.pending);
+        if ((!payRes?.ok || !payRes?.payment || !payRes?.order) && !queued) {
+          throw new Error(payRes?.error || 'ARKA_VERIFY_FAILED');
+        }
+        if (queued) {
+          if (durableQueueCreated) removePastrimiPaymentIntent(paymentIdempotencyKey);
+          return;
+        }
+
+        removePastrimiPaymentIntent(paymentIdempotencyKey);
+        const engineOrder = payRes.order;
+        const engineData = engineOrder?.data || nextOrder;
+        const enginePay = engineData?.pay || {};
+        const enginePaid = Number(enginePay.paid ?? engineData.clientPaid ?? newPaid) || newPaid;
+        const engineDebt = Number(enginePay.debt ?? engineData.debt ?? newDebt) || 0;
+        const engineStatus = engineOrder?.status || engineData?.status || nextOrder.status;
+        const localOrder = { ...nextOrder, ...engineData, status: engineStatus, pay: { ...nextOrder.pay, ...enginePay } };
+        try { await saveOrderLocal({ id: orderId, status: engineStatus, data: localOrder, updated_at: engineOrder?.updated_at || actionAt, _table: 'orders', _synced: true }); } catch {}
+        try { patchBaseMasterRow({ id: orderId, status: engineStatus, data: localOrder, updated_at: engineOrder?.updated_at || actionAt, paid_amount: enginePaid, price_total: localOrder.price_total, _table: 'orders' }); } catch {}
+        try { localStorage.setItem(`order_${orderId}`, JSON.stringify(localOrder)); } catch {}
+
+        if (!pickupNow) {
+          setOrders((prev) => (prev || []).map((o) => String(o?.id) === orderId
+            ? { ...o, paid: enginePaid, isPaid: engineDebt <= 0, total: Number(rowPayOrder.total || o?.total || 0), fullOrder: localOrder }
+            : o
+          ));
+          setRowPaySheet(false);
+          setRowPayOrder(null);
+          setRowPayAmount(0);
+          alert('✅ PAGESA U REGJISTRUA.');
+        }
+      } catch (err) {
+        if (pickupNow) {
+          // Keep the row hidden: the command is already in the synchronous
+          // intent journal and will retry automatically. Restoring the row
+          // would invite a second tap for the same cash payment.
+          try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
+          return;
+        }
+        alert(`❌ PAGESA NUK U RUAJT: ${err?.message || 'PROVO PËRSËRI.'}`);
+      } finally {
+        if (!pickupNow) setRowPayBusy(false);
+      }
+    };
+
+    if (pickupNow) {
+      Promise.resolve().then(runPaymentInBackground);
+      return;
+    }
+    await runPaymentInBackground();
   }
 
   // ==== UI EDIT MODE ====

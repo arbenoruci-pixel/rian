@@ -200,7 +200,7 @@ export default function ArkaBonusetPage() {
           <div>
             <div className="bonusEyebrow">ARKA • BAZA</div>
             <h1>BONUSI 48H</h1>
-            <p>{BASE_READY_BONUS_RATE_M2.toFixed(2)}€ për m² • porosia BAZA • GATI brenda {BASE_READY_BONUS_WINDOW_HOURS} orëve</p>
+            <p>{BASE_READY_BONUS_RATE_M2.toFixed(2)}€ për m² • porosia BAZA • GATI brenda {BASE_READY_BONUS_WINDOW_HOURS} orëve • bonus në pagesën e plotë</p>
           </div>
           <div className="bonusNav">
             <Link href="/arka" className="bonusBtn ghost">ARKA</Link>
@@ -247,7 +247,7 @@ export default function ArkaBonusetPage() {
               <div className="bonusPanelHead">
                 <div>
                   <h2>{selectedWorker ? String(selectedWorker.name || selectedWorker.pin).toUpperCase() : canManage ? 'POROSITË E DITËS' : String(actor?.name || 'POROSITË E MIA').toUpperCase()}</h2>
-                  <p>Bonusi i takon PIN-it që e bën porosinë GATI pas paketimit dhe raftit final.</p>
+                  <p>Bonusi i takon PIN-it që regjistron pagesën që e mbyll porosinë. GATI brenda 48 orëve mbetet kushti i kualifikimit.</p>
                 </div>
                 <div className="bonusCount">{rows.length} RRESHTA</div>
               </div>
@@ -258,7 +258,7 @@ export default function ArkaBonusetPage() {
                     <div className="bonusRowTop">
                       <div>
                         <div className="bonusOrder">#{row.order_code || '—'} — {String(row.client_name || 'KLIENT').toUpperCase()}</div>
-                        <div className="bonusSmall">{canManage ? `${String(row.worker_name || row.worker_pin || '').toUpperCase()} • PIN ${row.worker_pin || '—'} • ` : ''}{stamp(row.ready_at)}</div>
+                        <div className="bonusSmall">{canManage ? `${String(row.worker_name || row.worker_pin || '').toUpperCase()} • PIN ${row.worker_pin || '—'} • ` : ''}PAGESA ${stamp(row.activated_at || row.ready_at)}</div>
                       </div>
                       <div className={`bonusStatus ${toneForStatus(row.status)}`}>{statusLabel(row.status, row.eligible)}</div>
                     </div>
@@ -277,8 +277,8 @@ export default function ArkaBonusetPage() {
             <section className="bonusInfo">
               <b>SI FUNKSIONON</b>
               <span>Vetëm porositë BAZA. Transporti nuk hyn në këtë bonus.</span>
-              <span>Një porosi paguhet vetëm një herë. PIN-i i fundit që e bën GATI merr 0.10€ për m² kur koha është brenda 48 orëve.</span>
-              <span>Shuma “MUNDESH ME MBAJT” zbritet automatikisht nga cash-i që i dërgohet Dispatch. Teprica bartet për dorëzimin tjetër.</span>
+              <span>Një porosi paguhet vetëm një herë. PIN-i që regjistron pagesën e plotë merr 0.10€ për m² kur porosia është bërë GATI brenda 48 orëve.</span>
+              <span>Bonusi shfaqet pasi pagesa e mbyll porosinë. Shuma “MUNDESH ME MBAJT” zbritet automatikisht nga cash-i që i dërgohet Dispatch dhe teprica bartet për dorëzimin tjetër.</span>
             </section>
           </>
         ) : null}
@@ -290,3 +290,5 @@ export default function ArkaBonusetPage() {
     </div>
   );
 }
+
+// BASE_PAYMENT_48H_BONUS_V2:BONUS_PAGE

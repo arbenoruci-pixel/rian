@@ -3,6 +3,9 @@ import PosModal from '@/components/PosModal';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 
 // app/gati/page.jsx
+// AUTHORITATIVE_OFFLINE_LISTS_V2:GATI
+// GATI_OFFLINE_SNAPSHOT_V3:GATI
+// GATI_OFFLINE_RELIABILITY_V4:GATI
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
@@ -21,11 +24,13 @@ import { buildSmartSmsText } from '@/lib/smartSms';
 import { bootLog, bootMarkReady } from '@/lib/bootLog';
 import { getStartupIsolationLeftMs, isWithinStartupIsolationWindow } from '@/lib/startupIsolation';
 import { clearPageSnapshot, readPageSnapshot, writePageSnapshot } from '@/lib/pageSnapshotCache';
+import { clearDurableGatiSnapshot, readDurableGatiSnapshot, writeDurableGatiSnapshot } from '@/lib/gatiDurableSnapshot';
 import { clearBaseMasterCacheScope, ensureFreshBaseMasterCache, getBaseRowsByStatus, patchBaseMasterRow, patchBaseMasterRows, readBaseMasterCache, reconcileBaseMasterCacheScope, writeBaseMasterCache } from '@/lib/baseMasterCache';
 import useRouteAlive from '@/lib/routeAlive';
 import { markRealUiReady } from '@/lib/markRealUiReady';
 import { isDiagEnabled } from '@/lib/diagMode';
 import { listBaseCreateRecovery } from '@/lib/syncRecovery';
+import { isDbTruthSnapshotMeta, isStrongPendingOfflineRow, selectAuthoritativeOfflineRows } from '@/lib/authoritativeOfflineListPolicy';
 
 const RackLocationModal = React.lazy(() => import('@/components/RackLocationModal'));
 
@@ -81,6 +86,12 @@ function scheduleLocalShadowWrite(key, value, delay = 450) {
 
 const GATI_DEBUG_KEY = '__tepiha_gati_debug_v1__';
 const GATI_FETCH_LIMIT = 200;
+const GATI_DB_TRUTH_VERSION = 'gati-db-truth-2026-08-03-v3';
+const GATI_DB_TRUTH_COMPAT_VERSIONS = new Set([
+  'gati-db-truth-2026-08-03-v1',
+  'gati-db-truth-2026-08-03-v2',
+  'gati-db-truth-2026-08-03-v3',
+]);
 
 const AUDIT_STATUS = {
   UNVERIFIED: 'unverified',
@@ -500,16 +511,72 @@ function mapBaseCacheRowToGati(row) {
 
 function readGatiRowsFromBaseMasterCache(cache = null) {
   try {
+    // AUTHORITATIVE_OFFLINE_LISTS_V2:GATI — IndexedDB/master cache is an archive, not an offline list.
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    const verifiedSnapshot = readPageSnapshot('gati');
+    if (offline || isGatiDbTruthSnapshot(verifiedSnapshot)) return [];
     return (getBaseRowsByStatus('gati', cache) || []).map(mapBaseCacheRowToGati);
   } catch {
     return [];
   }
 }
 
+function isGatiDbTruthSnapshot(snapshot) {
+  try {
+    const meta = snapshot?.meta && typeof snapshot.meta === 'object' ? snapshot.meta : {};
+    const sourceMode = String(meta?.sourceMode || meta?.source || '').trim().toUpperCase();
+    if (sourceMode !== 'DB_ONLY') return false;
+
+    const version = String(meta?.gatiDbTruthVersion || '').trim();
+    if (version) return GATI_DB_TRUTH_COMPAT_VERSIONS.has(version);
+
+    // GATI_OFFLINE_SNAPSHOT_V3:GATI — snapshots written by the previous production build
+    // had meta.source='DB_ONLY' but no explicit version. Validate every row
+    // before accepting and upgrading that already-correct DB snapshot.
+    const rows = Array.isArray(snapshot?.rows) ? snapshot.rows : [];
+    return rows.every((row) => {
+      const rowSource = String(row?.source || '').trim().toUpperCase();
+      const id = String(row?.id || row?.db_id || row?.server_id || '').trim();
+      const status = normalizeGatiStatus(
+        row?.status ||
+        row?.fullOrder?.status ||
+        row?.fullOrder?.state ||
+        row?.fullOrder?.data?.status ||
+        'gati'
+      );
+      const sourceOk = !rowSource || ['DB', 'ORDERS', 'ONLINE', 'PAGE_SNAPSHOT'].includes(rowSource);
+      return sourceOk && status === 'gati' && isPersistedDbLikeId(id);
+    });
+  } catch {
+    return false;
+  }
+}
+
 function readGatiRowsFromPageSnapshot() {
   try {
     const snapshot = readPageSnapshot('gati');
-    return (Array.isArray(snapshot?.rows) ? snapshot.rows : []).map((row) => ({
+    if (!isGatiDbTruthSnapshot(snapshot)) return [];
+
+    const rawRows = Array.isArray(snapshot?.rows) ? snapshot.rows : [];
+    const meta = snapshot?.meta && typeof snapshot.meta === 'object' ? snapshot.meta : {};
+    const storedVersion = String(meta?.gatiDbTruthVersion || '').trim();
+
+    // GATI_OFFLINE_SNAPSHOT_V3:GATI — migrate a valid legacy DB_ONLY snapshot in place.
+    if (storedVersion !== GATI_DB_TRUTH_VERSION) {
+      try {
+        writePageSnapshot('gati', rawRows, {
+          ...meta,
+          source: 'DB_ONLY',
+          sourceMode: 'DB_ONLY',
+          gatiDbTruthVersion: GATI_DB_TRUTH_VERSION,
+          policyVersion: 'gati-offline-snapshot-v3-2026-08-03',
+          migratedFromVersion: storedVersion || 'legacy-db-only-unversioned',
+          migratedAt: new Date().toISOString(),
+        });
+      } catch {}
+    }
+
+    return rawRows.map((row) => ({
       ...(row && typeof row === 'object' ? row : {}),
       _pageSnapshot: true,
       source: String(row?.source || 'PAGE_SNAPSHOT'),
@@ -519,21 +586,70 @@ function readGatiRowsFromPageSnapshot() {
   }
 }
 
-function persistGatiPageSnapshot(rows = [], meta = {}) {
+async function readGatiRowsFromDurableSnapshot() {
   try {
+    const snapshot = await readDurableGatiSnapshot();
+    const rows = Array.isArray(snapshot?.rows) ? snapshot.rows : [];
+    return rows.map((row) => ({
+      ...(row && typeof row === 'object' ? row : {}),
+      _durableSnapshot: true,
+      source: 'DB',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function persistGatiPageSnapshot(rows = [], meta = {}) {
+  try {
+    const safeMeta = meta && typeof meta === 'object' ? meta : {};
+    const sourceMode = String(safeMeta?.sourceMode || safeMeta?.source || '').trim().toUpperCase();
+    if (sourceMode !== 'DB_ONLY') return readPageSnapshot('gati');
+
     const cleanRows = dedupeGatiSnapshotRows(Array.isArray(rows) ? rows : [])
       .filter((row) => !/^T\d+$/i.test(String(row?.code || '').trim()))
       .map((row) => {
         const next = row && typeof row === 'object' ? { ...row } : row;
         if (next && typeof next === 'object') {
           delete next._pageSnapshot;
+          delete next._durableSnapshot;
           delete next._masterCache;
         }
         return next;
       });
-    if (cleanRows.length > 0) writePageSnapshot('gati', cleanRows, meta);
-    else clearPageSnapshot('gati');
-  } catch {}
+
+    const allowEmptyDbTruth = safeMeta?.allowEmptyDbTruth === true;
+    if (!cleanRows.length && !allowEmptyDbTruth) {
+      const previous = readPageSnapshot('gati');
+      try {
+        const durable = await readDurableGatiSnapshot();
+        if (Array.isArray(durable?.rows) && durable.rows.length > 0) return previous;
+      } catch {}
+      return previous;
+    }
+
+    const finalMeta = {
+      ...safeMeta,
+      source: 'DB_ONLY',
+      sourceMode: 'DB_ONLY',
+      gatiDbTruthVersion: GATI_DB_TRUTH_VERSION,
+      policyVersion: 'GATI_OFFLINE_RELIABILITY_V4',
+      allowEmptyDbTruth,
+    };
+
+    const localSnapshot = writePageSnapshot('gati', cleanRows, finalMeta);
+    try {
+      await writeDurableGatiSnapshot(cleanRows, finalMeta);
+    } catch (error) {
+      gatiDbg('gati_durable_snapshot_write_failed', {
+        message: String(error?.message || error || ''),
+        count: cleanRows.length,
+      });
+    }
+    return localSnapshot;
+  } catch {
+    return readPageSnapshot('gati');
+  }
 }
 
 
@@ -728,17 +844,23 @@ function dedupeGatiSnapshotRows(rows = []) {
 }
 
 async function buildImmediateGatiLocalRows() {
+  // GATI_OFFLINE_RELIABILITY_V4:GATI — localStorage and IndexedDB carry the same last DB-only list.
   const pageSnapshotRows = readGatiRowsFromPageSnapshot();
-  const masterCacheRows = readGatiRowsFromBaseMasterCache();
-  const local = await getAllOrdersLocal().catch(() => []);
-  const localRows = (Array.isArray(local) ? local : [])
-    .filter((o) => isGatiRowLike(o))
-    .map(mapLocalOrderToGatiRow);
-  return dedupeGatiSnapshotRows([
+  const durableSnapshotRows = await readGatiRowsFromDurableSnapshot();
+  const snapshotRows = dedupeGatiSnapshotRows([
     ...(Array.isArray(pageSnapshotRows) ? pageSnapshotRows : []),
-    ...(Array.isArray(masterCacheRows) ? masterCacheRows : []),
-    ...localRows,
+    ...(Array.isArray(durableSnapshotRows) ? durableSnapshotRows : []),
   ]);
+  const local = await getAllOrdersLocal().catch(() => []);
+  const pendingRows = (Array.isArray(local) ? local : [])
+    .filter((row) => isGatiRowLike(row))
+    .map(mapLocalOrderToGatiRow)
+    .filter((row) => isStrongPendingOfflineRow(row, isPersistedDbLikeId));
+
+  return dedupeGatiSnapshotRows(selectAuthoritativeOfflineRows({
+    snapshotRows,
+    pendingRows,
+  }));
 }
 
 // ---------------- HELPERS ----------------
@@ -992,17 +1114,8 @@ function getGatiRowMatchTokens(row) {
 }
 
 function rowLooksPendingOrLocalGati(row) {
-  const source = String(row?.source || '').trim().toUpperCase();
-  const id = String(row?.id || row?.local_oid || row?.oid || '').trim();
-  if (source === 'OUTBOX' || source === 'LOCAL') return true;
-  if (!isPersistedDbLikeId(id)) return true;
-  return !!(
-    row?._pendingMutation ||
-    row?._local === true ||
-    row?._synced === false ||
-    row?._syncPending === true ||
-    Number(row?.pending_ops || 0) > 0
-  );
+  // AUTHORITATIVE_OFFLINE_LISTS_V2:GATI — source LOCAL alone is never proof of pending work.
+  return isStrongPendingOfflineRow(row, isPersistedDbLikeId);
 }
 
 function purgeGhostRowArtifacts(row, reason = 'ghost_row_cleanup') {
@@ -1469,7 +1582,12 @@ function GatiPageInner() {
         reason,
         source: 'master_cache_sync',
       });
-      const pageSnapshotRows = dedupeGatiSnapshotRows(readGatiRowsFromPageSnapshot());
+      const localPageSnapshotRows = dedupeGatiSnapshotRows(readGatiRowsFromPageSnapshot());
+      const durablePageSnapshotRows = await readGatiRowsFromDurableSnapshot();
+      const pageSnapshotRows = dedupeGatiSnapshotRows([
+        ...(Array.isArray(localPageSnapshotRows) ? localPageSnapshotRows : []),
+        ...(Array.isArray(durablePageSnapshotRows) ? durablePageSnapshotRows : []),
+      ]);
       syncSnapshot = dedupeGatiSnapshotRows([
         ...(Array.isArray(pageSnapshotRows) ? pageSnapshotRows : []),
         ...readGatiRowsFromBaseMasterCache(),
@@ -1531,10 +1649,13 @@ function GatiPageInner() {
       const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
       if (isOffline) {
         const offlineRows = await buildImmediateGatiLocalRows().catch(() => []);
-        const visibleOfflineRows = dedupeGatiSnapshotRows([
-          ...(Array.isArray(offlineRows) ? offlineRows : []),
+        const transitionPendingRows = [
           ...(Array.isArray(syncSnapshot) ? syncSnapshot : []),
           ...currentRows,
+        ].filter((row) => rowLooksPendingOrLocalGati(row));
+        const visibleOfflineRows = dedupeGatiSnapshotRows([
+          ...(Array.isArray(offlineRows) ? offlineRows : []),
+          ...transitionPendingRows,
         ])
           .filter((row) => !/^T\d+$/i.test(String(row?.code || '').trim()))
           .filter((row) => !isTerminalRecoveryGhostRow(row, buildTerminalRecoveryIndex()))
@@ -1731,9 +1852,14 @@ function GatiPageInner() {
       };
 
       if (dataError && (!Array.isArray(data) || data.length === 0)) {
-        const keepVisibleRows = dedupeOrders([
+        const authoritativeErrorRows = await buildImmediateGatiLocalRows().catch(() => []);
+        const errorPendingRows = [
           ...(Array.isArray(syncSnapshot) ? syncSnapshot : []),
           ...currentRows,
+        ].filter((row) => rowLooksPendingOrLocalGati(row));
+        const keepVisibleRows = dedupeOrders([
+          ...(Array.isArray(authoritativeErrorRows) ? authoritativeErrorRows : []),
+          ...errorPendingRows,
         ])
           .filter((row) => !/^T\d+$/i.test(String(row?.code || '').trim()))
           .filter((row) => !isTerminalRecoveryGhostRow(row, buildTerminalRecoveryIndex()))
@@ -2049,7 +2175,7 @@ function GatiPageInner() {
 
       setReadyCountHint(baseOnly.length);
       applyOrdersIfChanged(baseOnly, { seq, reason, source: 'DB_ONLY' });
-      persistGatiPageSnapshot(baseOnly, { source: 'DB_ONLY', seq, reason, count: baseOnly.length });
+      await persistGatiPageSnapshot(baseOnly, { source: 'DB_ONLY', sourceMode: 'DB_ONLY', seq, reason, count: baseOnly.length });
     } catch (e) {
       const message = String(e?.message || e || '');
       const transientFetchFail = /load failed|failed to fetch|networkerror|network request failed/i.test(message);
@@ -2617,22 +2743,56 @@ function GatiPageInner() {
     }
     try {
       let order = null;
-      try {
-        const raw = localStorage.getItem(`order_${row.id}`);
-        if (raw) order = JSON.parse(raw);
-      } catch {
-        order = null;
+
+      if (row?.fullOrder && typeof row.fullOrder === 'object' && Object.keys(row.fullOrder).length > 0) {
+        try { order = JSON.parse(JSON.stringify(row.fullOrder)); } catch { order = { ...row.fullOrder }; }
       }
+
       if (!order) {
+        try {
+          const raw = localStorage.getItem(`order_${row.id}`);
+          if (raw) order = JSON.parse(raw);
+        } catch {
+          order = null;
+        }
+      }
+
+      if (!order) {
+        try {
+          const localRows = await getAllOrdersLocal();
+          const wantedId = String(row?.id || '').trim();
+          const wantedLocal = String(row?.local_oid || row?.fullOrder?.local_oid || row?.fullOrder?.oid || '').trim();
+          const hit = (Array.isArray(localRows) ? localRows : []).find((item) => {
+            const itemId = String(item?.id || item?.data?.id || '').trim();
+            const itemLocal = String(item?.local_oid || item?.oid || item?.data?.local_oid || item?.data?.oid || '').trim();
+            return (!!wantedId && itemId === wantedId) || (!!wantedLocal && itemLocal === wantedLocal);
+          });
+          if (hit) order = unwrapGatiOrder(hit?.data || hit);
+        } catch {}
+      }
+
+      const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+      if (!order && online) {
         const res = await dbFetchOrderById(row.id);
         order = res.order;
         scheduleLocalShadowWrite(`order_${row.id}`, order, 650);
       }
-      if (!order) return alert('Nuk u gjet porosia.');
+      if (!order) return alert('Nuk u gjet porosia në të dhënat e fundit të sinkronizuara.');
 
-      const total = Number(order.pay?.euro || computeTotalEuro(order)) || 0;
-      const paid = Number(order.pay?.paid || 0) || 0;
+      order.id = String(order?.id || row?.id || '');
+      order.local_oid = String(order?.local_oid || order?.oid || row?.local_oid || row?.id || '');
+      order.status = 'gati';
+      order.state = 'gati';
+      if (!order.client || typeof order.client !== 'object') order.client = {};
+      order.client = {
+        ...order.client,
+        name: order.client?.name || order.client_name || row?.name || '',
+        phone: order.client?.phone || order.client_phone || row?.phone || '',
+        code: order.client?.code || order.code || row?.code || '',
+      };
 
+      const total = Number(order.pay?.euro || row?.total || computeTotalEuro(order)) || 0;
+      const paid = Number(order.pay?.paid ?? row?.paid ?? 0) || 0;
       const resolvedCode = pickFirstValidCode(order.code, order.code_n, row.code, order.client?.code, order.client_code);
 
       setPayOrder({
@@ -2645,7 +2805,7 @@ function GatiPageInner() {
         paid,
         arkaRecordedPaid: Number(order.pay?.arkaRecordedPaid || 0) || 0,
         paidUpfront: !!order.pay?.paidUpfront,
-        m2: computeM2(order),
+        m2: Number(row?.m2 || computeM2(order)) || 0,
       });
       setPayDeliveryPending(readPaymentDoneButDeliveryPending(row.id));
       const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
@@ -2973,7 +3133,9 @@ function GatiPageInner() {
     return payload;
   }
 
-  async function finalizeDeliveredUi(payload) {
+  async function finalizeDeliveredUi(payload, options = {}) {
+    // GATI_OFFLINE_PAYMENT_V1: an outbox-backed offline payment may close only the local UI.
+    const syncPending = options?.syncPending === true;
     try {
       await safeRecordReconcileTombstone({
         id: payload?.id,
@@ -2993,7 +3155,13 @@ function GatiPageInner() {
         updated_at: payload.delivered_at,
         delivered_at: payload.delivered_at,
         picked_up_at: payload.picked_up_at,
-        _synced: true,
+        _synced: !syncPending,
+
+        _syncPending: syncPending,
+
+        dirty: syncPending,
+
+        pending_ops: syncPending ? 1 : 0,
         _table: 'orders',
       });
       try {
@@ -3005,7 +3173,13 @@ function GatiPageInner() {
           delivered_at: payload.delivered_at,
           picked_up_at: payload.picked_up_at,
           table: 'orders',
-          _synced: true,
+          _synced: !syncPending,
+
+          _syncPending: syncPending,
+
+          dirty: syncPending,
+
+          pending_ops: syncPending ? 1 : 0,
         });
       } catch {}
     } catch {}
@@ -3029,7 +3203,7 @@ function GatiPageInner() {
       window.dispatchEvent(new CustomEvent('tepiha:pickup-committed', { detail: pickupEventRow }));
     } catch {}
 
-    clearPaymentDoneButDeliveryPending(payload?.id);
+    if (!syncPending) clearPaymentDoneButDeliveryPending(payload?.id);
     setOrders((prev) => (prev || []).filter((o) => String(o.id) !== String(payload.id)));
     closePay();
   }
@@ -3095,6 +3269,52 @@ BORXHI PAS: ${newDebt.toFixed(2)}€
           idempotencyKey,
           idempotency_key: idempotencyKey,
         }, applied, pinData, payMethod);
+
+        // GATI_OFFLINE_PAYMENT_V1: arkaTransaction already persisted this exact idempotent
+        // payment in IndexedDB. Close the worker UI quietly; OfflineSyncRunner
+        // sends it when connectivity returns and the ARKA engine updates the
+        // order atomically on the server.
+        const queuedOffline = Boolean(payRes?.offlineQueued || payRes?.queued || payRes?.localOnly);
+        if (queuedOffline) {
+          const syncTransaction = buildFastPaymentTransaction({
+            payload,
+            amount: applied,
+            pinData,
+            method: payMethod,
+            idempotencyKey,
+          });
+          const deliveryOpId = await queueOp('gati_payment_delivery', {
+            table: 'orders',
+            id: orderId,
+            order_id: orderId,
+            idempotency_key: idempotencyKey,
+            transaction: syncTransaction,
+            delivery_patch: {
+              status: 'dorzim',
+              data: payload,
+              updated_at: payload?.updated_at || actionAt,
+              delivered_at: payload?.delivered_at || actionAt,
+              picked_up_at: payload?.picked_up_at || actionAt,
+            },
+          });
+          const queuedPayload = {
+            ...optimisticPayload,
+            offline_payment_pending: true,
+            offline_delivery_pending: true,
+            payment_sync_state: 'OUTBOX_PENDING',
+            delivery_sync_state: 'OUTBOX_PENDING',
+            payment_outbox_op_id: payRes?.queuedOpId || null,
+            delivery_outbox_op_id: deliveryOpId || null,
+            payment_idempotency_key: idempotencyKey,
+            updated_at: actionAt,
+          };
+          await finalizeDeliveredUi(queuedPayload, { syncPending: true });
+          showFastPayNotice('U ruajt. Mund të vazhdosh me klientin tjetër.', 'ok', 2200);
+          try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
+          setPayBusy(false);
+          return;
+        }
+
         if (!payRes?.ok || !payRes?.payment?.id || !payRes?.order?.id) {
           throw new Error(payRes?.error || 'ARKA_PAYMENT_VERIFY_FAILED');
         }
@@ -3115,6 +3335,31 @@ BORXHI PAS: ${newDebt.toFixed(2)}€
           },
         };
       } else {
+        const offlineAtConfirm = typeof navigator !== 'undefined' && navigator.onLine === false;
+        if (offlineAtConfirm) {
+          const deliveryOpId = await queueOp('patch_order_data', {
+            id: orderId,
+            table: 'orders',
+            status: 'dorzim',
+            data: {
+              status: 'dorzim',
+              data: payload,
+              updated_at: payload?.updated_at || actionAt,
+              delivered_at: payload?.delivered_at || actionAt,
+              picked_up_at: payload?.picked_up_at || actionAt,
+            },
+          });
+          const queuedDeliveryPayload = {
+            ...payload,
+            offline_delivery_pending: true,
+            delivery_sync_state: 'OUTBOX_PENDING',
+            delivery_outbox_op_id: deliveryOpId || null,
+          };
+          await finalizeDeliveredUi(queuedDeliveryPayload, { syncPending: true });
+          showFastPayNotice('U konfirmu. Mund të vazhdosh me klientin tjetër.', 'ok', 2200);
+          setPayBusy(false);
+          return;
+        }
         await closeOrderStatusWithVerification(orderId, payload);
       }
 
@@ -3728,6 +3973,7 @@ async function resolveReturnDbId(row) {
                 try {
                   const cleared = clearBaseMasterCacheScope(['gati']);
                   clearPageSnapshot('gati');
+                  void clearDurableGatiSnapshot();
                   purgeZombieLocalArtifacts(cleared?.removedIds || []);
                   setOrders([]);
                   setLocalProblemRows([]);

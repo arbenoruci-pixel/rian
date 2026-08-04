@@ -399,8 +399,8 @@ function patchBonusPage() {
     `Bonusi i takon PIN-it që regjistron pagesën që e mbyll porosinë. GATI brenda 48 orëve mbetet kushti i kualifikimit.`
   );
   source = source.replace(
-    `{canManage ? \`${String(row.worker_name || row.worker_pin || '').toUpperCase()} • PIN ${row.worker_pin || '—'} • \` : ''}{stamp(row.ready_at)}`,
-    `{canManage ? \`${String(row.worker_name || row.worker_pin || '').toUpperCase()} • PIN ${row.worker_pin || '—'} • \` : ''}PAGESA ${stamp(row.activated_at || row.ready_at)}`
+    "{canManage ? `${String(row.worker_name || row.worker_pin || '').toUpperCase()} • PIN ${row.worker_pin || '—'} • ` : ''}{stamp(row.ready_at)}",
+    "{canManage ? `${String(row.worker_name || row.worker_pin || '').toUpperCase()} • PIN ${row.worker_pin || '—'} • ` : ''}PAGESA ${stamp(row.activated_at || row.ready_at)}"
   );
   source = source.replace(
     `Një porosi paguhet vetëm një herë. PIN-i i fundit që e bën GATI merr 0.10€ për m² kur koha është brenda 48 orëve.`,

@@ -54,12 +54,14 @@ export default function ReadyBonusLiveCard({ actor = null, style = null }) {
     window.addEventListener('focus', onRefresh);
     window.addEventListener('online', onRefresh);
     window.addEventListener('arka:refresh', onRefresh);
+    window.addEventListener('base-ready-bonus:refresh', onRefresh);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       window.removeEventListener('focus', onRefresh);
       window.removeEventListener('online', onRefresh);
       window.removeEventListener('arka:refresh', onRefresh);
+      window.removeEventListener('base-ready-bonus:refresh', onRefresh);
     };
   }, [pin, manager]);
 
@@ -84,7 +86,7 @@ export default function ReadyBonusLiveCard({ actor = null, style = null }) {
         <div>
           <div style={{ fontSize: 10, fontWeight: 1000, letterSpacing: '.12em', color: '#fde68a' }}>BONUSI 48H • VETËM BAZA</div>
           <div style={{ marginTop: 3, fontSize: 19, lineHeight: 1, fontWeight: 1000 }}>{manager ? 'KREJT PUNËTORËT' : 'BONUSI IM LIVE'}</div>
-          <div style={{ marginTop: 5, fontSize: 10, color: '#cbd5e1', fontWeight: 800 }}>0.10€ / m² • GATI brenda 48 orëve • rifreskohet automatikisht</div>
+          <div style={{ marginTop: 5, fontSize: 10, color: '#cbd5e1', fontWeight: 800 }}>0.10€ / m² • aktivizohet në pagesën që e mbyll porosinë • rifreskohet automatikisht</div>
         </div>
         <Link
           href="/arka/bonuset"
@@ -127,3 +129,5 @@ export default function ReadyBonusLiveCard({ actor = null, style = null }) {
     </div>
   );
 }
+
+// BASE_PAYMENT_48H_BONUS_V2:LIVE_CARD

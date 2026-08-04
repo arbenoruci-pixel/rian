@@ -188,6 +188,21 @@ export async function recordOrderCashPayment(...args) {
     };
   }
 
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('arka:refresh'));
+      window.dispatchEvent(new CustomEvent('base-ready-bonus:refresh', {
+        detail: {
+          orderId,
+          paymentId: payment?.id || null,
+          activated: result?.readyBonusActivated === true,
+          bonus: result?.readyBonus || result?.readyBonusResult?.bonus || null,
+        },
+      }));
+    }
+  } catch {}
+  // BASE_PAYMENT_48H_BONUS_V2:PAY_SERVICE
+
   return {
     ok: true,
     ...(result || {}),
