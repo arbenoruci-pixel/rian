@@ -10,7 +10,7 @@ if (start < 0) {
 }
 const end = source.indexOf(`  );`, start);
 if (end < 0) throw new Error('BROKEN_BONUS_PAGE_REPLACE_END_NOT_FOUND');
-const replacement = `  // Builder safety: the bonus row timestamp JSX already works. Avoid evaluating\n  // JSX template expressions while this Node patch builder is running.\n`;
+const replacement = `  source = source.replace(\n    "{canManage ? \`${String(row.worker_name || row.worker_pin || '').toUpperCase()} • PIN \${row.worker_pin || '—'} • \` : ''}{stamp(row.ready_at)}",\n    "{canManage ? \`${String(row.worker_name || row.worker_pin || '').toUpperCase()} • PIN \${row.worker_pin || '—'} • \` : ''}PAGESA \${stamp(row.activated_at || row.ready_at)}"\n  );\n`;
 source = source.slice(0, start) + replacement + source.slice(end + 5);
 fs.writeFileSync(path, source, 'utf8');
 console.log('[fix-base-payment-bonus-v2-builder] fixed');
