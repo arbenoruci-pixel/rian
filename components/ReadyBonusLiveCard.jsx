@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from '@/lib/routerCompat.jsx';
 import { canManageBaseReadyBonuses, getBaseReadyBonusSummary } from '@/lib/baseReadyBonusClient';
+import ReadyBonusAttention from '@/components/ReadyBonusAttention';
 
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const M2 = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
@@ -125,9 +126,11 @@ export default function ReadyBonusLiveCard({ actor = null, style = null }) {
         </div>
       ) : <div style={{ color: '#fca5a5', fontSize: 10, fontWeight: 850 }}>{error || 'NUK U NGARKUA BONUSI.'}</div>}
 
+      <ReadyBonusAttention compact />
       {summary?._offlineSnapshot ? <div style={{ fontSize: 8, color: '#fde68a', fontWeight: 900 }}>OFFLINE • SNAPSHOT I FUNDIT</div> : null}
     </div>
   );
 }
 
 // BASE_PAYMENT_48H_BONUS_V2:LIVE_CARD
+// READY_BONUS_ATTENTION_V1
