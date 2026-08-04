@@ -84,7 +84,7 @@ export default function ReadyBonusLiveCard({ actor = null, style = null }) {
         <div>
           <div style={{ fontSize: 10, fontWeight: 1000, letterSpacing: '.12em', color: '#fde68a' }}>BONUSI 48H • VETËM BAZA</div>
           <div style={{ marginTop: 3, fontSize: 19, lineHeight: 1, fontWeight: 1000 }}>{manager ? 'KREJT PUNËTORËT' : 'BONUSI IM LIVE'}</div>
-          <div style={{ marginTop: 5, fontSize: 10, color: '#cbd5e1', fontWeight: 800 }}>0.10€ / m² • GATI brenda 48 orëve</div>
+          <div style={{ marginTop: 5, fontSize: 10, color: '#cbd5e1', fontWeight: 800 }}>0.10€ / m² • GATI brenda 48 orëve • rifreskohet automatikisht</div>
         </div>
         <Link
           href="/arka/bonuset"
