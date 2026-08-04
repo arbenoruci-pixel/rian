@@ -18,3 +18,7 @@ for (const [from, to] of replacements) {
 }
 if (changed) fs.writeFileSync(path, source, 'utf8');
 console.log(`[fix-home-search-solid-installer-v1] ${changed ? 'fixed' : 'already fixed'}`);
+
+// Keep the Arka permission repair in the existing prebuild chain.
+await import('./apply-arka-master-access-v1.mjs');
+await import('./verify-arka-master-access-v1.mjs');
