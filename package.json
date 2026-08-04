@@ -1,14 +1,14 @@
 {
   "name": "tepiha-vite-converted",
   "private": true,
-  "version": "2.0.80-pastrimi-payment-background-v1",
+  "version": "2.0.81-pastrimi-payment-background-v2",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
     "dev:api": "node server/index.mjs --dev",
-    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs && node tools/apply-pastrimi-baza-first-v1.mjs && node tools/apply-pastrimi-fitim-group-v1.mjs && node tools/apply-gati-visual-parity-v1.mjs && node tools/apply-gati-offline-payment-v1.mjs && node tools/apply-pranimi-offline-bank-consume-v1.mjs && node tools/apply-online-db-truth-recovery-v1.mjs && node tools/apply-arka-offline-feedback-v1.mjs && node tools/apply-authoritative-offline-lists-v2.mjs && node tools/apply-gati-offline-snapshot-v3.mjs && node tools/apply-gati-offline-reliability-v4.mjs && node tools/apply-arka-daily-control-v1.mjs && node tools/run-base-ready-bonus-v1.mjs && node tools/fix-base-payment-bonus-v2-builder.mjs && node tools/apply-base-payment-bonus-v2.mjs && node tools/apply-pastrimi-payment-background-v1.mjs",
-    "build": "npm run test:offline-first && npm run test:offline-queued-success && npm run test:smart-sms-exact && npm run test:arka-final-integrity && npm run test:online-db-truth && npm run test:gati-visual-offline && npm run test:authoritative-offline-lists-v2 && npm run test:gati-offline-snapshot-v3 && npm run test:gati-offline-reliability-v4 && npm run test:pastrimi-fitim-group && npm run test:arka-daily-control && npm run test:base-payment-bonus && npm run test:pastrimi-payment-background && vite build",
+    "prebuild": "node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs && node tools/apply-pastrimi-baza-first-v1.mjs && node tools/apply-pastrimi-fitim-group-v1.mjs && node tools/apply-gati-visual-parity-v1.mjs && node tools/apply-gati-offline-payment-v1.mjs && node tools/apply-pranimi-offline-bank-consume-v1.mjs && node tools/apply-online-db-truth-recovery-v1.mjs && node tools/apply-arka-offline-feedback-v1.mjs && node tools/apply-authoritative-offline-lists-v2.mjs && node tools/apply-gati-offline-snapshot-v3.mjs && node tools/apply-gati-offline-reliability-v4.mjs && node tools/apply-arka-daily-control-v1.mjs && node tools/run-base-ready-bonus-v1.mjs && node tools/fix-base-payment-bonus-v2-builder.mjs && node tools/apply-base-payment-bonus-v2.mjs && node tools/apply-pastrimi-payment-background-v1.mjs && node tools/apply-pastrimi-payment-background-v2.mjs",
+    "build": "npm run test:offline-first && npm run test:offline-queued-success && npm run test:smart-sms-exact && npm run test:arka-final-integrity && npm run test:online-db-truth && npm run test:gati-visual-offline && npm run test:authoritative-offline-lists-v2 && npm run test:gati-offline-snapshot-v3 && npm run test:gati-offline-reliability-v4 && npm run test:pastrimi-fitim-group && npm run test:arka-daily-control && npm run test:base-payment-bonus && npm run test:pastrimi-payment-background && npm run test:pastrimi-payment-background-v2 && vite build",
     "preview": "vite preview",
     "server": "node server/index.mjs",
     "cycles": "node tools/viteCircularDependencyPlugin.mjs",
@@ -35,7 +35,8 @@
     "test:arka-daily-control": "node tools/verify-arka-daily-control-v1.mjs",
     "test:base-ready-bonus": "node tools/verify-base-ready-bonus-v1.mjs",
     "test:base-payment-bonus": "node tools/verify-base-payment-bonus-v2.mjs",
-    "test:pastrimi-payment-background": "node tools/verify-pastrimi-payment-background-v1.mjs"
+    "test:pastrimi-payment-background": "node tools/verify-pastrimi-payment-background-v1.mjs",
+    "test:pastrimi-payment-background-v2": "node tools/verify-pastrimi-payment-background-v2.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",
