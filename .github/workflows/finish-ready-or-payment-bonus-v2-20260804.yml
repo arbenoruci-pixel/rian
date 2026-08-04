@@ -1,0 +1,126 @@
+name: Finish ready-or-payment bonus v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/finish-ready-or-payment-bonus-v2-20260804.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finish-ready-or-payment-bonus-v2
+  cancel-in-progress: false
+
+jobs:
+  integrate-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Discover the follow-up patch and verifier
+        id: discover
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA='99c3182a319060255a1419b887f409d3621953a3'
+          PATCH_FILE="$(git diff --name-only "$BASE_SHA"..HEAD -- 'tools/apply-*.mjs' | grep -E '^tools/apply-.*\.mjs$' | head -n 1 || true)"
+          VERIFY_FILE="$(git diff --name-only "$BASE_SHA"..HEAD -- 'tools/verify-*.mjs' | grep -E '^tools/verify-.*\.mjs$' | head -n 1 || true)"
+
+          if [ -z "$PATCH_FILE" ]; then
+            PATCH_FILE="$(grep -lEi 'READY[_ -]?OR[_ -]?PAYMENT|BASE[_ -]?READY.*PAYMENT|PAYMENT.*READY.*BONUS' tools/apply-*.mjs | head -n 1 || true)"
+          fi
+          if [ -z "$VERIFY_FILE" ]; then
+            VERIFY_FILE="$(grep -lEi 'READY[_ -]?OR[_ -]?PAYMENT|BASE[_ -]?READY.*PAYMENT|PAYMENT.*READY.*BONUS' tools/verify-*.mjs | head -n 1 || true)"
+          fi
+
+          test -n "$PATCH_FILE" || { echo 'Ready-or-payment apply patch was not found'; exit 1; }
+          test -n "$VERIFY_FILE" || { echo 'Ready-or-payment verifier was not found'; exit 1; }
+          test -f "$PATCH_FILE"
+          test -f "$VERIFY_FILE"
+
+          echo "patch_file=$PATCH_FILE" >> "$GITHUB_OUTPUT"
+          echo "verify_file=$VERIFY_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using patch: $PATCH_FILE"
+          echo "Using verifier: $VERIFY_FILE"
+
+      - name: Wire the patch into every production build
+        env:
+          PATCH_FILE: ${{ steps.discover.outputs.patch_file }}
+          VERIFY_FILE: ${{ steps.discover.outputs.verify_file }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const patchFile = process.env.PATCH_FILE;
+          const verifyFile = process.env.VERIFY_FILE;
+          const pkgPath = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+          pkg.version = '2.0.78-base-ready-or-payment-bonus-v2';
+          pkg.scripts ||= {};
+
+          const patchCommand = `node ${patchFile}`;
+          const verifyScriptName = 'test:base-ready-or-payment-bonus';
+          const verifyCommand = `node ${verifyFile}`;
+
+          const prebuildParts = String(pkg.scripts.prebuild || '')
+            .split('&&')
+            .map((part) => part.trim())
+            .filter(Boolean);
+          if (!prebuildParts.includes(patchCommand)) prebuildParts.push(patchCommand);
+          pkg.scripts.prebuild = prebuildParts.join(' && ');
+
+          pkg.scripts[verifyScriptName] = verifyCommand;
+          const verifyNpmCommand = `npm run ${verifyScriptName}`;
+          let build = String(pkg.scripts.build || 'vite build');
+          if (!build.includes(verifyNpmCommand)) {
+            if (build.includes('vite build')) build = build.replace(/\s*&&\s*vite build\s*$/, ` && ${verifyNpmCommand} && vite build`);
+            else build = `${build} && ${verifyNpmCommand}`;
+          }
+          pkg.scripts.build = build;
+
+          fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+      - name: Apply the integration to tracked source
+        env:
+          PATCH_FILE: ${{ steps.discover.outputs.patch_file }}
+        run: node "$PATCH_FILE"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify ready-or-payment policy
+        env:
+          VERIFY_FILE: ${{ steps.discover.outputs.verify_file }}
+        run: node "$VERIFY_FILE"
+
+      - name: Full production build
+        run: npm run build
+
+      - name: Commit generated source and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/finish-ready-or-payment-bonus-v2-20260804.yml
+          git config user.name 'ready-payment-bonus-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No source changes remained after successful verification.'
+            exit 0
+          fi
+          git commit -m 'activate bonus on GATI or verified BASE payment [ready-payment-v2]'
+          git push origin HEAD:main
