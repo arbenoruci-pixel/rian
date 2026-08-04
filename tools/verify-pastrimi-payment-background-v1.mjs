@@ -45,33 +45,33 @@ function functionBlock(name) {
 }
 
 const fn = functionBlock('applyRowPayAndClose');
+const isV2 = source.includes('PASTRIMI_PAYMENT_BACKGROUND_V2');
 check(source.includes('PASTRIMI_PAYMENT_BACKGROUND_V1'), 'marker missing');
 check(source.includes("import { ARKA_ACTION } from '@/lib/arka/arkaConstants';"), 'ARKA action import missing');
 check(source.includes("import { buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';"), 'idempotency import missing');
 check(fn.includes("const pickupNow = willSettleFull && fullPaymentTargetStatus === 'dorzim'"), 'pickup branch missing');
-check(fn.includes("queueOp('arka_transaction'"), 'durable payment outbox missing');
+check(fn.includes("queueOp('arka_transaction'") || fn.includes('enqueuePastrimiPaymentIntent(paymentIntent)'), 'durable payment outbox missing');
 check(fn.includes('paymentIdempotencyKey'), 'stable idempotency key missing');
-check(fn.includes("statusOnFullPayment: 'dorzim'"), 'queued delivery status missing');
+check(fn.includes("statusOnFullPayment: 'dorzim'") || fn.includes('statusOnFullPayment: fullPaymentTargetStatus'), 'queued delivery status missing');
 check(fn.includes("setOrders((prev) => (prev || []).filter"), 'instant row removal missing');
 check(fn.includes('setRowPaySheet(false)'), 'instant modal close missing');
 check(fn.includes("payment_sync_state: 'BACKGROUND_PENDING'"), 'background payment marker missing');
 check(fn.includes("delivery_sync_state: 'BACKGROUND_PENDING'"), 'background delivery marker missing');
 check(fn.includes('Promise.resolve().then(runPaymentInBackground)'), 'detached background execution missing');
 check(fn.includes('durableQueueCreated'), 'durable queue fallback missing');
-check(fn.includes('if (queued) return'), 'offline queued success handling missing');
-check(fn.includes('originalRow'), 'hard-failure rollback missing');
+check(fn.includes('if (queued)') && fn.includes('return;'), 'offline queued success handling missing');
+check(isV2 ? fn.includes('savePastrimiPaymentIntent(paymentIntent)') : fn.includes('originalRow'), 'durable pre-UI recovery missing');
 check(fn.includes("last_payment_by_pin"), 'payment actor PIN mirror missing');
 check(fn.includes("last_payment_by_name"), 'payment actor name mirror missing');
 
-const model = ({ pickupNow, queueCreated, directOk }) => {
+const model = ({ pickupNow, journalSaved }) => {
   let visible = true;
-  if (pickupNow) visible = false;
-  if (pickupNow && !queueCreated && !directOk) visible = true;
+  if (pickupNow && journalSaved) visible = false;
   return visible;
 };
-check(model({ pickupNow: true, queueCreated: true, directOk: false }) === false, 'queued pickup must stay removed');
-check(model({ pickupNow: true, queueCreated: false, directOk: false }) === true, 'unpersisted failure must restore row');
-check(model({ pickupNow: false, queueCreated: false, directOk: true }) === true, 'partial/stay payment must remain visible');
+check(model({ pickupNow: true, journalSaved: true }) === false, 'journaled pickup must stay removed');
+check(model({ pickupNow: true, journalSaved: false }) === true, 'unjournaled pickup must remain visible');
+check(model({ pickupNow: false, journalSaved: true }) === true, 'partial/stay payment must remain visible');
 
 if (failures.length) {
   console.error(`FAIL: ${failures.length} Pastrimi background payment checks failed.`);
