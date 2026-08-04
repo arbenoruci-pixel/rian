@@ -1,0 +1,22 @@
+import fs from 'node:fs';
+
+const file = 'app/dispatch/page.jsx';
+let source = fs.readFileSync(file, 'utf8');
+const marker = 'DISPATCH_MIDNIGHT_DRIVERS_V1';
+if (source.includes(marker)) {
+  console.log('[dispatch-midnight-drivers-v1] already applied');
+  process.exit(0);
+}
+
+const oldDate = `  const todayYmd = useMemo(() => toLocalYmd(new Date()), []);\n  const tomorrowYmd = useMemo(() => addDaysYmd(toLocalYmd(new Date()), 1), []);`;
+const newDate = `  const [todayYmd, setTodayYmd] = useState(() => toLocalYmd(new Date()));\n  const tomorrowYmd = useMemo(() => addDaysYmd(todayYmd, 1), [todayYmd]);\n\n  useEffect(() => {\n    const refreshCalendarDay = () => {\n      const next = toLocalYmd(new Date());\n      setTodayYmd((current) => current === next ? current : next);\n    };\n    refreshCalendarDay();\n    const timer = window.setInterval(refreshCalendarDay, 30_000);\n    const onVisible = () => { if (document.visibilityState === 'visible') refreshCalendarDay(); };\n    window.addEventListener('focus', refreshCalendarDay);\n    window.addEventListener('online', refreshCalendarDay);\n    document.addEventListener('visibilitychange', onVisible);\n    return () => {\n      window.clearInterval(timer);\n      window.removeEventListener('focus', refreshCalendarDay);\n      window.removeEventListener('online', refreshCalendarDay);\n      document.removeEventListener('visibilitychange', onVisible);\n    };\n  }, []); // ${marker}: date rollover`;
+if (!source.includes(oldDate)) throw new Error('DISPATCH_DATE_BLOCK_NOT_FOUND');
+source = source.replace(oldDate, newDate);
+
+const oldDrivers = `  useEffect(() => {\n    if (!accessChecked || !accessAllowed) return undefined;\n    (async () => {\n      const res = await listUsers();\n      if (res?.ok) {\n        const ds = (res.items || []).filter((u) => {\n          const roleOk = String(u.role || \"\").toUpperCase() === \"TRANSPORT\";\n          const hybridOk = u?.is_hybrid_transport === true;\n          const activeOk = u?.is_active !== false;\n          return activeOk && (roleOk || hybridOk);\n        });\n        setDrivers(ds);\n        if (ds.length === 1) setDriverId(String(ds[0].id));\n      }\n    })();\n  }, [accessChecked, accessAllowed]);`;
+const newDrivers = `  useEffect(() => {\n    if (!accessChecked || !accessAllowed) return undefined;\n    let cancelled = false;\n    let retryTimer = 0;\n    let attempt = 0;\n    const loadDrivers = async () => {\n      attempt += 1;\n      try {\n        const res = await listUsers();\n        if (cancelled) return;\n        if (res?.ok) {\n          const ds = (res.items || []).filter((u) => {\n            const roleOk = String(u.role || '').toUpperCase() === 'TRANSPORT';\n            const hybridOk = u?.is_hybrid_transport === true || String(u?.is_hybrid_transport || '').toLowerCase() === 'true';\n            const activeOk = u?.is_active !== false;\n            return activeOk && (roleOk || hybridOk);\n          });\n          if (ds.length) {\n            setDrivers(ds);\n            try { window.localStorage.setItem('tepiha_dispatch_drivers_v1', JSON.stringify({ saved_at: new Date().toISOString(), items: ds })); } catch {}\n            if (ds.length === 1) setDriverId(String(ds[0].id));\n            attempt = 0;\n            return;\n          }\n        }\n      } catch {}\n      try {\n        const cached = JSON.parse(window.localStorage.getItem('tepiha_dispatch_drivers_v1') || 'null');\n        if (!cancelled && Array.isArray(cached?.items) && cached.items.length) setDrivers((current) => current.length ? current : cached.items);\n      } catch {}\n      if (!cancelled && attempt < 4) retryTimer = window.setTimeout(loadDrivers, attempt * 1200);\n    };\n    const onRefresh = () => { attempt = 0; void loadDrivers(); };\n    void loadDrivers();\n    window.addEventListener('focus', onRefresh);\n    window.addEventListener('online', onRefresh);\n    return () => {\n      cancelled = true;\n      window.clearTimeout(retryTimer);\n      window.removeEventListener('focus', onRefresh);\n      window.removeEventListener('online', onRefresh);\n    };\n  }, [accessChecked, accessAllowed]); // ${marker}: resilient drivers`;
+if (!source.includes(oldDrivers)) throw new Error('DISPATCH_DRIVERS_BLOCK_NOT_FOUND');
+source = source.replace(oldDrivers, newDrivers);
+
+fs.writeFileSync(file, source, 'utf8');
+console.log('[dispatch-midnight-drivers-v1] applied');
