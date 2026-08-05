@@ -63,7 +63,9 @@ function patchPage() {
 
   const submitStart = source.indexOf('  async function submitHandoff() {', stateEnd);
   if (submitStart < 0) throw new Error('WIZARD_SUBMIT_START_NOT_FOUND');
-  const submitEnd = source.indexOf('\n  async function ', submitStart + 10);
+  const tail = source.slice(submitStart + 1);
+  const nextFunctionMatch = tail.match(/\n  (?:async )?function [A-Za-z_$]/);
+  const submitEnd = nextFunctionMatch ? submitStart + 1 + nextFunctionMatch.index : -1;
   if (submitEnd < 0) throw new Error('WIZARD_SUBMIT_END_NOT_FOUND');
   let submitBlock = source.slice(submitStart, submitEnd);
   submitBlock = submitBlock.replace('  async function submitHandoff() {', '  async function submitHandoff(options = {}) {');
