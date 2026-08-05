@@ -56,12 +56,10 @@ export default defineConfig({
         ],
       },
       workbox: {
-        importScripts: ['/sw-navigation-diag.js?v=3503'],
+        importScripts: ['/sw-navigation-diag.js?v=3504'],
         globPatterns: ['**/*.{js,css,ico,png,svg,webp,webmanifest,json,woff2}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         cleanupOutdatedCaches: false,
-        // Surgical PWA update fix: the new worker activates and claims clients immediately.
-        // Local draft/outbox data is preserved; no cache or business storage is deleted.
         clientsClaim: true,
         skipWaiting: true,
         navigateFallback: '/index.html',
@@ -77,7 +75,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.mode === 'navigate' && /^\/(?:pranimi|pastrimi|gati|arka(?:\/.*)?|transport(?:\/.*)?|marrje-sot|dispatch|fletore|baza|search|worker)(?:\/.*)?$/.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'tepiha-vite-business-routes-v39-offline-queued-success',
+              cacheName: 'tepiha-vite-business-routes-v40-handoff-wizard-dispatch',
               networkTimeoutSeconds: 4,
               cacheableResponse: {
                 statuses: [0, 200],
@@ -91,10 +89,9 @@ export default defineConfig({
           },
           {
             urlPattern: ({ request, url }) => request.destination === 'script' || request.destination === 'style' || url.pathname.startsWith('/assets/'),
-            // Keep cached hashed chunks available while checking the network in background.
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'tepiha-vite-static-assets-v39-offline-queued-success',
+              cacheName: 'tepiha-vite-static-assets-v40-handoff-wizard-dispatch',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -109,7 +106,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-media-v39-offline-queued-success',
+              cacheName: 'tepiha-vite-media-v40-handoff-wizard-dispatch',
               cacheableResponse: {
                 statuses: [0, 200],
               },
