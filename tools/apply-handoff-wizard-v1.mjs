@@ -109,8 +109,8 @@ function patchPage() {
 `;
   source = source.slice(0, submitStart) + openFunctions + submitBlock + source.slice(submitEnd);
 
-  const buttonOld = `<button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={submitHandoff}>{busy === 'handoff' ? '...' : \`DORËZO TE DISPATCH — ${euro(workerBaseForDispatchTotal)}\`}</button>`;
-  const buttonNew = `<button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={openHandoffWizard}>{busy === 'handoff' ? '...' : \`DORËZO TE DISPATCH — ${euro(workerBaseForDispatchTotal)}\`}</button>`;
+  const buttonOld = "<button type=\"button\" className=\"arkaSolidBtn big arkaMainHandoffBtn\" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={submitHandoff}>{busy === 'handoff' ? '...' : `DORËZO TE DISPATCH — ${euro(workerBaseForDispatchTotal)}`}</button>";
+  const buttonNew = "<button type=\"button\" className=\"arkaSolidBtn big arkaMainHandoffBtn\" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={openHandoffWizard}>{busy === 'handoff' ? '...' : `DORËZO TE DISPATCH — ${euro(workerBaseForDispatchTotal)}`}</button>";
   if (!source.includes(buttonOld)) throw new Error('WIZARD_BUTTON_ANCHOR_NOT_FOUND');
   source = source.replace(buttonOld, buttonNew);
 
