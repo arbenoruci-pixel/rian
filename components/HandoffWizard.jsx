@@ -4,6 +4,13 @@ import { useMemo, useState } from 'react';
 
 const money = (value) => `${(Number(value || 0) || 0).toFixed(2)} €`;
 
+function backendMealChoice(choice) {
+  if (choice === 'self') return '1';
+  if (choice === 'other') return '2';
+  if (choice === 'none') return '3';
+  return '';
+}
+
 export default function HandoffWizard({
   open,
   actor,
@@ -52,12 +59,14 @@ export default function HandoffWizard({
     setError('');
     try {
       await onSubmit?.({
-        mealChoice: mealChoice === 'existing' ? '' : mealChoice,
+        mealChoice: backendMealChoice(mealChoice),
         mealPayerPin: mealChoice === 'other' ? mealPayerPin : '',
       });
       setStep(4);
     } catch (e) {
-      setError(e?.message || 'Dorëzimi nuk u krye. Provo përsëri.');
+      const message = String(e?.message || 'Dorëzimi nuk u krye. Provo përsëri.')
+        .replace(/ZGJEDHJE E PAVLEFSHME PËR USHQIMIN\.\s*SHKRUAJ 1, 2 OSE 3\.?/gi, 'Zgjedhja e ushqimit nuk u ruajt. Kthehu një hap dhe zgjidhe përsëri.');
+      setError(message);
     } finally {
       setBusy(false);
     }
