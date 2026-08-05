@@ -83,11 +83,8 @@ function patchPage() {
     (match) => `      if (!options?.wizard) ${match.trim()}\n      return submitted;`
   );
   submitBlock = submitBlock.replace(
-`    } catch (e) {
-      alert(\`🔴 ${e?.message || 'NUK U DËRGUA DORËZIMI.'}\`);`,
-`    } catch (e) {
-      if (options?.wizard) throw e;
-      alert(\`🔴 ${e?.message || 'NUK U DËRGUA DORËZIMI.'}\`);`
+    "    } catch (e) {\n      alert(`🔴 ${e?.message || 'NUK U DËRGUA DORËZIMI.'}`);",
+    "    } catch (e) {\n      if (options?.wizard) throw e;\n      alert(`🔴 ${e?.message || 'NUK U DËRGUA DORËZIMI.'}`);"
   );
 
   const openFunctions = `  async function openHandoffWizard() {
