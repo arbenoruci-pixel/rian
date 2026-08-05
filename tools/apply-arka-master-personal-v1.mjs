@@ -9,9 +9,9 @@ if (source.includes(MARKER)) {
   process.exit(0);
 }
 
-const roleAnchor = `function roleCanManage(role) {
-  return ['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(safeUpper(role));
-}`;
+const roleMatch = source.match(/function roleCanManage\(role\) \{[\s\S]*?\n\}/);
+if (!roleMatch) throw new Error('ROLE_ANCHOR_NOT_FOUND');
+const roleAnchor = roleMatch[0];
 const roleReplacement = `${roleAnchor}
 
 // ${MARKER}
@@ -30,19 +30,16 @@ function isMasterPersonalArkaMode(actor = {}) {
     return false;
   }
 }`;
-if (!source.includes(roleAnchor)) throw new Error('ROLE_ANCHOR_NOT_FOUND');
 source = source.replace(roleAnchor, roleReplacement);
 
-const actorAnchor = `  const role = safeUpper(actor?.role);
-  const isWorker = roleIsWorker(role);
-  const canManage = roleCanManage(role);
-  const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(role));`;
+const actorMatch = source.match(/  const role = safeUpper\(actor\?\.role\);\n  const isWorker = roleIsWorker\(role\);\n  const canManage = roleCanManage\(role\);\n  const canOpenKapaku = [^\n]+;/);
+if (!actorMatch) throw new Error('ACTOR_ANCHOR_NOT_FOUND');
+const actorAnchor = actorMatch[0];
 const actorReplacement = `  const role = safeUpper(actor?.role);
   const masterPersonalMode = isMasterPersonalArkaMode(actor);
   const isWorker = actorIsWorkerAccount(actor) || masterPersonalMode;
   const canManage = roleCanManage(role) && !masterPersonalMode;
   const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || String(actor?.pin || '').trim() === '4563' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(role));`;
-if (!source.includes(actorAnchor)) throw new Error('ACTOR_ANCHOR_NOT_FOUND');
 source = source.replace(actorAnchor, actorReplacement);
 
 source = source.replaceAll(
@@ -51,11 +48,10 @@ source = source.replaceAll(
 );
 
 const navAnchor = `          <Link href="/arka/bonuset" prefetch={false} className="arkaTopBtn">BONUSI 48H</Link>`;
-const navReplacement = `${navAnchor}
-          {String(actor?.pin || '').trim() === '4563' && canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME</Link> : null}
-          {String(actor?.pin || '').trim() === '4563' && masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN ARKA</Link> : null}`;
 if (!source.includes(navAnchor)) throw new Error('NAV_ANCHOR_NOT_FOUND');
-source = source.replace(navAnchor, navReplacement);
+source = source.replace(navAnchor, `${navAnchor}
+          {String(actor?.pin || '').trim() === '4563' && canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME</Link> : null}
+          {String(actor?.pin || '').trim() === '4563' && masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN ARKA</Link> : null}`);
 
 fs.writeFileSync(PATH, source, 'utf8');
 console.log('[arka-master-personal-v1] installed');
