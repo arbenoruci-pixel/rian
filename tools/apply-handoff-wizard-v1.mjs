@@ -132,9 +132,8 @@ function patchPage() {
 
   source = replaceFunction(source, '  async function submitHandoff() {', replacement);
 
-  const buttonOld = /<button type="button" className="arkaSolidBtn big arkaMainHandoffBtn"([^>]*?)onClick=\{submitHandoff\}([^>]*)>\{busy === 'handoff' \? '\.\.\.' : `DORËZO TE DISPATCH — \$\{euro\(workerBaseForDispatchTotal\)\}`}<\/button>/;
-  if (!buttonOld.test(source)) throw new Error('WIZARD_BUTTON_ANCHOR_NOT_FOUND');
-  source = source.replace(buttonOld, `<button type="button" className="arkaSolidBtn big arkaMainHandoffBtn"$1onClick={openHandoffWizard}$2>{busy === 'handoff' ? '...' : \`DORËZO TE DISPATCH — \${euro(workerBaseForDispatchTotal)}\`}</button>`);
+  if (!source.includes('onClick={submitHandoff}')) throw new Error('WIZARD_BUTTON_HANDLER_NOT_FOUND');
+  source = source.replace('onClick={submitHandoff}', 'onClick={openHandoffWizard}');
 
   const sectionAnchor = `          <div className="arkaSectionCard" style={{ display: 'grid', gap: 10 }}>`;
   if (!source.includes(sectionAnchor)) throw new Error('WIZARD_SECTION_ANCHOR_NOT_FOUND');
