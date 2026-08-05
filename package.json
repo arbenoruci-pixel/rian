@@ -33,7 +33,7 @@
     "test:gati-offline-reliability-v4": "node tools/verify-gati-offline-reliability-v4.mjs",
     "test:pastrimi-fitim-group": "node tools/verify-pastrimi-fitim-group-v1.mjs",
     "test:arka-daily-control": "node tools/verify-arka-daily-control-v1.mjs",
-    "test:base-ready-bonus": "node tools/verify-base-ready-bonus-v1.mjs",
+    "test:base-ready-bonus": "node tools/verify-base-ready-bonus-v2.mjs",
     "test:base-payment-bonus": "node tools/verify-base-payment-bonus-v2.mjs",
     "test:pastrimi-payment-background": "node tools/verify-pastrimi-payment-background-v1.mjs",
     "test:pastrimi-payment-background-v2": "node tools/verify-pastrimi-payment-background-v2.mjs",
@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",
-    "cors": "^4.21.2",
+    "cors": "^2.8.5",
     "express": "^4.21.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.2",
