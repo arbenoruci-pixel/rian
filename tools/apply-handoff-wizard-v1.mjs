@@ -77,10 +77,8 @@ function patchPage() {
   );
   submitBlock = submitBlock.replace('      const ok = confirm(', '      const ok = options?.skipConfirm ? true : confirm(');
   submitBlock = submitBlock.replace(
-`      alert(\`✅ DORËZIMI U DËRGUA TE DISPATCH.${held > 0 ? '\\
-BONUSI 48H I MBAJTUR NË KËTË DORËZIM: ' + held.toFixed(2) + '€' : ''}\`);`,
-`      if (!options?.wizard) alert(\`✅ DORËZIMI U DËRGUA TE DISPATCH.${held > 0 ? '\\
-BONUSI 48H I MBAJTUR NË KËTË DORËZIM: ' + held.toFixed(2) + '€' : ''}\`);\n      return submitted;`
+    /      alert\(`✅ DORËZIMI U DËRGUA TE DISPATCH\.[\s\S]*?`\);/,
+    (match) => `      if (!options?.wizard) ${match.trim()}\n      return submitted;`
   );
   submitBlock = submitBlock.replace(
 `    } catch (e) {
