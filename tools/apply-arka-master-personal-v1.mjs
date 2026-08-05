@@ -12,7 +12,7 @@ if (source.includes(MARKER)) {
 const roleMatch = source.match(/function roleCanManage\(role\) \{[\s\S]*?\n\}/);
 if (!roleMatch) throw new Error('ROLE_ANCHOR_NOT_FOUND');
 const roleAnchor = roleMatch[0];
-const roleReplacement = `${roleAnchor}
+source = source.replace(roleAnchor, `${roleAnchor}
 
 // ${MARKER}
 function actorIsWorkerAccount(actor = {}) {
@@ -29,18 +29,16 @@ function isMasterPersonalArkaMode(actor = {}) {
   } catch {
     return false;
   }
-}`;
-source = source.replace(roleAnchor, roleReplacement);
+}`);
 
-const actorMatch = source.match(/  const role = safeUpper\(actor\?\.role\);\n  const isWorker = roleIsWorker\(role\);\n  const canManage = roleCanManage\(role\);\n  const canOpenKapaku = [^\n]+;/);
+const actorMatch = source.match(/  const role = (?:safeUpper|normalizeArkaRole)\(actor\?\.role\);\n  const isWorker = roleIsWorker\(role\);\n  const canManage = roleCanManage\(role\);\n  const canOpenKapaku = [^\n]+;/);
 if (!actorMatch) throw new Error('ACTOR_ANCHOR_NOT_FOUND');
-const actorAnchor = actorMatch[0];
-const actorReplacement = `  const role = safeUpper(actor?.role);
+const roleNormalizer = actorMatch[0].includes('normalizeArkaRole') ? 'normalizeArkaRole' : 'safeUpper';
+source = source.replace(actorMatch[0], `  const role = ${roleNormalizer}(actor?.role);
   const masterPersonalMode = isMasterPersonalArkaMode(actor);
   const isWorker = actorIsWorkerAccount(actor) || masterPersonalMode;
   const canManage = roleCanManage(role) && !masterPersonalMode;
-  const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || String(actor?.pin || '').trim() === '4563' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(role));`;
-source = source.replace(actorAnchor, actorReplacement);
+  const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || String(actor?.pin || '').trim() === '4563' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(${roleNormalizer}(role)));`);
 
 source = source.replaceAll(
   `roleIsWorker(act?.role) && !roleCanManage(act?.role)`,
