@@ -2,7 +2,11 @@ import fs from 'node:fs';
 
 const FINANCE_FILE = 'lib/corporateFinance.js';
 const BONUS_CLIENT_FILE = 'lib/baseReadyBonusClient.js';
+const INDEX_FILE = 'index.html';
+const VITE_FILE = 'vite.config.js';
 const MARKER = 'DISPATCH_OWN_HANDOFF_BONUS_BYPASS_V2';
+const BUILD_VERSION = '2.0.97-dispatch-own-handoff-bonus-bypass-v2';
+const CACHE_GENERATION = 'v41-dispatch-handoff-bonus-v2';
 
 function replaceOnce(source, search, replacement, errorCode) {
   const index = source.indexOf(search);
@@ -97,7 +101,34 @@ function patchCorporateFinance() {
   fs.writeFileSync(FINANCE_FILE, source, 'utf8');
 }
 
+function patchBuildIdentityAndCaches() {
+  let indexSource = fs.readFileSync(INDEX_FILE, 'utf8');
+  indexSource = indexSource
+    .replace(/(<meta name="tepiha-build-id" content=")[^"]+(" \/>)/, `$1${BUILD_VERSION}$2`)
+    .replace(/window\.__TEPIHA_BUILD_ID\s*=\s*'[^']+';/, `window.__TEPIHA_BUILD_ID = '${BUILD_VERSION}';`);
+  if (!indexSource.includes(`content="${BUILD_VERSION}"`) || !indexSource.includes(`window.__TEPIHA_BUILD_ID = '${BUILD_VERSION}';`)) {
+    throw new Error('DISPATCH_BONUS_BYPASS_V2_INDEX_BUILD_VERIFY_FAILED');
+  }
+  fs.writeFileSync(INDEX_FILE, indexSource, 'utf8');
+
+  let viteSource = fs.readFileSync(VITE_FILE, 'utf8');
+  viteSource = viteSource
+    .replace(/sw-navigation-diag\.js\?v=\d+/, 'sw-navigation-diag.js?v=3505')
+    .replace(/tepiha-vite-business-routes-v\d+-[A-Za-z0-9-]+/g, `tepiha-vite-business-routes-${CACHE_GENERATION}`)
+    .replace(/tepiha-vite-static-assets-v\d+-[A-Za-z0-9-]+/g, `tepiha-vite-static-assets-${CACHE_GENERATION}`)
+    .replace(/tepiha-vite-media-v\d+-[A-Za-z0-9-]+/g, `tepiha-vite-media-${CACHE_GENERATION}`);
+  if (!viteSource.includes(`tepiha-vite-business-routes-${CACHE_GENERATION}`)
+      || !viteSource.includes(`tepiha-vite-static-assets-${CACHE_GENERATION}`)
+      || !viteSource.includes(`tepiha-vite-media-${CACHE_GENERATION}`)
+      || !viteSource.includes('sw-navigation-diag.js?v=3505')) {
+    throw new Error('DISPATCH_BONUS_BYPASS_V2_CACHE_VERIFY_FAILED');
+  }
+  fs.writeFileSync(VITE_FILE, viteSource, 'utf8');
+}
+
 patchBonusClient();
 patchCorporateFinance();
+patchBuildIdentityAndCaches();
 
 console.log('PASS: dispatch/admin handoff uses allowNonWorker bonus lookup and cannot be blocked by BONUS_WORKER_ONLY.');
+console.log(`PASS: build identity ${BUILD_VERSION} and cache generation ${CACHE_GENERATION} are active.`);
