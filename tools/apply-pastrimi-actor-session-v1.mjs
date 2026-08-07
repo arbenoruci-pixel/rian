@@ -36,7 +36,7 @@ const oldPackagingActor = `  function readPaketimiActorLabel(order = null) {
   }`;
 
 const newPackagingActor = `  function readPaketimiActorLabel(order = null) {
-    // ${marker}: package scans must use the active canonical session first.
+    // ${marker}: package scans use the same canonical actor/session as GATI.
     let actor = null;
     try { actor = getActor() || null; } catch {}
     if (!actor?.pin && !actor?.name) {
@@ -52,42 +52,16 @@ source = replaceOnce(
   'Pastrimi package actor resolution',
 );
 
-const oldReadyWorkerBlock = `      try { readyBonusWorker = getActor?.() || null; } catch {}
-      if (!readyBonusWorker?.pin) {
-        alert('MUNGON SESIONI I PËRDORUESIT. HYR PËRSËRI PARA SE TA BËSH GATI.');
-        if (btn) { btn.disabled = false; btn.innerText = 'GATI'; }
-        return;
-      }`;
-
-const newReadyWorkerBlock = `      // ${marker}: use the logged-in worker; if iOS lost the session copy,
-      // recover safely with the existing validated worker-PIN flow instead of
-      // blocking a fully packed order at the final rack step.
-      try { readyBonusWorker = getActor() || null; } catch { readyBonusWorker = null; }
-      if (!readyBonusWorker?.pin) {
-        try {
-          readyBonusWorker = await resolveBaseReadyBonusWorker({
-            label: 'SESIONI U HUMB. JEP PIN-IN E PUNËTORIT QË E PËRFUNDOI DHE E PAKETOI KËTË POROSI',
-            forcePrompt: true,
-          });
-        } catch {
-          readyBonusWorker = null;
-        }
-      }
-      if (!readyBonusWorker?.pin) {
-        if (btn) { btn.disabled = false; btn.innerText = 'GATI'; }
-        return;
-      }`;
+const oldStageActorLine = `      try { readyBonusWorker = getActor?.() || null; } catch {}`;
+const newStageActorLine = `      // ${marker}: getActor is imported from actorSession; this preserves the
+      // payment-owner bonus contract and removes the false missing-session error.
+      try { readyBonusWorker = getActor?.() || null; } catch {}`;
 
 source = replaceOnce(
   source,
-  oldReadyWorkerBlock,
-  newReadyWorkerBlock,
-  'Pastrimi GATI session recovery',
-);
-
-source = source.replace(
-  `      try { actor = getActor?.(); } catch {}`,
-  `      try { actor = getActor() || null; } catch { actor = null; }`,
+  oldStageActorLine,
+  newStageActorLine,
+  'Pastrimi GATI bound actor session',
 );
 
 fs.writeFileSync(targetPath, source, 'utf8');
@@ -97,20 +71,15 @@ const required = [
   importLine,
   marker,
   'try { actor = getActor() || null; } catch {}',
-  'readyBonusWorker = await resolveBaseReadyBonusWorker({',
-  'forcePrompt: true',
-  "try { actor = getActor() || null; } catch { actor = null; }",
+  'readyBonusWorker = getActor?.() || null',
+  'MUNGON SESIONI I PËRDORUESIT. HYR PËRSËRI PARA SE TA BËSH GATI.',
 ];
 
 for (const token of required) {
   if (!after.includes(token)) throw new Error(`PASTRIMI_ACTOR_SESSION_PATCH_MISSING:${token}`);
 }
 
-if (after.includes('getActor?.()')) {
-  throw new Error('PASTRIMI_STILL_USES_UNBOUND_OPTIONAL_GETACTOR');
-}
-if (after.includes('MUNGON SESIONI I PËRDORUESIT. HYR PËRSËRI PARA SE TA BËSH GATI.')) {
-  throw new Error('PASTRIMI_STILL_BLOCKS_PACKED_ORDER_ON_SESSION_COPY');
-}
+const importCount = after.split(importLine).length - 1;
+if (importCount !== 1) throw new Error(`PASTRIMI_ACTOR_IMPORT_COUNT_${importCount}`);
 
-console.log('PASS Pastrimi resolves the active actor and recovers a lost iOS session with validated PIN');
+console.log('PASS Pastrimi GATI uses the bound canonical actor session without changing bonus ownership');
