@@ -2,6 +2,7 @@ import fs from 'node:fs';
 
 const ARKA_PATH = 'app/arka/page.jsx';
 const DAILY_PATH = 'components/ArkaWorkerDailyStatus.jsx';
+const WIZARD_PATH = 'components/HandoffWizard.jsx';
 const PAY_PATH = 'app/transport/pay/page.jsx';
 const API_PATH = 'app/api/arka/transaction/route.js';
 const MARKER = 'BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1';
@@ -12,16 +13,6 @@ function replaceOnce(source, oldText, newText, label) {
   if (count !== 1) throw new Error(`${label}: expected one match, found ${count}`);
   console.log(`PATCH ${label}`);
   return source.replace(oldText, newText);
-}
-
-function replaceRegexOnce(source, pattern, newText, label) {
-  if (source.includes(newText)) return source;
-  const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
-  const globalPattern = new RegExp(pattern.source, flags);
-  const matches = [...source.matchAll(globalPattern)];
-  if (matches.length !== 1) throw new Error(`${label}: expected one match, found ${matches.length}`);
-  console.log(`PATCH ${label}`);
-  return source.replace(pattern, newText);
 }
 
 function scanMatching(source, start, openChar, closeChar) {
@@ -107,7 +98,6 @@ function patchArkaPage() {
   };
 }`);
   }
-
   source = replaceOnce(
     source,
     "  const visibleCommission = n(item?.visibleCommissionHistoryTotal ?? item?.commissionHeldTotal);\n  const clientCount = cashRows.length || historyRows.length || (Array.isArray(item?.collectedRows) ? item.collectedRows.length : 0);",
@@ -119,12 +109,6 @@ function patchArkaPage() {
     "        <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(visibleCommission)} tone=\"warn\" small />",
     "        {workerHybrid ? <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(visibleCommission)} tone=\"warn\" small /> : null}",
     'hide manager commission',
-  );
-  source = replaceRegexOnce(
-    source,
-    /        `KOMISIONI TRANSPORT: \$\{commissionTotal\.toFixed\(2\)\}€(?:\\n|\r?\n)` \+/,
-    "        (isHybridWorker(workerSnapshot?.worker || actor || {}) ? `KOMISIONI TRANSPORT: ${commissionTotal.toFixed(2)}€\\n` : '') +",
-    'hide handoff commission line',
   );
   source = replaceOnce(
     source,
@@ -175,6 +159,31 @@ function patchDailyStatus() {
     );
   }
   fs.writeFileSync(DAILY_PATH, source, 'utf8');
+}
+
+function patchHandoffWizard() {
+  let source = fs.readFileSync(WIZARD_PATH, 'utf8');
+  if (!source.includes(`${MARKER}:WIZARD`)) {
+    source = replaceOnce(
+      source,
+      "  const safeGross = Math.max(0, Number(grossTotal || 0));\n  const safeCommission = Math.max(0, Number(commissionTotal || 0));\n  const safeBase = Math.max(0, Number(baseTotal || (safeGross - safeCommission) || 0));",
+      "  const safeGross = Math.max(0, Number(grossTotal || 0));\n  const workerHybrid = actor?.is_hybrid_transport === true || String(actor?.is_hybrid_transport || '').toLowerCase() === 'true';\n  const safeCommission = workerHybrid ? Math.max(0, Number(commissionTotal || 0)) : 0;\n  const safeBase = Math.max(0, Number(baseTotal || (safeGross - safeCommission) || 0));\n  // BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:WIZARD",
+      'wizard salary commission gate',
+    );
+    source = replaceOnce(
+      source,
+      "            <SummaryLine label=\"Komision transporti që e mban\" value={money(safeCommission)} accent=\"#ffd166\" />",
+      "            {workerHybrid ? <SummaryLine label=\"Komision transporti që e mban\" value={money(safeCommission)} accent=\"#ffd166\" /> : null}",
+      'wizard summary commission visibility',
+    );
+    source = replaceOnce(
+      source,
+      "            <Row label=\"Komisioni që e mban\" value={safeCommission > 0 ? `− ${money(safeCommission)}` : '0.00 €'} accent=\"#ffd166\" />",
+      "            {workerHybrid ? <Row label=\"Komisioni që e mban\" value={safeCommission > 0 ? `− ${money(safeCommission)}` : '0.00 €'} accent=\"#ffd166\" /> : null}",
+      'wizard final commission visibility',
+    );
+  }
+  fs.writeFileSync(WIZARD_PATH, source, 'utf8');
 }
 
 function patchTransportPay() {
@@ -244,6 +253,7 @@ function patchApiLogging() {
 
 patchArkaPage();
 patchDailyStatus();
+patchHandoffWizard();
 patchTransportPay();
 patchApiLogging();
 
@@ -252,6 +262,7 @@ for (const [path, token] of [
   [ARKA_PATH, 'KËTU HYJNË VETËM PAGESAT E RUAJTURA NË ARKA'],
   [DAILY_PATH, `${MARKER}:DAILY`],
   [DAILY_PATH, 'RROGË FIKSE • PA KOMISION'],
+  [WIZARD_PATH, `${MARKER}:WIZARD`],
   [PAY_PATH, `${MARKER}:TRANSPORT_PAY`],
   [PAY_PATH, 'resolveActorPin(getActor() || {})'],
   [API_PATH, `${MARKER}:API_LOG`],
