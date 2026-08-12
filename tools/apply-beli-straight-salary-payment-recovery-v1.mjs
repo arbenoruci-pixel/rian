@@ -274,8 +274,9 @@ patchApiLogging();
 
 const checks = [
   [ARKA_PATH, `${MARKER}:ARKA_PROFILE`],
-  [ARKA_PATH, 'RROGË FIKSE'],
+  [ARKA_PATH, 'KËTU HYJNË VETËM PAGESAT E RUAJTURA NË ARKA'],
   [DAILY_PATH, `${MARKER}:DAILY`],
+  [DAILY_PATH, 'RROGË FIKSE • PA KOMISION'],
   [PAY_PATH, `${MARKER}:TRANSPORT_PAY`],
   [PAY_PATH, 'resolveActorPin(getActor() || {})'],
   [API_PATH, `${MARKER}:API_LOG`],
