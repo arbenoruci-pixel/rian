@@ -46,14 +46,20 @@ function functionBlock(name) {
 
 const fn = functionBlock('applyRowPayAndClose');
 const isV2 = source.includes('PASTRIMI_PAYMENT_BACKGROUND_V2');
+const isPrepaymentV3 = source.includes('PASTRIMI_PREPAYMENT_PRESERVE_STATUS_V3');
 check(source.includes('PASTRIMI_PAYMENT_BACKGROUND_V1'), 'marker missing');
 check(source.includes("import { ARKA_ACTION } from '@/lib/arka/arkaConstants';"), 'ARKA action import missing');
 check(source.includes("import { buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';"), 'idempotency import missing');
-check(fn.includes("const pickupNow = willSettleFull && fullPaymentTargetStatus === 'dorzim'"), 'pickup branch missing');
+check(
+  isPrepaymentV3
+    ? fn.includes("const fullPaymentTargetStatus = '';") && fn.includes('const pickupNow = false;')
+    : fn.includes("const pickupNow = willSettleFull && fullPaymentTargetStatus === 'dorzim'"),
+  isPrepaymentV3 ? 'prepayment status guard missing' : 'pickup branch missing'
+);
 check(fn.includes("queueOp('arka_transaction'") || fn.includes('enqueuePastrimiPaymentIntent(paymentIntent)'), 'durable payment outbox missing');
 check(fn.includes('paymentIdempotencyKey'), 'stable idempotency key missing');
-check(fn.includes("statusOnFullPayment: 'dorzim'") || fn.includes('statusOnFullPayment: fullPaymentTargetStatus'), 'queued delivery status missing');
-check(fn.includes("setOrders((prev) => (prev || []).filter"), 'instant row removal missing');
+check(fn.includes("statusOnFullPayment: 'dorzim'") || fn.includes('statusOnFullPayment: fullPaymentTargetStatus'), 'queued delivery status field missing');
+check(fn.includes("setOrders((prev) => (prev || []).filter"), 'instant row removal branch missing');
 check(fn.includes('setRowPaySheet(false)'), 'instant modal close missing');
 check(fn.includes("payment_sync_state: 'BACKGROUND_PENDING'"), 'background payment marker missing');
 check(fn.includes("delivery_sync_state: 'BACKGROUND_PENDING'"), 'background delivery marker missing');
@@ -63,6 +69,10 @@ check(fn.includes('if (queued)') && fn.includes('return;'), 'offline queued succ
 check(isV2 ? fn.includes('savePastrimiPaymentIntent(paymentIntent)') : fn.includes('originalRow'), 'durable pre-UI recovery missing');
 check(fn.includes("last_payment_by_pin"), 'payment actor PIN mirror missing');
 check(fn.includes("last_payment_by_name"), 'payment actor name mirror missing');
+if (isPrepaymentV3) {
+  check(fn.includes('PAGUAR PARAPRAKISHT — MBETET NË PASTRIMI'), 'prepayment UI copy missing');
+  check(fn.includes('is_paid_upfront: newDebt <= 0 ? true'), 'prepayment metadata missing');
+}
 
 const model = ({ pickupNow, journalSaved }) => {
   let visible = true;
@@ -71,11 +81,11 @@ const model = ({ pickupNow, journalSaved }) => {
 };
 check(model({ pickupNow: true, journalSaved: true }) === false, 'journaled pickup must stay removed');
 check(model({ pickupNow: true, journalSaved: false }) === true, 'unjournaled pickup must remain visible');
-check(model({ pickupNow: false, journalSaved: true }) === true, 'partial/stay payment must remain visible');
+check(model({ pickupNow: false, journalSaved: true }) === true, 'prepayment/stay payment must remain visible');
 
 if (failures.length) {
   console.error(`FAIL: ${failures.length} Pastrimi background payment checks failed.`);
   failures.forEach((item, index) => console.error(`${index + 1}. ${item}`));
   process.exit(1);
 }
-console.log('PASS: 20 Pastrimi background payment checks passed.');
+console.log('PASS: Pastrimi background payment checks passed with prepayment compatibility.');
