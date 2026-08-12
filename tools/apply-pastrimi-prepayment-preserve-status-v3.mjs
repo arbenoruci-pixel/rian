@@ -55,12 +55,9 @@ replaceOnce(
 'mark full Pastrimi payment as prepayment'
 );
 
-replaceOnce(
-`          ...(fullPaymentTargetStatus ? { statusOnFullPayment: fullPaymentTargetStatus } : {}),`,
-`          // PASTRIMI prepayment deliberately carries no statusOnFullPayment.
-          // The order remains in cleaning even when fully paid.`,
-'never send full-payment status transition from Pastrimi'
-);
+// fullPaymentTargetStatus is now always empty, so both existing optional
+// statusOnFullPayment spreads are inert. Keeping them makes this patch
+// compatible with the two background payment paths without brittle rewrites.
 
 fs.writeFileSync(PATH, source, 'utf8');
 const out = fs.readFileSync(PATH, 'utf8');
