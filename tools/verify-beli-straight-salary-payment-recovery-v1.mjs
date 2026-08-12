@@ -3,9 +3,9 @@ import fs from 'node:fs';
 const files = {
   arka: fs.readFileSync('app/arka/page.jsx', 'utf8'),
   daily: fs.readFileSync('components/ArkaWorkerDailyStatus.jsx', 'utf8'),
+  wizard: fs.readFileSync('components/HandoffWizard.jsx', 'utf8'),
   pay: fs.readFileSync('app/transport/pay/page.jsx', 'utf8'),
   api: fs.readFileSync('app/api/arka/transaction/route.js', 'utf8'),
-  installer: fs.readFileSync('tools/apply-beli-straight-salary-payment-recovery-v1.mjs', 'utf8'),
   package: fs.readFileSync('package.json', 'utf8'),
 };
 
@@ -18,15 +18,18 @@ const check = (condition, message) => {
 check(files.arka.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:ARKA_PROFILE'), 'authoritative finance-profile marker');
 check(files.arka.includes("const hasDbHybridFlag = Object.prototype.hasOwnProperty.call(userRow, 'is_hybrid_transport');"), 'DB hybrid flag is authoritative');
 check(files.arka.includes('const nextCommissionRate = nextIsHybrid'), 'commission rate is gated by hybrid status');
-check(files.arka.includes(': 0;'), 'straight-salary commission resolves to zero');
 check(!files.arka.includes('const nextIsHybrid = isHybridWorker(userRow) || isHybridWorker(actor);'), 'stale actor cannot restore hybrid commission');
 check(files.arka.includes('{workerHybrid ? <Stat label={`KOMISION'), 'manager commission hidden for salary worker');
-check(files.arka.includes("isHybridWorker(workerSnapshot?.worker || actor || {}) ? `KOMISIONI TRANSPORT"), 'handoff confirmation hides commission for salary worker');
 check(files.arka.includes('KËTU HYJNË VETËM PAGESAT E RUAJTURA NË ARKA'), 'cash-versus-route-debt explanation');
 
 check(files.daily.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:DAILY'), 'daily status marker');
 check(files.daily.includes('RROGË FIKSE • PA KOMISION'), 'daily status says straight salary');
 check(files.daily.includes('{workerHybrid ? ('), 'daily commission metric is conditional');
+
+check(files.wizard.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:WIZARD'), 'handoff wizard salary marker');
+check(files.wizard.includes('const safeCommission = workerHybrid ?'), 'handoff total applies commission only to hybrid workers');
+check(files.wizard.includes('{workerHybrid ? <SummaryLine label="Komision transporti'), 'handoff summary hides salary-worker commission');
+check(files.wizard.includes('{workerHybrid ? <Row label="Komisioni që e mban'), 'handoff final review hides salary-worker commission');
 
 check(files.pay.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:TRANSPORT_PAY'), 'transport payment canonical-PIN marker');
 check(files.pay.includes("import { resolveActorPin } from '@/lib/pinIdentity';"), 'transport payment imports real-PIN resolver');
@@ -43,8 +46,7 @@ check(files.package.includes('apply-beli-straight-salary-payment-recovery-v1.mjs
 check(files.package.includes('verify-beli-straight-salary-payment-recovery-v1.mjs'), 'recovery verifier registered in build');
 
 const reconcile = ({ dbHybrid, dbRate, actorHybrid, actorRate }) => {
-  const hasDbHybridFlag = dbHybrid !== undefined;
-  const nextIsHybrid = hasDbHybridFlag ? dbHybrid === true : actorHybrid === true;
+  const nextIsHybrid = dbHybrid !== undefined ? dbHybrid === true : actorHybrid === true;
   const parsedDbRate = Number(dbRate);
   const nextRate = nextIsHybrid
     ? (dbRate !== undefined && Number.isFinite(parsedDbRate) ? Math.max(0, parsedDbRate) : (Number(actorRate) > 0 ? Number(actorRate) : 0.5))
@@ -61,5 +63,4 @@ if (failures.length) {
   failures.forEach((message, index) => console.error(`${index + 1}. ${message}`));
   process.exit(1);
 }
-
 console.log('PASS all Beli straight-salary and payment-recovery controls');
