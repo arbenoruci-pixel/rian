@@ -93,8 +93,8 @@ replaceOnce(
     // controlled input value. This keeps code 872 as the only visible result.
     if (rawSearch) {
       const textQuery = rawSearch.toLowerCase();
-      const compactCodeQuery = rawSearch.replace(/\s+/g, '').toUpperCase();
-      const digitsQuery = rawSearch.replace(/\D+/g, '');
+      const compactCodeQuery = rawSearch.replace(/\\s+/g, '').toUpperCase();
+      const digitsQuery = rawSearch.replace(/\\D+/g, '');
       return list.filter((row) => {
         const order = unwrapOrderData(row?.fullOrder || row?.data || row || {});
         const name = String(row?.name || row?.client_name || order?.client_name || order?.client?.name || '').toLowerCase();
@@ -111,15 +111,15 @@ replaceOnce(
           order?.order_code,
           order?.client?.code,
           order?.client?.tcode,
-        ].map((value) => String(value ?? '').trim().replace(/\s+/g, '').toUpperCase()).filter(Boolean);
+        ].map((value) => String(value ?? '').trim().replace(/\\s+/g, '').toUpperCase()).filter(Boolean);
 
         if (compactCodeQuery && codeCandidates.some((code) => code === compactCodeQuery || code.includes(compactCodeQuery))) return true;
-        if (digitsQuery && codeCandidates.some((code) => code.replace(/\D+/g, '').includes(digitsQuery))) return true;
+        if (digitsQuery && codeCandidates.some((code) => code.replace(/\\D+/g, '').includes(digitsQuery))) return true;
 
         if (digitsQuery) {
           const phoneDigits = String(
             row?.phone || row?.client_phone || order?.client_phone || order?.client?.phone || ''
-          ).replace(/\D+/g, '');
+          ).replace(/\\D+/g, '');
           if (phoneDigits && phoneDigits.includes(digitsQuery)) return true;
         }
         return false;
@@ -163,6 +163,7 @@ for (const token of [
   'useState(() => openCode)',
   "exactSearchTimedOut && !String(search || openCode || '').trim()",
   "const rawSearch = String(search || openCode || '').trim();",
+  "code.replace(/\\D+/g, '').includes(digitsQuery)",
   'Final-render safety gate',
   'onInput={e => {',
 ]) {
