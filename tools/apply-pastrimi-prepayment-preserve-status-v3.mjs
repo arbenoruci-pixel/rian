@@ -6,6 +6,7 @@ let source = fs.readFileSync(PATH, 'utf8');
 
 if (source.includes(MARKER)) {
   console.log('[pastrimi-prepayment-preserve-status-v3] already installed');
+  await import('./apply-pastrimi-search-sticky-v1.mjs');
   process.exit(0);
 }
 if (!source.includes('PASTRIMI_PAYMENT_BACKGROUND_V2')) {
@@ -71,3 +72,4 @@ for (const token of [
   if (!out.includes(token)) throw new Error(`VERIFY_MISSING:${token}`);
 }
 console.log('PASS Pastrimi payments preserve cleaning status and record prepayment');
+await import('./apply-pastrimi-search-sticky-v1.mjs');
