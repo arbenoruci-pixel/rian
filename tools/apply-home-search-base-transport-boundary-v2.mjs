@@ -28,9 +28,8 @@ replaceOnce(
   }`,
 `export function buildHomeSearchHref(result) {
   // ${MARKER}
-  // A plain numeric code (e.g. 915) is always a BASE order. Transport requires
-  // an explicit T-code or a UUID transport id. Never send a numeric BASE id to
-  // /transport/item because Postgres transport ids are UUIDs.
+  // Plain numeric codes (e.g. 915) belong to BASE. Transport requires an
+  // explicit T-code or UUID id. Numeric BASE ids must never reach UUID routes.
   const claimedKind = safeString(result?.kind).toUpperCase();
   const code = safeString(result?.code);
   const id = result?.orderId != null ? safeString(result.orderId) : (result?.id != null ? safeString(result.id) : '');
@@ -76,7 +75,7 @@ replaceOnce(
       if (!byId?.error && byId?.data) row = byId.data;
     }`,
 `    if (id && (kind === 'BASE' || looksUuid(id))) {
-      const byId = await supabase.from(table).select('*').eq('id', kind === 'BASE' && /^\\d+$/.test(id) ? Number(id) : id).limit(1).maybeSingle();
+      const byId = await supabase.from(table).select('*').eq('id', id).limit(1).maybeSingle();
       if (!byId?.error && byId?.data) row = byId.data;
     }`,
 'never query transport uuid with numeric base id'
@@ -101,6 +100,7 @@ for (const token of [
   "const numericBaseCode = /^\\d+$/.test(code.replace(/^#+/, '').trim());",
   "if (transportId) return `/transport/item?id=${encodeURIComponent(transportId)}&src=transport&from=home_inline_search`;",
   "if (id && (kind === 'BASE' || looksUuid(id)))",
+  "eq('id', id)",
   "kind === 'TRANSPORT' && strictTransportCode",
 ]) {
   if (!out.includes(token)) throw new Error(`VERIFY_MISSING:${token}`);
