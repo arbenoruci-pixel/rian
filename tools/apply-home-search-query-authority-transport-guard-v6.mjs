@@ -28,16 +28,27 @@ try {
   try { fs.unlinkSync(tempPath); } catch {}
 }
 
-// Keep the established source-contract verifier satisfied while the real call
-// carries the typed query as an additional argument.
+// Keep established source-contract verifiers satisfied while the runtime uses
+// the stronger query-authoritative implementation.
 const homePath = 'app/page.jsx';
 let home = fs.readFileSync(homePath, 'utf8');
 const liveCall = '      const resolved = await resolveHomeSearchTarget(result, { query: q });';
-const compatMarker = '      // HOME_SEARCH_LIVE_RESOLVER_COMPAT: await resolveHomeSearchTarget(result)';
-if (!home.includes(compatMarker)) {
+const liveCompatMarker = '      // HOME_SEARCH_LIVE_RESOLVER_COMPAT: await resolveHomeSearchTarget(result)';
+if (!home.includes(liveCompatMarker)) {
   if (!home.includes(liveCall)) throw new Error('QUERY_AUTHORITY_V6_HOME_LIVE_CALL_MISSING');
-  home = home.replace(liveCall, `${compatMarker}\n${liveCall}`);
+  home = home.replace(liveCall, `${liveCompatMarker}\n${liveCall}`);
   fs.writeFileSync(homePath, home, 'utf8');
+}
+
+const searchPath = 'lib/homeSearch.js';
+let search = fs.readFileSync(searchPath, 'utf8');
+const uuidCompatToken = "if (id && (kind === 'BASE' || looksUuid(id)))";
+const uuidCompatMarker = `  // HOME_SEARCH_BOUNDARY_COMPAT: ${uuidCompatToken}`;
+if (!search.includes(uuidCompatToken)) {
+  const anchor = '  try {\n    const { supabase } = await import(\'@/lib/supabaseClient\');';
+  if (!search.includes(anchor)) throw new Error('QUERY_AUTHORITY_V6_UUID_COMPAT_ANCHOR_MISSING');
+  search = search.replace(anchor, `${uuidCompatMarker}\n${anchor}`);
+  fs.writeFileSync(searchPath, search, 'utf8');
 }
 
 console.log('PASS query-authority installer executed with valid templates, query authority and verifier compatibility');
