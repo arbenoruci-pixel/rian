@@ -17,7 +17,7 @@ import { getTransportSession, getTransportContext } from '@/lib/transportAuth';
 import { readBestActor } from '@/lib/sessionStore';
 import { ARKA_ACTION } from '@/lib/arka/arkaConstants';
 import { arkaTransaction, buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';
-import PosModal from '@/components/PosModal';
+import PosModal from '@/components/PosModalV2';
 import SmartSmsModal from '@/components/SmartSmsModal';
 import { requirePaymentPin } from '@/lib/paymentPin';
 import { getClientBalanceByPhone } from '@/lib/clientBalanceDb';
@@ -2027,8 +2027,12 @@ function PranimiPageInner() {
   }
 
   async function applyPayAndClose() {
+    // TRANSPORT_PAYMENT_TAP_V7 — every green-button press gives visible feedback.
     // TRANSPORT_PAYMENT_BUTTON_V3:PAGE — await the real PIN contract, apply only the debt, verify ARKA, then close once.
-    if (paymentBusyRef.current || paymentBusy) return;
+    if (paymentBusyRef.current || paymentBusy) {
+      alert('PAGESA ËSHTË DUKE U RUAJTUR. PRIT PAK.');
+      return;
+    }
 
     const cashGiven = round2(payAdd);
     const dueNow = round2(Math.max(0, Number(totalEuro || 0) - Number(clientPaid || 0)));
@@ -2604,7 +2608,7 @@ function PranimiPageInner() {
           payChips={PAY_CHIPS}
           confirmText={paymentBusy ? 'DUKE RUAJTUR...' : 'KRYEJ PAGESËN'}
           cancelText="ANULO"
-          disabled={savingContinue || paymentBusy}
+          disabled={paymentBusy}
           onConfirm={applyPayAndClose}
         />
       )}
