@@ -1,0 +1,445 @@
+name: One-time fix transport payment runtime v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-fix-transport-payment-runtime-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Repair payment runtime, validate, and publish
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          PAGE = Path('app/transport/pranimi/page.jsx')
+          POS = Path('components/PosModal.jsx')
+
+          def scan_matching(source, start, open_char, close_char):
+              depth = 0
+              quote = ''
+              escaped = False
+              line_comment = False
+              block_comment = False
+              i = start
+              while i < len(source):
+                  ch = source[i]
+                  nxt = source[i + 1] if i + 1 < len(source) else ''
+                  if line_comment:
+                      if ch == '\n':
+                          line_comment = False
+                      i += 1
+                      continue
+                  if block_comment:
+                      if ch == '*' and nxt == '/':
+                          block_comment = False
+                          i += 2
+                          continue
+                      i += 1
+                      continue
+                  if quote:
+                      if escaped:
+                          escaped = False
+                      elif ch == '\\':
+                          escaped = True
+                      elif ch == quote:
+                          quote = ''
+                      i += 1
+                      continue
+                  if ch == '/' and nxt == '/':
+                      line_comment = True
+                      i += 2
+                      continue
+                  if ch == '/' and nxt == '*':
+                      block_comment = True
+                      i += 2
+                      continue
+                  if ch in ("'", '"', '`'):
+                      quote = ch
+                      i += 1
+                      continue
+                  if ch == open_char:
+                      depth += 1
+                  elif ch == close_char:
+                      depth -= 1
+                      if depth == 0:
+                          return i
+                  i += 1
+              return -1
+
+          def function_range(source, name):
+              match = re.search(r'(?:export\s+)?(?:async\s+)?function\s+' + re.escape(name) + r'\s*\(', source)
+              if not match:
+                  raise SystemExit(f'{name}: function not found')
+              params_start = source.index('(', match.start())
+              params_end = scan_matching(source, params_start, '(', ')')
+              if params_end < 0:
+                  raise SystemExit(f'{name}: parameter range invalid')
+              body_start = params_end + 1
+              while body_start < len(source) and source[body_start].isspace():
+                  body_start += 1
+              if body_start >= len(source) or source[body_start] != '{':
+                  raise SystemExit(f'{name}: body start invalid')
+              body_end = scan_matching(source, body_start, '{', '}')
+              if body_end < 0:
+                  raise SystemExit(f'{name}: body range invalid')
+              return match.start(), body_end + 1
+
+          def replace_function(source, name, replacement):
+              start, end = function_range(source, name)
+              return source[:start] + replacement + source[end:]
+
+          persist_fn = r'''async function persistTransportPaymentState({
+              nextPaid,
+              nextArkaRecordedPaid,
+              totalEuroOverride,
+              paymentActor = null,
+              currentOrderOverride = null,
+            } = {}) {
+              // TRANSPORT_PAYMENT_RUNTIME_V3: fallback finalizer; the ARKA engine remains authoritative.
+              if (!isEdit || !oid) return { ok: true, skipped: true };
+
+              const nowIso = new Date().toISOString();
+              const totalToSave = Number(totalEuroOverride ?? totalEuro ?? 0);
+              const paidToSave = Number(Number(nextPaid || 0).toFixed(2));
+              const arkaToSave = Number(Number(nextArkaRecordedPaid || 0).toFixed(2));
+              let currentOrder = currentOrderOverride && typeof currentOrderOverride === 'object'
+                ? currentOrderOverride
+                : null;
+
+              if (!currentOrder?.id) {
+                currentOrder = await withSupabaseTimeout(
+                  fetchTransportOrderById(oid),
+                  6000,
+                  'TRANSPORT_PAYMENT_FINALIZE_READ_TIMEOUT',
+                  { orderId: oid }
+                ).catch(() => null);
+              }
+              if (!currentOrder?.id) throw new Error('TRANSPORT_ORDER_NOT_FOUND_AFTER_PAYMENT');
+
+              const currentData = currentOrder?.data && typeof currentOrder.data === 'object' && !Array.isArray(currentOrder.data)
+                ? currentOrder.data
+                : {};
+              const currentPay = currentData?.pay && typeof currentData.pay === 'object' && !Array.isArray(currentData.pay)
+                ? currentData.pay
+                : {};
+              const paymentPin = String(
+                paymentActor?.pin ||
+                actor?.pin ||
+                me?.transport_pin ||
+                me?.pin ||
+                currentData?.driver_pin ||
+                currentData?.transport_pin ||
+                ''
+              ).trim();
+              const paymentName = String(
+                paymentActor?.name ||
+                me?.name ||
+                me?.full_name ||
+                me?.username ||
+                currentData?.driver_name ||
+                currentData?.transport_name ||
+                ''
+              ).trim();
+              const terminalStatus = 'done';
+              const nextData = {
+                ...currentData,
+                status: terminalStatus,
+                state: terminalStatus,
+                pay: {
+                  ...currentPay,
+                  m2: Number(currentPay?.m2 ?? totalM2 ?? 0),
+                  euro: totalToSave,
+                  paid: paidToSave,
+                  rate: Number(currentPay?.rate ?? pricePerM2 ?? PRICE_DEFAULT),
+                  arkaRecordedPaid: arkaToSave,
+                  debt: 0,
+                  method: String(payMethod || currentPay?.method || 'CASH').toUpperCase(),
+                  last_paid_at: currentPay?.last_paid_at || nowIso,
+                },
+                clientPaid: paidToSave,
+                paid: paidToSave,
+                debt: 0,
+                isPaid: true,
+                paid_done: true,
+                paid_at: currentData?.paid_at || nowIso,
+                delivered_at: currentData?.delivered_at || nowIso,
+                done_at: currentData?.done_at || nowIso,
+                delivered_by_pin: paymentPin || currentData?.delivered_by_pin || null,
+                delivered_by_name: paymentName || currentData?.delivered_by_name || null,
+                updated_at: nowIso,
+              };
+
+              const updatedOrder = await updateTransportOrderById(oid, {
+                client_name: name,
+                client_phone: buildTransportPhoneDigits(phonePrefix, phone),
+                status: terminalStatus,
+                updated_at: nowIso,
+                data: nextData,
+              });
+              return {
+                ok: true,
+                order: updatedOrder || { ...currentOrder, status: terminalStatus, data: nextData, updated_at: nowIso },
+              };
+            }'''
+
+          apply_fn = r'''async function applyPayAndClose() {
+              if (paymentBusy || paymentBusyRef.current) return;
+
+              const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
+              const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
+              if (due <= 0) {
+                alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.');
+                setShowPaySheet(false);
+                return;
+              }
+              if (cashGiven < due) {
+                alert('KLIENTI DHA MË PAK SE BORXHI! JU LUTEM PLOTËSONI SHUMËN OSE ANULONI.');
+                return;
+              }
+
+              const applied = due;
+              const kusuri = Math.max(0, Number((cashGiven - due).toFixed(2)));
+              const pinLabel = `PAGESË: ${applied.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI (RESTO): ${kusuri.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
+              const pinData = await requirePaymentPin({ label: pinLabel });
+              if (!pinData?.pin) return;
+
+              paymentBusyRef.current = true;
+              setPaymentBusy(true);
+
+              const nextPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
+              let nextArkaRecordedPaid = Number(arkaRecordedPaid || 0);
+              let verifiedTransportOrder = null;
+              const actorPin = String(pinData?.pin || actor?.pin || me?.transport_pin || me?.pin || '').trim();
+              const actorTid = String(me?.transport_id || assignTid || '').trim();
+              const transportCode = normalizeTcode(codeRaw);
+              const transportM2 = Number(totalM2 || 0) || 0;
+              const transportPhone = buildTransportPhoneDigits(phonePrefix, phone) || null;
+              const transportNote = `PAGESA ${applied}€ - ${name} • ${transportCode || 'T-KOD'} • ${transportM2.toFixed(2)} m²`;
+
+              try {
+                if (payMethod === 'CASH') {
+                  const expectedArkaPaid = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
+                  let arkaResult = null;
+                  try {
+                    arkaResult = await arkaTransaction({
+                      action: ARKA_ACTION.TRANSPORT_ORDER_PAYMENT,
+                      actorPin,
+                      actorName: pinData?.name || me?.name || me?.full_name || me?.username || null,
+                      actorRole: pinData?.role || me?.role || 'TRANSPORT',
+                      transportOrderId: oid,
+                      transportCode,
+                      transportM2,
+                      amount: applied,
+                      method: 'CASH',
+                      note: transportNote,
+                      clientName: name,
+                      clientPhone: transportPhone,
+                      sourceModule: 'TRANSPORT',
+                      statusOnFullPayment: 'done',
+                      fullPaymentStatus: 'done',
+                      queueOnNetworkFailure: false,
+                      idempotencyKey: buildArkaIdempotencyKey(
+                        ARKA_ACTION.TRANSPORT_ORDER_PAYMENT,
+                        [oid, applied.toFixed(2), actorPin]
+                      ),
+                    }, {
+                      timeoutMs: 10000,
+                      maxAttempts: 1,
+                      retryDelaysMs: [],
+                      queueOnNetworkFailure: false,
+                    });
+                    assertVerifiedTransportPaymentResult(arkaResult, {
+                      orderId: oid,
+                      code: transportCode,
+                      amount: applied,
+                      actorPin,
+                    });
+                  } catch (primaryError) {
+                    const recoveredOrder = await withSupabaseTimeout(
+                      fetchTransportOrderById(oid),
+                      5000,
+                      'TRANSPORT_PAYMENT_RECOVERY_TIMEOUT',
+                      { orderId: oid }
+                    ).catch(() => null);
+                    const recoveredData = recoveredOrder?.data && typeof recoveredOrder.data === 'object'
+                      ? recoveredOrder.data
+                      : {};
+                    const recoveredPay = recoveredData?.pay && typeof recoveredData.pay === 'object'
+                      ? recoveredData.pay
+                      : {};
+                    const recoveredPaid = Math.max(
+                      Number(recoveredPay?.paid || 0),
+                      Number(recoveredPay?.arkaRecordedPaid || 0),
+                      Number(recoveredData?.clientPaid || 0)
+                    );
+                    if (!recoveredOrder?.id || recoveredPaid + 0.01 < nextPaid) throw primaryError;
+                    arkaResult = {
+                      ok: true,
+                      paymentVerified: true,
+                      recoveredAfterResponseLoss: true,
+                      transportOrder: recoveredOrder,
+                      transport_order: recoveredOrder,
+                    };
+                  }
+
+                  verifiedTransportOrder = arkaResult?.transportOrder || arkaResult?.transport_order || null;
+                  const verifiedPay = verifiedTransportOrder?.data?.pay && typeof verifiedTransportOrder.data.pay === 'object'
+                    ? verifiedTransportOrder.data.pay
+                    : {};
+                  nextArkaRecordedPaid = Number(Math.max(
+                    expectedArkaPaid,
+                    Number(verifiedPay?.arkaRecordedPaid || 0)
+                  ).toFixed(2));
+                } else {
+                  const finalized = await persistTransportPaymentState({
+                    nextPaid,
+                    nextArkaRecordedPaid,
+                    totalEuroOverride: totalEuro,
+                    paymentActor: pinData,
+                  });
+                  verifiedTransportOrder = finalized?.order || null;
+                }
+
+                setClientPaid(nextPaid);
+                if (payMethod === 'CASH') {
+                  setArkaRecordedPaid(nextArkaRecordedPaid);
+                  try {
+                    if (actorTid) {
+                      addTransportCollected(actorTid, {
+                        id: `cash_${Date.now()}`,
+                        amount: applied,
+                        order_code: transportCode,
+                        client_name: name,
+                        note: transportNote,
+                        created_at: new Date().toISOString(),
+                        created_by_pin: actorPin || null,
+                      });
+                    }
+                  } catch {}
+                }
+
+                setPayAdd(0);
+                setShowPaySheet(false);
+
+                const verifiedStatus = String(
+                  verifiedTransportOrder?.status ||
+                  verifiedTransportOrder?.data?.status ||
+                  verifiedTransportOrder?.data?.state ||
+                  ''
+                ).trim().toLowerCase();
+                if (isEdit && oid && !['done', 'completed', 'delivered'].includes(verifiedStatus)) {
+                  void persistTransportPaymentState({
+                    nextPaid,
+                    nextArkaRecordedPaid,
+                    totalEuroOverride: totalEuro,
+                    paymentActor: pinData,
+                    currentOrderOverride: verifiedTransportOrder,
+                  }).catch((finalizeError) => {
+                    console.error('[TRANSPORT_PAYMENT_BACKGROUND_FINALIZE_FAILED]', {
+                      orderId: oid,
+                      error: String(finalizeError?.message || finalizeError || 'UNKNOWN'),
+                    });
+                  });
+                }
+
+                try { window.dispatchEvent(new Event('arka:refresh')); } catch {}
+                try {
+                  if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'transport-payment-complete', orderId: oid }, window.location.origin);
+                  } else {
+                    router.replace('/transport/board?tab=delivered&payment=ok');
+                  }
+                } catch {
+                  try { window.location.replace('/transport/board?tab=delivered&payment=ok'); } catch {}
+                }
+              } catch (error) {
+                alert(`ARKA PROBLEM: pagesa nuk u verifikua. ${String(error?.message || error || '')}`);
+              } finally {
+                paymentBusyRef.current = false;
+                setPaymentBusy(false);
+              }
+            }'''
+
+          page = PAGE.read_text()
+          page = replace_function(page, 'persistTransportPaymentState', persist_fn)
+          page = replace_function(page, 'applyPayAndClose', apply_fn)
+          if "confirmText={paymentBusy ? 'DUKE RUAJTUR...' : 'KRYEJ PAGESËN'}" not in page:
+              page = page.replace(
+                  'confirmText="KRYEJ PAGESËN"',
+                  "confirmText={paymentBusy ? 'DUKE RUAJTUR...' : 'KRYEJ PAGESËN'}",
+                  1,
+              )
+          PAGE.write_text(page)
+
+          pos = POS.read_text()
+          if '.posbtn:disabled {' not in pos:
+              anchor = '        .posbtn--ghost { flex: 1; }'
+              replacement = "        .posbtn:disabled { opacity: 0.62; cursor: wait; transform: none; }\n" + anchor
+              if anchor not in pos:
+                  raise SystemExit('PosModal disabled style anchor not found')
+              pos = pos.replace(anchor, replacement, 1)
+              POS.write_text(pos)
+
+          # Force a fresh PWA build/cache identity.
+          version = '2.0.116-transport-payment-runtime-v3'
+          epoch = Path('lib/appEpoch.js')
+          epoch_text = re.sub(r"export const APP_VERSION = '[^']+';", f"export const APP_VERSION = '{version}';", epoch.read_text(), count=1)
+          epoch.write_text(epoch_text)
+
+          package = Path('package.json')
+          pkg = json.loads(package.read_text())
+          pkg['version'] = version
+          package.write_text(json.dumps(pkg, ensure_ascii=False, indent=2) + '\n')
+
+          vite = Path('vite.config.js')
+          vite_text = vite.read_text()
+          vite_text = re.sub(r'sw-navigation-diag\.js\?v=\d+', 'sw-navigation-diag.js?v=3511', vite_text, count=1)
+          vite_text = re.sub(r'tepiha-vite-business-routes-v\d+-[A-Za-z0-9_-]+', 'tepiha-vite-business-routes-v41-transport-payment-runtime', vite_text)
+          vite_text = re.sub(r'tepiha-vite-static-assets-v\d+-[A-Za-z0-9_-]+', 'tepiha-vite-static-assets-v41-transport-payment-runtime', vite_text)
+          vite_text = re.sub(r'tepiha-vite-media-v\d+-[A-Za-z0-9_-]+', 'tepiha-vite-media-v41-transport-payment-runtime', vite_text)
+          vite.write_text(vite_text)
+
+          # Runtime guard: these identifiers caused the dead green button in v1.
+          page_check = PAGE.read_text()
+          start, end = function_range(page_check, 'applyPayAndClose')
+          body = page_check[start:end]
+          forbidden = ['round2(', 'ARKA_SOURCE_MODULE', 'displayCode', 'totals.m2', 'fullPhone', 'pinResult']
+          found = [token for token in forbidden if token in body]
+          if found:
+              raise SystemExit('Forbidden runtime identifiers remain: ' + ', '.join(found))
+          required = [
+              'await requirePaymentPin',
+              "statusOnFullPayment: 'done'",
+              'queueOnNetworkFailure: false',
+              'assertVerifiedTransportPaymentResult',
+              "setShowPaySheet(false)",
+          ]
+          missing = [token for token in required if token not in body]
+          if missing:
+              raise SystemExit('Required payment guards missing: ' + ', '.join(missing))
+          print('transport payment runtime v3 static guard passed')
+          PY
+
+          npm run build
+
+          rm -f tools/apply-transport-payment-confirm-close-v1.mjs
+          rm -f .github/workflows/one-time-fix-transport-payment-runtime-v3.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/transport/pranimi/page.jsx components/PosModal.jsx lib/appEpoch.js package.json vite.config.js tools/apply-transport-payment-confirm-close-v1.mjs .github/workflows/one-time-fix-transport-payment-runtime-v3.yml || true
+          git commit -m "fix transport payment confirmation runtime and close immediately"
+          git push origin HEAD:main
