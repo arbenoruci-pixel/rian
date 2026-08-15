@@ -3,6 +3,10 @@
 import Link from '@/lib/routerCompat.jsx';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import ReadyBonusLiveCard from '@/components/ReadyBonusLiveCard';
+import ArkaExpenseComposer from '@/components/ArkaExpenseComposer';
+import ArkaWorkerDailyStatus from '@/components/ArkaWorkerDailyStatus';
+import '@/components/ArkaExpenseComposer.css';
+import HandoffWizard from '@/components/HandoffWizard';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getActor } from '@/lib/actorSession';
 import { computeReadyBonusDeductionForCash, listOpenBaseReadyBonusPayments } from '@/lib/baseReadyBonusClient';
@@ -111,6 +115,13 @@ function parseAmountInput(v) {
 }
 function safeUpper(v) {
   return String(v || '').trim().toUpperCase();
+}
+
+// ARKA_MASTER_ACCESS_V1: normalize all persisted master-role spellings to one permission identity.
+function normalizeArkaRole(role) {
+  const raw = safeUpper(role).replace(/[\s-]+/g, '_');
+  if (['MASTER', 'MASTER_USER', 'MASTERUSER'].includes(raw)) return 'MASTER';
+  return raw;
 }
 
 const EXPENSE_REQUEST_TAG = 'ARKA_EXPENSE_REQUEST_V1';
@@ -345,13 +356,31 @@ function byDateDesc(a, b) {
   );
 }
 function roleIsWorker(role) {
-  return ['PUNTOR', 'PUNETOR', 'WORKER', 'TRANSPORT'].includes(safeUpper(role));
+  return ['PUNTOR', 'PUNETOR', 'WORKER', 'TRANSPORT'].includes(normalizeArkaRole(role));
 }
 function roleIsArkaVisibleAccount(role) {
-  return roleIsWorker(role) || safeUpper(role) === 'DISPATCH';
+  const normalized = normalizeArkaRole(role);
+  return roleIsWorker(normalized) || normalized === 'DISPATCH' || normalized === 'MASTER';
 }
 function roleCanManage(role) {
-  return ['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(safeUpper(role));
+  return ['MASTER', 'DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizeArkaRole(role));
+}
+
+// ARKA_MASTER_PERSONAL_V1
+function actorIsWorkerAccount(actor = {}) {
+  const pin = String(actor?.pin || '').trim();
+  return roleIsWorker(actor?.role) || pin === '1126';
+}
+
+function isMasterPersonalArkaMode(actor = {}) {
+  const pin = String(actor?.pin || '').trim();
+  if (pin !== '4563') return false;
+  try {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search || '').get('personal') === '1';
+  } catch {
+    return false;
+  }
 }
 function isArkaRouteActive() {
   try {
@@ -453,18 +482,28 @@ function mergeStoredJsonDeferred(key, patch, delayMs = 140) {
   }, delayMs);
 }
 function reconcileActorWithUser(actor, userRow) {
+  // BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:ARKA_PROFILE — DB finance flags are authoritative; stale PWA data cannot restore commission.
   if (!actor) return actor;
   if (!userRow || typeof userRow !== 'object') return actor;
-  const nextIsHybrid = isHybridWorker(userRow) || isHybridWorker(actor);
-  const nextCommissionRate = firstPositiveNumber(
+  const hasDbHybridFlag = Object.prototype.hasOwnProperty.call(userRow, 'is_hybrid_transport');
+  const nextIsHybrid = hasDbHybridFlag ? isHybridWorker(userRow) : isHybridWorker(actor);
+  const dbCommissionRaw = [
     userRow?.commission_rate_m2,
     userRow?.commissionRateM2,
     userRow?.transport_commission_rate_m2,
+    userRow?.transportCommissionRateM2,
+  ].find((value) => value !== undefined && value !== null && String(value).trim() !== '');
+  const parsedDbCommission = Number(dbCommissionRaw);
+  const actorCommission = firstPositiveNumber(
     actor?.commission_rate_m2,
     actor?.commissionRateM2,
-    actor?.transport_commission_rate_m2
+    actor?.transport_commission_rate_m2,
+    actor?.transportCommissionRateM2
   );
-  const next = {
+  const nextCommissionRate = nextIsHybrid
+    ? (Number.isFinite(parsedDbCommission) ? Math.max(0, parsedDbCommission) : (actorCommission > 0 ? actorCommission : 0.5))
+    : 0;
+  return {
     ...actor,
     pin: String(userRow?.pin || actor?.pin || '').trim(),
     name: String(userRow?.name || actor?.name || '').trim(),
@@ -472,10 +511,9 @@ function reconcileActorWithUser(actor, userRow) {
     user_id: userRow?.id || actor?.user_id || actor?.id || null,
     id: userRow?.id || actor?.id || actor?.user_id || null,
     is_hybrid_transport: nextIsHybrid,
-    commission_rate_m2: nextCommissionRate > 0 ? nextCommissionRate : (nextIsHybrid ? 0.5 : 0),
+    commission_rate_m2: nextCommissionRate,
     transport_id: userRow?.transport_id || actor?.transport_id || null,
   };
-  return next;
 }
 function persistActorRepair(nextActor) {
   try {
@@ -1859,29 +1897,10 @@ function PendingHandoffRow({ row, actor, onDone, workerSummary, onReviewAccept }
   const clients = review.clientRows;
   const clientCount = Number(row?.count_clients || clients.length || 0) || 0;
 
-  async function handleAccept() {
-    if (onReviewAccept) {
-      onReviewAccept({
-        worker: workerSummary?.worker || { pin: row?.worker_pin, name: row?.worker_name },
-        pendingHandoffRows: [row],
-      });
-      return;
+  function handleAccept() {
+      // ARKA_DAILY_CLOSE_V2_ONE_WAY: individual acceptance is disabled; Dispatch closes all confirmed cash in one wizard.
+      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
     }
-    if (review.hasDuplicateTransportItems) {
-      alert('🔴 U GJET DUPLICATE TRANSPORT ITEM. Totali u shfaq me dedupe, por pranimi raw u ndalua për siguri.');
-      return;
-    }
-    try {
-      setBusy('accept');
-      await acceptDispatchHandoff({ handoffId: row.id, actor });
-      await onDone?.(row?.id);
-      alert('✅ CASH U PRANUA.');
-    } catch (e) {
-      alert(`🔴 ${e?.message || 'NUK U PRANUA CASH.'}`);
-    } finally {
-      setBusy('');
-    }
-  }
 
   async function handleReject() {
     const note = window.prompt('SHËNIMI I REFUZIMIT', 'KTHEJE DHE KONTROLLO PARATË') || '';
@@ -1921,7 +1940,7 @@ function PendingHandoffRow({ row, actor, onDone, workerSummary, onReviewAccept }
       </div>
 
       <div className="arkaPendingActions" style={{ justifyContent: 'flex-end' }}>
-        <button type="button" className="arkaTinyBtn ok" disabled={!!busy} onClick={handleAccept}>{busy === 'accept' ? '...' : 'PRANO CASH'}</button>
+        <button type="button" className="arkaTinyBtn ok" disabled={!!busy} onClick={handleAccept}>{busy === 'accept' ? '...' : 'HAP MBYLLJEN DITORE'}</button>
         <button type="button" className="arkaTinyBtn bad" disabled={!!busy} onClick={handleReject}>{busy === 'reject' ? '...' : 'KTHEJE / REFUZO'}</button>
       </div>
     </div>
@@ -2208,6 +2227,7 @@ function WorkerSummaryCard({ item, busy = '', onAcceptCash, onAddExpense, onAddA
   // not gross client-paid transport totals.
   const visiblePaid = n(item?.visibleBaseHistoryTotal ?? item?.baseCashForDispatchTotal ?? item?.remainingToHandover ?? item?.dueTotal);
   const visibleCommission = n(item?.visibleCommissionHistoryTotal ?? item?.commissionHeldTotal);
+  const workerHybrid = isHybridWorker(item?.worker || {});
   const clientCount = cashRows.length || historyRows.length || (Array.isArray(item?.collectedRows) ? item.collectedRows.length : 0);
   const workerFirstName = String(item?.worker?.name || 'PUNTORI').trim().split(/\s+/)[0] || 'PUNTORI';
   return (
@@ -2222,7 +2242,7 @@ function WorkerSummaryCard({ item, busy = '', onAcceptCash, onAddExpense, onAddA
       <div className="arkaWorkerDueLine"><span>PËR BAZË</span><b>{euro(due)}</b></div>
       <div className="arkaOwnerFormulaGrid compactStats">
         <Stat label="KANË PAGUAR" value={euro(visiblePaid)} tone="ok" small />
-        <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(visibleCommission)} tone="warn" small />
+        {workerHybrid ? <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(visibleCommission)} tone="warn" small /> : null}
         <Stat label="DËRGUAR" value={euro(item?.pendingHandoffTotal)} tone="info" small />
         <Stat label="HISTORI" value={euro(item?.acceptedGrossTotal)} tone="neutral" small />
       </div>
@@ -2230,7 +2250,7 @@ function WorkerSummaryCard({ item, busy = '', onAcceptCash, onAddExpense, onAddA
       {!cashRows.length && historyRows.length ? <div className="arkaCashCompactList adminMini">{historyRows.slice(0,3).map((row)=><CashClientCompactRow key={`worker_history_${item?.worker?.pin}_${row.id || row.created_at}`} row={row} workerName={workerFirstName} mini />)}{historyRows.length > 3 ? <div className="arkaCashMore">+ {historyRows.length - 3} HISTORI</div> : null}</div> : null}
       <div className="arkaWorkerActions mainOnly">
         <Link prefetch={false} href={`/arka/puntor/${encodeURIComponent(item?.worker?.pin || '')}`} className="arkaTopBtn">HAP</Link>
-        <button type="button" className="arkaTopBtn" disabled={!!busy || !pendingCount} onClick={() => onAcceptCash?.(item)}>{pendingCount ? 'PRANO CASH (' + pendingCount + ')' : 'PRANO CASH'}</button>
+        <button type="button" className="arkaTopBtn" disabled={!!busy || !pendingCount} onClick={() => onAcceptCash?.(item)}>{pendingCount ? 'MBYLL DITËN (' + pendingCount + ')' : 'MBYLL DITËN'}</button>
       </div>
       <details className="arkaInlineAdminTools"><summary>ADMIN</summary><div className="arkaWorkerActions adminTools"><button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddExpense?.(item)}>SHTO SHPENZIM</button><button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddAdvance?.(item)}>SHTO AVANS</button></div></details>
     </div>
@@ -2258,6 +2278,9 @@ export default function ArkaPageV3() {
   const [expenseRequestType, setExpenseRequestType] = useState('BUSINESS_EXPENSE');
   const [expenseBeneficiaryPin, setExpenseBeneficiaryPin] = useState('');
   const [expenseBeneficiaryName, setExpenseBeneficiaryName] = useState('');
+  const [expenseFormError, setExpenseFormError] = useState('');
+  const [expenseSavedNotice, setExpenseSavedNotice] = useState('');
+  // ARKA_EXPENSE_MOBILE_PRO_V2:PAGE
   const [expandedWorkerCashLineKey, setExpandedWorkerCashLineKey] = useState('');
   const [isClientsSectionOpen, setIsClientsSectionOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -2268,6 +2291,8 @@ export default function ArkaPageV3() {
   const [historyError, setHistoryError] = useState('');
   const [historyGroups, setHistoryGroups] = useState([]);
   const [busy, setBusy] = useState('');
+  // HANDOFF_WIZARD_V2_SINGLE_FLOW:PAGE
+  const [handoffWizard, setHandoffWizard] = useState({ open: false, bonusAvailable: 0 });
 
   const reloadInFlightRef = useRef(false);
   const lastReloadAtRef = useRef(0);
@@ -2281,16 +2306,17 @@ export default function ArkaPageV3() {
   const uiReadyMarkedRef = useRef(false);
   const [sessionChecked, setSessionChecked] = useState(false);
 
-  const role = safeUpper(actor?.role);
-  const isWorker = roleIsWorker(role);
-  const canManage = roleCanManage(role);
-  const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(role));
+  const role = normalizeArkaRole(actor?.role);
+  const masterPersonalMode = isMasterPersonalArkaMode(actor);
+  const isWorker = actorIsWorkerAccount(actor) || masterPersonalMode;
+  const canManage = roleCanManage(role) && !masterPersonalMode;
+  const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || String(actor?.pin || '').trim() === '4563' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(normalizeArkaRole(role)));
 
 
   function applyCachedBootState(currentActor = null) {
     const act = currentActor || actor || getActor();
     if (!act?.pin) return false;
-    if (roleIsWorker(act?.role) && !roleCanManage(act?.role)) {
+    if (actorIsWorkerAccount(act) && !roleCanManage(act?.role)) {
       const cached = readStoredJson(getWorkerArkaCacheKey(act.pin));
       if (!cached || typeof cached !== 'object') return false;
       if (cached?.workerSnapshot) setWorkerSnapshot(cached.workerSnapshot || null);
@@ -2325,7 +2351,7 @@ export default function ArkaPageV3() {
     mutationCooldownUntilRef.current = Date.now() + MUTATION_COOLDOWN_MS;
     clearPostMutationPrimaryTimer();
 
-    if (roleIsWorker(act?.role) && !roleCanManage(act?.role)) {
+    if (actorIsWorkerAccount(act) && !roleCanManage(act?.role)) {
       await reloadAll(act, { force: true, source: 'mutation_worker', target: 'all' });
       return;
     }
@@ -2354,42 +2380,16 @@ export default function ArkaPageV3() {
     await scheduleManagerMutationRefresh(actor);
   }
 
-  function acceptWorkerCashFromCard(item) {
-    const rows = Array.isArray(item?.pendingHandoffRows) ? item.pendingHandoffRows : [];
-    if (!rows.length) {
-      alert('S’KA DORËZIM CASH NË PRITJE PËR KËTË PUNTOR.');
-      return;
+  function acceptWorkerCashFromCard() {
+      // ARKA_DAILY_CLOSE_V2_ONE_WAY: every manager entry point uses the same daily close route.
+      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
     }
-    setCashAcceptReview(buildWorkerHandoffReview(item));
-  }
 
   async function confirmCashAcceptReview() {
-    const review = cashAcceptReview;
-    const rows = Array.isArray(review?.handoffRows) ? review.handoffRows : [];
-    if (!rows.length) {
+      // ARKA_DAILY_CLOSE_V2_ONE_WAY: legacy review modal cannot post to the budget.
       setCashAcceptReview(null);
-      alert('S’KA DORËZIM CASH NË PRITJE.');
-      return;
+      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
     }
-    if (review?.hasDuplicateTransportItems) {
-      alert('🔴 U GJET DUPLICATE TRANSPORT ITEM. Totali u korrigjua me dedupe në ekran, por pranimi raw u ndalua për siguri.');
-      return;
-    }
-    try {
-      setBusy('accept_cash_review');
-      for (const row of rows) {
-        await acceptDispatchHandoff({ handoffId: row.id, actor });
-        await handlePendingHandoffDone(row?.id);
-      }
-      setCashAcceptReview(null);
-      alert('✅ CASH U PRANUA NË ARKË: ' + euro(review?.baseTotal || 0));
-      await scheduleManagerMutationRefresh(actor);
-    } catch (e) {
-      alert('🔴 ' + (e?.message || 'NUK U PRANUA CASH.'));
-    } finally {
-      setBusy('');
-    }
-  }
 
   async function addWorkerExpenseFromCard(item) {
     const worker = item?.worker || {};
@@ -2417,21 +2417,27 @@ export default function ArkaPageV3() {
   }
 
   async function insertWorkerAdvance({ worker, amount, note }) {
-    const res = await arkaTransaction({
-      action: ARKA_ACTION.EXPENSE_REQUEST,
-      actorPin: actor?.pin || worker?.pin || null,
-      actorName: actor?.name || worker?.name || null,
-      actorRole: actor?.role || null,
-      workerPin: worker?.pin || actor?.pin || null,
-      workerName: worker?.name || actor?.name || null,
-      paymentType: 'ADVANCE',
-      sourceModule: ARKA_SOURCE_MODULE.ARKA,
-      status: 'ADVANCE',
-      amount,
-      note: String(note || 'AVANS').trim() || 'AVANS',
-      idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [worker?.pin || actor?.pin || '', 'ADVANCE', amount]),
+    // ARKA_DAILY_CLOSE_V2_ONE_WAY: an advance is created together with its immediate audited budget OUT.
+    const workerPin = String(worker?.pin || actor?.pin || '').trim();
+    const workerName = String(worker?.name || actor?.name || workerPin).trim();
+    if (!workerPin) throw new Error('MUNGON PIN-I I PUNËTORIT.');
+    const amountValue = +n(amount).toFixed(2);
+    if (!(amountValue > 0)) throw new Error('SHUMA E AVANSIT DUHET MBI 0€.');
+    const nonce = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : String(Date.now()) + '_' + Math.random().toString(36).slice(2);
+    const { data, error: rpcError } = await supabase.rpc('create_arka_advance_atomic_v2', {
+      p_actor_pin: String(actor?.pin || '').trim(),
+      p_actor_name: String(actor?.name || actor?.pin || '').trim(),
+      p_worker_pin: workerPin,
+      p_worker_name: workerName,
+      p_amount: amountValue,
+      p_note: String(note || 'AVANS').trim() || 'AVANS',
+      p_idempotency_key: 'ARKA_ADVANCE_V2:' + workerPin + ':' + nonce,
     });
-    return res?.payment || res?.row || null;
+    if (rpcError) throw rpcError;
+    if (data?.ok !== true) throw new Error(data?.message || 'AVANSI NUK U POSTUA NË BUXHET.');
+    return data?.advance || null;
   }
 
 
@@ -2793,7 +2799,7 @@ export default function ArkaPageV3() {
     let runPrimary = false;
     let runSecondary = false;
 
-    if (roleIsWorker(act?.role) && !roleCanManage(act?.role)) {
+    if (actorIsWorkerAccount(act) && !roleCanManage(act?.role)) {
       runPrimary = true;
       runSecondary = true;
     } else {
@@ -2814,7 +2820,7 @@ export default function ArkaPageV3() {
 
     if (!runPrimary && !runSecondary) return;
 
-    const isWorkerView = roleIsWorker(act?.role) && !roleCanManage(act?.role);
+    const isWorkerView = actorIsWorkerAccount(act) && !roleCanManage(act?.role);
     const cachedPrimary = isWorkerView
       ? !!readStoredJson(getWorkerArkaCacheKey(act?.pin))?.workerSnapshot
       : !!(readStoredJson(ARKA_MANAGER_CACHE_KEY)?.workerCards || []).length;
@@ -3080,10 +3086,19 @@ export default function ArkaPageV3() {
     setMealFormOpen(true);
   }
 
-  async function submitExpense() {
-    const title = String(expenseTitle || '').trim() || 'SHPENZIM';
+    async function submitExpense() {
+    const title = String(expenseTitle || '').trim();
     const amount = parseAmountInput(expenseAmount);
-    if (amount <= 0) return alert('🔴 SHKRUAJ SHUMËN E SHPENZIMIT.');
+
+    if (!title) {
+      setExpenseFormError('SHKRUAJ ÇFARË U PAGUA, P.SH. NAFTË OSE PARKING.');
+      return false;
+    }
+    if (amount <= 0) {
+      setExpenseFormError('SHKRUAJ SHUMËN E SAKTË TË SHPENZIMIT.');
+      return false;
+    }
+
     const request = normalizeWorkerExpenseRequest({
       requestKind: expenseRequestType,
       actorPin: actor?.pin,
@@ -3091,8 +3106,13 @@ export default function ArkaPageV3() {
       beneficiaryPin: expenseBeneficiaryPin,
       beneficiaryName: expenseBeneficiaryName,
     });
-    if (request?.error) return alert(request.error);
+    if (request?.error) {
+      setExpenseFormError(String(request.error || '').replace(/^🔴\s*/, '') || 'PLOTËSO TË DHËNAT E PERSONIT.');
+      return false;
+    }
+
     try {
+      setExpenseFormError('');
       setBusy('expense');
       const expenseResult = await createExpenseEntry({
         actor,
@@ -3103,21 +3123,28 @@ export default function ArkaPageV3() {
         workerRole: actor?.role,
       });
       const expenseQueuedOffline = Boolean(expenseResult?.offlineQueued || expenseResult?.queued || expenseResult?.localOnly || expenseResult?.offline);
+
       setExpenseTitle('');
       setExpenseAmount('');
       setExpenseRequestType('BUSINESS_EXPENSE');
       setExpenseBeneficiaryPin('');
       setExpenseBeneficiaryName('');
       setExpenseFormOpen(false);
+
       if (!expenseQueuedOffline) await scheduleManagerMutationRefresh(actor);
       else {
         try { window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER')); } catch {}
       }
-      alert(expenseQueuedOffline
-        ? '✅ SHPENZIMI U RUAJT OFFLINE. DO TË SINKRONIZOHET AUTOMATIKISHT KUR TË KETË RRJET.'
-        : '✅ SHPENZIMI U REGJISTRUA SI KËRKESË NË PRITJE.');
+
+      const notice = expenseQueuedOffline
+        ? 'U RUAJT OFFLINE: ' + euro(amount) + ' • ' + title.toUpperCase() + '. SINKRONIZOHET AUTOMATIKISHT KUR TË VIJË RRJETI.'
+        : 'U REGJISTRUA: ' + euro(amount) + ' • ' + title.toUpperCase() + '. PRET MIRATIMIN E ADMIN / DISPATCH.';
+      setExpenseSavedNotice(notice);
+      if (typeof window !== 'undefined') window.setTimeout(() => setExpenseSavedNotice(''), 6500);
+      return true;
     } catch (e) {
-      alert(`🔴 ${e?.message || 'NUK U REGJISTRUA SHPENZIMI.'}`);
+      setExpenseFormError(e?.message || 'NUK U REGJISTRUA SHPENZIMI. PROVO PËRSËRI.');
+      return false;
     } finally {
       setBusy('');
     }
@@ -3163,60 +3190,57 @@ export default function ArkaPageV3() {
     }
   }
 
-  async function submitHandoff() {
+  async function openHandoffWizard() {
+    if (busyRef.current) return;
+    const rows = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
+    const total = n(workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
+    if (!workerSnapshot || total <= 0 || !rows.length) return alert('🔴 NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
+    if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) return alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
+    try {
+      const openBonusRows = await listOpenBaseReadyBonusPayments(actor?.pin);
+      const bonusAvailable = +(openBonusRows.reduce((sum, row) => sum + n(row?.remaining_amount), 0)).toFixed(2);
+      setHandoffWizard({ open: true, bonusAvailable });
+    } catch {
+      setHandoffWizard({ open: true, bonusAvailable: 0 });
+    }
+  }
+
+  async function submitHandoff(options = {}) {
     if (busyRef.current) return;
     busyRef.current = 'handoff';
     try {
       const rows = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
       const total = n(workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
-      const grossTotal = n(workerSnapshot?.cashFromClientsTotal ?? workerSnapshot?.collectedGrossTotal ?? workerSnapshot?.collectedTotal);
-      const commissionTotal = n(workerSnapshot?.commissionHeldTotal);
-      if (!workerSnapshot || total <= 0 || !rows.length) return alert('🔴 NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
-      if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) {
-        return alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI QË MOS TË KRIJOHET HANDOFF I DYFISHTË.');
-      }
-      const mealDecision = await ensureMealDecisionBeforeHandoff({
+      if (!workerSnapshot || total <= 0 || !rows.length) throw new Error('NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
+      if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) throw new Error('U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
+
+      await ensureMealDecisionBeforeHandoff({
         actor,
         workerPin: actor?.pin,
         workerName: actor?.name,
         workerRole: actor?.role,
         staffOptions: mealOptions,
         amountPerPerson: FOOD_DEDUCTION,
+        presetChoice: options?.mealChoice || '',
+        presetPayerPin: options?.mealPayerPin || '',
       });
-      const mealDeduct = n(mealDecision?.deductAmount);
-      const openBonusRows = await listOpenBaseReadyBonusPayments(actor?.pin);
-      const readyBonusAvailable = +(openBonusRows.reduce((sum, row) => sum + n(row?.remaining_amount), 0)).toFixed(2);
-      const afterMeal = Math.max(0, +(total - mealDeduct).toFixed(2));
-      const readyBonusDeduct = computeReadyBonusDeductionForCash(afterMeal, readyBonusAvailable);
-      const estimatedNet = Math.max(0, +(afterMeal - readyBonusDeduct).toFixed(2));
-      const ok = window.confirm(
-        `A DON ME I DORËZU TE DISPATCH ${estimatedNet.toFixed(2)}€?
 
-` +
-        `KLIENTËT PAGUAN: ${grossTotal.toFixed(2)}€
-` +
-        `KOMISIONI TRANSPORT: ${commissionTotal.toFixed(2)}€
-` +
-        `BONUSI 48H QË E MBAN: ${readyBonusDeduct.toFixed(2)}€
-` +
-        (readyBonusAvailable > readyBonusDeduct + 0.005 ? `BONUSI QË BARTET: ${(readyBonusAvailable-readyBonusDeduct).toFixed(2)}€
-` : '') +
-        (mealDecision?.confirmLine ? `${mealDecision.confirmLine}
-` : '') +
-        `${rows.length} KLIENTË PËR DORËZIM.`
-      );
-      if (!ok) return;
       setBusy('handoff');
       const submitted = await submitWorkerCashToDispatch({ actor });
       await scheduleManagerMutationRefresh(actor);
-      const held = n(submitted?.readyBonusTotal);
-      alert(`✅ DORËZIMI U DËRGUA TE DISPATCH.${held > 0 ? '\nBONUSI 48H I MBAJTUR NË KËTË DORËZIM: ' + held.toFixed(2) + '€' : ''}`);
+      return submitted;
     } catch (e) {
+      if (options?.wizard) throw e;
       alert(`🔴 ${e?.message || 'NUK U DËRGUA DORËZIMI.'}`);
+      return null;
     } finally {
       busyRef.current = '';
       setBusy('');
     }
+  }
+
+  async function submitHandoffFromWizard(decision = {}) {
+    return submitHandoff({ ...decision, wizard: true });
   }
 
   const workerFirstName = String(actor?.name || 'PUNTORIT').trim().split(/\s+/)[0] || 'PUNTORIT';
@@ -3266,6 +3290,8 @@ export default function ArkaPageV3() {
         <div className="arkaSimpleNav">
           <Link href="/" prefetch={false} className="arkaTopBtn">HOME</Link>
           <Link href="/arka/bonuset" prefetch={false} className="arkaTopBtn">BONUSI 48H</Link>
+          {String(actor?.pin || '').trim() === '4563' && canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME</Link> : null}
+          {String(actor?.pin || '').trim() === '4563' && masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN ARKA</Link> : null}
           {canOpenKapaku ? <Link href="/arka/kapaku" prefetch={false} className="arkaTopBtn">KAPAKU I ARKËS</Link> : null}
           {canManage ? <Link href="/arka/payroll" prefetch={false} className="arkaTopBtn">PAYROLL</Link> : null}
           {canManage ? <Link href="/arka/stafi" prefetch={false} className="arkaTopBtn">STAFI</Link> : null}
@@ -3288,12 +3314,15 @@ export default function ArkaPageV3() {
             <div className="arkaHeroDueHuge">{euro(workerBaseForDispatchTotal)}</div>
           </div>
 
+          {/* ARKA_WORKER_DAILY_STATUS_V1:PAGE */}
+          <ArkaWorkerDailyStatus snapshot={workerSnapshot} actor={actor} />
           <ReadyBonusLiveCard actor={actor} />
 
           <section className="arkaSectionCard arkaCashListCard">
             <div className="arkaSectionHeadCompact">
               <div>
                 <div className="arkaSectionTitle">DORËZO TE DISPATCH</div>
+              <div className="arkaSectionSub">KËTU HYJNË VETËM PAGESAT E RUAJTURA NË ARKA. POROSIA ‘PËR PAGESË’ NË TRANSPORT ENDE NUK ËSHTË CASH I REGJISTRUAR.</div>
               </div>
               <div className="arkaCashTotalPill">{euro(workerBaseForDispatchTotal)}</div>
             </div>
@@ -3360,10 +3389,12 @@ export default function ArkaPageV3() {
                     <span>Cash bruto nga klientët</span>
                     <b>{euro(workerGrossTotal)}</b>
                   </div>
-                  <div className="arkaWorkerFoot" style={{ alignItems: 'center', gap: 10 }}>
-                    <span>Komisioni im</span>
-                    <b>{euro(workerCommissionTotal)}</b>
-                  </div>
+                  {workerIsHybrid ? (
+                    <div className="arkaWorkerFoot" style={{ alignItems: 'center', gap: 10 }}>
+                      <span>Komisioni im</span>
+                      <b>{euro(workerCommissionTotal)}</b>
+                    </div>
+                  ) : null}
                   <div className="arkaWorkerFoot" style={{ alignItems: 'center', gap: 10 }}>
                     <span>Për bazë</span>
                     <b>{euro(workerBaseForDispatchTotal)}</b>
@@ -3527,50 +3558,102 @@ export default function ArkaPageV3() {
             ) : <div className="arkaEmpty">USHQIMI NUK ËSHTË REGJISTRUAR SOT.</div>}
           </section>
 
-          <div className="arkaSectionCard" style={{ display: 'grid', gap: 10 }}>
-            <button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={submitHandoff}>{busy === 'handoff' ? '...' : `DORËZO TE DISPATCH — ${euro(workerBaseForDispatchTotal)}`}</button>
-            {n(workerSnapshot?.cashDuplicateTransportCount) > 0 ? <div className="arkaReviewWarn">U gjet duplicate transport cash. Dorëzimi u ndalua për siguri.</div> : null}
-            <button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => setExpenseFormOpen((v) => !v)}>{expenseFormOpen ? 'MBYLL SHPENZIMIN' : 'SHTO SHPENZIM'}</button>
-            <button type="button" className="arkaTopBtn" disabled={!!busy || selfMealCoveredToday} onClick={openMealForm}>{selfMealCoveredToday ? 'USHQIMI U REGJISTRUA SOT' : 'SHTO USHQIM'}</button>
-          </div>
+          <HandoffWizard
+            open={handoffWizard.open}
+            actor={actor}
+            clientCount={Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows.length : 0}
+            grossTotal={workerGrossTotal}
+            baseTotal={workerBaseForDispatchTotal}
+            commissionTotal={workerCommissionTotal}
+            bonusAvailable={handoffWizard.bonusAvailable}
+            openExpenseTotal={workerOpenExpenseRows.filter((row) => typeOf(row) === 'EXPENSE').reduce((sum, row) => sum + amountOf(row), 0)}
+            existingMealCovered={selfMealCoveredToday}
+            existingMealDeduct={workerOpenExpenseRows.filter((row) => typeOf(row) === 'MEAL_PAYMENT').reduce((sum, row) => sum + amountOf(row), 0)}
+            staffOptions={mealOptions}
+            onClose={() => setHandoffWizard((prev) => ({ ...prev, open: false }))}
+            onSubmit={submitHandoffFromWizard}
+          />
 
-          {expenseFormOpen ? (
-            <div className="arkaActionPanel">
-              <div className="arkaActionHeader">SHTO SHPENZIM</div>
-              <div className="arkaSimpleSub">PUNTORI VETËM PROPOZON TIPIN. ADMIN / DISPATCH E KONFIRMON VENDIMIN FINAL.</div>
-              <div className="arkaInlineForm">
-                <input className="arkaField" value={expenseTitle} onChange={(e) => setExpenseTitle(e.target.value)} placeholder="P.SH. NAFTË / PARKING" />
-                <input className="arkaField small" inputMode="decimal" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} placeholder="20" />
-              </div>
-              <div className="arkaExpenseRequestGrid">
-                <button type="button" className={`arkaExpenseRequestBtn ${expenseRequestType === 'BUSINESS_EXPENSE' ? 'active' : ''}`} disabled={!!busy} onClick={() => setExpenseRequestType('BUSINESS_EXPENSE')}>BIZNES</button>
-                <button type="button" className={`arkaExpenseRequestBtn ${expenseRequestType === 'PERSONAL_SELF' ? 'active warn' : ''}`} disabled={!!busy} onClick={() => setExpenseRequestType('PERSONAL_SELF')}>PERSONAL PËR VETE</button>
-                <button type="button" className={`arkaExpenseRequestBtn ${expenseRequestType === 'PERSONAL_OTHER' ? 'active warn' : ''}`} disabled={!!busy} onClick={() => setExpenseRequestType('PERSONAL_OTHER')}>PERSONAL PËR DIKË TJETËR</button>
-              </div>
-              {expenseRequestType === 'PERSONAL_OTHER' ? (
-                <div className="arkaExpenseBeneficiaryGrid">
-                  <div>
-                    <label>PIN I PERSONIT</label>
-                    <input className="arkaField" list="arka_self_expense_beneficiaries" value={expenseBeneficiaryPin} onChange={(e) => handleExpenseBeneficiaryPinChange(e.target.value)} placeholder="P.SH. 2020" />
-                    <datalist id="arka_self_expense_beneficiaries">
-                      {(mealOptions || []).map((row) => <option key={String(row?.pin || '')} value={String(row?.pin || '')}>{row?.name || row?.pin}</option>)}
-                    </datalist>
-                  </div>
-                  <div>
-                    <label>EMRI</label>
-                    <input className="arkaField" value={expenseBeneficiaryName} onChange={(e) => setExpenseBeneficiaryName(e.target.value)} placeholder="P.SH. SHKENDIE" />
-                  </div>
-                </div>
-              ) : null}
-              {expenseRequestType === 'PERSONAL_SELF' ? <div className="arkaExpenseWarning warn">KËRKESA DO RUAHET SI PERSONAL / AVANS PËR TY.</div> : null}
-              {expenseRequestType === 'BUSINESS_EXPENSE' ? <div className="arkaExpenseWarning ok">KËRKESA DO RUAHET SI SHPENZIM BIZNESI.</div> : null}
-              <div className="arkaWorkerFoot" style={{ marginTop: 12 }}>
-                <span>{expenseRequestType === 'PERSONAL_OTHER' ? 'PERSONAL / AVANS PËR PERSON TJETËR' : expenseRequestType === 'PERSONAL_SELF' ? 'PERSONAL / AVANS PËR VETE' : 'BIZNES'}</span>
-                <button type="button" className="arkaSolidBtn" disabled={!!busy} onClick={submitExpense}>{busy === 'expense' ? '...' : '+ SHTO'}</button>
+          <div className="arkaSectionCard arkaWorkerActionHub">
+            <button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={submitHandoff}>{busy === 'handoff' ? '...' : 'DORËZO TE DISPATCH — ' + euro(workerBaseForDispatchTotal)}</button>
+            {n(workerSnapshot?.cashDuplicateTransportCount) > 0 ? <div className="arkaReviewWarn">U gjet duplicate transport cash. Dorëzimi u ndalua për siguri.</div> : null}
+
+            <div className="arkaWorkerActionHubHead">
+              <div>
+                <div className="arkaSectionTitle">VEPRIME TË SHPEJTA</div>
+                <div className="arkaSectionSub">REGJISTRO SHPENZIM OSE USHQIM ME PAK PREKJE.</div>
               </div>
             </div>
-          ) : null}
 
+            <div className="arkaWorkerActionHubGrid">
+              <button
+                type="button"
+                className="arkaLaunchAction expense"
+                disabled={!!busy}
+                onClick={() => {
+                  setExpenseFormError('');
+                  setExpenseSavedNotice('');
+                  setExpenseFormOpen(true);
+                }}
+              >
+                <span className="arkaLaunchActionIcon">−€</span>
+                <span className="arkaLaunchActionCopy"><b>REGJISTRO SHPENZIM</b><small>BIZNES OSE PERSONAL / AVANS</small></span>
+                <span className="arkaLaunchActionArrow">›</span>
+              </button>
+
+              <button
+                type="button"
+                className="arkaLaunchAction meal"
+                disabled={!!busy || selfMealCoveredToday}
+                onClick={openMealForm}
+              >
+                <span className="arkaLaunchActionIcon">3€</span>
+                <span className="arkaLaunchActionCopy"><b>{selfMealCoveredToday ? 'USHQIMI U REGJISTRUA' : 'REGJISTRO USHQIM'}</b><small>{selfMealCoveredToday ? 'ËSHTË RUAJTUR PËR SOT' : 'PËR TY OSE PËR KOLEGËT'}</small></span>
+                <span className="arkaLaunchActionArrow">›</span>
+              </button>
+            </div>
+          </div>
+
+          {expenseSavedNotice ? <div className="arkaExpenseSavedNotice" role="status">{expenseSavedNotice}</div> : null}
+          <ArkaExpenseComposer
+            open={expenseFormOpen}
+            busy={busy === 'expense'}
+            actor={actor}
+            title={expenseTitle}
+            amount={expenseAmount}
+            requestType={expenseRequestType}
+            beneficiaryPin={expenseBeneficiaryPin}
+            beneficiaryName={expenseBeneficiaryName}
+            staffOptions={mealOptions}
+            error={expenseFormError}
+            onTitleChange={(value) => {
+              setExpenseTitle(value);
+              setExpenseFormError('');
+            }}
+            onAmountChange={(value) => {
+              setExpenseAmount(value);
+              setExpenseFormError('');
+            }}
+            onRequestTypeChange={(value) => {
+              setExpenseRequestType(value);
+              setExpenseFormError('');
+              if (value !== 'PERSONAL_OTHER') {
+                setExpenseBeneficiaryPin('');
+                setExpenseBeneficiaryName('');
+              }
+            }}
+            onBeneficiaryChange={({ pin, name }) => {
+              setExpenseBeneficiaryPin(String(pin || '').trim());
+              setExpenseBeneficiaryName(String(name || '').trim());
+              setExpenseFormError('');
+            }}
+            onClose={() => {
+              if (busy === 'expense') return;
+              setExpenseFormOpen(false);
+              setExpenseFormError('');
+            }}
+            onSubmit={submitExpense}
+          />
           {mealFormOpen && !selfMealCoveredToday ? (
             <div className="arkaActionPanel">
               <div className="arkaActionHeader">USHQIMI I DITËS</div>
@@ -3647,10 +3730,10 @@ export default function ArkaPageV3() {
                 className="arkaSolidBtn big"
                 style={{ textDecoration: 'none', textAlign: 'center', minWidth: 150 }}
               >
-                HAPE PAMJEN DITORE
+                HAPE MBYLLJEN DITORE
               </Link>
             </div>
-            <div className="arkaSimpleSub">Shifrat llogariten direkt nga DB dhe ruhen si snapshot vetem per lexim offline. Qasja eshte vetem DISPATCH.</div>
+            <div className="arkaSimpleSub">Dorëzimet hyjnë në buxhet vetëm nga wizard-i ditor. Numërimi fizik, daljet dhe diferenca ruhen me audit.</div>
           </div>
 
           <div className="arkaWorkerStats adminTopGrid ownerTotalsGrid">
