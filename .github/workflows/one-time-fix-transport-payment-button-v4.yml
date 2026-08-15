@@ -1,0 +1,76 @@
+name: One-time fix transport payment button v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-fix-transport-payment-button-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply corrected payment repair after all prebuild installers
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, textwrap
+
+          workflow = Path('.github/workflows/one-time-fix-transport-payment-button-v3.yml').read_text()
+
+          def extract(cat_line):
+              marker = cat_line + "\n"
+              start = workflow.index(marker) + len(marker)
+              end = workflow.index("\n          EOF", start)
+              return textwrap.dedent(workflow[start:end]) + "\n"
+
+          apply_text = extract("          cat > tools/apply-transport-payment-button-v3.mjs <<'EOF'")
+          verify_text = extract("          cat > tools/verify-transport-payment-button-v3.mjs <<'EOF'")
+
+          cache_patch = r'''
+          let vite = fs.readFileSync('vite.config.js', 'utf8');
+          vite = vite.replace(/sw-navigation-diag\.js\?v=\d+/, 'sw-navigation-diag.js?v=3509');
+          vite = vite.replace(/tepiha-vite-business-routes-[^']+/, 'tepiha-vite-business-routes-v44-query-authority-transport-guard-payment-button-v3');
+          vite = vite.replace(/tepiha-vite-static-assets-[^']+/, 'tepiha-vite-static-assets-v44-query-authority-transport-guard-payment-button-v3');
+          vite = vite.replace(/tepiha-vite-media-[^']+/, 'tepiha-vite-media-v44-query-authority-transport-guard-payment-button-v3');
+          fs.writeFileSync('vite.config.js', vite);
+          '''
+          anchor = "fs.writeFileSync(PAGE_PATH, page);"
+          if cache_patch.strip() not in apply_text:
+              if anchor not in apply_text:
+                  raise SystemExit('apply installer anchor missing')
+              apply_text = apply_text.replace(anchor, anchor + "\n\n" + textwrap.dedent(cache_patch).strip())
+
+          Path('tools/apply-transport-payment-button-v3.mjs').write_text(apply_text)
+          Path('tools/verify-transport-payment-button-v3.mjs').write_text(verify_text)
+
+          p = Path('package.json')
+          pkg = json.loads(p.read_text())
+          install_cmd = 'node tools/apply-transport-payment-button-v3.mjs'
+          if install_cmd not in pkg['scripts']['prebuild']:
+              pkg['scripts']['prebuild'] += ' && ' + install_cmd
+          pkg['scripts']['test:transport-payment-button-v3'] = 'node tools/verify-transport-payment-button-v3.mjs'
+          test_cmd = 'npm run test:transport-payment-button-v3'
+          if test_cmd not in pkg['scripts']['build']:
+              pkg['scripts']['build'] = pkg['scripts']['build'].replace(' && vite build', ' && ' + test_cmd + ' && vite build')
+          p.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + '\n')
+          PY
+
+          node tools/apply-transport-payment-button-v3.mjs
+          npm run build
+
+          rm .github/workflows/one-time-fix-transport-payment-button-v3.yml
+          rm .github/workflows/one-time-fix-transport-payment-button-v4.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/transport/pranimi/page.jsx tools/apply-transport-payment-button-v3.mjs tools/verify-transport-payment-button-v3.mjs package.json vite.config.js .github/workflows/one-time-fix-transport-payment-button-v3.yml .github/workflows/one-time-fix-transport-payment-button-v4.yml
+          git commit -m "fix transport payment button execution"
+          git push origin HEAD:main
