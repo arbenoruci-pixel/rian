@@ -60,25 +60,32 @@ function replaceNamedFunction(source, signature, replacement, searchStart = 0) {
 function patchMainPage() {
   let source = fs.readFileSync(PAGE_PATH, 'utf8');
 
-  const pendingStart = source.indexOf('function PendingHandoffRow(');
-  if (pendingStart < 0) throw new Error('PENDING_HANDOFF_COMPONENT_MISSING');
-  source = replaceNamedFunction(source, 'async function handleAccept()', `function handleAccept() {
-    // ${MARKER}: individual acceptance is disabled; Dispatch closes all confirmed cash in one wizard.
-    if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
-  }`, pendingStart);
+  const needsOneWayPatch = !source.includes(MARKER) || source.includes('await acceptDispatchHandoff({');
+  if (needsOneWayPatch) {
+    const pendingStart = source.indexOf('function PendingHandoffRow(');
+    if (pendingStart < 0) throw new Error('PENDING_HANDOFF_COMPONENT_MISSING');
+    const handleSignature = source.indexOf('async function handleAccept()', pendingStart) >= 0
+      ? 'async function handleAccept()'
+      : 'function handleAccept()';
+    source = replaceNamedFunction(source, handleSignature, `function handleAccept() {
+      // ${MARKER}: individual acceptance is disabled; Dispatch closes all confirmed cash in one wizard.
+      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
+    }`, pendingStart);
 
-  source = replaceNamedFunction(source, 'function acceptWorkerCashFromCard(item)', `function acceptWorkerCashFromCard() {
-    // ${MARKER}: every manager entry point uses the same daily close route.
-    if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
-  }`);
+    source = replaceNamedFunction(source, 'function acceptWorkerCashFromCard(item)', `function acceptWorkerCashFromCard() {
+      // ${MARKER}: every manager entry point uses the same daily close route.
+      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
+    }`);
 
-  source = replaceNamedFunction(source, 'async function confirmCashAcceptReview()', `async function confirmCashAcceptReview() {
-    // ${MARKER}: legacy review modal cannot post to the budget.
-    setCashAcceptReview(null);
-    if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
-  }`);
+    source = replaceNamedFunction(source, 'async function confirmCashAcceptReview()', `async function confirmCashAcceptReview() {
+      // ${MARKER}: legacy review modal cannot post to the budget.
+      setCashAcceptReview(null);
+      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
+    }`);
+  }
 
-  source = replaceNamedFunction(source, 'async function insertWorkerAdvance({ worker, amount, note })', `async function insertWorkerAdvance({ worker, amount, note }) {
+  if (!source.includes("supabase.rpc('create_arka_advance_atomic_v2'")) {
+    source = replaceNamedFunction(source, 'async function insertWorkerAdvance({ worker, amount, note })', `async function insertWorkerAdvance({ worker, amount, note }) {
     // ${MARKER}: an advance is created together with its immediate audited budget OUT.
     const workerPin = String(worker?.pin || actor?.pin || '').trim();
     const workerName = String(worker?.name || actor?.name || workerPin).trim();
@@ -101,6 +108,7 @@ function patchMainPage() {
     if (data?.ok !== true) throw new Error(data?.message || 'AVANSI NUK U POSTUA NË BUXHET.');
     return data?.advance || null;
   }`);
+  }
 
   source = source
     .replace("{busy === 'accept' ? '...' : 'PRANO CASH'}", "{busy === 'accept' ? '...' : 'HAP MBYLLJEN DITORE'}")
