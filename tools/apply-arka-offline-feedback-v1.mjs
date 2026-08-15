@@ -44,11 +44,16 @@ const newRefresh = `      setExpenseFormOpen(false);
         ? '✅ SHPENZIMI U RUAJT OFFLINE. DO TË SINKRONIZOHET AUTOMATIKISHT KUR TË KETË RRJET.'
         : '✅ SHPENZIMI U REGJISTRUA SI KËRKESË NË PRITJE.');`;
 
-if (!source.includes('SHPENZIMI U RUAJT OFFLINE. DO TË SINKRONIZOHET')) {
+const compatibleOfflineFlow =
+  source.includes('expenseQueuedOffline') &&
+  (source.includes("window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER'))") ||
+   source.includes('ARKA_EXPENSE_MOBILE_PRO_V2:PAGE'));
+
+if (!source.includes('SHPENZIMI U RUAJT OFFLINE. DO TË SINKRONIZOHET') && !compatibleOfflineFlow) {
   if (!source.includes(oldRefresh)) throw new Error('ARKA_OFFLINE_EXPENSE_REFRESH_ANCHOR_NOT_FOUND');
   source = source.replace(oldRefresh, newRefresh);
   changed = true;
 }
 
 if (changed) fs.writeFileSync(pagePath, source, 'utf8');
-console.log(`[arka-offline-feedback-v1] ${changed ? 'installed' : 'already installed'}`);
+console.log(`[arka-offline-feedback-v1] ${changed ? 'installed' : 'already installed / compatible'}`);
