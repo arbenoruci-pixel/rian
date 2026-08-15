@@ -87,7 +87,7 @@ function patchMainPage() {
     if (!(amountValue > 0)) throw new Error('SHUMA E AVANSIT DUHET MBI 0€.');
     const nonce = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
-      : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      : String(Date.now()) + '_' + Math.random().toString(36).slice(2);
     const { data, error: rpcError } = await supabase.rpc('create_arka_advance_atomic_v2', {
       p_actor_pin: String(actor?.pin || '').trim(),
       p_actor_name: String(actor?.name || actor?.pin || '').trim(),
@@ -95,7 +95,7 @@ function patchMainPage() {
       p_worker_name: workerName,
       p_amount: amountValue,
       p_note: String(note || 'AVANS').trim() || 'AVANS',
-      p_idempotency_key: `ARKA_ADVANCE_V2:${workerPin}:${nonce}`,
+      p_idempotency_key: 'ARKA_ADVANCE_V2:' + workerPin + ':' + nonce,
     });
     if (rpcError) throw rpcError;
     if (data?.ok !== true) throw new Error(data?.message || 'AVANSI NUK U POSTUA NË BUXHET.');
