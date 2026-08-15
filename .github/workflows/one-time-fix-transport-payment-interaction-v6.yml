@@ -1,0 +1,286 @@
+name: One-time fix transport payment interaction v6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-fix-transport-payment-interaction-v6.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply resilient no-silent-tap repair
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > tools/apply-transport-payment-interaction-v6.mjs <<'EOF'
+          import fs from 'node:fs';
+
+          const PAGE_PATH = 'app/transport/pranimi/page.jsx';
+          const POS_PATH = 'components/PosModal.jsx';
+          const V3_VERIFY_PATH = 'tools/verify-transport-payment-button-v3.mjs';
+          const PAGE_MARKER = 'TRANSPORT_PAYMENT_INTERACTION_V6:PAGE';
+          const POS_MARKER = 'TRANSPORT_PAYMENT_INTERACTION_V6:POS';
+
+          function replaceOnce(source, oldText, newText, label) {
+            if (source.includes(newText)) return source;
+            const count = source.split(oldText).length - 1;
+            if (count !== 1) throw new Error(label + ': expected one match, found ' + count);
+            return source.replace(oldText, newText);
+          }
+
+          let page = fs.readFileSync(PAGE_PATH, 'utf8');
+
+          if (!page.includes('const paymentBusyStartedAtRef = useRef(0);')) {
+            page = replaceOnce(
+              page,
+              '  const paymentBusyRef = useRef(false);',
+              '  const paymentBusyRef = useRef(false);\n  const paymentBusyStartedAtRef = useRef(0);',
+              'payment busy timestamp ref',
+            );
+          }
+
+          page = page.replace(
+            '          disabled={savingContinue || paymentBusy}\n          onConfirm={applyPayAndClose}',
+            '          disabled={paymentBusy}\n          onConfirm={applyPayAndClose}',
+          );
+
+          if (!page.includes(PAGE_MARKER)) {
+            const oldStart = `  async function applyPayAndClose() {
+              // TRANSPORT_PAYMENT_BUTTON_V3:PAGE — await the real PIN contract, apply only the debt, verify ARKA, then close once.
+              if (paymentBusyRef.current || paymentBusy) return;`;
+            const newStart = `  async function applyPayAndClose() {
+              // ${PAGE_MARKER} — every press responds and stale busy state cannot lock the green button.
+              const busyAgeMs = paymentBusyStartedAtRef.current > 0
+                ? Math.max(0, Date.now() - paymentBusyStartedAtRef.current)
+                : 0;
+              if (paymentBusyRef.current || paymentBusy) {
+                if (busyAgeMs > 0 && busyAgeMs < 20000) {
+                  alert('PAGESA ËSHTË DUKE U RUAJTUR. PRIT PAK.');
+                  return;
+                }
+                paymentBusyRef.current = false;
+                paymentBusyStartedAtRef.current = 0;
+                setPaymentBusy(false);
+              }`;
+            page = replaceOnce(page, oldStart, newStart, 'payment handler start');
+
+            const oldActor = `    const paymentActor = await requirePaymentPin({ label: pinLabel });
+              const actorPin = String(paymentActor?.pin || '').trim();
+              if (!actorPin) return;
+
+              const actorName = String(paymentActor?.name || me?.name || me?.full_name || me?.username || '').trim();
+              const actorRole = String(paymentActor?.role || me?.role || 'TRANSPORT').trim();`;
+            const newActor = `    let transportSession = null;
+              try { transportSession = getTransportSession?.() || null; } catch {}
+              const sessionPin = String(
+                actor?.pin ||
+                me?.pin ||
+                me?.transport_pin ||
+                transportSession?.pin ||
+                transportSession?.transport_pin ||
+                editOriginalData?.transport_pin ||
+                editOriginalData?.driver_pin ||
+                ''
+              ).trim();
+              let paymentActor = sessionPin ? {
+                pin: sessionPin,
+                name: String(
+                  actor?.name ||
+                  me?.name ||
+                  me?.transport_name ||
+                  transportSession?.name ||
+                  transportSession?.transport_name ||
+                  editOriginalData?.transport_name ||
+                  editOriginalData?.driver_name ||
+                  ''
+                ).trim() || null,
+                role: String(actor?.role || me?.role || transportSession?.role || 'TRANSPORT').trim() || 'TRANSPORT',
+              } : null;
+              if (!paymentActor?.pin) {
+                paymentActor = await requirePaymentPin({ label: pinLabel });
+              }
+              const actorPin = String(paymentActor?.pin || '').trim();
+              if (!actorPin) {
+                alert('NUK U GJET PIN-I I TRANSPORTIT. HYR PRAPË NË APP DHE PROVO.');
+                return;
+              }
+
+              const actorName = String(
+                paymentActor?.name ||
+                me?.name ||
+                me?.transport_name ||
+                editOriginalData?.transport_name ||
+                editOriginalData?.driver_name ||
+                ''
+              ).trim();
+              const actorRole = String(paymentActor?.role || me?.role || 'TRANSPORT').trim() || 'TRANSPORT';`;
+            page = replaceOnce(page, oldActor, newActor, 'transport session actor');
+
+            page = replaceOnce(
+              page,
+              '    paymentBusyRef.current = true;\n    setPaymentBusy(true);',
+              '    paymentBusyRef.current = true;\n    paymentBusyStartedAtRef.current = Date.now();\n    setPaymentBusy(true);',
+              'payment busy start timestamp',
+            );
+
+            page = replaceOnce(
+              page,
+              '      paymentBusyRef.current = false;\n      setPaymentBusy(false);',
+              '      paymentBusyRef.current = false;\n      paymentBusyStartedAtRef.current = 0;\n      setPaymentBusy(false);',
+              'payment busy reset timestamp',
+            );
+          }
+
+          fs.writeFileSync(PAGE_PATH, page);
+
+          let pos = fs.readFileSync(POS_PATH, 'utf8');
+          if (!pos.includes(POS_MARKER)) {
+            const oldCanConfirm = `  const canConfirm = dueNow <= 0
+              ? !disabled
+              : (allowPartial ? (givenN > 0 && !disabled) : (givenN >= dueNow && !disabled));`;
+            const nextCanConfirm = `  const amountReady = dueNow <= 0
+              ? true
+              : (allowPartial ? givenN > 0 : givenN + 0.001 >= dueNow);
+            const canConfirm = amountReady && !disabled;
+
+            function handleConfirmTap() {
+              // ${POS_MARKER} — the green payment button never swallows a press silently.
+              try {
+                window.__TEPIHA_LAST_PAYMENT_BUTTON_TAP__ = {
+                  at: new Date().toISOString(),
+                  ts: Date.now(),
+                  disabled: Boolean(disabled),
+                  canConfirm: Boolean(canConfirm),
+                  given: givenN,
+                  due: dueNow,
+                };
+              } catch {}
+              if (disabled) {
+                window.alert('PAGESA ËSHTË DUKE U RUAJTUR. PRIT PAK.');
+                return;
+              }
+              if (dueNow > 0 && givenN <= 0) {
+                window.alert('SHKRUANI SHUMËN QË PAGUAN KLIENTI.');
+                return;
+              }
+              if (!allowPartial && dueNow > 0 && givenN + 0.001 < dueNow) {
+                window.alert('KLIENTI DHA MË PAK SE BORXHI!');
+                return;
+              }
+              if (typeof onConfirm !== 'function') {
+                window.alert('BUTONI I PAGESËS NUK ËSHTË LIDHUR. HAPE APP-IN PRAPË.');
+                return;
+              }
+              onConfirm();
+            }`;
+            pos = replaceOnce(pos, oldCanConfirm, nextCanConfirm, 'PosModal canConfirm');
+
+            const classIndex = pos.indexOf('className="posbtn posbtn--ok"');
+            if (classIndex < 0) throw new Error('PosModal confirm class missing');
+            const buttonStart = pos.lastIndexOf('<button', classIndex);
+            const buttonEnd = pos.indexOf('>', classIndex);
+            if (buttonStart < 0 || buttonEnd < 0) throw new Error('PosModal confirm opening tag missing');
+            const openingTag = pos.slice(buttonStart, buttonEnd + 1);
+            if (!openingTag.includes('onClick={() => onConfirm?.()}') || !openingTag.includes('disabled={!canConfirm}')) {
+              throw new Error('PosModal confirm opening tag changed unexpectedly: ' + openingTag);
+            }
+            const nextOpeningTag = `        <button
+              type="button"
+              className="posbtn posbtn--ok"
+              onClick={handleConfirmTap}
+              aria-disabled={!canConfirm}
+              data-payment-ready={canConfirm ? '1' : '0'}
+              style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'rgba(16,185,129,0.22)' }}
+            >`;
+            pos = pos.slice(0, buttonStart) + nextOpeningTag + pos.slice(buttonEnd + 1);
+          }
+          fs.writeFileSync(POS_PATH, pos);
+
+          if (fs.existsSync(V3_VERIFY_PATH)) {
+            let verifyV3 = fs.readFileSync(V3_VERIFY_PATH, 'utf8');
+            verifyV3 = verifyV3.replace(
+              `check(page.includes('const paymentActor = await requirePaymentPin({ label: pinLabel });'), 'PIN is not awaited with the real return contract');`,
+              `check(page.includes('paymentActor = await requirePaymentPin({ label: pinLabel });') || page.includes('const paymentActor = await requirePaymentPin({ label: pinLabel });'), 'PIN fallback is not awaited with the real return contract');`,
+            );
+            fs.writeFileSync(V3_VERIFY_PATH, verifyV3);
+          }
+
+          console.log('transport payment interaction v6 applied');
+          EOF
+
+          cat > tools/verify-transport-payment-interaction-v6.mjs <<'EOF'
+          import fs from 'node:fs';
+          const page = fs.readFileSync('app/transport/pranimi/page.jsx', 'utf8');
+          const pos = fs.readFileSync('components/PosModal.jsx', 'utf8');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const vite = fs.readFileSync('vite.config.js', 'utf8');
+          const failures = [];
+          const check = (ok, message) => { if (!ok) failures.push(message); };
+
+          check(page.includes('TRANSPORT_PAYMENT_INTERACTION_V6:PAGE'), 'page marker missing');
+          check(page.includes('const paymentBusyStartedAtRef = useRef(0);'), 'stale busy recovery missing');
+          check(page.includes('disabled={paymentBusy}'), 'unrelated save state still disables payment');
+          check(!page.includes('disabled={savingContinue || paymentBusy}'), 'silent modal disable remains');
+          check(page.includes('editOriginalData?.transport_pin'), 'assigned driver PIN fallback missing');
+          check(page.includes('paymentActor = await requirePaymentPin({ label: pinLabel });'), 'awaited PIN fallback missing');
+          check(pos.includes('TRANSPORT_PAYMENT_INTERACTION_V6:POS'), 'PosModal marker missing');
+          check(pos.includes('onClick={handleConfirmTap}'), 'confirm handler missing');
+          check(pos.includes("data-payment-ready={canConfirm ? '1' : '0'}"), 'readiness marker missing');
+          check(!pos.includes('disabled={!canConfirm}'), 'native silent disabled confirm remains');
+          check(String(pkg.scripts?.prebuild || '').includes('apply-transport-payment-interaction-v6.mjs'), 'installer missing from prebuild');
+          check(String(pkg.scripts?.build || '').includes('test:transport-payment-interaction-v6'), 'verifier missing from build');
+          check(vite.includes('sw-navigation-diag.js?v=3511'), 'service worker generation not bumped');
+
+          if (failures.length) {
+            console.error('FAIL transport payment interaction v6:', failures);
+            process.exit(1);
+          }
+          console.log('PASS transport payment interaction v6');
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          p = Path('package.json')
+          pkg = json.loads(p.read_text())
+          install_cmd = 'node tools/apply-transport-payment-interaction-v6.mjs'
+          prebuild = str(pkg.get('scripts', {}).get('prebuild', ''))
+          if install_cmd not in prebuild:
+              pkg['scripts']['prebuild'] = (prebuild + ' && ' + install_cmd).strip(' &')
+          pkg['scripts']['test:transport-payment-interaction-v6'] = 'node tools/verify-transport-payment-interaction-v6.mjs'
+          test_cmd = 'npm run test:transport-payment-interaction-v6'
+          build = str(pkg['scripts'].get('build', ''))
+          if test_cmd not in build:
+              if ' && vite build' not in build:
+                  raise SystemExit('vite build anchor missing')
+              pkg['scripts']['build'] = build.replace(' && vite build', ' && ' + test_cmd + ' && vite build', 1)
+          p.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + '\n')
+
+          p = Path('vite.config.js')
+          s = p.read_text()
+          s = re.sub(r'sw-navigation-diag\.js\?v=\d+', 'sw-navigation-diag.js?v=3511', s, count=1)
+          p.write_text(s)
+          PY
+
+          node tools/apply-transport-payment-interaction-v6.mjs
+          npm run test:transport-payment-interaction-v6
+          npm run build
+
+          rm -f .github/workflows/one-time-fix-transport-payment-interaction-v5.yml
+          rm -f .github/workflows/one-time-fix-transport-payment-interaction-v6.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "make transport payment button always react"
+          git push origin HEAD:main
