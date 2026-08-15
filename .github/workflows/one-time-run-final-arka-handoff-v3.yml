@@ -1,0 +1,55 @@
+name: One-time run final ARKA single handoff v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-run-final-arka-handoff-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Run verified single-flow repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/workflows/one-time-finalize-arka-handoff-single-flow-v3.yml').read_text(encoding='utf-8')
+          marker = '        run: |\n'
+          if marker not in source:
+              raise SystemExit('FINALIZE_WORKFLOW_RUN_BLOCK_NOT_FOUND')
+
+          block = source.split(marker, 1)[1]
+          lines = block.splitlines()
+          script_lines = []
+          for line in lines:
+              if line.startswith('          '):
+                  script_lines.append(line[10:])
+              elif line.strip() == '':
+                  script_lines.append('')
+              else:
+                  raise SystemExit(f'UNEXPECTED_YAML_AFTER_RUN_BLOCK:{line!r}')
+
+          script = '\n'.join(script_lines) + '\n'
+          script = script.replace(
+              'v44-query-authority-transport-guard-arka-handoff-single-flow-v3',
+              'v44-query-authority-transport-guard-payment-button-v3-arka-handoff-single-flow-v3',
+          )
+          Path('/tmp/run-final-arka-handoff-v3.sh').write_text(script, encoding='utf-8')
+          PY
+          bash /tmp/run-final-arka-handoff-v3.sh
