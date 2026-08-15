@@ -1942,178 +1942,224 @@ function PranimiPageInner() {
           setSavingContinue(false);
       }
   }
-  async function persistTransportPaymentState({ nextPaid, nextArkaRecordedPaid, totalEuroOverride, paymentActor = null } = {}) {
-      if (!isEdit || !oid) return { ok: true, skipped: true };
-      const nowIso = new Date().toISOString();
-      const totalToSave = Number(totalEuroOverride ?? totalEuro ?? 0);
-      const currentOrder = await fetchTransportOrderById(oid).catch(() => null);
-      const currentData = (currentOrder?.data && typeof currentOrder.data === 'object' && !Array.isArray(currentOrder.data)) ? currentOrder.data : {};
-      const currentClient = (currentData?.client && typeof currentData.client === 'object' && !Array.isArray(currentData.client)) ? currentData.client : {};
-      const terminalStatus = 'done';
-      const paymentPin = String(paymentActor?.pin || actor?.pin || me?.transport_pin || me?.pin || currentData?.driver_pin || currentData?.transport_pin || '').trim();
-      const paymentName = String(paymentActor?.name || me?.name || me?.full_name || me?.username || currentData?.driver_name || currentData?.transport_name || '').trim();
-      const assignedTransportId = String(
-          currentData?.transport_id ||
-          currentData?.transport_user_id ||
-          currentData?.assigned_driver_id ||
-          currentOrder?.transport_id ||
-          ((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid) ||
-          ''
-      ).trim();
-      const assignedTransportPin = String(currentData?.transport_pin || currentData?.driver_pin || paymentPin || '').trim();
-      const assignedTransportName = String(currentData?.transport_name || currentData?.driver_name || paymentName || '').trim();
-      const nextData = {
-          ...currentData,
-          client: {
-              ...currentClient,
-              id: clientId || currentClient?.id || null,
-              tcode: String((clientTcode || currentClient?.tcode || currentClient?.code || normalizeTcode(codeRaw)) || '').toUpperCase().trim(),
-              name,
-              phone: buildTransportPhoneDigits(phonePrefix, phone),
-              code: String((clientTcode || currentClient?.code || currentClient?.tcode || normalizeTcode(codeRaw)) || '').toUpperCase().trim(),
-              photoUrl: clientPhotoUrl || currentClient?.photoUrl || '',
-              address: addressDesc || currentClient?.address || '',
-              gps: { lat: gpsLat || currentClient?.gps?.lat || null, lng: gpsLng || currentClient?.gps?.lng || null },
-          },
-          tepiha: tepihaRows,
-          staza: stazaRows,
-          shkallore: { qty: stairsQty, per: stairsPer, photoUrl: stairsPhotoUrl },
-          pay: {
-              ...(currentData?.pay && typeof currentData.pay === 'object' && !Array.isArray(currentData.pay) ? currentData.pay : {}),
-              m2: totalM2,
-              euro: totalToSave,
-              paid: Number(nextPaid || 0),
-              rate: Number(pricePerM2) || PRICE_DEFAULT,
-              arkaRecordedPaid: Number(nextArkaRecordedPaid || 0),
-          },
-          totals: {
-              ...(currentData?.totals && typeof currentData.totals === 'object' && !Array.isArray(currentData.totals) ? currentData.totals : {}),
-              grandTotal: totalToSave,
-          },
-          notes,
+  async function persistTransportPaymentState({
+    nextClientPaid,
+    nextArkaPaid,
+    paymentActor,
+    currentOrderOverride = null,
+  } = {}) {
+    // TRANSPORT_PAYMENT_CONFIRM_CLOSE_V1:PAGE — verified cash must finish once, even when the first UI response is lost.
+    if (!isEdit || !oid) return { ok: true, skipped: true };
+
+    const paidValue = round2(Math.max(0, Number(nextClientPaid || 0)));
+    const arkaValue = round2(Math.max(0, Number(nextArkaPaid || 0)));
+    let currentOrder = currentOrderOverride && typeof currentOrderOverride === 'object'
+      ? currentOrderOverride
+      : null;
+    if (!currentOrder?.id) {
+      currentOrder = await fetchTransportOrderById(oid).catch(() => null);
+    }
+    if (!currentOrder?.id) throw new Error('TRANSPORT_ORDER_NOT_FOUND_AFTER_PAYMENT');
+
+    const currentData = currentOrder?.data && typeof currentOrder.data === 'object'
+      ? currentOrder.data
+      : {};
+    const currentPay = currentData?.pay && typeof currentData.pay === 'object'
+      ? currentData.pay
+      : {};
+    const completedAt = new Date().toISOString();
+    const terminalStatus = 'done';
+    const nextData = {
+      ...currentData,
+      status: terminalStatus,
+      state: terminalStatus,
+      pay: {
+        ...currentPay,
+        paid: paidValue,
+        arkaRecordedPaid: arkaValue,
+        debt: 0,
+        method: String(payMethod || currentPay?.method || 'CASH').toUpperCase(),
+        last_paid_at: currentPay?.last_paid_at || completedAt,
+      },
+      clientPaid: paidValue,
+      paid: paidValue,
+      debt: 0,
+      isPaid: true,
+      paid_done: true,
+      paid_at: currentData?.paid_at || completedAt,
+      completed_at: currentData?.completed_at || completedAt,
+      delivered_at: currentData?.delivered_at || completedAt,
+      done_at: currentData?.done_at || completedAt,
+      completed_by_pin: String(paymentActor?.pin || currentData?.completed_by_pin || '').trim() || null,
+      completed_by_name: String(paymentActor?.name || currentData?.completed_by_name || '').trim() || null,
+      updated_at: completedAt,
+    };
+
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const updatedOrder = await updateTransportOrderById(oid, {
           status: terminalStatus,
-          state: terminalStatus,
-          delivered_at: nowIso,
-          done_at: nowIso,
-          delivered_by_transport_id: assignedTransportId || currentData?.delivered_by_transport_id || '',
-          delivered_by_pin: paymentPin || currentData?.delivered_by_pin || null,
-          delivered_by_name: paymentName || currentData?.delivered_by_name || null,
-          transport_id: assignedTransportId || currentData?.transport_id || '',
-          transport_user_id: currentData?.transport_user_id || assignedTransportId || '',
-          assigned_driver_id: currentData?.assigned_driver_id || assignedTransportId || '',
-          transport_pin: assignedTransportPin || null,
-          driver_pin: currentData?.driver_pin || assignedTransportPin || null,
-          transport_name: assignedTransportName || null,
-          driver_name: currentData?.driver_name || assignedTransportName || null,
-          created_by_pin: currentData?.created_by_pin || actor?.pin || null,
-          created_by_role: currentData?.created_by_role || actor?.role || null,
-          gps_lat: gpsLat || currentData?.gps_lat || null,
-          gps_lng: gpsLng || currentData?.gps_lng || null,
-      };
-      await updateTransportOrderById(oid, {
-        client_name: name,
-        client_phone: buildTransportPhoneDigits(phonePrefix, phone),
-        status: terminalStatus,
-        updated_at: nowIso,
-        data: nextData,
-      });
-      return { ok: true };
+          data: nextData,
+          updated_at: completedAt,
+        });
+        return { ok: true, order: updatedOrder || { ...currentOrder, status: terminalStatus, data: nextData } };
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+    }
+
+    const readback = await fetchTransportOrderById(oid).catch(() => null);
+    const readbackData = readback?.data && typeof readback.data === 'object' ? readback.data : {};
+    const readbackPay = readbackData?.pay && typeof readbackData.pay === 'object' ? readbackData.pay : {};
+    const readbackPaid = round2(Math.max(Number(readbackPay?.paid || 0), Number(readbackPay?.arkaRecordedPaid || 0)));
+    const readbackStatus = String(readback?.status || readbackData?.status || '').trim().toLowerCase();
+    if (readback?.id && readbackPaid + 0.01 >= paidValue && ['done', 'completed', 'delivered'].includes(readbackStatus)) {
+      return { ok: true, order: readback, verifiedByReadback: true };
+    }
+    throw lastError || new Error('TRANSPORT_PAYMENT_FINALIZE_FAILED');
   }
 
   async function applyPayAndClose() {
-      if (paymentBusy || paymentBusyRef.current) return;
-      const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
-      const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
-      if (due <= 0) { alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.'); return; }
-      if (cashGiven < due) { alert('KLIENTI DHA MË PAK SE BORXHI! JU LUTEM PLOTËSONI SHUMËN OSE ANULONI.'); return; }
+    if (paymentBusyRef.current || paymentBusy) return;
+    const add = round2(payAdd);
+    if (add <= 0) {
+      alert('SHKRUANI SHUMËN QË PAGUAN KLIENTI.');
+      return;
+    }
+    const dueNow = round2(Math.max(0, totalEuro - clientPaid));
+    if (dueNow <= 0) {
+      alert('POROSIA ËSHTË PAGUAR PLOTËSISHT.');
+      setShowPaySheet(false);
+      return;
+    }
+    if (add + 0.001 < dueNow) {
+      alert('PAGESA DUHET TË MBULOJË BORXHIN E SOTËM.');
+      return;
+    }
 
-      paymentBusyRef.current = true;
-      setPaymentBusy(true);
+    const pinResult = requirePaymentPin();
+    if (!pinResult?.ok) {
+      if (!pinResult?.cancelled) alert(pinResult?.error || 'PIN I PAVLEFSHËM.');
+      return;
+    }
+
+    const paymentActor = pinResult.actor;
+    const nextClientPaid = round2(clientPaid + add);
+    const nextArkaPaid = round2(arkaRecordedPaid + add);
+    const currentEditStatus = String(editRowStatus || '').trim().toLowerCase();
+    const shouldFinalizeDelivery = Boolean(
+      isEdit && ['delivery', 'dorzim', 'dorezim', 'dorëzim', 'delivered'].includes(currentEditStatus)
+    );
+    let completed = false;
+    paymentBusyRef.current = true;
+    setPaymentBusy(true);
+
+    try {
+      let arkaResult = null;
       try {
-      const applied = due;
-      const kusuri = Math.max(0, cashGiven - due);
-      const pinLabel = `PAGESË: ${applied.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI (RESTO): ${kusuri.toFixed(2)}€\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
-
-      const pinData = await requirePaymentPin({ label: pinLabel });
-      if (!pinData) return;
-
-      const nextPaid = Number((Number(clientPaid || 0) + applied).toFixed(2));
-      let nextArkaRecordedPaid = Number(arkaRecordedPaid || 0);
-      const actorPin = String(pinData?.pin || actor?.pin || me?.transport_pin || me?.pin || '').trim();
-      const actorTid = String(me?.transport_id || assignTid || '').trim();
-      const transportCode = normalizeTcode(codeRaw);
-      const transportM2 = Number(totalM2 || 0) || 0;
-      const transportNote = `PAGESA ${applied}€ - ${name} • ${transportCode || 'T-KOD'} • ${transportM2.toFixed(2)} m²`;
-
-      if (payMethod === 'CASH') {
-        nextArkaRecordedPaid = Number((Number(arkaRecordedPaid || 0) + applied).toFixed(2));
-        try {
-          const arkaResult = await arkaTransaction({
-            action: ARKA_ACTION.TRANSPORT_ORDER_PAYMENT,
-            actorPin,
-            actorName: pinData?.name || me?.name || me?.full_name || me?.username || null,
-            actorRole: pinData?.role || me?.role || 'TRANSPORT',
-            transportOrderId: oid,
-            transportCode,
-            transportM2,
-            amount: applied,
-            method: 'CASH',
-            note: transportNote,
-            clientName: name,
-            clientPhone: buildTransportPhoneDigits(phonePrefix, phone) || null,
-            sourceModule: 'TRANSPORT',
-            idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.TRANSPORT_ORDER_PAYMENT, [oid, applied.toFixed(2), actorPin]),
-          });
-          assertVerifiedTransportPaymentResult(arkaResult, { orderId: oid, code: transportCode, amount: applied, actorPin });
-        } catch (error) {
-          alert(`ARKA PROBLEM: pagesa nuk u verifikua. Mos e mbyll si sukses normal. ${String(error?.message || error || '')}`);
-          return;
-        }
+        arkaResult = await arkaTransaction({
+          action: ARKA_ACTION.TRANSPORT_ORDER_PAYMENT,
+          actor: paymentActor,
+          transportOrderId: oid,
+          amount: add,
+          method: payMethod,
+          sourceModule: ARKA_SOURCE_MODULE.TRANSPORT,
+          transportCode: displayCode || code,
+          transportM2: totals.m2,
+          clientName: name,
+          clientPhone: fullPhone,
+          statusOnFullPayment: shouldFinalizeDelivery ? 'done' : undefined,
+          note: 'PAGESA ' + add + '€ - ' + (name || 'KLIENT') + ' • ' + (displayCode || code || 'T') + ' • ' + totals.m2.toFixed(2) + ' m²',
+          idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.TRANSPORT_ORDER_PAYMENT, [oid || displayCode || code, add, paymentActor.pin]),
+        }, {
+          timeoutMs: 9000,
+          maxAttempts: 2,
+          retryDelaysMs: [450],
+        });
+        assertVerifiedTransportPaymentResult(arkaResult, {
+          transportOrderId: oid,
+          amount: add,
+          actorPin: paymentActor.pin,
+          transportCode: displayCode || code,
+        });
+      } catch (primaryError) {
+        const recoveredOrder = isEdit && oid
+          ? await fetchTransportOrderById(oid).catch(() => null)
+          : null;
+        const recoveredData = recoveredOrder?.data && typeof recoveredOrder.data === 'object'
+          ? recoveredOrder.data
+          : {};
+        const recoveredPay = recoveredData?.pay && typeof recoveredData.pay === 'object'
+          ? recoveredData.pay
+          : {};
+        const recoveredPaid = round2(Math.max(
+          Number(recoveredPay?.paid || 0),
+          Number(recoveredPay?.arkaRecordedPaid || 0),
+          Number(recoveredData?.clientPaid || 0)
+        ));
+        if (!recoveredOrder?.id || recoveredPaid + 0.01 < nextClientPaid) throw primaryError;
+        arkaResult = {
+          ok: true,
+          paymentVerified: true,
+          recoveredAfterResponseLoss: true,
+          transportOrder: recoveredOrder,
+          transport_order: recoveredOrder,
+        };
       }
 
-      try {
-        await persistTransportPaymentState({
-          nextPaid,
-          nextArkaRecordedPaid,
-          totalEuroOverride: totalEuro,
-          paymentActor: pinData,
-        });
-      } catch (e) {
-        alert('Gabim gjatë ruajtjes së pagesës. Pagesa ARKA mund të jetë regjistruar; kontrollo panelin e problemeve: ' + (e?.message || ''));
+      const verifiedOrder = arkaResult?.transportOrder || arkaResult?.transport_order || null;
+      setClientPaid(nextClientPaid);
+      setArkaRecordedPaid(nextArkaPaid);
+      setPayAdd(0);
+      setShowPaySheet(false);
+
+      if (shouldFinalizeDelivery && isEdit && oid) {
+        const engineStatus = String(verifiedOrder?.status || verifiedOrder?.data?.status || '').trim().toLowerCase();
+        if (!['done', 'completed', 'delivered'].includes(engineStatus)) {
+          try {
+            await persistTransportPaymentState({
+              nextClientPaid,
+              nextArkaPaid,
+              paymentActor,
+              currentOrderOverride: verifiedOrder,
+            });
+          } catch (finalizeError) {
+            console.error('[TRANSPORT_PAYMENT_FINALIZE_AFTER_VERIFIED_CASH_FAILED]', {
+              orderId: oid,
+              paymentAmount: add,
+              error: String(finalizeError?.message || finalizeError || 'UNKNOWN'),
+            });
+          }
+        }
+
+        completed = true;
+        try {
+          window.parent && window.parent !== window && window.parent.postMessage({ type: 'transport-payment-complete' }, window.location.origin);
+        } catch {}
+
+        const paymentReturnUrl = '/transport/board?tab=delivered&payment=ok';
+        try { router.replace(paymentReturnUrl); } catch {}
+        try {
+          window.setTimeout(() => {
+            try {
+              if (String(window.location.pathname || '').includes('/transport/pranimi')) {
+                window.location.replace(paymentReturnUrl);
+              }
+            } catch {}
+          }, 450);
+        } catch {}
         return;
       }
 
-      setClientPaid(nextPaid);
-      if (payMethod === 'CASH') {
-        setArkaRecordedPaid(nextArkaRecordedPaid);
-        try {
-          if (actorTid) {
-            addTransportCollected(actorTid, {
-              id: `cash_${Date.now()}`,
-              amount: applied,
-              order_code: transportCode,
-              client_name: name,
-              note: transportNote,
-              created_at: new Date().toISOString(),
-              created_by_pin: actorPin || null,
-            });
-          }
-        } catch {}
-      }
-
-      setShowPaySheet(false);
-
-      if (typeof window !== 'undefined') {
-        if (window.parent && window.parent !== window) {
-          window.parent.postMessage({ type: 'transport-payment-complete' }, window.location.origin);
-        } else {
-          router.replace('/transport/board?tab=delivered');
-        }
-      }
-      } finally {
-        paymentBusyRef.current = false;
-        setPaymentBusy(false);
-      }
+      completed = true;
+    } catch (e) {
+      alert('ARKA PROBLEM: ' + String(e?.message || e || 'PAGESA NUK U RUAJT. PROVO PRAPË.'));
+    } finally {
+      paymentBusyRef.current = false;
+      if (!completed) setPaymentBusy(false);
+    }
   }
   // --- DRAFTS ---
   function openDrafts() { setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); setShowDraftsSheet(true); }
@@ -2523,7 +2569,7 @@ function PranimiPageInner() {
           amount={payAdd}
           setAmount={setPayAdd}
           payChips={PAY_CHIPS}
-          confirmText="KRYEJ PAGESËN"
+          confirmText={paymentBusy ? 'DUKE RUAJTUR...' : 'KRYEJ PAGESËN'}
           cancelText="ANULO"
           disabled={savingContinue || paymentBusy}
           onConfirm={applyPayAndClose}

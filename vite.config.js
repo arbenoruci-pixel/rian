@@ -56,7 +56,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        importScripts: ['/sw-navigation-diag.js?v=3504'],
+        importScripts: ['/sw-navigation-diag.js?v=3508'],
         globPatterns: ['**/*.{js,css,ico,png,svg,webp,webmanifest,json,woff2}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         cleanupOutdatedCaches: false,
@@ -75,7 +75,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.mode === 'navigate' && /^\/(?:pranimi|pastrimi|gati|arka(?:\/.*)?|transport(?:\/.*)?|marrje-sot|dispatch|fletore|baza|search|worker)(?:\/.*)?$/.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'tepiha-vite-business-routes-v40-handoff-wizard-dispatch',
+              cacheName: 'tepiha-vite-business-routes-v44-query-authority-transport-guard',
               networkTimeoutSeconds: 4,
               cacheableResponse: {
                 statuses: [0, 200],
@@ -91,7 +91,7 @@ export default defineConfig({
             urlPattern: ({ request, url }) => request.destination === 'script' || request.destination === 'style' || url.pathname.startsWith('/assets/'),
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'tepiha-vite-static-assets-v40-handoff-wizard-dispatch',
+              cacheName: 'tepiha-vite-static-assets-v44-query-authority-transport-guard',
               cacheableResponse: {
                 statuses: [0, 200],
               },
@@ -106,7 +106,7 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
             handler: 'CacheFirst',
             options: {
-              cacheName: 'tepiha-vite-media-v40-handoff-wizard-dispatch',
+              cacheName: 'tepiha-vite-media-v44-query-authority-transport-guard',
               cacheableResponse: {
                 statuses: [0, 200],
               },
