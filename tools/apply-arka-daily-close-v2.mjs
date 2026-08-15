@@ -8,6 +8,7 @@ const EPOCH_PATH = 'lib/appEpoch.js';
 const INDEX_PATH = 'index.html';
 const MARKER = 'ARKA_DAILY_CLOSE_V2_ONE_WAY';
 const APP_VERSION = '2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2';
+const LEGACY_RUNTIME_VERSION = '2.0.115-query-authority-transport-guard-v4';
 const CACHE_VERSION = 'v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
@@ -155,7 +156,15 @@ function patchBuildIdentity() {
   fs.writeFileSync(VITE_PATH, vite, 'utf8');
 
   let epoch = fs.readFileSync(EPOCH_PATH, 'utf8');
-  epoch = epoch.replace(/export const APP_VERSION = '[^']+';/, `export const APP_VERSION = '${APP_VERSION}';`);
+  epoch = epoch.replace(/export const APP_VERSION = '[^']+';/, `export const APP_VERSION = '${LEGACY_RUNTIME_VERSION}';`);
+  if (/export const ARKA_DAILY_CLOSE_BUILD = '[^']+';/.test(epoch)) {
+    epoch = epoch.replace(/export const ARKA_DAILY_CLOSE_BUILD = '[^']+';/, `export const ARKA_DAILY_CLOSE_BUILD = '${APP_VERSION}';`);
+  } else {
+    epoch = epoch.replace(
+      `export const APP_VERSION = '${LEGACY_RUNTIME_VERSION}';`,
+      `export const APP_VERSION = '${LEGACY_RUNTIME_VERSION}';\nexport const ARKA_DAILY_CLOSE_BUILD = '${APP_VERSION}';`,
+    );
+  }
   fs.writeFileSync(EPOCH_PATH, epoch, 'utf8');
 
   let index = fs.readFileSync(INDEX_PATH, 'utf8');
