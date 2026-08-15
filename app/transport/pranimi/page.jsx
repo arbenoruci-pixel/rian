@@ -86,6 +86,11 @@ function transportCodeNumber(raw) {
 function sameMoney(a, b) {
   return Math.abs(Number(a || 0) - Number(b || 0)) <= 0.005;
 }
+function round2(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
 function assertVerifiedTransportPaymentResult(result = {}, { orderId = '', code = '', amount = 0, actorPin = '' } = {}) {
   if (!result?.ok) throw new Error(result?.error || 'ARKA_TRANSPORT_PAYMENT_FAILED');
   if (result?.needsManualRepair) throw new Error(result?.repairCode || 'ARKA_NEEDS_MANUAL_REPAIR');
@@ -2022,37 +2027,52 @@ function PranimiPageInner() {
   }
 
   async function applyPayAndClose() {
+    // TRANSPORT_PAYMENT_BUTTON_V3:PAGE — await the real PIN contract, apply only the debt, verify ARKA, then close once.
     if (paymentBusyRef.current || paymentBusy) return;
-    const add = round2(payAdd);
-    if (add <= 0) {
+
+    const cashGiven = round2(payAdd);
+    const dueNow = round2(Math.max(0, Number(totalEuro || 0) - Number(clientPaid || 0)));
+    if (cashGiven <= 0) {
       alert('SHKRUANI SHUMËN QË PAGUAN KLIENTI.');
       return;
     }
-    const dueNow = round2(Math.max(0, totalEuro - clientPaid));
     if (dueNow <= 0) {
       alert('POROSIA ËSHTË PAGUAR PLOTËSISHT.');
       setShowPaySheet(false);
       return;
     }
-    if (add + 0.001 < dueNow) {
-      alert('PAGESA DUHET TË MBULOJË BORXHIN E SOTËM.');
+    if (cashGiven + 0.001 < dueNow) {
+      alert('KLIENTI DHA MË PAK SE BORXHI!');
       return;
     }
 
-    const pinResult = requirePaymentPin();
-    if (!pinResult?.ok) {
-      if (!pinResult?.cancelled) alert(pinResult?.error || 'PIN I PAVLEFSHËM.');
-      return;
-    }
+    const applied = dueNow;
+    const change = round2(Math.max(0, cashGiven - applied));
+    const pinLabel = [
+      'PAGESË: ' + applied.toFixed(2) + '€',
+      'KLIENTI DHA: ' + cashGiven.toFixed(2) + '€',
+      'KUSURI (RESTO): ' + change.toFixed(2) + '€',
+      '',
+      'JEP PIN PËR TË KRYER PAGESËN',
+    ].join('\n');
 
-    const paymentActor = pinResult.actor;
-    const nextClientPaid = round2(clientPaid + add);
-    const nextArkaPaid = round2(arkaRecordedPaid + add);
+    const paymentActor = await requirePaymentPin({ label: pinLabel });
+    const actorPin = String(paymentActor?.pin || '').trim();
+    if (!actorPin) return;
+
+    const actorName = String(paymentActor?.name || me?.name || me?.full_name || me?.username || '').trim();
+    const actorRole = String(paymentActor?.role || me?.role || 'TRANSPORT').trim();
+    const transportCode = normalizeTcode(codeRaw || clientTcode);
+    const transportM2 = Number(totalM2 || 0) || 0;
+    const clientPhone = buildTransportPhoneDigits(phonePrefix, phone) || null;
+    const nextClientPaid = round2(Number(clientPaid || 0) + applied);
+    const nextArkaPaid = round2(Number(arkaRecordedPaid || 0) + applied);
     const currentEditStatus = String(editRowStatus || '').trim().toLowerCase();
     const shouldFinalizeDelivery = Boolean(
       isEdit && ['delivery', 'dorzim', 'dorezim', 'dorëzim', 'delivered'].includes(currentEditStatus)
     );
-    let completed = false;
+    const transportNote = 'PAGESA ' + applied.toFixed(2) + '€ - ' + (name || 'KLIENT') + ' • ' + (transportCode || 'T-KOD') + ' • ' + transportM2.toFixed(2) + ' m²';
+
     paymentBusyRef.current = true;
     setPaymentBusy(true);
 
@@ -2061,28 +2081,34 @@ function PranimiPageInner() {
       try {
         arkaResult = await arkaTransaction({
           action: ARKA_ACTION.TRANSPORT_ORDER_PAYMENT,
-          actor: paymentActor,
+          actorPin,
+          actorName: actorName || null,
+          actorRole: actorRole || null,
           transportOrderId: oid,
-          amount: add,
-          method: payMethod,
-          sourceModule: ARKA_SOURCE_MODULE.TRANSPORT,
-          transportCode: displayCode || code,
-          transportM2: totals.m2,
+          transportCode,
+          transportM2,
+          amount: applied,
+          method: String(payMethod || 'CASH').toUpperCase(),
+          note: transportNote,
           clientName: name,
-          clientPhone: fullPhone,
+          clientPhone,
+          sourceModule: 'TRANSPORT',
           statusOnFullPayment: shouldFinalizeDelivery ? 'done' : undefined,
-          note: 'PAGESA ' + add + '€ - ' + (name || 'KLIENT') + ' • ' + (displayCode || code || 'T') + ' • ' + totals.m2.toFixed(2) + ' m²',
-          idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.TRANSPORT_ORDER_PAYMENT, [oid || displayCode || code, add, paymentActor.pin]),
+          idempotencyKey: buildArkaIdempotencyKey(
+            ARKA_ACTION.TRANSPORT_ORDER_PAYMENT,
+            [oid, applied.toFixed(2), actorPin]
+          ),
         }, {
           timeoutMs: 9000,
           maxAttempts: 2,
           retryDelaysMs: [450],
         });
+
         assertVerifiedTransportPaymentResult(arkaResult, {
-          transportOrderId: oid,
-          amount: add,
-          actorPin: paymentActor.pin,
-          transportCode: displayCode || code,
+          orderId: oid,
+          code: transportCode,
+          amount: applied,
+          actorPin,
         });
       } catch (primaryError) {
         const recoveredOrder = isEdit && oid
@@ -2109,32 +2135,42 @@ function PranimiPageInner() {
         };
       }
 
-      const verifiedOrder = arkaResult?.transportOrder || arkaResult?.transport_order || null;
+      let verifiedOrder = arkaResult?.transportOrder || arkaResult?.transport_order || null;
+
+      if (shouldFinalizeDelivery && isEdit && oid) {
+        const engineStatus = String(verifiedOrder?.status || verifiedOrder?.data?.status || '').trim().toLowerCase();
+        if (!['done', 'completed', 'delivered'].includes(engineStatus)) {
+          const finalized = await persistTransportPaymentState({
+            nextClientPaid,
+            nextArkaPaid,
+            paymentActor,
+            currentOrderOverride: verifiedOrder,
+          });
+          verifiedOrder = finalized?.order || verifiedOrder;
+        }
+      }
+
       setClientPaid(nextClientPaid);
       setArkaRecordedPaid(nextArkaPaid);
       setPayAdd(0);
       setShowPaySheet(false);
 
-      if (shouldFinalizeDelivery && isEdit && oid) {
-        const engineStatus = String(verifiedOrder?.status || verifiedOrder?.data?.status || '').trim().toLowerCase();
-        if (!['done', 'completed', 'delivered'].includes(engineStatus)) {
-          try {
-            await persistTransportPaymentState({
-              nextClientPaid,
-              nextArkaPaid,
-              paymentActor,
-              currentOrderOverride: verifiedOrder,
-            });
-          } catch (finalizeError) {
-            console.error('[TRANSPORT_PAYMENT_FINALIZE_AFTER_VERIFIED_CASH_FAILED]', {
-              orderId: oid,
-              paymentAmount: add,
-              error: String(finalizeError?.message || finalizeError || 'UNKNOWN'),
-            });
-          }
+      try {
+        const actorTid = String(me?.transport_id || assignTid || '').trim();
+        if (actorTid && arkaResult?.duplicate !== true) {
+          addTransportCollected(actorTid, {
+            id: 'cash_' + Date.now(),
+            amount: applied,
+            order_code: transportCode,
+            client_name: name,
+            note: transportNote,
+            created_at: new Date().toISOString(),
+            created_by_pin: actorPin,
+          });
         }
+      } catch {}
 
-        completed = true;
+      if (shouldFinalizeDelivery && isEdit && oid) {
         try {
           window.parent && window.parent !== window && window.parent.postMessage({ type: 'transport-payment-complete' }, window.location.origin);
         } catch {}
@@ -2150,15 +2186,12 @@ function PranimiPageInner() {
             } catch {}
           }, 450);
         } catch {}
-        return;
       }
-
-      completed = true;
-    } catch (e) {
-      alert('ARKA PROBLEM: ' + String(e?.message || e || 'PAGESA NUK U RUAJT. PROVO PRAPË.'));
+    } catch (error) {
+      alert('ARKA PROBLEM: ' + String(error?.message || error || 'PAGESA NUK U RUAJT. PROVO PRAPË.'));
     } finally {
       paymentBusyRef.current = false;
-      if (!completed) setPaymentBusy(false);
+      setPaymentBusy(false);
     }
   }
   // --- DRAFTS ---
