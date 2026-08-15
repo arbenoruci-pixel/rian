@@ -1,0 +1,452 @@
+name: One-time ship ARKA single handoff flow v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-ship-arka-handoff-single-flow-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install, verify and ship one canonical ARKA handoff flow
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > /tmp/arka-single-flow-service-v4.txt <<'EOF'
+          export async function ensureMealDecisionBeforeHandoff({
+            actor,
+            workerPin = '',
+            workerName = '',
+            workerRole = '',
+            staffOptions = [],
+            amountPerPerson = 3,
+            presetChoice = '',
+            presetPayerPin = '',
+          } = {}) {
+            // HANDOFF_WIZARD_V2_SINGLE_FLOW:SERVICE
+            // ARKA_HANDOFF_SINGLE_FLOW_V4:SERVICE — one in-app decision flow for every worker.
+            const pin = cleanText(workerPin || actor?.pin);
+            const name = cleanText(workerName || actor?.name || pin, pin || 'PUNTOR');
+            const role = cleanText(workerRole || actor?.role, 'WORKER').toUpperCase();
+            const per = normalizeDailyMealAmount(amountPerPerson);
+            if (!pin) throw new Error('MUNGON PIN-I PËR KONTROLLIN E USHQIMIT.');
+
+            const [currentRows, ownPaymentRows] = await Promise.all([
+              listWorkerMealRowsToday(pin).catch(() => []),
+              listWorkerUnsettledMealPayments(pin).catch(() => []),
+            ]);
+            const ownDeductTotal = sumMealPaymentsForPin(ownPaymentRows, pin);
+            if (currentRows.length > 0) {
+              return {
+                ok: true,
+                alreadyRegistered: true,
+                rows: currentRows,
+                ownPaymentRows,
+                deductAmount: ownDeductTotal,
+                confirmLine: mealDecisionAlreadyRegisteredSummary(currentRows, pin, ownPaymentRows),
+              };
+            }
+
+            const rawChoice = cleanText(presetChoice).toLowerCase();
+            const choice = ({ self: '1', other: '2', none: '3' }[rawChoice] || rawChoice);
+            if (!choice) {
+              throw new Error('DORËZIMI U NDALUA: ZGJIDHE USHQIMIN NË HAPAT E DORËZIMIT.');
+            }
+
+            if (['3', 'jo', 'j', 'nuk', 'ska', 's', 'pa'].includes(choice)) {
+              return {
+                ok: true,
+                skipped: true,
+                deductAmount: ownDeductTotal,
+                confirmLine: ownDeductTotal > 0
+                  ? `USHQIMI PËR TY: PA USHQIM. MBULIMI QË KE PAGUAR PËR TË TJERËT ZBRITET: -${ownDeductTotal.toFixed(2)}€.`
+                  : 'USHQIMI: PA USHQIM / PA ZBRITJE.',
+              };
+            }
+
+            if (['1', 'vet', 'vete', 'vetë', 'self'].includes(choice)) {
+              await createMealDistributionEntry({
+                actor,
+                payerPin: pin,
+                payerName: name,
+                payerRole: role,
+                coveredWorkers: [],
+                amountPerPerson: per,
+                includePayerMeal: true,
+                note: 'USHQIM PARA DORËZIMIT',
+              });
+              const afterRows = await listWorkerUnsettledMealPayments(pin).catch(() => []);
+              const deduct = sumMealPaymentsForPin(afterRows, pin);
+              return {
+                ok: true,
+                created: true,
+                paidBySelf: true,
+                deductAmount: deduct,
+                confirmLine: `USHQIMI: E PAGOVE VET • ZBRITET -${deduct.toFixed(2)}€.`,
+              };
+            }
+
+            if (['2', 'tjeter', 'tjetër', 'other'].includes(choice)) {
+              const activeRows = (Array.isArray(staffOptions) ? staffOptions : [])
+                .filter((row) => cleanText(row?.pin) && cleanText(row?.pin) !== pin);
+              const payerPin = cleanText(presetPayerPin);
+              if (!payerPin) {
+                throw new Error('DORËZIMI U NDALUA: ZGJIDHE PUNËTORIN QË E KA PAGU USHQIMIN.');
+              }
+              if (payerPin === pin) {
+                await createMealDistributionEntry({
+                  actor,
+                  payerPin: pin,
+                  payerName: name,
+                  payerRole: role,
+                  coveredWorkers: [],
+                  amountPerPerson: per,
+                  includePayerMeal: true,
+                  note: 'USHQIM PARA DORËZIMIT',
+                });
+                const afterRows = await listWorkerUnsettledMealPayments(pin).catch(() => []);
+                const deduct = sumMealPaymentsForPin(afterRows, pin);
+                return {
+                  ok: true,
+                  created: true,
+                  paidBySelf: true,
+                  deductAmount: deduct,
+                  confirmLine: `USHQIMI: E PAGOVE VET • ZBRITET -${deduct.toFixed(2)}€.`,
+                };
+              }
+
+              const payer = findMealStaffByPin(activeRows, payerPin);
+              if (!payer) {
+                throw new Error('PUNËTORI QË E KA PAGU USHQIMIN NUK U GJET NË LISTËN AKTIVE.');
+              }
+              await createMealDistributionEntry({
+                actor,
+                payerPin,
+                payerName: cleanText(payer?.name || payerPin, payerPin),
+                payerRole: cleanText(payer?.role || 'WORKER', 'WORKER'),
+                coveredWorkers: [{ pin, name, role }],
+                amountPerPerson: per,
+                includePayerMeal: false,
+                note: 'USHQIM PARA DORËZIMIT',
+              });
+              return {
+                ok: true,
+                created: true,
+                paidByOther: true,
+                payerPin,
+                payerName: cleanText(payer?.name || payerPin, payerPin),
+                deductAmount: ownDeductTotal,
+                confirmLine: ownDeductTotal > 0
+                  ? `USHQIMI YT: PAGUAR NGA ${cleanText(payer?.name || payerPin, payerPin).toUpperCase()}. MBULIMI QË KE PAGUAR PËR TË TJERËT ZBRITET: -${ownDeductTotal.toFixed(2)}€.`
+                  : `USHQIMI: PAGUAR NGA ${cleanText(payer?.name || payerPin, payerPin).toUpperCase()} • NUK ZBRITET NGA TY.`,
+              };
+            }
+
+            throw new Error('ZGJEDHJE E PAVLEFSHME PËR USHQIMIN. ZGJIDHE NGA WIZARD-I.');
+          }
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          canonical = Path('/tmp/arka-single-flow-service-v4.txt').read_text(encoding='utf-8').strip()
+          service_path = Path('lib/arkaService.js')
+          service = service_path.read_text(encoding='utf-8')
+          start_token = 'export async function ensureMealDecisionBeforeHandoff('
+          next_token = 'export async function listMealStaffOptions'
+          start = service.find(start_token)
+          end = service.find(next_token, start + len(start_token))
+          if start < 0 or end < 0:
+              raise SystemExit(f'MEAL_FUNCTION_RANGE_NOT_FOUND:{start}:{end}')
+          service_path.write_text(service[:start] + canonical + '\n\n' + service[end:], encoding='utf-8')
+
+          expense_path = Path('tools/apply-arka-expense-mobile-pro-v2.mjs')
+          expense = expense_path.read_text(encoding='utf-8')
+          expense = expense.replace('onClick={submitHandoff}', 'onClick={openHandoffWizard}')
+          if 'onClick={submitHandoff}' in expense:
+              raise SystemExit('EXPENSE_INSTALLER_DIRECT_HANDOFF_REMAINS')
+          if 'onClick={openHandoffWizard}' not in expense:
+              raise SystemExit('EXPENSE_INSTALLER_WIZARD_HANDLER_MISSING')
+          expense_path.write_text(expense, encoding='utf-8')
+
+          pkg_path = Path('package.json')
+          pkg = json.loads(pkg_path.read_text(encoding='utf-8'))
+          pkg['version'] = '2.0.115-query-authority-transport-guard-v4'
+          scripts = pkg.setdefault('scripts', {})
+          apply_cmd = 'node tools/apply-arka-handoff-single-flow-v4.mjs'
+          pre = [part.strip() for part in str(scripts.get('prebuild', '')).split('&&') if part.strip()]
+          pre = [part for part in pre if not part.endswith('tools/apply-arka-handoff-single-flow-v3.mjs') and part != apply_cmd]
+          pre.append(apply_cmd)
+          scripts['prebuild'] = ' && '.join(pre)
+          scripts.pop('test:arka-handoff-single-flow-v3', None)
+          scripts['test:arka-handoff-single-flow-v4'] = 'node tools/verify-arka-handoff-single-flow-v4.mjs'
+          old_test = 'npm run test:arka-handoff-single-flow-v3'
+          new_test = 'npm run test:arka-handoff-single-flow-v4'
+          build = str(scripts.get('build', '')).replace(old_test, new_test)
+          if new_test not in build:
+              if ' && vite build' not in build:
+                  raise SystemExit('VITE_BUILD_ANCHOR_MISSING')
+              build = build.replace(' && vite build', f' && {new_test} && vite build', 1)
+          scripts['build'] = build
+          pkg_path.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
+          vite_path = Path('vite.config.js')
+          vite = vite_path.read_text(encoding='utf-8')
+          cache = 'v44-query-authority-transport-guard-payment-button-v3-arka-handoff-single-flow-v4'
+          vite = re.sub(r'sw-navigation-diag\.js\?v=\d+', 'sw-navigation-diag.js?v=3521', vite)
+          vite = re.sub(r'tepiha-vite-business-routes-[^\']+', f'tepiha-vite-business-routes-{cache}', vite)
+          vite = re.sub(r'tepiha-vite-static-assets-[^\']+', f'tepiha-vite-static-assets-{cache}', vite)
+          vite = re.sub(r'tepiha-vite-media-[^\']+', f'tepiha-vite-media-{cache}', vite)
+          vite_path.write_text(vite, encoding='utf-8')
+          PY
+
+          cat > tools/apply-arka-handoff-single-flow-v4.mjs <<'EOF'
+          import fs from 'node:fs';
+
+          const MAIN_PAGE = 'app/arka/page.jsx';
+          const DETAIL_PAGE = 'app/arka/puntor/[pin]/page.jsx';
+          const SERVICE = 'lib/arkaService.js';
+          const VITE = 'vite.config.js';
+          const CACHE = 'v44-query-authority-transport-guard-payment-button-v3-arka-handoff-single-flow-v4';
+
+          function scanOpeningTag(source, start) {
+            let quote = '';
+            let escaped = false;
+            let braceDepth = 0;
+            for (let i = start; i < source.length; i += 1) {
+              const ch = source[i];
+              if (quote) {
+                if (escaped) { escaped = false; continue; }
+                if (ch === '\\') { escaped = true; continue; }
+                if (ch === quote) quote = '';
+                continue;
+              }
+              if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+              if (ch === '{') { braceDepth += 1; continue; }
+              if (ch === '}') { braceDepth = Math.max(0, braceDepth - 1); continue; }
+              if (ch === '>' && braceDepth === 0) return i;
+            }
+            throw new Error('JSX_OPENING_TAG_UNTERMINATED');
+          }
+
+          function scanBrace(source, start) {
+            if (source[start] !== '{') throw new Error('JSX_HANDLER_BRACE_MISSING');
+            let depth = 0;
+            let quote = '';
+            let escaped = false;
+            for (let i = start; i < source.length; i += 1) {
+              const ch = source[i];
+              if (quote) {
+                if (escaped) { escaped = false; continue; }
+                if (ch === '\\') { escaped = true; continue; }
+                if (ch === quote) quote = '';
+                continue;
+              }
+              if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+              if (ch === '{') depth += 1;
+              if (ch === '}') {
+                depth -= 1;
+                if (depth === 0) return i;
+              }
+            }
+            throw new Error('JSX_HANDLER_BRACE_UNTERMINATED');
+          }
+
+          function buttonTags(source) {
+            const rows = [];
+            let cursor = 0;
+            while (cursor < source.length) {
+              const start = source.indexOf('<button', cursor);
+              if (start < 0) break;
+              const end = scanOpeningTag(source, start);
+              rows.push({ start, end, tag: source.slice(start, end + 1) });
+              cursor = end + 1;
+            }
+            return rows;
+          }
+
+          function replaceOnClick(tag, handlerName) {
+            const match = /\bonClick\s*=\s*/.exec(tag);
+            if (!match) throw new Error(`ONCLICK_MISSING_FOR:${handlerName}`);
+            const attrStart = match.index;
+            let valueStart = match.index + match[0].length;
+            while (/\s/.test(tag[valueStart] || '')) valueStart += 1;
+            let valueEnd = valueStart;
+            if (tag[valueStart] === '{') {
+              valueEnd = scanBrace(tag, valueStart) + 1;
+            } else if (tag[valueStart] === '"' || tag[valueStart] === "'") {
+              const quote = tag[valueStart];
+              valueEnd += 1;
+              let escaped = false;
+              while (valueEnd < tag.length) {
+                const ch = tag[valueEnd];
+                if (escaped) escaped = false;
+                else if (ch === '\\') escaped = true;
+                else if (ch === quote) { valueEnd += 1; break; }
+                valueEnd += 1;
+              }
+            } else {
+              while (valueEnd < tag.length && !/\s|>/.test(tag[valueEnd])) valueEnd += 1;
+            }
+            const before = tag.slice(0, attrStart).replace(/\s+$/, ' ');
+            const after = tag.slice(valueEnd).replace(/^\s*/, ' ');
+            return `${before}onClick={${handlerName}}${after}`;
+          }
+
+          function forceUniqueButtonHandler(source, token, handlerName) {
+            const matches = buttonTags(source).filter((row) => row.tag.includes(token));
+            if (matches.length !== 1) throw new Error(`BUTTON_TOKEN_${token}_COUNT:${matches.length}`);
+            const row = matches[0];
+            const patchedTag = replaceOnClick(row.tag, handlerName);
+            return source.slice(0, row.start) + patchedTag + source.slice(row.end + 1);
+          }
+
+          let main = fs.readFileSync(MAIN_PAGE, 'utf8');
+          if (!main.includes('openHandoffWizard')) throw new Error('MAIN_WIZARD_FUNCTION_MISSING');
+          main = forceUniqueButtonHandler(main, 'arkaMainHandoffBtn', 'openHandoffWizard');
+          fs.writeFileSync(MAIN_PAGE, main, 'utf8');
+
+          let detail = fs.readFileSync(DETAIL_PAGE, 'utf8');
+          if (!detail.includes('openWorkerHandoffWizard')) throw new Error('DETAIL_WIZARD_FUNCTION_MISSING');
+          const detailCandidates = buttonTags(detail).filter((row) => row.tag.includes('handoffMine') || row.tag.includes('openWorkerHandoffWizard'));
+          if (detailCandidates.length !== 1) throw new Error(`DETAIL_HANDOFF_BUTTON_COUNT:${detailCandidates.length}`);
+          const detailRow = detailCandidates[0];
+          const detailTag = replaceOnClick(detailRow.tag, 'openWorkerHandoffWizard');
+          detail = detail.slice(0, detailRow.start) + detailTag + detail.slice(detailRow.end + 1);
+          fs.writeFileSync(DETAIL_PAGE, detail, 'utf8');
+
+          const service = fs.readFileSync(SERVICE, 'utf8');
+          const startToken = 'export async function ensureMealDecisionBeforeHandoff(';
+          const nextToken = 'export async function listMealStaffOptions';
+          const start = service.indexOf(startToken);
+          const end = service.indexOf(nextToken, start + startToken.length);
+          const mealRuntime = start >= 0 && end > start ? service.slice(start, end) : '';
+          if (!mealRuntime.includes('ARKA_HANDOFF_SINGLE_FLOW_V4:SERVICE')) throw new Error('CANONICAL_MEAL_SERVICE_MISSING');
+          if (/window\.(?:prompt|confirm)\s*\(/.test(mealRuntime) || mealRuntime.includes('Shkruaj 1, 2 ose 3')) {
+            throw new Error('LEGACY_MEAL_DIALOG_REMAINS');
+          }
+
+          let vite = fs.readFileSync(VITE, 'utf8');
+          vite = vite.replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3521');
+          vite = vite.replace(/tepiha-vite-business-routes-[^']+/g, `tepiha-vite-business-routes-${CACHE}`);
+          vite = vite.replace(/tepiha-vite-static-assets-[^']+/g, `tepiha-vite-static-assets-${CACHE}`);
+          vite = vite.replace(/tepiha-vite-media-[^']+/g, `tepiha-vite-media-${CACHE}`);
+          fs.writeFileSync(VITE, vite, 'utf8');
+
+          console.log('PASS ARKA single handoff flow v4 installed');
+          EOF
+
+          cat > tools/verify-arka-handoff-single-flow-v4.mjs <<'EOF'
+          import fs from 'node:fs';
+
+          const failures = [];
+          const check = (ok, message) => { if (!ok) failures.push(message); };
+
+          function scanOpeningTag(source, start) {
+            let quote = '';
+            let escaped = false;
+            let braceDepth = 0;
+            for (let i = start; i < source.length; i += 1) {
+              const ch = source[i];
+              if (quote) {
+                if (escaped) { escaped = false; continue; }
+                if (ch === '\\') { escaped = true; continue; }
+                if (ch === quote) quote = '';
+                continue;
+              }
+              if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+              if (ch === '{') { braceDepth += 1; continue; }
+              if (ch === '}') { braceDepth = Math.max(0, braceDepth - 1); continue; }
+              if (ch === '>' && braceDepth === 0) return i;
+            }
+            return -1;
+          }
+
+          function buttonTags(source) {
+            const rows = [];
+            let cursor = 0;
+            while (cursor < source.length) {
+              const start = source.indexOf('<button', cursor);
+              if (start < 0) break;
+              const end = scanOpeningTag(source, start);
+              if (end < 0) break;
+              rows.push(source.slice(start, end + 1));
+              cursor = end + 1;
+            }
+            return rows;
+          }
+
+          const main = fs.readFileSync('app/arka/page.jsx', 'utf8');
+          const detail = fs.readFileSync('app/arka/puntor/[pin]/page.jsx', 'utf8');
+          const service = fs.readFileSync('lib/arkaService.js', 'utf8');
+          const wizard = fs.readFileSync('components/HandoffWizard.jsx', 'utf8');
+          const expenseInstaller = fs.readFileSync('tools/apply-arka-expense-mobile-pro-v2.mjs', 'utf8');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const vite = fs.readFileSync('vite.config.js', 'utf8');
+
+          const mainButtons = buttonTags(main).filter((tag) => tag.includes('arkaMainHandoffBtn'));
+          const detailButtons = buttonTags(detail).filter((tag) => tag.includes('handoffMine') || tag.includes('openWorkerHandoffWizard'));
+          check(mainButtons.length === 1, `main handoff button count ${mainButtons.length}`);
+          check(mainButtons[0]?.includes('onClick={openHandoffWizard}'), 'main handoff button bypasses wizard');
+          check(!mainButtons[0]?.includes('submitHandoff'), 'main direct submit handler remains');
+          check(detailButtons.length === 1, `detail handoff button count ${detailButtons.length}`);
+          check(detailButtons[0]?.includes('onClick={openWorkerHandoffWizard}'), 'detail handoff button bypasses wizard');
+          check(!detailButtons[0]?.includes('handoffMine'), 'detail direct submit handler remains');
+
+          const startToken = 'export async function ensureMealDecisionBeforeHandoff(';
+          const nextToken = 'export async function listMealStaffOptions';
+          const start = service.indexOf(startToken);
+          const end = service.indexOf(nextToken, start + startToken.length);
+          const mealRuntime = start >= 0 && end > start ? service.slice(start, end) : '';
+          check(mealRuntime.includes('ARKA_HANDOFF_SINGLE_FLOW_V4:SERVICE'), 'canonical meal service marker missing');
+          check(mealRuntime.includes('presetChoice'), 'explicit wizard meal choice missing');
+          check(!/window\.(?:prompt|confirm)\s*\(/.test(mealRuntime), 'legacy browser meal dialog remains');
+          check(!mealRuntime.includes('Shkruaj 1, 2 ose 3'), 'legacy numeric prompt remains');
+
+          check(expenseInstaller.includes('onClick={openHandoffWizard}'), 'late expense installer lacks wizard route');
+          check(!expenseInstaller.includes('onClick={submitHandoff}'), 'late expense installer can restore direct route');
+          check(wizard.includes('Nuk ka pyetje tjetër jashtë wizard-it.'), 'canonical 3-step wizard copy missing');
+          check(main.includes('presetChoice: options?.mealChoice'), 'main wizard decision is not passed to service');
+          check(detail.includes('presetChoice: options?.mealChoice'), 'detail wizard decision is not passed to service');
+          check(String(pkg.scripts?.prebuild || '').trim().endsWith('node tools/apply-arka-handoff-single-flow-v4.mjs'), 'v4 installer is not final prebuild step');
+          check(String(pkg.scripts?.build || '').includes('npm run test:arka-handoff-single-flow-v4'), 'v4 verifier missing from build');
+          check(vite.includes('sw-navigation-diag.js?v=3521'), 'service-worker import was not bumped');
+          check(vite.includes('v44-query-authority-transport-guard-payment-button-v3-arka-handoff-single-flow-v4'), 'combined cache generation missing');
+
+          if (failures.length) {
+            console.error('FAIL ARKA single handoff flow v4:', failures);
+            process.exit(1);
+          }
+          console.log('PASS ARKA single handoff flow v4');
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/arkaService.js tools/apply-arka-expense-mobile-pro-v2.mjs tools/apply-arka-handoff-single-flow-v4.mjs tools/verify-arka-handoff-single-flow-v4.mjs package.json vite.config.js
+          git commit -m "unify ARKA handoff flow for every worker v4"
+
+          npm ci
+          rm -rf /tmp/rian-build-v4
+          mkdir -p /tmp/rian-build-v4
+          git archive HEAD | tar -x -C /tmp/rian-build-v4
+          ln -s "$PWD/node_modules" /tmp/rian-build-v4/node_modules
+          (cd /tmp/rian-build-v4 && npm run build)
+
+          git push origin HEAD:main
