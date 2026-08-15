@@ -1,0 +1,135 @@
+name: One-time fix transport payment runtime v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-fix-transport-payment-runtime-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply permanent payment repair and validate full build
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('.github/workflows/one-time-fix-transport-payment-runtime-v3.yml')
+          lines = source_path.read_text().splitlines()
+          start = next(i for i, line in enumerate(lines) if line.strip() == 'run: |')
+          base_indent = len(lines[start]) - len(lines[start].lstrip())
+          block = []
+          for line in lines[start + 1:]:
+              if not line.strip():
+                  block.append('')
+                  continue
+              indent = len(line) - len(line.lstrip())
+              if indent <= base_indent:
+                  break
+              block.append(line)
+          min_indent = min(len(line) - len(line.lstrip()) for line in block if line.strip())
+          script = '\n'.join(line[min_indent:] if line.strip() else '' for line in block) + '\n'
+
+          script = script.replace(
+              "version = '2.0.116-transport-payment-runtime-v3'",
+              "version = '2.0.115-query-authority-transport-guard-v4'",
+          )
+
+          permanent_guards = r'''
+          cat > tools/apply-transport-payment-confirm-close-v1.mjs <<'EOF'
+          import fs from 'node:fs';
+
+          const page = fs.readFileSync('app/transport/pranimi/page.jsx', 'utf8');
+          const engine = fs.readFileSync('lib/arka/arkaEngine.js', 'utf8');
+          const pos = fs.readFileSync('components/PosModal.jsx', 'utf8');
+          const required = [
+            ['page runtime marker', page.includes('TRANSPORT_PAYMENT_RUNTIME_V3')],
+            ['async payment PIN', page.includes('await requirePaymentPin')],
+            ['atomic terminal status', page.includes("statusOnFullPayment: 'done'")],
+            ['no offline cash queue', page.includes('queueOnNetworkFailure: false')],
+            ['verified ARKA result', page.includes('assertVerifiedTransportPaymentResult')],
+            ['busy payment label', page.includes("paymentBusy ? 'DUKE RUAJTUR...' : 'KRYEJ PAGESËN'")],
+            ['engine terminal patch', engine.includes('TRANSPORT_PAYMENT_CONFIRM_CLOSE_V1:ENGINE')],
+            ['visible disabled state', pos.includes('.posbtn:disabled')],
+          ];
+          const failed = required.filter(([, ok]) => !ok).map(([label]) => label);
+          if (failed.length) {
+            console.error('Transport payment runtime guard failed:', failed.join(', '));
+            process.exit(1);
+          }
+          console.log('transport payment runtime v3 preserved by prebuild guard');
+          EOF
+
+          cat > tools/verify-transport-payment-confirm-close-v1.mjs <<'EOF'
+          import fs from 'node:fs';
+
+          const page = fs.readFileSync('app/transport/pranimi/page.jsx', 'utf8');
+          const engine = fs.readFileSync('lib/arka/arkaEngine.js', 'utf8');
+          const pos = fs.readFileSync('components/PosModal.jsx', 'utf8');
+          const start = page.indexOf('async function applyPayAndClose()');
+          const end = page.indexOf('// --- DRAFTS ---', start);
+          const body = start >= 0 && end > start ? page.slice(start, end) : '';
+          const checks = [
+            ['runtime marker', page.includes('TRANSPORT_PAYMENT_RUNTIME_V3')],
+            ['handler found', Boolean(body)],
+            ['PIN is awaited', body.includes('await requirePaymentPin')],
+            ['exact debt amount is applied', body.includes('const applied = due;')],
+            ['cash change is calculated', body.includes('const kusuri =')],
+            ['cash is never queued offline', body.includes('queueOnNetworkFailure: false')],
+            ['full payment closes atomically', body.includes("statusOnFullPayment: 'done'")],
+            ['ARKA response is verified', body.includes('assertVerifiedTransportPaymentResult')],
+            ['lost response is recovered by DB readback', body.includes('TRANSPORT_PAYMENT_RECOVERY_TIMEOUT')],
+            ['modal closes immediately after verification', body.includes('setShowPaySheet(false)')],
+            ['fallback finalization is background-only', body.includes('void persistTransportPaymentState')],
+            ['busy state always clears', body.includes('paymentBusyRef.current = false')],
+            ['button shows progress', page.includes("paymentBusy ? 'DUKE RUAJTUR...' : 'KRYEJ PAGESËN'")],
+            ['button disables during save', page.includes('disabled={savingContinue || paymentBusy}')],
+            ['disabled state is visible', pos.includes('.posbtn:disabled')],
+            ['engine consumes terminal status', engine.includes('statusOnFullPayment:') && engine.includes('TRANSPORT_PAYMENT_CONFIRM_CLOSE_V1:ENGINE')],
+            ['undefined round2 removed', !body.includes('round2(')],
+            ['undefined source enum removed', !body.includes('ARKA_SOURCE_MODULE')],
+            ['undefined displayCode removed', !body.includes('displayCode')],
+            ['undefined totals removed', !body.includes('totals.m2')],
+            ['undefined fullPhone removed', !body.includes('fullPhone')],
+            ['sync PIN result misuse removed', !body.includes('pinResult')],
+          ];
+          const failed = checks.filter(([, ok]) => !ok).map(([label]) => label);
+          if (failed.length) {
+            console.error(`FAIL: ${failed.length} transport payment runtime check(s) failed.`);
+            failed.forEach((label, index) => console.error(`${index + 1}. ${label}`));
+            process.exit(1);
+          }
+          console.log(`PASS: ${checks.length} transport payment runtime and immediate-close checks passed.`);
+          EOF
+          '''
+
+          script = script.replace('npm run build', permanent_guards + '\n          npm run build', 1)
+          script = script.replace(
+              'rm -f tools/apply-transport-payment-confirm-close-v1.mjs',
+              'true # keep permanent transport payment prebuild guard',
+          )
+          script = script.replace(
+              'rm -f .github/workflows/one-time-fix-transport-payment-runtime-v3.yml',
+              'rm -f .github/workflows/one-time-fix-transport-payment-runtime-v3.yml .github/workflows/one-time-fix-transport-payment-runtime-v4.yml .github/workflows/one-time-fix-transport-payment-confirm-close-v1.yml .github/workflows/one-time-fix-transport-payment-confirm-close-v2.yml',
+          )
+          script = script.replace(
+              'git add app/transport/pranimi/page.jsx components/PosModal.jsx lib/appEpoch.js package.json vite.config.js tools/apply-transport-payment-confirm-close-v1.mjs .github/workflows/one-time-fix-transport-payment-runtime-v3.yml || true',
+              'git add app/transport/pranimi/page.jsx components/PosModal.jsx lib/appEpoch.js package.json vite.config.js tools/apply-transport-payment-confirm-close-v1.mjs tools/verify-transport-payment-confirm-close-v1.mjs .github/workflows/one-time-fix-transport-payment-runtime-v3.yml .github/workflows/one-time-fix-transport-payment-runtime-v4.yml .github/workflows/one-time-fix-transport-payment-confirm-close-v1.yml .github/workflows/one-time-fix-transport-payment-confirm-close-v2.yml || true',
+          )
+          script = script.replace(
+              'git commit -m "fix transport payment confirmation runtime and close immediately"',
+              'git commit -m "fix transport payment button and close verified payments immediately"',
+          )
+          Path('/tmp/apply-transport-payment-runtime-v4.sh').write_text(script)
+          PY
+
+          bash /tmp/apply-transport-payment-runtime-v4.sh
