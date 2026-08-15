@@ -1,5 +1,6 @@
 name: One-time ship ARKA daily close V2
 
+# Retry 3: runtime compatibility is preserved while the daily-close build marker is separate.
 on:
   push:
     branches: [main]
