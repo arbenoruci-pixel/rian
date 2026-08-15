@@ -46,6 +46,7 @@ jobs:
             components/ArkaDailyCloseWizard.jsx \
             tools/apply-arka-daily-close-v2.mjs \
             tools/verify-arka-daily-close-v2.mjs \
+            tools/verify-arka-daily-control-v1.mjs \
             package.json \
             vite.config.js \
             lib/appEpoch.js \
