@@ -1,0 +1,463 @@
+name: One-time fix transport payment interaction v5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-fix-transport-payment-interaction-v5.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Repair silent transport payment tap and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > tools/apply-transport-payment-interaction-v5.mjs <<'EOF'
+          import fs from 'node:fs';
+
+          const PAGE_PATH = 'app/transport/pranimi/page.jsx';
+          const POS_PATH = 'components/PosModal.jsx';
+          const PAGE_MARKER = 'TRANSPORT_PAYMENT_INTERACTION_V5:PAGE';
+          const POS_MARKER = 'TRANSPORT_PAYMENT_INTERACTION_V5:POS';
+
+          function scanMatching(source, start, openChar, closeChar) {
+            let depth = 0;
+            let quote = '';
+            let escaped = false;
+            let lineComment = false;
+            let blockComment = false;
+            for (let i = start; i < source.length; i += 1) {
+              const ch = source[i];
+              const next = source[i + 1] || '';
+              if (lineComment) { if (ch === '\n') lineComment = false; continue; }
+              if (blockComment) { if (ch === '*' && next === '/') { blockComment = false; i += 1; } continue; }
+              if (quote) {
+                if (escaped) { escaped = false; continue; }
+                if (ch === '\\') { escaped = true; continue; }
+                if (ch === quote) quote = '';
+                continue;
+              }
+              if (ch === '/' && next === '/') { lineComment = true; i += 1; continue; }
+              if (ch === '/' && next === '*') { blockComment = true; i += 1; continue; }
+              if (ch === "'" || ch === '"' || ch === '`') { quote = ch; continue; }
+              if (ch === openChar) depth += 1;
+              if (ch === closeChar && --depth === 0) return i;
+            }
+            return -1;
+          }
+
+          function functionRange(source, name) {
+            const match = new RegExp('(?:export\\s+)?(?:async\\s+)?function\\s+' + name + '\\s*\\(').exec(source);
+            if (!match) throw new Error(name + ': function not found');
+            const paramsStart = source.indexOf('(', match.index);
+            const paramsEnd = scanMatching(source, paramsStart, '(', ')');
+            let bodyStart = paramsEnd + 1;
+            while (/\s/.test(source[bodyStart])) bodyStart += 1;
+            const bodyEnd = scanMatching(source, bodyStart, '{', '}');
+            if (paramsEnd < 0 || source[bodyStart] !== '{' || bodyEnd < 0) throw new Error(name + ': invalid function range');
+            return { start: match.index, end: bodyEnd + 1 };
+          }
+
+          function replaceNamedFunction(source, name, nextFunction) {
+            const range = functionRange(source, name);
+            return source.slice(0, range.start) + nextFunction + source.slice(range.end);
+          }
+
+          function replaceOnce(source, oldText, newText, label) {
+            if (source.includes(newText)) return source;
+            const count = source.split(oldText).length - 1;
+            if (count !== 1) throw new Error(label + ': expected one match, found ' + count);
+            return source.replace(oldText, newText);
+          }
+
+          let page = fs.readFileSync(PAGE_PATH, 'utf8');
+
+          if (!page.includes('const paymentBusyStartedAtRef = useRef(0);')) {
+            page = replaceOnce(
+              page,
+              '  const paymentBusyRef = useRef(false);',
+              '  const paymentBusyRef = useRef(false);\n  const paymentBusyStartedAtRef = useRef(0);',
+              'payment busy timestamp ref',
+            );
+          }
+
+          page = page.replace(
+            '          disabled={savingContinue || paymentBusy}\n          onConfirm={applyPayAndClose}',
+            '          disabled={paymentBusy}\n          onConfirm={applyPayAndClose}',
+          );
+
+          if (!page.includes(PAGE_MARKER)) {
+            page = replaceNamedFunction(page, 'applyPayAndClose', `async function applyPayAndClose() {
+              // ${PAGE_MARKER} — every tap gives feedback, stale busy state self-recovers, and Transport session PIN is authoritative.
+              const now = Date.now();
+              const busyAgeMs = paymentBusyStartedAtRef.current > 0
+                ? Math.max(0, now - paymentBusyStartedAtRef.current)
+                : 0;
+
+              if (paymentBusyRef.current || paymentBusy) {
+                if (busyAgeMs > 0 && busyAgeMs < 20000) {
+                  alert('PAGESA ËSHTË DUKE U RUAJTUR. PRIT PAK.');
+                  return;
+                }
+                // A previous interrupted render can leave the ref/state locked forever.
+                paymentBusyRef.current = false;
+                paymentBusyStartedAtRef.current = 0;
+                setPaymentBusy(false);
+              }
+
+              const cashGiven = round2(payAdd);
+              const dueNow = round2(Math.max(0, Number(totalEuro || 0) - Number(clientPaid || 0)));
+              if (cashGiven <= 0) {
+                alert('SHKRUANI SHUMËN QË PAGUAN KLIENTI.');
+                return;
+              }
+              if (dueNow <= 0) {
+                alert('POROSIA ËSHTË PAGUAR PLOTËSISHT.');
+                setShowPaySheet(false);
+                return;
+              }
+              if (cashGiven + 0.001 < dueNow) {
+                alert('KLIENTI DHA MË PAK SE BORXHI!');
+                return;
+              }
+
+              const applied = dueNow;
+              const change = round2(Math.max(0, cashGiven - applied));
+              const pinLabel = [
+                'PAGESË: ' + applied.toFixed(2) + '€',
+                'KLIENTI DHA: ' + cashGiven.toFixed(2) + '€',
+                'KUSURI (RESTO): ' + change.toFixed(2) + '€',
+                '',
+                'JEP PIN PËR TË KRYER PAGESËN',
+              ].join('\\n');
+
+              paymentBusyRef.current = true;
+              paymentBusyStartedAtRef.current = Date.now();
+              setPaymentBusy(true);
+
+              try {
+                let transportSession = null;
+                try { transportSession = getTransportSession?.() || null; } catch {}
+
+                const sessionPin = String(
+                  actor?.pin ||
+                  me?.pin ||
+                  me?.transport_pin ||
+                  transportSession?.pin ||
+                  transportSession?.transport_pin ||
+                  editOriginalData?.transport_pin ||
+                  editOriginalData?.driver_pin ||
+                  ''
+                ).trim();
+
+                let paymentActor = sessionPin ? {
+                  pin: sessionPin,
+                  name: String(
+                    actor?.name ||
+                    me?.name ||
+                    me?.transport_name ||
+                    transportSession?.name ||
+                    transportSession?.transport_name ||
+                    editOriginalData?.transport_name ||
+                    editOriginalData?.driver_name ||
+                    ''
+                  ).trim() || null,
+                  role: String(actor?.role || me?.role || transportSession?.role || 'TRANSPORT').trim() || 'TRANSPORT',
+                } : null;
+
+                if (!paymentActor?.pin) {
+                  paymentActor = await requirePaymentPin({ label: pinLabel });
+                }
+
+                const actorPin = String(paymentActor?.pin || '').trim();
+                if (!actorPin) {
+                  alert('NUK U GJET PIN-I I TRANSPORTIT. HYR PRAPË NË APP DHE PROVO.');
+                  return;
+                }
+
+                const actorName = String(
+                  paymentActor?.name ||
+                  me?.name ||
+                  me?.transport_name ||
+                  editOriginalData?.transport_name ||
+                  editOriginalData?.driver_name ||
+                  ''
+                ).trim();
+                const actorRole = String(paymentActor?.role || me?.role || 'TRANSPORT').trim() || 'TRANSPORT';
+                const transportCode = normalizeTcode(codeRaw || clientTcode);
+                const transportM2 = Number(totalM2 || 0) || 0;
+                const clientPhone = buildTransportPhoneDigits(phonePrefix, phone) || null;
+                const nextClientPaid = round2(Number(clientPaid || 0) + applied);
+                const nextArkaPaid = round2(Number(arkaRecordedPaid || 0) + applied);
+                const currentEditStatus = String(editRowStatus || '').trim().toLowerCase();
+                const shouldFinalizeDelivery = Boolean(
+                  isEdit && ['delivery', 'dorzim', 'dorezim', 'dorëzim', 'delivered'].includes(currentEditStatus)
+                );
+                const transportNote = 'PAGESA ' + applied.toFixed(2) + '€ - ' + (name || 'KLIENT') + ' • ' + (transportCode || 'T-KOD') + ' • ' + transportM2.toFixed(2) + ' m²';
+
+                let arkaResult = null;
+                try {
+                  arkaResult = await arkaTransaction({
+                    action: ARKA_ACTION.TRANSPORT_ORDER_PAYMENT,
+                    actor: { pin: actorPin, name: actorName || null, role: actorRole },
+                    actorPin,
+                    actorName: actorName || null,
+                    actorRole,
+                    transportOrderId: oid,
+                    transportCode,
+                    transportM2,
+                    amount: applied,
+                    method: String(payMethod || 'CASH').toUpperCase(),
+                    note: transportNote,
+                    clientName: name,
+                    clientPhone,
+                    sourceModule: 'TRANSPORT',
+                    statusOnFullPayment: shouldFinalizeDelivery ? 'done' : undefined,
+                    idempotencyKey: buildArkaIdempotencyKey(
+                      ARKA_ACTION.TRANSPORT_ORDER_PAYMENT,
+                      [oid, applied.toFixed(2), actorPin]
+                    ),
+                  }, {
+                    timeoutMs: 9000,
+                    maxAttempts: 2,
+                    retryDelaysMs: [450],
+                  });
+
+                  assertVerifiedTransportPaymentResult(arkaResult, {
+                    orderId: oid,
+                    code: transportCode,
+                    amount: applied,
+                    actorPin,
+                  });
+                } catch (primaryError) {
+                  const recoveredOrder = isEdit && oid
+                    ? await fetchTransportOrderById(oid).catch(() => null)
+                    : null;
+                  const recoveredData = recoveredOrder?.data && typeof recoveredOrder.data === 'object'
+                    ? recoveredOrder.data
+                    : {};
+                  const recoveredPay = recoveredData?.pay && typeof recoveredData.pay === 'object'
+                    ? recoveredData.pay
+                    : {};
+                  const recoveredPaid = round2(Math.max(
+                    Number(recoveredPay?.paid || 0),
+                    Number(recoveredPay?.arkaRecordedPaid || 0),
+                    Number(recoveredData?.clientPaid || 0)
+                  ));
+                  if (!recoveredOrder?.id || recoveredPaid + 0.01 < nextClientPaid) throw primaryError;
+                  arkaResult = {
+                    ok: true,
+                    paymentVerified: true,
+                    recoveredAfterResponseLoss: true,
+                    transportOrder: recoveredOrder,
+                    transport_order: recoveredOrder,
+                  };
+                }
+
+                let verifiedOrder = arkaResult?.transportOrder || arkaResult?.transport_order || null;
+
+                if (shouldFinalizeDelivery && isEdit && oid) {
+                  const engineStatus = String(verifiedOrder?.status || verifiedOrder?.data?.status || '').trim().toLowerCase();
+                  if (!['done', 'completed', 'delivered'].includes(engineStatus)) {
+                    const finalized = await persistTransportPaymentState({
+                      nextClientPaid,
+                      nextArkaPaid,
+                      paymentActor: { pin: actorPin, name: actorName || null, role: actorRole },
+                      currentOrderOverride: verifiedOrder,
+                    });
+                    verifiedOrder = finalized?.order || verifiedOrder;
+                  }
+                }
+
+                setClientPaid(nextClientPaid);
+                setArkaRecordedPaid(nextArkaPaid);
+                setPayAdd(0);
+                setShowPaySheet(false);
+
+                try {
+                  const actorTid = String(me?.transport_id || assignTid || '').trim();
+                  if (actorTid && arkaResult?.duplicate !== true) {
+                    addTransportCollected(actorTid, {
+                      id: 'cash_' + Date.now(),
+                      amount: applied,
+                      order_code: transportCode,
+                      client_name: name,
+                      note: transportNote,
+                      created_at: new Date().toISOString(),
+                      created_by_pin: actorPin,
+                    });
+                  }
+                } catch {}
+
+                if (shouldFinalizeDelivery && isEdit && oid) {
+                  try {
+                    window.parent && window.parent !== window && window.parent.postMessage({ type: 'transport-payment-complete' }, window.location.origin);
+                  } catch {}
+
+                  const paymentReturnUrl = '/transport/board?tab=delivered&payment=ok';
+                  try { router.replace(paymentReturnUrl); } catch {}
+                  try {
+                    window.setTimeout(() => {
+                      try {
+                        if (String(window.location.pathname || '').includes('/transport/pranimi')) {
+                          window.location.replace(paymentReturnUrl);
+                        }
+                      } catch {}
+                    }, 450);
+                  } catch {}
+                }
+              } catch (error) {
+                alert('ARKA PROBLEM: ' + String(error?.message || error || 'PAGESA NUK U RUAJT. PROVO PRAPË.'));
+              } finally {
+                paymentBusyRef.current = false;
+                paymentBusyStartedAtRef.current = 0;
+                setPaymentBusy(false);
+              }
+            }`);
+          }
+
+          fs.writeFileSync(PAGE_PATH, page);
+
+          let pos = fs.readFileSync(POS_PATH, 'utf8');
+          if (!pos.includes(POS_MARKER)) {
+            const oldCanConfirm = `  const canConfirm = dueNow <= 0
+              ? !disabled
+              : (allowPartial ? (givenN > 0 && !disabled) : (givenN >= dueNow && !disabled));`;
+            const nextCanConfirm = `  const amountReady = dueNow <= 0
+              ? true
+              : (allowPartial ? givenN > 0 : givenN + 0.001 >= dueNow);
+            const canConfirm = amountReady && !disabled;
+
+            function handleConfirmTap() {
+              // ${POS_MARKER} — the green button never swallows a tap silently.
+              try {
+                window.__TEPIHA_LAST_PAYMENT_BUTTON_TAP__ = {
+                  at: new Date().toISOString(),
+                  ts: Date.now(),
+                  disabled: Boolean(disabled),
+                  canConfirm: Boolean(canConfirm),
+                  given: givenN,
+                  due: dueNow,
+                };
+              } catch {}
+
+              if (disabled) {
+                window.alert('PAGESA ËSHTË DUKE U RUAJTUR. PRIT PAK.');
+                return;
+              }
+              if (dueNow > 0 && givenN <= 0) {
+                window.alert('SHKRUANI SHUMËN QË PAGUAN KLIENTI.');
+                return;
+              }
+              if (!allowPartial && dueNow > 0 && givenN + 0.001 < dueNow) {
+                window.alert('KLIENTI DHA MË PAK SE BORXHI!');
+                return;
+              }
+              if (typeof onConfirm !== 'function') {
+                window.alert('BUTONI I PAGESËS NUK ËSHTË LIDHUR. HAPE APP-IN PRAPË.');
+                return;
+              }
+              onConfirm();
+            }`;
+            if (!pos.includes(oldCanConfirm)) throw new Error('PosModal canConfirm anchor missing');
+            pos = pos.replace(oldCanConfirm, nextCanConfirm);
+
+            const oldButton = `        <button
+                  type="button"
+                  className="posbtn posbtn--ok"
+                  onClick={() => onConfirm?.()}
+                  disabled={!canConfirm}
+                >`;
+            const nextButton = `        <button
+                  type="button"
+                  className="posbtn posbtn--ok"
+                  onClick={handleConfirmTap}
+                  aria-disabled={!canConfirm}
+                  data-payment-ready={canConfirm ? '1' : '0'}
+                  style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'rgba(16,185,129,0.22)' }}
+                >`;
+            if (!pos.includes(oldButton)) throw new Error('PosModal confirm button anchor missing');
+            pos = pos.replace(oldButton, nextButton);
+          }
+
+          fs.writeFileSync(POS_PATH, pos);
+          console.log('transport payment interaction v5 applied');
+          EOF
+
+          cat > tools/verify-transport-payment-interaction-v5.mjs <<'EOF'
+          import fs from 'node:fs';
+
+          const page = fs.readFileSync('app/transport/pranimi/page.jsx', 'utf8');
+          const pos = fs.readFileSync('components/PosModal.jsx', 'utf8');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const vite = fs.readFileSync('vite.config.js', 'utf8');
+          const failures = [];
+          const check = (ok, message) => { if (!ok) failures.push(message); };
+
+          check(page.includes('TRANSPORT_PAYMENT_INTERACTION_V5:PAGE'), 'page marker missing');
+          check(page.includes('const paymentBusyStartedAtRef = useRef(0);'), 'busy timestamp guard missing');
+          check(page.includes('disabled={paymentBusy}'), 'payment modal is still blocked by unrelated save state');
+          check(!page.includes('disabled={savingContinue || paymentBusy}'), 'silent save-state disable remains');
+          check(page.includes('editOriginalData?.transport_pin'), 'assigned transport PIN fallback missing');
+          check(page.includes('transportSession?.transport_pin'), 'transport session PIN fallback missing');
+          check(page.includes("alert('PAGESA ËSHTË DUKE U RUAJTUR. PRIT PAK.')"), 'busy tap feedback missing');
+          check(pos.includes('TRANSPORT_PAYMENT_INTERACTION_V5:POS'), 'PosModal marker missing');
+          check(pos.includes('onClick={handleConfirmTap}'), 'confirm tap handler missing');
+          check(pos.includes("data-payment-ready={canConfirm ? '1' : '0'}"), 'confirm readiness diagnostic missing');
+          check(!pos.includes('disabled={!canConfirm}'), 'native silent disabled confirm remains');
+          check(String(pkg.scripts?.prebuild || '').includes('apply-transport-payment-interaction-v5.mjs'), 'v5 installer missing from prebuild');
+          check(String(pkg.scripts?.build || '').includes('test:transport-payment-interaction-v5'), 'v5 verifier missing from build');
+          check(vite.includes('sw-navigation-diag.js?v=3510'), 'service worker generation was not bumped');
+
+          if (failures.length) {
+            console.error('FAIL transport payment interaction v5:', failures);
+            process.exit(1);
+          }
+          console.log('PASS transport payment interaction v5');
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          p = Path('package.json')
+          pkg = json.loads(p.read_text())
+          install_cmd = 'node tools/apply-transport-payment-interaction-v5.mjs'
+          prebuild = str(pkg.get('scripts', {}).get('prebuild', ''))
+          if install_cmd not in prebuild:
+              pkg['scripts']['prebuild'] = (prebuild + ' && ' + install_cmd).strip(' &')
+          pkg['scripts']['test:transport-payment-interaction-v5'] = 'node tools/verify-transport-payment-interaction-v5.mjs'
+          test_cmd = 'npm run test:transport-payment-interaction-v5'
+          build = str(pkg['scripts'].get('build', ''))
+          if test_cmd not in build:
+              if ' && vite build' not in build:
+                  raise SystemExit('vite build anchor missing')
+              pkg['scripts']['build'] = build.replace(' && vite build', ' && ' + test_cmd + ' && vite build', 1)
+          p.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + '\n')
+
+          p = Path('vite.config.js')
+          s = p.read_text()
+          s = re.sub(r'sw-navigation-diag\.js\?v=\d+', 'sw-navigation-diag.js?v=3510', s, count=1)
+          p.write_text(s)
+          PY
+
+          node tools/apply-transport-payment-interaction-v5.mjs
+          npm run test:transport-payment-interaction-v5
+          npm run build
+
+          rm .github/workflows/one-time-fix-transport-payment-interaction-v5.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/transport/pranimi/page.jsx components/PosModal.jsx tools/apply-transport-payment-interaction-v5.mjs tools/verify-transport-payment-interaction-v5.mjs package.json vite.config.js .github/workflows/one-time-fix-transport-payment-interaction-v5.yml
+          git commit -m "make transport payment tap always respond"
+          git push origin HEAD:main
