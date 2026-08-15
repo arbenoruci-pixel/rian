@@ -1,0 +1,107 @@
+name: One-time enable transport payment tap v7
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-enable-payment-tap-v7.yml
+
+permissions:
+  contents: write
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Activate always-responsive payment modal
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          page_path = Path('app/transport/pranimi/page.jsx')
+          page = page_path.read_text()
+
+          old_import = "import PosModal from '@/components/PosModal';"
+          new_import = "import PosModal from '@/components/PosModalV2';"
+          if old_import in page:
+              page = page.replace(old_import, new_import, 1)
+          elif new_import not in page:
+              raise SystemExit('PosModal import anchor missing')
+
+          old_disabled = '          disabled={savingContinue || paymentBusy}\n          onConfirm={applyPayAndClose}'
+          new_disabled = '          disabled={paymentBusy}\n          onConfirm={applyPayAndClose}'
+          if old_disabled in page:
+              page = page.replace(old_disabled, new_disabled, 1)
+          elif new_disabled not in page:
+              raise SystemExit('payment disabled prop anchor missing')
+
+          old_guard = '    if (paymentBusyRef.current || paymentBusy) return;'
+          new_guard = "    if (paymentBusyRef.current || paymentBusy) {\n      alert('PAGESA ËSHTË DUKE U RUAJTUR. PRIT PAK.');\n      return;\n    }"
+          if old_guard in page:
+              page = page.replace(old_guard, new_guard, 1)
+          elif new_guard not in page:
+              raise SystemExit('payment busy guard anchor missing')
+
+          if 'TRANSPORT_PAYMENT_TAP_V7' not in page:
+              marker_anchor = '  async function applyPayAndClose() {'
+              if marker_anchor not in page:
+                  raise SystemExit('payment function anchor missing')
+              page = page.replace(
+                  marker_anchor,
+                  marker_anchor + "\n    // TRANSPORT_PAYMENT_TAP_V7 — every green-button press gives visible feedback.",
+                  1,
+              )
+
+          page_path.write_text(page)
+
+          vite_path = Path('vite.config.js')
+          vite = vite_path.read_text()
+          vite, count = re.subn(r'sw-navigation-diag\.js\?v=\d+', 'sw-navigation-diag.js?v=3512', vite, count=1)
+          if count != 1 and 'sw-navigation-diag.js?v=3512' not in vite:
+              raise SystemExit('service worker version anchor missing')
+
+          vite = re.sub(
+              r"cacheName: 'tepiha-vite-business-routes-([^']+)'",
+              lambda m: m.group(0) if m.group(1).endswith('-payment-tap-v7') else "cacheName: 'tepiha-vite-business-routes-" + m.group(1) + "-payment-tap-v7'",
+              vite,
+              count=1,
+          )
+          vite = re.sub(
+              r"cacheName: 'tepiha-vite-static-assets-([^']+)'",
+              lambda m: m.group(0) if m.group(1).endswith('-payment-tap-v7') else "cacheName: 'tepiha-vite-static-assets-" + m.group(1) + "-payment-tap-v7'",
+              vite,
+              count=1,
+          )
+          vite = re.sub(
+              r"cacheName: 'tepiha-vite-media-([^']+)'",
+              lambda m: m.group(0) if m.group(1).endswith('-payment-tap-v7') else "cacheName: 'tepiha-vite-media-" + m.group(1) + "-payment-tap-v7'",
+              vite,
+              count=1,
+          )
+          vite_path.write_text(vite)
+          PY
+
+          test -f components/PosModalV2.jsx
+          grep -q "POS_MODAL_V2_ALWAYS_RESPOND" components/PosModalV2.jsx
+          grep -q "import PosModal from '@/components/PosModalV2';" app/transport/pranimi/page.jsx
+          grep -q "TRANSPORT_PAYMENT_TAP_V7" app/transport/pranimi/page.jsx
+          grep -q "disabled={paymentBusy}" app/transport/pranimi/page.jsx
+          ! grep -q "disabled={savingContinue || paymentBusy}" app/transport/pranimi/page.jsx
+          grep -q "readBestActor({ allowTransportFallback: true })" lib/paymentPin.js
+          grep -q "sw-navigation-diag.js?v=3512" vite.config.js
+
+          npm run build
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/transport/pranimi/page.jsx vite.config.js
+          git commit -m "make transport payment button respond on every tap"
+          git push origin HEAD:main
