@@ -1,0 +1,39 @@
+name: One-time repair v6 payment button tag parser
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-repair-v6-button-tag-parser.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fix parser and trigger v6 again
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/one-time-fix-transport-payment-interaction-v6.yml')
+          s = p.read_text()
+          old = "  const buttonEnd = pos.indexOf('>', classIndex);"
+          new = "  const disabledIndex = pos.indexOf('disabled={!canConfirm}', classIndex);\n  const buttonEnd = disabledIndex >= 0 ? pos.indexOf('>', disabledIndex) : -1;"
+          if old not in s:
+              raise SystemExit('v6 parser anchor missing')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          rm .github/workflows/one-time-repair-v6-button-tag-parser.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "repair transport payment button tag parser"
+          git push origin HEAD:main
