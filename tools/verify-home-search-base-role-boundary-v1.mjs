@@ -91,9 +91,18 @@ check(home.includes('TRANSPORTI:'), 'explicit BASE transport label missing');
 check(home.includes('E KA PRU:'), 'real Transport detail was removed');
 
 const prebuild = String(pkg.scripts?.prebuild || '');
+const rackInstaller = 'node tools/apply-gati-rack-save-v1.mjs';
+const arkaFinalInstaller = 'node tools/apply-arka-daily-close-v2.mjs';
+const hasRackFinalOwner = prebuild.includes(rackInstaller);
 check(prebuild.includes('apply-home-search-base-role-boundary-v1.mjs'), 'final boundary installer is not in prebuild');
-check(prebuild.trim().endsWith('node tools/apply-arka-daily-close-v2.mjs'), 'ARKA final installer is no longer last');
-check(prebuild.indexOf('apply-home-search-base-role-boundary-v1.mjs') < prebuild.lastIndexOf('apply-arka-daily-close-v2.mjs'), 'boundary installer does not run before final version owner');
+check(
+  hasRackFinalOwner ? prebuild.trim().endsWith(rackInstaller) : prebuild.trim().endsWith(arkaFinalInstaller),
+  'neither ARKA nor the compatible GATI rack version owner is last',
+);
+check(prebuild.indexOf('apply-home-search-base-role-boundary-v1.mjs') < prebuild.lastIndexOf('apply-arka-daily-close-v2.mjs'), 'boundary installer does not run before ARKA version owner');
+if (hasRackFinalOwner) {
+  check(prebuild.lastIndexOf('apply-arka-daily-close-v2.mjs') < prebuild.lastIndexOf('apply-gati-rack-save-v1.mjs'), 'GATI rack version owner does not run after ARKA');
+}
 check(String(pkg.scripts?.build || '').includes('test:home-search-base-role-boundary-v1'), 'boundary verifier is not in full build');
 check(String(pkg.version || '').includes('home-search-base-role-v1'), 'package build id was not bumped');
 check(arkaInstaller.includes('home-search-base-role-v1'), 'final ARKA version owner does not preserve the search fix build id');
@@ -105,4 +114,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('PASS home search BASE/Transport role boundary V1: Sheqir #281 stays BASE, Bujar stays PUNTOR, genuine T281 remains Transport, and measures are not duplicated.');
+console.log('PASS home search BASE/Transport role boundary V1: Sheqir #281 stays BASE, Bujar stays PUNTOR, genuine T281 remains Transport, and compatible final version owners are ordered safely.');
