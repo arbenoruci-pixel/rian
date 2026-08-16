@@ -27,6 +27,7 @@ import { markRealUiReady } from '@/lib/markRealUiReady';
 import { isDiagEnabled } from '@/lib/diagMode';
 import { listBaseCreateRecovery } from '@/lib/syncRecovery';
 import { listUsers } from '@/lib/usersDb';
+import { getActor } from '@/lib/actorSession';
 import { recordOrderCashPayment } from '@/components/payments/payService';
 import { ARKA_ACTION } from '@/lib/arka/arkaConstants';
 import { buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';
@@ -3706,6 +3707,7 @@ function PastrimiPageInner() {
   const sp = useSearchParams();
   const exactMode = String(sp?.get('exact') || '') === '1';
   const openId = String(sp?.get('openId') || '').trim();
+  const openCode = String(sp?.get('openCode') || sp?.get('code') || '').trim();
   const fromSearch = String(sp?.get('from') || '').trim() === 'search';
   const exactSearchMode = !!openId && (exactMode || fromSearch);
   const phonePrefix = '+383';
@@ -3740,13 +3742,19 @@ function PastrimiPageInner() {
   const [localModeNotice, setLocalModeNotice] = useState('DB_LOADING');
   const [dbTruthState, setDbTruthState] = useState({ dbFetchOk: false, dbFetchFailed: false, usingDbTruth: false, source: 'INIT' });
   const dbTruthStateRef = useRef({ dbFetchOk: false, dbFetchFailed: false, usingDbTruth: false, source: 'INIT' });
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => openCode);
   const deferredSearch = useDeferredValue(search);
   // UI-only quick filter for the PASTRIMI list. Pure client-side, does not change
   // any DB query, status or the list that is fetched. One of:
   // 'all' | 'over4' | 'unpacked' | 'debt' | 'snooze' | 'due'
   const [pastrimFilter, setPastrimFilter] = useState('all');
   const [, startListTransition] = useTransition();
+
+  useEffect(() => {
+    if (!openCode) return;
+    setSearch((current) => String(current || '').trim() ? current : openCode);
+    setPastrimFilter('all');
+  }, [openCode]);
 
   const [debugInfo, setDebugInfo] = useState({
     source: 'INIT', dbCount: 0, localCount: 0,
@@ -4003,6 +4011,8 @@ function PastrimiPageInner() {
   const [rowPayOrder, setRowPayOrder] = useState(null);
   const [rowPayAmount, setRowPayAmount] = useState(0);
   const [rowPayBusy, setRowPayBusy] = useState(false);
+  // PAYMENT_RECEIPT_SMS_V1
+  const [paymentSmsReceipt, setPaymentSmsReceipt] = useState(null);
   const [showStairsSheet, setShowStairsSheet] = useState(false);
   const [readyPlaceSheet, setReadyPlaceSheet] = useState(false);
   const [readyPlaceOrder, setReadyPlaceOrder] = useState(null);
@@ -5360,7 +5370,12 @@ function PastrimiPageInner() {
   }
 
   function readPaketimiActorLabel(order = null) {
-    const actor = readPastrimiResolveActor(order || paketimiOrder || {});
+    // PASTRIMI_ACTOR_SESSION_V1: package scans use the same canonical actor/session as GATI.
+    let actor = null;
+    try { actor = getActor() || null; } catch {}
+    if (!actor?.pin && !actor?.name) {
+      actor = readPastrimiResolveActor(order || paketimiOrder || {});
+    }
     return String(actor?.name || actor?.pin || 'PUNËTOR').trim() || 'PUNËTOR';
   }
 
@@ -5473,11 +5488,47 @@ function PastrimiPageInner() {
     setPaketimiError('');
     let savedData = null;
     try {
-      await updateOrderData(table, paketimiOrder.id, (oldData) => {
+      // PASTRIMI_PAKETIMI_TIMEOUT_RETRY_V1
+      // Paketimi is a critical worker action. A transient mobile/Supabase timeout
+      // must not make the worker restart a 20+ piece scan. Retry the exact same
+      // idempotent JSON merge, then verify DB truth before reporting failure.
+      const writePaketimi = async () => updateOrderData(table, paketimiOrder.id, (oldData) => {
         const safeOld = unwrapOrderData(oldData || {});
         savedData = { ...safeOld, paketimi_v1: cleanDraft };
         return savedData;
       }, { updated_at: now });
+
+      let writeError = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          await writePaketimi();
+          writeError = null;
+          break;
+        } catch (error) {
+          writeError = error;
+          const message = String(error?.message || error || '');
+          const retryable = /SUPABASE_TIMEOUT|timeout|network|fetch/i.test(message);
+          if (!retryable || attempt >= 3) break;
+          await new Promise((resolve) => setTimeout(resolve, attempt * 650));
+        }
+      }
+
+      if (writeError) {
+        let verified = null;
+        try {
+          verified = await fetchOrderByIdSafe(table, paketimiOrder.id, 'id,data,updated_at', { timeoutMs: 9000 });
+        } catch {}
+        const verifiedDraft = unwrapOrderData(verified?.data || {})?.paketimi_v1;
+        const wantedStatus = String(cleanDraft?.status || '');
+        const verifiedStatus = String(verifiedDraft?.status || '');
+        const wantedFound = Array.isArray(cleanDraft?.pieces) ? cleanDraft.pieces.filter((piece) => piece?.found).length : 0;
+        const verifiedFound = Array.isArray(verifiedDraft?.pieces) ? verifiedDraft.pieces.filter((piece) => piece?.found).length : 0;
+        if (verifiedDraft && verifiedStatus === wantedStatus && verifiedFound >= wantedFound) {
+          savedData = unwrapOrderData(verified?.data || {});
+        } else {
+          throw writeError;
+        }
+      }
       setPaketimiDraft(cleanDraft);
       applyPaketimiRowPatch(paketimiOrder, savedData, table);
       return { paketimi: cleanDraft, data: savedData, table };
@@ -5677,6 +5728,8 @@ function PastrimiPageInner() {
     }
     let readyBonusWorker = null;
     if (!isPastrimTransportScopedRow(o)) {
+      // PASTRIMI_ACTOR_SESSION_V1: getActor is imported from actorSession; this preserves the
+      // payment-owner bonus contract and removes the false missing-session error.
       try { readyBonusWorker = getActor?.() || null; } catch {}
       if (!readyBonusWorker?.pin) {
         alert('MUNGON SESIONI I PËRDORUESIT. HYR PËRSËRI PARA SE TA BËSH GATI.');
@@ -6044,6 +6097,7 @@ ${destinationLine}
   }
 
 
+  // PASTRIMI_PAYMENT_TOUCH_V3: every new payment sheet clears stale busy state.
   async function openRowPay(row) {
     if (!row || row._outboxPending) {
       alert('KJO POROSI ËSHTË NË PRITJE PËR INTERNET. PROVO PËRSËRI PAK MË VONË.');
@@ -6087,6 +6141,7 @@ ${destinationLine}
       const paid = Number(existingPay?.paid ?? baseOrder?.clientPaid ?? row?.paid ?? 0) || 0;
       const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
 
+      setRowPayBusy(false);
       setRowPayOrder({
         id: String(orderId),
         order: baseOrder,
@@ -6131,15 +6186,15 @@ ${destinationLine}
     const remaining = Math.max(0, Number((due - applied).toFixed(2)));
     const kusuri = Math.max(0, cashGiven - due);
     const willSettleFull = remaining <= 0.01;
-    const fullPaymentTargetStatus = willSettleFull
-      ? askPastrimiPaidPickupTarget({ code: rowPayOrder.code, clientName: rowPayOrder.name })
-      : '';
-    const pickupNow = willSettleFull && fullPaymentTargetStatus === 'dorzim';
+    // PASTRIMI_PREPAYMENT_PRESERVE_STATUS_V3
+    // A payment entered from PASTRIMI is an incoming/prepayment action.
+    // It must never imply that the cleaned rugs were picked up or move the job
+    // to DORZIM. Client pickup is a separate operational action from GATI.
+    const fullPaymentTargetStatus = '';
+    const pickupNow = false;
     const destinationLine = willSettleFull
-      ? (pickupNow
-        ? 'VEPRIMI: KLIENTI I MERR — KALO NË DORZIM'
-        : 'VEPRIMI: PAGUAR — MBETET NË PASTRIMI')
-      : 'VEPRIMI: PAGESË PARTIALE — MBETET STATUSI AKTUAL';
+      ? 'VEPRIMI: PAGUAR PARAPRAKISHT — MBETET NË PASTRIMI'
+      : 'VEPRIMI: PAGESË PARTIALE — MBETET NË PASTRIMI';
 
     const pinLabel = `PAGESË NË PASTRIMI\nKODI: ${rowPayOrder.code}\n\nPAGESË SOT: ${applied.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI: ${kusuri.toFixed(2)}€\nBORXHI PAS: ${remaining.toFixed(2)}€\n${destinationLine}\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
     const pinData = await requirePaymentPin({ label: pinLabel });
@@ -6174,6 +6229,10 @@ ${destinationLine}
       paid: newPaid,
       debt: newDebt,
       isPaid: newDebt <= 0,
+      is_paid_upfront: newDebt <= 0 ? true : !!baseOrder?.is_paid_upfront,
+      prepaid_at: newDebt <= 0 ? actionAt : (baseOrder?.prepaid_at || null),
+      prepaid_by_pin: newDebt <= 0 ? String(pinData.pin || '') : (baseOrder?.prepaid_by_pin || ''),
+      prepaid_by_name: newDebt <= 0 ? String(pinData.name || '') : (baseOrder?.prepaid_by_name || ''),
       updated_at: actionAt,
     };
     if (!nextOrder.client || typeof nextOrder.client !== 'object') nextOrder.client = {};
@@ -6261,7 +6320,8 @@ ${destinationLine}
           // The synchronous journal remains and will retry on app open/online.
         }
 
-        const payRes = await recordOrderCashPayment({
+        const payRes = await withTimeout(
+          recordOrderCashPayment({
           rawOrder: {
             ...nextOrder,
             status: fullPaymentTargetStatus || nextOrder.status || 'pastrim',
@@ -6278,7 +6338,10 @@ ${destinationLine}
           idempotencyKey: paymentIdempotencyKey,
           idempotency_key: paymentIdempotencyKey,
           ...(fullPaymentTargetStatus ? { statusOnFullPayment: fullPaymentTargetStatus } : {}),
-        });
+        }),
+          15000,
+          'PASTRIMI_ROW_PAYMENT_TIMEOUT'
+        );
 
         const queued = !!(payRes?.queued || payRes?.offlineQueued || payRes?.localOnly || payRes?.pending);
         if ((!payRes?.ok || !payRes?.payment || !payRes?.order) && !queued) {
@@ -6306,10 +6369,15 @@ ${destinationLine}
             ? { ...o, paid: enginePaid, isPaid: engineDebt <= 0, total: Number(rowPayOrder.total || o?.total || 0), fullOrder: localOrder }
             : o
           ));
+          setPaymentSmsReceipt({
+            code: String(rowPayOrder?.code || rowPayOrder?.order_code || rowPayOrder?.fullOrder?.code || '').replace(/^T/i, ''),
+            name: String(rowPayOrder?.name || rowPayOrder?.client_name || rowPayOrder?.fullOrder?.client_name || rowPayOrder?.fullOrder?.client?.name || 'Klient').trim(),
+            phone: String(rowPayOrder?.phone || rowPayOrder?.client_phone || rowPayOrder?.fullOrder?.client_phone || rowPayOrder?.fullOrder?.client?.phone || '').trim(),
+            amount: Number(rowPayAmount || 0),
+          });
           setRowPaySheet(false);
           setRowPayOrder(null);
           setRowPayAmount(0);
-          alert('✅ PAGESA U REGJISTRUA.');
         }
       } catch (err) {
         if (pickupNow) {
@@ -6432,11 +6500,20 @@ ${destinationLine}
       return [];
     }
 
-    if (exactSearchMode && exactSearchTimedOut) {
+    // PASTRIMI_SEARCH_AUTHORITATIVE_V2
+    // Home search opens this route with openId/openCode. The previous timeout
+    // fallback returned the whole 60+ row list and ignored the visible query,
+    // which made the exact row flash briefly and then disappear. A live query
+    // must fall through to the normal text/code/phone filter.
+    if (exactSearchMode && exactSearchTimedOut && !String(search || openCode || '').trim()) {
       return list;
     }
 
-    const rawSearch = String(deferredSearch || '');
+    // PASTRIMI_SEARCH_STICKY_V1
+    // Search must react immediately. useDeferredValue can leave the old 60+ row
+    // list painted for seconds on slower phones, which makes the matching row
+    // flash in/out while background refreshes are running.
+    const rawSearch = String(search || openCode || '');
     const s = rawSearch.toLowerCase();
     const scode = normalizeCode(rawSearch);
     const phoneQuery = rawSearch.replace(/\D+/g, '');
@@ -6454,7 +6531,7 @@ ${destinationLine}
       }
       return false;
     });
-  }, [orders, exactSearchMode, exactSearchTimedOut, exactRecoveredRow, openId, deferredSearch]);
+  }, [orders, exactSearchMode, exactSearchTimedOut, exactRecoveredRow, openId, openCode, search]);
 
   const pastrimDelayReviewSummary = useMemo(() => {
     const due = [];
@@ -6502,9 +6579,49 @@ ${destinationLine}
   // exact-open logic stay exactly as before.
   const displayOrders = useMemo(() => {
     const list = Array.isArray(visibleOrders) ? visibleOrders : [];
+    const rawSearch = String(search || openCode || '').trim();
+
+    // Final-render safety gate. Even if an exact-open recovery timer returns
+    // the full DB list, the rows painted on screen are filtered again from the
+    // controlled input value. This keeps code 872 as the only visible result.
+    if (rawSearch) {
+      const textQuery = rawSearch.toLowerCase();
+      const compactCodeQuery = rawSearch.replace(/\s+/g, '').toUpperCase();
+      const digitsQuery = rawSearch.replace(/\D+/g, '');
+      return list.filter((row) => {
+        const order = unwrapOrderData(row?.fullOrder || row?.data || row || {});
+        const name = String(row?.name || row?.client_name || order?.client_name || order?.client?.name || '').toLowerCase();
+        if (name.includes(textQuery)) return true;
+
+        const codeCandidates = [
+          row?.code,
+          row?.client_tcode,
+          row?.code_str,
+          row?.order_code,
+          order?.code,
+          order?.client_tcode,
+          order?.code_str,
+          order?.order_code,
+          order?.client?.code,
+          order?.client?.tcode,
+        ].map((value) => String(value ?? '').trim().replace(/\s+/g, '').toUpperCase()).filter(Boolean);
+
+        if (compactCodeQuery && codeCandidates.some((code) => code === compactCodeQuery || code.includes(compactCodeQuery))) return true;
+        if (digitsQuery && codeCandidates.some((code) => code.replace(/\D+/g, '').includes(digitsQuery))) return true;
+
+        if (digitsQuery) {
+          const phoneDigits = String(
+            row?.phone || row?.client_phone || order?.client_phone || order?.client?.phone || ''
+          ).replace(/\D+/g, '');
+          if (phoneDigits && phoneDigits.includes(digitsQuery)) return true;
+        }
+        return false;
+      });
+    }
+
     if (!pastrimFilter || pastrimFilter === 'all') return list;
     return list.filter((row) => matchesPastrimFilter(row, pastrimFilter));
-  }, [visibleOrders, pastrimFilter]);
+  }, [visibleOrders, pastrimFilter, search, openCode]);
 
   const PASTRIM_FILTER_CHIPS = [
     { key: 'all', label: 'Të gjitha' },
@@ -6838,7 +6955,23 @@ ${destinationLine}
         </section>
       ) : null}
 
-      <input className="input" placeholder="🔎 Kërko kodin, emrin ose telefonin" value={search} onChange={e => setSearch(e.target.value)} />
+      <input
+        className="input"
+        placeholder="🔎 Kërko kodin, emrin ose telefonin"
+        value={search}
+        inputMode="search"
+        autoComplete="off"
+        onInput={e => {
+          const nextSearch = e.currentTarget.value;
+          setSearch(nextSearch);
+          if (String(nextSearch || '').trim()) setPastrimFilter('all');
+        }}
+        onChange={e => {
+          const nextSearch = e.currentTarget.value;
+          setSearch(nextSearch);
+          if (String(nextSearch || '').trim()) setPastrimFilter('all');
+        }}
+      />
 
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', margin: '2px 0 10px' }}>
         {PASTRIM_FILTER_CHIPS.map((chip) => {
@@ -7516,6 +7649,35 @@ ${destinationLine}
           </div>
         );
       })() : null}
+
+      {paymentSmsReceipt ? (
+        <div style={{ position: 'fixed', left: 8, right: 8, bottom: 'max(10px, env(safe-area-inset-bottom))', zIndex: 100500, borderRadius: 20, border: '1px solid rgba(34,197,94,.55)', background: 'linear-gradient(145deg,#052e24,#071a17)', boxShadow: '0 18px 60px rgba(0,0,0,.72)', padding: 15, color: '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ color: '#86efac', fontSize: 12, fontWeight: 950, letterSpacing: 1.5 }}>PAGESA U REGJISTRUA</div>
+              <div style={{ marginTop: 5, fontSize: 21, fontWeight: 950 }}>{Number(paymentSmsReceipt.amount || 0).toFixed(2)} € • Kodi {paymentSmsReceipt.code || '—'}</div>
+              <div style={{ marginTop: 3, color: '#cbd5e1' }}>{paymentSmsReceipt.name}</div>
+            </div>
+            <button type="button" onClick={() => setPaymentSmsReceipt(null)} style={{ width: 42, height: 42, borderRadius: 13, border: '1px solid #355047', background: '#0b1f1a', color: '#fff', fontSize: 22 }}>×</button>
+          </div>
+          <button
+            type="button"
+            disabled={!String(paymentSmsReceipt.phone || '').trim()}
+            onClick={() => {
+              const phone = String(paymentSmsReceipt.phone || '').replace(/[^+\d]/g, '');
+              const amount = Number(paymentSmsReceipt.amount || 0).toFixed(2);
+              const code = String(paymentSmsReceipt.code || '').trim();
+              const name = String(paymentSmsReceipt.name || 'Klient').trim();
+              const text = 'Pershendetje ' + name + ', pagesa juaj prej ' + amount + ' € per porosine me kodin ' + code + ' u regjistrua me sukses. Faleminderit!';
+              if (!phone) return;
+              window.location.href = 'sms:' + phone + '?&body=' + encodeURIComponent(text);
+            }}
+            style={{ width: '100%', minHeight: 56, marginTop: 13, borderRadius: 17, border: 0, background: String(paymentSmsReceipt.phone || '').trim() ? '#22c55e' : '#334155', color: '#04130a', fontSize: 18, fontWeight: 950 }}
+          >
+            {String(paymentSmsReceipt.phone || '').trim() ? 'DËRGO SMS TË PAGESËS' : 'KLIENTI NUK KA TELEFON'}
+          </button>
+        </div>
+      ) : null}
 
       {rowPaySheet && rowPayOrder && (
         <LocalErrorBoundary boundaryKind="panel" routePath="/pastrimi" routeName="PASTRIMI" moduleName="PastrimiRowPosModal" componentName="PosModal" sourceLayer="pastrimi_panel" showHome={false}>

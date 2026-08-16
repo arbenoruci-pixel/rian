@@ -10,8 +10,8 @@ const ARKA_INSTALLER_PATH = 'tools/apply-arka-daily-close-v2.mjs';
 const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 
 const MARKER = 'GATI_RACK_SAVE_V1';
-const APP_VERSION = '2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1';
-const CACHE_VERSION = 'v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1';
+const APP_VERSION = '2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3';
+const CACHE_VERSION = 'v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
   if (source[start] !== openChar) throw new Error(`${label}_OPEN_MISSING`);
@@ -291,7 +291,7 @@ function patchVersionOwners() {
   fs.writeFileSync(ARKA_INSTALLER_PATH, arka, 'utf8');
 
   let arkaVerify = fs.readFileSync(ARKA_VERIFY_PATH, 'utf8');
-  arkaVerify = arkaVerify.replace(/v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2(?:-home-search-base-role-v1)?(?:-gati-rack-save-v1)?/g, CACHE_VERSION);
+  arkaVerify = arkaVerify.replace(/v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2(?:-home-search-base-role-v1)?(?:-gati-rack-save-v1)?(?:-pastrimi-payment-touch-v3)?/g, CACHE_VERSION);
   fs.writeFileSync(ARKA_VERIFY_PATH, arkaVerify, 'utf8');
 }
 
@@ -319,7 +319,7 @@ function patchPackage() {
 
 function patchBuildIdentity() {
   let vite = fs.readFileSync(VITE_PATH, 'utf8');
-  vite = vite.replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3511');
+  vite = vite.replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3512');
   vite = vite.replace(/tepiha-vite-business-routes-[^']+/g, `tepiha-vite-business-routes-${CACHE_VERSION}`);
   vite = vite.replace(/tepiha-vite-static-assets-[^']+/g, `tepiha-vite-static-assets-${CACHE_VERSION}`);
   vite = vite.replace(/tepiha-vite-media-[^']+/g, `tepiha-vite-media-${CACHE_VERSION}`);

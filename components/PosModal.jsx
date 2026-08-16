@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 
 /**
  * POS Modal (Cash Register) — iPhone-safe full-screen sheet
@@ -29,8 +29,8 @@ export default function PosModal({
   footerNote = null,
   allowPartial = false,
 }) {
-  if (!open) return null;
-
+  // POS_MODAL_TOUCH_CONFIRM_V3: iOS/PWA touch fallback plus duplicate-tap guard.
+  const confirmGuardRef = useRef(0);
   const totalN = Number(total || 0);
   const paidN = Number(alreadyPaid || 0);
   const dueNow = useMemo(() => Math.max(0, Number((totalN - paidN).toFixed(2))), [totalN, paidN]);
@@ -40,6 +40,16 @@ export default function PosModal({
   const canConfirm = dueNow <= 0
     ? !disabled
     : (allowPartial ? (givenN > 0 && !disabled) : (givenN >= dueNow && !disabled));
+
+  function fireConfirm(source = 'click') {
+    if (!canConfirm) return;
+    const now = Date.now();
+    if (now - Number(confirmGuardRef.current || 0) < 700) return;
+    confirmGuardRef.current = now;
+    onConfirm?.({ source });
+  }
+
+  if (!open) return null;
 
   return (
     <div className="posfs" role="dialog" aria-modal="true">
@@ -164,10 +174,17 @@ export default function PosModal({
         <button
           type="button"
           className="posbtn posbtn--ok"
-          onClick={() => onConfirm?.()}
+          data-pos-confirm="1"
+          onPointerUp={(event) => {
+            const pointerType = String(event?.pointerType || '').toLowerCase();
+            if (pointerType === 'touch' || pointerType === 'pen') fireConfirm('pointerup');
+          }}
+          onTouchEnd={() => fireConfirm('touchend')}
+          onClick={() => fireConfirm('click')}
           disabled={!canConfirm}
+          aria-busy={disabled}
         >
-          {confirmText}
+          {disabled ? 'DUKE RUAJTUR...' : confirmText}
         </button>
       </div>
 
@@ -353,6 +370,18 @@ export default function PosModal({
           background: #10b981;
           color: #000;
           border-color: rgba(16,185,129,0.9);
+          touch-action: manipulation;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .posbtn:disabled {
+          opacity: 0.62;
+          cursor: wait;
+          filter: saturate(0.45);
+        }
+        .posbtn--ok:disabled {
+          background: #475569;
+          color: #e2e8f0;
+          border-color: rgba(148,163,184,0.45);
         }
       `}</style>
     </div>
