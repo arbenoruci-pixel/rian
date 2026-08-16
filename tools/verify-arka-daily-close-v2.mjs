@@ -32,13 +32,33 @@ check(mainPage.includes("window.location.assign('/arka/ditore')"), 'manager acce
 check(mainPage.includes("supabase.rpc('create_arka_advance_atomic_v2'"), 'advance creation does not use canonical atomic RPC');
 check(mainPage.includes('HAPE MBYLLJEN DITORE'), 'manager daily-close call to action missing');
 
+const prebuild = String(pkg.scripts?.prebuild || '');
+const arkaFinalInstaller = 'node tools/apply-arka-daily-close-v2.mjs';
+const rackFinalInstaller = 'node tools/apply-gati-rack-save-v1.mjs';
+const hasRackFinalOwner = prebuild.includes(rackFinalInstaller);
+
 check(installer.includes('ARKA_DAILY_CLOSE_V2_ONE_WAY'), 'final installer marker missing');
-check(String(pkg.scripts?.prebuild || '').trim().endsWith('node tools/apply-arka-daily-close-v2.mjs'), 'daily close installer is not last in prebuild');
+check(
+  hasRackFinalOwner ? prebuild.trim().endsWith(rackFinalInstaller) : prebuild.trim().endsWith(arkaFinalInstaller),
+  'neither ARKA nor the compatible GATI rack version owner is last in prebuild',
+);
+check(prebuild.includes(arkaFinalInstaller), 'ARKA daily-close installer is missing from prebuild');
+if (hasRackFinalOwner) {
+  check(
+    prebuild.lastIndexOf(arkaFinalInstaller) < prebuild.lastIndexOf(rackFinalInstaller),
+    'GATI rack version owner does not run after ARKA daily close',
+  );
+}
 check(String(pkg.scripts?.build || '').includes('npm run test:arka-daily-close-v2'), 'daily close verifier is not in full build');
 check(String(pkg.scripts?.['test:arka-daily-close-v2'] || '').includes('verify-arka-daily-close-v2.mjs'), 'daily close test script missing');
 check(String(pkg.version || '').includes('arka-daily-close-v2'), 'package version not bumped');
 check(vite.includes('v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1'), 'PWA cache generation not bumped compatibly');
-check(vite.includes('sw-navigation-diag.js?v=3510'), 'service worker import generation not bumped');
+if (hasRackFinalOwner) {
+  check(vite.includes('gati-rack-save-v1'), 'GATI rack cache generation missing after ARKA');
+  check(vite.includes('sw-navigation-diag.js?v=3511'), 'service worker import generation not bumped for rack save');
+} else {
+  check(vite.includes('sw-navigation-diag.js?v=3510'), 'service worker import generation not bumped');
+}
 check(epoch.includes('arka-daily-close-v2'), 'runtime app version not bumped');
 check(index.includes('arka-daily-close-v2'), 'HTML build identity not bumped');
 
@@ -48,4 +68,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('PASS ARKA daily close V2: one-way handoff acceptance, automatic advance OUT, server dry-run, physical cash reconciliation and audited discrepancy are wired.');
+console.log('PASS ARKA daily close V2: one-way handoff acceptance, automatic advance OUT, server dry-run, physical cash reconciliation, audited discrepancy, and compatible final version owners are wired.');
