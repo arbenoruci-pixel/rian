@@ -1,6 +1,6 @@
 name: One-time ship home search BASE role boundary V1
 
-# Retry 2: remove the legacy getKind definition after installing the authoritative classifier.
+# Retry 3: legacy permanent-T-code installer now defers to the final role boundary.
 on:
   push:
     branches: [main]
@@ -46,6 +46,7 @@ jobs:
             app/page.jsx \
             tools/apply-home-search-base-role-boundary-v1.mjs \
             tools/verify-home-search-base-role-boundary-v1.mjs \
+            tools/apply-home-search-permanent-tcode-v1.mjs \
             tools/apply-arka-daily-close-v2.mjs \
             tools/verify-arka-daily-close-v2.mjs \
             package.json \
