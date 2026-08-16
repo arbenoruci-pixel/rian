@@ -463,9 +463,76 @@ function hasConcreteReadyRack(row = {}) {
   return hasConcreteRackLocation(getConcreteReadySlots(row));
 }
 
+// GATI_CLEAR_RACK_LOCATION_VISUAL_V1: group deep-room and main-rack locations for fast worker reading.
 function formatConcreteReadyRack(row = {}) {
   const slots = getConcreteReadySlots(row);
-  return slots.length ? slots.map((slot) => formatRackLocationLabel(slot)).join(', ') : '';
+  if (!slots.length) return '';
+
+  const groups = {
+    FURRA_POSHT: [],
+    FURRA_NALT: [],
+    MAIN_A: [],
+    MAIN_B: [],
+  };
+
+  for (const rawSlot of slots) {
+    const slot = String(rawSlot || '').trim().toUpperCase();
+    let match = slot.match(/^FURRA_POSHT_A(\d{1,2})$/);
+    if (match) {
+      groups.FURRA_POSHT.push(`A${Number(match[1])}`);
+      continue;
+    }
+    match = slot.match(/^FURRA_NALT_A(\d{1,2})$/);
+    if (match) {
+      groups.FURRA_NALT.push(`A${Number(match[1])}`);
+      continue;
+    }
+    match = slot.match(/^A(\d{1,2})$/);
+    if (match) {
+      groups.MAIN_A.push(`A${Number(match[1])}`);
+      continue;
+    }
+    match = slot.match(/^B(\d{1,2})$/);
+    if (match) groups.MAIN_B.push(`B${Number(match[1])}`);
+  }
+
+  const sortSlots = (list) => Array.from(new Set(list)).sort((a, b) => {
+    const an = Number(String(a).replace(/\D/g, '')) || 0;
+    const bn = Number(String(b).replace(/\D/g, '')) || 0;
+    return an - bn;
+  });
+
+  const parts = [];
+  const posht = sortSlots(groups.FURRA_POSHT);
+  const nalt = sortSlots(groups.FURRA_NALT);
+  const main = sortSlots([...groups.MAIN_A, ...groups.MAIN_B]);
+  if (posht.length) parts.push(`FURRA POSHT — ${posht.join(', ')}`);
+  if (nalt.length) parts.push(`FURRA NALT — ${nalt.join(', ')}`);
+  if (main.length) parts.push(`RAFTI KRYESOR — ${main.join(', ')}`);
+
+  return parts.join('  •  ') || slots.map((slot) => formatRackLocationLabel(slot)).join(', ');
+}
+
+function getReadyRackVisual(row = {}) {
+  const concrete = formatConcreteReadyRack(row);
+  if (concrete) return { label: `📍 ${concrete}`, valid: true, warning: false };
+
+  const raw = String(
+    row?.ready_location
+      || row?.readyNote
+      || row?.ready_note
+      || row?.fullOrder?.ready_location
+      || row?.fullOrder?.ready_note
+      || ''
+  ).trim();
+  const plain = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  if (plain.includes('FURRA POSHT')) {
+    return { label: '📍 FURRA POSHT — PA NUMËR RAFI', valid: false, warning: true };
+  }
+  if (plain.includes('FURRA NALT') || plain.includes('FURRA LART')) {
+    return { label: '📍 FURRA NALT — PA NUMËR RAFI', valid: false, warning: true };
+  }
+  return { label: '📍 PA RAFT', valid: false, warning: true };
 }
 
 function buildConcreteRackRequiredMessage(prefix = 'Nuk lejohet me vazhdu.') {
@@ -2672,7 +2739,20 @@ function GatiPageInner() {
   }
 
   async function savePlaceCard() {
-    if (!placeOrderId) return;
+    // GATI_RACK_SAVE_V1: one canonical DB write, verified before the modal closes.
+    const orderRef = String(
+      placeOrderId ||
+      placeOrder?.db_id ||
+      placeOrder?.server_id ||
+      placeOrder?.local_oid ||
+      placeOrder?.oid ||
+      placeOrder?.id ||
+      ''
+    ).trim();
+    if (!orderRef) {
+      setPlaceErr('Mungon identiteti i porosisë. Mbylle dhe hape kartelën përsëri.');
+      return;
+    }
 
     const txt = String(placeText || '').trim();
     const concreteSlots = normalizeRackSlots(selectedSlots);
@@ -2680,55 +2760,157 @@ function GatiPageInner() {
       setPlaceErr(buildConcreteRackRequiredMessage('Nuk u ruajt.'));
       return;
     }
-    const actor = readActor();
 
+    const actor = readActor() || {};
+    const actorPin = String(actor?.pin || actor?.transport_id || actor?.id || '').trim();
+    const actorName = String(actor?.name || actor?.pin || actor?.role || 'STAF').trim();
+    const nowIso = new Date().toISOString();
     const slotLabel = concreteSlots.map((slot) => formatRackLocationLabel(slot)).join(', ');
-    const finalNoteString = txt && txt !== slotLabel ? `📍 [${slotLabel}] ${txt}`.trim() : `📍 [${slotLabel}]`;
+    const finalNoteString = txt && txt !== slotLabel
+      ? ('📍 [' + slotLabel + '] ' + txt).trim()
+      : '📍 [' + slotLabel + ']';
 
-    const patch = {
+    const baseOrder = placeOrder && typeof placeOrder === 'object' ? placeOrder : {};
+    const cleanDraftLifecycle = {
+      ...(baseOrder?.draft_lifecycle && typeof baseOrder.draft_lifecycle === 'object' ? baseOrder.draft_lifecycle : {}),
+      db_draft: false,
+      db_draft_status: 'finalized',
+    };
+    const cleanCodeLifecycle = {
+      ...(baseOrder?.pranimi_code_lifecycle && typeof baseOrder.pranimi_code_lifecycle === 'object' ? baseOrder.pranimi_code_lifecycle : {}),
+      db_draft: false,
+      db_draft_status: 'finalized',
+    };
+    const merged = {
+      ...baseOrder,
+      status: 'gati',
+      state: 'gati',
       ready_note: finalNoteString,
       ready_note_text: txt,
       ready_location: slotLabel,
-      ready_note_at: new Date().toISOString(),
-      ready_note_by: actor?.name || actor?.role || 'UNKNOWN',
+      ready_note_at: nowIso,
+      ready_note_by: actorName,
+      ready_note_by_pin: actorPin || null,
       ready_slots: concreteSlots,
+      pranimi_db_draft: false,
+      is_pranimi_incomplete_draft: false,
+      draft_lifecycle: cleanDraftLifecycle,
+      pranimi_code_lifecycle: cleanCodeLifecycle,
     };
 
     setPlaceBusy(true);
     setPlaceErr('');
     try {
-      const merged = { ...(placeOrder || {}), ...patch };
-
-      try {
-        await saveOrderLocal(merged);
-      } catch {}
-      try { patchBaseMasterRow({ id: placeOrderId, table: 'orders', ...merged }); } catch {}
-      try {
-        scheduleLocalShadowWrite(`order_${placeOrderId}`, merged, 650);
-      } catch {}
-
-      let online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+      const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+      let canonicalId = orderRef;
+      let canonicalLocalOid = String(baseOrder?.local_oid || baseOrder?.oid || '').trim();
+      let canonicalData = merged;
 
       if (online) {
-        await updateOrderData('orders', placeOrderId, () => merged, { updated_at: new Date().toISOString() });
+        const { data: saved, error: saveError } = await supabase.rpc('save_base_order_rack_location_v1', {
+          p_order_ref: orderRef,
+          p_slots: concreteSlots,
+          p_note: txt,
+          p_actor_pin: actorPin || null,
+          p_actor_name: actorName || null,
+        });
+        if (saveError) throw saveError;
+        if (saved?.ok !== true) throw new Error(saved?.message || 'RACK_SAVE_DB_REJECTED');
+
+        const savedSlots = normalizeRackSlots(saved?.ready_slots || []);
+        const expectedKey = concreteSlots.slice().sort().join('|');
+        const savedKey = savedSlots.slice().sort().join('|');
+        if (expectedKey !== savedKey || String(saved?.ready_location || '').trim() !== slotLabel) {
+          throw new Error('RACK_SAVE_DB_VERIFICATION_FAILED');
+        }
+
+        canonicalId = String(saved?.order_id || orderRef).trim();
+        canonicalLocalOid = String(saved?.local_oid || canonicalLocalOid).trim();
+        canonicalData = saved?.order_data && typeof saved.order_data === 'object'
+          ? saved.order_data
+          : merged;
       } else {
-        await queueOp('patch_order_data', { id: placeOrderId, data: { data: merged, updated_at: new Date().toISOString() } });
+        const offlineRow = {
+          ...merged,
+          id: String(baseOrder?.id || orderRef),
+          local_oid: canonicalLocalOid || String(baseOrder?.id || orderRef),
+          _local: true,
+          _synced: false,
+          _syncPending: true,
+        };
+        await saveOrderLocal(offlineRow);
+        await queueOp('patch_order_data', {
+          id: orderRef,
+          data: { data: merged, updated_at: nowIso },
+        });
       }
 
-      setOrders((prev) =>
-        (prev || []).map((x) =>
-          String(x.id) === String(placeOrderId)
-            ? { ...x, readyNote: finalNoteString, readySlots: concreteSlots, ready_location: slotLabel }
-            : x
-        )
-      );
-      await refreshRackMap({ force: true });
-      closePlaceCard();
-    } catch (e) {
+      const localRow = {
+        ...canonicalData,
+        id: canonicalId,
+        local_oid: canonicalLocalOid || String(canonicalData?.local_oid || canonicalData?.id || canonicalId),
+        status: 'gati',
+        state: 'gati',
+        ready_note: finalNoteString,
+        ready_note_text: txt,
+        ready_location: slotLabel,
+        ready_slots: concreteSlots,
+        table: 'orders',
+        _local: !online,
+        _synced: online,
+        _syncPending: !online,
+      };
+
+      try { await saveOrderLocal(localRow); } catch {}
+      try { patchBaseMasterRow(localRow); } catch {}
+      try { scheduleLocalShadowWrite('order_' + canonicalId, localRow, 150); } catch {}
+
+      setOrders((prev) => (prev || []).map((row) => {
+        const rowId = String(row?.id || '').trim();
+        if (rowId !== String(placeOrderId || '').trim() && rowId !== canonicalId) return row;
+        return {
+          ...row,
+          id: canonicalId,
+          local_oid: canonicalLocalOid || row?.local_oid || '',
+          readyNote: finalNoteString,
+          ready_location: slotLabel,
+          ready_note_text: txt,
+          ready_slots: concreteSlots,
+          fullOrder: {
+            ...(row?.fullOrder || {}),
+            ...canonicalData,
+            id: canonicalId,
+            local_oid: canonicalLocalOid || row?.fullOrder?.local_oid || '',
+            ready_note: finalNoteString,
+            ready_note_text: txt,
+            ready_location: slotLabel,
+            ready_slots: concreteSlots,
+          },
+        };
+      }));
+
+      try { await refreshRackMap({ force: true }); } catch {}
       try {
-        await queueOp('patch_order_data', { id: placeOrderId, data: { data: merged, updated_at: new Date().toISOString() } });
+        gatiDbg('gati_rack_save_v1_success', {
+          orderRef,
+          canonicalId,
+          code: normalizeCode(placeOrder?.code || placeOrder?.client?.code || ''),
+          slots: concreteSlots,
+          online,
+        });
       } catch {}
-      setPlaceErr("S'u ruajt online, por u ruajt lokalisht.");
+      closePlaceCard();
+    } catch (error) {
+      const message = String(error?.message || error?.details || error || '').trim();
+      try {
+        gatiDbg('gati_rack_save_v1_failed', {
+          orderRef,
+          slots: concreteSlots,
+          message,
+          online: typeof navigator === 'undefined' ? true : navigator.onLine !== false,
+        });
+      } catch {}
+      setPlaceErr('Nuk u ruajt në databazë. ' + (message || 'Provo përsëri.'));
     } finally {
       setPlaceBusy(false);
     }
@@ -4119,9 +4301,9 @@ async function resolveReturnDbId(row) {
             const audit = readAuditState(o?.fullOrder || o || {}, o || {});
             const auditBadge = buildAuditBadge({ ...(o || {}), audit });
             const discrepancy = deriveAuditDiscrepancy({ ...(o || {}), audit });
-            const concreteReadyRack = formatConcreteReadyRack(o);
-            const hasReadyRack = !!concreteReadyRack;
-            const readyLocationLabel = hasReadyRack ? `📍 ${concreteReadyRack}` : '📍 PA RAFT';
+            const rackVisual = getReadyRackVisual(o);
+            const hasReadyRack = rackVisual.valid;
+            const readyLocationLabel = rackVisual.label;
 
             return (
               <div
@@ -4192,8 +4374,10 @@ async function resolveReturnDbId(row) {
                       onClick={() => openPlaceCard(o)}
                       style={{ display: 'block', padding: 0, border: 0, background: 'transparent', textAlign: 'left', fontSize: 11, color: hasReadyRack ? '#4ade80' : '#f59e0b', fontWeight: 900, cursor: 'pointer' }}
                     >
-                      {readyLocationLabel.slice(0, 48)}
-                      {!hasReadyRack ? <span style={{ marginLeft: 6, color: '#bfdbfe' }}>VENDOS RAFTIN</span> : null}
+                      <span style={{ display: 'block', whiteSpace: 'normal', lineHeight: 1.3 }}>
+                        {readyLocationLabel}
+                      </span>
+                      {!hasReadyRack ? <span style={{ display: 'inline-block', marginTop: 4, color: '#bfdbfe' }}>VENDOS RAFTIN KONKRET</span> : null}
                     </button>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
                       <span style={{ fontSize: 10, fontWeight: 900, padding: '4px 8px', borderRadius: 999, background: auditBadge.bg, color: auditBadge.color }}>
