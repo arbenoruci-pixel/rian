@@ -1,6 +1,6 @@
 name: One-time ship GATI rack save V1
 
-# Retry 2: home-search compatibility verifier accepts the final rack version owner.
+# Retry 3: ARKA and Home compatibility verifiers accept the final rack version owner.
 on:
   push:
     branches: [main]
