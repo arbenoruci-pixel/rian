@@ -2,6 +2,7 @@ import fs from 'node:fs';
 
 const targetPath = 'lib/homeSearch.js';
 const marker = 'HOME_SEARCH_PERMANENT_TCODE_V1';
+const finalBoundaryMarker = 'HOME_SEARCH_BASE_ROLE_BOUNDARY_V1';
 
 function replaceOnce(source, oldText, newText, label) {
   if (source.includes(newText)) {
@@ -19,6 +20,15 @@ function replaceOnce(source, oldText, newText, label) {
 }
 
 let source = fs.readFileSync(targetPath, 'utf8');
+
+// The final BASE/Transport role boundary supersedes this legacy code-shape
+// installer while preserving permanent T-code matching for genuine transport rows.
+// During a full prebuild the final installer may already have run once (for example
+// in a verification workflow), so this older installer must never overwrite it.
+if (source.includes(finalBoundaryMarker)) {
+  console.log('SKIP home search permanent T-code V1: superseded by final BASE/Transport role boundary V1');
+  process.exit(0);
+}
 
 const oldPickCode = `function pickCode(row) {
   const data = unwrapData(row);
