@@ -1,5 +1,6 @@
 name: One-time ship home search BASE role boundary V1
 
+# Retry 2: remove the legacy getKind definition after installing the authoritative classifier.
 on:
   push:
     branches: [main]
