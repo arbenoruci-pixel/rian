@@ -58,6 +58,39 @@ function cleanClientCode(value) {
   return String(value || '').replace(/^#+/, '').trim();
 }
 
+// HOME_SCREEN_PAYMENT_RECEIPT_SMS_V1
+function normalizeReceiptPhone(value) {
+  const digits = String(value || '').replace(/\D+/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('383')) return '+' + digits;
+  if (digits.startsWith('0')) return '+383' + digits.slice(1);
+  return '+' + digits;
+}
+
+function sendPaymentReceiptSms(result, event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const phone = normalizeReceiptPhone(result?.phone);
+  const paid = Math.max(0, Number(result?.paidAmount || 0));
+  if (!phone) return window.alert('Klienti nuk ka numër telefoni.');
+  if (!(paid > 0)) return window.alert('Nuk u gjet pagesa e fundit për këtë porosi.');
+  const balance = Math.max(0, Number(result?.balanceAmount || 0));
+  const code = cleanClientCode(result?.clientCode || result?.code || '');
+  const name = String(result?.name || 'klient').trim() || 'klient';
+  const rawDate = result?.paymentDate ? new Date(result.paymentDate) : new Date();
+  const date = Number.isFinite(rawDate.getTime())
+    ? rawDate.toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : new Date().toLocaleDateString('sq-AL');
+  const text = [
+    'Përshëndetje ' + name + ',',
+    'Ju konfirmojmë se për tepihat me kod ' + (code || '—') + ' keni paguar ' + paid.toFixed(2) + ' € më ' + date + '.',
+    balance > 0 ? 'Borxhi i mbetur: ' + balance.toFixed(2) + ' €.' : 'Pagesa është përfunduar plotësisht.',
+    '',
+    'Faleminderit, KOMPANIA JONI'
+  ].join('\n');
+  window.location.href = 'sms:' + phone + '?&body=' + encodeURIComponent(text);
+}
+
 export default function HomePage() {
   useRouteAlive('home_old_search_restore_v20');
   const router = useRouter();
@@ -195,7 +228,8 @@ export default function HomePage() {
     setOpeningResultKey(resultKey || 'opening');
     setSearchMessage('Duke verifikuar statusin aktual në DB...');
     try {
-      const resolved = await resolveHomeSearchTarget(result);
+      // HOME_SEARCH_LIVE_RESOLVER_COMPAT: await resolveHomeSearchTarget(result)
+      const resolved = await resolveHomeSearchTarget(result, { query: q });
       const href = resolved?.href || buildHomeSearchHref(result);
       if (!href) throw new Error('NUK U GJET FAQJA E POROSISË.');
       router.push(href);
@@ -340,8 +374,8 @@ export default function HomePage() {
 
                       <div className="result-footer">
                         <div className="workers-info">
-                          {result.createdBy ? <div>👤 <span>SJELLË NGA:</span> {String(result.createdBy)}</div> : null}
-                          {!isTransport && result.transporter ? <div className="transport-worker">🚚 <span>PRU NGA:</span> {String(result.transporter).toUpperCase()}</div> : null}
+                          {result.createdBy ? <div>👤 <span>REGJISTRUAR NGA:</span> {String(result.createdBy)}</div> : null}
+                          {!isTransport && result.transporter ? <div className="transport-worker">🚚 <span>TRANSPORTI:</span> {String(result.transporter).toUpperCase()}</div> : null}
                           {isTransport ? <div className="transport-worker">🚚 <span>TRANSPORT</span></div> : null}
                           {isTransport ? (
                             <div className="transport-extra">
@@ -364,6 +398,11 @@ export default function HomePage() {
                           ) : null}
                         </div>
                         <div className="result-actions">
+                          {result?.phone && Number(result?.paidAmount || 0) > 0 ? (
+                            <button className="new-order-btn" type="button" onClick={(event) => sendPaymentReceiptSms(result, event)}>
+                              📩 SMS PAGESA
+                            </button>
+                          ) : null}
                           {isBaseResult(result) ? (
                             <button className="new-order-btn" type="button" onClick={(event) => handleCreateNewForClient(result, event)}>
                               ➕ KRIJO POROSI TË RE PËR KËTË KLIENT
