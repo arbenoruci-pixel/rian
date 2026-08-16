@@ -1,5 +1,6 @@
 name: One-time ship GATI rack save V1
 
+# Retry 2: home-search compatibility verifier accepts the final rack version owner.
 on:
   push:
     branches: [main]
@@ -47,6 +48,7 @@ jobs:
             tools/verify-gati-rack-save-v1.mjs \
             tools/apply-arka-daily-close-v2.mjs \
             tools/verify-arka-daily-close-v2.mjs \
+            tools/verify-home-search-base-role-boundary-v1.mjs \
             package.json \
             vite.config.js \
             lib/appEpoch.js \
