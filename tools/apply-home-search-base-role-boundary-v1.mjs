@@ -163,6 +163,12 @@ function getKind(row) {
   return 'BASE';
 }`);
 
+    const firstKindStart = source.indexOf('function getKind(row)');
+    const duplicateKindStart = source.indexOf('function getKind(row)', firstKindStart + 1);
+    if (duplicateKindStart >= 0) {
+      source = replaceNamedFunction(source, 'function getKind(row)', '', duplicateKindStart);
+    }
+
     source = replaceNamedFunction(source, 'function pickTransporter(row)', `function pickTransporter(row) {
   const data = unwrapData(row);
   return pickFirstVisiblePerson(
