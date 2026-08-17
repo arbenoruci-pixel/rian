@@ -18,13 +18,18 @@ function m2(value) {
 }
 
 export default function ReadyBonusLiveCard({ actor = null, style = null }) {
+  // FIXED_ROUTE_CASH_CLARITY_V1: the 72h programme is base-only.
+  // Transport workers must not see a zero-value bonus card that can be mistaken
+  // for a deduction or a right to retain client cash.
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState('');
   const pin = String(actor?.pin || '').trim();
+  const role = String(actor?.role || '').trim().toUpperCase();
   const manager = canManageBaseReadyBonuses(actor?.role);
+  const eligible = manager || role !== 'TRANSPORT';
 
   useEffect(() => {
-    if (!pin) return undefined;
+    if (!pin || !eligible) return undefined;
     let cancelled = false;
     let inFlight = false;
     const load = async () => {
@@ -52,9 +57,9 @@ export default function ReadyBonusLiveCard({ actor = null, style = null }) {
       window.removeEventListener('arka:refresh', onRefresh);
       window.removeEventListener('base-ready-bonus:refresh', onRefresh);
     };
-  }, [pin, manager]);
+  }, [pin, manager, eligible]);
 
-  if (!pin || (!summary && !error)) return null;
+  if (!eligible || !pin || (!summary && !error)) return null;
   const totals = summary?.totals || {};
   const config = summary?.config || {};
   const windowHours = Number(config?.window_hours || 72) || 72;
