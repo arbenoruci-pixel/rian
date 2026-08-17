@@ -26,7 +26,7 @@ if (!source.includes(MARKER)) {
   if (existingIndex >= 0) {
     const tagEnd = source.indexOf('>', existingIndex);
     const tag = tagEnd >= 0 ? source.slice(existingIndex, tagEnd + 1) : '';
-    if (tag.includes("display:'none'") || tag.includes('display: \'none\'')) return source;
+    if (tag.includes("display:'none'") || tag.includes("display: 'none'")) return source;
   }
   return source;
 }`;
