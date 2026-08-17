@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 import '@/components/ArkaWorkerDailyStatus.css';
 
 const TIME_ZONE = 'Europe/Belgrade';
@@ -11,7 +12,12 @@ const MONEY = new Intl.NumberFormat('de-DE', {
 
 const ACCEPTED_STATUSES = new Set(['ACCEPTED_BY_DISPATCH', 'APPROVED', 'ACCEPTED']);
 const PENDING_STATUSES = new Set(['PENDING', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL']);
+const OPEN_CASH_STATUSES = new Set(['PENDING', 'COLLECTED']);
 const CLOSED_STATUSES = new Set(['REJECTED', 'REFUZUAR', 'VOIDED', 'CANCELLED', 'CANCELED']);
+const LIVE_PAYMENT_STATUSES = new Set(['PENDING', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL', 'ACCEPTED_BY_DISPATCH', 'APPROVED', 'ACCEPTED']);
+const NON_CASH_TYPES = new Set(['EXPENSE', 'TIMA', 'MEAL_PAYMENT', 'MEAL_COVERED', 'READY_48H_BONUS', 'ADVANCE']);
+// ARKA_LIVE_WORKER_PAYMENTS_V1
+// FIXED_ROUTE_CASH_CLARITY_V1
 
 function number(value) {
   const parsed = Number(value || 0);
@@ -134,13 +140,105 @@ function Metric({ label, value, sub = '', tone = 'neutral' }) {
 
 export default function ArkaWorkerDailyStatus({ snapshot, actor }) {
   // ARKA_WORKER_DAILY_STATUS_V1:COMPONENT
+  const [livePayments, setLivePayments] = useState([]);
+  const [profile, setProfile] = useState(null);
+  const [liveLoaded, setLiveLoaded] = useState(false);
+
+  useEffect(() => {
+    const pin = String(actor?.pin || snapshot?.worker?.pin || '').trim();
+    if (!pin) {
+      setLivePayments([]);
+      setProfile(null);
+      setLiveLoaded(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timer = null;
+
+    const load = async () => {
+      try {
+        const [paymentRes, profileRes] = await Promise.all([
+          supabase
+            .from('arka_pending_payments')
+            .select('id,amount,type,status,note,client_name,client_phone,order_code,transport_order_id,transport_code_str,transport_m2,source_module,created_by_pin,created_by_name,created_at,updated_at,handed_at')
+            .eq('created_by_pin', pin)
+            .order('created_at', { ascending: false })
+            .limit(160),
+          supabase
+            .from('users')
+            .select('pin,name,role,is_hybrid_transport,commission_rate_m2,bonus_transport,bonus_ushqim')
+            .eq('pin', pin)
+            .maybeSingle(),
+        ]);
+
+        if (paymentRes?.error) throw paymentRes.error;
+        if (cancelled) return;
+        setLivePayments(Array.isArray(paymentRes?.data) ? paymentRes.data : []);
+        setLiveLoaded(true);
+        if (!profileRes?.error) setProfile(profileRes?.data || null);
+      } catch {
+        // Keep the last valid snapshot visible if live refresh is temporarily unavailable.
+      }
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState !== 'hidden') void load();
+    };
+
+    setLiveLoaded(false);
+    void load();
+    timer = window.setInterval(load, 15000);
+    window.addEventListener('focus', load);
+    window.addEventListener('pageshow', load);
+    window.addEventListener('arka:refresh', load);
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+      window.removeEventListener('focus', load);
+      window.removeEventListener('pageshow', load);
+      window.removeEventListener('arka:refresh', load);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [actor?.pin, snapshot?.worker?.pin]);
+
+  const profileRole = upper(profile?.role || snapshot?.worker?.role || actor?.role);
+  const hybridFlag = profile?.is_hybrid_transport
+    ?? snapshot?.worker?.is_hybrid_transport
+    ?? actor?.is_hybrid_transport
+    ?? false;
+  const isFixedRouteTransport = profileRole === 'TRANSPORT' && hybridFlag !== true;
+
   const daily = useMemo(() => {
     const today = dateKey(new Date());
 
-    const cashRows = uniqueRows([
-      ...(Array.isArray(snapshot?.cashBreakdownRows) ? snapshot.cashBreakdownRows : []),
+    const snapshotOpenRows = uniqueRows(snapshot?.cashBreakdownRows);
+    const snapshotTodayCashRows = uniqueRows([
+      ...snapshotOpenRows,
       ...(Array.isArray(snapshot?.acceptedCashBreakdownRows) ? snapshot.acceptedCashBreakdownRows : []),
     ]).filter((row) => isToday(row?.created_at || row?.raw?.created_at, today));
+
+    const liveCashRows = uniqueRows(livePayments)
+      .map((row) => row?.raw || row)
+      .filter((row) => LIVE_PAYMENT_STATUSES.has(upper(row?.status)))
+      .filter((row) => !NON_CASH_TYPES.has(upper(row?.type)));
+
+    const paymentActivityRows = uniqueRows([
+      ...snapshotTodayCashRows.map((row) => row?.raw || row),
+      ...liveCashRows.filter((row) => isToday(row?.created_at, today)),
+    ])
+      .map((row) => row?.raw || row)
+      .filter((row) => isToday(row?.created_at, today))
+      .sort((a, b) => String(b?.created_at || '').localeCompare(String(a?.created_at || '')));
+
+    const liveOpenRows = liveCashRows.filter((row) => OPEN_CASH_STATUSES.has(upper(row?.status)));
+    const liveTodayOpenRows = liveOpenRows.filter((row) => isToday(row?.created_at, today));
+    const liveCarryoverRows = liveOpenRows.filter((row) => !isToday(row?.created_at, today));
+
+    const snapshotTodayOpenRows = snapshotOpenRows.filter((row) => isToday(row?.created_at || row?.raw?.created_at, today));
+    const snapshotCarryoverRows = snapshotOpenRows.filter((row) => !isToday(row?.created_at || row?.raw?.created_at, today));
 
     const expenseRows = uniqueRows(snapshot?.allExtraRows)
       .map((row) => row?.raw || row)
@@ -160,26 +258,48 @@ export default function ArkaWorkerDailyStatus({ snapshot, actor }) {
       .map((row) => row?.raw || row)
       .filter((row) => isToday(row?.submitted_at || row?.created_at, today));
 
+    const snapshotCurrentDue = number(snapshot?.baseCashForDispatchTotal ?? snapshot?.remainingToHandover ?? snapshot?.dueTotal);
+    const fixedRouteCurrentDue = liveLoaded
+      ? sum(liveOpenRows, (row) => row?.amount)
+      : snapshotCurrentDue;
+    const fixedRouteTodayOpen = liveLoaded
+      ? sum(liveTodayOpenRows, (row) => row?.amount)
+      : sum(snapshotTodayOpenRows, (row) => row?.gross ?? row?.raw?.amount ?? row?.baseAmount);
+    const fixedRouteCarryover = liveLoaded
+      ? sum(liveCarryoverRows, (row) => row?.amount)
+      : Math.max(0, Number((snapshotCurrentDue - fixedRouteTodayOpen).toFixed(2)));
+
+    const normalTodayBase = sum(snapshotTodayCashRows, (row) => row?.baseAmount ?? row?.raw?.amount ?? row?.gross);
+    const normalCarryoverBase = sum(snapshotCarryoverRows, (row) => row?.baseAmount ?? row?.raw?.amount ?? row?.gross);
+
     return {
       today,
-      cashRows,
+      cashRows: snapshotTodayCashRows,
+      paymentActivityRows,
       expenseRows,
       acceptedExpenses,
       pendingExpenses,
-      cashGross: sum(cashRows, (row) => row?.gross ?? row?.raw?.amount),
-      commission: sum(cashRows, (row) => row?.commission),
-      cashForBase: sum(cashRows, (row) => row?.baseAmount),
+      cashGross: sum(paymentActivityRows, (row) => row?.amount ?? row?.raw?.amount ?? row?.gross),
+      commission: isFixedRouteTransport ? 0 : sum(snapshotTodayCashRows, (row) => row?.commission),
+      cashForBase: isFixedRouteTransport ? fixedRouteTodayOpen : normalTodayBase,
+      carryoverForBase: isFixedRouteTransport ? fixedRouteCarryover : normalCarryoverBase,
+      carryoverCount: isFixedRouteTransport
+        ? (liveLoaded ? liveCarryoverRows.length : snapshotCarryoverRows.length)
+        : snapshotCarryoverRows.length,
+      openCount: isFixedRouteTransport
+        ? (liveLoaded ? liveOpenRows.length : snapshotOpenRows.length)
+        : snapshotOpenRows.length,
       expenses: sum(expenseRows, (row) => row?.amount),
       acceptedExpensesTotal: sum(acceptedExpenses, (row) => row?.amount),
       pendingExpensesTotal: sum(pendingExpenses, (row) => row?.amount),
       delivered: sum(deliveredRows, (row) => row?.amount),
       pendingHandoff: sum(pendingHandoffRows, (row) => row?.amount),
-      currentDue: number(snapshot?.baseCashForDispatchTotal ?? snapshot?.remainingToHandover ?? snapshot?.dueTotal),
+      currentDue: isFixedRouteTransport ? fixedRouteCurrentDue : snapshotCurrentDue,
     };
-  }, [snapshot]);
+  }, [snapshot, livePayments, liveLoaded, isFixedRouteTransport]);
 
-  const movementCount = daily.cashRows.length + daily.expenseRows.length;
-  const workerName = String(actor?.name || snapshot?.worker?.name || 'PUNTORI').trim().toUpperCase();
+  const movementCount = daily.paymentActivityRows.length + daily.expenseRows.length;
+  const workerName = String(actor?.name || profile?.name || snapshot?.worker?.name || 'PUNTORI').trim().toUpperCase();
 
   return (
     <section className="arkaSectionCard arkaDailyStatusCard">
@@ -192,7 +312,7 @@ export default function ArkaWorkerDailyStatus({ snapshot, actor }) {
         <div className="arkaDailyCurrent">
           <span>PËR BAZË TASH</span>
           <b>{euro(daily.currentDue)}</b>
-          <small>CASH QË DUHET ME DORËZU</small>
+          <small>KREJT CASH-I I PA DORËZUAR</small>
         </div>
       </div>
 
@@ -200,15 +320,24 @@ export default function ArkaWorkerDailyStatus({ snapshot, actor }) {
         <Metric
           label="KLIENTËT PAGUAN SOT"
           value={euro(daily.cashGross)}
-          sub={`${daily.cashRows.length} PAGESA`}
+          sub={`${daily.paymentActivityRows.length} PAGESA`}
           tone="ok"
         />
-        <Metric
-          label="KOMISIONI IM SOT"
-          value={euro(daily.commission)}
-          sub={`PËR BAZË NGA PAGESAT: ${euro(daily.cashForBase)}`}
-          tone="info"
-        />
+        {isFixedRouteTransport ? (
+          <Metric
+            label="MBETUR NGA MË HERËT"
+            value={euro(daily.carryoverForBase)}
+            sub={`${daily.carryoverCount} PAGESA TË PA DORËZUARA`}
+            tone="info"
+          />
+        ) : (
+          <Metric
+            label="KOMISIONI IM SOT"
+            value={euro(daily.commission)}
+            sub={`PËR BAZË NGA PAGESAT: ${euro(daily.cashForBase)}`}
+            tone="info"
+          />
+        )}
         <Metric
           label="SHPENZIME SOT"
           value={euro(daily.expenses)}
@@ -222,6 +351,54 @@ export default function ArkaWorkerDailyStatus({ snapshot, actor }) {
           tone="strong"
         />
       </div>
+
+      {isFixedRouteTransport ? (
+        <div className="arkaDailyExpenseBox">
+          <div className="arkaDailyExpenseHead">
+            <span>RRUGË FIKSE • PA KOMISION • PA BONUS</span>
+            <b>{euro(daily.currentDue)}</b>
+          </div>
+          <div className="arkaDailyExpenseList">
+            <div className="arkaDailyExpenseRow">
+              <div>
+                <strong>TOTALI QË DUHET ME DORËZU</strong>
+                <small>{euro(daily.cashForBase)} SOT + {euro(daily.carryoverForBase)} NGA MË HERËT</small>
+              </div>
+              <div className="arkaDailyExpenseRight">
+                <b>{euro(daily.currentDue)}</b>
+                <span className="arkaDailyStatusPill pending">{daily.openCount} PAGESA</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {daily.paymentActivityRows.length ? (
+        <div className="arkaDailyExpenseBox">
+          <div className="arkaDailyExpenseHead">
+            <span>PAGESAT E SOTME</span>
+            <b>{daily.paymentActivityRows.length}</b>
+          </div>
+          <div className="arkaDailyExpenseList">
+            {daily.paymentActivityRows.slice(0, 12).map((row) => {
+              const code = String(row?.transport_code_str || row?.order_code || '—').trim().toUpperCase();
+              const client = String(row?.client_name || 'KLIENT').trim().toUpperCase();
+              return (
+                <div className="arkaDailyExpenseRow" key={`daily_payment_${row?.id || row?.created_at}`}>
+                  <div>
+                    <strong>{code} • {client}</strong>
+                    <small>{stamp(row?.created_at)} • {statusLabel(row?.status)}</small>
+                  </div>
+                  <div className="arkaDailyExpenseRight">
+                    <b>{euro(row?.amount)}</b>
+                    <span className={`arkaDailyStatusPill ${statusTone(row?.status)}`}>{statusLabel(row?.status)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       {daily.expenseRows.length ? (
         <div className="arkaDailyExpenseBox">
@@ -246,7 +423,7 @@ export default function ArkaWorkerDailyStatus({ snapshot, actor }) {
         </div>
       ) : null}
 
-      {!movementCount ? (
+      {!movementCount && daily.currentDue <= 0 ? (
         <div className="arkaDailyEmpty">SOT ENDE S’KA PAGESA OSE SHPENZIME TË REGJISTRUARA NË KËTË ARKË.</div>
       ) : null}
     </section>
