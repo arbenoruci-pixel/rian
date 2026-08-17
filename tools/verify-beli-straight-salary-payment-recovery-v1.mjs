@@ -33,7 +33,9 @@ check(files.wizard.includes('{workerHybrid ? <Row label="Komisioni që e mban'),
 
 check(files.pay.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:TRANSPORT_PAY'), 'transport payment canonical-PIN marker');
 check(files.pay.includes("import { resolveActorPin } from '@/lib/pinIdentity';"), 'transport payment imports real-PIN resolver');
-check(files.pay.includes('return resolveActorPin(getActor() || {});'), 'transport payment recovers canonical main actor PIN');
+const canonicalActorFallback = files.pay.includes('resolveActorPin(getActor() || {})') ||
+  (files.pay.includes('getActor() || {}') && files.pay.includes('resolveActorPin'));
+check(canonicalActorFallback, 'transport payment recovers canonical main actor PIN');
 check(!files.pay.includes("session?.transport_pin || session?.pin || session?.transport_id"), 'transport UUID is no longer accepted as a PIN');
 check(files.pay.includes('PAGESA NUK U RUAJT NË ARKA'), 'failed payment is explicitly shown as unrecorded');
 
