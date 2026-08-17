@@ -3,6 +3,8 @@ import fs from 'node:fs';
 const DETAIL_PATH = 'app/arka/puntor/[pin]/page.jsx';
 const PACKAGE_PATH = 'package.json';
 const GATI_INSTALLER_PATH = 'tools/apply-gati-rack-save-v1.mjs';
+const BELI_INSTALLER_PATH = 'tools/apply-beli-straight-salary-payment-recovery-v1.mjs';
+const BELI_VERIFIER_PATH = 'tools/verify-beli-straight-salary-payment-recovery-v1.mjs';
 const MARKER = 'FIXED_ROUTE_CASH_CLARITY_V1:DETAIL';
 const INSTALLER = 'node tools/apply-fixed-route-cash-clarity-v1.mjs';
 const TEST_COMMAND = 'npm run test:fixed-route-cash-v1';
@@ -14,6 +16,29 @@ function replaceOnce(source, oldText, newText, label) {
   const count = source.split(oldText).length - 1;
   if (count !== 1) throw new Error(`${label}: expected 1 match, found ${count}`);
   return source.replace(oldText, newText);
+}
+
+function patchBeliCompatibility() {
+  let installerSource = fs.readFileSync(BELI_INSTALLER_PATH, 'utf8');
+  const oldDailyStart = 'function patchDailyStatus() {\n  let source = fs.readFileSync(DAILY_PATH, \'utf8\');\n  if (!source.includes(`${MARKER}:DAILY`)) {';
+  const newDailyStart = 'function patchDailyStatus() {\n  let source = fs.readFileSync(DAILY_PATH, \'utf8\');\n  if (source.includes(\'FIXED_ROUTE_CASH_CLARITY_V1\')) {\n    if (!source.includes(`${MARKER}:DAILY`)) {\n      source = source.replace(\'// FIXED_ROUTE_CASH_CLARITY_V1\', \'// FIXED_ROUTE_CASH_CLARITY_V1\\n// BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:DAILY\');\n    }\n    fs.writeFileSync(DAILY_PATH, source, \'utf8\');\n    return;\n  }\n  if (!source.includes(`${MARKER}:DAILY`)) {';
+  installerSource = replaceOnce(installerSource, oldDailyStart, newDailyStart, 'beli-daily-fixed-route-compat');
+  fs.writeFileSync(BELI_INSTALLER_PATH, installerSource, 'utf8');
+
+  let verifierSource = fs.readFileSync(BELI_VERIFIER_PATH, 'utf8');
+  verifierSource = replaceOnce(
+    verifierSource,
+    "check(files.daily.includes('RROGË FIKSE • PA KOMISION'), 'daily status says straight salary');",
+    "check(files.daily.includes('RROGË FIKSE • PA KOMISION') || files.daily.includes('RRUGË FIKSE • PA KOMISION'), 'daily status says straight salary');",
+    'beli-verifier-straight-salary-label',
+  );
+  verifierSource = replaceOnce(
+    verifierSource,
+    "check(files.daily.includes('{workerHybrid ? ('), 'daily commission metric is conditional');",
+    "check(files.daily.includes('{workerHybrid ? (') || files.daily.includes('{isFixedRouteTransport ? ('), 'daily commission metric is conditional');",
+    'beli-verifier-fixed-route-conditional',
+  );
+  fs.writeFileSync(BELI_VERIFIER_PATH, verifierSource, 'utf8');
 }
 
 function patchWorkerDetail() {
@@ -94,6 +119,7 @@ function patchPackage() {
   fs.writeFileSync(PACKAGE_PATH, `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
 }
 
+patchBeliCompatibility();
 patchWorkerDetail();
 patchFinalVersionOwner();
 patchPackage();
