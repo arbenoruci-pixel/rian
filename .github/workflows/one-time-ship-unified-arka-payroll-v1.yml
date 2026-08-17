@@ -1,6 +1,6 @@
 name: One-time ship unified ARKA payroll V1
 
-# Retry 3: final installer is idempotent across the explicit pass and prebuild pass.
+# Retry 4: corrected quote-safe idempotence patch for the repeated prebuild pass.
 on:
   push:
     branches: [main]
