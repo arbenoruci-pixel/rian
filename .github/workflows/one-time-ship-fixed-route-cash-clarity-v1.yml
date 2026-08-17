@@ -1,0 +1,61 @@
+name: One-time ship fixed-route cash clarity V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-ship-fixed-route-cash-clarity-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Register fixed-route cash clarity as final compatible patch
+        run: node tools/apply-fixed-route-cash-clarity-v1.mjs
+
+      - name: Run full production build and all safeguards
+        run: npm run build
+
+      - name: Verify final generated source
+        run: node tools/verify-fixed-route-cash-clarity-v1.mjs
+
+      - name: Commit verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            'app/arka/puntor/[pin]/page.jsx' \
+            components/ArkaWorkerDailyStatus.jsx \
+            components/ReadyBonusLiveCard.jsx \
+            tools/apply-fixed-route-cash-clarity-v1.mjs \
+            tools/verify-fixed-route-cash-clarity-v1.mjs \
+            tools/apply-gati-rack-save-v1.mjs \
+            tools/apply-arka-daily-close-v2.mjs \
+            tools/verify-arka-daily-close-v2.mjs \
+            package.json \
+            vite.config.js \
+            lib/appEpoch.js \
+            index.html
+          if git diff --cached --quiet; then
+            echo "No generated source changes to commit."
+          else
+            git commit -m "clarify fixed-route cash and remove transport commission ambiguity"
+            git push origin HEAD:main
+          fi
