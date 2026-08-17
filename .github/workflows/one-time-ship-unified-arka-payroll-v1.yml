@@ -1,6 +1,6 @@
 name: One-time ship unified ARKA payroll V1
 
-# Retry 4: corrected quote-safe idempotence patch for the repeated prebuild pass.
+# Retry 5: canonical PIN verifier accepts the current safe actor recovery implementation.
 on:
   push:
     branches: [main]
