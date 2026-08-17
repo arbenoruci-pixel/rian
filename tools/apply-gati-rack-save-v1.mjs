@@ -10,8 +10,8 @@ const ARKA_INSTALLER_PATH = 'tools/apply-arka-daily-close-v2.mjs';
 const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 
 const MARKER = 'GATI_RACK_SAVE_V1';
-const APP_VERSION = '2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3';
-const CACHE_VERSION = 'v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3';
+const APP_VERSION = '2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1';
+const CACHE_VERSION = 'v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
   if (source[start] !== openChar) throw new Error(`${label}_OPEN_MISSING`);
@@ -301,10 +301,11 @@ function patchPackage() {
   const scripts = pkg.scripts || (pkg.scripts = {});
   const installer = 'node tools/apply-gati-rack-save-v1.mjs';
   const arkaInstaller = 'node tools/apply-arka-daily-close-v2.mjs';
+  const unifiedInstaller = 'node tools/apply-unified-arka-payroll-v1.mjs';
   const pre = String(scripts.prebuild || '')
     .split('&&').map((item) => item.trim()).filter(Boolean)
-    .filter((item) => item !== installer && item !== arkaInstaller);
-  pre.push(arkaInstaller, installer);
+    .filter((item) => item !== installer && item !== arkaInstaller && item !== unifiedInstaller);
+  pre.push(arkaInstaller, unifiedInstaller, installer);
   scripts.prebuild = pre.join(' && ');
   scripts['test:gati-rack-save-v1'] = 'node tools/verify-gati-rack-save-v1.mjs';
   const testCommand = 'npm run test:gati-rack-save-v1';

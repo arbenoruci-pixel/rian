@@ -5,6 +5,7 @@ import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import ReadyBonusLiveCard from '@/components/ReadyBonusLiveCard';
 import ArkaExpenseComposer from '@/components/ArkaExpenseComposer';
 import ArkaWorkerDailyStatus from '@/components/ArkaWorkerDailyStatus';
+import ArkaUnifiedWorkerAccount from '@/components/ArkaUnifiedWorkerAccount';
 import '@/components/ArkaExpenseComposer.css';
 import HandoffWizard from '@/components/HandoffWizard';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -2264,6 +2265,7 @@ export default function ArkaPageV3() {
   const [secondaryLoading, setSecondaryLoading] = useState(false);
   const [error, setError] = useState('');
   const [workerSnapshot, setWorkerSnapshot] = useState(null);
+  const [unifiedWorkerFinance, setUnifiedWorkerFinance] = useState(null);
   const [workerCards, setWorkerCards] = useState([]);
   const [pendingHandoffs, setPendingHandoffs] = useState([]);
   const [pendingExpenseApprovals, setPendingExpenseApprovals] = useState([]);
@@ -3193,11 +3195,13 @@ export default function ArkaPageV3() {
   async function openHandoffWizard() {
     if (busyRef.current) return;
     const rows = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
-    const total = n(workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
+    const total = n(unifiedWorkerFinance?.cash?.open_due_to_base ?? workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
     if (!workerSnapshot || total <= 0 || !rows.length) return alert('🔴 NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
     if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) return alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
     try {
-      const openBonusRows = await listOpenBaseReadyBonusPayments(actor?.pin);
+      const openBonusRows = unifiedWorkerFinance?.profile?.ready_bonus_enabled === true
+        ? await listOpenBaseReadyBonusPayments(actor?.pin)
+        : [];
       const bonusAvailable = +(openBonusRows.reduce((sum, row) => sum + n(row?.remaining_amount), 0)).toFixed(2);
       setHandoffWizard({ open: true, bonusAvailable });
     } catch {
@@ -3210,7 +3214,7 @@ export default function ArkaPageV3() {
     busyRef.current = 'handoff';
     try {
       const rows = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
-      const total = n(workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
+      const total = n(unifiedWorkerFinance?.cash?.open_due_to_base ?? workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
       if (!workerSnapshot || total <= 0 || !rows.length) throw new Error('NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
       if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) throw new Error('U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
 
@@ -3245,10 +3249,10 @@ export default function ArkaPageV3() {
 
   const workerFirstName = String(actor?.name || 'PUNTORIT').trim().split(/\s+/)[0] || 'PUNTORIT';
   const workerCashLines = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
-  const workerGrossTotal = n(workerSnapshot?.cashFromClientsTotal ?? workerSnapshot?.collectedGrossTotal ?? workerSnapshot?.collectedTotal);
-  const workerCommissionTotal = n(workerSnapshot?.commissionHeldTotal);
-  const workerBaseForDispatchTotal = n(workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.dueTotal);
-  const workerIsHybrid = isHybridWorker(workerSnapshot?.worker || actor || {});
+  const workerGrossTotal = n(unifiedWorkerFinance?.cash?.open_gross ?? workerSnapshot?.cashFromClientsTotal ?? workerSnapshot?.collectedGrossTotal ?? workerSnapshot?.collectedTotal);
+  const workerCommissionTotal = n(unifiedWorkerFinance?.cash?.open_commission ?? workerSnapshot?.commissionHeldTotal);
+  const workerBaseForDispatchTotal = n(unifiedWorkerFinance?.cash?.open_due_to_base ?? workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.dueTotal);
+  const workerIsHybrid = unifiedWorkerFinance ? (unifiedWorkerFinance?.profile?.commission_enabled === true && safeUpper(unifiedWorkerFinance?.profile?.cash_mode) === 'HYBRID_COMMISSION') : isHybridWorker(workerSnapshot?.worker || actor || {});
   const todayLabel = (() => {
     const key = formatBelgradeDateKey(new Date());
     if (!key) return '';
@@ -3293,6 +3297,7 @@ export default function ArkaPageV3() {
           {String(actor?.pin || '').trim() === '4563' && canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME</Link> : null}
           {String(actor?.pin || '').trim() === '4563' && masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN ARKA</Link> : null}
           {canOpenKapaku ? <Link href="/arka/kapaku" prefetch={false} className="arkaTopBtn">KAPAKU I ARKËS</Link> : null}
+          {canManage ? <Link href="/arka/ditore" prefetch={false} className="arkaTopBtn">MBYLLJA DITORE</Link> : null}
           {canManage ? <Link href="/arka/payroll" prefetch={false} className="arkaTopBtn">PAYROLL</Link> : null}
           {canManage ? <Link href="/arka/stafi" prefetch={false} className="arkaTopBtn">STAFI</Link> : null}
           {canManage ? <Link href="/arka/obligimet" prefetch={false} className="arkaTopBtn">OBLIGIMET</Link> : null}
@@ -3305,7 +3310,15 @@ export default function ArkaPageV3() {
 
       {!loading && actor?.pin && isWorker && !canManage && workerSnapshot ? (
         <>
-          <div className="arkaHeroSingle arkaHeroMainDue">
+          {/* UNIFIED_ARKA_PAYROLL_V1: same DB snapshot for worker and manager. */}
+          <ArkaUnifiedWorkerAccount
+            actor={actor}
+            targetPin={actor?.pin}
+            title={actor?.name || actor?.pin}
+            showManagerLinks={false}
+            onSnapshot={setUnifiedWorkerFinance}
+          />
+          <div className="arkaHeroSingle arkaHeroMainDue" style={{ display:'none' }} aria-hidden="true">
             <div>
               <div className="arkaSimpleEyebrow">{String(actor?.name || 'PUNTOR').toUpperCase()} • PIN {actor?.pin || '—'}</div>
               <div className="arkaWorkerName">ARKA IME E DITËS</div>
@@ -3315,10 +3328,10 @@ export default function ArkaPageV3() {
           </div>
 
           {/* ARKA_WORKER_DAILY_STATUS_V1:PAGE */}
-          <ArkaWorkerDailyStatus snapshot={workerSnapshot} actor={actor} />
+          <div style={{ display:'none' }} aria-hidden="true"><ArkaWorkerDailyStatus snapshot={workerSnapshot} actor={actor} /></div>
           <ReadyBonusLiveCard actor={actor} />
 
-          <section className="arkaSectionCard arkaCashListCard">
+          <section className="arkaSectionCard arkaCashListCard" style={{ display:'none' }} aria-hidden="true">
             <div className="arkaSectionHeadCompact">
               <div>
                 <div className="arkaSectionTitle">DORËZO TE DISPATCH</div>
@@ -3341,7 +3354,7 @@ export default function ArkaPageV3() {
             )}
           </section>
 
-          <section className="arkaSectionCard arkaCashListCard">
+          <section className="arkaSectionCard arkaCashListCard" style={{ display:'none' }} aria-hidden="true">
             <button
               type="button"
               onClick={() => {
@@ -3561,7 +3574,7 @@ export default function ArkaPageV3() {
           <HandoffWizard
             open={handoffWizard.open}
             actor={actor}
-            clientCount={Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows.length : 0}
+            clientCount={Array.isArray(unifiedWorkerFinance?.cash?.rows) ? unifiedWorkerFinance.cash.rows.length : (Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows.length : 0)}
             grossTotal={workerGrossTotal}
             baseTotal={workerBaseForDispatchTotal}
             commissionTotal={workerCommissionTotal}

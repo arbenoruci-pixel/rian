@@ -25,7 +25,10 @@ import {
   readWorkerOrderAmount,
 } from '@/lib/arkaWorkerSummary';
 import useRouteAlive from '@/lib/routeAlive';
+import HandoffWizard from '@/components/HandoffWizard';
+import { listOpenBaseReadyBonusPayments } from '@/lib/baseReadyBonusClient';
 import { bootLog } from '@/lib/bootLog';
+import ArkaUnifiedWorkerAccount from '@/components/ArkaUnifiedWorkerAccount';
 
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -308,7 +311,7 @@ function readPaymentClientName(row) {
   return String(row?.client_name || row?.client?.name || row?.data?.client_name || row?.data?.client?.name || row?.note || 'KLIENT').trim();
 }
 
-function buildCashDueRow(row, { transportOrdersById = {}, commissionRateM2 = 0.5 } = {}) {
+function buildCashDueRow(row, { transportOrdersById = {}, commissionRateM2 = 0 } = {}) {
   const isTransport = isTransportPaymentRow(row);
   const gross = n(row?.amount);
   const m2 = isTransport ? readPaymentTransportM2(row, transportOrdersById) : 0;
@@ -750,6 +753,8 @@ export default function ArkaWorkerDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
+  // WORKER_DETAIL_HANDOFF_WIZARD_V1
+  const [handoffWizard, setHandoffWizard] = useState({ open: false, bonusAvailable: 0 });
   const [timaAmount, setTimaAmount] = useState('');
   const [timaNote, setTimaNote] = useState('TIMA');
   const [expenseAmount, setExpenseAmount] = useState('');
@@ -963,7 +968,8 @@ export default function ArkaWorkerDetailPage() {
 
   const cashAccount = useMemo(() => {
     const allPayments = Array.isArray(payments) ? payments : [];
-    const commissionRate = n(worker?.commission_rate_m2) > 0 ? n(worker?.commission_rate_m2) : 0.5;
+    const cashWorkerIsHybrid = worker?.pay_commission_enabled === true || worker?.is_hybrid_transport === true;
+    const commissionRate = cashWorkerIsHybrid ? Math.max(0, n(worker?.pay_commission_rate_m2 ?? worker?.commission_rate_m2)) : 0;
     const dueOptions = {
       transportOrdersById: transportOrdersById && typeof transportOrdersById === 'object' ? transportOrdersById : {},
       commissionRateM2: commissionRate,
@@ -1037,8 +1043,8 @@ export default function ArkaWorkerDetailPage() {
   }, [payments, extras, pin, worker?.commission_rate_m2, transportOrdersById]);
 
   const payrollAccount = useMemo(() => {
-    const commissionRate = n(worker?.commission_rate_m2) > 0 ? n(worker?.commission_rate_m2) : 0.5;
-    const isHybrid = worker?.is_hybrid_transport === true;
+    const isHybrid = worker?.pay_commission_enabled === true || worker?.is_hybrid_transport === true;
+    const commissionRate = isHybrid ? Math.max(0, n(worker?.pay_commission_rate_m2 ?? worker?.commission_rate_m2)) : 0;
     const commissionRows = isHybrid
       ? (Array.isArray(completedTransportOrders) ? completedTransportOrders : []).map((row) => {
           const m2 = readTransportOrderM2(row);
@@ -1314,37 +1320,52 @@ export default function ArkaWorkerDetailPage() {
     }
   }
 
-  async function handoffMine() {
+  async function openWorkerHandoffWizard() {
+    if (!sameWorker || cashRemainingToHandOver <= 0 || busy) return;
+    if (n(cashAccount?.duplicateTransportCashCount) > 0) {
+      alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
+      return;
+    }
+    try {
+      const rows = await listOpenBaseReadyBonusPayments(pin);
+      const bonusAvailable = +(Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + n(row?.remaining_amount), 0).toFixed(2);
+      setHandoffWizard({ open: true, bonusAvailable });
+    } catch {
+      setHandoffWizard({ open: true, bonusAvailable: 0 });
+    }
+  }
+
+  async function handoffMine(decision = {}) {
     if (!sameWorker || cashRemainingToHandOver <= 0) return;
     if (handoffSubmitLockRef.current || busy) return;
     handoffSubmitLockRef.current = true;
     try {
-      if (n(cashAccount?.duplicateTransportCashCount) > 0) {
-        return alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI QË MOS TË KRIJOHET HANDOFF I DYFISHTË.');
+      if (n(cashAccount?.duplicateTransportCashCount) > 0) throw new Error('U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
+      // WORKER_DETAIL_HANDOFF_WIZARD_V2: wizard is the only meal decision UI.
+      // Choice 3 means no meal and must continue without another confirm.
+      const mealChoice = String(decision?.mealChoice || '').trim();
+      if (mealChoice === '1' || mealChoice === '2') {
+        await ensureMealDecisionBeforeHandoff({
+          actor: { ...actor, pin, name: worker?.name || pin, role: 'WORKER' },
+          workerPin: pin,
+          workerName: worker?.name || pin,
+          workerRole: 'WORKER',
+          staffOptions,
+          amountPerPerson: parseAmountInput(mealAmount || '3') || 3,
+          presetChoice: mealChoice,
+          presetPayerPin: decision?.mealPayerPin || '',
+          skipFinalConfirm: true,
+          wizardOnly: true,
+        });
       }
-      const count = Array.isArray(cashAccount?.dispatchOpenRows) ? cashAccount.dispatchOpenRows.length : 0;
-      const mealDecision = await ensureMealDecisionBeforeHandoff({
-        actor,
-        workerPin: pin,
-        workerName: worker?.name || pin,
-        workerRole: worker?.role || 'WORKER',
-        staffOptions,
-        amountPerPerson: parseAmountInput(mealAmount || '3') || 3,
-      });
-      const mealDeduct = n(mealDecision?.deductAmount);
-      const estimatedNet = Math.max(0, +(cashRemainingToHandOver - mealDeduct).toFixed(2));
-      const ok = window.confirm(`A DON ME I DORËZU TE DISPATCH ${estimatedNet.toFixed(2)}€?
-
-${mealDecision?.confirmLine ? `${mealDecision.confirmLine}
-` : ''}${count} KLIENTË ME CASH I MARRË.`);
-      if (!ok) return;
       setBusy(true);
-      await submitWorkerCashToDispatch({ actor });
+      const handoffActor = { ...actor, pin, name: worker?.name || pin, role: 'WORKER' };
+      const submitted = await submitWorkerCashToDispatch({ actor: handoffActor });
       await reload();
       notifyArkaHome();
-      alert('✅ DORËZIMI U DËRGUA TE DISPATCH.');
+      return submitted;
     } catch (e) {
-      alert(`🔴 ${e?.message || 'NUK U DËRGUA DORËZIMI.'}`);
+      throw e;
     } finally {
       handoffSubmitLockRef.current = false;
       setBusy(false);
@@ -1387,6 +1408,7 @@ ${mealDecision?.confirmLine ? `${mealDecision.confirmLine}
         <div className="arkaSimpleNav">
           <Link prefetch={false} href="/arka" className="arkaTopBtn">← KTHEHU</Link>
           {canManage ? <Link prefetch={false} href="/arka/payroll" className="arkaTopBtn">PAYROLL</Link> : null}
+          {canManage ? <Link prefetch={false} href="/arka/ditore" className="arkaTopBtn">MBYLLJA DITORE</Link> : null}
         </div>
       </div>
 
@@ -1411,24 +1433,42 @@ ${mealDecision?.confirmLine ? `${mealDecision.confirmLine}
         </div>
       ) : null}
 
+      <HandoffWizard
+        open={handoffWizard.open}
+        actor={{ ...actor, pin, name: worker?.name || pin, role: worker?.role || actor?.role }}
+        clientCount={Array.isArray(cashAccount?.dispatchOpenRows) ? cashAccount.dispatchOpenRows.length : 0}
+        grossTotal={cashAccount.openGrossTotal}
+        baseTotal={cashAccount.totalDueToBase}
+        commissionTotal={cashAccount.openTransportCommissionTotal}
+        bonusAvailable={handoffWizard.bonusAvailable}
+        openExpenseTotal={(Array.isArray(cashAccount?.approvedTodayExpenseRows) ? cashAccount.approvedTodayExpenseRows : []).reduce((sum, row) => sum + n(row?.amount), 0)}
+        existingMealCovered={(Array.isArray(extras) ? extras : []).some((row) => ['MEAL_PAYMENT','MEAL_COVERED'].includes(safeUpper(row?.type)) && isToday(row?.created_at || row?.handed_at))}
+        existingMealDeduct={(Array.isArray(extras) ? extras : []).filter((row) => safeUpper(row?.type) === 'MEAL_PAYMENT' && isToday(row?.created_at || row?.handed_at)).reduce((sum, row) => sum + n(row?.amount), 0)}
+        staffOptions={staffOptions}
+        onClose={() => setHandoffWizard((prev) => ({ ...prev, open: false }))}
+        onSubmit={handoffMine}
+      />
+
       {!loading ? (
         <>
-          <section className="arkaSectionCard payrollClearBlock ownerSimpleCard arkaHeroMainDue">
+          {/* UNIFIED_ARKA_PAYROLL_V1: admin and worker use the same canonical snapshot. */}
+          <ArkaUnifiedWorkerAccount actor={actor} targetPin={pin} title={worker?.name || pin} showManagerLinks={canManage} />
+          <section className="arkaSectionCard payrollClearBlock ownerSimpleCard arkaHeroMainDue" style={{ display:'none' }} aria-hidden="true">
             <div><div className="arkaSectionSub">PYETJA KRYESORE</div><div className="arkaSectionTitle">DORËZO TASH</div></div>
             <div className="arkaHeroDueHuge">{euro(cashAccount.totalDueToBase)}</div>
-            {sameWorker ? (<button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={busy || cashRemainingToHandOver <= 0 || n(cashAccount?.duplicateTransportCashCount) > 0} onClick={handoffMine}>DORËZO TE DISPATCH — {euro(cashRemainingToHandOver)}</button>) : null}
+            {sameWorker ? (<button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={busy || cashRemainingToHandOver <= 0 || n(cashAccount?.duplicateTransportCashCount) > 0} onClick={openWorkerHandoffWizard}>DORËZO TE DISPATCH — {euro(cashRemainingToHandOver)}</button>) : null}
             {n(cashAccount?.duplicateTransportCashCount) > 0 ? <div className="arkaReviewWarn">U gjet duplicate transport cash. Dorëzimi u ndalua për siguri.</div> : null}
           </section>
 
-          <div className="arkaWorkerStats adminTopGrid ownerTotalsGrid cleanCashGrid">
+          <div className="arkaWorkerStats adminTopGrid ownerTotalsGrid cleanCashGrid" style={{ display:'none' }} aria-hidden="true">
             <Stat label="KANË PAGUAR" value={euro(cashAccount.visiblePaidHistoryTotal)} tone="info" />
-            <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(cashAccount.visibleCommissionHistoryTotal)} tone="warn" />
+            {(worker?.pay_commission_enabled === true || summary.isHybridTransport) ? <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(cashAccount.visibleCommissionHistoryTotal)} tone="warn" /> : null}
             <Stat label="PËR BAZË TASH" value={euro(cashAccount.totalDueToBase)} tone="strong" />
             <Stat label="HISTORI PRANUAR" value={euro(cashAccount.acceptedHistoryGrossTotal)} tone="neutral" />
             <Stat label="SHPENZIME" value={euro(cashAccount.approvedTodayExpenses)} tone="warn" />
           </div>
 
-          <section className="arkaSectionCard payrollClearBlock arkaCashListCard">
+          <section className="arkaSectionCard payrollClearBlock arkaCashListCard" style={{ display:'none' }} aria-hidden="true">
             <div className="arkaSectionHeadCompact"><div><div className="arkaSectionTitle">KLIENTËT</div><div className="arkaSectionSub">T-CODE • EMRI • PËR BAZË</div></div><div className="arkaCashTotalPill">{euro(cashRemainingToHandOver)}</div></div>
             <div className="arkaCashCompactList">{openPaymentGroups.length ? openPaymentGroups.slice(0,60).map((row)=><CashClientCompactRow key={`open_due_group_${row.key}`} row={row} workerName={workerFirstName} />) : <div className="arkaEmpty">S’KA KLIENTË ME CASH I MARRË PËR DISPATCH.</div>}</div>
           </section>
@@ -1487,7 +1527,7 @@ ${mealDecision?.confirmLine ? `${mealDecision.confirmLine}
                   <div>
                     <div className="arkaHistoryTitle">{row.code} — {String(row.clientName || 'KLIENT').toUpperCase()} — {row.type}</div>
                     <div className="arkaHistoryMeta">{fmtDate(row.created_at)} • KLIENTI PAGOI {euro(row.gross)} • {row.status}</div>
-                    {row.type === 'TRANSPORT' ? (
+                    {row.type === 'TRANSPORT' && (worker?.pay_commission_enabled === true || summary.isHybridTransport) ? (
                       <div className="arkaSimpleSub">KOMISION {euro(row.commission)} • PËR BAZË {euro(row.dueToBase)}</div>
                     ) : (
                       <div className="arkaSimpleSub">PËR BAZË {euro(row.dueToBase)}</div>
@@ -1501,7 +1541,7 @@ ${mealDecision?.confirmLine ? `${mealDecision.confirmLine}
             </section>
           </details>
 
-          <details className="arkaAdvancedDetails">
+          <details className="arkaAdvancedDetails" style={{ display:'none' }} aria-hidden="true">
             <summary className="arkaAdvancedSummary">HAP KOMISIONET</summary>
             <section className="arkaSectionCard">
               <div className="arkaSectionTitle">KOMISIONET</div>
@@ -1525,7 +1565,7 @@ ${mealDecision?.confirmLine ? `${mealDecision.confirmLine}
             </section>
           </details>
 
-          <details className="arkaAdvancedDetails">
+          <details className="arkaAdvancedDetails" style={{ display:'none' }} aria-hidden="true">
             <summary className="arkaAdvancedSummary">HAP PAYROLL</summary>
             <section className="arkaSectionCard payrollClearBlock">
               <div className="arkaSectionTitle">4. PAYROLL</div>
@@ -1546,7 +1586,7 @@ ${mealDecision?.confirmLine ? `${mealDecision.confirmLine}
             </section>
           </details>
 
-          <details className="arkaAdvancedDetails">
+          <details className="arkaAdvancedDetails" style={{ display:'none' }} aria-hidden="true">
             <summary className="arkaAdvancedSummary">HAP PAMJEN E VJETËR / AVANCUAR</summary>
             <div className="arkaWorkerStats adminTopGrid">
             <Stat label="TOTAL COLLECTED" value={euro(summary.collectedTotal)} tone="ok" />

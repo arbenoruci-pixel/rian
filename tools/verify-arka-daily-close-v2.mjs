@@ -52,7 +52,7 @@ if (hasRackFinalOwner) {
 check(String(pkg.scripts?.build || '').includes('npm run test:arka-daily-close-v2'), 'daily close verifier is not in full build');
 check(String(pkg.scripts?.['test:arka-daily-close-v2'] || '').includes('verify-arka-daily-close-v2.mjs'), 'daily close test script missing');
 check(String(pkg.version || '').includes('arka-daily-close-v2'), 'package version not bumped');
-check(vite.includes('v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3'), 'PWA cache generation not bumped compatibly');
+check(vite.includes('v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1'), 'PWA cache generation not bumped compatibly');
 if (hasRackFinalOwner) {
   check(vite.includes('gati-rack-save-v1'), 'GATI rack cache generation missing after ARKA');
   check(vite.includes('sw-navigation-diag.js?v=3512'), 'service worker import generation not bumped for rack save');

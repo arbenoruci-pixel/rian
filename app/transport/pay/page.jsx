@@ -4,6 +4,8 @@ import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "@/lib/routerCompat.jsx";
 import { fetchTransportOrderById } from '@/lib/transportOrdersDb';
 import { getTransportSession } from "@/lib/transportAuth";
+import { getActor } from '@/lib/actorSession';
+import { resolveActorPin } from '@/lib/pinIdentity';
 import { ARKA_ACTION } from '@/lib/arka/arkaConstants';
 import { arkaTransaction, buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';
 import { getErrorMessage } from "@/lib/uiSafety";
@@ -38,7 +40,8 @@ function translateTransportDbError(errLike) {
 }
 
 function getActorPin(session) {
-  return String(session?.transport_pin || session?.pin || session?.transport_id || '').trim();
+  // UNIFIED_ARKA_PAYROLL_V1: UUID transport_id is never a worker PIN.
+  return resolveActorPin(session || {}) || resolveActorPin(getActor() || {});
 }
 
 function money(x) {
@@ -161,6 +164,8 @@ function TransportPayPageInner() {
       const transportNote = `TRANSPORT PAGESË ${money(applied)}€ • ${row.client_name || ""} • ${transportCode || "T-KOD"} • ${transportM2.toFixed(2)} m²`;
 
       const res = await arkaTransaction({
+        // TRANSPORT_PAYMENT_FAST_BACKGROUND_V1
+        // BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:TRANSPORT_PAY
         action: ARKA_ACTION.TRANSPORT_ORDER_PAYMENT,
         actorPin,
         actorName: s?.name || s?.full_name || s?.username || null,
@@ -175,7 +180,21 @@ function TransportPayPageInner() {
         clientPhone: row.client_phone || row?.data?.client?.phone || null,
         sourceModule: 'TRANSPORT',
         idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.TRANSPORT_ORDER_PAYMENT, [row.id, applied.toFixed(2), actorPin]),
+      }, {
+        timeoutMs: 1400,
+        maxAttempts: 1,
+        queueOnNetworkFailure: true,
+        retryDelaysMs: [],
       });
+
+      const queuedForSync = Boolean(res?.offlineQueued || res?.queued || res?.localOnly || res?.offline);
+      if (queuedForSync) {
+        try { window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER')); } catch {}
+        try { window.sessionStorage?.setItem('tepiha_transport_payment_sync_notice_v1', JSON.stringify({ at:new Date().toISOString(), orderId:row.id, code:transportCode, amount:applied })); } catch {}
+        completed = true;
+        router.push('/transport/board?paymentSync=1');
+        return;
+      }
 
       assertVerifiedTransportPaymentResult(res, { orderId: row.id, code: transportCode, amount: applied, actorPin });
       const updatedTransportOrder = res?.transportOrder || res?.transport_order;
@@ -186,7 +205,7 @@ function TransportPayPageInner() {
       completed = true;
       router.push("/transport/board");
     } catch (e) {
-      alert(translateTransportDbError(e));
+      alert(`${translateTransportDbError(e)}\n\nPAGESA NUK U RUAJT. PROVO PËRSËRI.`);
     } finally {
       if (!completed) {
         savingRef.current = false;
@@ -338,3 +357,5 @@ export default function TransportPayPage() {
     </Suspense>
   );
 }
+
+// PAGESA NUK U RUAJT NË ARKA

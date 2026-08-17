@@ -8,6 +8,7 @@ import { listPendingPaymentRecords } from "@/lib/arkaService";
 import { ARKA_ACTION, ARKA_SOURCE_MODULE } from "@/lib/arka/arkaConstants";
 import { arkaTransaction, buildArkaIdempotencyKey } from "@/lib/arka/arkaClient";
 import { deleteUserRecord, listUserRecords, updateUserRecord } from "@/lib/usersService";
+import WorkerCompensationEditor from '@/components/WorkerCompensationEditor';
 import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow, isPayrollEligibleWorker } from "@/lib/payrollMonthClose";
 
 function jparse(s, fallback) {
@@ -619,7 +620,10 @@ export default function PayrollPage() {
 
   function openSalaryModal(u) {
     const workerName = String(u.name || "").trim().toUpperCase();
-    const baseSalary = Number(u.salary || 0);
+    const baseSalary = u.pay_salary_enabled === false ? 0 : Number(u.salary || 0);
+    const mealBonus = u.pay_meal_enabled === true ? Number(u.pay_meal_amount || u.bonus_ushqim || 0) : 0;
+    const transportBonus = u.pay_transport_bonus_enabled === true ? Number(u.pay_transport_bonus_amount || u.bonus_transport || 0) : 0;
+    const grossFixed = baseSalary + mealBonus + transportBonus;
     const autoDebt = Number(debtsMap[workerName] || 0);
     const manualAdvance = Number(u.avans_manual || 0);
     const longTermDebt = Number(u.borxh_afatgjat || 0);
@@ -627,6 +631,9 @@ export default function PayrollPage() {
     setSalaryModal({
       ...u,
       baseSalary,
+      mealBonus,
+      transportBonus,
+      grossFixed,
       autoDebt,
       manualAdvance,
       totalAdvance: autoDebt + manualAdvance,
@@ -688,9 +695,9 @@ export default function PayrollPage() {
 
   const payableAmount = useMemo(() => {
     if (!salaryModal) return 0;
-    const baseSalary = Number(salaryModal.baseSalary || 0);
+    const grossFixed = Number(salaryModal.grossFixed ?? salaryModal.baseSalary ?? 0);
     const personalAdvance = Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0);
-    return Math.max(0, baseSalary - personalAdvance);
+    return Math.max(0, grossFixed - personalAdvance);
   }, [salaryModal]);
 
   async function handlePaySalary() {
@@ -702,7 +709,7 @@ export default function PayrollPage() {
 
     const workerPin = String(salaryModal?.pin || '').trim();
     const workerName = String(salaryModal?.name || '').trim();
-    const baseSalary = Number(salaryModal?.baseSalary || 0);
+    const baseSalary = Number(salaryModal?.grossFixed ?? salaryModal?.baseSalary ?? 0);
     const autoAdvanceAmount = Number(salaryModal?.autoDebt || 0);
     const manualAdvanceAmount = Number(salaryModal?.manualAdvance || 0);
     const advanceAmount = autoAdvanceAmount + manualAdvanceAmount;
@@ -720,7 +727,7 @@ export default function PayrollPage() {
     const conf = confirm(
       `Konfirmo pagesën e rrogës për ${workerName || workerPin}:\n\n` +
       `Muaji: ${payrollMonth}\n` +
-      `Rroga bazë: ${euro(baseSalary)}\n` +
+      `Rroga + shtesa fikse: ${euro(baseSalary)}\n` +
       `Avans që zbritet: ${euro(advanceAmount)}\n` +
       `Neto për pagesë: ${euro(netAmount)}\n\n` +
       `Sistemi do ta zbresë buxhetin, do krijojë ledger OUT dhe marker SALARY_PAYMENT/SALARY_PAID.`
@@ -1100,6 +1107,7 @@ export default function PayrollPage() {
 
           <div className="topActions">
             <Link prefetch={false} href="/arka" className="navBtn">← KTHEHU</Link>
+            <Link prefetch={false} href="/arka/ditore" className="navBtn">MBYLLJA DITORE</Link>
             <button
               type="button"
               className="navBtn refreshBtn"
@@ -1473,6 +1481,12 @@ export default function PayrollPage() {
                 />
               </label>
             </div>
+
+            <WorkerCompensationEditor
+              actor={actor}
+              worker={(staff || []).find((item) => String(item?.id || '') === String(editingId || ''))}
+              onSaved={() => reloadAll(false)}
+            />
 
             <div className="editActions">
               <button className="saveBtn" onClick={saveFinanceEdit} disabled={actionBusy}>

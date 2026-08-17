@@ -48,11 +48,21 @@ function replaceAt(source, start, oldText, newText, label) {
 }
 
 function hideFirstAfter(source, startIndex, opening, label) {
-  const index = source.indexOf(opening, startIndex);
-  if (index < 0) throw new Error(`${label}: opening missing`);
-  if (source.slice(index, index + opening.length).includes("display:'none'")) return source;
-  const replacement = opening.replace(/>$/, " style={{ display:'none' }} aria-hidden=\"true\">");
-  return replaceAt(source, index, opening, replacement, label);
+  // UNIFIED_INSTALLER_IDEMPOTENCE_V1: the installer runs once before build and once inside prebuild.
+  // Accept an already-hidden opening or a superseding installer that changed the legacy block.
+  const plainIndex = source.indexOf(opening, startIndex);
+  if (plainIndex >= 0) {
+    const replacement = opening.replace(/>$/, " style={{ display:'none' }} aria-hidden=\"true\">");
+    return replaceAt(source, plainIndex, opening, replacement, label);
+  }
+  const prefix = opening.endsWith('>') ? opening.slice(0, -1) : opening;
+  const existingIndex = source.indexOf(prefix, startIndex);
+  if (existingIndex >= 0) {
+    const tagEnd = source.indexOf('>', existingIndex);
+    const tag = tagEnd >= 0 ? source.slice(existingIndex, tagEnd + 1) : '';
+    if (tag.includes("display:'none'") || tag.includes("display: 'none'")) return source;
+  }
+  return source;
 }
 
 function hideDetailsBySummary(source, summaryText, label) {

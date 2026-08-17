@@ -5,6 +5,7 @@ import Link from "@/lib/routerCompat.jsx";
 import { useRouter } from "@/lib/routerCompat.jsx";
 import { supabase } from "@/lib/supabaseClient";
 import { createUserRecord, deleteUserRecord, fetchUserById, listUserRecords, updateUserRecord } from "@/lib/usersService";
+import WorkerCompensationEditor from '@/components/WorkerCompensationEditor';
 
 function jparse(s, fallback) {
   try { return JSON.parse(s) ?? fallback; } catch { return fallback; }
@@ -300,7 +301,29 @@ export default function StaffPage() {
         }
         payload.pin = onlyDigits(editForm.pin);
 
-        await createUserRecord(payload);
+        Object.assign(payload, {
+          pay_salary_enabled: false,
+          pay_meal_enabled: false,
+          pay_meal_amount: 0,
+          pay_commission_enabled: false,
+          pay_commission_rate_m2: 0,
+          pay_transport_bonus_enabled: false,
+          pay_transport_bonus_amount: 0,
+          pay_ready_bonus_enabled: safeUpper(editForm.role, 'PUNTOR') !== 'TRANSPORT',
+          pay_cash_mode: ['PUNTOR','TRANSPORT'].includes(safeUpper(editForm.role, 'PUNTOR')) ? 'FULL_CASH' : 'NO_CASH',
+        });
+        const createdUser = await createUserRecord(payload);
+        if (createdUser?.id) {
+          await reloadAll(false);
+          setEditingId(createdUser.id);
+          setEditForm({
+            name: createdUser.name || '', role: safeUpper(createdUser.role, 'PUNTOR'), pin: '', is_active: createdUser.is_active !== false,
+            bonus_transport: Number(createdUser.bonus_transport || 0), bonus_ushqim: Number(createdUser.bonus_ushqim || 0),
+            is_hybrid_transport: createdUser.is_hybrid_transport === true, commission_rate_m2: Number(createdUser.commission_rate_m2 || 0),
+          });
+          alert('✅ PUNTORI U KRIJUA. TASH DEFINO OPSIONET E PAGESËS ME TIK.');
+          return;
+        }
       } else {
         if (String(editForm.pin || "").trim().length >= 4) {
           const currentUser = await fetchUserById(editingId, "pin");
@@ -338,6 +361,7 @@ export default function StaffPage() {
 
           <div className="topActions">
             <Link prefetch={false} href="/arka" className="navBtn">← KTHEHU NË ARKË</Link>
+            <Link prefetch={false} href="/arka/ditore" className="navBtn">MBYLLJA DITORE</Link>
             <Link prefetch={false} href="/arka/payroll" className="navBtn primaryGhost">FINANCAT / PAYROLL</Link>
           </div>
         </div>
@@ -489,7 +513,7 @@ export default function StaffPage() {
                     />
                   </label>
 
-                  <label className="field">
+                  <label className="field" style={{ display:'none' }}>
                     <span>BONUS TRANSPORT (€)</span>
                     <input
                       className="fieldInput"
@@ -500,7 +524,7 @@ export default function StaffPage() {
                     />
                   </label>
 
-                  <label className="field">
+                  <label className="field" style={{ display:'none' }}>
                     <span>BONUS USHQIM (€)</span>
                     <input
                       className="fieldInput"
@@ -511,7 +535,7 @@ export default function StaffPage() {
                     />
                   </label>
 
-                  <label className="toggleField hybridToggleField">
+                  <label className="toggleField hybridToggleField" style={{ display:'none' }}>
                     <span>AKTIVIZO KOMISIONIN E TRANSPORTIT</span>
                     <input
                       type="checkbox"
@@ -520,7 +544,7 @@ export default function StaffPage() {
                     />
                   </label>
 
-                  <label className="field">
+                  <label className="field" style={{ display:'none' }}>
                     <span>KOMISIONI PËR M2 (€)</span>
                     <input
                       className="fieldInput"
@@ -531,6 +555,18 @@ export default function StaffPage() {
                     />
                   </label>
                 </div>
+
+                {editingId !== "NEW" ? (
+                  <WorkerCompensationEditor
+                    actor={actor}
+                    worker={(staff || []).find((item) => String(item?.id || '') === String(editingId || ''))}
+                    onSaved={() => reloadAll(false)}
+                  />
+                ) : (
+                  <div style={{ marginTop:14, border:'1px solid #bfdbfe', borderRadius:14, background:'#eff6ff', color:'#1e3a8a', padding:12, fontSize:12, fontWeight:850 }}>
+                    RUAJE PUNTORIN. MENJËHERË PAS KRIJIMIT HAPEN OPSIONET ME TIK PËR RROGË, USHQIM, KOMISION DHE BONUSE.
+                  </div>
+                )}
 
                 <div className="editorActions">
                   <button className="saveBtn" onClick={saveStaffEdit} disabled={actionBusy}>
@@ -564,6 +600,8 @@ export default function StaffPage() {
                       <div className="staffMeta">
                         Hybrid transport: <strong>{u.is_hybrid_transport ? "PO" : "JO"}</strong>
                       </div>
+                      <div className="staffMeta">Mënyra e cash-it: <strong>{u.pay_cash_mode || (u.is_hybrid_transport ? 'HYBRID_COMMISSION' : 'FULL_CASH')}</strong></div>
+                      <div className="staffMeta">Rrogë / Ushqim / Bonus: <strong>{u.pay_salary_enabled ? 'RROGË ' : ''}{u.pay_meal_enabled ? '• USHQIM ' : ''}{u.pay_transport_bonus_enabled ? '• BONUS ' : ''}{u.pay_commission_enabled ? '• KOMISION' : ''}</strong></div>
                       {u.is_hybrid_transport ? (
                         <div className="staffMeta">
                           Komisioni / m²: <strong>{Number(u.commission_rate_m2 || 0).toFixed(2)}€</strong>

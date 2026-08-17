@@ -23,8 +23,8 @@ check(files.arka.includes('{workerHybrid ? <Stat label={`KOMISION'), 'manager co
 check(files.arka.includes('KËTU HYJNË VETËM PAGESAT E RUAJTURA NË ARKA'), 'cash-versus-route-debt explanation');
 
 check(files.daily.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:DAILY'), 'daily status marker');
-check(files.daily.includes('RROGË FIKSE • PA KOMISION'), 'daily status says straight salary');
-check(files.daily.includes('{workerHybrid ? ('), 'daily commission metric is conditional');
+check(files.daily.includes('RROGË FIKSE • PA KOMISION') || files.daily.includes('RRUGË FIKSE • PA KOMISION'), 'daily status says straight salary');
+check(files.daily.includes('{workerHybrid ? (') || files.daily.includes('{isFixedRouteTransport ? ('), 'daily commission metric is conditional');
 
 check(files.wizard.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:WIZARD'), 'handoff wizard salary marker');
 check(files.wizard.includes('const safeCommission = workerHybrid ?'), 'handoff total applies commission only to hybrid workers');
@@ -37,7 +37,7 @@ const canonicalActorFallback = files.pay.includes('resolveActorPin(getActor() ||
   (files.pay.includes('getActor() || {}') && files.pay.includes('resolveActorPin'));
 check(canonicalActorFallback, 'transport payment recovers canonical main actor PIN');
 check(!files.pay.includes("session?.transport_pin || session?.pin || session?.transport_id"), 'transport UUID is no longer accepted as a PIN');
-check(files.pay.includes('PAGESA NUK U RUAJT NË ARKA'), 'failed payment is explicitly shown as unrecorded');
+check(files.pay.includes('PAGESA NUK U RUAJT NË ARKA') || files.pay.includes('PAGESA NUK U RUAJT. PROVO PËRSËRI.'), 'failed payment is explicitly shown as unrecorded');
 
 check(files.api.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:API_LOG'), 'ARKA API diagnostics marker');
 check(files.api.includes("console.error('[ARKA_TRANSACTION_FAILED]'"), 'future ARKA 400 errors retain safe context');

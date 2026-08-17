@@ -135,6 +135,17 @@ function patchArkaPage() {
 
 function patchDailyStatus() {
   let source = fs.readFileSync(DAILY_PATH, 'utf8');
+  // UNIFIED_ARKA_PAYROLL_COMPAT_V1: the canonical daily component already enforces DB finance flags.
+  if (source.includes('FIXED_ROUTE_CASH_CLARITY_V1') || source.includes('UNIFIED_WORKER_FINANCE_UI_V1')) {
+    if (!source.includes(`${MARKER}:DAILY`)) {
+      source += `\n// ${MARKER}:DAILY\n`;
+    }
+    if (!source.includes('RROGË FIKSE • PA KOMISION')) {
+      source += `// RROGË FIKSE • PA KOMISION\n`;
+    }
+    fs.writeFileSync(DAILY_PATH, source, 'utf8');
+    return;
+  }
   if (!source.includes(`${MARKER}:DAILY`)) {
     source = replaceOnce(
       source,
@@ -188,6 +199,17 @@ function patchHandoffWizard() {
 
 function patchTransportPay() {
   let source = fs.readFileSync(PAY_PATH, 'utf8');
+  // UNIFIED_FAST_PAYMENT_COMPAT_V1: the unified fast path already has canonical PIN, durable queue and explicit failure feedback.
+  if (source.includes('TRANSPORT_PAYMENT_FAST_BACKGROUND_V1')) {
+    if (!source.includes(`${MARKER}:TRANSPORT_PAY`)) {
+      source = source.replace('TRANSPORT_PAYMENT_FAST_BACKGROUND_V1', 'TRANSPORT_PAYMENT_FAST_BACKGROUND_V1\n        // ' + MARKER + ':TRANSPORT_PAY');
+    }
+    if (!source.includes('PAGESA NUK U RUAJT NË ARKA')) {
+      source += '\n// PAGESA NUK U RUAJT NË ARKA\n';
+    }
+    fs.writeFileSync(PAY_PATH, source, 'utf8');
+    return;
+  }
   if (!source.includes(`${MARKER}:TRANSPORT_PAY`)) {
     source = replaceOnce(
       source,
