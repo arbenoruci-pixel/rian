@@ -1,5 +1,6 @@
 name: One-time ship fixed-route cash clarity V1
 
+# Retry 2: fixed-route daily status supersedes the older Beli metric patch safely.
 on:
   push:
     branches: [main]
@@ -46,6 +47,8 @@ jobs:
             components/ReadyBonusLiveCard.jsx \
             tools/apply-fixed-route-cash-clarity-v1.mjs \
             tools/verify-fixed-route-cash-clarity-v1.mjs \
+            tools/apply-beli-straight-salary-payment-recovery-v1.mjs \
+            tools/verify-beli-straight-salary-payment-recovery-v1.mjs \
             tools/apply-gati-rack-save-v1.mjs \
             tools/apply-arka-daily-close-v2.mjs \
             tools/verify-arka-daily-close-v2.mjs \
