@@ -1,6 +1,6 @@
 name: One-time ship unified ARKA payroll V1
 
-# Retry 2: legacy Beli installer accepts the canonical fast-payment flow.
+# Retry 3: final installer is idempotent across the explicit pass and prebuild pass.
 on:
   push:
     branches: [main]
@@ -28,6 +28,9 @@ jobs:
 
       - name: Make legacy installers compatible with the unified payment path
         run: node tools/apply-unified-arka-payroll-compat-v1.mjs
+
+      - name: Make final unified installer idempotent
+        run: node tools/patch-unified-installer-idempotence-v1.mjs
 
       - name: Apply unified ARKA, staff, payroll and payment flow
         run: node tools/apply-unified-arka-payroll-v1.mjs
@@ -57,6 +60,7 @@ jobs:
             lib/payrollMonthClose.js \
             tools/apply-unified-arka-payroll-v1.mjs \
             tools/apply-unified-arka-payroll-compat-v1.mjs \
+            tools/patch-unified-installer-idempotence-v1.mjs \
             tools/verify-unified-arka-payroll-v1.mjs \
             tools/apply-beli-straight-salary-payment-recovery-v1.mjs \
             tools/verify-beli-straight-salary-payment-recovery-v1.mjs \
