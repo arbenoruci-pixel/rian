@@ -10,6 +10,8 @@ import { bootMarkReady } from '@/lib/bootLog';
 const TIME_ZONE = 'Europe/Belgrade';
 const PREVIEW_RPC = 'get_arka_daily_close_preview_v3';
 const CLOSE_RPC = 'close_arka_day_v2';
+const EXPENSE_RESOLVE_RPC = 'resolve_arka_expense_v2';
+const EXPENSE_CREATE_RPC = 'create_and_resolve_arka_expense_v2';
 const CACHE_PREFIX = 'tepiha_arka_daily_close_v2:';
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const MANAGER_ROLES = new Set([
@@ -45,6 +47,22 @@ function obj(value) {
 
 function upper(value) {
   return String(value || '').trim().toUpperCase();
+}
+
+function cleanExpenseNote(value) {
+  return String(value || '')
+    .replace(/\n?ARKA_EXPENSE_REQUEST_V\d+[^\n]*/gi, '')
+    .replace(/\n?ARKA_EXPENSE_REQUEST_V1[^\n]*/gi, '')
+    .trim() || 'PA PËRSHKRIM';
+}
+
+function randomKey(prefix = 'ARKA') {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return prefix + ':' + crypto.randomUUID();
+    }
+  } catch {}
+  return prefix + ':' + Date.now() + ':' + Math.random().toString(36).slice(2);
 }
 
 function dayKey(value = new Date()) {
@@ -332,9 +350,16 @@ export default function ArkaDailyCloseWizard() {
   const [dryRun, setDryRun] = useState(null);
   const [finalConfirm, setFinalConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [expenseActionBusy, setExpenseActionBusy] = useState('');
+  const [expenseActionMessage, setExpenseActionMessage] = useState('');
+  const [newExpenseOpen, setNewExpenseOpen] = useState(false);
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [newExpenseNote, setNewExpenseNote] = useState('');
+  const [newExpenseBusy, setNewExpenseBusy] = useState(false);
   const [result, setResult] = useState(null);
   const initializedRef = useRef(false);
   const requestRef = useRef(0);
+  const expenseMutationLockRef = useRef(false);
 
   useEffect(() => {
     const current = getActor() || null;
@@ -466,6 +491,123 @@ export default function ArkaDailyCloseWizard() {
     }
     setError('');
     setStep(3);
+  }
+
+  async function resolvePendingExpense(expense, resolution) {
+    // ARKA_DAILY_EXPENSE_STEP_V1: every pending expense is visible and resolvable inside step 2.
+    const expenseId = Number(expense?.id || 0);
+    if (!(expenseId > 0) || expenseMutationLockRef.current) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setError('VENDIMI PËR SHPENZIM KËRKON INTERNET.');
+      return;
+    }
+
+    const amount = n(expense?.amount);
+    const labels = {
+      BUSINESS_EXPENSE: 'PRANOSH SI SHPENZIM BIZNESI',
+      PERSONAL_ADVANCE: 'KTHESH NË AVANS TË PUNËTORIT',
+      REJECTED_OPEN_CASH: 'REFUZOSH',
+    };
+    const prompt = `A JE I SIGURT QË DO TA ${labels[resolution] || 'VENDOSËSH'}?\n\n${money(amount)} • ${cleanExpenseNote(expense?.note)}`;
+    try {
+      if (typeof window !== 'undefined' && !window.confirm(prompt)) return;
+    } catch {}
+
+    expenseMutationLockRef.current = true;
+    setExpenseActionBusy(String(expenseId));
+    setExpenseActionMessage('');
+    setError('');
+    setDryRun(null);
+    setFinalConfirm(false);
+    setCountedCash('');
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc(EXPENSE_RESOLVE_RPC, {
+        p_actor_pin: String(actor?.pin || '').trim(),
+        p_actor_name: String(actor?.name || actor?.pin || '').trim(),
+        p_expense_payment_id: expenseId,
+        p_resolution: resolution,
+        p_beneficiary_pin: resolution === 'PERSONAL_ADVANCE' ? String(expense?.created_by_pin || '').trim() : null,
+        p_beneficiary_name: resolution === 'PERSONAL_ADVANCE' ? String(expense?.created_by_name || expense?.created_by_pin || '').trim() : null,
+        p_note: 'VENDOSUR NGA DISPATCH NË MBYLLJEN DITORE',
+      });
+      if (rpcError) throw rpcError;
+      if (data?.ok !== true) throw new Error(data?.message || 'VENDIMI NUK U RUAJT.');
+      setExpenseActionMessage(
+        resolution === 'BUSINESS_EXPENSE'
+          ? `U POSTUA SHPENZIMI ${money(amount)} DHE U ZBRIT NGA BUXHETI.`
+          : resolution === 'PERSONAL_ADVANCE'
+            ? `U KTHYE NË AVANS ${money(amount)} DHE U ZBRIT NGA BUXHETI.`
+            : `U REFUZUA KËRKESA ${money(amount)}.`,
+      );
+      await loadPreview({ force: true });
+      try { window.dispatchEvent(new Event('arka:refresh')); } catch {}
+    } catch (err) {
+      setError(String(err?.message || err?.details || err || 'VENDIMI PËR SHPENZIM DËSHTOI.'));
+      await loadPreview({ force: true });
+    } finally {
+      expenseMutationLockRef.current = false;
+      setExpenseActionBusy('');
+    }
+  }
+
+  function openNewExpenseForm() {
+    setNewExpenseOpen(true);
+    setExpenseActionMessage('');
+    setError('');
+  }
+
+  async function createDailyExpense() {
+    if (expenseMutationLockRef.current) return;
+    const amount = parseMoneyInput(newExpenseAmount);
+    const description = String(newExpenseNote || '').trim();
+    if (amount == null || amount <= 0) {
+      setError('SHKRUAJ SHUMËN E SHPENZIMIT MBI 0€.');
+      return;
+    }
+    if (description.length < 2) {
+      setError('SHKRUAJ PËRSHKRIMIN E SHPENZIMIT.');
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setError('REGJISTRIMI I SHPENZIMIT KËRKON INTERNET.');
+      return;
+    }
+
+    expenseMutationLockRef.current = true;
+    setNewExpenseBusy(true);
+    setExpenseActionMessage('');
+    setError('');
+    setDryRun(null);
+    setFinalConfirm(false);
+    setCountedCash('');
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc(EXPENSE_CREATE_RPC, {
+        p_actor_pin: String(actor?.pin || '').trim(),
+        p_actor_name: String(actor?.name || actor?.pin || '').trim(),
+        p_amount: amount,
+        p_note: description,
+        p_resolution: 'BUSINESS_EXPENSE',
+        p_beneficiary_pin: null,
+        p_beneficiary_name: null,
+        p_idempotency_key: randomKey(`ARKA_DAILY_EXPENSE_V2:${date}:${String(actor?.pin || '').trim()}`),
+      });
+      if (rpcError) throw rpcError;
+      if (data?.ok !== true) throw new Error(data?.message || 'SHPENZIMI NUK U RUAJT.');
+      setExpenseActionMessage(`U SHTUA SHPENZIMI ${money(amount)} DHE U ZBRIT NGA BUXHETI.`);
+      setNewExpenseAmount('');
+      setNewExpenseNote('');
+      setNewExpenseOpen(false);
+      await loadPreview({ force: true });
+      try { window.dispatchEvent(new Event('arka:refresh')); } catch {}
+    } catch (err) {
+      setError(String(err?.message || err?.details || err || 'REGJISTRIMI I SHPENZIMIT DËSHTOI.'));
+      await loadPreview({ force: true });
+    } finally {
+      expenseMutationLockRef.current = false;
+      setNewExpenseBusy(false);
+    }
   }
 
   async function runServerCheck() {
@@ -669,35 +811,114 @@ export default function ArkaDailyCloseWizard() {
 
             {step === 2 ? (
               <div style={{ display: 'grid', gap: 12 }}>
-                <Card tone="bad">
+                {/* ARKA_DAILY_EXPENSE_STEP_V1: Step 2 is an operational expense console, not a dead-end warning. */}
+                <Card tone={pendingExpenseCount ? 'bad' : 'info'}>
                   <div style={{ fontSize: 15, fontWeight: 1000 }}>2. KONTROLLO DALJET NGA BOXHI</div>
+                  <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>
+                    Shiko çdo kërkesë, pranoje si shpenzim biznesi, ktheje në avans ose refuzoje. Mund të shtosh edhe shpenzim të ri para numërimit.
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 8 }}>
                     <Metric label="SHPENZIME TË POSTUARA" value={money(preview?.today_expenses?.total)} tone="bad" sub={`${n(preview?.today_expenses?.count)} rreshta`} />
                     <Metric label="AVANSE TË POSTUARA" value={money(preview?.today_advances?.total)} tone="warn" sub={`${n(preview?.today_advances?.count)} rreshta`} />
                     <Metric label="SHPENZIME NË PRITJE" value={money(preview?.pending_expenses_total)} tone={pendingExpenseCount ? 'bad' : 'ok'} sub={`${pendingExpenseCount} kërkesa`} />
                   </div>
                   {pendingExpenseCount ? (
-                    <Alert tone="bad">Vendosi krejt shpenzimet në pritje te ARKA para se ta mbyllësh ditën.</Alert>
-                  ) : <Alert tone="ok">Krejt shpenzimet e regjistruara janë vendosur dhe janë reflektuar në buxhet.</Alert>}
+                    <Alert tone="bad">Vendosi kërkesat më poshtë. Sapo të mbesin 0 në pritje, hapet automatikisht “VAZHDO TE NUMËRIMI”.</Alert>
+                  ) : <Alert tone="ok">Krejt daljet janë vendosur dhe janë reflektuar në buxhet. Mund të vazhdosh te numërimi.</Alert>}
+                  {expenseActionMessage ? <Alert tone="ok">{expenseActionMessage}</Alert> : null}
+                </Card>
+
+                <Card tone={newExpenseOpen ? 'warn' : 'info'}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 1000 }}>SHTO SHPENZIM TË RI</div>
+                      <div style={{ marginTop: 3, color: palette.muted, fontSize: 10.5, lineHeight: 1.35, fontWeight: 750 }}>Përdore kur paratë kanë dalë realisht nga boxhi.</div>
+                    </div>
+                    <button type="button" disabled={newExpenseBusy || !!expenseActionBusy} onClick={() => newExpenseOpen ? setNewExpenseOpen(false) : openNewExpenseForm()} style={secondaryButtonStyle}>
+                      {newExpenseOpen ? 'MBYLLE' : '+ SHTO SHPENZIM'}
+                    </button>
+                  </div>
+
+                  {newExpenseOpen ? (
+                    <div style={{ display: 'grid', gap: 9, border: '1px solid rgba(245,158,11,.34)', borderRadius: 14, background: 'rgba(120,53,15,.14)', padding: 11 }}>
+                      <label style={{ display: 'grid', gap: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 1000, color: palette.warn }}>SHUMA €</span>
+                        <input
+                          inputMode="decimal"
+                          value={newExpenseAmount}
+                          onChange={(event) => setNewExpenseAmount(event.target.value)}
+                          placeholder="0.00"
+                          style={{ width: '100%', boxSizing: 'border-box', border: '1px solid rgba(245,158,11,.42)', borderRadius: 12, padding: 12, background: '#0f172a', color: '#fff', fontSize: 18, fontWeight: 1000, outline: 'none' }}
+                        />
+                      </label>
+                      <label style={{ display: 'grid', gap: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 1000, color: palette.warn }}>PËRSHKRIMI</span>
+                        <textarea
+                          rows={3}
+                          value={newExpenseNote}
+                          onChange={(event) => setNewExpenseNote(event.target.value)}
+                          placeholder="P.sh. naftë, material, servis, kompensim klienti..."
+                          style={{ width: '100%', boxSizing: 'border-box', border: '1px solid rgba(245,158,11,.32)', borderRadius: 12, padding: 12, background: '#0f172a', color: '#fff', fontSize: 12, lineHeight: 1.4, fontWeight: 750, resize: 'vertical' }}
+                        />
+                      </label>
+                      <button type="button" disabled={newExpenseBusy || !!expenseActionBusy} onClick={() => void createDailyExpense()} style={{ ...primaryButtonStyle, opacity: newExpenseBusy || expenseActionBusy ? .55 : 1, background: 'linear-gradient(135deg,#9a3412,#ea580c)' }}>
+                        {newExpenseBusy ? 'DUKE RUAJTUR...' : 'REGJISTRO DHE ZBRITE NGA BUXHETI'}
+                      </button>
+                    </div>
+                  ) : null}
+                </Card>
+
+                <Card tone={pendingExpenseCount ? 'bad' : 'ok'}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 13, fontWeight: 1000 }}>SHPENZIMET NË PRITJE</div>
+                    <button type="button" disabled={refreshing || newExpenseBusy || !!expenseActionBusy} onClick={() => void loadPreview({ force: true })} style={secondaryButtonStyle}>RIFRESKO LISTËN</button>
+                  </div>
+                  {pendingExpenses.length ? pendingExpenses.map((expense) => {
+                    const expenseId = Number(expense?.id || 0);
+                    const busy = String(expenseActionBusy) === String(expenseId);
+                    return (
+                      <Row
+                        key={`pending_expense_${expenseId}`}
+                        title={cleanExpenseNote(expense?.note)}
+                        meta={`${upper(expense?.created_by_name || expense?.created_by_pin || 'PA PUNËTOR')} • ${stamp(expense?.created_at)} • KËRKESA #${expenseId}`}
+                        amount={money(expense?.amount)}
+                        tone="bad"
+                      >
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(125px,1fr))', gap: 7 }}>
+                          <button type="button" disabled={busy || newExpenseBusy || (!!expenseActionBusy && !busy)} onClick={() => void resolvePendingExpense(expense, 'BUSINESS_EXPENSE')} style={{ ...secondaryButtonStyle, background: 'rgba(21,128,61,.24)', color: palette.ok, opacity: busy ? .6 : 1 }}>
+                            {busy ? 'DUKE VENDOSUR...' : 'PRANO BIZNES'}
+                          </button>
+                          <button type="button" disabled={busy || newExpenseBusy || (!!expenseActionBusy && !busy)} onClick={() => void resolvePendingExpense(expense, 'PERSONAL_ADVANCE')} style={{ ...secondaryButtonStyle, background: 'rgba(120,53,15,.24)', color: palette.warn, opacity: busy ? .6 : 1 }}>
+                            KTHE NË AVANS
+                          </button>
+                          <button type="button" disabled={busy || newExpenseBusy || (!!expenseActionBusy && !busy)} onClick={() => void resolvePendingExpense(expense, 'REJECTED_OPEN_CASH')} style={{ ...secondaryButtonStyle, background: 'rgba(127,29,29,.24)', color: palette.bad, opacity: busy ? .6 : 1 }}>
+                            REFUZO
+                          </button>
+                        </div>
+                      </Row>
+                    );
+                  }) : <Alert tone="ok">S’KA SHPENZIME NË PRITJE.</Alert>}
                 </Card>
 
                 <Card>
-                  <div style={{ fontSize: 13, fontWeight: 1000 }}>SHPENZIMET E POSTUARA</div>
+                  <div style={{ fontSize: 13, fontWeight: 1000 }}>SHPENZIMET E POSTUARA SOT</div>
                   {postedExpenseRows.length ? postedExpenseRows.map((row) => (
                     <Row key={`expense_${row?.id}`} title={upper(row?.description || row?.category)} meta={`${stamp(row?.created_at)} • LEDGER #${row?.id}`} amount={`-${money(row?.amount)}`} tone="bad" />
                   )) : <div style={{ color: palette.muted, fontSize: 11 }}>S’KA SHPENZIME TË POSTUARA SOT.</div>}
                 </Card>
 
                 <Card>
-                  <div style={{ fontSize: 13, fontWeight: 1000 }}>AVANSET E POSTUARA</div>
+                  <div style={{ fontSize: 13, fontWeight: 1000 }}>AVANSET E POSTUARA SOT</div>
                   {postedAdvanceRows.length ? postedAdvanceRows.map((row) => (
                     <Row key={`advance_${row?.id}`} title={upper(row?.description || 'AVANS')} meta={`${stamp(row?.created_at)} • LEDGER #${row?.id}`} amount={`-${money(row?.amount)}`} tone="warn" />
                   )) : <div style={{ color: palette.muted, fontSize: 11 }}>S’KA AVANSE TË POSTUARA SOT.</div>}
                 </Card>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <button type="button" onClick={() => setStep(1)} style={secondaryButtonStyle}>← DORËZIMET</button>
-                  <button type="button" disabled={pendingExpenseCount > 0} onClick={goNextFromOutgoings} style={{ ...primaryButtonStyle, opacity: pendingExpenseCount > 0 ? .52 : 1 }}>VAZHDO TE NUMËRIMI →</button>
+                  <button type="button" disabled={newExpenseBusy || !!expenseActionBusy} onClick={() => setStep(1)} style={secondaryButtonStyle}>← DORËZIMET</button>
+                  <button type="button" disabled={pendingExpenseCount > 0 || newExpenseBusy || !!expenseActionBusy} onClick={goNextFromOutgoings} style={{ ...primaryButtonStyle, opacity: pendingExpenseCount > 0 || newExpenseBusy || expenseActionBusy ? .52 : 1 }}>
+                    {pendingExpenseCount > 0 ? `VENDOS EDHE ${pendingExpenseCount} KËRKESA` : 'VAZHDO TE NUMËRIMI →'}
+                  </button>
                 </div>
               </div>
             ) : null}
