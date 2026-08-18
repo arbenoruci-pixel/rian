@@ -1,0 +1,9 @@
+===== APPLY =====
+PASS transport repeat visit V2 patch applied
+===== BOOTSTRAP =====
+PASS repeat-visit V2 bootstrap compatibility fix
+===== VERIFY_PRE =====
+FAIL transport repeat visit V2: 2 check(s)
+1. PWA cache not bumped
+2. HTML build id not bumped
+FAILED rc=1
