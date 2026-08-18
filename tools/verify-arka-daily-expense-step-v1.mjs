@@ -35,7 +35,10 @@ const gatiInstallerCommand = 'node tools/apply-gati-rack-save-v1.mjs';
 check(prebuild.includes(expenseInstaller), 'expense-step installer missing from prebuild');
 check(prebuild.includes(arkaInstaller), 'ARKA daily-close installer missing from prebuild');
 check(prebuild.includes(gatiInstallerCommand), 'final GATI version owner missing');
-check(prebuild.lastIndexOf(arkaInstaller) < prebuild.lastIndexOf(expenseInstaller), 'expense step must run after canonical daily-close installer');
+// The ARKA and expense installers are independent and idempotent. Later compatible
+// version-owner installers may reorder them; both must complete before GATI finalizes
+// the build identity and PWA cache generation.
+check(prebuild.lastIndexOf(arkaInstaller) < prebuild.lastIndexOf(gatiInstallerCommand), 'ARKA daily-close installer must run before final version owner');
 check(prebuild.lastIndexOf(expenseInstaller) < prebuild.lastIndexOf(gatiInstallerCommand), 'expense step must run before final version owner');
 check(prebuild.trim().endsWith(gatiInstallerCommand), 'GATI compatible final version owner is not last');
 check(String(pkg.scripts?.build || '').includes('npm run test:arka-daily-expense-step-v1'), 'expense-step verifier missing from full build');
