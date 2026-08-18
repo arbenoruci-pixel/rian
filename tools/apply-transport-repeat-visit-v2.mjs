@@ -79,6 +79,7 @@ function insertAfterLine(source, needle, lineToInsert, label) {
 
 function patchBoard() {
   let source = fs.readFileSync(BOARD_PATH, 'utf8');
+  if (source.includes(`${MARKER}:BOARD`)) return;
   const replacement = `function transportBoardVisitIdentity(row = {}) {
   // ${MARKER}:BOARD — T-code belongs to the client; visit/order id belongs to the job.
   const data = row?.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {};
@@ -238,6 +239,7 @@ function formatDispatchPickupPlanForInput(row = {}) {
 
 function patchInbox() {
   let source = fs.readFileSync(INBOX_PATH, 'utf8');
+  if (source.includes(`${MARKER}:INBOX`)) return;
   const replacement = `function orderPickupPlan(order) {
   // ${MARKER}:INBOX — planned dimensions belong to this exact visit.
   const data = order?.data && typeof order.data === 'object' && !Array.isArray(order.data) ? order.data : {};

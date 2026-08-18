@@ -163,9 +163,22 @@ function getTransportDisplayCode(row = {}) {
   return cleaned;
 }
 
+function transportBoardVisitIdentity(row = {}) {
+  // TRANSPORT_REPEAT_VISIT_V2:BOARD — T-code belongs to the client; visit/order id belongs to the job.
+  const data = row?.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {};
+  const id = String(row?.id || data?.order_id || data?.public_order_id || '').trim();
+  if (id) return 'id:' + id;
+  const code = getTransportDisplayCode(row);
+  const visit = Number(row?.visit_nr ?? data?.visit_nr ?? row?.visit_no ?? data?.visit_no ?? 0) || 0;
+  if (code && visit > 0) return 'code:' + code + ':visit:' + visit;
+  const stamp = String(row?.created_at || data?.created_at || row?.updated_at || data?.updated_at || '').trim();
+  if (code && stamp) return 'code:' + code + ':at:' + stamp;
+  return code ? 'code:' + code : '';
+}
+
 function pruneTransportBoardCacheRows(rows = [], authoritativeRows = []) {
   const list = Array.isArray(rows) ? rows : [];
-  const dbByCode = new Map();
+  const dbByVisit = new Map();
   const statusRank = (status = '') => {
     const st = normalizeTransportLifecycleStatus(status);
     if (isTransportInactiveStatus(st)) return 90;
@@ -176,16 +189,16 @@ function pruneTransportBoardCacheRows(rows = [], authoritativeRows = []) {
     return 0;
   };
   (Array.isArray(authoritativeRows) ? authoritativeRows : []).forEach((row) => {
-    const code = getTransportDisplayCode(row);
-    if (!code) return;
+    const identity = transportBoardVisitIdentity(row);
+    if (!identity) return;
     const st = normalizeTransportLifecycleStatus(row?.status || row?.data?.status || '');
-    const prev = dbByCode.get(code) || '';
-    if (!prev || statusRank(st) >= statusRank(prev)) dbByCode.set(code, st);
+    const prev = dbByVisit.get(identity) || '';
+    if (!prev || statusRank(st) >= statusRank(prev)) dbByVisit.set(identity, st);
   });
   return list.filter((row) => {
     const ownStatus = getTransportRowStatus(row);
-    const code = getTransportDisplayCode(row);
-    const dbStatus = code ? dbByCode.get(code) : '';
+    const identity = transportBoardVisitIdentity(row);
+    const dbStatus = identity ? dbByVisit.get(identity) : '';
     if (dbStatus && dbStatus !== ownStatus) {
       if (isTransportBaseOnlyStatus(dbStatus) || TRANSPORT_BOARD_READY_STATUSES.has(dbStatus) || isTransportInactiveStatus(dbStatus)) return false;
     }

@@ -199,11 +199,25 @@ async function prepareDispatchTransportClientLink({ name, phone, address, existi
   if (!reservationOid) throw new Error('TRANSPORT_ORDER_UUID_MISSING');
 
   let liveClient = verifiedPhoneClient;
+  let phoneLookupDegraded = false;
+  let phoneLookupError = '';
   if (verifiedPhoneClient === undefined) {
     try {
       liveClient = await findTransportClientByPhoneOnly(cleanPhone, { timeoutMs: 5500 });
     } catch (error) {
-      throw new Error(`NUK U VERIFIKUA KLIENTI ME TELEFON. POROSIA NUK U RUAJT. ${error?.message || ''}`.trim());
+      // DISPATCH_PHONE_LOOKUP_ATOMIC_FALLBACK_V1
+      // A transient iPhone/LTE fetch timeout must not block Dispatch before the
+      // authoritative create_transport_order RPC gets a chance to resolve the
+      // phone under its advisory lock. Reuse only an exact cached phone match;
+      // otherwise reserve a temporary T-code and let the atomic RPC reconcile it.
+      phoneLookupDegraded = true;
+      phoneLookupError = String(error?.message || error || 'TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED');
+      const cachedExactClient = existingPhoneClient
+        && dispatchSamePhone(getClientPhone(existingPhoneClient) || existingPhoneClient?.phone_digits || existingPhoneClient?.phone, cleanPhone)
+        && getTransportTCode(existingPhoneClient)
+        ? existingPhoneClient
+        : null;
+      liveClient = cachedExactClient;
     }
   }
 
@@ -240,6 +254,8 @@ async function prepareDispatchTransportClientLink({ name, phone, address, existi
     address: s(address),
     source: getTransportClientSource(selectedClient) || 'transport_clients',
     rowId: selectedClient?.row_id || selectedClient?.id || null,
+    phoneLookupDegraded,
+    phoneLookupError,
   };
 }
 
@@ -929,6 +945,56 @@ function extractPastePieces(raw) {
   return m?.[1] ? String(Number(m[1])) : "";
 }
 
+// TRANSPORT_REPEAT_VISIT_V2:DISPATCH — every repeat visit carries its own pickup plan.
+function normalizeDispatchPickupM2(value) {
+  const n = Number(String(value ?? '').replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0 || n > 80) return 0;
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function parseDispatchPickupMeasurements(value = '') {
+  const text = String(value || '')
+    .replace(/(?:\+|00)?\d[\d\s().-]{6,}\d/g, ' ')
+    .replace(/\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b/g, ' ')
+    .replace(/\b\d{1,2}:\d{2}\b/g, ' ');
+  const out = [];
+  const re = /(?:^|[^\d])(\d{1,2}(?:[.,]\d{1,2}))(?=$|[^\d])/g;
+  let hit;
+  while ((hit = re.exec(text))) {
+    const n = normalizeDispatchPickupM2(hit[1]);
+    if (n > 0) out.push(n);
+  }
+  return out;
+}
+
+function dispatchPickupPieceHint(value = '') {
+  const hit = String(value || '').match(/\b(\d{1,2})\s*(?:cop[eë]|copa|tepih(?:a|ë|at)?|qilim(?:a|ë|at)?)\b/i);
+  return hit?.[1] ? Math.max(0, Number(hit[1]) || 0) : 0;
+}
+
+function buildDispatchPickupPlan({ measurementsText = '', noteText = '', piecesHint = 0 } = {}) {
+  const explicit = String(measurementsText || '').trim();
+  const note = String(noteText || '').trim();
+  const noteHasCarpetWords = /\b(?:cop[eë]|copa|tepih(?:a|ë|at)?|qilim(?:a|ë|at)?)\b/i.test(note);
+  const sourceText = explicit || (noteHasCarpetWords ? note : '');
+  const hintedPieces = Math.max(0, Number(piecesHint || 0) || 0, dispatchPickupPieceHint(explicit), dispatchPickupPieceHint(note));
+  const tokens = parseDispatchPickupMeasurements(sourceText);
+  const measurements = hintedPieces > 0 ? tokens.slice(0, hintedPieces) : tokens;
+  const pieces = Math.max(hintedPieces, measurements.length);
+  const items = measurements.map((m2, index) => ({ id: 'planned_' + (index + 1), type: 'tepih', qty: 1, m2, planned: true, source: 'DISPATCH' }));
+  const m2Total = Math.round((measurements.reduce((sum, n) => sum + n, 0) + Number.EPSILON) * 100) / 100;
+  return { version: 'DISPATCH_PICKUP_PLAN_V2', pieces, measurements_m2: measurements, m2_total: m2Total, items, source_text: sourceText };
+}
+
+function formatDispatchPickupPlanForInput(row = {}) {
+  const data = row?.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {};
+  const plan = data?.pickup_plan && typeof data.pickup_plan === 'object' ? data.pickup_plan : {};
+  const values = Array.isArray(plan?.measurements_m2)
+    ? plan.measurements_m2
+    : Array.isArray(data?.planned_tepiha) ? data.planned_tepiha.map((item) => item?.m2) : [];
+  return values.map(normalizeDispatchPickupM2).filter((n) => n > 0).join(', ');
+}
+
 function emptyDispatchPasteResult(raw = "") {
   return {
     originalText: s(raw),
@@ -1519,14 +1585,34 @@ function DispatchAccessScreen({ checking = false }) {
 }
 
 export default function DispatchPage() {
-  const todayYmd = useMemo(() => toLocalYmd(new Date()), []);
-  const tomorrowYmd = useMemo(() => addDaysYmd(toLocalYmd(new Date()), 1), []);
+  const [todayYmd, setTodayYmd] = useState(() => toLocalYmd(new Date()));
+  const tomorrowYmd = useMemo(() => addDaysYmd(todayYmd, 1), [todayYmd]);
+
+  useEffect(() => {
+    const refreshCalendarDay = () => {
+      const next = toLocalYmd(new Date());
+      setTodayYmd((current) => current === next ? current : next);
+    };
+    refreshCalendarDay();
+    const timer = window.setInterval(refreshCalendarDay, 30_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshCalendarDay(); };
+    window.addEventListener('focus', refreshCalendarDay);
+    window.addEventListener('online', refreshCalendarDay);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshCalendarDay);
+      window.removeEventListener('online', refreshCalendarDay);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []); // DISPATCH_MIDNIGHT_DRIVERS_V1: date rollover
 
   const [activeTab, setActiveTab] = useState(TAB_TODAY);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [note, setNote] = useState("");
+  const [pickupMeasurements, setPickupMeasurements] = useState("");
   const [drivers, setDrivers] = useState([]);
   const [driverId, setDriverId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1548,6 +1634,7 @@ export default function DispatchPage() {
   const [editSlot, setEditSlot] = useState("morning");
   const [editDriver, setEditDriver] = useState("");
   const [editNote, setEditNote] = useState("");
+  const [editPickupMeasurements, setEditPickupMeasurements] = useState("");
   const [saveBusy, setSaveBusy] = useState(false);
   const [deleteBusyId, setDeleteBusyId] = useState("");
   const [searchTimer, setSearchTimer] = useState(null);
@@ -1633,20 +1720,47 @@ export default function DispatchPage() {
 
   useEffect(() => {
     if (!accessChecked || !accessAllowed) return undefined;
-    (async () => {
-      const res = await listUsers();
-      if (res?.ok) {
-        const ds = (res.items || []).filter((u) => {
-          const roleOk = String(u.role || "").toUpperCase() === "TRANSPORT";
-          const hybridOk = u?.is_hybrid_transport === true;
-          const activeOk = u?.is_active !== false;
-          return activeOk && (roleOk || hybridOk);
-        });
-        setDrivers(ds);
-        if (ds.length === 1) setDriverId(String(ds[0].id));
-      }
-    })();
-  }, [accessChecked, accessAllowed]);
+    let cancelled = false;
+    let retryTimer = 0;
+    let attempt = 0;
+    const loadDrivers = async () => {
+      attempt += 1;
+      try {
+        const res = await listUsers();
+        if (cancelled) return;
+        if (res?.ok) {
+          const ds = (res.items || []).filter((u) => {
+            const roleOk = String(u.role || '').toUpperCase() === 'TRANSPORT';
+            const hybridOk = u?.is_hybrid_transport === true || String(u?.is_hybrid_transport || '').toLowerCase() === 'true';
+            const activeOk = u?.is_active !== false;
+            return activeOk && (roleOk || hybridOk);
+          });
+          if (ds.length) {
+            setDrivers(ds);
+            try { window.localStorage.setItem('tepiha_dispatch_drivers_v1', JSON.stringify({ saved_at: new Date().toISOString(), items: ds })); } catch {}
+            if (ds.length === 1) setDriverId(String(ds[0].id));
+            attempt = 0;
+            return;
+          }
+        }
+      } catch {}
+      try {
+        const cached = JSON.parse(window.localStorage.getItem('tepiha_dispatch_drivers_v1') || 'null');
+        if (!cancelled && Array.isArray(cached?.items) && cached.items.length) setDrivers((current) => current.length ? current : cached.items);
+      } catch {}
+      if (!cancelled && attempt < 4) retryTimer = window.setTimeout(loadDrivers, attempt * 1200);
+    };
+    const onRefresh = () => { attempt = 0; void loadDrivers(); };
+    void loadDrivers();
+    window.addEventListener('focus', onRefresh);
+    window.addEventListener('online', onRefresh);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retryTimer);
+      window.removeEventListener('focus', onRefresh);
+      window.removeEventListener('online', onRefresh);
+    };
+  }, [accessChecked, accessAllowed]); // DISPATCH_MIDNIGHT_DRIVERS_V1: resilient drivers
 
   const loadRows = useCallback(async () => {
     setLoadingRows(true);
@@ -2202,6 +2316,7 @@ export default function DispatchPage() {
       const cleanPhone = onlyDigits(phone);
       const cleanAddress = s(address);
       const cleanNote = s(note);
+      const pickupPlan = buildDispatchPickupPlan({ measurementsText: pickupMeasurements, noteText: cleanNote, piecesHint: smartPasteResult?.pieces || 0 });
       const existingPhoneClient = phoneHit && dispatchSamePhone(getClientPhone(phoneHit) || phoneHit?.phone_digits || phoneHit?.phone, cleanPhone) ? phoneHit : null;
       // A cached card may prefill the form only. prepareDispatchTransportClientLink
       // always repeats the live DB lookup immediately before code allocation.
@@ -2264,6 +2379,11 @@ export default function DispatchPage() {
           phone_digits: clientLink.phoneDigits,
           address: cleanAddress,
           note: cleanNote,
+          pickup_plan: pickupPlan,
+          planned_tepiha: pickupPlan.items,
+          planned_pieces: pickupPlan.pieces,
+          planned_m2_total: pickupPlan.m2_total,
+          pickup_measurements_text: String(pickupMeasurements || '').trim(),
           created_by: "DISPATCH",
           created_by_role: "DISPATCH",
           created_by_pin: String(actorNow?.pin || '').trim() || null,
@@ -2292,6 +2412,13 @@ export default function DispatchPage() {
             row_id: clientLink.rowId || null,
             matched_by: "phone_digits",
           },
+          ...(clientLink.phoneLookupDegraded ? {
+            dispatch_phone_lookup_degraded: {
+              at: nowIso,
+              reason: clientLink.phoneLookupError || 'TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED',
+              fallback: clientLink.clientId ? 'EXACT_CACHED_CLIENT_THEN_ATOMIC_RPC' : 'RESERVED_CODE_THEN_ATOMIC_RPC',
+            },
+          } : {}),
         },
       };
 
@@ -2322,6 +2449,7 @@ export default function DispatchPage() {
       setPhone("");
       setAddress("");
       setNote("");
+      setPickupMeasurements("");
       setCrmQuery("");
       setCrmHits([]);
       setCrmOpen(false);
@@ -2360,6 +2488,7 @@ export default function DispatchPage() {
     const pickedDriver = drivers.find((d) => String(d?.id || "") === String(row?.data?.transport_id || row?.data?.transport_user_id || ""));
     setEditDriver(String(pickedDriver?.id || row?.data?.transport_id || row?.data?.transport_user_id || ""));
     setEditNote(s(row?.data?.note || ""));
+    setEditPickupMeasurements(formatDispatchPickupPlanForInput(row));
     setSmartMessageLabel("COPY PËR KLIENT");
     setSmartMessageText(buildCustomerConfirmText(row));
   }
@@ -2373,9 +2502,15 @@ export default function DispatchPage() {
       const pickedDriver = drivers.find((d) => String(d?.id || "") === String(editDriver || "")) || null;
       const pickedDriverName = s(pickedDriver?.name || pickedDriver?.full_name);
       const pickedDriverPin = s(pickedDriver?.pin || pickedDriver?.user_pin);
+      const nextPickupPlan = buildDispatchPickupPlan({ measurementsText: editPickupMeasurements, noteText: s(editNote), piecesHint: selectedRow?.data?.pickup_plan?.pieces || selectedRow?.data?.planned_pieces || 0 });
       const nextData = {
         ...(selectedRow.data || {}),
         note: s(editNote),
+        pickup_plan: nextPickupPlan,
+        planned_tepiha: nextPickupPlan.items,
+        planned_pieces: nextPickupPlan.pieces,
+        planned_m2_total: nextPickupPlan.m2_total,
+        pickup_measurements_text: String(editPickupMeasurements || '').trim(),
         pickup_date: editDate,
         pickup_slot: editSlot,
         pickup_window: slotWindow(editSlot),
@@ -2834,6 +2969,12 @@ Mati 1, nesër paradite, 3 tepiha`}
         </div>
 
         <div style={ui.field}>
+          <div style={ui.label}>TEPIHAT PËR MARRJE / m²</div>
+          <input style={ui.input} value={pickupMeasurements} onChange={(e) => setPickupMeasurements(e.target.value)} placeholder="p.sh. 5.8, 5.8" inputMode="decimal" />
+          <div style={ui.sectionHintCompact}>Një vlerë për secilin tepih. P.sh. 2 tepiha: 5.8, 5.8.</div>
+        </div>
+
+        <div style={ui.field}>
           <div style={ui.label}>PLANIFIKIMI</div>
           <div style={ui.pillRow}>
             <button type="button" style={planMode === "today" ? ui.pillOn : ui.pillOff} onClick={() => { setPlanMode("today"); markSmartCreateScheduleConfirmed(); }}>PËR SOT</button>
@@ -3186,6 +3327,10 @@ Mati 1, nesër paradite, 3 tepiha`}
               <div style={ui.field}>
                 <div style={ui.label}>SHËNIM</div>
                 <textarea style={ui.textarea} value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="OPSIONALE" />
+              </div>
+              <div style={ui.field}>
+                <div style={ui.label}>TEPIHAT PËR MARRJE / m²</div>
+                <input style={ui.input} value={editPickupMeasurements} onChange={(e) => setEditPickupMeasurements(e.target.value)} placeholder="p.sh. 5.8, 5.8" inputMode="decimal" />
               </div>
             </div>
 

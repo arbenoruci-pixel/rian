@@ -1,7 +1,7 @@
 'use client';
 
 import { useDeferredValue, useMemo, useState } from 'react';
-import { buildSmsLink, buildTransportConfirmUrl } from '@/lib/smartSms';
+import { buildSmsLink, buildTransportConfirmUrl, canonicalizePhone } from '@/lib/smartSms';
 import { useRenderBatches } from '@/lib/renderBatching';
 
 const BOARD_RENDER_LIMIT = 50;
@@ -27,7 +27,7 @@ function normalizePhone(phone) {
 }
 
 function buildTelHref(phone) {
-  const clean = normalizePhone(phone);
+  const clean = canonicalizePhone(phone);
   return clean ? `tel:${clean}` : '';
 }
 
@@ -323,21 +323,45 @@ function sumQtyRows(rows) {
   return (Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + (Number(row?.qty ?? row?.pieces ?? 0) || 0), 0);
 }
 
+function orderPickupPlan(order) {
+  // TRANSPORT_REPEAT_VISIT_V2:INBOX — planned dimensions belong to this exact visit.
+  const data = order?.data && typeof order.data === 'object' && !Array.isArray(order.data) ? order.data : {};
+  const plan = data?.pickup_plan && typeof data.pickup_plan === 'object' ? data.pickup_plan : {};
+  const plannedRows = Array.isArray(plan?.items) ? plan.items : (Array.isArray(data?.planned_tepiha) ? data.planned_tepiha : []);
+  const measurements = Array.isArray(plan?.measurements_m2)
+    ? plan.measurements_m2.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+    : plannedRows.map((item) => Number(item?.m2 ?? item?.area ?? item?.sqm ?? 0)).filter((n) => Number.isFinite(n) && n > 0);
+  const pieces = Math.max(0, Number(plan?.pieces ?? data?.planned_pieces ?? plannedRows.length ?? 0) || 0, measurements.length);
+  const explicitTotal = Number(plan?.m2_total ?? data?.planned_m2_total ?? 0);
+  const m2Total = Number.isFinite(explicitTotal) && explicitTotal > 0 ? explicitTotal : measurements.reduce((sum, n) => sum + n, 0);
+  return { pieces, measurements, m2Total };
+}
+
+function orderPickupM2(order) {
+  const data = order?.data && typeof order.data === 'object' ? order.data : {};
+  const direct = Number(data?.m2_total ?? data?.total_m2 ?? data?.m2 ?? data?.pay?.m2 ?? order?.m2_total ?? order?.m2 ?? 0);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const actualRows = [...(Array.isArray(data?.tepiha) ? data.tepiha : []), ...(Array.isArray(data?.staza) ? data.staza : [])];
+  const actual = actualRows.reduce((sum, item) => {
+    const qty = Number(item?.qty ?? item?.pieces ?? 1) || 1;
+    const area = Number(item?.m2 ?? item?.area ?? item?.sqm ?? 0) || 0;
+    return sum + (area > 0 ? area * qty : 0);
+  }, 0);
+  return actual > 0 ? actual : orderPickupPlan(order).m2Total;
+}
+
+function orderPickupMeasurementsLabel(order) {
+  const values = orderPickupPlan(order).measurements;
+  if (!values.length) return '';
+  return values.map((n) => Number(n).toFixed(Number(n) % 1 === 0 ? 0 : 1)).join(' + ') + ' m²';
+}
+
 function orderPieces(order) {
   const data = order?.data && typeof order.data === 'object' ? order.data : {};
-  const explicit = Number(
-    order?.pieces ??
-    order?.total_pieces ??
-    data?.totals?.pieces ??
-    data?.totals?.cope ??
-    data?.pieces ??
-    data?.cope ??
-    0
-  ) || 0;
+  const explicit = Number(order?.pieces ?? order?.total_pieces ?? data?.totals?.pieces ?? data?.totals?.cope ?? data?.pieces ?? data?.cope ?? 0) || 0;
   if (explicit > 0) return explicit;
-  return sumQtyRows(data?.tepiha || data?.tepihaRows) +
-    sumQtyRows(data?.staza || data?.stazaRows) +
-    (Number(data?.shkallore?.qty ?? data?.stairsQty ?? 0) || 0);
+  const actual = sumQtyRows(data?.tepiha || data?.tepihaRows) + sumQtyRows(data?.staza || data?.stazaRows) + (Number(data?.shkallore?.qty ?? data?.stairsQty ?? 0) || 0);
+  return actual > 0 ? actual : orderPickupPlan(order).pieces;
 }
 
 function orderTotal(order) {
@@ -654,6 +678,8 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
             const realCode = hasRealCode(order);
             const total = orderTotal(order);
             const pieces = orderPieces(order);
+            const m2Total = orderPickupM2(order);
+            const pickupPlanLabel = orderPickupMeasurementsLabel(order);
             const address = cleanAddress(orderAddress(order));
             const dateBadge = inboxPickupDateBadge(order);
             const isNew = !!(getUnseenRowStyle ? getUnseenRowStyle(order) : null);
@@ -702,8 +728,12 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                         <span style={dateBadgeStyle}>{dateBadge}</span>
                       ) : null}
 
+                      {pickupPlanLabel ? (
+                        <div style={{ color:'#fde68a', fontSize:11.5, fontWeight:950 }}>TEPIHAT: {pickupPlanLabel}</div>
+                      ) : null}
+
                       <div style={cardFooterStyle}>
-                        <span style={{ color: 'rgba(255,255,255,0.70)', fontSize: 12, fontWeight: 900 }}>{pieces} copë • {total} €</span>
+                        <span style={{ color: 'rgba(255,255,255,0.70)', fontSize: 12, fontWeight: 900 }}>{pieces} copë{m2Total > 0 ? ' • ' + Number(m2Total).toFixed(1) + ' m²' : ''}{total > 0 ? ' • ' + Number(total).toFixed(2) + ' €' : ''}</span>
                         <span style={openPillStyle}>HAP ➔</span>
                       </div>
 

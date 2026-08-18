@@ -1111,7 +1111,14 @@ function PranimiPageInner() {
                 if (lat !== '' && lat != null) setGpsLat(lat);
                 if (lng !== '' && lng != null) setGpsLng(lng);
                 
-                try { setTepihaRows((d.tepiha||[]).map((r,i)=>({...r, id:`t${i}`}))); } catch{}
+                try {
+                  // TRANSPORT_REPEAT_VISIT_V2:PRANIMI — prefill this visit's Dispatch plan; actual rows win if they already exist.
+                  const plannedRows = Array.isArray(d?.pickup_plan?.items)
+                    ? d.pickup_plan.items
+                    : (Array.isArray(d?.planned_tepiha) ? d.planned_tepiha : []);
+                  const sourceRows = Array.isArray(d?.tepiha) && d.tepiha.length ? d.tepiha : plannedRows;
+                  setTepihaRows(sourceRows.map((r,i)=>({...r, planned: false, id:'t' + i})));
+                } catch{}
                 try { setStazaRows((d.staza||[]).map((r,i)=>({...r, id:`s${i}`}))); } catch{}
                 
                 setStairsQty(d.shkallore?.qty||0); 
