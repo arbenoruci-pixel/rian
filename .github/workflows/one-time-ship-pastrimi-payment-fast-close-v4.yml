@@ -1,5 +1,6 @@
 name: One-time ship PASTRIMI payment fast close V4
 
+# Retry with a committed diagnostic log if any safeguard or production build fails.
 on:
   push:
     branches: [main]
@@ -25,14 +26,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply immediate payment close
-        run: node tools/apply-pastrimi-payment-fast-close-v4.mjs
-
-      - name: Run full production build and all safeguards
-        run: npm run build
-
-      - name: Verify final generated source
-        run: node tools/verify-pastrimi-payment-fast-close-v4.mjs
+      - name: Apply, full-build and verify with diagnostics
+        shell: bash
+        run: |
+          set +e
+          LOG=/tmp/pastrimi-fast-close-v4.log
+          : > "$LOG"
+          run_step() {
+            echo "===== $1 =====" | tee -a "$LOG"
+            shift
+            "$@" >> "$LOG" 2>&1
+            rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "FAILED rc=$rc" | tee -a "$LOG"
+              cp "$LOG" pastrimi-fast-close-v4-workflow.log
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add pastrimi-fast-close-v4-workflow.log
+              git commit -m "diagnose PASTRIMI payment fast close V4 failure" || true
+              git push origin HEAD:main || true
+              exit $rc
+            fi
+          }
+          run_step APPLY node tools/apply-pastrimi-payment-fast-close-v4.mjs
+          run_step BUILD npm run build
+          run_step VERIFY_POST node tools/verify-pastrimi-payment-fast-close-v4.mjs
+          exit 0
 
       - name: Commit verified source
         shell: bash
@@ -40,6 +59,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f pastrimi-fast-close-v4-workflow.log ]; then git rm -f pastrimi-fast-close-v4-workflow.log; fi
           git add \
             app/pastrimi/page.jsx \
             components/PosModal.jsx \
