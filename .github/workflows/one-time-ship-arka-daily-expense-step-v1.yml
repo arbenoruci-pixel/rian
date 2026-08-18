@@ -1,6 +1,6 @@
 name: One-time ship ARKA daily expense step V1
 
-# Retry 2: compatible ARKA installer ordering is accepted; diagnostics remain committed.
+# Retry 3: synchronize later fast-close/GATI version owners before the full build.
 on:
   push:
     branches: [main]
@@ -38,6 +38,11 @@ jobs:
           RC=$?
 
           if [ "$RC" -eq 0 ]; then
+            node tools/sync-arka-daily-expense-version-owner-v1.mjs >> "$LOG" 2>&1
+            RC=$?
+          fi
+
+          if [ "$RC" -eq 0 ]; then
             echo "===== BUILD =====" >> "$LOG"
             npm run build >> "$LOG" 2>&1
             RC=$?
@@ -60,6 +65,7 @@ jobs:
               components/ArkaDailyCloseWizard.jsx \
               tools/apply-arka-daily-expense-step-v1.mjs \
               tools/verify-arka-daily-expense-step-v1.mjs \
+              tools/sync-arka-daily-expense-version-owner-v1.mjs \
               tools/apply-gati-rack-save-v1.mjs \
               tools/apply-arka-daily-close-v2.mjs \
               tools/verify-arka-daily-close-v2.mjs \
