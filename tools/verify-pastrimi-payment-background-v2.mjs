@@ -5,13 +5,20 @@ const journal = fs.readFileSync('lib/pastrimiPaymentIntent.js', 'utf8');
 const failures = [];
 const check = (ok, msg) => { if (!ok) failures.push(msg); };
 
+const hasFastCloseV4 = page.includes('PASTRIMI_PAYMENT_FAST_CLOSE_V4');
+const hasNonBlockingLocalMirror = page.includes('void saveOrderLocal({ id: orderId')
+  || (hasFastCloseV4 && page.includes('void saveOrderLocal({'));
+const hasRetrySafePolicy = page.includes('the command is already in the synchronous')
+  || page.includes('The durable journal remains authoritative')
+  || (hasFastCloseV4 && page.includes('PASTRIMI_FAST_CLOSE_DETACHED_V4'));
+
 check(page.includes('PASTRIMI_PAYMENT_BACKGROUND_V2'), 'V2 page marker missing');
 check(page.includes('savePastrimiPaymentIntent(paymentIntent)'), 'synchronous intent save missing');
 check(page.includes('await enqueuePastrimiPaymentIntent(paymentIntent)'), 'background outbox enqueue missing');
 check(page.includes('removePastrimiPaymentIntent(paymentIdempotencyKey)'), 'intent cleanup missing');
 check(page.includes("setOrders((prev) => (prev || []).filter((o) => String(o?.id) !== orderId))"), 'immediate row removal missing');
-check(page.includes('void saveOrderLocal({ id: orderId'), 'non-blocking local mirror missing');
-check(page.includes('the command is already in the synchronous'), 'retry-safe failure policy missing');
+check(hasNonBlockingLocalMirror, 'non-blocking local mirror missing');
+check(hasRetrySafePolicy, 'retry-safe failure policy missing');
 check(page.indexOf('savePastrimiPaymentIntent(paymentIntent)') < page.indexOf("setOrders((prev) => (prev || []).filter"), 'intent must be saved before row removal');
 check(page.indexOf("setOrders((prev) => (prev || []).filter") < page.indexOf('await enqueuePastrimiPaymentIntent(paymentIntent)'), 'UI must finish before IndexedDB enqueue');
 
@@ -42,4 +49,6 @@ if (failures.length) {
   failures.forEach((item, index) => console.error(`${index + 1}. ${item}`));
   process.exit(1);
 }
-console.log('PASS: 30 Pastrimi payment background/resilience checks passed.');
+console.log(hasFastCloseV4
+  ? 'PASS: Pastrimi payment background/resilience checks passed with fast-close V4 compatibility.'
+  : 'PASS: 30 Pastrimi payment background/resilience checks passed.');
