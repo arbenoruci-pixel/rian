@@ -32,16 +32,18 @@ check(pos.includes("disabled ? 'DUKE RUAJTUR...' : confirmText"), 'visible busy 
 
 const prebuild = String(pkg.scripts?.prebuild || '');
 const touchInstaller = 'node tools/apply-pastrimi-payment-touch-v3.mjs';
+const repeatInstaller = 'node tools/apply-transport-repeat-visit-v2.mjs';
 const fastInstaller = 'node tools/apply-pastrimi-payment-fast-close-v4.mjs';
-const arkaInstaller = 'node tools/apply-arka-daily-close-v2.mjs';
 const gatiFinalInstaller = 'node tools/apply-gati-rack-save-v1.mjs';
 check(prebuild.includes(fastInstaller), 'fast-close installer missing from prebuild');
 check(prebuild.lastIndexOf(touchInstaller) < prebuild.lastIndexOf(fastInstaller), 'fast-close installer must run after touch V3');
-check(prebuild.lastIndexOf(fastInstaller) < prebuild.lastIndexOf(arkaInstaller), 'fast-close installer must run before ARKA installer');
+check(prebuild.lastIndexOf(repeatInstaller) < prebuild.lastIndexOf(fastInstaller), 'fast-close installer must run after repeat-visit V2');
+check(prebuild.lastIndexOf(fastInstaller) < prebuild.lastIndexOf(gatiFinalInstaller), 'fast-close installer must run before the final version owner');
 check(prebuild.trim().endsWith(gatiFinalInstaller), 'GATI compatible version owner must remain last');
 check(String(pkg.scripts?.build || '').includes('npm run test:pastrimi-payment-fast-close-v4'), 'fast-close verifier missing from full build');
 check(String(pkg.version || '').includes('pastrimi-payment-fast-close-v4'), 'package build version missing fast-close suffix');
 check(gatiInstaller.includes('pastrimi-payment-fast-close-v4'), 'final version owner can overwrite fast-close build identity');
+check(gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer'), 'future prebuild ordering does not preserve fast-close after repeat-visit');
 check(vite.includes('pastrimi-payment-fast-close-v4'), 'PWA cache generation missing fast-close suffix');
 check(index.includes('pastrimi-payment-fast-close-v4'), 'HTML build id missing fast-close suffix');
 check(installer.includes('PASTRIMI_PAYMENT_FAST_CLOSE_V4'), 'installer marker missing');
