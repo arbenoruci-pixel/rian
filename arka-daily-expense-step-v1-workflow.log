@@ -1,5 +1,6 @@
 ===== APPLY =====
 PASS ARKA daily expense step V1: visible pending requests, inline decisions, new expense entry and safe continuation.
+PASS ARKA daily expense version ownership preserved through fast-close and GATI installers.
 ===== BUILD =====
 
 > tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1 prebuild
@@ -514,7 +515,7 @@ computing gzip size...
 - Using dynamic import() to code-split the application
 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
-[32m✓ built in 11.94s[39m
+[32m✓ built in 12.07s[39m
 
 [36mPWA v1.2.0[39m
 mode      [35mgenerateSW[39m
