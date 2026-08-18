@@ -227,6 +227,24 @@ function patchFinalVersionOwner() {
   gati = gati
     .replace(/const APP_VERSION = '[^']+';/, `const APP_VERSION = '${APP_VERSION}';`)
     .replace(/const CACHE_VERSION = '[^']+';/, `const CACHE_VERSION = '${CACHE_VERSION}';`);
+
+  const repeatDecl = "  const repeatVisitV2Installer = 'node tools/apply-transport-repeat-visit-v2.mjs';";
+  const fastDecl = "  const pastrimiFastCloseV4Installer = 'node tools/apply-pastrimi-payment-fast-close-v4.mjs';";
+  if (!gati.includes(fastDecl)) {
+    if (!gati.includes(repeatDecl)) throw new Error('GATI_REPEAT_VISIT_DECLARATION_MISSING');
+    gati = gati.replace(repeatDecl, `${repeatDecl}\n${fastDecl}`);
+  }
+  gati = gati.replace(
+    '.filter((item) => item !== installer && item !== arkaInstaller && item !== unifiedInstaller && item !== repeatVisitV2Installer);',
+    '.filter((item) => item !== installer && item !== arkaInstaller && item !== unifiedInstaller && item !== repeatVisitV2Installer && item !== pastrimiFastCloseV4Installer);',
+  );
+  gati = gati.replace(
+    'pre.push(arkaInstaller, unifiedInstaller, repeatVisitV2Installer, installer);',
+    'pre.push(arkaInstaller, unifiedInstaller, repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer);',
+  );
+  if (!gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')) {
+    throw new Error('GATI_FINAL_INSTALLER_ORDER_NOT_PATCHED');
+  }
   fs.writeFileSync(GATI_INSTALLER_PATH, gati, 'utf8');
 }
 
@@ -234,17 +252,14 @@ function patchPackage() {
   const pkg = JSON.parse(fs.readFileSync(PACKAGE_PATH, 'utf8'));
   pkg.version = APP_VERSION;
   const scripts = pkg.scripts || (pkg.scripts = {});
-  const touchInstaller = 'node tools/apply-pastrimi-payment-touch-v3.mjs';
-  const arkaInstaller = 'node tools/apply-arka-daily-close-v2.mjs';
+  const gatiInstaller = 'node tools/apply-gati-rack-save-v1.mjs';
   const prebuild = String(scripts.prebuild || '')
     .split('&&')
     .map((item) => item.trim())
     .filter(Boolean)
     .filter((item) => item !== INSTALLER);
-  const touchIndex = prebuild.indexOf(touchInstaller);
-  const arkaIndex = prebuild.indexOf(arkaInstaller);
-  if (touchIndex >= 0) prebuild.splice(touchIndex + 1, 0, INSTALLER);
-  else if (arkaIndex >= 0) prebuild.splice(arkaIndex, 0, INSTALLER);
+  const gatiIndex = prebuild.lastIndexOf(gatiInstaller);
+  if (gatiIndex >= 0) prebuild.splice(gatiIndex, 0, INSTALLER);
   else prebuild.push(INSTALLER);
   scripts.prebuild = prebuild.join(' && ');
   scripts['test:pastrimi-payment-fast-close-v4'] = 'node tools/verify-pastrimi-payment-fast-close-v4.mjs';
