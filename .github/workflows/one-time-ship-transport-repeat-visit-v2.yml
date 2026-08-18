@@ -1,5 +1,6 @@
 name: One-time ship transport repeat visit V2
 
+# Retry with a committed diagnostic log on failure.
 on:
   push:
     branches: [main]
@@ -25,20 +26,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply repeat visit V2
-        run: node tools/apply-transport-repeat-visit-v2.mjs
-
-      - name: Normalize final version owner bootstrap
-        run: node tools/fix-transport-repeat-visit-v2-bootstrap.mjs
-
-      - name: Verify source before build
-        run: node tools/verify-transport-repeat-visit-v2.mjs
-
-      - name: Run full production build
-        run: npm run build
-
-      - name: Verify generated source after all installers
-        run: node tools/verify-transport-repeat-visit-v2.mjs
+      - name: Apply, verify and build with diagnostics
+        shell: bash
+        run: |
+          set +e
+          LOG=/tmp/repeat-visit-v2.log
+          : > "$LOG"
+          run_step() {
+            echo "===== $1 =====" | tee -a "$LOG"
+            shift
+            "$@" >> "$LOG" 2>&1
+            rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "FAILED rc=$rc" | tee -a "$LOG"
+              cp "$LOG" repeat-visit-v2-workflow.log
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add repeat-visit-v2-workflow.log
+              git commit -m "diagnose repeat visit V2 build failure" || true
+              git push origin HEAD:main || true
+              exit $rc
+            fi
+          }
+          run_step APPLY node tools/apply-transport-repeat-visit-v2.mjs
+          run_step BOOTSTRAP node tools/fix-transport-repeat-visit-v2-bootstrap.mjs
+          run_step VERIFY_PRE node tools/verify-transport-repeat-visit-v2.mjs
+          run_step BUILD npm run build
+          run_step VERIFY_POST node tools/verify-transport-repeat-visit-v2.mjs
+          exit 0
 
       - name: Commit verified source
         shell: bash
@@ -46,6 +61,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f repeat-visit-v2-workflow.log
           git add \
             app/transport/board/page.jsx \
             app/transport/board/modules/inbox.jsx \
