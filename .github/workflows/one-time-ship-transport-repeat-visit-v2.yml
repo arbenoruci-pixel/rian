@@ -1,6 +1,6 @@
 name: One-time ship transport repeat visit V2
 
-# Retry 3: final cache/build identity is verified after npm prebuild runs the final version owner.
+# Retry 4: installer is made idempotent before npm prebuild runs it again.
 on:
   push:
     branches: [main]
@@ -49,6 +49,7 @@ jobs:
             fi
           }
           run_step APPLY node tools/apply-transport-repeat-visit-v2.mjs
+          run_step IDEMPOTENCE node tools/fix-transport-repeat-visit-v2-idempotence.mjs
           run_step BOOTSTRAP node tools/fix-transport-repeat-visit-v2-bootstrap.mjs
           run_step BUILD npm run build
           run_step VERIFY_POST node tools/verify-transport-repeat-visit-v2.mjs
@@ -67,6 +68,7 @@ jobs:
             app/transport/pranimi/page.jsx \
             app/dispatch/page.jsx \
             tools/apply-transport-repeat-visit-v2.mjs \
+            tools/fix-transport-repeat-visit-v2-idempotence.mjs \
             tools/fix-transport-repeat-visit-v2-bootstrap.mjs \
             tools/verify-transport-repeat-visit-v2.mjs \
             tools/apply-gati-rack-save-v1.mjs \
