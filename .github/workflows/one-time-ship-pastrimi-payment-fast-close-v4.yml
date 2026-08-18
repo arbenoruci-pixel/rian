@@ -1,6 +1,6 @@
 name: One-time ship PASTRIMI payment fast close V4
 
-# Retry with a committed diagnostic log if any safeguard or production build fails.
+# Retry 2: legacy resilience checks now recognize the newer immediate-close flow.
 on:
   push:
     branches: [main]
@@ -65,6 +65,7 @@ jobs:
             components/PosModal.jsx \
             tools/apply-pastrimi-payment-fast-close-v4.mjs \
             tools/verify-pastrimi-payment-fast-close-v4.mjs \
+            tools/verify-pastrimi-payment-background-v2.mjs \
             tools/apply-gati-rack-save-v1.mjs \
             tools/apply-arka-daily-close-v2.mjs \
             tools/verify-arka-daily-close-v2.mjs \
