@@ -1,6 +1,6 @@
 name: One-time ship ARKA daily expense step V1
 
-# Retry with a committed diagnostic log so build failures are observable.
+# Retry 2: compatible ARKA installer ordering is accepted; diagnostics remain committed.
 on:
   push:
     branches: [main]
