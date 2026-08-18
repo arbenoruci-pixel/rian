@@ -1,0 +1,69 @@
+name: One-time ship transport repeat visit V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-ship-transport-repeat-visit-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply repeat visit V2
+        run: node tools/apply-transport-repeat-visit-v2.mjs
+
+      - name: Normalize final version owner bootstrap
+        run: node tools/fix-transport-repeat-visit-v2-bootstrap.mjs
+
+      - name: Verify source before build
+        run: node tools/verify-transport-repeat-visit-v2.mjs
+
+      - name: Run full production build
+        run: npm run build
+
+      - name: Verify generated source after all installers
+        run: node tools/verify-transport-repeat-visit-v2.mjs
+
+      - name: Commit verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/transport/board/page.jsx \
+            app/transport/board/modules/inbox.jsx \
+            app/transport/pranimi/page.jsx \
+            app/dispatch/page.jsx \
+            tools/apply-transport-repeat-visit-v2.mjs \
+            tools/fix-transport-repeat-visit-v2-bootstrap.mjs \
+            tools/verify-transport-repeat-visit-v2.mjs \
+            tools/apply-gati-rack-save-v1.mjs \
+            tools/apply-arka-daily-close-v2.mjs \
+            tools/verify-arka-daily-close-v2.mjs \
+            package.json \
+            vite.config.js \
+            lib/appEpoch.js \
+            index.html
+          if git diff --cached --quiet; then
+            echo "No generated source changes to commit."
+          else
+            git commit -m "fix repeat client pickup visits and planned carpet display V2"
+            git push origin HEAD:main
+          fi
