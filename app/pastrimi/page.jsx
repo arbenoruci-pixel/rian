@@ -6167,6 +6167,7 @@ ${destinationLine}
   }
 
   async function applyRowPayAndClose() {
+    // PASTRIMI_PAYMENT_FAST_CLOSE_V4: confirm locally, close immediately, sync idempotently in background.
     // PASTRIMI_PAYMENT_BACKGROUND_V1
     // PASTRIMI_PAYMENT_BACKGROUND_V2
     if (!rowPayOrder || rowPayBusy) return;
@@ -6295,21 +6296,70 @@ ${destinationLine}
     }
 
     let durableQueueCreated = false;
+    // PASTRIMI_FAST_CLOSE_OPTIMISTIC_V4
+    // The command is already in the synchronous intent journal. From this
+    // point the cashier must never wait for network, ARKA verification, bonus
+    // creation, IndexedDB or a later order refresh.
+    setRowPayBusy(true);
+    const visibleOptimisticOrder = {
+      ...optimisticOrder,
+      payment_sync_state: 'BACKGROUND_PENDING',
+      payment_idempotency_key: paymentIdempotencyKey,
+      last_payment_by_pin: String(pinData.pin || ''),
+      last_payment_by_name: String(pinData.name || ''),
+      updated_at: actionAt,
+    };
+    const optimisticStatus = normalizeStatus(visibleOptimisticOrder?.status || nextOrder?.status || 'pastrim') || 'pastrim';
+
+    try { localStorage.setItem(`order_${orderId}`, JSON.stringify(visibleOptimisticOrder)); } catch {}
+    try {
+      patchBaseMasterRow({
+        id: orderId,
+        status: optimisticStatus,
+        data: visibleOptimisticOrder,
+        updated_at: actionAt,
+        paid_amount: newPaid,
+        price_total: visibleOptimisticOrder.price_total,
+        _table: 'orders',
+      });
+    } catch {}
+
     if (pickupNow) {
-      // User-facing completion must never wait for IndexedDB, network, ARKA,
-      // bonus creation or cache refresh. Those continue below in background.
-      try { localStorage.setItem(`order_${orderId}`, JSON.stringify(optimisticOrder)); } catch {}
-      try { patchBaseMasterRow({ id: orderId, status: 'dorzim', data: optimisticOrder, updated_at: actionAt, paid_amount: newPaid, price_total: optimisticOrder.price_total, _table: 'orders' }); } catch {}
       setOrders((prev) => (prev || []).filter((o) => String(o?.id) !== orderId));
-      setRowPaySheet(false);
-      setRowPayOrder(null);
-      setRowPayAmount(0);
-      setRowPayBusy(false);
-      try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
-      void saveOrderLocal({ id: orderId, status: 'dorzim', data: optimisticOrder, updated_at: actionAt, _table: 'orders', _synced: false, _syncPending: true }).catch(() => {});
     } else {
-      setRowPayBusy(true);
+      setOrders((prev) => (prev || []).map((o) => String(o?.id) === orderId
+        ? {
+            ...o,
+            paid: newPaid,
+            isPaid: newDebt <= 0,
+            total: Number(rowPayOrder.total || o?.total || 0),
+            fullOrder: visibleOptimisticOrder,
+          }
+        : o
+      ));
     }
+
+    setPaymentSmsReceipt({
+      code: String(rowPayOrder?.code || rowPayOrder?.order_code || rowPayOrder?.fullOrder?.code || '').replace(/^T/i, ''),
+      name: String(rowPayOrder?.name || rowPayOrder?.client_name || rowPayOrder?.fullOrder?.client_name || rowPayOrder?.fullOrder?.client?.name || 'Klient').trim(),
+      phone: String(rowPayOrder?.phone || rowPayOrder?.client_phone || rowPayOrder?.fullOrder?.client_phone || rowPayOrder?.fullOrder?.client?.phone || '').trim(),
+      amount: applied,
+      syncPending: true,
+    });
+    setRowPaySheet(false);
+    setRowPayOrder(null);
+    setRowPayAmount(0);
+    setRowPayBusy(false);
+    try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
+    void saveOrderLocal({
+      id: orderId,
+      status: optimisticStatus,
+      data: visibleOptimisticOrder,
+      updated_at: actionAt,
+      _table: 'orders',
+      _synced: false,
+      _syncPending: true,
+    }).catch(() => {});
 
     const runPaymentInBackground = async () => {
       try {
@@ -6339,7 +6389,7 @@ ${destinationLine}
           idempotency_key: paymentIdempotencyKey,
           ...(fullPaymentTargetStatus ? { statusOnFullPayment: fullPaymentTargetStatus } : {}),
         }),
-          15000,
+          60000,
           'PASTRIMI_ROW_PAYMENT_TIMEOUT'
         );
 
@@ -6369,35 +6419,23 @@ ${destinationLine}
             ? { ...o, paid: enginePaid, isPaid: engineDebt <= 0, total: Number(rowPayOrder.total || o?.total || 0), fullOrder: localOrder }
             : o
           ));
-          setPaymentSmsReceipt({
-            code: String(rowPayOrder?.code || rowPayOrder?.order_code || rowPayOrder?.fullOrder?.code || '').replace(/^T/i, ''),
-            name: String(rowPayOrder?.name || rowPayOrder?.client_name || rowPayOrder?.fullOrder?.client_name || rowPayOrder?.fullOrder?.client?.name || 'Klient').trim(),
-            phone: String(rowPayOrder?.phone || rowPayOrder?.client_phone || rowPayOrder?.fullOrder?.client_phone || rowPayOrder?.fullOrder?.client?.phone || '').trim(),
-            amount: Number(rowPayAmount || 0),
-          });
-          setRowPaySheet(false);
-          setRowPayOrder(null);
-          setRowPayAmount(0);
+          setPaymentSmsReceipt((prev) => prev ? { ...prev, syncPending: false } : prev);
         }
       } catch (err) {
-        if (pickupNow) {
-          // Keep the row hidden: the command is already in the synchronous
-          // intent journal and will retry automatically. Restoring the row
-          // would invite a second tap for the same cash payment.
-          try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
-          return;
-        }
-        alert(`❌ PAGESA NUK U RUAJT: ${err?.message || 'PROVO PËRSËRI.'}`);
+        // The durable journal remains authoritative. A slow server response or
+        // temporary network failure must not reopen the payment sheet or invite
+        // a second cash entry with the same idempotency key.
+        try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
+        try { console.warn('[PASTRIMI_PAYMENT_FAST_CLOSE_V4] background sync pending', err); } catch {}
+        return;
       } finally {
-        if (!pickupNow) setRowPayBusy(false);
+        setRowPayBusy(false);
       }
     };
 
-    if (pickupNow) {
-      Promise.resolve().then(runPaymentInBackground);
-      return;
-    }
-    await runPaymentInBackground();
+    // PASTRIMI_FAST_CLOSE_DETACHED_V4 — the sheet is already closed.
+    Promise.resolve().then(runPaymentInBackground);
+    return;
   }
 
   // ==== UI EDIT MODE ====
