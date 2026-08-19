@@ -1,0 +1,14 @@
+===== APPLY =====
+file:///home/runner/work/rian/rian/tools/apply-arka-daily-operations-v3.mjs:132
+      `        {loading && !preview ? <Card tone="info"><div style={{ textAlign: 'center', padding: 22, color: palette.info, fontWeight: 1000 }}>DUKE NGARKUAR KONTROLLIN E ARKËS...</div></Card> : null}
+      ^
+
+ReferenceError: m2 is not defined
+    at patchWizard (file:///home/runner/work/rian/rian/tools/apply-arka-daily-operations-v3.mjs:132:7)
+    at file:///home/runner/work/rian/rian/tools/apply-arka-daily-operations-v3.mjs:315:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+
+Node.js v22.23.2
+FINAL_RC=1
