@@ -6,6 +6,7 @@ const VITE_PATH = 'vite.config.js';
 const EPOCH_PATH = 'lib/appEpoch.js';
 const INDEX_PATH = 'index.html';
 const GATI_INSTALLER_PATH = 'tools/apply-gati-rack-save-v1.mjs';
+const FAST_CLOSE_INSTALLER_PATH = 'tools/apply-pastrimi-payment-fast-close-v4.mjs';
 
 const MARKER = 'HOME_SEARCH_LOCAL_OID_DEDUPE_V1';
 const INSTALLER = 'node tools/apply-home-search-local-oid-dedupe-v1.mjs';
@@ -31,6 +32,16 @@ function patchHomeSearch() {
     throw new Error('HOME_LOCAL_OID_DEDUPE_MISSING');
   }
   fs.writeFileSync(HOME_SEARCH_PATH, source, 'utf8');
+}
+
+function patchFastCloseCompatibility() {
+  let source = fs.readFileSync(FAST_CLOSE_INSTALLER_PATH, 'utf8');
+  const oldCheck = `  if (!gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')) {\n    throw new Error('GATI_FINAL_INSTALLER_ORDER_NOT_PATCHED');\n  }`;
+  const newCheck = `  const compatibleGatiFinalOrder =\n    gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')\n    || gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer');\n  if (!compatibleGatiFinalOrder) {\n    throw new Error('GATI_FINAL_INSTALLER_ORDER_NOT_PATCHED');\n  }`;
+  if (!source.includes('compatibleGatiFinalOrder')) {
+    source = replaceOnce(source, oldCheck, newCheck, 'fast-close compatible final order');
+  }
+  fs.writeFileSync(FAST_CLOSE_INSTALLER_PATH, source, 'utf8');
 }
 
 function patchGatiFinalOwner() {
@@ -112,6 +123,7 @@ function patchBuildIdentity() {
 }
 
 patchHomeSearch();
+patchFastCloseCompatibility();
 patchGatiFinalOwner();
 patchPackage();
 patchBuildIdentity();
