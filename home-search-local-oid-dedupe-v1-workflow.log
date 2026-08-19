@@ -369,6 +369,13 @@ PASS ARKA daily close V2: one-way handoff acceptance, automatic advance OUT, ser
 > tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:gati-rack-save-v1
 > node tools/verify-gati-rack-save-v1.mjs
 
-FAIL GATI rack save V1: 1 check(s)
-1. service-worker import generation was not bumped
+PASS GATI rack save V1: finalized historical rows remain writable, true drafts stay blocked, rack writes use one verified RPC, offline payloads are clean, and the PWA build is bumped.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:pastrimi-payment-touch-v3
+> node tools/verify-pastrimi-payment-touch-v3.mjs
+
+FAIL Pastrimi payment touch V3: 3 check(s)
+1. final service worker import generation is not 3512
+2. GATI verifier does not accept service worker generation 3512
+3. ARKA verifier does not accept service worker generation 3512
 FINAL_RC=1
