@@ -1,11 +1,136 @@
+===== FIX INSTALLER =====
+PASS ARKA daily operations installer literal JSX fix.
 ===== APPLY =====
-file:///home/runner/work/rian/rian/tools/apply-arka-daily-operations-v3.mjs:132
-      `        {loading && !preview ? <Card tone="info"><div style={{ textAlign: 'center', padding: 22, color: palette.info, fontWeight: 1000 }}>DUKE NGARKUAR KONTROLLIN E ARKËS...</div></Card> : null}
-      ^
+PASS ARKA daily operations V3: 04:00 operational day, m² overview, persistent wizard entry and automatic cash value.
+===== FULL BUILD =====
 
-ReferenceError: m2 is not defined
-    at patchWizard (file:///home/runner/work/rian/rian/tools/apply-arka-daily-operations-v3.mjs:132:7)
-    at file:///home/runner/work/rian/rian/tools/apply-arka-daily-operations-v3.mjs:315:1
+> tepiha-vite-converted@2.0.116-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3 prebuild
+> node tools/apply-transport-phone-resilience-v2.mjs && node tools/apply-dispatch-phone-lookup-atomic-fallback-v1.mjs && node tools/apply-transport-call-plus-v1.mjs && node tools/apply-transport-gati-bulk-delivery-v1.mjs && node tools/apply-pastrimi-worker-grouping-v1.mjs && node tools/apply-pastrimi-baza-first-v1.mjs && node tools/apply-pastrimi-fitim-group-v1.mjs && node tools/apply-gati-visual-parity-v1.mjs && node tools/apply-gati-offline-payment-v1.mjs && node tools/apply-pranimi-offline-bank-consume-v1.mjs && node tools/apply-online-db-truth-recovery-v1.mjs && node tools/apply-arka-offline-feedback-v1.mjs && node tools/apply-authoritative-offline-lists-v2.mjs && node tools/apply-gati-offline-snapshot-v3.mjs && node tools/apply-gati-offline-reliability-v4.mjs && node tools/apply-arka-daily-control-v1.mjs && node tools/run-base-ready-bonus-v1.mjs && node tools/fix-base-payment-bonus-v2-builder.mjs && node tools/apply-base-payment-bonus-v2.mjs && node tools/apply-pastrimi-actor-session-v1.mjs && node tools/apply-bonus-opportunities-72h-v1.mjs && node tools/apply-bonus-test-compat-v1.mjs && node tools/apply-pastrimi-payment-background-v1.mjs && node tools/apply-pastrimi-payment-background-v2.mjs && node tools/apply-pastrimi-prepayment-preserve-status-v3.mjs && node tools/apply-pastrimi-search-sticky-v1.mjs && node tools/apply-pastrimi-search-authoritative-v2.mjs && node tools/apply-pastrimi-paketimi-timeout-retry-v1.mjs && node tools/fix-home-search-solid-installer-v1.mjs && node tools/apply-home-search-solid-v1.mjs && node tools/apply-dispatch-midnight-drivers-v1.mjs && node tools/apply-operational-full-width-v1.mjs && node tools/apply-operational-fullscreen-v2.mjs && node tools/apply-arka-master-personal-v1.mjs && node tools/apply-handoff-rpc-verification-fallback-v1.mjs && node tools/apply-handoff-wizard-v1.mjs && node tools/apply-worker-detail-handoff-wizard-v1.mjs && node tools/apply-worker-detail-handoff-wizard-v2.mjs && node tools/apply-payment-receipt-sms-v1.mjs && node tools/apply-payment-receipt-sms-search-v2.mjs && node tools/apply-home-screen-payment-receipt-sms-v1.mjs && node tools/apply-dispatch-own-handoff-bonus-bypass-v1.mjs && node tools/apply-gati-clear-rack-location-visual-v1.mjs && node tools/apply-search-open-db-truth-v2.mjs && node tools/apply-home-search-permanent-tcode-v1.mjs && node tools/apply-home-search-exact-db-truth-v3.mjs && node tools/apply-home-search-base-transport-boundary-v2.mjs && node tools/apply-home-search-query-authority-transport-guard-v6.mjs && node tools/apply-arka-expense-mobile-pro-v2.mjs && node tools/apply-arka-worker-daily-status-v1.mjs && node tools/apply-arka-live-worker-payments-v1.mjs && node tools/apply-beli-straight-salary-payment-recovery-v1.mjs && node tools/apply-transport-payment-confirm-close-v1.mjs && node tools/apply-transport-payment-button-v3.mjs && node tools/apply-home-search-base-role-boundary-v1.mjs && node tools/apply-pastrimi-payment-touch-v3.mjs && node tools/apply-arka-daily-expense-step-v1.mjs && node tools/apply-arka-daily-close-v2.mjs && node tools/apply-unified-arka-payroll-v1.mjs && node tools/apply-transport-repeat-visit-v2.mjs && node tools/apply-pastrimi-payment-fast-close-v4.mjs && node tools/apply-home-search-local-oid-dedupe-v1.mjs && node tools/apply-arka-daily-operations-v3.mjs && node tools/apply-gati-rack-save-v1.mjs
+
+SKIP canonical transport phone lookup: already patched
+SKIP transport pranimi phone lookup: already patched
+SKIP transport location cache state: already patched
+SKIP transport location invalid phone reset: already patched
+SKIP transport location cache guard: already patched
+SKIP transport location successful cache: already patched
+SKIP transport location failed cache: already patched
+SKIP transport location phone change reset: already patched
+SKIP remove transport location mutation feedback loop: already patched
+PASS transport phone resilience source patch
+PATCH Transport insert degradation state
+PATCH Transport insert atomic fallback gate
+PATCH Transport insert degradation audit payload
+PATCH Full permanent T-code reconciliation after atomic RPC
+PASS Dispatch phone timeout falls through safely to atomic create without changing other callers
+SKIP transport inbox canonical phone import: already patched
+SKIP transport inbox call canonicalization: already patched
+PASS transport inbox call uses a canonical +country phone number
+PATCH transport GATI bulk direction: loaded -> delivery
+PASS transport GATI bulk NGARKO routes final-ready orders to client delivery
+[pastrimi-worker-grouping-v1] already installed
+[pastrimi-baza-first-v1] already applied
+[pastrimi-fitim-group-v1] already applied
+[gati-visual-parity-v1] already installed
+[gati-offline-payment-v1] already installed
+[pranimi-offline-bank-consume-v1] already installed
+[online-db-truth-recovery-v1] already installed
+[arka-offline-feedback-v1] already installed / compatible
+[authoritative-offline-lists-v2] already installed
+[gati-offline-snapshot-v3] already installed
+[gati-offline-reliability-v4] already installed
+[arka-daily-control-v1] already installed
+[base-ready-bonus-v1] already installed
+[fix-base-payment-bonus-v2-builder] already fixed or anchor absent
+PASS BASE_PAYMENT_48H_BONUS_V2: 0 compatibility patches applied
+SKIP Pastrimi canonical actor import: already patched
+SKIP Pastrimi package actor resolution: already patched
+SKIP Pastrimi GATI bound actor session: already patched
+PASS Pastrimi GATI uses the bound canonical actor session without changing bonus ownership
+PATCH bonus opportunities cache marker
+PATCH bonus page opportunity import
+PATCH bonus page opportunity state
+PATCH load bonus summary plus opportunities
+PATCH derive live bonus window and opportunity rows
+PASS live bonus opportunities show remaining hours and potential bonus
+PATCH bonus legacy verifier compatibility marker
+[pastrimi-payment-background-v1] already installed
+[pastrimi-payment-background-v2] already installed
+[pastrimi-prepayment-preserve-status-v3] already installed
+[pastrimi-search-sticky-v1] already installed
+[pastrimi-search-sticky-v1] already installed
+[pastrimi-search-authoritative-v2] already installed
+[fix-home-search-solid-installer-v1] already fixed
+[arka-master-access-v1] already installed
+[verify-arka-master-access-v1] 6 checks passed
+[home-search-solid-v1] already installed
+[dispatch-midnight-drivers-v1] already applied
+OPERATIONAL_FULL_WIDTH_V1 [
+  { rel: 'app/arka/page.jsx', changed: false },
+  { rel: 'app/arka/bonuset/page.jsx', changed: true },
+  { rel: 'app/arka/ditore/page.jsx', changed: false },
+  { rel: 'app/arka/kapaku/page.jsx', changed: false },
+  { rel: 'app/arka/obligimet/page.jsx', changed: false },
+  { rel: 'app/arka/payroll/page.jsx', changed: false },
+  { rel: 'app/arka/stafi/page.jsx', changed: false },
+  { rel: 'app/arka/puntor/[pin]/page.jsx', changed: false },
+  { rel: 'app/gati/page.jsx', changed: false },
+  { rel: 'app/dispatch/page.jsx', changed: false },
+  { rel: 'app/pranimi/page.jsx', changed: false },
+  { rel: 'app/marrje-sot/page.jsx', changed: false },
+  { rel: 'app/transport/menu/page.jsx', changed: false },
+  { rel: 'app/transport/pranimi/page.jsx', changed: false },
+  { rel: 'app/transport/fletore/page.jsx', changed: false },
+  { rel: 'app/transport/item/page.jsx', changed: false },
+  { rel: 'app/transport/pay/page.jsx', changed: false },
+  { rel: 'app/transport/ngarkim-sot/page.jsx', changed: false },
+  { rel: 'app/arka/arka.css', changed: true }
+]
+OPERATIONAL_FULLSCREEN_V2 { appRootChanged: true, globalsChanged: true }
+[arka-master-personal-v1] already installed
+[handoff-rpc-verification-fallback-v1] installed
+[handoff-wizard-v2] single-flow installed
+[worker-detail-handoff-wizard] already installed
+[worker-detail-handoff-wizard-v2] already installed
+[payment-receipt-sms] already installed
+[payment-receipt-sms-search-v2] installed
+[home-screen-payment-receipt-sms-v1] installed
+PASS: dispatch/admin handoff uses allowNonWorker bonus lookup and cannot be blocked by BONUS_WORKER_ONLY.
+PASS: build identity 2.0.97-dispatch-own-handoff-bonus-bypass-v2 and cache generation v41-dispatch-handoff-bonus-v2 are active.
+PASS: GATI rack locations are grouped by FURRA POSHT, FURRA NALT, and RAFTI KRYESOR without truncation.
+PASS: Home and Global Search resolve live DB status and route with both openId and openCode.
+SKIP home search permanent T-code V1: superseded by final BASE/Transport role boundary V1
+[home-search-exact-db-truth-v3] already installed
+[home-search-base-transport-boundary-v2] already installed
+PASS Home query is authoritative and stale numeric Transport links redirect to BASE safely
+PASS query-authority installer executed with valid templates, query authority and verifier compatibility
+PATCH ARKA composer step counters
+PATCH ARKA composer description step
+PATCH ARKA composer amount step
+PASS ARKA expense entry is a professional mobile workflow; handoff logic is unchanged
+PASS ARKA worker daily status remains visible after expenses are approved
+PASS worker ARKA live payments refresh and visible payment list installed
+PATCH wizard salary commission gate
+PATCH wizard summary commission visibility
+PATCH wizard final commission visibility
+PATCH ARKA API diagnostics
+PASS Beli straight salary, canonical transport PIN and ARKA diagnostics installed
+transport payment confirmation/close patch applied
+transport payment button v3 applied
+PASS home search BASE/Transport role boundary V1 installed
+PASS Pastrimi payment touch V3: stale busy reset, iOS pointer/touch fallback, visible busy state, bounded payment wait and combined PWA version owner.
+PASS ARKA daily expense step V1: visible pending requests, inline decisions, new expense entry and safe continuation.
+PASS ARKA daily close V2 one-way installer
+PASS unified ARKA + payroll V1 installer
+PASS transport repeat visit V2 patch applied
+PASS PASTRIMI payment fast close V4: durable intent, immediate UI close, idempotent background sync.
+file:///home/runner/work/rian/rian/tools/apply-home-search-local-oid-dedupe-v1.mjs:24
+  if (count !== 1) throw new Error(`${label}: expected 1 match, found ${count}`);
+                         ^
+
+Error: fast-close verifier compatible owner chain: expected 1 match, found 0
+    at replaceOnce (file:///home/runner/work/rian/rian/tools/apply-home-search-local-oid-dedupe-v1.mjs:24:26)
+    at patchFastCloseVerifierCompatibility (file:///home/runner/work/rian/rian/tools/apply-home-search-local-oid-dedupe-v1.mjs:99:14)
+    at file:///home/runner/work/rian/rian/tools/apply-home-search-local-oid-dedupe-v1.mjs:187:1
     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
