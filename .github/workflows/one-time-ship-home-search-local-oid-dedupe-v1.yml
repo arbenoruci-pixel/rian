@@ -1,5 +1,6 @@
 name: One-time ship Home search local_oid dedupe V1
 
+# Trigger 1: apply the stable local_oid identity patch and run the full build.
 on:
   push:
     branches: [main]
