@@ -4,6 +4,8 @@ PASS ARKA daily operations installer literal JSX fix.
 PASS Home search installer accepts the newer ARKA operations final-owner chain.
 ===== FIX DAILY-CONTROL VERIFIER =====
 PASS ARKA daily-control verifier accepts preview V4 and automatic physical cash.
+===== FIX QUERY-AUTHORITY VERSION COMPATIBILITY =====
+PASS query-authority verifier accepts combined final version owners.
 ===== APPLY =====
 PASS ARKA daily operations V3: 04:00 operational day, m² overview, persistent wizard entry and automatic cash value.
 ===== FULL BUILD =====
@@ -351,8 +353,15 @@ PASS: numeric BASE #915 and T915 are separated safely.
 > tepiha-vite-converted@2.0.116-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3 test:home-search-query-authority-transport-guard-v6
 > node tools/verify-home-search-query-authority-transport-guard-v6.mjs
 
-FAIL: 3 query-authority/destination-guard check(s) failed.
-1. package version is not the guarded version
-2. HTML build ID was not bumped
-3. PWA cache generation was not bumped
+PASS: typed 915 resolves BASE #915, explicit T915 remains Transport, and stale numeric Transport links self-correct at the destination.
+
+> tepiha-vite-converted@2.0.116-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3 test:transport-payment-confirm-close
+> node tools/verify-transport-payment-confirm-close-v1.mjs
+
+transport payment confirmation/close verification passed
+
+> tepiha-vite-converted@2.0.116-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3 test:transport-payment-button-v3
+> node tools/verify-transport-payment-button-v3.mjs
+
+FAIL transport payment button v3: [ 'PWA cache generation was not bumped' ]
 FINAL_RC=1
