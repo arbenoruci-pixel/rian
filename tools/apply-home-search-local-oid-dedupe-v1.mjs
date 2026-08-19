@@ -9,6 +9,8 @@ const GATI_INSTALLER_PATH = 'tools/apply-gati-rack-save-v1.mjs';
 const FAST_CLOSE_INSTALLER_PATH = 'tools/apply-pastrimi-payment-fast-close-v4.mjs';
 const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 const GATI_VERIFY_PATH = 'tools/verify-gati-rack-save-v1.mjs';
+const TOUCH_VERIFY_PATH = 'tools/verify-pastrimi-payment-touch-v3.mjs';
+const FAST_CLOSE_VERIFY_PATH = 'tools/verify-pastrimi-payment-fast-close-v4.mjs';
 
 const MARKER = 'HOME_SEARCH_LOCAL_OID_DEDUPE_V1';
 const INSTALLER = 'node tools/apply-home-search-local-oid-dedupe-v1.mjs';
@@ -64,6 +66,39 @@ function patchGatiVerifierCompatibility() {
     source = replaceOnce(source, oldCheck, newCheck, 'GATI compatible SW generation');
   }
   fs.writeFileSync(GATI_VERIFY_PATH, source, 'utf8');
+}
+
+function patchTouchVerifierCompatibility() {
+  let source = fs.readFileSync(TOUCH_VERIFY_PATH, 'utf8');
+  const oldFinal = "check(gatiInstaller.includes('sw-navigation-diag.js?v=3512'), 'final service worker import generation is not 3512');";
+  const newFinal = "check(/sw-navigation-diag\\.js\\?v=351[2-9]/.test(gatiInstaller), 'final service worker import generation is not compatible');";
+  if (!source.includes("/sw-navigation-diag\\.js\\?v=351[2-9]/.test(gatiInstaller)")) {
+    source = replaceOnce(source, oldFinal, newFinal, 'touch final SW generation');
+  }
+
+  const oldGati = "check(gatiVerifier.includes('sw-navigation-diag.js?v=3512'), 'GATI verifier does not accept service worker generation 3512');";
+  const newGati = "check(gatiVerifier.includes('/sw-navigation-diag\\\\.js\\\\?v=351[2-9]/.test(vite)'), 'GATI verifier does not accept compatible service worker generations');";
+  if (!source.includes("gatiVerifier.includes('/sw-navigation-diag\\\\.js\\\\?v=351[2-9]/.test(vite)')")) {
+    source = replaceOnce(source, oldGati, newGati, 'touch GATI verifier generation');
+  }
+
+  const oldArka = "check(arkaVerifier.includes('sw-navigation-diag.js?v=3512'), 'ARKA verifier does not accept service worker generation 3512');";
+  const newArka = "check(arkaVerifier.includes('/sw-navigation-diag\\\\.js\\\\?v=351[2-9]/.test(vite)'), 'ARKA verifier does not accept compatible service worker generations');";
+  if (!source.includes("arkaVerifier.includes('/sw-navigation-diag\\\\.js\\\\?v=351[2-9]/.test(vite)')")) {
+    source = replaceOnce(source, oldArka, newArka, 'touch ARKA verifier generation');
+  }
+
+  fs.writeFileSync(TOUCH_VERIFY_PATH, source, 'utf8');
+}
+
+function patchFastCloseVerifierCompatibility() {
+  let source = fs.readFileSync(FAST_CLOSE_VERIFY_PATH, 'utf8');
+  const oldCheck = "check(gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer'), 'future prebuild ordering does not preserve fast-close after repeat-visit');";
+  const newCheck = `check(\n  gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')\n    || gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer'),\n  'future prebuild ordering does not preserve fast-close after repeat-visit',\n);`;
+  if (!source.includes("homeSearchLocalOidDedupeV1Installer, installer'),\n  'future prebuild ordering")) {
+    source = replaceOnce(source, oldCheck, newCheck, 'fast-close verifier compatible owner chain');
+  }
+  fs.writeFileSync(FAST_CLOSE_VERIFY_PATH, source, 'utf8');
 }
 
 function patchGatiFinalOwner() {
@@ -148,6 +183,8 @@ patchHomeSearch();
 patchFastCloseCompatibility();
 patchArkaVerifierCompatibility();
 patchGatiVerifierCompatibility();
+patchTouchVerifierCompatibility();
+patchFastCloseVerifierCompatibility();
 patchGatiFinalOwner();
 patchPackage();
 patchBuildIdentity();
