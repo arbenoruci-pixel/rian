@@ -1,0 +1,86 @@
+name: One-time ship ARKA daily operations V3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-ship-arka-daily-operations-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply, build, verify, and persist diagnostics
+        shell: bash
+        run: |
+          set +e
+          LOG="arka-daily-operations-v3-workflow.log"
+          : > "$LOG"
+
+          echo "===== APPLY =====" >> "$LOG"
+          node tools/apply-arka-daily-operations-v3.mjs >> "$LOG" 2>&1
+          RC=$?
+
+          if [ "$RC" -eq 0 ]; then
+            echo "===== FULL BUILD =====" >> "$LOG"
+            npm run build >> "$LOG" 2>&1
+            RC=$?
+          fi
+
+          if [ "$RC" -eq 0 ]; then
+            echo "===== FINAL VERIFY =====" >> "$LOG"
+            node tools/verify-arka-daily-operations-v3.mjs >> "$LOG" 2>&1
+            RC=$?
+          fi
+
+          echo "FINAL_RC=$RC" >> "$LOG"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$LOG"
+
+          if [ "$RC" -eq 0 ]; then
+            git add \
+              components/ArkaDailyCloseWizard.jsx \
+              components/ArkaDailyCloseShortcut.jsx \
+              app/arka/layout.jsx \
+              tools/apply-arka-daily-operations-v3.mjs \
+              tools/verify-arka-daily-operations-v3.mjs \
+              tools/apply-pastrimi-payment-fast-close-v4.mjs \
+              tools/verify-pastrimi-payment-fast-close-v4.mjs \
+              tools/verify-arka-daily-close-v2.mjs \
+              tools/apply-gati-rack-save-v1.mjs \
+              tools/apply-arka-daily-close-v2.mjs \
+              tools/apply-unified-arka-payroll-v1.mjs \
+              tools/apply-transport-repeat-visit-v2.mjs \
+              package.json \
+              vite.config.js \
+              lib/appEpoch.js \
+              index.html
+          fi
+
+          if ! git diff --cached --quiet; then
+            if [ "$RC" -eq 0 ]; then
+              git commit -m "restore daily close wizard and add automatic operational overview"
+            else
+              git commit -m "diagnose ARKA daily operations V3 build failure"
+            fi
+            git push origin HEAD:main
+          fi
+
+          exit "$RC"
