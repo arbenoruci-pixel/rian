@@ -1,0 +1,58 @@
+name: One-time ship Home search local_oid dedupe V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-ship-home-search-local-oid-dedupe-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply stable Home search identity
+        run: node tools/apply-home-search-local-oid-dedupe-v1.mjs
+
+      - name: Run full production build and safeguards
+        run: npm run build
+
+      - name: Verify final generated source
+        run: node tools/verify-home-search-local-oid-dedupe-v1.mjs
+
+      - name: Commit verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            lib/homeSearch.js \
+            tools/apply-home-search-local-oid-dedupe-v1.mjs \
+            tools/verify-home-search-local-oid-dedupe-v1.mjs \
+            tools/apply-gati-rack-save-v1.mjs \
+            tools/apply-arka-daily-close-v2.mjs \
+            package.json \
+            vite.config.js \
+            lib/appEpoch.js \
+            index.html
+          if git diff --cached --quiet; then
+            echo "No generated source changes to commit."
+          else
+            git commit -m "dedupe Home search by stable local order identity"
+            git push origin HEAD:main
+          fi
