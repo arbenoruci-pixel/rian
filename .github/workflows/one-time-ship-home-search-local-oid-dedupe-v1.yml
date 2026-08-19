@@ -1,6 +1,6 @@
 name: One-time ship Home search local_oid dedupe V1
 
-# Trigger 2: persist a diagnostic log on failure, or commit the verified source on success.
+# Trigger 3: PASTRIMI fast-close accepts the newer compatible final-owner chain.
 on:
   push:
     branches: [main]
@@ -60,6 +60,7 @@ jobs:
               lib/homeSearch.js \
               tools/apply-home-search-local-oid-dedupe-v1.mjs \
               tools/verify-home-search-local-oid-dedupe-v1.mjs \
+              tools/apply-pastrimi-payment-fast-close-v4.mjs \
               tools/apply-gati-rack-save-v1.mjs \
               tools/apply-arka-daily-close-v2.mjs \
               package.json \
