@@ -7,6 +7,7 @@ const EPOCH_PATH = 'lib/appEpoch.js';
 const INDEX_PATH = 'index.html';
 const GATI_INSTALLER_PATH = 'tools/apply-gati-rack-save-v1.mjs';
 const FAST_CLOSE_INSTALLER_PATH = 'tools/apply-pastrimi-payment-fast-close-v4.mjs';
+const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 
 const MARKER = 'HOME_SEARCH_LOCAL_OID_DEDUPE_V1';
 const INSTALLER = 'node tools/apply-home-search-local-oid-dedupe-v1.mjs';
@@ -42,6 +43,16 @@ function patchFastCloseCompatibility() {
     source = replaceOnce(source, oldCheck, newCheck, 'fast-close compatible final order');
   }
   fs.writeFileSync(FAST_CLOSE_INSTALLER_PATH, source, 'utf8');
+}
+
+function patchArkaVerifierCompatibility() {
+  let source = fs.readFileSync(ARKA_VERIFY_PATH, 'utf8');
+  const oldCheck = "  check(vite.includes('sw-navigation-diag.js?v=3512'), 'service worker import generation not bumped for rack save');";
+  const newCheck = "  check(/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite), 'service worker import generation not bumped for rack save');";
+  if (!source.includes("/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite)")) {
+    source = replaceOnce(source, oldCheck, newCheck, 'ARKA compatible SW generation');
+  }
+  fs.writeFileSync(ARKA_VERIFY_PATH, source, 'utf8');
 }
 
 function patchGatiFinalOwner() {
@@ -124,6 +135,7 @@ function patchBuildIdentity() {
 
 patchHomeSearch();
 patchFastCloseCompatibility();
+patchArkaVerifierCompatibility();
 patchGatiFinalOwner();
 patchPackage();
 patchBuildIdentity();
