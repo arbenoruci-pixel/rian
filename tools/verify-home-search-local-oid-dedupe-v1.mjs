@@ -9,6 +9,8 @@ const gatiInstaller = fs.readFileSync('tools/apply-gati-rack-save-v1.mjs', 'utf8
 const fastCloseInstaller = fs.readFileSync('tools/apply-pastrimi-payment-fast-close-v4.mjs', 'utf8');
 const arkaVerifier = fs.readFileSync('tools/verify-arka-daily-close-v2.mjs', 'utf8');
 const gatiVerifier = fs.readFileSync('tools/verify-gati-rack-save-v1.mjs', 'utf8');
+const touchVerifier = fs.readFileSync('tools/verify-pastrimi-payment-touch-v3.mjs', 'utf8');
+const fastCloseVerifier = fs.readFileSync('tools/verify-pastrimi-payment-fast-close-v4.mjs', 'utf8');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const vite = fs.readFileSync('vite.config.js', 'utf8');
 const epoch = fs.readFileSync('lib/appEpoch.js', 'utf8');
@@ -40,6 +42,10 @@ check(fastCloseInstaller.includes('compatibleGatiFinalOrder'), 'PASTRIMI fast-cl
 check(fastCloseInstaller.includes('homeSearchLocalOidDedupeV1Installer, installer'), 'PASTRIMI fast-close does not recognize the Home dedupe owner');
 check(arkaVerifier.includes("/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite)"), 'ARKA verifier rejects the newer compatible SW generation');
 check(gatiVerifier.includes("/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite)"), 'GATI verifier rejects the newer compatible SW generation');
+check(touchVerifier.includes("/sw-navigation-diag\\.js\\?v=351[2-9]/.test(gatiInstaller)"), 'touch verifier rejects the newer compatible final SW generation');
+check(touchVerifier.includes("gatiVerifier.includes('/sw-navigation-diag\\\\.js\\\\?v=351[2-9]/.test(vite)')"), 'touch verifier rejects the compatible GATI verifier');
+check(touchVerifier.includes("arkaVerifier.includes('/sw-navigation-diag\\\\.js\\\\?v=351[2-9]/.test(vite)')"), 'touch verifier rejects the compatible ARKA verifier');
+check(fastCloseVerifier.includes('homeSearchLocalOidDedupeV1Installer, installer'), 'fast-close verifier rejects the newer compatible final-owner chain');
 check(vite.includes('home-search-localoid-dedupe-v1'), 'PWA cache generation suffix missing');
 check(vite.includes('sw-navigation-diag.js?v=3513'), 'service worker generation missing');
 check(epoch.includes('HOME_SEARCH_LOCAL_OID_DEDUPE_BUILD'), 'runtime build marker missing');
@@ -48,6 +54,8 @@ check(installer.includes('HOME_SEARCH_LOCAL_OID_DEDUPE_V1'), 'installer marker m
 check(installer.includes('patchFastCloseCompatibility'), 'fast-close compatibility patch missing from installer');
 check(installer.includes('patchArkaVerifierCompatibility'), 'ARKA verifier compatibility patch missing from installer');
 check(installer.includes('patchGatiVerifierCompatibility'), 'GATI verifier compatibility patch missing from installer');
+check(installer.includes('patchTouchVerifierCompatibility'), 'touch verifier compatibility patch missing from installer');
+check(installer.includes('patchFastCloseVerifierCompatibility'), 'fast-close verifier compatibility patch missing from installer');
 
 if (failures.length) {
   console.error(`FAIL Home Search local_oid dedupe V1: ${failures.length} check(s)`);
