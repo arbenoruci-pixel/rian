@@ -1,0 +1,72 @@
+name: Final ship client integrity and search dedupe V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-ship-client-integrity-search-dedupe-v1-final.yml
+
+permissions:
+  contents: write
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply canonical patch
+        run: node tools/apply-client-integrity-search-dedupe-v1.mjs
+
+      - name: Run full production build
+        run: npm run build
+
+      - name: Run final verifier
+        run: node tools/verify-client-integrity-search-dedupe-v1.mjs
+
+      - name: Commit verified source and success marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            'CLIENT_INTEGRITY_SEARCH_DEDUPE_V1=PASS' \
+            "verified_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            'full_build=PASS' \
+            'home_search_dedupe=PASS' \
+            'final_version_owner=PASS' \
+            > client-integrity-search-dedupe-v1-success.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app \
+            src \
+            tools/apply-client-integrity-search-dedupe-v1.mjs \
+            tools/verify-client-integrity-search-dedupe-v1.mjs \
+            tools/apply-gati-rack-save-v1.mjs \
+            tools/apply-arka-daily-close-v2.mjs \
+            tools/verify-arka-daily-close-v2.mjs \
+            tools/apply-unified-arka-payroll-v1.mjs \
+            tools/apply-transport-repeat-visit-v2.mjs \
+            tools/apply-pastrimi-payment-fast-close-v4.mjs \
+            tools/apply-arka-daily-expense-step-v1.mjs \
+            package.json \
+            vite.config.js \
+            lib/appEpoch.js \
+            index.html \
+            client-integrity-search-dedupe-v1-success.txt
+          if git diff --cached --quiet; then
+            echo "No generated source changes to commit."
+          else
+            git commit -m "verify client integrity cleanup and home-search dedupe V1"
+            git push origin HEAD:main
+          fi
