@@ -120,16 +120,250 @@ PASS ARKA daily expense step V1: visible pending requests, inline decisions, new
 PASS ARKA daily close V2 one-way installer
 PASS unified ARKA + payroll V1 installer
 PASS transport repeat visit V2 patch applied
-file:///home/runner/work/rian/rian/tools/apply-pastrimi-payment-fast-close-v4.mjs:246
-    throw new Error('GATI_FINAL_INSTALLER_ORDER_NOT_PATCHED');
-          ^
+PASS PASTRIMI payment fast close V4: durable intent, immediate UI close, idempotent background sync.
+PASS Home Search local_oid dedupe V1: one physical BASE order has one result across DB and all local caches.
+PASS GATI rack save V1 installer: atomic verified RPC, stale-final lifecycle repair, offline clean queue and cache generation bump.
 
-Error: GATI_FINAL_INSTALLER_ORDER_NOT_PATCHED
-    at patchFinalVersionOwner (file:///home/runner/work/rian/rian/tools/apply-pastrimi-payment-fast-close-v4.mjs:246:11)
-    at file:///home/runner/work/rian/rian/tools/apply-pastrimi-payment-fast-close-v4.mjs:277:1
-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
-    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
-    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 build
+> npm run test:offline-first && npm run test:offline-queued-success && npm run test:smart-sms-exact && npm run test:arka-final-integrity && npm run test:online-db-truth && npm run test:gati-visual-offline && npm run test:authoritative-offline-lists-v2 && npm run test:gati-offline-snapshot-v3 && npm run test:gati-offline-reliability-v4 && npm run test:pastrimi-fitim-group && npm run test:arka-daily-control && npm run test:base-payment-bonus && npm run test:pastrimi-payment-background && npm run test:pastrimi-payment-background-v2 && npm run test:home-search-solid && npm run test:arka-worker-daily-status && npm run test:arka-live-worker-payments && npm run test:beli-straight-salary-payment-recovery && npm run test:operational-fullscreen && npm run test:pastrimi-search-authoritative-v2 && npm run test:dispatch-phone-atomic-fallback && npm run test:home-search-exact-db-truth-v3 && npm run test:home-search-base-transport-boundary-v2 && npm run test:home-search-query-authority-transport-guard-v6 && npm run test:transport-payment-confirm-close && npm run test:transport-payment-button-v3 && npm run test:home-search-base-role-boundary-v1 && npm run test:arka-daily-close-v2 && npm run test:gati-rack-save-v1 && npm run test:pastrimi-payment-touch-v3 && npm run test:unified-arka-payroll-v1 && npm run test:transport-repeat-visit-v2 && npm run test:pastrimi-payment-fast-close-v4 && npm run test:arka-daily-expense-step-v1 && npm run test:home-search-local-oid-dedupe-v1 && vite build
 
-Node.js v22.23.2
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:offline-first
+> node tools/verify-offline-first-v1.mjs
+
+PASS: 61 offline-first checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:offline-queued-success
+> node tools/verify-offline-queued-success-ui-v1.mjs
+
+PASS: 10 offline queued success UI checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:smart-sms-exact
+> node tools/verify-smart-sms-exact-order-v1.mjs
+
+PASS: 17 Smart SMS/tracking exact-order checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:arka-final-integrity
+> node tools/verify-arka-final-integrity-v3.mjs
+
+PASS unique payment per handoff item
+PASS unique ledger source guard
+PASS business expense ledger OUT
+PASS business expense source identity
+PASS business expense summary debit
+PASS business expense idempotent retry
+PASS rejected expense does not post budget
+PASS secure search_path
+PASS accept retry re-reads handoff
+PASS accept verifies item sum
+PASS accept uses ledger source identity
+PASS engine BASE payment idempotency
+PASS engine Transport payment verification
+PASS engine handoff requires atomic RPC
+PASS corporate finance RPC-only submit
+PASS expense UI uses decision RPC
+PASS expense UI uses finalize RPC
+
+PASS — 17 ARKA final-integrity controls verified.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:online-db-truth
+> node tools/verify-online-db-truth-recovery-v1.mjs
+
+PASS complete paginated DB scan
+PASS pending outbox preserved
+PASS authoritative rows hydrate IndexedDB
+PASS stale aliases removed only after DB scan
+PASS page snapshot policy is safe
+PASS cache rebuilt from DB plus pending
+PASS offline run skipped
+PASS online/focus/pageshow listeners installed
+PASS — 8 online DB truth recovery safety checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:gati-visual-offline
+> node tools/verify-gati-visual-offline-payment-v1.mjs
+
+PASS: 24 GATI visual/offline payment safety checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:authoritative-offline-lists-v2
+> node tools/verify-authoritative-offline-lists-v2.mjs
+
+PASS: 36 authoritative offline V2 checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:gati-offline-snapshot-v3
+> node tools/verify-gati-offline-snapshot-v3.mjs
+
+PASS: 31 GATI offline snapshot V3 checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:gati-offline-reliability-v4
+> node tools/verify-gati-offline-reliability-v4.mjs
+
+PASS: 50 GATI offline reliability V4 checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:pastrimi-fitim-group
+> node tools/verify-pastrimi-fitim-group-v1.mjs
+
+PASS: 16 Fitim Pastrimi grouping checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:arka-daily-control
+> node tools/verify-arka-daily-control-v1.mjs
+
+PASS: ARKA daily-control compatibility verified against canonical one-way close V2.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:base-payment-bonus
+> node tools/verify-base-payment-bonus-v2.mjs
+
+PASS GATI uses bonus staging RPC
+PASS offline bonus ownership stays payment-actor based
+PASS ARKA engine activates bonus after verified payment
+PASS ARKA engine uses DB activation RPC
+PASS payment refreshes live bonus UI
+PASS Pastrimi stages GATI for bonus evaluation
+PASS live card reads DB summary config
+PASS live card renders dynamic window
+PASS attention list uses server opportunity RPC
+PASS attention list reads live window_hours
+PASS attention list has no hardcoded 48h timer
+PASS attention countdown uses server-calculated hours_left
+PASS attention amount uses server-calculated potential bonus
+PASS: 13 base-payment bonus live-config checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:pastrimi-payment-background
+> node tools/verify-pastrimi-payment-background-v1.mjs
+
+PASS: Pastrimi background payment checks passed with prepayment compatibility.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:pastrimi-payment-background-v2
+> node tools/verify-pastrimi-payment-background-v2.mjs
+
+PASS: Pastrimi payment background/resilience checks passed with fast-close V4 compatibility.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:home-search-solid
+> node tools/verify-home-search-solid-v1.mjs
+
+PASS: 26 solid home search checks passed.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:arka-worker-daily-status
+> node tools/verify-arka-worker-daily-status-v1.mjs
+
+PASS page imports daily status
+PASS page renders one daily status card
+PASS worker daily marker exists
+PASS daily status reads all extras including approved expenses
+PASS daily status recognizes accepted expense
+PASS daily status uses Kosovo business timezone
+PASS daily status title is visible
+PASS daily status shows expenses
+PASS daily status shows current base cash
+PASS daily status styles installed
+PASS handoff action preserved
+PASS prebuild installer registered
+PASS — 12 ARKA worker daily status controls verified.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:arka-live-worker-payments
+> node tools/verify-arka-live-worker-payments-v1.mjs
+
+PASS marker
+PASS live query
+PASS worker pin filter
+PASS 15s refresh
+PASS focus refresh
+PASS pageshow refresh
+PASS payment list
+PASS transport code
+PASS status
+PASS gross from live activity
+PASS — 10 live worker payment checks.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:beli-straight-salary-payment-recovery
+> node tools/verify-beli-straight-salary-payment-recovery-v1.mjs
+
+PASS authoritative finance-profile marker
+PASS DB hybrid flag is authoritative
+PASS commission rate is gated by hybrid status
+PASS stale actor cannot restore hybrid commission
+PASS manager commission hidden for salary worker
+PASS cash-versus-route-debt explanation
+PASS daily status marker
+PASS daily status says straight salary
+PASS daily commission metric is conditional
+PASS handoff wizard salary marker
+PASS handoff total applies commission only to hybrid workers
+PASS handoff summary hides salary-worker commission
+PASS handoff final review hides salary-worker commission
+PASS transport payment canonical-PIN marker
+PASS transport payment imports real-PIN resolver
+PASS transport payment recovers canonical main actor PIN
+PASS transport UUID is no longer accepted as a PIN
+PASS failed payment is explicitly shown as unrecorded
+PASS ARKA API diagnostics marker
+PASS future ARKA 400 errors retain safe context
+PASS failed transport order ID is logged
+PASS failed transport code is logged
+PASS recovery installer registered in prebuild
+PASS recovery verifier registered in build
+PASS DB false/zero clears stale Beli commission
+PASS real hybrid commission remains supported
+PASS all Beli straight-salary and payment-recovery controls
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:operational-fullscreen
+> node tools/verify-operational-fullscreen-v2.mjs
+
+PASS component marker
+PASS route flag mounted
+PASS route page marker
+PASS route layout marker
+PASS route wide marker
+PASS css marker
+PASS full width css
+PASS safe left gutter
+PASS safe right gutter
+PASS arka shell reset
+PASS prebuild installer
+OPERATIONAL_FULLSCREEN_V2_VERIFY_OK 11
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:pastrimi-search-authoritative-v2
+> node tools/verify-pastrimi-search-authoritative-v2.mjs
+
+PASS: Pastrimi search stays filtered after exact-open timeout and DB refresh.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:dispatch-phone-atomic-fallback
+> node tools/verify-dispatch-phone-lookup-atomic-fallback-v1.mjs
+
+PASS: Dispatch survives transient phone lookup failure through the existing atomic DB create path, while non-Dispatch callers stay strict.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:home-search-exact-db-truth-v3
+> node tools/verify-home-search-exact-db-truth-v3.mjs
+
+PASS: Home exact search has DB-truth retry/fallback and #915 GATI routing guards.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:home-search-base-transport-boundary-v2
+> node tools/verify-home-search-base-transport-boundary-v2.mjs
+
+PASS: numeric BASE #915 and T915 are separated safely.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:home-search-query-authority-transport-guard-v6
+> node tools/verify-home-search-query-authority-transport-guard-v6.mjs
+
+PASS: typed 915 resolves BASE #915, explicit T915 remains Transport, and stale numeric Transport links self-correct at the destination.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:transport-payment-confirm-close
+> node tools/verify-transport-payment-confirm-close-v1.mjs
+
+transport payment confirmation/close verification passed
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:transport-payment-button-v3
+> node tools/verify-transport-payment-button-v3.mjs
+
+PASS transport payment button v3
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:home-search-base-role-boundary-v1
+> node tools/verify-home-search-base-role-boundary-v1.mjs
+
+PASS home search BASE/Transport role boundary V1: Sheqir #281 stays BASE, Bujar stays PUNTOR, genuine T281 remains Transport, and compatible final version owners are ordered safely.
+
+> tepiha-vite-converted@2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1 test:arka-daily-close-v2
+> node tools/verify-arka-daily-close-v2.mjs
+
+FAIL ARKA daily close V2: 1 check(s)
+1. service worker import generation not bumped for rack save
 FINAL_RC=1
