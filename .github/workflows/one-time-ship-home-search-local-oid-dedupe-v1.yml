@@ -1,6 +1,6 @@
 name: One-time ship Home search local_oid dedupe V1
 
-# Trigger 3: PASTRIMI fast-close accepts the newer compatible final-owner chain.
+# Trigger 4: ARKA verifier accepts compatible service-worker generations 3512+.
 on:
   push:
     branches: [main]
@@ -63,6 +63,7 @@ jobs:
               tools/apply-pastrimi-payment-fast-close-v4.mjs \
               tools/apply-gati-rack-save-v1.mjs \
               tools/apply-arka-daily-close-v2.mjs \
+              tools/verify-arka-daily-close-v2.mjs \
               package.json \
               vite.config.js \
               lib/appEpoch.js \
