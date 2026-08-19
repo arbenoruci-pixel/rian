@@ -95,7 +95,7 @@ function patchFastCloseVerifierCompatibility() {
   let source = fs.readFileSync(FAST_CLOSE_VERIFY_PATH, 'utf8');
   const oldCheck = "check(gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer'), 'future prebuild ordering does not preserve fast-close after repeat-visit');";
   const newCheck = `check(\n  gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')\n    || gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer'),\n  'future prebuild ordering does not preserve fast-close after repeat-visit',\n);`;
-  if (!source.includes("homeSearchLocalOidDedupeV1Installer, installer'),\n  'future prebuild ordering")) {
+  if (!source.includes('homeSearchLocalOidDedupeV1Installer')) {
     source = replaceOnce(source, oldCheck, newCheck, 'fast-close verifier compatible owner chain');
   }
   fs.writeFileSync(FAST_CLOSE_VERIFY_PATH, source, 'utf8');

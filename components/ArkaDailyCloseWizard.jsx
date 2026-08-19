@@ -8,7 +8,8 @@ import useRouteAlive from '@/lib/routeAlive';
 import { bootMarkReady } from '@/lib/bootLog';
 
 const TIME_ZONE = 'Europe/Belgrade';
-const PREVIEW_RPC = 'get_arka_daily_close_preview_v3';
+const BUSINESS_DAY_CUTOFF_HOUR = 4; // ARKA_DAILY_OPERATIONS_V3
+const PREVIEW_RPC = 'get_arka_daily_close_preview_v4';
 const CLOSE_RPC = 'close_arka_day_v2';
 const EXPENSE_RESOLVE_RPC = 'resolve_arka_expense_v2';
 const EXPENSE_CREATE_RPC = 'create_and_resolve_arka_expense_v2';
@@ -35,6 +36,10 @@ function n(value) {
 
 function money(value) {
   return `€${MONEY.format(n(value))}`;
+}
+
+function m2(value) {
+  return `${MONEY.format(n(value))} m²`;
 }
 
 function rows(value) {
@@ -67,7 +72,8 @@ function randomKey(prefix = 'ARKA') {
 
 function dayKey(value = new Date()) {
   try {
-    const d = value instanceof Date ? value : new Date(value || Date.now());
+    const rawDate = value instanceof Date ? value : new Date(value || Date.now());
+    const d = new Date(rawDate.getTime() - BUSINESS_DAY_CUTOFF_HOUR * 60 * 60 * 1000);
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: TIME_ZONE,
       year: 'numeric',
@@ -360,6 +366,7 @@ export default function ArkaDailyCloseWizard() {
   const initializedRef = useRef(false);
   const requestRef = useRef(0);
   const expenseMutationLockRef = useRef(false);
+  const countedCashManualRef = useRef(false);
 
   useEffect(() => {
     const current = getActor() || null;
@@ -389,6 +396,21 @@ export default function ArkaDailyCloseWizard() {
   const hasDiscrepancy = discrepancy != null && Math.abs(discrepancy) > 0.01;
   const everySelectedConfirmed = selectedHandoffs.every((row) => confirmedIds[String(row?.id)] === true);
   const pendingExpenseCount = n(preview?.pending_expenses_count ?? pendingExpenses.length);
+  const dailyOperations = obj(preview?.operations);
+  const dailyIncoming = obj(dailyOperations?.incoming);
+  const dailyOutgoing = obj(dailyOperations?.outgoing);
+  const dailyCurrent = obj(dailyOperations?.current);
+  const dailyIncomingM2 = n(dailyIncoming?.total?.m2);
+  const dailyOutgoingM2 = n(dailyOutgoing?.total?.m2);
+  const dailyNetM2 = n(dailyOperations?.net_m2);
+  const dailyPastrimM2 = n(dailyCurrent?.pastrim?.m2);
+  const dailyGatiM2 = n(dailyCurrent?.gati?.m2);
+
+  useEffect(() => {
+    if (!preview || isClosed || countedCashManualRef.current) return;
+    const automaticValue = expectedCash.toFixed(2);
+    setCountedCash((current) => current === automaticValue ? current : automaticValue);
+  }, [expectedCash, isClosed, preview?.generated_at]);
 
   async function loadPreview({ force = false } = {}) {
     const pin = String(actor?.pin || '').trim();
@@ -460,6 +482,8 @@ export default function ArkaDailyCloseWizard() {
   }, [actor?.pin]);
 
   function toggleSelected(id) {
+    countedCashManualRef.current = false;
+    setCountedCash('');
     const value = Number(id);
     if (!(value > 0)) return;
     setDryRun(null);
@@ -490,6 +514,8 @@ export default function ArkaDailyCloseWizard() {
       return;
     }
     setError('');
+    countedCashManualRef.current = false;
+    setCountedCash(expectedCash.toFixed(2));
     setStep(3);
   }
 
@@ -519,6 +545,7 @@ export default function ArkaDailyCloseWizard() {
     setError('');
     setDryRun(null);
     setFinalConfirm(false);
+    countedCashManualRef.current = false;
     setCountedCash('');
 
     try {
@@ -580,6 +607,7 @@ export default function ArkaDailyCloseWizard() {
     setError('');
     setDryRun(null);
     setFinalConfirm(false);
+    countedCashManualRef.current = false;
     setCountedCash('');
 
     try {
@@ -721,7 +749,7 @@ export default function ArkaDailyCloseWizard() {
             <div>
               <div style={{ color: palette.info, fontSize: 10.5, fontWeight: 1000, letterSpacing: '.11em' }}>ARKA • ONE-WAY DAILY CLOSE V2</div>
               <h1 style={{ margin: '6px 0 0', fontSize: 28, lineHeight: 1, letterSpacing: '-.025em' }}>MBYLLJA DITORE</h1>
-              <div style={{ marginTop: 7, color: palette.muted, fontSize: 12, fontWeight: 750 }}>{formatDate(date)} • {upper(actor?.name || actor?.pin || 'PA LOGIN')}</div>
+              <div style={{ marginTop: 7, color: palette.muted, fontSize: 12, fontWeight: 750 }}>{formatDate(date)} • DITA OPERATIVE 04:00–04:00 • {upper(actor?.name || actor?.pin || 'PA LOGIN')}</div>
             </div>
             <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
               <Link to="/arka" style={{ ...secondaryButtonStyle, textDecoration: 'none' }}>← ARKA</Link>
@@ -736,6 +764,25 @@ export default function ArkaDailyCloseWizard() {
         </Card>
 
         {loading && !preview ? <Card tone="info"><div style={{ textAlign: 'center', padding: 22, color: palette.info, fontWeight: 1000 }}>DUKE NGARKUAR KONTROLLIN E ARKËS...</div></Card> : null}
+
+        {preview ? (
+          <Card tone="info">
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ color: palette.info, fontSize: 10.5, fontWeight: 1000, letterSpacing: '.10em' }}>PASQYRA E DITËS</div>
+                <div style={{ marginTop: 5, fontSize: 15, fontWeight: 1000 }}>HYRJE / DALJE • 04:00–04:00</div>
+              </div>
+              <div style={{ color: palette.muted, fontSize: 10.5, fontWeight: 800 }}>{formatDate(date)}</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(135px,1fr))', gap: 8 }}>
+              <Metric label="m² HYRË SOT" value={m2(dailyIncomingM2)} tone="ok" sub={`BAZA ${m2(dailyIncoming?.base?.m2)} • TRANSPORT ${m2(dailyIncoming?.transport?.m2)}`} />
+              <Metric label="m² DALË SOT" value={m2(dailyOutgoingM2)} tone="bad" sub={`BAZA ${m2(dailyOutgoing?.base?.m2)} • TRANSPORT ${m2(dailyOutgoing?.transport?.m2)}`} />
+              <Metric label="NETO m²" value={m2(dailyNetM2)} tone={dailyNetM2 < 0 ? 'bad' : 'info'} sub="Hyrë minus dalë" />
+              <Metric label="NË PASTRIM" value={m2(dailyPastrimM2)} tone="warn" sub={`${n(dailyCurrent?.pastrim?.count)} porosi`} />
+              <Metric label="GATI" value={m2(dailyGatiM2)} tone="ok" sub={`${n(dailyCurrent?.gati?.count)} porosi`} />
+            </div>
+          </Card>
+        ) : null}
 
         {activeReceiptCycle?.is_closed ? (
           <Receipt cycle={activeReceiptCycle} items={activeReceiptItems} onRefresh={() => void loadPreview({ force: true })} />
@@ -934,12 +981,12 @@ export default function ArkaDailyCloseWizard() {
                     <Row title="= DUHET TË JENË NË BOX" amount={money(expectedCash)} tone="info" />
                   </div>
                   <label style={{ display: 'grid', gap: 7 }}>
-                    <span style={{ fontSize: 11, fontWeight: 1000, color: palette.info }}>SA PARA I NUMËROVE FIZIKISHT?</span>
+                    <span style={{ fontSize: 11, fontWeight: 1000, color: palette.info }}>SHUMA U VENDOS AUTOMATIKISHT — NDRYSHOJE VETËM NËSE CASH-I FIZIK NUK PËRPUTHET</span>
                     <input
                       inputMode="decimal"
                       value={countedCash}
-                      onChange={(event) => { setCountedCash(event.target.value); setDryRun(null); setFinalConfirm(false); }}
-                      placeholder="0.00"
+                      onChange={(event) => { countedCashManualRef.current = true; setCountedCash(event.target.value); setDryRun(null); setFinalConfirm(false); }}
+                      placeholder={expectedCash.toFixed(2)}
                       style={{ width: '100%', boxSizing: 'border-box', border: '1px solid rgba(96,165,250,.48)', borderRadius: 14, padding: '15px 13px', background: '#0f172a', color: '#fff', fontSize: 24, fontWeight: 1000, outline: 'none' }}
                     />
                   </label>

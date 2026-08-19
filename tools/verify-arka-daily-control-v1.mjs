@@ -10,7 +10,7 @@ const isCanonicalCloseV2 = page.includes('ArkaDailyCloseWizard');
 
 if (isCanonicalCloseV2) {
   const wizard = fs.readFileSync('components/ArkaDailyCloseWizard.jsx', 'utf8');
-  check(wizard.includes("get_arka_daily_close_preview_v3"), 'Canonical daily preview RPC missing');
+  check(wizard.includes("get_arka_daily_close_preview_v4"), 'Canonical daily preview V4 RPC missing');
   check(wizard.includes("close_arka_day_v2"), 'Canonical daily close RPC missing');
   check(wizard.includes('p_actor_pin:'), 'Actor PIN not passed to canonical RPC');
   check(wizard.includes('p_date: date'), 'Current business date not passed to canonical RPC');
@@ -23,7 +23,7 @@ if (isCanonicalCloseV2) {
   check(wizard.includes('DORËZIME TË ZGJEDHURA'), 'Handoff total metric missing');
   check(wizard.includes('SHPENZIME TË POSTUARA'), 'Expense total metric missing');
   check(wizard.includes('AVANSE TË POSTUARA'), 'Advance total metric missing');
-  check(wizard.includes('SA PARA I NUMËROVE FIZIKISHT?'), 'Physical cash metric missing');
+  check(wizard.includes('SHUMA U VENDOS AUTOMATIKISHT'), 'Automatic physical cash metric missing');
   check(wizard.includes('SHPJEGO DIFERENCËN'), 'Discrepancy control missing');
   check(wizard.includes('GJURMA E MBYLLJES'), 'Closed-day audit receipt missing');
   check(wizard.includes('PARA ENDE TE PUNËTORËT'), 'Open worker cash section missing');

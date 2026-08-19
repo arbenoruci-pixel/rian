@@ -12,12 +12,12 @@ const vite = fs.readFileSync('vite.config.js', 'utf8');
 const epoch = fs.readFileSync('lib/appEpoch.js', 'utf8');
 const index = fs.readFileSync('index.html', 'utf8');
 
-check(component.includes("const PREVIEW_RPC = 'get_arka_daily_close_preview_v3'"), 'daily preview RPC missing');
+check(component.includes("const PREVIEW_RPC = 'get_arka_daily_close_preview_v4'"), 'daily preview V4 RPC missing');
 check(component.includes("const CLOSE_RPC = 'close_arka_day_v2'"), 'daily close RPC missing');
 check(component.includes('p_dry_run: true'), 'server dry-run gate missing');
 check(component.includes('p_dry_run: false'), 'final atomic close call missing');
 check(component.includes('I MORA PARATË'), 'per-worker cash confirmation missing');
-check(component.includes('SA PARA I NUMËROVE FIZIKISHT?'), 'physical cash count input missing');
+check(component.includes('SHUMA U VENDOS AUTOMATIKISHT'), 'automatic physical cash count input missing');
 check(component.includes('SHPJEGO DIFERENCËN'), 'daily discrepancy explanation missing');
 check(component.includes('MBYLL DITËN DHE BARAZO BUXHETIN'), 'final close action missing');
 check(component.includes("navigator.onLine === false"), 'offline close guard missing');

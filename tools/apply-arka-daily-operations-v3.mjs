@@ -141,11 +141,11 @@ function patchWizard() {
               <div style={{ color: palette.muted, fontSize: 10.5, fontWeight: 800 }}>{formatDate(date)}</div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(135px,1fr))', gap: 8 }}>
-              <Metric label="m² HYRË SOT" value={m2(dailyIncomingM2)} tone="ok" sub={\`BAZA ${m2(dailyIncoming?.base?.m2)} • TRANSPORT ${m2(dailyIncoming?.transport?.m2)}\`} />
-              <Metric label="m² DALË SOT" value={m2(dailyOutgoingM2)} tone="bad" sub={\`BAZA ${m2(dailyOutgoing?.base?.m2)} • TRANSPORT ${m2(dailyOutgoing?.transport?.m2)}\`} />
+              <Metric label="m² HYRË SOT" value={m2(dailyIncomingM2)} tone="ok" sub={\`BAZA \${m2(dailyIncoming?.base?.m2)} • TRANSPORT \${m2(dailyIncoming?.transport?.m2)}\`} />
+              <Metric label="m² DALË SOT" value={m2(dailyOutgoingM2)} tone="bad" sub={\`BAZA \${m2(dailyOutgoing?.base?.m2)} • TRANSPORT \${m2(dailyOutgoing?.transport?.m2)}\`} />
               <Metric label="NETO m²" value={m2(dailyNetM2)} tone={dailyNetM2 < 0 ? 'bad' : 'info'} sub="Hyrë minus dalë" />
-              <Metric label="NË PASTRIM" value={m2(dailyPastrimM2)} tone="warn" sub={\`${n(dailyCurrent?.pastrim?.count)} porosi\`} />
-              <Metric label="GATI" value={m2(dailyGatiM2)} tone="ok" sub={\`${n(dailyCurrent?.gati?.count)} porosi\`} />
+              <Metric label="NË PASTRIM" value={m2(dailyPastrimM2)} tone="warn" sub={\`\${n(dailyCurrent?.pastrim?.count)} porosi\`} />
+              <Metric label="GATI" value={m2(dailyGatiM2)} tone="ok" sub={\`\${n(dailyCurrent?.gati?.count)} porosi\`} />
             </div>
           </Card>
         ) : null}

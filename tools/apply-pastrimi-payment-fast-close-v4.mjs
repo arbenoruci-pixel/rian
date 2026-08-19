@@ -244,7 +244,8 @@ function patchFinalVersionOwner() {
   );
   const compatibleGatiFinalOrder =
     gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')
-    || gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer');
+    || gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer')
+    || gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, arkaDailyOperationsV3Installer, installer');
   if (!compatibleGatiFinalOrder) {
     throw new Error('GATI_FINAL_INSTALLER_ORDER_NOT_PATCHED');
   }

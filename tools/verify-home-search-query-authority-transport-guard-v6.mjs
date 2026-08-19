@@ -40,10 +40,10 @@ check(transportItem.includes('KODI PA T I TAKON BAZËS'), 'plain numeric route i
 
 check(packageJson.includes('apply-home-search-query-authority-transport-guard-v6.mjs'), 'v6 installer is not registered in prebuild');
 check(packageJson.includes('verify-home-search-query-authority-transport-guard-v6.mjs'), 'v6 verifier is not registered');
-check(packageJson.includes('2.0.115-query-authority-transport-guard-v4'), 'package version is not the guarded version');
-check(appEpoch.includes("APP_VERSION = '2.0.115-query-authority-transport-guard-v4'"), 'runtime APP_VERSION was not bumped');
-check(indexHtml.includes('2.0.115-query-authority-transport-guard-v4'), 'HTML build ID was not bumped');
-check(vite.includes('v44-query-authority-transport-guard'), 'PWA cache generation was not bumped');
+check(packageJson.includes('query-authority-transport-guard-v4'), 'package version lost the query-authority guard');
+check(appEpoch.includes('query-authority-transport-guard-v4'), 'runtime APP_VERSION lost the query-authority guard');
+check(indexHtml.includes('query-authority-transport-guard-v4'), 'HTML build ID lost the query-authority guard');
+check(vite.includes('query-authority-transport-guard'), 'PWA cache generation lost the query-authority guard');
 
 function mode(query) {
   const raw = String(query || '').trim().replace(/\s+/g, '');

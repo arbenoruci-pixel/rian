@@ -45,7 +45,8 @@ check(String(pkg.version || '').includes('pastrimi-payment-fast-close-v4'), 'pac
 check(gatiInstaller.includes('pastrimi-payment-fast-close-v4'), 'final version owner can overwrite fast-close build identity');
 check(
   gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')
-    || gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer'),
+    || gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer')
+    || gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, arkaDailyOperationsV3Installer, installer'),
   'future prebuild ordering does not preserve fast-close after repeat-visit',
 );
 check(vite.includes('pastrimi-payment-fast-close-v4'), 'PWA cache generation missing fast-close suffix');

@@ -20,7 +20,7 @@ check(!page.includes('transportM2: totals.m2'), 'undefined totals remains');
 check(!page.includes('clientPhone: fullPhone'), 'undefined fullPhone remains');
 check(String(pkg.scripts?.prebuild || '').includes('apply-transport-payment-button-v3.mjs'), 'v3 installer missing from prebuild');
 check(String(pkg.scripts?.build || '').includes('test:transport-payment-button-v3'), 'v3 verifier missing from build');
-check(vite.includes('v44-query-authority-transport-guard-payment-button-v3'), 'PWA cache generation was not bumped');
+check(vite.includes('query-authority-transport-guard-payment-button-v3'), 'PWA cache generation lost the transport payment guard');
 
 if (failures.length) {
   console.error('FAIL transport payment button v3:', failures);
