@@ -8,6 +8,7 @@ const INDEX_PATH = 'index.html';
 const GATI_INSTALLER_PATH = 'tools/apply-gati-rack-save-v1.mjs';
 const FAST_CLOSE_INSTALLER_PATH = 'tools/apply-pastrimi-payment-fast-close-v4.mjs';
 const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
+const GATI_VERIFY_PATH = 'tools/verify-gati-rack-save-v1.mjs';
 
 const MARKER = 'HOME_SEARCH_LOCAL_OID_DEDUPE_V1';
 const INSTALLER = 'node tools/apply-home-search-local-oid-dedupe-v1.mjs';
@@ -53,6 +54,16 @@ function patchArkaVerifierCompatibility() {
     source = replaceOnce(source, oldCheck, newCheck, 'ARKA compatible SW generation');
   }
   fs.writeFileSync(ARKA_VERIFY_PATH, source, 'utf8');
+}
+
+function patchGatiVerifierCompatibility() {
+  let source = fs.readFileSync(GATI_VERIFY_PATH, 'utf8');
+  const oldCheck = "check(vite.includes('sw-navigation-diag.js?v=3512'), 'service-worker import generation was not bumped');";
+  const newCheck = "check(/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite), 'service-worker import generation was not bumped');";
+  if (!source.includes("/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite)")) {
+    source = replaceOnce(source, oldCheck, newCheck, 'GATI compatible SW generation');
+  }
+  fs.writeFileSync(GATI_VERIFY_PATH, source, 'utf8');
 }
 
 function patchGatiFinalOwner() {
@@ -136,6 +147,7 @@ function patchBuildIdentity() {
 patchHomeSearch();
 patchFastCloseCompatibility();
 patchArkaVerifierCompatibility();
+patchGatiVerifierCompatibility();
 patchGatiFinalOwner();
 patchPackage();
 patchBuildIdentity();
