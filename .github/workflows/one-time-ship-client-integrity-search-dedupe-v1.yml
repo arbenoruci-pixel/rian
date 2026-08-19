@@ -1,0 +1,64 @@
+name: One-time ship client integrity and search dedupe V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-ship-client-integrity-search-dedupe-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply client integrity and home-search dedupe
+        run: node tools/apply-client-integrity-search-dedupe-v1.mjs
+
+      - name: Run full production build and all safeguards
+        run: npm run build
+
+      - name: Verify final generated source
+        run: node tools/verify-client-integrity-search-dedupe-v1.mjs
+
+      - name: Commit verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app \
+            src \
+            tools/apply-client-integrity-search-dedupe-v1.mjs \
+            tools/verify-client-integrity-search-dedupe-v1.mjs \
+            tools/apply-gati-rack-save-v1.mjs \
+            tools/apply-arka-daily-close-v2.mjs \
+            tools/verify-arka-daily-close-v2.mjs \
+            tools/apply-unified-arka-payroll-v1.mjs \
+            tools/apply-transport-repeat-visit-v2.mjs \
+            tools/apply-pastrimi-payment-fast-close-v4.mjs \
+            tools/apply-arka-daily-expense-step-v1.mjs \
+            package.json \
+            vite.config.js \
+            lib/appEpoch.js \
+            index.html
+          if git diff --cached --quiet; then
+            echo "No generated source changes to commit."
+          else
+            git commit -m "prevent duplicate client search cards and preserve canonical identities"
+            git push origin HEAD:main
+          fi
