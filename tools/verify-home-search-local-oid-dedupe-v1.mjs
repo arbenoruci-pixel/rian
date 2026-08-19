@@ -7,6 +7,7 @@ const homeSearch = fs.readFileSync('lib/homeSearch.js', 'utf8');
 const installer = fs.readFileSync('tools/apply-home-search-local-oid-dedupe-v1.mjs', 'utf8');
 const gatiInstaller = fs.readFileSync('tools/apply-gati-rack-save-v1.mjs', 'utf8');
 const fastCloseInstaller = fs.readFileSync('tools/apply-pastrimi-payment-fast-close-v4.mjs', 'utf8');
+const arkaVerifier = fs.readFileSync('tools/verify-arka-daily-close-v2.mjs', 'utf8');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const vite = fs.readFileSync('vite.config.js', 'utf8');
 const epoch = fs.readFileSync('lib/appEpoch.js', 'utf8');
@@ -36,12 +37,14 @@ check(gatiInstaller.includes('home-search-localoid-dedupe-v1'), 'GATI final owne
 check(gatiInstaller.includes('sw-navigation-diag.js?v=3513'), 'GATI final owner can overwrite service worker generation');
 check(fastCloseInstaller.includes('compatibleGatiFinalOrder'), 'PASTRIMI fast-close rejects the newer compatible final-owner chain');
 check(fastCloseInstaller.includes('homeSearchLocalOidDedupeV1Installer, installer'), 'PASTRIMI fast-close does not recognize the Home dedupe owner');
+check(arkaVerifier.includes("/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite)"), 'ARKA verifier rejects the newer compatible SW generation');
 check(vite.includes('home-search-localoid-dedupe-v1'), 'PWA cache generation suffix missing');
 check(vite.includes('sw-navigation-diag.js?v=3513'), 'service worker generation missing');
 check(epoch.includes('HOME_SEARCH_LOCAL_OID_DEDUPE_BUILD'), 'runtime build marker missing');
 check(index.includes('home-search-localoid-dedupe-v1'), 'HTML build ID missing');
 check(installer.includes('HOME_SEARCH_LOCAL_OID_DEDUPE_V1'), 'installer marker missing');
-check(installer.includes('patchFastCloseCompatibility'), 'compatibility patch missing from installer');
+check(installer.includes('patchFastCloseCompatibility'), 'fast-close compatibility patch missing from installer');
+check(installer.includes('patchArkaVerifierCompatibility'), 'ARKA verifier compatibility patch missing from installer');
 
 if (failures.length) {
   console.error(`FAIL Home Search local_oid dedupe V1: ${failures.length} check(s)`);
