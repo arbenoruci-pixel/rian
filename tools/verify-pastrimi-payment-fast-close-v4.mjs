@@ -43,7 +43,11 @@ check(prebuild.trim().endsWith(gatiFinalInstaller), 'GATI compatible version own
 check(String(pkg.scripts?.build || '').includes('npm run test:pastrimi-payment-fast-close-v4'), 'fast-close verifier missing from full build');
 check(String(pkg.version || '').includes('pastrimi-payment-fast-close-v4'), 'package build version missing fast-close suffix');
 check(gatiInstaller.includes('pastrimi-payment-fast-close-v4'), 'final version owner can overwrite fast-close build identity');
-check(gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer'), 'future prebuild ordering does not preserve fast-close after repeat-visit');
+check(
+  gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')
+    || gatiInstaller.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer'),
+  'future prebuild ordering does not preserve fast-close after repeat-visit',
+);
 check(vite.includes('pastrimi-payment-fast-close-v4'), 'PWA cache generation missing fast-close suffix');
 check(index.includes('pastrimi-payment-fast-close-v4'), 'HTML build id missing fast-close suffix');
 check(installer.includes('PASTRIMI_PAYMENT_FAST_CLOSE_V4'), 'installer marker missing');

@@ -62,7 +62,7 @@ check(String(pkg.scripts?.build || '').includes('npm run test:gati-rack-save-v1'
 check(String(pkg.scripts?.['test:gati-rack-save-v1'] || '').includes('verify-gati-rack-save-v1.mjs'), 'GATI rack test script missing');
 check(String(pkg.version || '').includes('gati-rack-save-v1-pastrimi-payment-touch-v3'), 'package build version missing GATI rack/payment-touch suffix');
 check(vite.includes('gati-rack-save-v1'), 'PWA cache generation was not bumped');
-check(vite.includes('sw-navigation-diag.js?v=3512'), 'service-worker import generation was not bumped');
+check(/sw-navigation-diag\.js\?v=351[2-9]/.test(vite), 'service-worker import generation was not bumped');
 check(epoch.includes('GATI_RACK_SAVE_BUILD'), 'runtime rack build marker missing');
 check(index.includes('gati-rack-save-v1'), 'HTML build id missing rack-save suffix');
 check(arkaInstaller.includes('gati-rack-save-v1'), 'final ARKA installer can overwrite rack build version');

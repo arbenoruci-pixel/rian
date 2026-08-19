@@ -10,8 +10,8 @@ const ARKA_INSTALLER_PATH = 'tools/apply-arka-daily-close-v2.mjs';
 const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 
 const MARKER = 'GATI_RACK_SAVE_V1';
-const APP_VERSION = '2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1';
-const CACHE_VERSION = 'v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1';
+const APP_VERSION = '2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1';
+const CACHE_VERSION = 'v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
   if (source[start] !== openChar) throw new Error(`${label}_OPEN_MISSING`);
@@ -304,10 +304,11 @@ function patchPackage() {
   const unifiedInstaller = 'node tools/apply-unified-arka-payroll-v1.mjs';
   const repeatVisitV2Installer = 'node tools/apply-transport-repeat-visit-v2.mjs';
   const pastrimiFastCloseV4Installer = 'node tools/apply-pastrimi-payment-fast-close-v4.mjs';
+  const homeSearchLocalOidDedupeV1Installer = 'node tools/apply-home-search-local-oid-dedupe-v1.mjs';
   const pre = String(scripts.prebuild || '')
     .split('&&').map((item) => item.trim()).filter(Boolean)
-    .filter((item) => item !== installer && item !== arkaInstaller && item !== unifiedInstaller && item !== repeatVisitV2Installer && item !== pastrimiFastCloseV4Installer);
-  pre.push(arkaInstaller, unifiedInstaller, repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer);
+    .filter((item) => item !== installer && item !== arkaInstaller && item !== unifiedInstaller && item !== repeatVisitV2Installer && item !== pastrimiFastCloseV4Installer && item !== homeSearchLocalOidDedupeV1Installer);
+  pre.push(arkaInstaller, unifiedInstaller, repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer);
   scripts.prebuild = pre.join(' && ');
   scripts['test:gati-rack-save-v1'] = 'node tools/verify-gati-rack-save-v1.mjs';
   const testCommand = 'npm run test:gati-rack-save-v1';
@@ -322,7 +323,7 @@ function patchPackage() {
 
 function patchBuildIdentity() {
   let vite = fs.readFileSync(VITE_PATH, 'utf8');
-  vite = vite.replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3512');
+  vite = vite.replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3513');
   vite = vite.replace(/tepiha-vite-business-routes-[^']+/g, `tepiha-vite-business-routes-${CACHE_VERSION}`);
   vite = vite.replace(/tepiha-vite-static-assets-[^']+/g, `tepiha-vite-static-assets-${CACHE_VERSION}`);
   vite = vite.replace(/tepiha-vite-media-[^']+/g, `tepiha-vite-media-${CACHE_VERSION}`);

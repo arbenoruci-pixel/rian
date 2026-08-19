@@ -242,7 +242,10 @@ function patchFinalVersionOwner() {
     'pre.push(arkaInstaller, unifiedInstaller, repeatVisitV2Installer, installer);',
     'pre.push(arkaInstaller, unifiedInstaller, repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer);',
   );
-  if (!gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')) {
+  const compatibleGatiFinalOrder =
+    gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, installer')
+    || gati.includes('repeatVisitV2Installer, pastrimiFastCloseV4Installer, homeSearchLocalOidDedupeV1Installer, installer');
+  if (!compatibleGatiFinalOrder) {
     throw new Error('GATI_FINAL_INSTALLER_ORDER_NOT_PATCHED');
   }
   fs.writeFileSync(GATI_INSTALLER_PATH, gati, 'utf8');

@@ -48,10 +48,10 @@ check(String(pkg.version || '').includes('pastrimi-payment-touch-v3'), 'combined
 check(installer.includes('PASTRIMI_PAYMENT_TOUCH_V3'), 'installer marker missing');
 check(installer.includes('PASTRIMI_ROW_PAYMENT_TIMEOUT'), 'installer timeout patch missing');
 check(gatiInstaller.includes('pastrimi-payment-touch-v3'), 'final version owner can overwrite touch build id');
-check(gatiInstaller.includes('sw-navigation-diag.js?v=3512'), 'final service worker import generation is not 3512');
-check(gatiVerifier.includes('sw-navigation-diag.js?v=3512'), 'GATI verifier does not accept service worker generation 3512');
+check(/sw-navigation-diag\.js\?v=351[2-9]/.test(gatiInstaller), 'final service worker import generation is not compatible');
+check(gatiVerifier.includes('/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite)'), 'GATI verifier does not accept compatible service worker generations');
 check(arkaVerifier.includes('pastrimi-payment-touch-v3'), 'ARKA verifier does not accept combined touch cache generation');
-check(arkaVerifier.includes('sw-navigation-diag.js?v=3512'), 'ARKA verifier does not accept service worker generation 3512');
+check(arkaVerifier.includes('/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite)'), 'ARKA verifier does not accept compatible service worker generations');
 
 if (failures.length) {
   console.error(`FAIL Pastrimi payment touch V3: ${failures.length} check(s)`);

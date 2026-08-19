@@ -64,7 +64,7 @@ check(
 );
 if (hasRackFinalOwner) {
   check(vite.includes('gati-rack-save-v1'), 'GATI rack cache generation missing after ARKA');
-  check(vite.includes('sw-navigation-diag.js?v=3512'), 'service worker import generation not bumped for rack save');
+  check(/sw-navigation-diag\.js\?v=351[2-9]/.test(vite), 'service worker import generation not bumped for rack save');
 } else {
   check(vite.includes('sw-navigation-diag.js?v=3510'), 'service worker import generation not bumped');
 }
