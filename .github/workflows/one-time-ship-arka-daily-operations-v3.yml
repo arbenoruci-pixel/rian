@@ -1,5 +1,6 @@
 name: One-time ship ARKA daily operations V3
 
+# Trigger 2: repair literal JSX expressions before applying the source patch.
 on:
   push:
     branches: [main]
@@ -32,9 +33,15 @@ jobs:
           LOG="arka-daily-operations-v3-workflow.log"
           : > "$LOG"
 
-          echo "===== APPLY =====" >> "$LOG"
-          node tools/apply-arka-daily-operations-v3.mjs >> "$LOG" 2>&1
+          echo "===== FIX INSTALLER =====" >> "$LOG"
+          node tools/fix-arka-daily-operations-v3-installer.mjs >> "$LOG" 2>&1
           RC=$?
+
+          if [ "$RC" -eq 0 ]; then
+            echo "===== APPLY =====" >> "$LOG"
+            node tools/apply-arka-daily-operations-v3.mjs >> "$LOG" 2>&1
+            RC=$?
+          fi
 
           if [ "$RC" -eq 0 ]; then
             echo "===== FULL BUILD =====" >> "$LOG"
@@ -59,6 +66,7 @@ jobs:
               components/ArkaDailyCloseWizard.jsx \
               components/ArkaDailyCloseShortcut.jsx \
               app/arka/layout.jsx \
+              tools/fix-arka-daily-operations-v3-installer.mjs \
               tools/apply-arka-daily-operations-v3.mjs \
               tools/verify-arka-daily-operations-v3.mjs \
               tools/apply-pastrimi-payment-fast-close-v4.mjs \
