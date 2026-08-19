@@ -1,6 +1,6 @@
 name: One-time ship ARKA daily operations V3
 
-# Trigger 4: repair installer and legacy verifier compatibility before the full build.
+# Trigger 5: repair installer and legacy verifier compatibility before the full build.
 on:
   push:
     branches: [main]
@@ -50,6 +50,12 @@ jobs:
           fi
 
           if [ "$RC" -eq 0 ]; then
+            echo "===== FIX QUERY-AUTHORITY VERSION COMPATIBILITY =====" >> "$LOG"
+            node tools/fix-query-authority-version-owner-compat-v1.mjs >> "$LOG" 2>&1
+            RC=$?
+          fi
+
+          if [ "$RC" -eq 0 ]; then
             echo "===== APPLY =====" >> "$LOG"
             node tools/apply-arka-daily-operations-v3.mjs >> "$LOG" 2>&1
             RC=$?
@@ -81,10 +87,12 @@ jobs:
               tools/fix-arka-daily-operations-v3-installer.mjs \
               tools/fix-home-search-operations-owner-compat-v1.mjs \
               tools/fix-arka-daily-control-operations-compat-v1.mjs \
+              tools/fix-query-authority-version-owner-compat-v1.mjs \
               tools/apply-home-search-local-oid-dedupe-v1.mjs \
               tools/apply-arka-daily-operations-v3.mjs \
               tools/verify-arka-daily-operations-v3.mjs \
               tools/verify-arka-daily-control-v1.mjs \
+              tools/verify-home-search-query-authority-transport-guard-v6.mjs \
               tools/apply-pastrimi-payment-fast-close-v4.mjs \
               tools/verify-pastrimi-payment-fast-close-v4.mjs \
               tools/verify-arka-daily-close-v2.mjs \
