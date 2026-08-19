@@ -1,6 +1,6 @@
 name: One-time ship Home search local_oid dedupe V1
 
-# Trigger 1: apply the stable local_oid identity patch and run the full build.
+# Trigger 2: persist a diagnostic log on failure, or commit the verified source on success.
 on:
   push:
     branches: [main]
@@ -26,34 +26,55 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply stable Home search identity
-        run: node tools/apply-home-search-local-oid-dedupe-v1.mjs
-
-      - name: Run full production build and safeguards
-        run: npm run build
-
-      - name: Verify final generated source
-        run: node tools/verify-home-search-local-oid-dedupe-v1.mjs
-
-      - name: Commit verified source
+      - name: Apply, build, verify, and persist diagnostics
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
+          LOG="home-search-local-oid-dedupe-v1-workflow.log"
+          : > "$LOG"
+
+          echo "===== APPLY =====" >> "$LOG"
+          node tools/apply-home-search-local-oid-dedupe-v1.mjs >> "$LOG" 2>&1
+          RC=$?
+
+          if [ "$RC" -eq 0 ]; then
+            echo "===== BUILD =====" >> "$LOG"
+            npm run build >> "$LOG" 2>&1
+            RC=$?
+          fi
+
+          if [ "$RC" -eq 0 ]; then
+            echo "===== FINAL VERIFY =====" >> "$LOG"
+            node tools/verify-home-search-local-oid-dedupe-v1.mjs >> "$LOG" 2>&1
+            RC=$?
+          fi
+
+          echo "FINAL_RC=$RC" >> "$LOG"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            lib/homeSearch.js \
-            tools/apply-home-search-local-oid-dedupe-v1.mjs \
-            tools/verify-home-search-local-oid-dedupe-v1.mjs \
-            tools/apply-gati-rack-save-v1.mjs \
-            tools/apply-arka-daily-close-v2.mjs \
-            package.json \
-            vite.config.js \
-            lib/appEpoch.js \
-            index.html
-          if git diff --cached --quiet; then
-            echo "No generated source changes to commit."
-          else
-            git commit -m "dedupe Home search by stable local order identity"
+          git add "$LOG"
+
+          if [ "$RC" -eq 0 ]; then
+            git add \
+              lib/homeSearch.js \
+              tools/apply-home-search-local-oid-dedupe-v1.mjs \
+              tools/verify-home-search-local-oid-dedupe-v1.mjs \
+              tools/apply-gati-rack-save-v1.mjs \
+              tools/apply-arka-daily-close-v2.mjs \
+              package.json \
+              vite.config.js \
+              lib/appEpoch.js \
+              index.html
+          fi
+
+          if ! git diff --cached --quiet; then
+            if [ "$RC" -eq 0 ]; then
+              git commit -m "dedupe Home search by stable local order identity"
+            else
+              git commit -m "diagnose Home search local-order dedupe failure"
+            fi
             git push origin HEAD:main
           fi
+
+          exit "$RC"
