@@ -65,7 +65,18 @@ function patchService() {
 
 function patchPage() {
   let source = fs.readFileSync(PAGE, 'utf8');
-  if (source.includes(`${MARKER}:PAGE`)) return;
+  if (source.includes(`${MARKER}:PAGE`)) {
+    // A later source edit can regress the button while leaving the installer
+    // marker behind. Keep the marker fast-path self-healing.
+    const directHandler = 'onClick={submitHandoff}';
+    const wizardHandler = 'onClick={openHandoffWizard}';
+    if (source.includes(directHandler)) {
+      source = source.replace(directHandler, wizardHandler);
+      fs.writeFileSync(PAGE, source, 'utf8');
+    }
+    if (!source.includes(wizardHandler)) throw new Error('WIZARD_BUTTON_HANDLER_REGRESSED');
+    return;
+  }
 
   const importAnchor = `import ReadyBonusLiveCard from '@/components/ReadyBonusLiveCard';`;
   if (!source.includes(importAnchor)) throw new Error('WIZARD_IMPORT_ANCHOR_NOT_FOUND');
