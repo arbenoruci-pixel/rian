@@ -41,6 +41,10 @@ check(arka.includes("import ArkaUnifiedWorkerAccount from '@/components/ArkaUnif
 check(arka.includes('onSnapshot={setUnifiedWorkerFinance}'), 'ARKA main does not receive canonical snapshot');
 check(arka.includes('unifiedWorkerFinance?.cash?.open_due_to_base'), 'ARKA handoff amount is not canonical');
 check(arka.includes('unifiedWorkerFinance?.profile?.ready_bonus_enabled === true'), 'ARKA ready bonus is not profile-gated');
+check(arka.includes('ARKA_SALARY_ONLY_HANDOFF_V1'), 'straight-salary handoff bypass marker missing');
+check(arka.includes('onClick={openHandoffWizard}'), 'ARKA handoff button bypasses the wizard');
+check(!arka.includes('onClick={submitHandoff}'), 'ARKA handoff button regressed to direct submit');
+check(arka.includes("if (mealChoice === '1' || mealChoice === '2')"), 'no-meal choice still reaches the meal transaction helper');
 check(arka.includes('href="/arka/ditore"'), 'ARKA daily close route missing');
 
 check(detail.includes("import ArkaUnifiedWorkerAccount from '@/components/ArkaUnifiedWorkerAccount';"), 'admin detail canonical import missing');

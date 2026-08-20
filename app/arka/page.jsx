@@ -3198,6 +3198,20 @@ export default function ArkaPageV3() {
     const total = n(unifiedWorkerFinance?.cash?.open_due_to_base ?? workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
     if (!workerSnapshot || total <= 0 || !rows.length) return alert('🔴 NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
     if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) return alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
+
+    // ARKA_SALARY_ONLY_HANDOFF_V1: a DB-confirmed straight-salary worker with
+    // every extra disabled hands the full cash to base without a meal/bonus step.
+    const profile = unifiedWorkerFinance?.profile;
+    const straightSalaryOnly = profile?.salary_enabled === true
+      && profile?.meal_enabled === false
+      && profile?.commission_enabled === false
+      && profile?.transport_bonus_enabled === false
+      && profile?.ready_bonus_enabled === false
+      && safeUpper(profile?.cash_mode) === 'FULL_CASH';
+    if (straightSalaryOnly) {
+      return submitHandoff({ mealChoice: '3', wizard: true, straightSalaryOnly: true });
+    }
+
     try {
       const openBonusRows = unifiedWorkerFinance?.profile?.ready_bonus_enabled === true
         ? await listOpenBaseReadyBonusPayments(actor?.pin)
@@ -3218,16 +3232,21 @@ export default function ArkaPageV3() {
       if (!workerSnapshot || total <= 0 || !rows.length) throw new Error('NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
       if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) throw new Error('U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
 
-      await ensureMealDecisionBeforeHandoff({
-        actor,
-        workerPin: actor?.pin,
-        workerName: actor?.name,
-        workerRole: actor?.role,
-        staffOptions: mealOptions,
-        amountPerPerson: FOOD_DEDUCTION,
-        presetChoice: options?.mealChoice || '',
-        presetPayerPin: options?.mealPayerPin || '',
-      });
+      // Choice 3 means no meal. Existing coverage also arrives without a new
+      // choice. Only choices 1/2 create or attach a meal transaction.
+      const mealChoice = String(options?.mealChoice || '').trim();
+      if (mealChoice === '1' || mealChoice === '2') {
+        await ensureMealDecisionBeforeHandoff({
+          actor,
+          workerPin: actor?.pin,
+          workerName: actor?.name,
+          workerRole: actor?.role,
+          staffOptions: mealOptions,
+          amountPerPerson: FOOD_DEDUCTION,
+          presetChoice: mealChoice,
+          presetPayerPin: options?.mealPayerPin || '',
+        });
+      }
 
       setBusy('handoff');
       const submitted = await submitWorkerCashToDispatch({ actor });
@@ -3588,7 +3607,7 @@ export default function ArkaPageV3() {
           />
 
           <div className="arkaSectionCard arkaWorkerActionHub">
-            <button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={submitHandoff}>{busy === 'handoff' ? '...' : 'DORËZO TE DISPATCH — ' + euro(workerBaseForDispatchTotal)}</button>
+            <button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={openHandoffWizard}>{busy === 'handoff' ? '...' : 'DORËZO TE DISPATCH — ' + euro(workerBaseForDispatchTotal)}</button>
             {n(workerSnapshot?.cashDuplicateTransportCount) > 0 ? <div className="arkaReviewWarn">U gjet duplicate transport cash. Dorëzimi u ndalua për siguri.</div> : null}
 
             <div className="arkaWorkerActionHubHead">

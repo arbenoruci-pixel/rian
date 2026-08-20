@@ -7,9 +7,9 @@ const VITE_PATH = 'vite.config.js';
 const EPOCH_PATH = 'lib/appEpoch.js';
 const INDEX_PATH = 'index.html';
 const MARKER = 'ARKA_DAILY_CLOSE_V2_ONE_WAY';
-const APP_VERSION = '2.0.116-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3';
-const LEGACY_RUNTIME_VERSION = '2.0.115-query-authority-transport-guard-v4';
-const CACHE_VERSION = 'v45-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3';
+const APP_VERSION = '2.0.117-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1';
+const LEGACY_RUNTIME_VERSION = '2.0.117-arka-salary-only-handoff-v1';
+const CACHE_VERSION = 'v46-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
   if (source[start] !== openChar) throw new Error(`${label}_OPEN_MISSING`);
