@@ -1,5 +1,7 @@
 -- Explicit atomic payment + delivery support for loaded transport orders.
--- The service-role API requires confirmDelivery=true before invoking this path.
+-- The confirmation flag is checked after the client/order locks inside SQL.
+
+drop function if exists public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text);
 
 create or replace function public.transport_collect_client_payment_v1(
   p_order_id uuid,
@@ -7,7 +9,8 @@ create or replace function public.transport_collect_client_payment_v1(
   p_amount_received numeric,
   p_method text default 'CASH',
   p_note text default null,
-  p_idempotency_key text default null
+  p_idempotency_key text default null,
+  p_confirm_delivery boolean default false
 )
 returns jsonb
 language plpgsql
@@ -152,6 +155,9 @@ begin
   end if;
 
   v_status := lower(trim(coalesce(v_order.status, v_order.data ->> 'status', '')));
+  if v_status in ('loaded', 'ngarkuar', 'ngarkim') and p_confirm_delivery is not true then
+    raise exception 'LOADED_ORDER_REQUIRES_DELIVERY_CONFIRMATION';
+  end if;
   if v_status not in ('loaded', 'ngarkuar', 'ngarkim', 'delivery', 'dorzim', 'dorezim', 'dorëzim', 'done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar') then
     raise exception 'TRANSPORT_ORDER_NOT_IN_DELIVERY';
   end if;
@@ -513,5 +519,5 @@ end;
 $$;
 
 
-revoke execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text) from public, anon, authenticated;
-grant execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text) to service_role;
+revoke execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text, boolean) from public, anon, authenticated;
+grant execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text, boolean) to service_role;
