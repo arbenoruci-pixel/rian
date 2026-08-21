@@ -70,6 +70,9 @@ check(receivablesHotfix.includes('M2=0 CASH_ALLOCATION_V2'), 'live V1 allocation
 check(receivablesMigration.includes('commission_m2 numeric(12,4)') && receivablesV3.includes('commission_m2 numeric(12,4)'), 'commission entitlement tracking is missing');
 check(receivablesV3.includes('perform pg_advisory_xact_lock') && receivablesV3.indexOf('perform pg_advisory_xact_lock') < receivablesV3.indexOf('for update'), 'client advisory lock is not acquired before order row locks');
 check(receivablesV3.includes('v_current_cash_applied') && receivablesV3.includes('v_current_debt_remaining'), 'delivery audit event is not based on post-allocation values');
+check(receivablesV3.includes('payment_batch_id') && receivablesV3.includes('TRANSPORT_EVENT_REPAIR_AMBIGUOUS'), 'delivery events are not exactly linked and safely repaired');
+check(receivablesV3.includes("'transport-receivables-v3:' || v_client_id::text"), 'client advisory lock is not namespaced');
+check(receivablesV3.includes('PAYMENT_IDEMPOTENCY_ALLOCATION_SUM_MISMATCH'), 'duplicate retries do not re-verify persisted allocations');
 check(receivablesV3.includes('TRANSPORT_COMMISSION_M2_EXCEEDS_SERVICE'), 'commission square-metre invariant is missing');
 
 if (failures.length) {
