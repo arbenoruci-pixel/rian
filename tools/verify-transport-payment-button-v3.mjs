@@ -63,6 +63,8 @@ check(transportLogin.includes("fetch('/api/auth/login'") && transportLogin.inclu
 check(loginApi.includes('DEVICE_LINKED_TO_OTHER_USER') && loginApi.indexOf('DEVICE_LINKED_TO_OTHER_USER') < loginApi.indexOf('devicePayload'), 'shared-device login can still mutate and de-approve the existing owner');
 check(legacyArkaApi.includes("readCookie(req, 'tepiha_device_id')") && legacyArkaApi.includes('ACTOR_SESSION_MISMATCH'), 'legacy ARKA endpoint lacks device-bound actor authentication');
 check(legacyArkaApi.includes('TRANSPORT_RECEIVABLE_PAYMENT_REQUIRED') && legacyArkaApi.includes('orderAssignedToActor'), 'legacy transport payments can bypass assignment or the receivables ledger');
+check(legacyArkaApi.includes("return apiFail(res, 'TRANSPORT_RECEIVABLE_PAYMENT_REQUIRED', 409);"), 'legacy transport cash writes are not disabled');
+check(page.includes('if (!shouldFinalizeDelivery)') && page.includes('NJË LEDGER TË VETËM'), 'UI can still enter the legacy transport payment path');
 
 check(receivablesMigration.includes('transport_order_active_arka_paid_v1'), 'active ARKA reconciliation helper is missing');
 check(receivablesMigration.includes("status in ('ACCEPTED_BY_DISPATCH', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL')"), 'active ARKA status whitelist is missing');
