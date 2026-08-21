@@ -59,6 +59,7 @@ const LEGACY_TRANSPORT_PRICE_DEFAULTS = new Set([1.5, 3]);
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 const DELIVERY_FINALIZE_STATUSES = new Set(['delivery', 'dorzim', 'dorezim', 'dorëzim']);
 const LEDGER_PAYMENT_STATUSES = new Set([...DELIVERY_FINALIZE_STATUSES, 'done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar']);
+const PREDELIVERY_PAYMENT_BLOCKED_STATUSES = new Set(['loaded', 'ngarkuar', 'ngarkim']);
 const PREFIX_OPTIONS = [
   { flag: '🇽🇰', code: '+383', label: 'KOSOVË' },
   { flag: '🇦🇱', code: '+355', label: 'SHQIPËRI' },
@@ -116,7 +117,14 @@ function acquireTransportPaymentIntent(orderId, amountReceived) {
   };
   try {
     window.localStorage.setItem(paymentIntentStorageKey(cleanOrderId), JSON.stringify(intent));
-  } catch {}
+    const persisted = readTransportPaymentIntent(cleanOrderId);
+    if (persisted?.idempotencyKey !== intent.idempotencyKey
+      || Math.abs(Number(persisted?.amountReceived || 0) - cleanAmount) > 0.001) {
+      return { ...intent, storageUnavailable: true };
+    }
+  } catch {
+    return { ...intent, storageUnavailable: true };
+  }
   return intent;
 }
 
@@ -1535,7 +1543,7 @@ function PranimiPageInner() {
       .then((summary) => {
         if (!alive) return;
         setReceivableSummary(summary);
-        const totalForPayment = Math.max(0, Number(summary?.totalForPayment || remainingDue));
+        const totalForPayment = Math.max(0, Number(summary?.totalForPayment ?? remainingDue));
         const pendingIntent = readTransportPaymentIntent(oid);
         setPayAdd(pendingIntent?.amountReceived || round2(totalForPayment));
       })
@@ -2180,6 +2188,11 @@ function PranimiPageInner() {
     }
 
     const currentEditStatus = String(editRowStatus || '').trim().toLowerCase();
+    if (isEdit && PREDELIVERY_PAYMENT_BLOCKED_STATUSES.has(currentEditStatus)) {
+      alert('PARA SE TË REGJISTROHET PAGESA, KALOJE POROSINË NË DORËZIM. PASTAJ SISTEMI I MBLEDH BORXHIN E VJETËR DHE KËTË POROSI NË NJË TOTAL.');
+      return;
+    }
+
     const shouldFinalizeDelivery = Boolean(
       isEdit && (
         LEDGER_PAYMENT_STATUSES.has(currentEditStatus)
@@ -2204,6 +2217,11 @@ function PranimiPageInner() {
       }
     }
 
+    if (shouldFinalizeDelivery && activeSummary?.requiresReconciliation === true) {
+      alert('KJO POROSI KA TË DHËNA TË VJETRA QË DUHET TË VERIFIKOHEN NGA ADMINI. PAGESA ËSHTË BLOKUAR QË TË MOS REGJISTROHET DY HERË.');
+      return;
+    }
+
     const pendingPaymentIntent = shouldFinalizeDelivery
       ? readTransportPaymentIntent(oid)
       : null;
@@ -2221,7 +2239,7 @@ function PranimiPageInner() {
     const cashGiven = pendingPaymentIntent?.amountReceived || requestedCash;
     const currentOrderDue = round2(Math.max(0, Number(totalEuro || 0) - Number(clientPaid || 0)));
     const dueNow = shouldFinalizeDelivery
-      ? round2(Math.max(0, Number(activeSummary?.totalForPayment || currentOrderDue)))
+      ? round2(Math.max(0, Number(activeSummary?.totalForPayment ?? currentOrderDue)))
       : currentOrderDue;
     if (cashGiven <= 0) {
       alert('SHKRUANI SHUMËN QË PAGUAN KLIENTI.');
@@ -2265,6 +2283,10 @@ function PranimiPageInner() {
       if (paymentIntent?.amountConflict) {
         setPayAdd(paymentIntent.amountReceived);
         alert('RIPROVO PAGESËN E PAKONFIRMUAR ME ' + paymentIntent.amountReceived.toFixed(2) + '€.');
+        return;
+      }
+      if (paymentIntent?.storageUnavailable) {
+        alert('PAGESA NUK U NIS: TELEFONI NUK MUNDI TA RUAJË ÇELËSIN E SIGURISË. HAPE FAQEN NË SHFLETUES NORMAL OSE LIRO HAPËSIRËN, PASTAJ PROVO PRAPË. MOS I MERR PARAT PA U RREGULLUAR KJO.');
         return;
       }
 
@@ -2988,6 +3010,11 @@ function PranimiPageInner() {
               ) : null}
               {receivableError ? (
                 <div style={{ color: '#fca5a5', fontWeight: 900 }}>BORXHI NUK U LEXUA: {receivableError}</div>
+              ) : null}
+              {receivableSummary?.requiresReconciliation ? (
+                <div style={{ color: '#fca5a5', fontWeight: 1000 }}>
+                  PAGESA E BLOKUAR: TË DHËNAT E VJETRA DUHET TË VERIFIKOHEN NGA ADMINI.
+                </div>
               ) : null}
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: '#fbbf24', fontWeight: 900 }}>
                 <span>BORXHI I VJETËR:</span>
