@@ -210,8 +210,11 @@ function orderClientId(order) {
 function orderAssignedToActor(order, actor) {
   if (PRIVILEGED_ROLES.has(actor.role)) return true;
   const data = order?.data && typeof order.data === 'object' ? order.data : {};
-  const assigned = [
-    order?.transport_id,
+  const keys = actorAssignmentKeys(actor);
+  const canonicalAssignment = String(order?.transport_id || '').trim();
+  if (canonicalAssignment) return keys.has(canonicalAssignment);
+
+  const legacyAssignments = [
     data.transport_id,
     data.transport_user_id,
     data.transport_pin,
@@ -220,8 +223,7 @@ function orderAssignedToActor(order, actor) {
     data.assigned_driver_id,
     data.assigned_to_pin,
   ].map((value) => String(value || '').trim()).filter(Boolean);
-  const keys = actorAssignmentKeys(actor);
-  return assigned.some((value) => keys.has(value));
+  return legacyAssignments.some((value) => keys.has(value));
 }
 
 async function authorizeOrder(supabase, orderId, actor) {
@@ -261,10 +263,45 @@ function safeBusinessError(error) {
     : 'TRANSPORT_RECEIVABLE_REQUEST_FAILED';
 }
 
+const KNOWN_RPC_BUSINESS_ERRORS = new Set([
+  'ACTOR_NOT_FOUND_OR_DISABLED',
+  'AMOUNT_INVALID',
+  'CLIENT_HAS_NO_OUTSTANDING_BALANCE',
+  'ONLY_CASH_SUPPORTED',
+  'PAYMENT_IDEMPOTENCY_KEY_REQUIRED',
+  'PAYMENT_IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD',
+  'PAYMENT_IDEMPOTENCY_KEY_TOO_LONG',
+  'RECEIVABLE_ORDER_NOT_FOUND',
+  'TRANSPORT_CLIENT_ID_REQUIRED',
+  'TRANSPORT_ORDER_CLIENT_CHANGED',
+  'TRANSPORT_ORDER_HAS_NO_DEBT',
+  'TRANSPORT_ORDER_NOT_FOUND',
+  'TRANSPORT_ORDER_NOT_IN_DELIVERY',
+]);
+
 async function callRpc(supabase, name, args) {
-  const { data, error } = await supabase.rpc(name, args);
-  if (error) throw new Error(error.message || error.code || name + '_FAILED');
-  if (!data || data.ok !== true) throw new Error(name + '_NOT_VERIFIED');
+  let response;
+  try {
+    response = await supabase.rpc(name, args);
+  } catch {
+    throw serverError(name + '_TRANSPORT_FAILED');
+  }
+
+  const { data, error } = response || {};
+  if (error) {
+    const message = String(error.message || error.code || name + '_FAILED').trim();
+    const rpcError = new Error(
+      KNOWN_RPC_BUSINESS_ERRORS.has(message)
+        ? message
+        : name + '_TRANSPORT_FAILED'
+    );
+    rpcError.code = String(error.code || '');
+    rpcError.httpStatus = KNOWN_RPC_BUSINESS_ERRORS.has(message) && rpcError.code === 'P0001'
+      ? 409
+      : 503;
+    throw rpcError;
+  }
+  if (!data || data.ok !== true) throw serverError(name + '_NOT_VERIFIED');
   return data;
 }
 
@@ -358,6 +395,6 @@ export default async function handler(req, res) {
       code: String(error?.code || ''),
       message: String(error?.message || error || 'UNKNOWN_ERROR').slice(0, 300),
     });
-    return apiFail(res, safeBusinessError(error), Number(error?.httpStatus) || 400);
+    return apiFail(res, safeBusinessError(error), Number(error?.httpStatus) || 503);
   }
 }
