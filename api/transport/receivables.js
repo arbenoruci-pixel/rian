@@ -4,6 +4,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ALLOWED_ROLES = new Set(['TRANSPORT', 'DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN']);
 const PRIVILEGED_ROLES = new Set(['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN']);
+const LOADED_DELIVERY_PAYMENT_STATUSES = new Set(['loaded', 'ngarkuar', 'ngarkim']);
 
 function cleanUuid(value) {
   const clean = String(value || '').trim();
@@ -229,7 +230,7 @@ function orderAssignedToActor(order, actor) {
 async function authorizeOrder(supabase, orderId, actor) {
   const { data: order, error } = await supabase
     .from('transport_orders')
-    .select('id,client_id,transport_id,data')
+    .select('id,client_id,transport_id,status,data')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -319,6 +320,7 @@ export default async function handler(req, res) {
     orderId = cleanUuid(body?.orderId || body?.order_id);
     const clientId = cleanUuid(body?.clientId || body?.client_id);
     const supabase = createAdminClientOrThrow();
+    let authorizedOrder = null;
 
     const auth = await authenticateDevice(supabase, req);
     if (!auth.ok) return apiFail(res, auth.error, auth.status);
@@ -326,6 +328,7 @@ export default async function handler(req, res) {
     if (orderId) {
       const access = await authorizeOrder(supabase, orderId, auth.user);
       if (!access.ok) return apiFail(res, access.error, access.status);
+      authorizedOrder = access.order;
       const authorizedClientId = orderClientId(access.order);
       if (clientId && authorizedClientId && clientId !== authorizedClientId) {
         return apiFail(res, 'ORDER_CLIENT_MISMATCH', 403);
@@ -370,6 +373,10 @@ export default async function handler(req, res) {
       const amountReceived = Number(body?.amountReceived ?? body?.amount_received);
       const method = String(body?.method || 'CASH').trim().toUpperCase();
       const idempotencyKey = cleanKey(body?.idempotencyKey || body?.idempotency_key);
+      const orderStatus = String(authorizedOrder?.status || authorizedOrder?.data?.status || '').trim().toLowerCase();
+      if (LOADED_DELIVERY_PAYMENT_STATUSES.has(orderStatus) && body?.confirmDelivery !== true) {
+        return apiFail(res, 'LOADED_ORDER_REQUIRES_DELIVERY_CONFIRMATION', 409);
+      }
       if (!actorPin) return apiFail(res, 'ACTOR_PIN_REQUIRED', 400);
       if (actorPin !== auth.user.pin) return apiFail(res, 'ACTOR_SESSION_MISMATCH', 403);
       if (!Number.isFinite(amountReceived) || amountReceived <= 0) return apiFail(res, 'AMOUNT_INVALID', 400);
