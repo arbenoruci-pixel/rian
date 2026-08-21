@@ -2194,6 +2194,11 @@ function PranimiPageInner() {
         || receivableSummary?.currentReceivable
       )
     );
+    if (!shouldFinalizeDelivery) {
+      alert('PAGESA E TRANSPORTIT REGJISTROHET VETËM KUR POROSIA ËSHTË NGARKUAR OSE NË DORËZIM. KJO E MBAN ARKËN DHE BORXHIN NË NJË LEDGER TË VETËM.');
+      return;
+    }
+
     const confirmsLoadedDelivery = isEdit && LOADED_DELIVERY_PAYMENT_STATUSES.has(currentEditStatus);
     if (confirmsLoadedDelivery) {
       const confirmed = window.confirm(
