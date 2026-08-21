@@ -50,7 +50,7 @@ check(receivablesApi.includes("is_hybrid_transport") && receivablesApi.includes(
 check(receivablesApi.includes('authorizeOrder') && receivablesApi.includes('ORDER_NOT_ASSIGNED_TO_ACTOR'), 'order assignment authorization is missing');
 check(receivablesApi.includes('canonicalAssignment') && receivablesApi.includes('if (canonicalAssignment) return'), 'canonical order assignment does not override stale JSON fallbacks');
 check(receivablesApi.includes('KNOWN_RPC_BUSINESS_ERRORS') && receivablesApi.includes("|| 503"), 'ambiguous RPC failures are still classified as definitive 4xx errors');
-check(receivablesApi.includes('LOADED_ORDER_REQUIRES_DELIVERY_CONFIRMATION'), 'server does not require explicit confirmation for loaded delivery payment');
+check(receivablesApi.includes('LOADED_ORDER_REQUIRES_DELIVERY_CONFIRMATION') && receivablesApi.includes('p_confirm_delivery:'), 'server does not pass explicit confirmation into the loaded delivery transaction');
 check(receivablesClient.includes('confirmDelivery: confirmDelivery === true'), 'client does not send explicit loaded delivery confirmation');
 check(receivablesApi.includes('authorizeClient') && receivablesApi.includes('CLIENT_NOT_ASSIGNED_TO_ACTOR'), 'client-only summary authorization is missing');
 check(receivablesApi.includes('requestOriginAllowed') && receivablesApi.includes('ORIGIN_NOT_ALLOWED'), 'same-origin mutation guard is missing');
@@ -80,6 +80,7 @@ check(receivablesV3.includes("'transport-receivables-v3:' || v_client_id::text")
 check(receivablesV3.includes('PAYMENT_IDEMPOTENCY_ALLOCATION_SUM_MISMATCH'), 'duplicate retries do not re-verify persisted allocations');
 check(receivablesV3.includes('TRANSPORT_COMMISSION_M2_EXCEEDS_SERVICE'), 'commission square-metre invariant is missing');
 check(loadedDeliveryV4.includes("v_is_delivery := v_status in ('loaded'"), 'loaded payment is not atomically finalized as delivery');
+check(loadedDeliveryV4.includes('p_confirm_delivery boolean default false') && loadedDeliveryV4.includes('p_confirm_delivery is not true'), 'loaded confirmation is not checked inside the locked SQL transaction');
 
 if (failures.length) {
   console.error('FAIL transport payment button v3:', failures);
