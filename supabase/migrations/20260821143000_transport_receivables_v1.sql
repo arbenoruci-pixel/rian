@@ -142,7 +142,20 @@ begin
   end if;
   return 0;
 end;
-$$;
+$;
+
+create or replace function public.transport_order_active_arka_paid_v1(p_order_id uuid)
+returns numeric
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $
+  select round(coalesce(sum(p.amount), 0), 2)
+  from public.arka_pending_payments p
+  where p.transport_order_id = p_order_id
+    and p.status in ('ACCEPTED_BY_DISPATCH', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL');
+$;
 
 create or replace function public.transport_client_receivable_summary_v1(
   p_order_id uuid default null,
@@ -158,6 +171,8 @@ declare
   v_client_id uuid := p_client_id;
   v_data jsonb := '{}'::jsonb;
   v_total numeric(12,2) := 0;
+  v_json_paid numeric(12,2) := 0;
+  v_arka_paid numeric(12,2) := 0;
   v_paid numeric(12,2) := 0;
   v_current_due numeric(12,2) := 0;
   v_previous numeric(12,2) := 0;
@@ -165,6 +180,8 @@ declare
   v_items jsonb := '[]'::jsonb;
   v_current_receivable jsonb := null;
   v_current_ledger_due numeric(12,2) := null;
+  v_order_status text := '';
+  v_requires_reconciliation boolean := false;
 begin
   if p_order_id is not null then
     select * into v_order
@@ -175,18 +192,21 @@ begin
     end if;
     v_client_id := v_order.client_id;
     v_data := coalesce(v_order.data, '{}'::jsonb);
+    v_order_status := lower(trim(coalesce(v_order.status, v_data ->> 'status', '')));
     v_total := greatest(
       0,
       public.transport_receivable_parse_money_v1(
         coalesce(v_data #>> '{pay,euro}', v_data #>> '{pay,total}', v_data ->> 'total', '0')
       )
     );
-    v_paid := greatest(
+    v_json_paid := greatest(
       public.transport_receivable_parse_money_v1(v_data #>> '{pay,paid}'),
       public.transport_receivable_parse_money_v1(v_data #>> '{pay,arkaRecordedPaid}'),
       public.transport_receivable_parse_money_v1(v_data ->> 'clientPaid'),
       0
     );
+    v_arka_paid := public.transport_order_active_arka_paid_v1(v_order.id);
+    v_paid := least(v_total, greatest(v_json_paid, v_arka_paid, 0));
     v_current_due := greatest(0, round(v_total - v_paid, 2));
   end if;
 
@@ -220,7 +240,17 @@ begin
     and r.outstanding_amount > 0;
 
   if p_order_id is not null then
-    select to_jsonb(r), r.outstanding_amount
+    select jsonb_build_object(
+        'id', r.id,
+        'transportOrderId', r.transport_order_id,
+        'clientTcode', r.client_tcode,
+        'originalAmount', r.original_amount,
+        'openingPaidAmount', r.opening_paid_amount,
+        'outstandingAmount', r.outstanding_amount,
+        'status', r.status,
+        'dueDate', r.due_date,
+        'deliveredAt', r.delivered_at
+      ), r.outstanding_amount
       into v_current_receivable, v_current_ledger_due
     from public.transport_receivables r
     where r.transport_order_id = p_order_id
@@ -229,6 +259,11 @@ begin
 
     if found then
       v_current_due := v_current_ledger_due;
+    elsif v_order_status in ('done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar') then
+      -- A legacy completed order without a verified receivable is not silently
+      -- converted into debt. Stale JSON and historical ARKA rows require review.
+      v_requires_reconciliation := v_current_due > 0;
+      v_current_due := 0;
     end if;
 
     select coalesce(sum(r.outstanding_amount), 0)
@@ -250,6 +285,8 @@ begin
     'currentOrderDue', round(v_current_due, 2),
     'ledgerOutstanding', round(v_ledger_total, 2),
     'totalForPayment', round(v_previous + v_current_due, 2),
+    'effectivePaid', round(v_paid, 2),
+    'requiresReconciliation', v_requires_reconciliation,
     'currentReceivable', v_current_receivable,
     'receivables', v_items
   );
@@ -275,6 +312,8 @@ declare
   v_data jsonb;
   v_pay jsonb;
   v_total numeric(12,2);
+  v_json_paid numeric(12,2);
+  v_arka_paid numeric(12,2);
   v_paid numeric(12,2);
   v_outstanding numeric(12,2);
   v_now timestamptz := now();
@@ -312,7 +351,7 @@ begin
   end if;
 
   v_status := lower(trim(coalesce(v_order.status, v_order.data ->> 'status', '')));
-  if v_status not in ('delivery', 'dorzim', 'dorezim', 'dorëzim', 'done', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar') then
+  if v_status not in ('delivery', 'dorzim', 'dorezim', 'dorëzim') then
     raise exception 'TRANSPORT_ORDER_NOT_IN_DELIVERY';
   end if;
 
@@ -324,12 +363,14 @@ begin
       coalesce(v_pay ->> 'euro', v_pay ->> 'total', v_data ->> 'total', '0')
     )
   );
-  v_paid := greatest(
+  v_json_paid := greatest(
     public.transport_receivable_parse_money_v1(v_pay ->> 'paid'),
     public.transport_receivable_parse_money_v1(v_pay ->> 'arkaRecordedPaid'),
     public.transport_receivable_parse_money_v1(v_data ->> 'clientPaid'),
     0
   );
+  v_arka_paid := public.transport_order_active_arka_paid_v1(v_order.id);
+  v_paid := least(v_total, greatest(v_json_paid, v_arka_paid, 0));
   v_outstanding := greatest(0, round(v_total - v_paid, 2));
   if v_outstanding <= 0 then
     raise exception 'TRANSPORT_ORDER_HAS_NO_DEBT';
@@ -439,6 +480,8 @@ declare
   v_data jsonb;
   v_pay jsonb;
   v_total numeric(12,2);
+  v_json_paid numeric(12,2);
+  v_arka_paid numeric(12,2);
   v_paid numeric(12,2);
   v_current_outstanding numeric(12,2);
   v_total_due numeric(12,2);
@@ -454,6 +497,7 @@ declare
   v_alloc_no integer := 0;
   v_now timestamptz := now();
   v_status text;
+  v_is_delivery boolean := false;
   v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
   v_payments jsonb := '[]'::jsonb;
   v_allocations jsonb := '[]'::jsonb;
@@ -498,6 +542,13 @@ begin
   from public.transport_payment_batches
   where idempotency_key = v_key;
   if found then
+    if v_batch.current_transport_order_id is distinct from p_order_id
+       or v_batch.amount_received is distinct from v_received
+       or upper(coalesce(v_batch.method, '')) <> 'CASH'
+       or v_batch.created_by_pin is distinct from v_actor.pin then
+      raise exception 'PAYMENT_IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD';
+    end if;
+
     select coalesce(jsonb_agg(to_jsonb(a) order by a.allocation_order), '[]'::jsonb)
       into v_allocations
     from public.transport_payment_allocations a
@@ -520,9 +571,10 @@ begin
   end if;
 
   v_status := lower(trim(coalesce(v_order.status, v_order.data ->> 'status', '')));
-  if v_status not in ('delivery', 'dorzim', 'dorezim', 'dorëzim', 'done', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar') then
+  if v_status not in ('delivery', 'dorzim', 'dorezim', 'dorëzim', 'done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar') then
     raise exception 'TRANSPORT_ORDER_NOT_IN_DELIVERY';
   end if;
+  v_is_delivery := v_status in ('delivery', 'dorzim', 'dorezim', 'dorëzim');
 
   select * into v_receivable
   from public.transport_receivables
@@ -536,15 +588,17 @@ begin
       coalesce(v_pay ->> 'euro', v_pay ->> 'total', v_data ->> 'total', '0')
     )
   );
-  v_paid := greatest(
+  v_json_paid := greatest(
     public.transport_receivable_parse_money_v1(v_pay ->> 'paid'),
     public.transport_receivable_parse_money_v1(v_pay ->> 'arkaRecordedPaid'),
     public.transport_receivable_parse_money_v1(v_data ->> 'clientPaid'),
     0
   );
+  v_arka_paid := public.transport_order_active_arka_paid_v1(v_order.id);
+  v_paid := least(v_total, greatest(v_json_paid, v_arka_paid, 0));
   v_current_outstanding := greatest(0, round(v_total - v_paid, 2));
 
-  if v_receivable.id is null and v_current_outstanding > 0 then
+  if v_receivable.id is null and v_current_outstanding > 0 and v_is_delivery then
     insert into public.transport_receivables (
       transport_order_id, client_id, client_tcode, client_name, client_phone,
       original_amount, opening_paid_amount, outstanding_amount, status,
@@ -572,51 +626,54 @@ begin
     returning * into v_receivable;
   end if;
 
-  -- Delivery is a fulfillment event even when the payment is partial.
-  v_pay := v_pay || jsonb_build_object(
-    'euro', v_total,
-    'paid', v_paid,
-    'arkaRecordedPaid', greatest(0, public.transport_receivable_parse_money_v1(v_pay ->> 'arkaRecordedPaid')),
-    'debt', v_current_outstanding
-  );
-  v_data := jsonb_set(v_data, '{pay}', v_pay, true)
-    || jsonb_build_object(
-      'status', 'done',
-      'state', 'done',
-      'clientPaid', v_paid,
+  if v_is_delivery then
+    -- Delivery is a fulfillment event even when the payment is partial.
+    v_pay := v_pay || jsonb_build_object(
+      'euro', v_total,
       'paid', v_paid,
-      'debt', v_current_outstanding,
-      'isPaid', v_current_outstanding <= 0,
-      'paid_done', v_current_outstanding <= 0,
-      'payment_state', case when v_current_outstanding <= 0 then 'PAID' when v_paid > 0 then 'PARTIALLY_PAID' else 'DEBT' end,
-      'delivery_payment_status', case when v_current_outstanding <= 0 then 'PAID' when v_paid > 0 then 'PARTIALLY_PAID' else 'DEBT' end,
-      'delivery_with_debt', v_current_outstanding > 0,
-      'debt_amount', v_current_outstanding,
-      'delivered_at', coalesce(v_data ->> 'delivered_at', v_now::text),
-      'done_at', coalesce(v_data ->> 'done_at', v_now::text),
-      'completed_at', coalesce(v_data ->> 'completed_at', v_now::text),
-      'delivered_by_pin', v_actor.pin,
-      'delivered_by_name', v_actor.name,
-      'updated_at', v_now
+      'arkaRecordedPaid', greatest(0, public.transport_receivable_parse_money_v1(v_pay ->> 'arkaRecordedPaid')),
+      'debt', v_current_outstanding
     );
-  update public.transport_orders
-  set status = 'done', data = v_data, updated_at = v_now
-  where id = v_order.id
-  returning * into v_order;
+    v_data := jsonb_set(v_data, '{pay}', v_pay, true)
+      || jsonb_build_object(
+        'status', 'done',
+        'state', 'done',
+        'clientPaid', v_paid,
+        'paid', v_paid,
+        'debt', v_current_outstanding,
+        'isPaid', v_current_outstanding <= 0,
+        'paid_done', v_current_outstanding <= 0,
+        'payment_state', case when v_current_outstanding <= 0 then 'PAID' when v_paid > 0 then 'PARTIALLY_PAID' else 'DEBT' end,
+        'delivery_payment_status', case when v_current_outstanding <= 0 then 'PAID' when v_paid > 0 then 'PARTIALLY_PAID' else 'DEBT' end,
+        'delivery_with_debt', v_current_outstanding > 0,
+        'debt_amount', v_current_outstanding,
+        'delivered_at', coalesce(v_data ->> 'delivered_at', v_now::text),
+        'done_at', coalesce(v_data ->> 'done_at', v_now::text),
+        'completed_at', coalesce(v_data ->> 'completed_at', v_now::text),
+        'delivered_by_pin', v_actor.pin,
+        'delivered_by_name', v_actor.name,
+        'updated_at', v_now
+      );
+    update public.transport_orders
+    set status = 'done', data = v_data, updated_at = v_now
+    where id = v_order.id
+    returning * into v_order;
 
-  if v_receivable.id is not null then
-    insert into public.transport_delivery_events (
-      transport_order_id, client_id, receivable_id, event_type,
-      cash_received, debt_created, due_date,
-      actor_pin, actor_name, actor_role, note, idempotency_key
-    ) values (
-      v_order.id, v_order.client_id, v_receivable.id, 'DELIVERED_WITH_PAYMENT',
-      v_received, v_current_outstanding, null,
-      v_actor.pin, v_actor.name, v_actor.role,
-      nullif(trim(coalesce(p_note, '')), ''),
-      'TRANSPORT_DELIVERY_EVENT:' || v_order.id::text
-    )
-    on conflict (transport_order_id) do nothing;
+    if v_receivable.id is not null then
+      insert into public.transport_delivery_events (
+        transport_order_id, client_id, receivable_id, event_type,
+        cash_received, debt_created, due_date,
+        actor_pin, actor_name, actor_role, note, idempotency_key
+      ) values (
+        v_order.id, v_order.client_id, v_receivable.id, 'DELIVERED_WITH_PAYMENT',
+        v_received, v_current_outstanding, null,
+        v_actor.pin, v_actor.name, v_actor.role,
+        nullif(trim(coalesce(p_note, '')), ''),
+        'TRANSPORT_DELIVERY_EVENT:' || v_order.id::text
+      )
+      on conflict (transport_order_id) do nothing;
+    end if;
+
   end if;
 
   select coalesce(sum(outstanding_amount), 0)
@@ -687,7 +744,7 @@ begin
       null,
       r.transport_order_id,
       r.client_tcode,
-      public.transport_receivable_parse_money_v1(v_alloc_order.data #>> '{pay,m2}'),
+      0, -- Debt-settlement cash must not drive collector transport commission.
       r.client_name,
       r.client_phone,
       'PAGESË KLIENTI ' || r.client_tcode || ' • NDARJE ' || v_alloc_no::text || ' • BATCH ' || v_batch.id::text,
@@ -719,17 +776,10 @@ begin
 
     v_data := coalesce(v_alloc_order.data, '{}'::jsonb);
     v_pay := coalesce(v_data -> 'pay', '{}'::jsonb);
-    v_paid := greatest(
-      public.transport_receivable_parse_money_v1(v_pay ->> 'paid'),
-      public.transport_receivable_parse_money_v1(v_pay ->> 'arkaRecordedPaid'),
-      public.transport_receivable_parse_money_v1(v_data ->> 'clientPaid'),
-      0
-    );
-    v_new_paid := round(v_paid + v_allocate, 2);
-    v_new_arka := round(
-      greatest(0, public.transport_receivable_parse_money_v1(v_pay ->> 'arkaRecordedPaid')) + v_allocate,
-      2
-    );
+    -- The receivable ledger is authoritative for total paid. ARKA is read back
+    -- from active UUID-linked rows, so a retry or stale legacy JSON cannot add twice.
+    v_new_paid := round(r.original_amount - v_new_outstanding, 2);
+    v_new_arka := public.transport_order_active_arka_paid_v1(v_alloc_order.id);
     v_pay := v_pay || jsonb_build_object(
       'paid', v_new_paid,
       'arkaRecordedPaid', v_new_arka,
@@ -791,11 +841,13 @@ end;
 $$;
 
 revoke execute on function public.transport_receivable_parse_money_v1(text) from public, anon, authenticated;
+revoke execute on function public.transport_order_active_arka_paid_v1(uuid) from public, anon, authenticated;
 revoke execute on function public.transport_client_receivable_summary_v1(uuid, uuid) from public, anon, authenticated;
 revoke execute on function public.transport_deliver_with_debt_v1(uuid, text, date, text, text) from public, anon, authenticated;
 revoke execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text) from public, anon, authenticated;
 
 grant execute on function public.transport_receivable_parse_money_v1(text) to service_role;
+grant execute on function public.transport_order_active_arka_paid_v1(uuid) to service_role;
 grant execute on function public.transport_client_receivable_summary_v1(uuid, uuid) to service_role;
 grant execute on function public.transport_deliver_with_debt_v1(uuid, text, date, text, text) to service_role;
 grant execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text) to service_role;
