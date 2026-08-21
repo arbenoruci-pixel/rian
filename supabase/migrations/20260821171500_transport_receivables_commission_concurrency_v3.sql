@@ -1,308 +1,163 @@
--- Transport client receivables V1
--- Delivery, debt and cash collection are independent, auditable events.
+-- Transport receivables concurrency, audit-event, and commission hotfix V3.
+-- Keeps cash allocations and commission-bearing square metres separate while
+-- preserving FIFO payment and exactly-once idempotency.
 
-create table if not exists public.transport_receivables (
-  id uuid primary key default gen_random_uuid(),
-  transport_order_id uuid not null unique
-    references public.transport_orders(id) on delete restrict,
-  client_id uuid not null
-    references public.transport_clients(id) on delete restrict,
-  client_tcode text not null,
-  client_name text,
-  client_phone text,
-  original_amount numeric(12,2) not null,
-  opening_paid_amount numeric(12,2) not null default 0,
-  outstanding_amount numeric(12,2) not null,
-  status text not null default 'OPEN',
-  due_date date,
-  delivered_at timestamptz not null,
-  created_by_pin text not null,
-  created_by_name text,
-  created_by_role text,
-  note text,
-  source text not null default 'DELIVERY',
-  idempotency_key text not null unique,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint transport_receivables_amounts_ck check (
-    original_amount >= 0
-    and opening_paid_amount >= 0
-    and opening_paid_amount <= original_amount
-    and outstanding_amount >= 0
-    and outstanding_amount <= original_amount - opening_paid_amount
-  ),
-  constraint transport_receivables_status_ck check (
-    status in ('OPEN', 'PARTIALLY_PAID', 'PAID', 'VOIDED')
-  ),
-  constraint transport_receivables_tcode_ck check (client_tcode ~ '^T[0-9]+$')
-);
+alter table public.transport_payment_allocations
+  add column if not exists commission_m2 numeric(12,4) not null default 0
+  check (commission_m2 >= 0);
 
-create table if not exists public.transport_payment_batches (
-  id uuid primary key default gen_random_uuid(),
-  client_id uuid not null
-    references public.transport_clients(id) on delete restrict,
-  current_transport_order_id uuid
-    references public.transport_orders(id) on delete restrict,
-  amount_received numeric(12,2) not null,
-  amount_applied numeric(12,2) not null,
-  change_amount numeric(12,2) not null default 0,
-  method text not null default 'CASH',
-  status text not null default 'CONFIRMED',
-  created_by_pin text not null,
-  created_by_name text,
-  created_by_role text,
-  note text,
-  idempotency_key text not null unique,
-  created_at timestamptz not null default now(),
-  constraint transport_payment_batches_amounts_ck check (
-    amount_received > 0
-    and amount_applied > 0
-    and amount_applied <= amount_received
-    and change_amount = amount_received - amount_applied
-  ),
-  constraint transport_payment_batches_method_ck check (method in ('CASH')),
-  constraint transport_payment_batches_status_ck check (status in ('CONFIRMED', 'VOIDED'))
-);
+alter table public.transport_delivery_events
+  add column if not exists payment_batch_id uuid
+  references public.transport_payment_batches(id) on delete restrict;
 
-create table if not exists public.transport_payment_allocations (
-  id uuid primary key default gen_random_uuid(),
-  batch_id uuid not null
-    references public.transport_payment_batches(id) on delete restrict,
-  receivable_id uuid not null
-    references public.transport_receivables(id) on delete restrict,
-  arka_payment_id bigint not null unique
-    references public.arka_pending_payments(id) on delete restrict,
-  amount numeric(12,2) not null check (amount > 0),
-  commission_m2 numeric(12,4) not null default 0 check (commission_m2 >= 0),
-  allocation_order integer not null check (allocation_order > 0),
-  created_at timestamptz not null default now(),
-  unique (batch_id, receivable_id),
-  unique (batch_id, allocation_order)
-);
-
-create table if not exists public.transport_delivery_events (
-  id uuid primary key default gen_random_uuid(),
-  transport_order_id uuid not null unique
-    references public.transport_orders(id) on delete restrict,
-  client_id uuid not null
-    references public.transport_clients(id) on delete restrict,
-  receivable_id uuid
-    references public.transport_receivables(id) on delete restrict,
-  payment_batch_id uuid
-    references public.transport_payment_batches(id) on delete restrict,
-  event_type text not null,
-  cash_received numeric(12,2) not null default 0 check (cash_received >= 0),
-  debt_created numeric(12,2) not null default 0 check (debt_created >= 0),
-  due_date date,
-  actor_pin text not null,
-  actor_name text,
-  actor_role text,
-  note text,
-  idempotency_key text not null unique,
-  created_at timestamptz not null default now(),
-  constraint transport_delivery_events_type_ck check (
-    event_type in ('DELIVERED_WITH_DEBT', 'DELIVERED_WITH_PAYMENT', 'DEBT_CORRECTION')
-  )
-);
-
-create index if not exists transport_receivables_client_open_idx
-  on public.transport_receivables(client_id, delivered_at, id)
-  where status in ('OPEN', 'PARTIALLY_PAID') and outstanding_amount > 0;
-create index if not exists transport_receivables_tcode_open_idx
-  on public.transport_receivables(client_tcode, delivered_at, id)
-  where status in ('OPEN', 'PARTIALLY_PAID') and outstanding_amount > 0;
-create index if not exists transport_payment_batches_client_created_idx
-  on public.transport_payment_batches(client_id, created_at desc);
-create index if not exists transport_payment_allocations_receivable_idx
-  on public.transport_payment_allocations(receivable_id, created_at);
 create unique index if not exists transport_delivery_events_payment_batch_uidx
   on public.transport_delivery_events(payment_batch_id)
   where payment_batch_id is not null;
 
-alter table public.transport_receivables enable row level security;
-alter table public.transport_payment_batches enable row level security;
-alter table public.transport_payment_allocations enable row level security;
-alter table public.transport_delivery_events enable row level security;
+-- Preserve any already-issued commission evidence if a deployment wrote it
+-- before this column existed. V2 normalized allocation-linked rows to zero.
+update public.transport_payment_allocations a
+set commission_m2 = greatest(coalesce(p.transport_m2, 0), 0)
+from public.arka_pending_payments p
+where p.id = a.arka_payment_id
+  and a.commission_m2 = 0
+  and coalesce(p.transport_m2, 0) > 0;
 
-revoke all on table public.transport_receivables from public, anon, authenticated;
-revoke all on table public.transport_payment_batches from public, anon, authenticated;
-revoke all on table public.transport_payment_allocations from public, anon, authenticated;
-revoke all on table public.transport_delivery_events from public, anon, authenticated;
+create table if not exists public.transport_finance_repair_audit (
+  id bigint generated by default as identity primary key,
+  migration_key text not null,
+  entity_type text not null,
+  entity_id text not null,
+  before_state jsonb not null,
+  after_state jsonb,
+  created_at timestamptz not null default now(),
+  unique (migration_key, entity_type, entity_id)
+);
 
-grant select, insert, update on table public.transport_receivables to service_role;
-grant select, insert, update on table public.transport_payment_batches to service_role;
-grant select, insert, update on table public.transport_payment_allocations to service_role;
-grant select, insert, update on table public.transport_delivery_events to service_role;
+alter table public.transport_finance_repair_audit enable row level security;
+revoke all on table public.transport_finance_repair_audit from public, anon, authenticated;
+grant select, insert, update on table public.transport_finance_repair_audit to service_role;
+revoke delete, truncate on table public.transport_finance_repair_audit from service_role;
 
-revoke delete, truncate on table public.transport_receivables from service_role;
-revoke delete, truncate on table public.transport_payment_batches from service_role;
-revoke delete, truncate on table public.transport_payment_allocations from service_role;
-revoke delete, truncate on table public.transport_delivery_events from service_role;
-
-create or replace function public.transport_receivable_parse_money_v1(p_value text)
-returns numeric
-language plpgsql
-immutable
-set search_path = public, pg_temp
-as $$
+-- V2 wrote DELIVERED_WITH_PAYMENT before FIFO allocation. Repair only events
+-- that have exactly one confirmed, same-order, same-actor, same-cash batch
+-- candidate at delivery time. Any ambiguity aborts the migration.
+do $repair_guard$
 declare
-  v text := replace(trim(coalesce(p_value, '')), ',', '.');
+  v_ambiguous bigint;
 begin
-  if v ~ '^-?[0-9]+([.][0-9]+)?$' then
-    return round(v::numeric, 2);
+  with targets as (
+    select e.id
+    from public.transport_delivery_events e
+    join public.transport_receivables r on r.id = e.receivable_id
+    where e.event_type = 'DELIVERED_WITH_PAYMENT'
+      and e.payment_batch_id is null
+      and e.debt_created > 0
+      and r.status = 'PAID'
+      and r.outstanding_amount = 0
+  ), candidate_counts as (
+    select
+      t.id,
+      count(distinct b.id) as candidate_count
+    from targets t
+    join public.transport_delivery_events e on e.id = t.id
+    left join public.transport_payment_allocations a
+      on a.receivable_id = e.receivable_id
+     and round(a.amount, 2) = round(e.cash_received, 2)
+    left join public.transport_payment_batches b
+      on b.id = a.batch_id
+     and b.status = 'CONFIRMED'
+     and b.current_transport_order_id = e.transport_order_id
+     and b.created_by_pin = e.actor_pin
+     and abs(extract(epoch from (b.created_at - e.created_at))) <= 1
+    group by t.id
+  )
+  select count(*) into v_ambiguous
+  from candidate_counts
+  where candidate_count <> 1;
+
+  if v_ambiguous <> 0 then
+    raise exception 'TRANSPORT_EVENT_REPAIR_AMBIGUOUS:%', v_ambiguous;
   end if;
-  return 0;
 end;
-$$;
+$repair_guard$;
 
-create or replace function public.transport_order_active_arka_paid_v1(p_order_id uuid)
-returns numeric
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select round(coalesce(sum(p.amount), 0), 2)
-  from public.arka_pending_payments p
-  where p.transport_order_id = p_order_id
-    and p.status in ('ACCEPTED_BY_DISPATCH', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL');
-$$;
-
-create or replace function public.transport_client_receivable_summary_v1(
-  p_order_id uuid default null,
-  p_client_id uuid default null
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public, pg_temp
-as $$
-declare
-  v_order public.transport_orders%rowtype;
-  v_client_id uuid := p_client_id;
-  v_data jsonb := '{}'::jsonb;
-  v_total numeric(12,2) := 0;
-  v_json_paid numeric(12,2) := 0;
-  v_arka_paid numeric(12,2) := 0;
-  v_paid numeric(12,2) := 0;
-  v_current_due numeric(12,2) := 0;
-  v_previous numeric(12,2) := 0;
-  v_ledger_total numeric(12,2) := 0;
-  v_items jsonb := '[]'::jsonb;
-  v_current_receivable jsonb := null;
-  v_current_ledger_due numeric(12,2) := null;
-  v_order_status text := '';
-  v_requires_reconciliation boolean := false;
-begin
-  if p_order_id is not null then
-    select * into v_order
-    from public.transport_orders
-    where id = p_order_id;
-    if not found then
-      raise exception 'TRANSPORT_ORDER_NOT_FOUND';
-    end if;
-    v_client_id := v_order.client_id;
-    v_data := coalesce(v_order.data, '{}'::jsonb);
-    v_order_status := lower(trim(coalesce(v_order.status, v_data ->> 'status', '')));
-    v_total := greatest(
-      0,
-      public.transport_receivable_parse_money_v1(
-        coalesce(v_data #>> '{pay,euro}', v_data #>> '{pay,total}', v_data ->> 'total', '0')
-      )
-    );
-    v_json_paid := greatest(
-      public.transport_receivable_parse_money_v1(v_data #>> '{pay,paid}'),
-      public.transport_receivable_parse_money_v1(v_data #>> '{pay,arkaRecordedPaid}'),
-      public.transport_receivable_parse_money_v1(v_data ->> 'clientPaid'),
-      0
-    );
-    v_arka_paid := public.transport_order_active_arka_paid_v1(v_order.id);
-    v_paid := least(v_total, greatest(v_json_paid, v_arka_paid, 0));
-    v_current_due := greatest(0, round(v_total - v_paid, 2));
-  end if;
-
-  if v_client_id is null then
-    raise exception 'TRANSPORT_CLIENT_ID_REQUIRED';
-  end if;
-
+with exact_map as (
   select
-    coalesce(sum(r.outstanding_amount), 0),
-    coalesce(
-      jsonb_agg(
-        jsonb_build_object(
-          'id', r.id,
-          'transportOrderId', r.transport_order_id,
-          'clientTcode', r.client_tcode,
-          'originalAmount', r.original_amount,
-          'openingPaidAmount', r.opening_paid_amount,
-          'outstandingAmount', r.outstanding_amount,
-          'status', r.status,
-          'dueDate', r.due_date,
-          'deliveredAt', r.delivered_at
-        )
-        order by r.delivered_at, r.created_at, r.id
-      ),
-      '[]'::jsonb
-    )
-  into v_ledger_total, v_items
-  from public.transport_receivables r
-  where r.client_id = v_client_id
-    and r.status in ('OPEN', 'PARTIALLY_PAID')
-    and r.outstanding_amount > 0;
+    e.id as event_id,
+    min(b.id::text)::uuid as batch_id,
+    round(min(a.amount), 2) as current_cash,
+    round(min(r.outstanding_amount), 2) as remaining_debt
+  from public.transport_delivery_events e
+  join public.transport_receivables r on r.id = e.receivable_id
+  join public.transport_payment_allocations a
+    on a.receivable_id = e.receivable_id
+   and round(a.amount, 2) = round(e.cash_received, 2)
+  join public.transport_payment_batches b
+    on b.id = a.batch_id
+   and b.status = 'CONFIRMED'
+   and b.current_transport_order_id = e.transport_order_id
+   and b.created_by_pin = e.actor_pin
+   and abs(extract(epoch from (b.created_at - e.created_at))) <= 1
+  where e.event_type = 'DELIVERED_WITH_PAYMENT'
+    and e.payment_batch_id is null
+    and e.debt_created > 0
+    and r.status = 'PAID'
+    and r.outstanding_amount = 0
+  group by e.id
+  having count(distinct b.id) = 1
+)
+insert into public.transport_finance_repair_audit (
+  migration_key, entity_type, entity_id, before_state
+)
+select
+  '20260821171500_transport_receivables_commission_concurrency_v3',
+  'transport_delivery_event',
+  e.id::text,
+  to_jsonb(e)
+from public.transport_delivery_events e
+join exact_map m on m.event_id = e.id
+on conflict (migration_key, entity_type, entity_id) do nothing;
 
-  if p_order_id is not null then
-    select jsonb_build_object(
-        'id', r.id,
-        'transportOrderId', r.transport_order_id,
-        'clientTcode', r.client_tcode,
-        'originalAmount', r.original_amount,
-        'openingPaidAmount', r.opening_paid_amount,
-        'outstandingAmount', r.outstanding_amount,
-        'status', r.status,
-        'dueDate', r.due_date,
-        'deliveredAt', r.delivered_at
-      ), r.outstanding_amount
-      into v_current_receivable, v_current_ledger_due
-    from public.transport_receivables r
-    where r.transport_order_id = p_order_id
-      and r.status in ('OPEN', 'PARTIALLY_PAID')
-      and r.outstanding_amount > 0;
+with exact_map as (
+  select
+    e.id as event_id,
+    min(b.id::text)::uuid as batch_id,
+    round(min(a.amount), 2) as current_cash,
+    round(min(r.outstanding_amount), 2) as remaining_debt
+  from public.transport_delivery_events e
+  join public.transport_receivables r on r.id = e.receivable_id
+  join public.transport_payment_allocations a
+    on a.receivable_id = e.receivable_id
+   and round(a.amount, 2) = round(e.cash_received, 2)
+  join public.transport_payment_batches b
+    on b.id = a.batch_id
+   and b.status = 'CONFIRMED'
+   and b.current_transport_order_id = e.transport_order_id
+   and b.created_by_pin = e.actor_pin
+   and abs(extract(epoch from (b.created_at - e.created_at))) <= 1
+  where e.event_type = 'DELIVERED_WITH_PAYMENT'
+    and e.payment_batch_id is null
+    and e.debt_created > 0
+    and r.status = 'PAID'
+    and r.outstanding_amount = 0
+  group by e.id
+  having count(distinct b.id) = 1
+)
+update public.transport_delivery_events e
+set payment_batch_id = m.batch_id,
+    cash_received = m.current_cash,
+    debt_created = m.remaining_debt
+from exact_map m
+where e.id = m.event_id;
 
-    if found then
-      v_current_due := v_current_ledger_due;
-    elsif v_order_status in ('done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar') then
-      -- A legacy completed order without a verified receivable is not silently
-      -- converted into debt. Stale JSON and historical ARKA rows require review.
-      v_requires_reconciliation := v_current_due > 0;
-      v_current_due := 0;
-    end if;
-
-    select coalesce(sum(r.outstanding_amount), 0)
-      into v_previous
-    from public.transport_receivables r
-    where r.client_id = v_client_id
-      and r.transport_order_id <> p_order_id
-      and r.status in ('OPEN', 'PARTIALLY_PAID')
-      and r.outstanding_amount > 0;
-  else
-    v_previous := v_ledger_total;
-  end if;
-
-  return jsonb_build_object(
-    'ok', true,
-    'clientId', v_client_id,
-    'orderId', p_order_id,
-    'previousOutstanding', round(v_previous, 2),
-    'currentOrderDue', round(v_current_due, 2),
-    'ledgerOutstanding', round(v_ledger_total, 2),
-    'totalForPayment', round(v_previous + v_current_due, 2),
-    'effectivePaid', round(v_paid, 2),
-    'requiresReconciliation', v_requires_reconciliation,
-    'currentReceivable', v_current_receivable,
-    'receivables', v_items
-  );
-end;
-$$;
+update public.transport_finance_repair_audit a
+set after_state = to_jsonb(e)
+from public.transport_delivery_events e
+where a.migration_key = '20260821171500_transport_receivables_commission_concurrency_v3'
+  and a.entity_type = 'transport_delivery_event'
+  and a.entity_id = e.id::text
+  and a.after_state is null;
 
 create or replace function public.transport_deliver_with_debt_v1(
   p_order_id uuid,
@@ -487,8 +342,7 @@ create or replace function public.transport_collect_client_payment_v1(
   p_amount_received numeric,
   p_method text default 'CASH',
   p_note text default null,
-  p_idempotency_key text default null,
-  p_confirm_delivery boolean default false
+  p_idempotency_key text default null
 )
 returns jsonb
 language plpgsql
@@ -633,13 +487,10 @@ begin
   end if;
 
   v_status := lower(trim(coalesce(v_order.status, v_order.data ->> 'status', '')));
-  if v_status in ('loaded', 'ngarkuar', 'ngarkim') and p_confirm_delivery is not true then
-    raise exception 'LOADED_ORDER_REQUIRES_DELIVERY_CONFIRMATION';
-  end if;
-  if v_status not in ('loaded', 'ngarkuar', 'ngarkim', 'delivery', 'dorzim', 'dorezim', 'dorëzim', 'done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar') then
+  if v_status not in ('delivery', 'dorzim', 'dorezim', 'dorëzim', 'done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar') then
     raise exception 'TRANSPORT_ORDER_NOT_IN_DELIVERY';
   end if;
-  v_is_delivery := v_status in ('loaded', 'ngarkuar', 'ngarkim', 'delivery', 'dorzim', 'dorezim', 'dorëzim');
+  v_is_delivery := v_status in ('delivery', 'dorzim', 'dorezim', 'dorëzim');
 
   select * into v_receivable
   from public.transport_receivables
@@ -996,14 +847,14 @@ begin
 end;
 $$;
 
-revoke execute on function public.transport_receivable_parse_money_v1(text) from public, anon, authenticated;
-revoke execute on function public.transport_order_active_arka_paid_v1(uuid) from public, anon, authenticated;
-revoke execute on function public.transport_client_receivable_summary_v1(uuid, uuid) from public, anon, authenticated;
-revoke execute on function public.transport_deliver_with_debt_v1(uuid, text, date, text, text) from public, anon, authenticated;
-revoke execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text, boolean) from public, anon, authenticated;
 
-grant execute on function public.transport_receivable_parse_money_v1(text) to service_role;
-grant execute on function public.transport_order_active_arka_paid_v1(uuid) to service_role;
-grant execute on function public.transport_client_receivable_summary_v1(uuid, uuid) to service_role;
+revoke execute on function public.transport_deliver_with_debt_v1(uuid, text, date, text, text) from public, anon, authenticated;
+revoke execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text) from public, anon, authenticated;
+
 grant execute on function public.transport_deliver_with_debt_v1(uuid, text, date, text, text) to service_role;
-grant execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text, boolean) to service_role;
+grant execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text) to service_role;
+
+revoke delete, truncate on table public.transport_receivables from service_role;
+revoke delete, truncate on table public.transport_payment_batches from service_role;
+revoke delete, truncate on table public.transport_payment_allocations from service_role;
+revoke delete, truncate on table public.transport_delivery_events from service_role;

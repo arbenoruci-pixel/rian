@@ -57,7 +57,9 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 1.8;
 const LEGACY_TRANSPORT_PRICE_DEFAULTS = new Set([1.5, 3]);
 const PAY_CHIPS = [5, 10, 20, 30, 50];
-const DELIVERY_PAYMENT_STATUSES = new Set(['delivery', 'dorzim', 'dorezim', 'dorëzim', 'delivered']);
+const DELIVERY_FINALIZE_STATUSES = new Set(['delivery', 'dorzim', 'dorezim', 'dorëzim']);
+const LOADED_DELIVERY_PAYMENT_STATUSES = new Set(['loaded', 'ngarkuar', 'ngarkim']);
+const LEDGER_PAYMENT_STATUSES = new Set([...DELIVERY_FINALIZE_STATUSES, ...LOADED_DELIVERY_PAYMENT_STATUSES, 'done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar']);
 const PREFIX_OPTIONS = [
   { flag: '🇽🇰', code: '+383', label: 'KOSOVË' },
   { flag: '🇦🇱', code: '+355', label: 'SHQIPËRI' },
@@ -72,6 +74,68 @@ const COMPANY_PHONE_DISPLAY = '+383 44 735 312';
 const AUTO_MSG_KEY = 'transport_pranimi_auto_msg_after_save';
 const PRICE_KEY = 'transport_pranimi_price_per_m2';
 const OFFLINE_MODE_KEY = 'transport_offline_mode_v1';
+const PAYMENT_INTENT_STORAGE_PREFIX = 'transport_receivable_payment_intent_v1:';
+
+function paymentIntentStorageKey(orderId) {
+  return PAYMENT_INTENT_STORAGE_PREFIX + String(orderId || '').trim();
+}
+
+function readTransportPaymentIntent(orderId) {
+  const cleanOrderId = String(orderId || '').trim();
+  if (!cleanOrderId || typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(paymentIntentStorageKey(cleanOrderId)) || 'null');
+    const amountReceived = round2(parsed?.amountReceived);
+    const idempotencyKey = String(parsed?.idempotencyKey || '').trim();
+    const createdAt = Number(parsed?.createdAt || 0);
+    const expired = createdAt > 0 && Date.now() - createdAt > 7 * 24 * 60 * 60 * 1000;
+    if (expired) {
+      window.localStorage.removeItem(paymentIntentStorageKey(cleanOrderId));
+      return null;
+    }
+    if (String(parsed?.orderId || '').trim() !== cleanOrderId || !idempotencyKey || amountReceived <= 0) return null;
+    return { orderId: cleanOrderId, amountReceived, idempotencyKey, createdAt };
+  } catch {
+    return null;
+  }
+}
+
+function acquireTransportPaymentIntent(orderId, amountReceived) {
+  const cleanOrderId = String(orderId || '').trim();
+  const cleanAmount = round2(amountReceived);
+  const existing = readTransportPaymentIntent(cleanOrderId);
+  if (existing && Math.abs(existing.amountReceived - cleanAmount) > 0.001) {
+    return { ...existing, amountConflict: true };
+  }
+  if (existing) return existing;
+
+  const intent = {
+    orderId: cleanOrderId,
+    amountReceived: cleanAmount,
+    idempotencyKey: newTransportFinanceIdempotencyKey('TRANSPORT_CLIENT_PAYMENT', cleanOrderId),
+    createdAt: Date.now(),
+  };
+  try {
+    window.localStorage.setItem(paymentIntentStorageKey(cleanOrderId), JSON.stringify(intent));
+    const persisted = readTransportPaymentIntent(cleanOrderId);
+    if (persisted?.idempotencyKey !== intent.idempotencyKey
+      || Math.abs(Number(persisted?.amountReceived || 0) - cleanAmount) > 0.001) {
+      return { ...intent, storageUnavailable: true };
+    }
+  } catch {
+    return { ...intent, storageUnavailable: true };
+  }
+  return intent;
+}
+
+function clearTransportPaymentIntent(orderId, idempotencyKey = '') {
+  const cleanOrderId = String(orderId || '').trim();
+  if (!cleanOrderId || typeof window === 'undefined') return;
+  const existing = readTransportPaymentIntent(cleanOrderId);
+  if (idempotencyKey && existing?.idempotencyKey !== String(idempotencyKey || '').trim()) return;
+  try { window.localStorage.removeItem(paymentIntentStorageKey(cleanOrderId)); } catch {}
+}
+
 function normalizeTcode(raw) {
   if (!raw) return 'T0';
   const s = String(raw).trim();
@@ -1402,8 +1466,15 @@ function PranimiPageInner() {
   const currentDebt = diff > 0 ? diff : 0;
   const currentChange = diff < 0 ? Math.abs(diff) : 0;
   const remainingDue = Math.max(0, Number((totalEuro - Number(clientPaid || 0)).toFixed(2)));
+  const normalizedEditStatus = String(editRowStatus || '').trim().toLowerCase();
+  const isDeliveryFinalizeFlow = Boolean(
+    isEdit && DELIVERY_FINALIZE_STATUSES.has(normalizedEditStatus)
+  );
   const isDeliveryPaymentFlow = Boolean(
-    isEdit && DELIVERY_PAYMENT_STATUSES.has(String(editRowStatus || '').trim().toLowerCase())
+    isEdit && (
+      LEDGER_PAYMENT_STATUSES.has(normalizedEditStatus)
+      || receivableSummary?.currentReceivable
+    )
   );
   const previousOutstandingForPayment = isDeliveryPaymentFlow
     ? Math.max(0, Number(receivableSummary?.previousOutstanding || 0))
@@ -1416,14 +1487,25 @@ function PranimiPageInner() {
     try { clearTimeout(debtLookupTimerRef.current); } catch {}
 
     if (clientId) {
-      getTransportReceivableSummary({ clientId })
-        .then((summary) => {
-          if (!alive) return;
-          setOldClientDebt(Math.max(0, Number(summary?.ledgerOutstanding || 0)));
-        })
-        .catch(() => {
-          if (alive) setOldClientDebt(0);
-        });
+      Promise.allSettled([
+        getTransportReceivableSummary({ clientId }),
+        phoneFull && phoneFull.length >= 6
+          ? getClientBalanceByPhone(phoneFull)
+          : Promise.resolve(null),
+      ]).then(([ledgerResult, legacyResult]) => {
+        if (!alive) return;
+        const ledgerDebt = ledgerResult.status === 'fulfilled'
+          ? Math.max(0, Number(ledgerResult.value?.ledgerOutstanding || 0))
+          : 0;
+        const legacyDebt = legacyResult.status === 'fulfilled'
+          ? Math.max(0, Number(legacyResult.value?.debt_eur || 0))
+          : 0;
+        // Reconciled display fallback: never add overlapping ledgers and never hide
+        // a legacy warning merely because the new ledger has no imported record.
+        setOldClientDebt(Math.max(ledgerDebt, legacyDebt));
+      }).catch(() => {
+        if (alive) setOldClientDebt(0);
+      });
       return () => { alive = false; };
     }
 
@@ -1461,8 +1543,9 @@ function PranimiPageInner() {
       .then((summary) => {
         if (!alive) return;
         setReceivableSummary(summary);
-        const totalForPayment = Math.max(0, Number(summary?.totalForPayment || remainingDue));
-        setPayAdd(round2(totalForPayment));
+        const totalForPayment = Math.max(0, Number(summary?.totalForPayment ?? remainingDue));
+        const pendingIntent = readTransportPaymentIntent(oid);
+        setPayAdd(pendingIntent?.amountReceived || round2(totalForPayment));
       })
       .catch((error) => {
         if (!alive) return;
@@ -2106,8 +2189,23 @@ function PranimiPageInner() {
 
     const currentEditStatus = String(editRowStatus || '').trim().toLowerCase();
     const shouldFinalizeDelivery = Boolean(
-      isEdit && DELIVERY_PAYMENT_STATUSES.has(currentEditStatus)
+      isEdit && (
+        LEDGER_PAYMENT_STATUSES.has(currentEditStatus)
+        || receivableSummary?.currentReceivable
+      )
     );
+    if (!shouldFinalizeDelivery) {
+      alert('PAGESA E TRANSPORTIT REGJISTROHET VETËM KUR POROSIA ËSHTË NGARKUAR OSE NË DORËZIM. KJO E MBAN ARKËN DHE BORXHIN NË NJË LEDGER TË VETËM.');
+      return;
+    }
+
+    const confirmsLoadedDelivery = isEdit && LOADED_DELIVERY_PAYMENT_STATUSES.has(currentEditStatus);
+    if (confirmsLoadedDelivery) {
+      const confirmed = window.confirm(
+        'DORËZO + REGJISTRO PAGESËN?\n\nKy veprim e shënon porosinë si të dorëzuar dhe e ndan pagesën te borxhi më i vjetër.'
+      );
+      if (!confirmed) return;
+    }
 
     let activeSummary = receivableSummary;
     if (shouldFinalizeDelivery && !activeSummary) {
@@ -2126,16 +2224,35 @@ function PranimiPageInner() {
       }
     }
 
-    const cashGiven = round2(payAdd);
+    if (shouldFinalizeDelivery && activeSummary?.requiresReconciliation === true) {
+      alert('KJO POROSI KA TË DHËNA TË VJETRA QË DUHET TË VERIFIKOHEN NGA ADMINI. PAGESA ËSHTË BLOKUAR QË TË MOS REGJISTROHET DY HERË.');
+      return;
+    }
+
+    const pendingPaymentIntent = shouldFinalizeDelivery
+      ? readTransportPaymentIntent(oid)
+      : null;
+    const requestedCash = round2(payAdd);
+    if (pendingPaymentIntent && Math.abs(pendingPaymentIntent.amountReceived - requestedCash) > 0.001) {
+      setPayAdd(pendingPaymentIntent.amountReceived);
+      alert(
+        'PAGESA E MËPARSHME NUK ËSHTË VERIFIKUAR ENDE. '
+        + 'PROVOJE PËRSËRI ME TË NJËJTËN SHUMË: '
+        + pendingPaymentIntent.amountReceived.toFixed(2)
+        + '€.'
+      );
+      return;
+    }
+    const cashGiven = pendingPaymentIntent?.amountReceived || requestedCash;
     const currentOrderDue = round2(Math.max(0, Number(totalEuro || 0) - Number(clientPaid || 0)));
     const dueNow = shouldFinalizeDelivery
-      ? round2(Math.max(0, Number(activeSummary?.totalForPayment || currentOrderDue)))
+      ? round2(Math.max(0, Number(activeSummary?.totalForPayment ?? currentOrderDue)))
       : currentOrderDue;
     if (cashGiven <= 0) {
       alert('SHKRUANI SHUMËN QË PAGUAN KLIENTI.');
       return;
     }
-    if (dueNow <= 0) {
+    if (dueNow <= 0 && !pendingPaymentIntent) {
       alert('POROSIA ËSHTË PAGUAR PLOTËSISHT.');
       setShowPaySheet(false);
       return;
@@ -2169,6 +2286,17 @@ function PranimiPageInner() {
     const transportNote = 'PAGESA ' + applied.toFixed(2) + '€ - ' + (name || 'KLIENT') + ' • ' + (transportCode || 'T-KOD') + ' • ' + transportM2.toFixed(2) + ' m²';
 
     if (shouldFinalizeDelivery) {
+      const paymentIntent = acquireTransportPaymentIntent(oid, cashGiven);
+      if (paymentIntent?.amountConflict) {
+        setPayAdd(paymentIntent.amountReceived);
+        alert('RIPROVO PAGESËN E PAKONFIRMUAR ME ' + paymentIntent.amountReceived.toFixed(2) + '€.');
+        return;
+      }
+      if (paymentIntent?.storageUnavailable) {
+        alert('PAGESA NUK U NIS: TELEFONI NUK MUNDI TA RUAJË ÇELËSIN E SIGURISË. HAPE FAQEN NË SHFLETUES NORMAL OSE LIRO HAPËSIRËN, PASTAJ PROVO PRAPË. MOS I MERR PARAT PA U RREGULLUAR KJO.');
+        return;
+      }
+
       paymentBusyRef.current = true;
       setPaymentBusy(true);
       try {
@@ -2177,12 +2305,15 @@ function PranimiPageInner() {
           actorPin,
           amountReceived: cashGiven,
           method: 'CASH',
+          confirmDelivery: confirmsLoadedDelivery,
           note: transportNote,
-          idempotencyKey: newTransportFinanceIdempotencyKey('TRANSPORT_CLIENT_PAYMENT', oid),
+          idempotencyKey: paymentIntent.idempotencyKey,
         });
         if (ledgerResult?.paymentVerified !== true || !ledgerResult?.batch?.id) {
           throw new Error('TRANSPORT_CLIENT_PAYMENT_NOT_VERIFIED');
         }
+
+        clearTransportPaymentIntent(oid, paymentIntent.idempotencyKey);
 
         const verifiedOrder = ledgerResult?.order || null;
         const verifiedData = verifiedOrder?.data && typeof verifiedOrder.data === 'object' ? verifiedOrder.data : {};
@@ -2233,10 +2364,15 @@ function PranimiPageInner() {
           }, 450);
         } catch {}
       } catch (error) {
+        if (error?.requestAmbiguous === false) {
+          clearTransportPaymentIntent(oid, paymentIntent.idempotencyKey);
+        } else {
+          setPayAdd(paymentIntent.amountReceived);
+        }
         const message = String(error?.message || error || 'PAGESA NUK U RUAJT.');
         alert(
-          message.includes('OFFLINE') || message.includes('NETWORK') || message.includes('FETCH')
-            ? 'NUK KA LIDHJE ME SERVERIN. PAGESA NUK U REGJISTRUA; MOS I MERR PARAT DY HERË.'
+          message.includes('OFFLINE') || message.includes('NETWORK') || message.includes('FETCH') || error?.requestAmbiguous === true
+            ? 'PËRGJIGJJA E SERVERIT NUK U VERIFIKUA. MOS I MERR PARAT PRAPË; SHTYPE TË NJËJTËN PAGESË PËR VERIFIKIM TË SIGURT.'
             : 'ARKA PROBLEM: ' + message
         );
       } finally {
@@ -2373,7 +2509,7 @@ function PranimiPageInner() {
       alert('VEPRIMI ËSHTË DUKE U RUAJTUR. PRIT PAK.');
       return;
     }
-    if (!isDeliveryPaymentFlow || !oid) {
+    if (!isDeliveryFinalizeFlow || !oid) {
       alert('DORËZIMI ME BORXH LEJOHET VETËM KUR POROSIA ËSHTË NË DORËZIM.');
       return;
     }
@@ -2483,7 +2619,8 @@ function PranimiPageInner() {
     const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
     setReceivableSummary(null);
     setReceivableError('');
-    setPayAdd(dueNow > 0 ? dueNow : 0);
+    const pendingIntent = readTransportPaymentIntent(oid);
+    setPayAdd(pendingIntent?.amountReceived || (dueNow > 0 ? dueNow : 0));
     setPayMethod('CASH');
     setShowPaySheet(true);
   }
@@ -2871,7 +3008,7 @@ function PranimiPageInner() {
           cancelText="ANULO"
           disabled={paymentBusy || receivableLoading}
           allowPartial={isDeliveryPaymentFlow}
-          allowDebt={isDeliveryPaymentFlow && remainingDue > 0 && !receivableLoading && !receivableError}
+          allowDebt={isDeliveryFinalizeFlow && remainingDue > 0 && !receivableLoading && !receivableError}
           debtActionText="DORËZO ME BORXH"
           onDeliverWithDebt={deliverWithDebtAndClose}
           extraTopRows={isDeliveryPaymentFlow ? (
@@ -2881,6 +3018,11 @@ function PranimiPageInner() {
               ) : null}
               {receivableError ? (
                 <div style={{ color: '#fca5a5', fontWeight: 900 }}>BORXHI NUK U LEXUA: {receivableError}</div>
+              ) : null}
+              {receivableSummary?.requiresReconciliation ? (
+                <div style={{ color: '#fca5a5', fontWeight: 1000 }}>
+                  PAGESA E BLOKUAR: TË DHËNAT E VJETRA DUHET TË VERIFIKOHEN NGA ADMINI.
+                </div>
               ) : null}
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: '#fbbf24', fontWeight: 900 }}>
                 <span>BORXHI I VJETËR:</span>
