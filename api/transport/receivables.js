@@ -268,6 +268,7 @@ const KNOWN_RPC_BUSINESS_ERRORS = new Set([
   'ACTOR_NOT_FOUND_OR_DISABLED',
   'AMOUNT_INVALID',
   'CLIENT_HAS_NO_OUTSTANDING_BALANCE',
+  'LOADED_ORDER_REQUIRES_DELIVERY_CONFIRMATION',
   'ONLY_CASH_SUPPORTED',
   'PAYMENT_IDEMPOTENCY_KEY_REQUIRED',
   'PAYMENT_IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD',
@@ -390,6 +391,7 @@ export default async function handler(req, res) {
         p_method: method,
         p_note: String(body?.note || '').trim().slice(0, 500) || null,
         p_idempotency_key: idempotencyKey,
+        p_confirm_delivery: body?.confirmDelivery === true,
       });
       return apiOk(res, sanitizeRpcResult(result));
     }
