@@ -187,6 +187,9 @@ export default async function handler(req, res) {
     if (action === 'TRANSPORT_ORDER_PAYMENT') {
       const access = await authorizeLegacyTransportPayment(supabase, body, auth.user);
       if (!access.ok) return apiFail(res, access.error, access.status);
+      // Transport cash writes are ledger-only. Returning here (before the
+      // legacy engine) removes the check-then-write race with delivery/FIFO.
+      return apiFail(res, 'TRANSPORT_RECEIVABLE_PAYMENT_REQUIRED', 409);
     }
 
     const guardedBody = {
