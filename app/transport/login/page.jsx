@@ -5,7 +5,8 @@ import { getErrorMessage } from '@/lib/uiSafety';
 import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import { getTransportSession, setTransportSession } from '@/lib/transportAuth';
 import { findUserByPin } from '@/lib/usersDb';
-import { LS_USER, LS_SESSION, clearAllSessionState } from '@/lib/sessionStore';
+import { LS_USER, clearAllSessionState } from '@/lib/sessionStore';
+import { getDeviceId } from '@/lib/deviceId';
 import useRouteAlive from '@/lib/routeAlive';
 
 function V33PageOpenFallback() {
@@ -61,13 +62,37 @@ function TransportLoginPageInner() {
     setSubmitting(true);
 
     try {
-      // CRITICAL FIX:
-      // Dispatch assigns with tepiha_users.id (UUID), not numeric PIN.
-      // Resolve PIN -> user.id here so Inbox/Board matches transport_orders.transport_id.
+      // Resolve the PIN first, then establish the same approved server-side
+      // device session used by the main login before writing local transport state.
       const res = await findUserByPin(rawPin);
       const user = res?.ok ? res.item : null;
-      const resolvedTid = String(user?.id || rawPin).trim();
-      const resolvedName = String(user?.name || (name || '').trim() || 'TRANSPORT').trim();
+      if (!user?.id) throw new Error('PIN GABIM OSE NUK EKZISTON');
+
+      const actualRole = String(user?.role || '').trim().toUpperCase();
+      const privilegedRoles = new Set(['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN']);
+      const transportAllowed = actualRole === 'TRANSPORT'
+        || privilegedRoles.has(actualRole)
+        || (actualRole === 'PUNTOR' && user?.is_hybrid_transport === true);
+      if (!transportAllowed) throw new Error('KY PËRDORUES NUK KA QASJE NË TRANSPORT');
+
+      const authResponse = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pin: rawPin,
+          role: actualRole,
+          deviceId: getDeviceId(),
+        }),
+      });
+      const authJson = await authResponse.json().catch(() => ({}));
+      if (!authResponse.ok || authJson?.ok !== true || !authJson?.actor?.user_id) {
+        throw new Error(String(authJson?.error || 'LOGIN_I_SERVERIT_DËSHTOI'));
+      }
+
+      const serverActor = authJson.actor;
+      const resolvedTid = String(serverActor.user_id).trim();
+      const resolvedName = String(serverActor.name || user?.name || (name || '').trim() || 'TRANSPORT').trim();
 
       let mainPin = '';
       try {
@@ -83,8 +108,10 @@ function TransportLoginPageInner() {
         user_id: resolvedTid,
         transport_name: resolvedName,
         name: resolvedName,
-        role: 'TRANSPORT',
-        from: user?.id ? 'login:user-id' : 'login:pin-fallback',
+        role: String(serverActor.role || actualRole || 'TRANSPORT'),
+        is_hybrid_transport: serverActor.is_hybrid_transport === true,
+        device_id: String(serverActor.device_id || '').trim(),
+        from: 'login:server-verified',
         ts: Date.now(),
       });
       try { window.dispatchEvent(new CustomEvent('tepiha:session-changed', { detail: { reason: 'transport_login', at: Date.now() } })); } catch {}
