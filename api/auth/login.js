@@ -44,6 +44,12 @@ export default async function handler(req, res) {
 
     const userRole = String(user.role || '').toUpperCase();
     const isAdmin = canAutoApproveDevice(userRole);
+
+    // A physical browser/device may only belong to one approved worker at a time.
+    // Never silently reassign and de-approve a shared phone when another PIN is tried.
+    if (dev?.id && dev.user_id && String(dev.user_id) !== String(user.id)) {
+      return apiFail(res, 'DEVICE_LINKED_TO_OTHER_USER', 409, { deviceId: device_id });
+    }
     if (requested_role && !rolesCompatible(requested_role, userRole) && requested_role !== userRole) {
       return apiFail(res, 'ROLE_MISMATCH', 403);
     }
