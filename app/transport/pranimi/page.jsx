@@ -58,8 +58,8 @@ const PRICE_DEFAULT = 1.8;
 const LEGACY_TRANSPORT_PRICE_DEFAULTS = new Set([1.5, 3]);
 const PAY_CHIPS = [5, 10, 20, 30, 50];
 const DELIVERY_FINALIZE_STATUSES = new Set(['delivery', 'dorzim', 'dorezim', 'dorëzim']);
-const LEDGER_PAYMENT_STATUSES = new Set([...DELIVERY_FINALIZE_STATUSES, 'done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar']);
-const PREDELIVERY_PAYMENT_BLOCKED_STATUSES = new Set(['loaded', 'ngarkuar', 'ngarkim']);
+const LOADED_DELIVERY_PAYMENT_STATUSES = new Set(['loaded', 'ngarkuar', 'ngarkim']);
+const LEDGER_PAYMENT_STATUSES = new Set([...DELIVERY_FINALIZE_STATUSES, ...LOADED_DELIVERY_PAYMENT_STATUSES, 'done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar']);
 const PREFIX_OPTIONS = [
   { flag: '🇽🇰', code: '+383', label: 'KOSOVË' },
   { flag: '🇦🇱', code: '+355', label: 'SHQIPËRI' },
@@ -2188,17 +2188,19 @@ function PranimiPageInner() {
     }
 
     const currentEditStatus = String(editRowStatus || '').trim().toLowerCase();
-    if (isEdit && PREDELIVERY_PAYMENT_BLOCKED_STATUSES.has(currentEditStatus)) {
-      alert('PARA SE TË REGJISTROHET PAGESA, KALOJE POROSINË NË DORËZIM. PASTAJ SISTEMI I MBLEDH BORXHIN E VJETËR DHE KËTË POROSI NË NJË TOTAL.');
-      return;
-    }
-
     const shouldFinalizeDelivery = Boolean(
       isEdit && (
         LEDGER_PAYMENT_STATUSES.has(currentEditStatus)
         || receivableSummary?.currentReceivable
       )
     );
+    const confirmsLoadedDelivery = isEdit && LOADED_DELIVERY_PAYMENT_STATUSES.has(currentEditStatus);
+    if (confirmsLoadedDelivery) {
+      const confirmed = window.confirm(
+        'DORËZO + REGJISTRO PAGESËN?\n\nKy veprim e shënon porosinë si të dorëzuar dhe e ndan pagesën te borxhi më i vjetër.'
+      );
+      if (!confirmed) return;
+    }
 
     let activeSummary = receivableSummary;
     if (shouldFinalizeDelivery && !activeSummary) {
@@ -2298,6 +2300,7 @@ function PranimiPageInner() {
           actorPin,
           amountReceived: cashGiven,
           method: 'CASH',
+          confirmDelivery: confirmsLoadedDelivery,
           note: transportNote,
           idempotencyKey: paymentIntent.idempotencyKey,
         });
