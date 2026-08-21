@@ -27,6 +27,9 @@ export default function PosModalV2({
   extraTopRows = null,
   footerNote = null,
   allowPartial = false,
+  allowDebt = false,
+  debtActionText = 'DORËZO ME BORXH',
+  onDeliverWithDebt,
 }) {
   if (!open) return null;
 
@@ -85,6 +88,27 @@ export default function PosModalV2({
       }
     } catch (error) {
       window.alert(`ARKA PROBLEM: ${String(error?.message || error || 'PAGESA NUK U RUAJT.')}`);
+    }
+  }
+
+  function handleDebtTap() {
+    if (disabled) {
+      window.alert('VEPRIMI ËSHTË DUKE U RUAJTUR. PRIT PAK.');
+      return;
+    }
+    if (typeof onDeliverWithDebt !== 'function') {
+      window.alert('DORËZIMI ME BORXH NUK ËSHTË LIDHUR. HAPE APP-IN PRAPË.');
+      return;
+    }
+    try {
+      const result = onDeliverWithDebt();
+      if (result && typeof result.catch === 'function') {
+        result.catch((error) => {
+          window.alert(`BORXHI PROBLEM: ${String(error?.message || error || 'DORËZIMI NUK U RUAJT.')}`);
+        });
+      }
+    } catch (error) {
+      window.alert(`BORXHI PROBLEM: ${String(error?.message || error || 'DORËZIMI NUK U RUAJT.')}`);
     }
   }
 
@@ -191,6 +215,13 @@ export default function PosModalV2({
               </button>
             </div>
 
+            {allowPartial && givenN > 0 && givenN < dueNow ? (
+              <div className="posremain">
+                <span>MBETET BORXH:</span>
+                <strong>{Number((dueNow - givenN).toFixed(2)).toFixed(2)} €</strong>
+              </div>
+            ) : null}
+
             {givenN >= dueNow ? (
               <div className="posresto">
                 <span>KUSURI (RESTO):</span>
@@ -207,6 +238,16 @@ export default function PosModalV2({
         <button type="button" className="posbtn posbtn--ghost" onClick={onClose} disabled={disabled}>
           {cancelText}
         </button>
+        {allowDebt && dueNow > 0 ? (
+          <button
+            type="button"
+            className="posbtn posbtn--debt"
+            onClick={handleDebtTap}
+            disabled={disabled}
+          >
+            {debtActionText}
+          </button>
+        ) : null}
         <button
           type="button"
           className="posbtn posbtn--ok"
@@ -310,6 +351,19 @@ export default function PosModalV2({
         .poschip--wide { grid-column: span 3; opacity: 0.8; }
         .posmethod { display: flex; gap: 10px; margin-top: 10px; }
         .poschip--active { outline: 2px solid rgba(34,197,94,0.9); }
+        .posremain {
+          margin-top: 14px;
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          font-size: 18px;
+          font-weight: 900;
+          color: #fbbf24;
+          padding: 12px;
+          border-radius: 12px;
+          background: rgba(245,158,11,0.14);
+          border: 1px solid rgba(245,158,11,0.32);
+        }
         .posresto {
           margin-top: 14px;
           display: flex;
@@ -326,6 +380,7 @@ export default function PosModalV2({
         .posnote { margin-top: 12px; font-size: 12px; color: rgba(255,255,255,0.65); text-align: center; }
         .posfs__footer {
           display: flex;
+          flex-wrap: wrap;
           gap: 10px;
           padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
           border-top: 1px solid rgba(255,255,255,0.08);
@@ -345,6 +400,13 @@ export default function PosModalV2({
           min-height: 52px;
         }
         .posbtn--ghost { flex: 1; }
+        .posbtn--debt {
+          flex: 0 0 100%;
+          order: -1;
+          background: #f59e0b;
+          color: #111827;
+          border-color: rgba(245,158,11,0.95);
+        }
         .posbtn--ok { flex: 2; background: #10b981; color: #000; border-color: rgba(16,185,129,0.9); }
         .posbtn--ok[aria-disabled='true'] { opacity: 0.78; }
       `}</style>
