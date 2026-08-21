@@ -46,6 +46,7 @@ check(receivablesApi.includes("private, no-store") && receivablesApi.includes("x
 check(receivablesApi.includes('sanitizeRpcResult(result)'), 'receivables API exposes raw RPC output');
 check(receivablesApi.includes('p_actor_pin: auth.user.pin'), 'server-derived actor PIN is missing');
 check(receivablesClient.includes("credentials: 'same-origin'"), 'receivables client does not bind requests to device session');
+check(receivablesClient.includes('ambiguous: response.status >= 500'), '5xx retries can lose their stable idempotency key');
 check(transportLogin.includes("fetch('/api/auth/login'") && transportLogin.includes('getDeviceId()'), 'dedicated transport login does not establish server device auth');
 
 check(receivablesMigration.includes('transport_order_active_arka_paid_v1'), 'active ARKA reconciliation helper is missing');
