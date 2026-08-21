@@ -38,12 +38,12 @@ language sql
 stable
 security definer
 set search_path = public, pg_temp
-as $
+as $$
   select round(coalesce(sum(p.amount), 0), 2)
   from public.arka_pending_payments p
   where p.transport_order_id = p_order_id
     and p.status in ('ACCEPTED_BY_DISPATCH', 'COLLECTED', 'PENDING_DISPATCH_APPROVAL');
-$;
+$$;
 
 create or replace function public.transport_client_receivable_summary_v1(
   p_order_id uuid default null,
