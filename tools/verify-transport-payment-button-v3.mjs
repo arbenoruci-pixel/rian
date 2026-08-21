@@ -6,6 +6,7 @@ const vite = fs.readFileSync('vite.config.js', 'utf8');
 const receivablesMigration = fs.readFileSync('supabase/migrations/20260821143000_transport_receivables_v1.sql', 'utf8');
 const receivablesHotfix = fs.readFileSync('supabase/migrations/20260821165000_transport_receivables_security_v2.sql', 'utf8');
 const receivablesV3 = fs.readFileSync('supabase/migrations/20260821171500_transport_receivables_commission_concurrency_v3.sql', 'utf8');
+const loadedDeliveryV4 = fs.readFileSync('supabase/migrations/20260821174500_transport_loaded_delivery_payment_v4.sql', 'utf8');
 const receivablesApi = fs.readFileSync('api/transport/receivables.js', 'utf8');
 const receivablesClient = fs.readFileSync('lib/transportReceivablesClient.js', 'utf8');
 const transportLogin = fs.readFileSync('app/transport/login/page.jsx', 'utf8');
@@ -37,7 +38,7 @@ check(vite.includes('query-authority-transport-guard-payment-button-v3'), 'PWA c
 check(page.includes("LEDGER_PAYMENT_STATUSES") && page.includes("'done', 'completed'"), 'completed debt-payment aliases are missing');
 check(page.includes('readTransportPaymentIntent(oid)') && page.includes('paymentIntent.idempotencyKey'), 'stable retry idempotency intent is missing');
 check(page.includes('storageUnavailable') && page.includes('const persisted = readTransportPaymentIntent(cleanOrderId)'), 'payment intent storage is not verified before POST');
-check(page.includes('PREDELIVERY_PAYMENT_BLOCKED_STATUSES'), 'loaded orders can still bypass the receivables ledger');
+check(page.includes('LOADED_DELIVERY_PAYMENT_STATUSES') && page.includes('confirmDelivery: confirmsLoadedDelivery'), 'loaded payment is not an explicit atomic delivery action');
 check(page.includes('activeSummary?.requiresReconciliation === true'), 'reconciliation-required payments are not blocked');
 check(!page.includes('totalForPayment ||'), 'authoritative zero totals still fall back to legacy JSON debt');
 check(!page.includes("idempotencyKey: 'TRANSPORT_CLIENT_PAYMENT:' + oid + ':' + Date.now()"), 'per-tap payment idempotency key remains');
@@ -49,6 +50,8 @@ check(receivablesApi.includes("is_hybrid_transport") && receivablesApi.includes(
 check(receivablesApi.includes('authorizeOrder') && receivablesApi.includes('ORDER_NOT_ASSIGNED_TO_ACTOR'), 'order assignment authorization is missing');
 check(receivablesApi.includes('canonicalAssignment') && receivablesApi.includes('if (canonicalAssignment) return'), 'canonical order assignment does not override stale JSON fallbacks');
 check(receivablesApi.includes('KNOWN_RPC_BUSINESS_ERRORS') && receivablesApi.includes("|| 503"), 'ambiguous RPC failures are still classified as definitive 4xx errors');
+check(receivablesApi.includes('LOADED_ORDER_REQUIRES_DELIVERY_CONFIRMATION'), 'server does not require explicit confirmation for loaded delivery payment');
+check(receivablesClient.includes('confirmDelivery: confirmDelivery === true'), 'client does not send explicit loaded delivery confirmation');
 check(receivablesApi.includes('authorizeClient') && receivablesApi.includes('CLIENT_NOT_ASSIGNED_TO_ACTOR'), 'client-only summary authorization is missing');
 check(receivablesApi.includes('requestOriginAllowed') && receivablesApi.includes('ORIGIN_NOT_ALLOWED'), 'same-origin mutation guard is missing');
 check(receivablesApi.includes("private, no-store") && receivablesApi.includes("x-content-type-options"), 'private API cache/security headers are missing');
@@ -74,6 +77,7 @@ check(receivablesV3.includes('payment_batch_id') && receivablesV3.includes('TRAN
 check(receivablesV3.includes("'transport-receivables-v3:' || v_client_id::text"), 'client advisory lock is not namespaced');
 check(receivablesV3.includes('PAYMENT_IDEMPOTENCY_ALLOCATION_SUM_MISMATCH'), 'duplicate retries do not re-verify persisted allocations');
 check(receivablesV3.includes('TRANSPORT_COMMISSION_M2_EXCEEDS_SERVICE'), 'commission square-metre invariant is missing');
+check(loadedDeliveryV4.includes("v_is_delivery := v_status in ('loaded'"), 'loaded payment is not atomically finalized as delivery');
 
 if (failures.length) {
   console.error('FAIL transport payment button v3:', failures);
