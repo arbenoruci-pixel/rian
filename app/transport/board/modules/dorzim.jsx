@@ -289,7 +289,7 @@ function DorzimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, se
               const unpaid = picked.filter((x) => getPaySummary(x).due > 0);
               if (unpaid.length) {
                 const first = unpaid[0];
-                alert('PA U KRYER PAGESA, POROSIA NUK MUND TË DORËZOHET. HAPET PAGESA.');
+                alert('ZGJIDH: KRYEJ PAGESËN OSE DORËZO ME BORXH. HAPET LLOGARIA E KLIENTIT.');
                 onOpenModal && onOpenModal(`/transport/pranimi?id=${encodeURIComponent(first.id)}&focus=pay`);
                 return;
               }
@@ -333,7 +333,7 @@ function DorzimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, se
                   setTimeout(() => {
                     if (!row?.id) return;
                     if (due > 0) {
-                      alert('PA U KRYER PAGESA, POROSIA NUK MUND TË MBYLLET. HAPET PAGESA.');
+                      alert('ZGJIDH: KRYEJ PAGESËN OSE DORËZO ME BORXH. HAPET LLOGARIA E KLIENTIT.');
                       onOpenModal && onOpenModal(`/transport/pranimi?id=${encodeURIComponent(row.id)}&focus=pay`);
                       return;
                     }

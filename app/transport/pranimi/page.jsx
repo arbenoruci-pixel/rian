@@ -23,6 +23,12 @@ import { requirePaymentPin } from '@/lib/paymentPin';
 import { getClientBalanceByPhone } from '@/lib/clientBalanceDb';
 import { enqueueTransportOrder, syncNow } from '@/lib/syncManager';
 import { addTransportCollected } from '@/lib/transportArkaStore';
+import {
+  collectTransportClientPayment,
+  deliverTransportOrderWithDebt,
+  getTransportReceivableSummary,
+  newTransportFinanceIdempotencyKey,
+} from '@/lib/transportReceivablesClient';
 import { fetchTransportOrderById, listTransportOrders, searchTransportClientCandidatesByOrders, updateTransportOrderById } from '@/lib/transportOrdersDb';
 import { buildSmartSmsText } from '@/lib/smartSms';
 import { trackRender } from '@/lib/sensor';
@@ -51,6 +57,7 @@ const SHKALLORE_M2_PER_STEP_DEFAULT = 0.3;
 const PRICE_DEFAULT = 1.8;
 const LEGACY_TRANSPORT_PRICE_DEFAULTS = new Set([1.5, 3]);
 const PAY_CHIPS = [5, 10, 20, 30, 50];
+const DELIVERY_PAYMENT_STATUSES = new Set(['delivery', 'dorzim', 'dorezim', 'dorëzim', 'delivered']);
 const PREFIX_OPTIONS = [
   { flag: '🇽🇰', code: '+383', label: 'KOSOVË' },
   { flag: '🇦🇱', code: '+355', label: 'SHQIPËRI' },
@@ -119,6 +126,12 @@ function localYmd(input = new Date()) {
     return '';
   }
 }
+function nextLocalYmd() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return localYmd(date);
+}
+
 function defaultTransportPickupSlot() {
   try {
     return new Date().getHours() >= 15 ? 'evening' : 'morning';
@@ -988,6 +1001,9 @@ function PranimiPageInner() {
   const [priceTmp, setPriceTmp] = useState(PRICE_DEFAULT);
   const [payAdd, setPayAdd] = useState(0);
   const [paymentBusy, setPaymentBusy] = useState(false);
+  const [receivableSummary, setReceivableSummary] = useState(null);
+  const [receivableLoading, setReceivableLoading] = useState(false);
+  const [receivableError, setReceivableError] = useState('');
   const [offlineMode, setOfflineMode] = useState(false);
   const [netState, setNetState] = useState({ ok: true, reason: '' });
   // ADMIN/DISPATCH can create transport orders without being a transport actor.
@@ -1386,12 +1402,35 @@ function PranimiPageInner() {
   const currentDebt = diff > 0 ? diff : 0;
   const currentChange = diff < 0 ? Math.abs(diff) : 0;
   const remainingDue = Math.max(0, Number((totalEuro - Number(clientPaid || 0)).toFixed(2)));
+  const isDeliveryPaymentFlow = Boolean(
+    isEdit && DELIVERY_PAYMENT_STATUSES.has(String(editRowStatus || '').trim().toLowerCase())
+  );
+  const previousOutstandingForPayment = isDeliveryPaymentFlow
+    ? Math.max(0, Number(receivableSummary?.previousOutstanding || 0))
+    : 0;
+  const paymentModalTotal = round2(totalEuro + previousOutstandingForPayment);
 
   useEffect(() => {
     let alive = true;
     const phoneFull = buildTransportPhoneDigits(phonePrefix, phone || '');
     try { clearTimeout(debtLookupTimerRef.current); } catch {}
-    if (!phoneFull || phoneFull.length < 6) { setOldClientDebt(0); return () => { alive = false; }; }
+
+    if (clientId) {
+      getTransportReceivableSummary({ clientId })
+        .then((summary) => {
+          if (!alive) return;
+          setOldClientDebt(Math.max(0, Number(summary?.ledgerOutstanding || 0)));
+        })
+        .catch(() => {
+          if (alive) setOldClientDebt(0);
+        });
+      return () => { alive = false; };
+    }
+
+    if (!phoneFull || phoneFull.length < 6) {
+      setOldClientDebt(0);
+      return () => { alive = false; };
+    }
     debtLookupTimerRef.current = setTimeout(async () => {
       try {
         const res = await getClientBalanceByPhone(phoneFull);
@@ -1405,13 +1444,37 @@ function PranimiPageInner() {
       alive = false;
       try { clearTimeout(debtLookupTimerRef.current); } catch {}
     };
-  }, [phonePrefix, phone]);
+  }, [clientId, phonePrefix, phone]);
 
   useEffect(() => {
-      if(!showPaySheet) return;
-      if(Number(payAdd || 0) > 0) return;
-      setPayAdd(remainingDue);
-  }, [showPaySheet, remainingDue, payAdd]);
+    if (!showPaySheet) return undefined;
+    let alive = true;
+
+    if (!isEdit || !oid) {
+      if (Number(payAdd || 0) <= 0) setPayAdd(remainingDue);
+      return () => { alive = false; };
+    }
+
+    setReceivableLoading(true);
+    setReceivableError('');
+    getTransportReceivableSummary({ orderId: oid })
+      .then((summary) => {
+        if (!alive) return;
+        setReceivableSummary(summary);
+        const totalForPayment = Math.max(0, Number(summary?.totalForPayment || remainingDue));
+        setPayAdd(round2(totalForPayment));
+      })
+      .catch((error) => {
+        if (!alive) return;
+        setReceivableSummary(null);
+        setReceivableError(String(error?.message || error || 'BORXHI_NUK_U_LEXUA'));
+      })
+      .finally(() => {
+        if (alive) setReceivableLoading(false);
+      });
+
+    return () => { alive = false; };
+  }, [showPaySheet, isEdit, oid, remainingDue]);
   function addRow(kind) {
       const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
       const p = kind === 'tepiha' ? 't' : 's';
@@ -2041,8 +2104,33 @@ function PranimiPageInner() {
       return;
     }
 
+    const currentEditStatus = String(editRowStatus || '').trim().toLowerCase();
+    const shouldFinalizeDelivery = Boolean(
+      isEdit && DELIVERY_PAYMENT_STATUSES.has(currentEditStatus)
+    );
+
+    let activeSummary = receivableSummary;
+    if (shouldFinalizeDelivery && !activeSummary) {
+      try {
+        setReceivableLoading(true);
+        setReceivableError('');
+        activeSummary = await getTransportReceivableSummary({ orderId: oid });
+        setReceivableSummary(activeSummary);
+      } catch (error) {
+        const message = String(error?.message || error || 'BORXHI_NUK_U_LEXUA');
+        setReceivableError(message);
+        alert('BORXHI NUK U LEXUA NGA SERVERI: ' + message);
+        return;
+      } finally {
+        setReceivableLoading(false);
+      }
+    }
+
     const cashGiven = round2(payAdd);
-    const dueNow = round2(Math.max(0, Number(totalEuro || 0) - Number(clientPaid || 0)));
+    const currentOrderDue = round2(Math.max(0, Number(totalEuro || 0) - Number(clientPaid || 0)));
+    const dueNow = shouldFinalizeDelivery
+      ? round2(Math.max(0, Number(activeSummary?.totalForPayment || currentOrderDue)))
+      : currentOrderDue;
     if (cashGiven <= 0) {
       alert('SHKRUANI SHUMËN QË PAGUAN KLIENTI.');
       return;
@@ -2052,12 +2140,12 @@ function PranimiPageInner() {
       setShowPaySheet(false);
       return;
     }
-    if (cashGiven + 0.001 < dueNow) {
+    if (!shouldFinalizeDelivery && cashGiven + 0.001 < dueNow) {
       alert('KLIENTI DHA MË PAK SE BORXHI!');
       return;
     }
 
-    const applied = dueNow;
+    const applied = round2(Math.min(cashGiven, dueNow));
     const change = round2(Math.max(0, cashGiven - applied));
     const pinLabel = [
       'PAGESË: ' + applied.toFixed(2) + '€',
@@ -2078,11 +2166,85 @@ function PranimiPageInner() {
     const clientPhone = buildTransportPhoneDigits(phonePrefix, phone) || null;
     const nextClientPaid = round2(Number(clientPaid || 0) + applied);
     const nextArkaPaid = round2(Number(arkaRecordedPaid || 0) + applied);
-    const currentEditStatus = String(editRowStatus || '').trim().toLowerCase();
-    const shouldFinalizeDelivery = Boolean(
-      isEdit && ['delivery', 'dorzim', 'dorezim', 'dorëzim', 'delivered'].includes(currentEditStatus)
-    );
     const transportNote = 'PAGESA ' + applied.toFixed(2) + '€ - ' + (name || 'KLIENT') + ' • ' + (transportCode || 'T-KOD') + ' • ' + transportM2.toFixed(2) + ' m²';
+
+    if (shouldFinalizeDelivery) {
+      paymentBusyRef.current = true;
+      setPaymentBusy(true);
+      try {
+        const ledgerResult = await collectTransportClientPayment({
+          orderId: oid,
+          actorPin,
+          amountReceived: cashGiven,
+          method: 'CASH',
+          note: transportNote,
+          idempotencyKey: newTransportFinanceIdempotencyKey('TRANSPORT_CLIENT_PAYMENT', oid),
+        });
+        if (ledgerResult?.paymentVerified !== true || !ledgerResult?.batch?.id) {
+          throw new Error('TRANSPORT_CLIENT_PAYMENT_NOT_VERIFIED');
+        }
+
+        const verifiedOrder = ledgerResult?.order || null;
+        const verifiedData = verifiedOrder?.data && typeof verifiedOrder.data === 'object' ? verifiedOrder.data : {};
+        const verifiedPay = verifiedData?.pay && typeof verifiedData.pay === 'object' ? verifiedData.pay : {};
+        const verifiedPaid = round2(Math.max(
+          Number(verifiedPay?.paid || 0),
+          Number(verifiedPay?.arkaRecordedPaid || 0),
+          Number(verifiedData?.clientPaid || 0)
+        ));
+        setClientPaid(verifiedPaid);
+        setArkaRecordedPaid(round2(Number(verifiedPay?.arkaRecordedPaid || verifiedPaid)));
+        setReceivableSummary(ledgerResult);
+        setPayAdd(0);
+        setShowPaySheet(false);
+
+        try {
+          const actorTid = String(me?.transport_id || assignTid || '').trim();
+          const cashApplied = round2(Number(ledgerResult?.batch?.amount_applied || applied));
+          if (actorTid && ledgerResult?.duplicate !== true && cashApplied > 0) {
+            addTransportCollected(actorTid, {
+              id: 'cash_' + String(ledgerResult.batch.id),
+              amount: cashApplied,
+              order_code: transportCode,
+              client_name: name,
+              note: transportNote,
+              created_at: new Date().toISOString(),
+              created_by_pin: actorPin,
+            });
+          }
+        } catch {}
+
+        try {
+          window.parent && window.parent !== window && window.parent.postMessage(
+            { type: 'transport-payment-complete' },
+            window.location.origin
+          );
+        } catch {}
+
+        const paymentReturnUrl = '/transport/board?tab=delivered&payment=ok';
+        try { router.replace(paymentReturnUrl); } catch {}
+        try {
+          window.setTimeout(() => {
+            try {
+              if (String(window.location.pathname || '').includes('/transport/pranimi')) {
+                window.location.replace(paymentReturnUrl);
+              }
+            } catch {}
+          }, 450);
+        } catch {}
+      } catch (error) {
+        const message = String(error?.message || error || 'PAGESA NUK U RUAJT.');
+        alert(
+          message.includes('OFFLINE') || message.includes('NETWORK') || message.includes('FETCH')
+            ? 'NUK KA LIDHJE ME SERVERIN. PAGESA NUK U REGJISTRUA; MOS I MERR PARAT DY HERË.'
+            : 'ARKA PROBLEM: ' + message
+        );
+      } finally {
+        paymentBusyRef.current = false;
+        setPaymentBusy(false);
+      }
+      return;
+    }
 
     paymentBusyRef.current = true;
     setPaymentBusy(true);
@@ -2113,6 +2275,7 @@ function PranimiPageInner() {
           timeoutMs: 9000,
           maxAttempts: 2,
           retryDelaysMs: [450],
+          queueOnNetworkFailure: false,
         });
 
         assertVerifiedTransportPaymentResult(arkaResult, {
@@ -2205,6 +2368,95 @@ function PranimiPageInner() {
       setPaymentBusy(false);
     }
   }
+  async function deliverWithDebtAndClose() {
+    if (paymentBusyRef.current || paymentBusy) {
+      alert('VEPRIMI ËSHTË DUKE U RUAJTUR. PRIT PAK.');
+      return;
+    }
+    if (!isDeliveryPaymentFlow || !oid) {
+      alert('DORËZIMI ME BORXH LEJOHET VETËM KUR POROSIA ËSHTË NË DORËZIM.');
+      return;
+    }
+    if (remainingDue <= 0) {
+      alert('KJO POROSI NUK KA BORXH TË RI.');
+      return;
+    }
+
+    const previousDebt = Math.max(0, Number(receivableSummary?.previousOutstanding || 0));
+    const totalClientDebt = round2(previousDebt + remainingDue);
+    const confirmed = window.confirm(
+      [
+        'DORËZO ME BORXH?',
+        '',
+        'BORXHI I VJETËR: ' + previousDebt.toFixed(2) + '€',
+        'KJO POROSI: ' + remainingDue.toFixed(2) + '€',
+        'TOTALI I KLIENTIT: ' + totalClientDebt.toFixed(2) + '€',
+        '',
+        'NË ARKË REGJISTROHEN 0.00€.',
+      ].join('\n')
+    );
+    if (!confirmed) return;
+
+    const paymentActor = await requirePaymentPin({
+      label: [
+        'DORËZIM ME BORXH: ' + remainingDue.toFixed(2) + '€',
+        'ARKA: 0.00€',
+        '',
+        'JEP PIN PËR TA DORËZUAR',
+      ].join('\n'),
+    });
+    const actorPin = String(paymentActor?.pin || '').trim();
+    if (!actorPin) return;
+
+    paymentBusyRef.current = true;
+    setPaymentBusy(true);
+    try {
+      const result = await deliverTransportOrderWithDebt({
+        orderId: oid,
+        actorPin,
+        dueDate: nextLocalYmd(),
+        note: 'KLIENTI PAGUAN MË VONË',
+        idempotencyKey: 'TRANSPORT_DELIVER_WITH_DEBT:' + oid,
+      });
+      if (!result?.receivable?.id || Number(result?.receivable?.outstanding_amount || 0) <= 0) {
+        throw new Error('TRANSPORT_DEBT_NOT_VERIFIED');
+      }
+
+      setReceivableSummary(result);
+      setShowPaySheet(false);
+      setPayAdd(0);
+
+      try {
+        window.parent && window.parent !== window && window.parent.postMessage(
+          { type: 'transport-delivery-with-debt' },
+          window.location.origin
+        );
+      } catch {}
+
+      const returnUrl = '/transport/board?tab=delivered&debt=ok';
+      try { router.replace(returnUrl); } catch {}
+      try {
+        window.setTimeout(() => {
+          try {
+            if (String(window.location.pathname || '').includes('/transport/pranimi')) {
+              window.location.replace(returnUrl);
+            }
+          } catch {}
+        }, 450);
+      } catch {}
+    } catch (error) {
+      const message = String(error?.message || error || 'DORËZIMI ME BORXH NUK U RUAJT.');
+      alert(
+        message.includes('OFFLINE') || message.includes('NETWORK') || message.includes('FETCH')
+          ? 'NUK KA LIDHJE ME SERVERIN. DORËZIMI ME BORXH NUK U RUAJT.'
+          : 'BORXHI PROBLEM: ' + message
+      );
+    } finally {
+      paymentBusyRef.current = false;
+      setPaymentBusy(false);
+    }
+  }
+
   // --- DRAFTS ---
   function openDrafts() { setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); setShowDraftsSheet(true); }
   function loadDraft(d) {
@@ -2229,6 +2481,8 @@ function PranimiPageInner() {
   function openPay() {
     if (isBaseWorkerBridgeEdit) return;
     const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
+    setReceivableSummary(null);
+    setReceivableError('');
     setPayAdd(dueNow > 0 ? dueNow : 0);
     setPayMethod('CASH');
     setShowPaySheet(true);
@@ -2608,14 +2862,39 @@ function PranimiPageInner() {
           onClose={() => setShowPaySheet(false)}
           title="PAGESA (ARKË)"
           subtitle={`KODI: ${normalizeTcode(codeRaw)} • ${name}`}
-          total={totalEuro}
+          total={isDeliveryPaymentFlow ? paymentModalTotal : totalEuro}
           alreadyPaid={Number(clientPaid || 0)}
           amount={payAdd}
           setAmount={setPayAdd}
           payChips={PAY_CHIPS}
           confirmText={paymentBusy ? 'DUKE RUAJTUR...' : 'KRYEJ PAGESËN'}
           cancelText="ANULO"
-          disabled={paymentBusy}
+          disabled={paymentBusy || receivableLoading}
+          allowPartial={isDeliveryPaymentFlow}
+          allowDebt={isDeliveryPaymentFlow && remainingDue > 0 && !receivableLoading && !receivableError}
+          debtActionText="DORËZO ME BORXH"
+          onDeliverWithDebt={deliverWithDebtAndClose}
+          extraTopRows={isDeliveryPaymentFlow ? (
+            <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+              {receivableLoading ? (
+                <div style={{ color: '#93c5fd', fontWeight: 900 }}>DUKE LEXUAR BORXHIN E KLIENTIT…</div>
+              ) : null}
+              {receivableError ? (
+                <div style={{ color: '#fca5a5', fontWeight: 900 }}>BORXHI NUK U LEXUA: {receivableError}</div>
+              ) : null}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: '#fbbf24', fontWeight: 900 }}>
+                <span>BORXHI I VJETËR:</span>
+                <strong>{previousOutstandingForPayment.toFixed(2)} €</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: '#e5e7eb', fontWeight: 900 }}>
+                <span>KJO POROSI:</span>
+                <strong>{remainingDue.toFixed(2)} €</strong>
+              </div>
+            </div>
+          ) : null}
+          footerNote={isDeliveryPaymentFlow
+            ? 'PAGESA SHKON AUTOMATIKISHT TE BORXHI MË I VJETËR. DORËZIMI ME BORXH SHTON 0.00€ NË ARKË.'
+            : null}
           onConfirm={applyPayAndClose}
         />
       )}
