@@ -487,7 +487,8 @@ create or replace function public.transport_collect_client_payment_v1(
   p_amount_received numeric,
   p_method text default 'CASH',
   p_note text default null,
-  p_idempotency_key text default null
+  p_idempotency_key text default null,
+  p_confirm_delivery boolean default false
 )
 returns jsonb
 language plpgsql
@@ -632,6 +633,9 @@ begin
   end if;
 
   v_status := lower(trim(coalesce(v_order.status, v_order.data ->> 'status', '')));
+  if v_status in ('loaded', 'ngarkuar', 'ngarkim') and p_confirm_delivery is not true then
+    raise exception 'LOADED_ORDER_REQUIRES_DELIVERY_CONFIRMATION';
+  end if;
   if v_status not in ('loaded', 'ngarkuar', 'ngarkim', 'delivery', 'dorzim', 'dorezim', 'dorëzim', 'done', 'completed', 'delivered', 'dorzuar', 'dorezuar', 'dorëzuar') then
     raise exception 'TRANSPORT_ORDER_NOT_IN_DELIVERY';
   end if;
@@ -996,10 +1000,10 @@ revoke execute on function public.transport_receivable_parse_money_v1(text) from
 revoke execute on function public.transport_order_active_arka_paid_v1(uuid) from public, anon, authenticated;
 revoke execute on function public.transport_client_receivable_summary_v1(uuid, uuid) from public, anon, authenticated;
 revoke execute on function public.transport_deliver_with_debt_v1(uuid, text, date, text, text) from public, anon, authenticated;
-revoke execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text) from public, anon, authenticated;
+revoke execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text, boolean) from public, anon, authenticated;
 
 grant execute on function public.transport_receivable_parse_money_v1(text) to service_role;
 grant execute on function public.transport_order_active_arka_paid_v1(uuid) to service_role;
 grant execute on function public.transport_client_receivable_summary_v1(uuid, uuid) to service_role;
 grant execute on function public.transport_deliver_with_debt_v1(uuid, text, date, text, text) to service_role;
-grant execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text) to service_role;
+grant execute on function public.transport_collect_client_payment_v1(uuid, text, numeric, text, text, text, boolean) to service_role;
