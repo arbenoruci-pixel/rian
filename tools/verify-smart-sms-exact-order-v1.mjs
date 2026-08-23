@@ -1,5 +1,6 @@
 import { buildOrderTrackUrl, buildSmartSmsText } from '../lib/smartSms.js';
 import { rewriteCustomerTrackingText } from '../lib/customerTrackingCopy.js';
+import fs from 'node:fs';
 
 const checks = [];
 
@@ -37,6 +38,25 @@ check(
   'A full DB row outranks a modal/list wrapper id',
 );
 
+check(
+  buildOrderTrackUrl({
+    id: 'cd17f12e-74eb-44ee-b5ef-3c9c91e38c38',
+    order_id: 3106,
+    code: 1032,
+    client_name: 'taulant imeri',
+  }) === 'https://tepiha.vercel.app/k/3106?src=base',
+  'Base acceptance SMS uses the verified DB id even when its local UUID and client code differ',
+);
+
+check(
+  buildOrderTrackUrl({ code: 1032, client_name: 'taulant imeri' }) === 'https://tepiha.vercel.app/k/',
+  'Base fails safe when only a reusable client code is available',
+);
+check(
+  !buildSmartSmsText({ code: 1032, client_name: 'taulant imeri' }, 'pranimi_baze').includes('Ndiqni statusin LIVE:'),
+  'Base acceptance SMS omits tracking when a verified exact id is unavailable',
+);
+
 const transportUuid = '7e826204-6aca-4c84-9804-a6e3c525d3b3';
 const transportOrder = {
   id: 'wrapper-row-9',
@@ -63,6 +83,13 @@ check(
     data: { tcode_lifecycle: 'PERMANENT_CLIENT_TCODE_V1' },
   }) === 'https://tepiha.vercel.app/k/',
   'Transport fails safe when an exact UUID is missing',
+);
+check(
+  !buildSmartSmsText({
+    client_tcode: 'T9',
+    data: { tcode_lifecycle: 'PERMANENT_CLIENT_TCODE_V1' },
+  }, 'transport_pranimi').includes('Për të ndjekur statusin live'),
+  'Transport acceptance SMS omits tracking when an exact UUID is unavailable',
 );
 
 const baseReadyText = buildSmartSmsText(baseOrder, 'gati_baze');
@@ -100,6 +127,34 @@ check(
 check(
   rewriteCustomerTrackingText('Porosia ndodhet në Depo!') === 'Tepihat ndodhen në Depo!',
   'Depot notice refers to the customer rugs',
+);
+
+const trackingSource = fs.readFileSync(new URL('../app/k/[id]/page.jsx', import.meta.url), 'utf8');
+const ordersServiceSource = fs.readFileSync(new URL('../lib/ordersService.js', import.meta.url), 'utf8');
+const pranimiSource = fs.readFileSync(new URL('../app/pranimi/page.jsx', import.meta.url), 'utf8');
+check(
+  trackingSource.includes("if (srcHint === 'base')") &&
+    trackingSource.includes("resolved = await resolveOrderById(rawId, 'base', '*')"),
+  'Tracking resolves an explicit Base source only through the Base resolver',
+);
+check(
+  /if \(srcHint === 'base'\)[\s\S]*?} else \{[\s\S]*?if \(!resolved && \(isTransportCode \|\| isShortNumeric\)\)/.test(trackingSource),
+  'The legacy Transport numeric fallback is outside the explicit Base branch',
+);
+check(
+  ordersServiceSource.includes("if (hint === 'base' || hint === 'orders')") &&
+    ordersServiceSource.includes('return (await tryBase()) || (await tryBaseByCode())'),
+  'Legacy Base code links stay inside public.orders',
+);
+check(
+  pranimiSource.includes('order_id: verifiedOrderIdForDraftCleanup') &&
+    pranimiSource.includes('public_order_id: verifiedOrderIdForDraftCleanup'),
+  'Normal Base acceptance SMS carries the verified persisted order id',
+);
+check(
+  pranimiSource.includes('order_id: verifiedSmsOrderId') &&
+    pranimiSource.includes('warning?.retry_result?.server_id'),
+  'Recovered Base acceptance SMS also carries the verified persisted order id',
 );
 
 const customerPageCopy = rewriteCustomerTrackingText([

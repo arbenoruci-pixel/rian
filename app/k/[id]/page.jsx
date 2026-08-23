@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from '@/lib/routerCompat.jsx';
-import { fetchOrderByIdSafe, findLatestOrderByCode, resolveOrderById, updateOrderData, updateOrderGps } from '@/lib/ordersService';
+import { findLatestOrderByCode, resolveOrderById, updateOrderData, updateOrderGps } from '@/lib/ordersService';
 import { extractPieces, extractTotal } from '@/lib/smartSms';
 
 function V33PageOpenFallback() {
@@ -110,34 +110,30 @@ function OrderTrackingPageInner() {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId);
         const isTransportCode = /^t\d+$/i.test(rawId);
         const isShortNumeric = /^\d+$/.test(rawId);
-
         let resolved = null;
 
-        if (srcHint === 'base' && isShortNumeric) {
-          const baseById = await fetchOrderByIdSafe('orders', rawId, '*').catch(() => null);
-          if (baseById) {
-            resolved = { table: 'orders', row: baseById };
+        if (srcHint === 'base') {
+          // src=base is a hard table boundary: exact orders.id first, then only the
+          // legacy Base client code. It must never fall through from 1032 to T1032.
+          resolved = await resolveOrderById(rawId, 'base', '*');
+        } else {
+          // Keep pre-source Transport links compatible while isolating them from Base.
+          if (!resolved && (isTransportCode || isShortNumeric)) {
+            const transportLookupKey = isShortNumeric ? `T${rawId}` : rawId.toUpperCase();
+            const transportByCode = await findLatestOrderByCode('transport_orders', transportLookupKey, '*');
+            if (transportByCode) {
+              resolved = { table: 'transport_orders', row: transportByCode };
+            }
           }
-        }
 
-        // Kodet e vjetra T43/43 vazhdojne te hapen si fallback. UUID-ja e SMS Smart
-        // kalon direkt ne lookup sipas ID-se ekzakte dhe nuk kerkon klientin me T-kod.
-        if (!resolved && (isTransportCode || isShortNumeric)) {
-          const transportLookupKey = isShortNumeric ? `T${rawId}` : rawId.toUpperCase();
-          const transportByCode = await findLatestOrderByCode('transport_orders', transportLookupKey, '*');
-          if (transportByCode) {
-            resolved = { table: 'transport_orders', row: transportByCode };
+          if (!resolved) {
+            const effectiveHint = srcHint || (isTransportCode ? 'transport' : '');
+            resolved = await resolveOrderById(rawId, effectiveHint, '*');
           }
-        }
 
-        if (!resolved) {
-          const effectiveHint = srcHint || (isTransportCode ? 'transport' : '');
-          resolved = await resolveOrderById(rawId, effectiveHint, '*');
-        }
-
-        // Fallback shtesë: nëse kemi UUID, por resolve dështoi, provo si transport direkt.
-        if (!resolved && isUuid) {
-          resolved = await resolveOrderById(rawId, 'transport', '*');
+          if (!resolved && isUuid) {
+            resolved = await resolveOrderById(rawId, 'transport', '*');
+          }
         }
 
         const orderData = resolved?.row || null;
