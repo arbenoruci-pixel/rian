@@ -268,8 +268,11 @@ const KNOWN_RPC_BUSINESS_ERRORS = new Set([
   'ACTOR_NOT_FOUND_OR_DISABLED',
   'AMOUNT_INVALID',
   'CLIENT_HAS_NO_OUTSTANDING_BALANCE',
+  'EXPECTED_TOTAL_DUE_INVALID',
+  'EXPECTED_TOTAL_DUE_REQUIRED',
   'LOADED_ORDER_REQUIRES_DELIVERY_CONFIRMATION',
   'ONLY_CASH_SUPPORTED',
+  'PAYMENT_BALANCE_CHANGED',
   'PAYMENT_IDEMPOTENCY_KEY_REQUIRED',
   'PAYMENT_IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD',
   'PAYMENT_IDEMPOTENCY_KEY_TOO_LONG',
@@ -372,6 +375,11 @@ export default async function handler(req, res) {
       if (!orderId) return apiFail(res, 'ORDER_ID_INVALID', 400);
       const actorPin = cleanPin(body?.actorPin || body?.actor_pin);
       const amountReceived = Number(body?.amountReceived ?? body?.amount_received);
+      const expectedTotalDueRaw = body?.expectedTotalDue ?? body?.expected_total_due;
+      const hasExpectedTotalDue = expectedTotalDueRaw !== undefined
+        && expectedTotalDueRaw !== null
+        && expectedTotalDueRaw !== '';
+      const expectedTotalDue = hasExpectedTotalDue ? Number(expectedTotalDueRaw) : null;
       const method = String(body?.method || 'CASH').trim().toUpperCase();
       const idempotencyKey = cleanKey(body?.idempotencyKey || body?.idempotency_key);
       const orderStatus = String(authorizedOrder?.status || authorizedOrder?.data?.status || '').trim().toLowerCase();
@@ -381,10 +389,13 @@ export default async function handler(req, res) {
       if (!actorPin) return apiFail(res, 'ACTOR_PIN_REQUIRED', 400);
       if (actorPin !== auth.user.pin) return apiFail(res, 'ACTOR_SESSION_MISMATCH', 403);
       if (!Number.isFinite(amountReceived) || amountReceived <= 0) return apiFail(res, 'AMOUNT_INVALID', 400);
+      if (hasExpectedTotalDue && (!Number.isFinite(expectedTotalDue) || expectedTotalDue < 0)) {
+        return apiFail(res, 'EXPECTED_TOTAL_DUE_INVALID', 400);
+      }
       if (method !== 'CASH') return apiFail(res, 'ONLY_CASH_SUPPORTED', 400);
       if (!idempotencyKey) return apiFail(res, 'IDEMPOTENCY_KEY_REQUIRED', 400);
 
-      const result = await callRpc(supabase, 'transport_collect_client_payment_v1', {
+      const result = await callRpc(supabase, 'transport_collect_client_payment_guarded_v2', {
         p_order_id: orderId,
         p_actor_pin: auth.user.pin,
         p_amount_received: Math.round((amountReceived + Number.EPSILON) * 100) / 100,
@@ -392,6 +403,12 @@ export default async function handler(req, res) {
         p_note: String(body?.note || '').trim().slice(0, 500) || null,
         p_idempotency_key: idempotencyKey,
         p_confirm_delivery: body?.confirmDelivery === true,
+        // Null lets the RPC safely distinguish a legacy retry: an already
+        // committed idempotency key is verified, while a fresh legacy key is
+        // rejected before any write.
+        p_expected_total_due: hasExpectedTotalDue
+          ? Math.round((expectedTotalDue + Number.EPSILON) * 100) / 100
+          : null,
       });
       return apiOk(res, sanitizeRpcResult(result));
     }

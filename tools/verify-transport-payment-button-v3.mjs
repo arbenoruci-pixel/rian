@@ -7,8 +7,10 @@ const receivablesMigration = fs.readFileSync('supabase/migrations/20260821143000
 const receivablesHotfix = fs.readFileSync('supabase/migrations/20260821165000_transport_receivables_security_v2.sql', 'utf8');
 const receivablesV3 = fs.readFileSync('supabase/migrations/20260821171500_transport_receivables_commission_concurrency_v3.sql', 'utf8');
 const loadedDeliveryV4 = fs.readFileSync('supabase/migrations/20260821174500_transport_loaded_delivery_payment_v4.sql', 'utf8');
+const paymentBalanceGuardV5 = fs.readFileSync('supabase/migrations/20260824140500_transport_payment_balance_guard_v5.sql', 'utf8');
 const receivablesApi = fs.readFileSync('api/transport/receivables.js', 'utf8');
 const receivablesClient = fs.readFileSync('lib/transportReceivablesClient.js', 'utf8');
+const paymentIntent = fs.readFileSync('lib/transportPaymentIntent.js', 'utf8');
 const transportLogin = fs.readFileSync('app/transport/login/page.jsx', 'utf8');
 const loginApi = fs.readFileSync('api/auth/login.js', 'utf8');
 const legacyArkaApi = fs.readFileSync('api/arka/transaction.js', 'utf8');
@@ -37,7 +39,29 @@ check(String(pkg.scripts?.build || '').includes('test:transport-payment-button-v
 check(vite.includes('query-authority-transport-guard-payment-button-v3'), 'PWA cache generation lost the transport payment guard');
 check(page.includes("LEDGER_PAYMENT_STATUSES") && page.includes("'done', 'completed'"), 'completed debt-payment aliases are missing');
 check(page.includes('readTransportPaymentIntent(oid)') && page.includes('paymentIntent.idempotencyKey'), 'stable retry idempotency intent is missing');
-check(page.includes('storageUnavailable') && page.includes('const persisted = readTransportPaymentIntent(cleanOrderId)'), 'payment intent storage is not verified before POST');
+check(paymentIntent.includes('TRANSPORT_PAYMENT_INTENT_RESILIENCE_V2'), 'resilient transport payment intent journal is missing');
+check(paymentIntent.includes('window.localStorage') && paymentIntent.includes('window.sessionStorage'), 'web-storage payment intent fallback is incomplete');
+check(paymentIntent.includes('globalThis?.indexedDB') && paymentIntent.includes('globalThis?.caches'), 'durable async payment intent fallbacks are incomplete');
+check(paymentIntent.includes('durable: local || asyncResult.idb || asyncResult.cache'), 'payment can proceed without restart-durable intent storage');
+check(paymentIntent.includes('storageConflict: true') && page.includes('paymentIntent?.storageConflict'), 'conflicting payment intent keys are not blocked');
+check(paymentIntent.includes('navigator?.locks') && paymentIntent.includes('withInPageOrderLock'), 'concurrent payment intent acquisition is not serialized');
+check(paymentBalanceGuardV5.includes('transport_collect_client_payment_guarded_v2') && paymentBalanceGuardV5.includes("raise exception 'PAYMENT_BALANCE_CHANGED'"), 'server-side stale-balance payment guard is missing');
+check(paymentBalanceGuardV5.includes("pg_advisory_xact_lock") && paymentBalanceGuardV5.indexOf("PAYMENT_BALANCE_CHANGED") < paymentBalanceGuardV5.indexOf("transport_collect_client_payment_v1("), 'balance guard is not atomic before payment collection');
+check(receivablesApi.includes("transport_collect_client_payment_guarded_v2") && receivablesApi.includes('p_expected_total_due'), 'transport API does not enforce the server balance snapshot');
+check(
+  receivablesClient.includes('expectedTotalDue')
+    && paymentIntent.includes('expectedTotalDue: cleanExpectedTotalDue')
+    && page.includes('expectedTotalDue: paymentIntent.expectedTotalDue'),
+  'payment client does not bind the expected debt snapshot to its durable intent',
+);
+check(
+  receivablesApi.includes('p_expected_total_due: hasExpectedTotalDue')
+    && receivablesApi.includes(': null,'),
+  'legacy payment intents cannot reach the guarded RPC for safe committed-key verification',
+);
+check(!paymentIntent.includes('removeItem(paymentIntentStorageKey') && !paymentIntent.includes('const expired ='), 'unresolved transport intents can still expire silently');
+check(page.includes('await clearTransportPaymentIntent(oid, paymentIntent.idempotencyKey)') && page.includes('Preserve the same key on ambiguous failures'), 'payment intent is not retained safely across failed requests');
+check(!page.includes("if (error?.requestAmbiguous === false) {\n          clearTransportPaymentIntent"), 'definitive-looking errors still discard the retry key');
 check(page.includes('LOADED_DELIVERY_PAYMENT_STATUSES') && page.includes('confirmDelivery: confirmsLoadedDelivery'), 'loaded payment is not an explicit atomic delivery action');
 check(page.includes('activeSummary?.requiresReconciliation === true'), 'reconciliation-required payments are not blocked');
 check(!page.includes('totalForPayment ||'), 'authoritative zero totals still fall back to legacy JSON debt');
