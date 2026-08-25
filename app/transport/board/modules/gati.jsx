@@ -1265,7 +1265,7 @@ function ReadyView({
                 <button style={{ ...ui.bulkBtn, background: '#0A84FF', fontWeight: 900 }} onClick={() => runDeferred(async () => {
                   const ids = routeItemsView.map((x) => x.id).filter(Boolean);
                   if (!ids.length) return;
-                  if (onBulkStatus) await onBulkStatus(ids, 'loaded');
+                  if (onBulkStatus) await onBulkStatus(ids, 'delivery'); // TRANSPORT_GATI_BULK_DELIVERY_V1
                   setShowRoute(false);
                 })}>✅ NGARKO</button>
                 <button style={{ ...ui.bulkBtn }} onClick={() => runDeferred(() => setShowRoute(false))}>✕ MBYLL</button>

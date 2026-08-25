@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { usePathname, useRouter } from '@/lib/routerCompat.jsx';
-import { buildHomeSearchHref, cleanVisiblePersonName, searchHomeLocalFirst } from '@/lib/homeSearch';
+import { buildHomeSearchHref, cleanVisiblePersonName, resolveHomeSearchTarget, searchHomeLocalFirst } from '@/lib/homeSearch';
+// SEARCH_OPEN_DB_TRUTH_V2: resolve every click against live DB before routing.
 
 function safeText(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -34,6 +35,37 @@ function resultCodeLabel(result) {
     if (code) return `Code ${code}`;
   }
   return safeText(result?.code, '—');
+}
+
+// PAYMENT_RECEIPT_SMS_SEARCH_V2
+function normalizeReceiptPhone(value) {
+  const digits = String(value || '').replace(/\D+/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('383')) return '+' + digits;
+  if (digits.startsWith('0')) return '+383' + digits.slice(1);
+  return '+' + digits;
+}
+
+function sendPaymentReceiptSms(result, event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const phone = normalizeReceiptPhone(result?.phone);
+  const paid = Math.max(0, Number(result?.paidAmount || 0));
+  if (!phone) return window.alert('Klienti nuk ka numër telefoni.');
+  if (!(paid > 0)) return window.alert('Nuk u gjet pagesa e fundit për këtë porosi.');
+  const balance = Math.max(0, Number(result?.balanceAmount || 0));
+  const code = cleanClientCode(result?.clientCode || result?.code || '');
+  const name = safeText(result?.name, 'klient');
+  const rawDate = result?.paymentDate ? new Date(result.paymentDate) : new Date();
+  const date = Number.isFinite(rawDate.getTime()) ? rawDate.toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : new Date().toLocaleDateString('sq-AL');
+  const text = [
+    'Përshëndetje ' + name + ',',
+    'Ju konfirmojmë se për tepihat me kod ' + (code || '—') + ' keni paguar ' + paid.toFixed(2) + ' € më ' + date + '.',
+    balance > 0 ? 'Borxhi i mbetur: ' + balance.toFixed(2) + ' €.' : 'Pagesa është përfunduar plotësisht.',
+    '',
+    'Faleminderit, KOMPANIA JONI'
+  ].join('\n');
+  window.location.href = 'sms:' + phone + '?&body=' + encodeURIComponent(text);
 }
 
 
@@ -234,6 +266,7 @@ export default function GlobalHomeSearch() {
   const [didSearch, setDidSearch] = React.useState(false);
   const [results, setResults] = React.useState([]);
   const [message, setMessage] = React.useState('');
+  const [openingResultKey, setOpeningResultKey] = React.useState('');
   const [fabPosition, setFabPosition] = React.useState(null);
   const [fabDragging, setFabDragging] = React.useState(false);
 
@@ -491,12 +524,22 @@ export default function GlobalHomeSearch() {
     }
   }, [query, searching]);
 
-  const openSearchResult = React.useCallback((result) => {
-    const href = buildHomeSearchHref(result);
-    if (!href) return;
-    closeModal();
-    router.push(href);
-  }, [closeModal, router]);
+  const openSearchResult = React.useCallback(async (result) => {
+    const resultKey = [result?.kind, result?.orderId || result?.id, result?.code].filter(Boolean).join(':');
+    if (openingResultKey) return;
+    setOpeningResultKey(resultKey || 'opening');
+    setMessage('Duke verifikuar porosinë në DB...');
+    try {
+      const resolved = await resolveHomeSearchTarget(result, { query });
+      const href = resolved?.href || buildHomeSearchHref(result);
+      if (!href) throw new Error('NUK U GJET FAQJA E POROSISË.');
+      closeModal();
+      router.push(href);
+    } catch (error) {
+      setMessage(String(error?.message || error || 'Porosia nuk u hap. Provo përsëri.'));
+      setOpeningResultKey('');
+    }
+  }, [closeModal, openingResultKey, query, router]);
 
   const createNewForClient = React.useCallback((result, event) => {
     event?.preventDefault?.();
@@ -614,11 +657,11 @@ export default function GlobalHomeSearch() {
                         key={`${result?.kind || 'BASE'}-${result?.id || result?.code || index}-${index}`}
                         role="button"
                         tabIndex={0}
-                        onClick={() => openSearchResult(result)}
+                        onClick={() => { void void openSearchResult(result); }}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault();
-                            openSearchResult(result);
+                            void openSearchResult(result);
                           }
                         }}
                       >
@@ -656,13 +699,18 @@ export default function GlobalHomeSearch() {
                         ) : null}
 
                         <div className="ghs-actions">
+                          {result?.phone && Number(result?.paidAmount || 0) > 0 ? (
+                            <button type="button" className="ghs-new-order" onClick={(event) => sendPaymentReceiptSms(result, event)}>
+                              📩 SMS PAGESA
+                            </button>
+                          ) : null}
                           {isBaseResult(result) ? (
                             <button type="button" className="ghs-new-order" onClick={(event) => createNewForClient(result, event)}>
                               KRIJO POROSI TË RE PËR KËTË KLIENT
                             </button>
                           ) : null}
-                          <button type="button" className="ghs-open-result" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openSearchResult(result); }}>
-                            HAP ➔
+                          <button type="button" className="ghs-open-result" disabled={!!openingResultKey} onClick={(event) => { event.preventDefault(); event.stopPropagation(); void openSearchResult(result); }}>
+                            {openingResultKey === [result?.kind, result?.orderId || result?.id, result?.code].filter(Boolean).join(':') ? 'DUKE HAPUR...' : 'HAP ➔'}
                           </button>
                         </div>
                       </article>

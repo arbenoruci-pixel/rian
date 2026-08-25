@@ -84,6 +84,10 @@ export default function ArkaExpenseComposer({
     && amountNumber > 0
     && (!isPersonalOther || String(beneficiaryPin || '').trim());
 
+  const descriptionStep = isBusiness || isPersonalOther ? 3 : 2;
+  const amountStep = descriptionStep + 1;
+  // ARKA_EXPENSE_MOBILE_PRO_V2:COMPOSER
+
   useEffect(() => {
     if (!open || typeof window === 'undefined') return undefined;
 
@@ -284,7 +288,7 @@ export default function ArkaExpenseComposer({
           ) : null}
 
           <section className="arkaExpenseStep">
-            <div className="arkaExpenseStepTitle"><span>{isBusiness ? '3' : '3'}</span><b>PËRSHKRIMI</b></div>
+            <div className="arkaExpenseStepTitle"><span>{descriptionStep}</span><b>PËRSHKRIMI</b></div>
             <label className="arkaExpenseFieldGroup">
               <span>ÇFARË U PAGUA?</span>
               <input
@@ -309,7 +313,7 @@ export default function ArkaExpenseComposer({
           </section>
 
           <section className="arkaExpenseStep amountStep">
-            <div className="arkaExpenseStepTitle"><span>4</span><b>SHUMA</b></div>
+            <div className="arkaExpenseStepTitle"><span>{amountStep}</span><b>SHUMA</b></div>
             <div className="arkaExpenseAmountWrap">
               <span>€</span>
               <input

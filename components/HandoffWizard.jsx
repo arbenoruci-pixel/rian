@@ -26,8 +26,10 @@ export default function HandoffWizard({
   const [error, setError] = useState('');
 
   const safeGross = Math.max(0, Number(grossTotal || 0));
-  const safeCommission = Math.max(0, Number(commissionTotal || 0));
+  const workerHybrid = actor?.is_hybrid_transport === true || String(actor?.is_hybrid_transport || '').toLowerCase() === 'true';
+  const safeCommission = workerHybrid ? Math.max(0, Number(commissionTotal || 0)) : 0;
   const safeBase = Math.max(0, Number(baseTotal || (safeGross - safeCommission) || 0));
+  // BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:WIZARD
   const mealDeduct = mealChoice === 'self'
     ? 3
     : (mealChoice === 'existing' ? Math.max(0, Number(existingMealDeduct || 0)) : 0);
@@ -96,7 +98,7 @@ export default function HandoffWizard({
           </div>
           <div style={{ display: 'grid', gap: 9, marginTop: 14 }}>
             <SummaryLine label="Punëtori" value={actor?.name || actor?.pin || '—'} />
-            <SummaryLine label="Komision transporti që e mban" value={money(safeCommission)} accent="#ffd166" />
+            {workerHybrid ? <SummaryLine label="Komision transporti që e mban" value={money(safeCommission)} accent="#ffd166" /> : null}
             <SummaryLine label="Cash për bazë para ushqimit/bonusit" value={money(safeBase)} accent="#83d9ff" />
             <SummaryLine label="Bonus 48H i hapur" value={money(bonusAvailable)} accent="#ffd166" />
             <SummaryLine label="Shpenzime në pritje" value={money(openExpenseTotal)} accent="#ffbd66" sub="Nuk zbriten pa aprovim" />
@@ -130,7 +132,7 @@ export default function HandoffWizard({
           <div style={{ fontSize: 25, fontWeight: 950, marginBottom: 14 }}>Kontrollo shumën finale</div>
           <div style={{ borderRadius: 22, background: '#0d1727', border: '1px solid #273955', overflow: 'hidden' }}>
             <Row label="Klientët kanë paguar" value={money(safeGross)} />
-            <Row label="Komisioni që e mban" value={safeCommission > 0 ? `− ${money(safeCommission)}` : '0.00 €'} accent="#ffd166" />
+            {workerHybrid ? <Row label="Komisioni që e mban" value={safeCommission > 0 ? `− ${money(safeCommission)}` : '0.00 €'} accent="#ffd166" /> : null}
             <Row label="Për bazë para zbritjeve" value={money(safeBase)} accent="#83d9ff" />
             <Row label="Ushqimi" value={mealDeduct > 0 ? `− ${money(mealDeduct)}` : '0.00 €'} accent={mealDeduct > 0 ? '#ffbd66' : undefined} />
             <Row label="Bonusi 48H që e mban" value={bonusHeld > 0 ? `− ${money(bonusHeld)}` : '0.00 €'} accent="#ffd166" />

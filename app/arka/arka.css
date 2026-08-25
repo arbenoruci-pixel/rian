@@ -477,3 +477,11 @@
 @media (min-width:760px){
   .arkaExpenseRequestGrid{grid-template-columns:repeat(3,minmax(0,1fr));}
 }
+
+
+/* OPERATIONAL_FULL_WIDTH_V1 */
+.arka-container{width:100%;max-width:none;margin:0;padding-left:8px;padding-right:8px}
+@media(max-width:1100px){
+  .arka-container{width:100%!important;max-width:none!important;margin:0!important;padding-left:8px!important;padding-right:8px!important}
+  .bonusShell{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important}
+}

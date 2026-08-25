@@ -468,3 +468,77 @@ a {
   margin: 18px 16px 0 16px;
 }
 /* --------------------------------- */
+
+
+/* OPERATIONAL_FULLSCREEN_V2_CSS */
+html[data-tepiha-operational-fullscreen="1"],
+html[data-tepiha-operational-fullscreen="1"] body,
+html[data-tepiha-operational-fullscreen="1"] #root {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  overflow-x: hidden !important;
+}
+
+html[data-tepiha-operational-fullscreen="1"] [data-tepiha-route-layout="1"] {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  box-sizing: border-box !important;
+}
+
+html[data-tepiha-operational-fullscreen="1"] [data-tepiha-route-page="1"] {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: max(6px, env(safe-area-inset-left, 0px)) !important;
+  padding-right: max(6px, env(safe-area-inset-right, 0px)) !important;
+  box-sizing: border-box !important;
+}
+
+html[data-tepiha-operational-fullscreen="1"] [data-tepiha-route-wide="1"] {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  box-sizing: border-box !important;
+}
+
+html[data-tepiha-operational-fullscreen="1"] .arka-shell,
+html[data-tepiha-operational-fullscreen="1"] .arka-container,
+html[data-tepiha-operational-fullscreen="1"] .bonusPage,
+html[data-tepiha-operational-fullscreen="1"] .bonusShell,
+html[data-tepiha-operational-fullscreen="1"] .wrap {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  box-sizing: border-box !important;
+}
+
+html[data-tepiha-operational-fullscreen="1"] .arka-shell,
+html[data-tepiha-operational-fullscreen="1"] .arka-container {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+html[data-tepiha-operational-fullscreen="1"] [data-tepiha-route-page="1"] > [style*="width: min("],
+html[data-tepiha-operational-fullscreen="1"] [data-tepiha-route-page="1"] > [style*="width:min("],
+html[data-tepiha-operational-fullscreen="1"] [data-tepiha-route-page="1"] > .bonusShell {
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}

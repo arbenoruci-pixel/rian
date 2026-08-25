@@ -8,6 +8,7 @@ import {
   BASE_READY_BONUS_WINDOW_HOURS,
   canManageBaseReadyBonuses,
   getBaseReadyBonusSummary,
+  getBaseBonusOpportunities,
   isBaseReadyBonusWorkerRole,
 } from '@/lib/baseReadyBonusClient';
 import useRouteAlive from '@/lib/routeAlive';
@@ -116,6 +117,8 @@ export default function ArkaBonusetPage() {
   const [dateKey, setDateKey] = useState(() => todayKey());
   const [workerPin, setWorkerPin] = useState('ALL');
   const [summary, setSummary] = useState(null);
+  const [opportunities, setOpportunities] = useState(null);
+  // BONUS_OPPORTUNITIES_72H_V1:PAGE
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastLiveAt, setLastLiveAt] = useState('');
@@ -139,14 +142,18 @@ export default function ArkaBonusetPage() {
     setError('');
     try {
       const target = canManage ? (workerPin || 'ALL') : String(actor.pin);
-      const data = await getBaseReadyBonusSummary({
-        actorPin: actor.pin,
-        workerPin: target,
-        date: dateKey,
-        allowCache: true,
-      });
+      const [data, opportunityData] = await Promise.all([
+        getBaseReadyBonusSummary({
+          actorPin: actor.pin,
+          workerPin: target,
+          date: dateKey,
+          allowCache: true,
+        }),
+        getBaseBonusOpportunities({ actorPin: actor.pin }),
+      ]);
       setSummary(data);
-      setLastLiveAt(data?.generated_at || new Date().toISOString());
+      setOpportunities(opportunityData);
+      setLastLiveAt(data?.generated_at || opportunityData?.generated_at || new Date().toISOString());
     } catch (e) {
       setError(String(e?.message || e || 'NUK U NGARKUA BONUSI 48H.'));
     } finally {
@@ -178,18 +185,20 @@ export default function ArkaBonusetPage() {
   const totals = summary?.totals || {};
   const workers = Array.isArray(summary?.workers) ? summary.workers : [];
   const rows = Array.isArray(summary?.rows) ? summary.rows : [];
+  const opportunityRows = Array.isArray(opportunities?.rows) ? opportunities.rows : [];
+  const windowHours = Number(opportunities?.config?.window_hours || summary?.config?.window_hours || BASE_READY_BONUS_WINDOW_HOURS) || BASE_READY_BONUS_WINDOW_HOURS;
   const selectedWorker = useMemo(() => workers.find((row) => String(row?.pin) === String(workerPin)) || null, [workers, workerPin]);
   const visibleTotals = selectedWorker || totals;
 
   if (!actor?.pin) {
     return (
-      <div className="bonusPage"><div className="bonusShell"><h1>BONUSI 48H</h1><div className="bonusError">HYR NË APP PËR TA HAPUR KËTË FAQE.</div><Link href="/login" className="bonusBtn">LOGIN</Link></div></div>
+      <div className="bonusPage"><div className="bonusShell"><h1>BONUSI {windowHours}H</h1><div className="bonusError">HYR NË APP PËR TA HAPUR KËTË FAQE.</div><Link href="/login" className="bonusBtn">LOGIN</Link></div></div>
     );
   }
 
   if (!allowed) {
     return (
-      <div className="bonusPage"><div className="bonusShell"><h1>BONUSI 48H</h1><div className="bonusError">KJO PAMJE ËSHTË PËR PUNËTORËT E BAZËS DHE DISPATCH.</div><Link href="/arka" className="bonusBtn">KTHEHU NË ARKË</Link></div></div>
+      <div className="bonusPage"><div className="bonusShell"><h1>BONUSI {windowHours}H</h1><div className="bonusError">KJO PAMJE ËSHTË PËR PUNËTORËT E BAZËS DHE DISPATCH.</div><Link href="/arka" className="bonusBtn">KTHEHU NË ARKË</Link></div></div>
     );
   }
 
@@ -199,8 +208,8 @@ export default function ArkaBonusetPage() {
         <header className="bonusHeader">
           <div>
             <div className="bonusEyebrow">ARKA • BAZA</div>
-            <h1>BONUSI 48H</h1>
-            <p>{BASE_READY_BONUS_RATE_M2.toFixed(2)}€ për m² • porosia BAZA • GATI brenda {BASE_READY_BONUS_WINDOW_HOURS} orëve • bonus në pagesën e plotë</p>
+            <h1>BONUSI {windowHours}H</h1>
+            <p>{BASE_READY_BONUS_RATE_M2.toFixed(2)}€ për m² • porosia BAZA • pagesa e plotë brenda {windowHours} orëve</p>
           </div>
           <div className="bonusNav">
             <Link href="/arka" className="bonusBtn ghost">ARKA</Link>
@@ -243,11 +252,46 @@ export default function ArkaBonusetPage() {
               </section>
             ) : null}
 
+            {dateKey === todayKey() ? (
+              <section className="bonusPanel">
+                <div className="bonusPanelHead">
+                  <div>
+                    <h2>MUNDËSITË PËR BONUS</h2>
+                    <p>Klientët që ende mund ta kapin bonusin. Renditen sipas kohës që u ka mbetur.</p>
+                  </div>
+                  <div className="bonusCount">{opportunityRows.length} KLIENTË</div>
+                </div>
+                <div className="bonusRows">
+                  {opportunityRows.length ? opportunityRows.map((row) => {
+                    const hours = Math.max(0, Number(row?.hours_left || 0));
+                    const urgent = hours <= 6;
+                    return (
+                      <article key={`opportunity_${row.order_id}`} className="bonusRow">
+                        <div className="bonusRowTop">
+                          <div>
+                            <div className="bonusOrder">#{row.order_code || '—'} — {String(row.client_name || 'KLIENT').toUpperCase()}</div>
+                            <div className="bonusSmall">STATUS {String(row.status || '—').toUpperCase()} • AFATI {stamp(row.deadline_at)}</div>
+                          </div>
+                          <div className={`bonusStatus ${urgent ? 'bad' : hours <= 18 ? 'warn' : 'ok'}`}>{hours.toFixed(1)}h MBETUR</div>
+                        </div>
+                        <div className="bonusRowGrid">
+                          <div><span>METRA</span><b>{m2(row.m2)}</b></div>
+                          <div><span>BONUSI</span><b>{euro(row.potential_bonus)}</b></div>
+                          <div><span>BORXHI</span><b>{euro(row.debt)}</b></div>
+                          <div><span>AFATI</span><b>{hours.toFixed(1)}h</b></div>
+                        </div>
+                      </article>
+                    );
+                  }) : <div className="bonusEmpty">S’KA KLIENTË AKTIVË BRENDA AFATIT TË BONUSIT.</div>}
+                </div>
+              </section>
+            ) : null}
+
             <section className="bonusPanel">
               <div className="bonusPanelHead">
                 <div>
                   <h2>{selectedWorker ? String(selectedWorker.name || selectedWorker.pin).toUpperCase() : canManage ? 'POROSITË E DITËS' : String(actor?.name || 'POROSITË E MIA').toUpperCase()}</h2>
-                  <p>Bonusi i takon PIN-it që regjistron pagesën që e mbyll porosinë. GATI brenda 48 orëve mbetet kushti i kualifikimit.</p>
+                  <p>Bonusi i takon PIN-it që regjistron pagesën që e mbyll porosinë. Pagesa e plotë brenda afatit aktiv të bonusit e kualifikon porosinë.</p>
                 </div>
                 <div className="bonusCount">{rows.length} RRESHTA</div>
               </div>
@@ -277,7 +321,7 @@ export default function ArkaBonusetPage() {
             <section className="bonusInfo">
               <b>SI FUNKSIONON</b>
               <span>Vetëm porositë BAZA. Transporti nuk hyn në këtë bonus.</span>
-              <span>Një porosi paguhet vetëm një herë. PIN-i që regjistron pagesën e plotë merr 0.10€ për m² kur porosia është bërë GATI brenda 48 orëve.</span>
+              <span>Një porosi paguhet vetëm një herë. PIN-i që regjistron pagesën e plotë merr 0.10€ për m² kur pagesa bëhet brenda afatit aktiv të bonusit.</span>
               <span>Bonusi shfaqet pasi pagesa e mbyll porosinë. Shuma “MUNDESH ME MBAJT” zbritet automatikisht nga cash-i që i dërgohet Dispatch dhe teprica bartet për dorëzimin tjetër.</span>
             </section>
           </>
@@ -285,10 +329,12 @@ export default function ArkaBonusetPage() {
       </div>
 
       <style>{`
-        .bonusPage{min-height:100vh;background:#05070d;color:#f8fafc;padding:14px 8px 90px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.bonusShell{width:min(840px,100%);margin:0 auto}.bonusHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:14px;border:1px solid rgba(96,165,250,.28);border-radius:20px;background:linear-gradient(145deg,rgba(30,64,175,.24),rgba(15,23,42,.92));box-shadow:0 18px 50px rgba(0,0,0,.35)}.bonusEyebrow{font-size:10px;font-weight:1000;letter-spacing:.17em;color:#93c5fd}.bonusHeader h1{margin:5px 0 4px;font-size:30px;line-height:1;font-weight:1000}.bonusHeader p,.bonusPanel p{margin:0;color:#94a3b8;font-size:12px;line-height:1.4;font-weight:750}.bonusNav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}.bonusBtn,.bonusDateBar button,.bonusWorkerAll{border:1px solid rgba(96,165,250,.4);border-radius:12px;background:#2563eb;color:#fff;text-decoration:none;padding:10px 12px;font-size:11px;font-weight:1000;cursor:pointer}.bonusBtn.ghost{background:rgba(15,23,42,.7);border-color:rgba(148,163,184,.25)}.bonusDateBar{display:grid;grid-template-columns:42px 1fr 42px minmax(130px,180px);gap:6px;margin:10px 0}.bonusDateBar button,.bonusDateBar input{min-height:42px;border-radius:12px;border:1px solid rgba(148,163,184,.24);background:#0f172a;color:#fff;font-weight:900;padding:8px}.bonusDateBar .dateMain{background:rgba(30,64,175,.25)}.bonusOffline,.bonusLive,.bonusError,.bonusLoading{padding:10px 12px;border-radius:12px;margin-bottom:9px;font-size:11px;font-weight:900}.bonusOffline{background:rgba(245,158,11,.13);border:1px solid rgba(245,158,11,.3);color:#fde68a}.bonusLive{background:rgba(34,197,94,.10);border:1px solid rgba(34,197,94,.24);color:#bbf7d0}.bonusError{background:rgba(239,68,68,.13);border:1px solid rgba(239,68,68,.32);color:#fecaca}.bonusLoading{background:rgba(59,130,246,.12);color:#bfdbfe}.bonusStats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin-bottom:10px}.bonusStat{padding:11px;border:1px solid rgba(148,163,184,.18);border-radius:15px;background:rgba(15,23,42,.82);min-width:0}.bonusStat.ok{border-color:rgba(34,197,94,.34);background:rgba(22,101,52,.18)}.bonusStat.info{border-color:rgba(59,130,246,.34)}.bonusStat.strong{border-color:rgba(250,204,21,.42);background:rgba(113,63,18,.22)}.bonusStat.warn{border-color:rgba(245,158,11,.34)}.bonusStatLabel{font-size:9px;font-weight:1000;letter-spacing:.08em;color:#94a3b8}.bonusStatValue{margin-top:4px;font-size:22px;line-height:1;font-weight:1000;white-space:nowrap}.bonusStatSub{margin-top:6px;font-size:9px;line-height:1.25;color:#94a3b8;font-weight:750}.bonusPanel{padding:12px;border:1px solid rgba(148,163,184,.18);border-radius:17px;background:rgba(15,23,42,.76);margin-bottom:10px}.bonusPanelHead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}.bonusPanel h2{margin:0 0 3px;font-size:15px;font-weight:1000}.bonusWorkerAll{background:rgba(51,65,85,.76)}.bonusWorkerAll.active{background:#2563eb}.bonusWorkerList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.bonusWorkerCard{display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left;padding:10px;border-radius:14px;border:1px solid rgba(148,163,184,.18);background:rgba(2,6,23,.55);color:#fff;cursor:pointer}.bonusWorkerCard.active{border-color:#60a5fa;background:rgba(30,64,175,.25)}.bonusWorkerName{font-size:12px;font-weight:1000}.bonusSmall{margin-top:3px;font-size:9.5px;color:#94a3b8;font-weight:800}.bonusWorkerMoney{text-align:right;display:grid;gap:3px}.bonusWorkerMoney b{font-size:16px}.bonusWorkerMoney span{font-size:8px;color:#fde68a;font-weight:900}.bonusCount{padding:5px 8px;border-radius:999px;background:rgba(96,165,250,.15);color:#bfdbfe;font-size:9px;font-weight:1000}.bonusRows{display:grid;gap:7px}.bonusRow{padding:11px;border-radius:14px;border:1px solid rgba(148,163,184,.16);background:rgba(2,6,23,.54)}.bonusRowTop{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}.bonusOrder{font-size:13px;font-weight:1000}.bonusStatus{padding:4px 7px;border-radius:999px;font-size:8px;font-weight:1000;white-space:nowrap}.bonusStatus.ok{background:rgba(34,197,94,.17);color:#bbf7d0}.bonusStatus.warn{background:rgba(245,158,11,.17);color:#fde68a}.bonusStatus.info{background:rgba(59,130,246,.17);color:#bfdbfe}.bonusStatus.bad{background:rgba(239,68,68,.17);color:#fecaca}.bonusStatus.muted{background:rgba(100,116,139,.17);color:#cbd5e1}.bonusRowGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:9px}.bonusRowGrid>div{padding:7px;border-radius:10px;background:rgba(15,23,42,.82);display:grid;gap:3px}.bonusRowGrid span{font-size:8px;color:#94a3b8;font-weight:1000}.bonusRowGrid b{font-size:12px}.bonusReason{margin-top:7px;color:#fca5a5;font-size:9px;font-weight:800}.bonusEmpty{padding:20px;text-align:center;color:#94a3b8;font-size:11px;font-weight:900}.bonusInfo{display:grid;gap:5px;padding:12px;border-radius:15px;border:1px solid rgba(250,204,21,.22);background:rgba(113,63,18,.13);font-size:10px;line-height:1.4;color:#fde68a}.bonusInfo b{font-size:11px}.bonusInfo span{color:#d6d3d1}@media(max-width:700px){.bonusHeader{display:grid}.bonusNav{justify-content:flex-start}.bonusStats{grid-template-columns:repeat(2,minmax(0,1fr))}.bonusStat.strong{grid-column:1/-1}.bonusWorkerList{grid-template-columns:1fr}.bonusRowGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:430px){.bonusPage{padding-left:5px;padding-right:5px}.bonusDateBar{grid-template-columns:38px 1fr 38px}.bonusDateBar input{grid-column:1/-1}.bonusHeader h1{font-size:26px}.bonusStatValue{font-size:20px}}
+        .bonusPage{min-height:100vh;background:#05070d;color:#f8fafc;padding:14px 8px 90px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.bonusShell{width:100%;max-width:none;margin:0}.bonusHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:14px;border:1px solid rgba(96,165,250,.28);border-radius:20px;background:linear-gradient(145deg,rgba(30,64,175,.24),rgba(15,23,42,.92));box-shadow:0 18px 50px rgba(0,0,0,.35)}.bonusEyebrow{font-size:10px;font-weight:1000;letter-spacing:.17em;color:#93c5fd}.bonusHeader h1{margin:5px 0 4px;font-size:30px;line-height:1;font-weight:1000}.bonusHeader p,.bonusPanel p{margin:0;color:#94a3b8;font-size:12px;line-height:1.4;font-weight:750}.bonusNav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}.bonusBtn,.bonusDateBar button,.bonusWorkerAll{border:1px solid rgba(96,165,250,.4);border-radius:12px;background:#2563eb;color:#fff;text-decoration:none;padding:10px 12px;font-size:11px;font-weight:1000;cursor:pointer}.bonusBtn.ghost{background:rgba(15,23,42,.7);border-color:rgba(148,163,184,.25)}.bonusDateBar{display:grid;grid-template-columns:42px 1fr 42px minmax(130px,180px);gap:6px;margin:10px 0}.bonusDateBar button,.bonusDateBar input{min-height:42px;border-radius:12px;border:1px solid rgba(148,163,184,.24);background:#0f172a;color:#fff;font-weight:900;padding:8px}.bonusDateBar .dateMain{background:rgba(30,64,175,.25)}.bonusOffline,.bonusLive,.bonusError,.bonusLoading{padding:10px 12px;border-radius:12px;margin-bottom:9px;font-size:11px;font-weight:900}.bonusOffline{background:rgba(245,158,11,.13);border:1px solid rgba(245,158,11,.3);color:#fde68a}.bonusLive{background:rgba(34,197,94,.10);border:1px solid rgba(34,197,94,.24);color:#bbf7d0}.bonusError{background:rgba(239,68,68,.13);border:1px solid rgba(239,68,68,.32);color:#fecaca}.bonusLoading{background:rgba(59,130,246,.12);color:#bfdbfe}.bonusStats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin-bottom:10px}.bonusStat{padding:11px;border:1px solid rgba(148,163,184,.18);border-radius:15px;background:rgba(15,23,42,.82);min-width:0}.bonusStat.ok{border-color:rgba(34,197,94,.34);background:rgba(22,101,52,.18)}.bonusStat.info{border-color:rgba(59,130,246,.34)}.bonusStat.strong{border-color:rgba(250,204,21,.42);background:rgba(113,63,18,.22)}.bonusStat.warn{border-color:rgba(245,158,11,.34)}.bonusStatLabel{font-size:9px;font-weight:1000;letter-spacing:.08em;color:#94a3b8}.bonusStatValue{margin-top:4px;font-size:22px;line-height:1;font-weight:1000;white-space:nowrap}.bonusStatSub{margin-top:6px;font-size:9px;line-height:1.25;color:#94a3b8;font-weight:750}.bonusPanel{padding:12px;border:1px solid rgba(148,163,184,.18);border-radius:17px;background:rgba(15,23,42,.76);margin-bottom:10px}.bonusPanelHead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}.bonusPanel h2{margin:0 0 3px;font-size:15px;font-weight:1000}.bonusWorkerAll{background:rgba(51,65,85,.76)}.bonusWorkerAll.active{background:#2563eb}.bonusWorkerList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.bonusWorkerCard{display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left;padding:10px;border-radius:14px;border:1px solid rgba(148,163,184,.18);background:rgba(2,6,23,.55);color:#fff;cursor:pointer}.bonusWorkerCard.active{border-color:#60a5fa;background:rgba(30,64,175,.25)}.bonusWorkerName{font-size:12px;font-weight:1000}.bonusSmall{margin-top:3px;font-size:9.5px;color:#94a3b8;font-weight:800}.bonusWorkerMoney{text-align:right;display:grid;gap:3px}.bonusWorkerMoney b{font-size:16px}.bonusWorkerMoney span{font-size:8px;color:#fde68a;font-weight:900}.bonusCount{padding:5px 8px;border-radius:999px;background:rgba(96,165,250,.15);color:#bfdbfe;font-size:9px;font-weight:1000}.bonusRows{display:grid;gap:7px}.bonusRow{padding:11px;border-radius:14px;border:1px solid rgba(148,163,184,.16);background:rgba(2,6,23,.54)}.bonusRowTop{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}.bonusOrder{font-size:13px;font-weight:1000}.bonusStatus{padding:4px 7px;border-radius:999px;font-size:8px;font-weight:1000;white-space:nowrap}.bonusStatus.ok{background:rgba(34,197,94,.17);color:#bbf7d0}.bonusStatus.warn{background:rgba(245,158,11,.17);color:#fde68a}.bonusStatus.info{background:rgba(59,130,246,.17);color:#bfdbfe}.bonusStatus.bad{background:rgba(239,68,68,.17);color:#fecaca}.bonusStatus.muted{background:rgba(100,116,139,.17);color:#cbd5e1}.bonusRowGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:9px}.bonusRowGrid>div{padding:7px;border-radius:10px;background:rgba(15,23,42,.82);display:grid;gap:3px}.bonusRowGrid span{font-size:8px;color:#94a3b8;font-weight:1000}.bonusRowGrid b{font-size:12px}.bonusReason{margin-top:7px;color:#fca5a5;font-size:9px;font-weight:800}.bonusEmpty{padding:20px;text-align:center;color:#94a3b8;font-size:11px;font-weight:900}.bonusInfo{display:grid;gap:5px;padding:12px;border-radius:15px;border:1px solid rgba(250,204,21,.22);background:rgba(113,63,18,.13);font-size:10px;line-height:1.4;color:#fde68a}.bonusInfo b{font-size:11px}.bonusInfo span{color:#d6d3d1}@media(max-width:700px){.bonusHeader{display:grid}.bonusNav{justify-content:flex-start}.bonusStats{grid-template-columns:repeat(2,minmax(0,1fr))}.bonusStat.strong{grid-column:1/-1}.bonusWorkerList{grid-template-columns:1fr}.bonusRowGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:430px){.bonusPage{padding-left:5px;padding-right:5px}.bonusDateBar{grid-template-columns:38px 1fr 38px}.bonusDateBar input{grid-column:1/-1}.bonusHeader h1{font-size:26px}.bonusStatValue{font-size:20px}}
       `}</style>
     </div>
   );
 }
 
 // BASE_PAYMENT_48H_BONUS_V2:BONUS_PAGE
+
+// BONUS_72H_RUNTIME_COMPAT: GATI brenda 48 orëve mbetet kushti i kualifikimit.

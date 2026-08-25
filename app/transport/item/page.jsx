@@ -8,6 +8,7 @@ import { fetchRackMapFromDb, normalizeRackSlots } from "@/lib/rackLocations";
 import { getTransportSession } from "@/lib/transportAuth";
 import { getActor } from '@/lib/actorSession';
 import { fetchTransportOrderById, fetchTransportOrderByCode, updateTransportOrderById } from "@/lib/transportOrdersDb";
+import { supabase } from "@/lib/supabaseClient";
 import { buildSmsLink, normalizePhoneForWhatsApp } from "@/lib/smartSms";
 
 function V33PageOpenFallback() {
@@ -294,6 +295,57 @@ function openChannel(kind, row, msgType = "pickup_default") {
   window.open(`viber://chat?number=%2B${phone}&text=${txt}`, "_blank");
 }
 
+
+// HOME_SEARCH_QUERY_AUTHORITY_TRANSPORT_GUARD_V4
+function isPlainNumericRouteValue(value) {
+  return /^\d+$/.test(String(value || '').trim());
+}
+
+function baseStatusRoute(status) {
+  const value = String(status || '').trim().toLowerCase();
+  if (value === 'gati') return '/gati';
+  if (['dorzim', 'dorezim', 'dorëzim', 'dorzuar', 'dorezuar', 'delivered', 'delivery', 'marrje', 'completed', 'kompletuar'].includes(value)) return '/marrje-sot';
+  return '/pastrimi';
+}
+
+function buildBaseGuardHref(order) {
+  const id = String(order?.id || '').trim();
+  const code = String(order?.code ?? order?.client_code ?? '').replace(/^#+/, '').trim();
+  const params = new URLSearchParams();
+  if (code) params.set('q', code);
+  if (code) params.set('openCode', code);
+  if (id) params.set('openId', id);
+  params.set('exact', '1');
+  params.set('from', 'transport_numeric_guard');
+  return baseStatusRoute(order?.status) + '?' + params.toString();
+}
+
+async function findBaseOrderForNumericTransportLink({ id, code }) {
+  let row = null;
+  const numericId = isPlainNumericRouteValue(id) ? Number(id) : null;
+  const numericCode = isPlainNumericRouteValue(code) ? Number(code) : null;
+
+  if (Number.isFinite(numericId) && numericId > 0) {
+    const byId = await supabase.from('orders').select('id,code,client_code,status,updated_at').eq('id', numericId).limit(1).maybeSingle();
+    if (byId?.error) throw byId.error;
+    if (byId?.data) row = byId.data;
+  }
+
+  if (!row && Number.isFinite(numericCode) && numericCode > 0) {
+    const byCode = await supabase
+      .from('orders')
+      .select('id,code,client_code,status,updated_at')
+      .eq('code', numericCode)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (byCode?.error) throw byCode.error;
+    if (byCode?.data) row = byCode.data;
+  }
+
+  return row;
+}
+
 function nextForStatus(st) {
   const s = String(st || "").toLowerCase();
   if (["dispatched", "assigned", "new", "inbox", "pranim", "accepted"].includes(s)) return { label: "PRANO", to: "pickup" };
@@ -342,6 +394,32 @@ function TransportItemPageInner() {
     setLoading(true);
     setErr("");
     try {
+      // A Transport order is identified by a UUID or an explicit T-code. Plain
+      // numbers belong to BASE. This destination-side guard protects users even
+      // when an older cached Home bundle sends a stale /transport/item link.
+      if (isPlainNumericRouteValue(id) || isPlainNumericRouteValue(codeParam)) {
+        const baseOrder = await findBaseOrderForNumericTransportLink({ id, code: codeParam });
+        if (baseOrder) {
+          const href = buildBaseGuardHref(baseOrder);
+          try {
+            localStorage.setItem('tepiha_transport_numeric_guard_last_v1', JSON.stringify({
+              at: new Date().toISOString(),
+              id,
+              codeParam,
+              baseOrderId: baseOrder.id,
+              baseCode: baseOrder.code,
+              baseStatus: baseOrder.status,
+              href,
+            }));
+          } catch {}
+          router.replace(href);
+          return;
+        }
+        setRow(null);
+        setErr("KODI PA T I TAKON BAZËS. KËRKOJE NGA HOME ME NUMËR; TRANSPORTI KËRKON T-CODE.");
+        return;
+      }
+
       const t = id ? await fetchTransportOrderById(id) : await fetchTransportOrderByCode(codeParam);
       if (t) {
         setRow({ ...t, __src: "transport_orders" });
