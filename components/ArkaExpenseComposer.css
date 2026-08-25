@@ -53,6 +53,9 @@
 .arkaExpenseAmountWrap input::placeholder{color:rgba(187,247,208,.28)}
 .arkaExpenseQuickAmounts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
 .arkaExpenseQuickAmounts button.active{border-color:rgba(34,197,94,.50);background:rgba(22,163,74,.18);color:#dcfce7}
+.arkaExpenseDateChoice{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.arkaExpenseDateChoice button{min-height:46px;border-radius:13px;border:1px solid rgba(148,163,184,.18);background:rgba(2,6,23,.46);color:#cbd5e1;font-size:11px;font-weight:1000;letter-spacing:.08em;touch-action:manipulation}
+.arkaExpenseDateChoice button.active{border-color:rgba(59,130,246,.58);background:rgba(37,99,235,.22);color:#dbeafe}
 .arkaExpenseComposerError{padding:11px 12px;border-radius:15px;border:1px solid rgba(248,113,113,.36);background:rgba(127,29,29,.30);color:#fecaca;font-size:11px;line-height:1.4;font-weight:900;letter-spacing:.04em}
 .arkaExpensePreview{display:grid;gap:0;border-radius:18px;border:1px solid rgba(148,163,184,.14);background:rgba(2,6,23,.54);overflow:hidden}
 .arkaExpensePreviewTitle{padding:11px 12px;border-bottom:1px solid rgba(148,163,184,.12);font-size:10px;font-weight:1000;letter-spacing:.14em;color:#93c5fd}

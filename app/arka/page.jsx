@@ -2277,6 +2277,7 @@ export default function ArkaPageV3() {
   const [expenseFormOpen, setExpenseFormOpen] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
+  const [expenseDateKey, setExpenseDateKey] = useState(() => formatBelgradeDateKey(new Date()));
   const [expenseRequestType, setExpenseRequestType] = useState('BUSINESS_EXPENSE');
   const [expenseBeneficiaryPin, setExpenseBeneficiaryPin] = useState('');
   const [expenseBeneficiaryName, setExpenseBeneficiaryName] = useState('');
@@ -3120,6 +3121,7 @@ export default function ArkaPageV3() {
         actor,
         amount,
         note: buildExpenseRequestNote(title, request),
+        expenseDateKey,
         workerPin: actor?.pin,
         workerName: actor?.name,
         workerRole: actor?.role,
@@ -3128,6 +3130,7 @@ export default function ArkaPageV3() {
 
       setExpenseTitle('');
       setExpenseAmount('');
+      setExpenseDateKey(formatBelgradeDateKey(new Date()));
       setExpenseRequestType('BUSINESS_EXPENSE');
       setExpenseBeneficiaryPin('');
       setExpenseBeneficiaryName('');
@@ -3653,6 +3656,9 @@ export default function ArkaPageV3() {
             actor={actor}
             title={expenseTitle}
             amount={expenseAmount}
+            dateKey={expenseDateKey}
+            todayKey={formatBelgradeDateKey(new Date())}
+            yesterdayKey={addDaysToDateKey(formatBelgradeDateKey(new Date()), -1)}
             requestType={expenseRequestType}
             beneficiaryPin={expenseBeneficiaryPin}
             beneficiaryName={expenseBeneficiaryName}
@@ -3664,6 +3670,10 @@ export default function ArkaPageV3() {
             }}
             onAmountChange={(value) => {
               setExpenseAmount(value);
+              setExpenseFormError('');
+            }}
+            onDateChange={(value) => {
+              setExpenseDateKey(value);
               setExpenseFormError('');
             }}
             onRequestTypeChange={(value) => {

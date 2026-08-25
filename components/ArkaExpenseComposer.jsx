@@ -46,6 +46,9 @@ export default function ArkaExpenseComposer({
   actor = null,
   title = '',
   amount = '',
+  dateKey = '',
+  todayKey = '',
+  yesterdayKey = '',
   requestType = 'BUSINESS_EXPENSE',
   beneficiaryPin = '',
   beneficiaryName = '',
@@ -53,6 +56,7 @@ export default function ArkaExpenseComposer({
   error = '',
   onTitleChange,
   onAmountChange,
+  onDateChange,
   onRequestTypeChange,
   onBeneficiaryChange,
   onClose,
@@ -335,6 +339,28 @@ export default function ArkaExpenseComposer({
             </div>
           </section>
 
+          <section className="arkaExpenseStep compact">
+            <div className="arkaExpenseStepTitle"><b>DATA E SHPENZIMIT</b></div>
+            <div className="arkaExpenseDateChoice">
+              <button
+                type="button"
+                className={dateKey === todayKey ? 'active' : ''}
+                onClick={() => onDateChange?.(todayKey)}
+                disabled={busy}
+              >
+                SOT
+              </button>
+              <button
+                type="button"
+                className={dateKey === yesterdayKey ? 'active' : ''}
+                onClick={() => onDateChange?.(yesterdayKey)}
+                disabled={busy}
+              >
+                DJE
+              </button>
+            </div>
+          </section>
+
           {error ? <div className="arkaExpenseComposerError" role="alert">{error}</div> : null}
 
           <section className="arkaExpensePreview">
@@ -342,6 +368,7 @@ export default function ArkaExpenseComposer({
             <div><span>TIPI</span><b>{isBusiness ? 'SHPENZIM BIZNESI' : 'PERSONAL / AVANS'}</b></div>
             {isPersonal ? <div><span>PËR</span><b>{beneficiaryLabel || '—'}</b></div> : null}
             <div><span>PËRSHKRIMI</span><b>{cleanTitle || '—'}</b></div>
+            <div><span>DATA</span><b>{dateKey === yesterdayKey ? 'DJE' : 'SOT'}</b></div>
             <div className="total"><span>SHUMA</span><b>€{formatMoney(amountNumber)}</b></div>
           </section>
         </div>
