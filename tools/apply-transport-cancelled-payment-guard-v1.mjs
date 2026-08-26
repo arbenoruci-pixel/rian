@@ -38,17 +38,20 @@ if (missing.length) {
   throw new Error(`transport cancelled-payment guard was overwritten:\n${missing.join('\n')}`);
 }
 
-// Keep this preservation check last even when older one-way installers move
-// themselves to the end of prebuild.
+// Keep the official GATI/PWA version owner last; its verifiers intentionally
+// enforce that ordering. Run this guard immediately before that final owner.
 const packagePath = 'package.json';
 const installerCommand = 'node tools/apply-transport-cancelled-payment-guard-v1.mjs';
+const finalVersionOwner = 'node tools/apply-gati-rack-save-v1.mjs';
 const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
 const prebuild = String(pkg?.scripts?.prebuild || '')
   .split('&&')
   .map((part) => part.trim())
   .filter(Boolean)
   .filter((part) => part !== installerCommand);
-prebuild.push(installerCommand);
+const finalOwnerIndex = prebuild.lastIndexOf(finalVersionOwner);
+if (finalOwnerIndex >= 0) prebuild.splice(finalOwnerIndex, 0, installerCommand);
+else prebuild.push(installerCommand);
 pkg.scripts.prebuild = prebuild.join(' && ');
 fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
 
