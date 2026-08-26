@@ -13,6 +13,7 @@ const PREVIEW_RPC = 'get_arka_daily_close_preview_v4';
 const CLOSE_RPC = 'close_arka_day_v2';
 const EXPENSE_RESOLVE_RPC = 'resolve_arka_expense_v2';
 const EXPENSE_CREATE_RPC = 'create_and_resolve_arka_expense_v2';
+const CLOSED_EXPENSE_CREATE_RPC = 'add_arka_closed_day_expense_v1';
 const CACHE_PREFIX = 'tepiha_arka_daily_close_v2:';
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const MANAGER_ROLES = new Set([
@@ -362,6 +363,10 @@ export default function ArkaDailyCloseWizard() {
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
   const [newExpenseNote, setNewExpenseNote] = useState('');
   const [newExpenseBusy, setNewExpenseBusy] = useState(false);
+  const [closedExpenseAmount, setClosedExpenseAmount] = useState('');
+  const [closedExpenseNote, setClosedExpenseNote] = useState('');
+  const [closedExpenseBusy, setClosedExpenseBusy] = useState(false);
+  const [closedExpenseMessage, setClosedExpenseMessage] = useState('');
   const [result, setResult] = useState(null);
   const initializedRef = useRef(false);
   const requestRef = useRef(0);
@@ -638,6 +643,56 @@ export default function ArkaDailyCloseWizard() {
     }
   }
 
+  async function createClosedDailyExpense() {
+    if (expenseMutationLockRef.current) return;
+    const amount = parseMoneyInput(closedExpenseAmount);
+    const description = String(closedExpenseNote || '').trim();
+    if (amount == null || amount <= 0) {
+      setError('SHKRUAJ SHUMËN E SHPENZIMIT MBI 0€.');
+      return;
+    }
+    if (description.length < 2) {
+      setError('SHKRUAJ PËRSHKRIMIN E SHPENZIMIT.');
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setError('KORRIGJIMI PAS MBYLLJES KËRKON INTERNET.');
+      return;
+    }
+
+    const stableDescription = upper(description).replace(/\s+/g, '_').slice(0, 80);
+    const idempotencyKey = `ARKA_CLOSED_DAY_EXPENSE_V1:${date}:${amount.toFixed(2)}:${stableDescription}`;
+
+    expenseMutationLockRef.current = true;
+    setClosedExpenseBusy(true);
+    setClosedExpenseMessage('');
+    setError('');
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc(CLOSED_EXPENSE_CREATE_RPC, {
+        p_actor_pin: String(actor?.pin || '').trim(),
+        p_actor_name: String(actor?.name || actor?.pin || '').trim(),
+        p_date: date,
+        p_amount: amount,
+        p_note: description,
+        p_idempotency_key: idempotencyKey,
+      });
+      if (rpcError) throw rpcError;
+      if (data?.ok !== true) throw new Error(data?.message || 'KORRIGJIMI NUK U RUAJT.');
+      setClosedExpenseMessage(`U SHTUA ${money(amount)} NË FLETËN ZYRTARE DHE U ZBRIT NGA BUXHETI.`);
+      setClosedExpenseAmount('');
+      setClosedExpenseNote('');
+      await loadPreview({ force: true });
+      try { window.dispatchEvent(new Event('arka:refresh')); } catch {}
+    } catch (err) {
+      setError(String(err?.message || err?.details || err || 'KORRIGJIMI PAS MBYLLJES DËSHTOI.'));
+      await loadPreview({ force: true });
+    } finally {
+      expenseMutationLockRef.current = false;
+      setClosedExpenseBusy(false);
+    }
+  }
+
   async function runServerCheck() {
     const counted = parseMoneyInput(countedCash);
     if (counted == null) {
@@ -785,7 +840,46 @@ export default function ArkaDailyCloseWizard() {
         ) : null}
 
         {activeReceiptCycle?.is_closed ? (
-          <Receipt cycle={activeReceiptCycle} items={activeReceiptItems} onRefresh={() => void loadPreview({ force: true })} />
+          <div style={{ display: 'grid', gap: 12 }}>
+            <Receipt cycle={activeReceiptCycle} items={activeReceiptItems} onRefresh={() => void loadPreview({ force: true })} />
+
+            <Card tone="warn">
+              <div style={{ fontSize: 14, fontWeight: 1000 }}>SHPENZIM I HARRUAR PAS MBYLLJES</div>
+              <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>
+                Përdore vetëm kur një shpenzim i kësaj dite operative është harruar gjatë mbylljes. Shpenzimi lidhet me fletën zyrtare, zbritet nga buxheti dhe nuk krijohet dy herë nëse telefoni e përsërit kërkesën.
+              </div>
+              {closedExpenseMessage ? <Alert tone="ok">{closedExpenseMessage}</Alert> : null}
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px,.45fr) minmax(0,1.55fr)', gap: 8 }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span style={{ fontSize: 10, fontWeight: 1000, color: palette.warn }}>SHUMA €</span>
+                  <input
+                    inputMode="decimal"
+                    value={closedExpenseAmount}
+                    onChange={(event) => setClosedExpenseAmount(event.target.value)}
+                    placeholder="0.00"
+                    style={{ width: '100%', boxSizing: 'border-box', border: '1px solid rgba(245,158,11,.42)', borderRadius: 12, padding: 12, background: '#0f172a', color: '#fff', fontSize: 18, fontWeight: 1000, outline: 'none' }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span style={{ fontSize: 10, fontWeight: 1000, color: palette.warn }}>PËRSHKRIMI / ARSYEJA</span>
+                  <input
+                    value={closedExpenseNote}
+                    onChange={(event) => setClosedExpenseNote(event.target.value)}
+                    placeholder="P.sh. naftë, mbeturina, material..."
+                    style={{ width: '100%', boxSizing: 'border-box', border: '1px solid rgba(245,158,11,.32)', borderRadius: 12, padding: 12, background: '#0f172a', color: '#fff', fontSize: 12, fontWeight: 800, outline: 'none' }}
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                disabled={closedExpenseBusy}
+                onClick={() => void createClosedDailyExpense()}
+                style={{ ...primaryButtonStyle, opacity: closedExpenseBusy ? .55 : 1, background: 'linear-gradient(135deg,#9a3412,#ea580c)' }}
+              >
+                {closedExpenseBusy ? 'DUKE RUAJTUR...' : 'SHTO NË MBYLLJEN ZYRTARE'}
+              </button>
+            </Card>
+          </div>
         ) : preview ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 6 }}>
