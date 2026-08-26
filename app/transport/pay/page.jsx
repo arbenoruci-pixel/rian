@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "@/lib/routerCompat.jsx";
-import { fetchTransportOrderById } from '@/lib/transportOrdersDb';
+import { fetchTransportOrderById, isTransportOrderPaymentBlocked } from '@/lib/transportOrdersDb';
 import { getTransportSession } from "@/lib/transportAuth";
 import { getActor } from '@/lib/actorSession';
 import { resolveActorPin } from '@/lib/pinIdentity';
@@ -128,6 +128,14 @@ function TransportPayPageInner() {
     try {
       const data = await fetchTransportOrderById(id);
       if (!data?.id) throw new Error("S'po e gjej porosinë.");
+      // TRANSPORT_CANCELLED_PAYMENT_GUARD_V1:PAY_LOAD
+      if (isTransportOrderPaymentBlocked(data)) {
+        throw new Error('POROSIA ËSHTË E ANULUAR. KRIJO NJË VIZITË TË RE; PAGESA U BLLOKUA.');
+      }
+      const totals = getTotals(data);
+      if (totals.m2 <= 0 || totals.total <= 0) {
+        throw new Error('POROSIA S’KA MASA OSE TOTAL TË VLEFSHËM. PAGESA U BLLOKUA.');
+      }
       setRow(data);
     } catch (e) {
       setRow(null);
@@ -145,6 +153,14 @@ function TransportPayPageInner() {
     if (saving || savingRef.current) return;
     const s = getTransportSession();
     if (!s?.transport_id) return;
+
+    // TRANSPORT_CANCELLED_PAYMENT_GUARD_V1:PAY_SAVE
+    if (isTransportOrderPaymentBlocked(row)) {
+      return alert('POROSIA ËSHTË E ANULUAR. PAGESA U BLLOKUA. KRIJO NJË VIZITË TË RE.');
+    }
+    if (t.m2 <= 0 || t.total <= 0) {
+      return alert('POROSIA S’KA MASA OSE TOTAL TË VLEFSHËM. PAGESA U BLLOKUA.');
+    }
 
     const p = Number(payToday || 0);
     if (!p || p <= 0) return alert("Shkruaj sa paguan sot.");

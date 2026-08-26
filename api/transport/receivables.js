@@ -5,6 +5,14 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ALLOWED_ROLES = new Set(['TRANSPORT', 'DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN']);
 const PRIVILEGED_ROLES = new Set(['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN']);
 const LOADED_DELIVERY_PAYMENT_STATUSES = new Set(['loaded', 'ngarkuar', 'ngarkim']);
+const TRANSPORT_PAYMENT_BLOCKED_STATUSES = new Set([
+  'cancelled', 'canceled', 'anuluar', 'annulled', 'void', 'deleted', 'removed', 'failed', 'rejected',
+]);
+
+function isTransportOrderPaymentBlocked(order) {
+  const status = String(order?.status || order?.data?.status || order?.data?.state || '').trim().toLowerCase();
+  return TRANSPORT_PAYMENT_BLOCKED_STATUSES.has(status);
+}
 
 function cleanUuid(value) {
   const clean = String(value || '').trim();
@@ -280,6 +288,7 @@ const KNOWN_RPC_BUSINESS_ERRORS = new Set([
   'TRANSPORT_CLIENT_ID_REQUIRED',
   'TRANSPORT_ORDER_CLIENT_CHANGED',
   'TRANSPORT_ORDER_HAS_NO_DEBT',
+  'TRANSPORT_ORDER_CANCELLED',
   'TRANSPORT_ORDER_NOT_FOUND',
   'TRANSPORT_ORDER_NOT_IN_DELIVERY',
 ]);
@@ -373,6 +382,11 @@ export default async function handler(req, res) {
 
     if (action === 'COLLECT_CLIENT_PAYMENT') {
       if (!orderId) return apiFail(res, 'ORDER_ID_INVALID', 400);
+      // TRANSPORT_CANCELLED_PAYMENT_GUARD_V1:API — never let a stale/deep link
+      // create cash records for an annulled visit.
+      if (isTransportOrderPaymentBlocked(authorizedOrder)) {
+        return apiFail(res, 'TRANSPORT_ORDER_CANCELLED', 409);
+      }
       const actorPin = cleanPin(body?.actorPin || body?.actor_pin);
       const amountReceived = Number(body?.amountReceived ?? body?.amount_received);
       const expectedTotalDueRaw = body?.expectedTotalDue ?? body?.expected_total_due;
