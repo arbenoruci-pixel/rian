@@ -3,6 +3,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { listOrderRecords } from "@/lib/ordersService";
 import { listClientRecords } from "@/lib/clientsService";
+import {
+  baseClientKey,
+  baseLinkIssueLabel,
+  baseOrderData,
+  baseOrderTotalEur,
+  buildBaseOrderBuckets,
+} from "@/lib/fletoreBase";
 
 function fmtDate(d) {
   if (!d) return "";
@@ -51,13 +58,8 @@ export default function FletorePage() {
   const phoneOfClient = (c) => String(c?.phone || c?.client_phone || "").trim() || "-";
 
   // --- Helpers for orders ---
-  const normCode = (v) => String(v ?? "").trim().replace(/\D+/g, "").replace(/^0+/, "");
-
   function getOrderData(o) {
-    const d = o?.data;
-    if (!d) return {};
-    if (typeof d === "object") return d;
-    try { return JSON.parse(String(d)); } catch { return {}; }
+    return baseOrderData(o);
   }
 
   function payOfOrder(o) {
@@ -119,8 +121,8 @@ export default function FletorePage() {
 
   async function loadLiveData() {
     const [clientsRaw, ordersRaw] = await Promise.all([
-      listClientRecords({ orderBy: "code", ascending: true }),
-      listOrderRecords("orders", { orderBy: "created_at", ascending: false, limit: 3000 }),
+      listClientRecords({ orderBy: "code", ascending: true, tieBreakBy: "id", tieBreakAscending: true, fetchAll: true }),
+      listOrderRecords("orders", { orderBy: "created_at", ascending: false, tieBreakBy: "id", tieBreakAscending: false, fetchAll: true }),
     ]);
 
     const clients = (clientsRaw || []).map((c) => ({
@@ -228,74 +230,80 @@ export default function FletorePage() {
   }, [pin]);
 
 
-  const { activeClients, inactiveClients } = useMemo(() => {
+  const {
+    activeClients,
+    inactiveClients,
+    activeOrderCards,
+    repairActiveOrders,
+    unlinkedActiveOrders,
+  } = useMemo(() => {
     const allClients = Array.isArray(data?.clients) ? data.clients : [];
     const allOrders = Array.isArray(data?.orders) ? data.orders : [];
     const search = String(q || "").trim().toLowerCase();
+    const buckets = buildBaseOrderBuckets(allClients, allOrders);
+    const clientSearchText = (client) => [
+      client?.code,
+      nameOfClient(client),
+      phoneOfClient(client),
+    ].map((value) => String(value || '').toLowerCase()).join(' ');
+    const orderSearchText = (order) => {
+      const orderData = getOrderData(order);
+      return [
+        order?.id,
+        order?.code,
+        order?.client_code,
+        order?.client_name,
+        order?.client_phone,
+        order?.status,
+        orderData?.client?.name,
+        orderData?.client?.phone,
+      ].map((value) => String(value || '').toLowerCase()).join(' ');
+    };
+    const matchesClient = (client) => !search
+      || clientSearchText(client).includes(search)
+      || (client?._activeOrders || []).some((order) => orderSearchText(order).includes(search));
+    const matchesEntry = (entry) => !search
+      || orderSearchText(entry?.order).includes(search)
+      || (entry?.client && clientSearchText(entry.client).includes(search));
 
-    const doneStatuses = new Set(["dorezuar", "dorëzuar", "dorzim", "dorezim", "paguar", "anuluar", "cancelled", "canceled", "failed", "deshtuar", "dështuar", "deleted", "void", "arkiv", "arkivuar"]);
+    const active = buckets.activeClients.filter(matchesClient);
+    const allActiveClientKeys = new Set(buckets.activeClients.map(baseClientKey).filter(Boolean));
+    const inactive = allClients
+      .filter((client) => !allActiveClientKeys.has(baseClientKey(client)))
+      .filter((client) => !search || clientSearchText(client).includes(search))
+      .map((client) => ({
+        ...client,
+        _lastOrder: buckets.lastOrdersByClientKey.get(baseClientKey(client)) || null,
+      }));
 
-    const ordersByClient = new Map();
-    allOrders.forEach((o) => {
-      const ccode = normCode(o?.code ?? o?.client_code);
-      if (!ccode) return;
-      if (!ordersByClient.has(ccode)) ordersByClient.set(ccode, []);
-      ordersByClient.get(ccode).push(o);
+    const linkedCards = active.flatMap((client) => {
+      const count = client?._activeOrders?.length || 0;
+      return (client?._activeOrders || []).map((order, index) => ({
+        ...client,
+        _activeOrder: order,
+        _orderPosition: index + 1,
+        _orderCount: count,
+      }));
     });
+    const unlinked = buckets.unlinkedActiveOrders.filter(matchesEntry);
+    const unlinkedCards = unlinked.map((entry) => ({
+      code: entry?.hints?.code || entry?.order?.code || '',
+      full_name: entry?.hints?.name || 'PA KLIENT',
+      phone: entry?.order?.client_phone || entry?.hints?.phone || '-',
+      _activeOrder: entry.order,
+      _linkIssue: entry.linkIssue,
+      _unlinked: true,
+      _orderPosition: 1,
+      _orderCount: 1,
+    }));
 
-    for (const [k, arr] of ordersByClient.entries()) {
-      arr.sort((a, b) => {
-        const ta = new Date(a?.created_at || 0).getTime();
-        const tb = new Date(b?.created_at || 0).getTime();
-        return tb - ta;
-      });
-      ordersByClient.set(k, arr);
-    }
-
-    const activeClientCodes = new Set();
-    const activeOrderByCode = new Map();
-    const lastOrderByCode = new Map();
-
-    for (const [ccode, arr] of ordersByClient.entries()) {
-      const last = arr[0];
-      if (last) lastOrderByCode.set(ccode, last);
-
-      const active = arr.find((o) => {
-        const s = String(o?.status || "").toLowerCase();
-        return !doneStatuses.has(s);
-      });
-      if (active) {
-        activeClientCodes.add(ccode);
-        activeOrderByCode.set(ccode, active);
-      }
-    }
-
-    const active = [];
-    const inactive = [];
-
-    allClients.forEach(c => {
-      const codeRaw = c?.code ?? "";
-      const code = String(codeRaw ?? "").toLowerCase();
-      const name = nameOfClient(c).toLowerCase();
-      const phone = phoneOfClient(c).toLowerCase();
-      
-      const matches = !search || code.includes(search) || name.includes(search) || phone.includes(search);
-      
-      if (matches) {
-        const ccode = normCode(codeRaw);
-        if (ccode && activeClientCodes.has(ccode)) {
-           const o = activeOrderByCode.get(ccode) || null;
-           const last = lastOrderByCode.get(ccode) || null;
-           active.push({ ...c, _activeOrder: o, _lastOrder: last });
-        } else {
-           const ccode = normCode(codeRaw);
-           const last = ccode ? (lastOrderByCode.get(ccode) || null) : null;
-           inactive.push({ ...c, _lastOrder: last });
-        }
-      }
-    });
-
-    return { activeClients: active, inactiveClients: inactive };
+    return {
+      activeClients: active,
+      inactiveClients: inactive,
+      activeOrderCards: [...linkedCards, ...unlinkedCards],
+      repairActiveOrders: buckets.repairActiveOrders.filter(matchesEntry),
+      unlinkedActiveOrders: unlinked,
+    };
   }, [data, q]);
 
 
@@ -339,7 +347,7 @@ export default function FletorePage() {
       </div>
 
       <div id="fletore-root">
-      {activeClients.length > 0 && (
+      {activeOrderCards.length > 0 && (
         <section style={{ marginBottom: "40px" }}>
           <h2 style={{ 
             fontSize: "22px", 
@@ -348,8 +356,30 @@ export default function FletorePage() {
             marginBottom: "15px",
             textTransform: "uppercase" 
           }}>
-            📋 Klientat në Proces ({activeClients.length})
+            📋 Klientat në Proces ({activeClients.length} klientë • {activeOrderCards.length} porosi)
           </h2>
+
+          {repairActiveOrders.length > 0 && (
+            <div style={{ marginBottom: 12, padding: 10, border: "2px solid #d97706", background: "#fffbeb", fontSize: 12, lineHeight: 1.5 }}>
+              <b>⚠️ LIDHJE QË DUHEN RIPARUAR ({repairActiveOrders.length}):</b>{' '}
+              {repairActiveOrders.map((entry) => (
+                <span key={`repair-${entry?.order?.id}`} style={{ display: "inline-block", marginRight: 10 }}>
+                  ID {entry?.order?.id || '-'} ({baseLinkIssueLabel(entry?.linkIssue)})
+                </span>
+              ))}
+            </div>
+          )}
+
+          {unlinkedActiveOrders.length > 0 && (
+            <div style={{ marginBottom: 12, padding: 10, border: "2px solid #b91c1c", background: "#fef2f2", fontSize: 12, lineHeight: 1.5 }}>
+              <b>⛔ PA KLIENT TË IDENTIFIKUAR ({unlinkedActiveOrders.length}):</b>{' '}
+              {unlinkedActiveOrders.map((entry) => (
+                <span key={`unlinked-${entry?.order?.id}`} style={{ display: "inline-block", marginRight: 10 }}>
+                  ID {entry?.order?.id || '-'} ({baseLinkIssueLabel(entry?.linkIssue)})
+                </span>
+              ))}
+            </div>
+          )}
           
           <div style={{ 
             display: "grid", 
@@ -358,8 +388,8 @@ export default function FletorePage() {
             borderTop: "2px solid #000",
             borderLeft: "2px solid #000" 
           }}>
-            {activeClients.map((c, idx) => (
-              <div key={idx} style={{ 
+            {activeOrderCards.map((c, idx) => (
+              <div key={c?._activeOrder?.id || idx} style={{
                 borderRight: "2px solid #000",
                 borderBottom: "2px solid #000",
                 padding: "12px", 
@@ -381,13 +411,19 @@ export default function FletorePage() {
                   {phoneOfClient(c)}
                 </div>
 
+                <div style={{ fontSize: "10px", fontWeight: "800", marginBottom: "7px", color: c?._unlinked ? "#b91c1c" : "#555" }}>
+                  ID POROSIE: {c?._activeOrder?.id || '-'}
+                  {c?._orderCount > 1 ? ` • ${c._orderPosition}/${c._orderCount}` : ''}
+                  {c?._unlinked ? ` • ${baseLinkIssueLabel(c?._linkIssue).toUpperCase()}` : ''}
+                </div>
+
                 {(() => {
                   const o = c?._activeOrder;
                   const pay = payOfOrder(o);
                   const status = String(o?.status || "").toUpperCase() || "-";
                   const pieces = piecesSummaryFromOrder(o);
                   const lines = orderHandLines(o);
-                  const total = Number(pay?.euro) || Number(o?.total) || 0;
+                  const total = baseOrderTotalEur(o);
                   const m2 = Number(pay?.m2) || 0;
 
                   return (

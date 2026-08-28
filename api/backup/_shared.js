@@ -1,4 +1,6 @@
 import { createAdminClientOrThrow } from '../_helpers.js';
+import { fetchAllRows } from '../_pagination.js';
+import { isBaseOrderActive, normalizeBaseCode } from '../../lib/fletoreBase.js';
 
 export function getAdmin() {
   return createAdminClientOrThrow();
@@ -101,24 +103,33 @@ export function normalizeLatestRow(row) {
 }
 
 export async function buildLivePayload(sb) {
-  const { data: clients, error: cErr } = await sb
-    .from('clients')
-    .select('id, code, full_name, first_name, last_name, phone, photo_url, created_at, updated_at')
-    .order('code', { ascending: true });
-  if (cErr) throw cErr;
-
-  const { data: orders, error: oErr } = await sb
-    .from('orders')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (oErr) throw oErr;
+  const [clients, orders] = await Promise.all([
+    fetchAllRows(sb, {
+      table: 'clients',
+      select: 'id, code, full_name, first_name, last_name, phone, photo_url, created_at, updated_at',
+      orderBy: [
+        { column: 'code', ascending: true },
+        { column: 'id', ascending: true },
+      ],
+    }),
+    fetchAllRows(sb, {
+      table: 'orders',
+      select: '*',
+      orderBy: [
+        { column: 'created_at', ascending: false },
+        { column: 'id', ascending: false },
+      ],
+    }),
+  ]);
 
   const clientsN = (clients || []).map(normalizeClient);
-  const byCode = new Map(clientsN.map((c) => [String(c.code ?? ''), c]));
+  const byId = new Map(clientsN.map((c) => [String(c?.id ?? '').trim(), c]));
+  const byCode = new Map(clientsN.map((c) => [normalizeBaseCode(c?.code), c]));
 
   const ordersN = (orders || []).map((o) => {
-    const cc = String(o?.client_code ?? o?.clientCode ?? '');
-    const c = byCode.get(cc);
+    const clientId = String(o?.client_id ?? '').trim();
+    const code = normalizeBaseCode(o?.client_code || o?.clientCode || o?.code);
+    const c = (clientId ? byId.get(clientId) : null) || (code ? byCode.get(code) : null);
     const client_name = c ? (c.name || c.full_name || '') : String(o?.client_name || o?.clientName || '');
     const client_phone = c ? String(c.phone || '') : String(o?.client_phone || o?.clientPhone || '');
     return {
@@ -128,7 +139,7 @@ export async function buildLivePayload(sb) {
     };
   });
 
-  const openOrdersCount = ordersN.filter((o) => !['dorzim', 'archived'].includes(String(o.status || '').toLowerCase())).length;
+  const openOrdersCount = ordersN.filter(isBaseOrderActive).length;
   const generatedAt = new Date().toISOString();
   return {
     id: 'live',

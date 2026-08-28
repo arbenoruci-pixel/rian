@@ -3,7 +3,6 @@ import {
   apiOk,
   createAdminClientOrThrow,
   pickEnv,
-  asObject,
   readUsers,
   normPhone,
   normalizeName,
@@ -13,8 +12,13 @@ import {
   pickClientName,
   pickClientPhone,
 } from '../_helpers.js';
+import { fetchAllRows, fetchAllRowsResult } from '../_pagination.js';
+import {
+  baseLinkIssueLabel,
+  baseOrderTotalEur,
+  buildBaseOrderBuckets,
+} from '../../lib/fletoreBase.js';
 
-const BASE_DONE = new Set(['dorezuar', 'dorëzuar', 'dorzim', 'dorezim', 'paguar', 'anuluar', 'cancelled', 'canceled', 'failed', 'deshtuar', 'dështuar', 'deleted', 'void', 'arkiv', 'arkivuar', 'done', 'completed']);
 const TRANSPORT_DONE = new Set(['dorezuar', 'dorëzuar', 'dorzim', 'dorezim', 'paguar', 'anuluar', 'cancelled', 'canceled', 'failed', 'deshtuar', 'dështuar', 'deleted', 'void', 'arkiv', 'arkivuar', 'done', 'completed']);
 
 function fmtDate(value) {
@@ -51,10 +55,6 @@ function money(value) {
   return Number.isFinite(n) ? n.toFixed(2) : '0.00';
 }
 
-function normCode(value) {
-  return String(value ?? '').trim().replace(/\D+/g, '').replace(/^0+/, '');
-}
-
 function cleanText(value, fallback = '-') {
   const s = String(value ?? '').replace(/\s+/g, ' ').trim();
   return s || fallback;
@@ -78,13 +78,7 @@ function payOfOrder(o) {
 }
 
 function totalEurFromOrder(o) {
-  const data = orderData(o);
-  const pay = payOfOrder(o);
-  const direct = Number(pay?.euro ?? pay?.total ?? data?.total ?? o?.total ?? 0);
-  if (Number.isFinite(direct) && direct > 0) return Number(direct.toFixed(2));
-  const rate = Number(pay?.price ?? pay?.rate ?? data?.price ?? 0) || 0;
-  const m2 = Number(pay?.m2 ?? data?.total_m2 ?? data?.m2 ?? 0) || 0;
-  return Number((rate * m2).toFixed(2));
+  return baseOrderTotalEur(o);
 }
 
 function rowArray(...values) {
@@ -199,9 +193,11 @@ function statusPills(counts) {
   return entries.map(([name, count]) => `<span style="display:inline-block;margin:2px 4px 2px 0;padding:4px 8px;border:1px solid #111;border-radius:999px;background:#f8fafc;font-size:11px;font-weight:800;">${escapeHtml(name)}: ${escapeHtml(count)}</span>`).join('');
 }
 
-function cardShell({ code, name, phone, status, pieces, linesHtml, total, m2, updatedAt, note, address, location }) {
+function cardShell({ code, name, phone, status, pieces, linesHtml, total, m2, updatedAt, note, address, location, orderId, linkIssue }) {
   const meta = [status, pieces].filter(Boolean).join(' • ') || '-';
   const extraRows = [
+    orderId ? `<div style="font-size:10px;margin-top:4px;"><b>ORDER ID:</b> ${escapeHtml(orderId)}</div>` : '',
+    linkIssue ? `<div style="font-size:10px;margin-top:4px;color:#b91c1c;"><b>LINKU:</b> ${escapeHtml(baseLinkIssueLabel(linkIssue))}</div>` : '',
     address ? `<div style="font-size:11px;margin-top:4px;"><b>ADRESA:</b> ${escapeHtml(address)}</div>` : '',
     location ? `<div style="font-size:11px;margin-top:4px;"><b>LOKACIONI:</b> ${escapeHtml(location)}</div>` : '',
     note ? `<div style="font-size:11px;margin-top:4px;"><b>SHËNIM:</b> ${escapeHtml(note)}</div>` : '',
@@ -222,60 +218,53 @@ function cardsGrid(cards) {
   return `${html}</tbody></table>`;
 }
 
-function buildBaseClientBuckets(clients, orders) {
-  const ordersByClient = new Map();
-  for (const o of orders || []) {
-    const d = orderData(o);
-    const client = asObject(d?.client);
-    const code = normCode(o?.code ?? o?.client_code ?? client?.code ?? d?.code);
-    if (!code) continue;
-    if (!ordersByClient.has(code)) ordersByClient.set(code, []);
-    ordersByClient.get(code).push(o);
+function baseEntryClient(entry) {
+  if (entry?.client) {
+    return {
+      ...entry.client,
+      _activeOrder: entry.order,
+      _linkIssue: entry.linkIssue || null,
+      _linkedBy: entry.linkedBy || null,
+    };
   }
-  for (const [k, arr] of ordersByClient.entries()) {
-    arr.sort((a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
-    ordersByClient.set(k, arr);
-  }
-  const activeOrderByCode = new Map();
-  const activeOrderIds = new Set();
-  for (const [code, arr] of ordersByClient.entries()) {
-    const active = arr.find((o) => !BASE_DONE.has(String(o?.status || '').toLowerCase()));
-    if (active) {
-      activeOrderByCode.set(code, active);
-      activeOrderIds.add(String(active?.id || ''));
-    }
-  }
-  const activeClients = [];
-  for (const rawClient of clients || []) {
-    const codeRaw = rawClient?.code ?? rawClient?.nr_rendor ?? rawClient?.client_code ?? '';
-    const code = normCode(codeRaw);
-    if (!code || !activeOrderByCode.has(code)) continue;
-    activeClients.push({ ...rawClient, code: codeRaw, full_name: nameOfClient(rawClient), phone: phoneOfClient(rawClient), _activeOrder: activeOrderByCode.get(code) });
-  }
-  const orphanActiveOrders = (orders || [])
-    .filter((o) => !BASE_DONE.has(String(o?.status || '').toLowerCase()))
-    .filter((o) => !activeOrderIds.has(String(o?.id || '')))
-    .map((o) => {
-      const d = orderData(o);
-      const client = asObject(d?.client);
-      return { code: o?.code || client?.code || d?.code || '', full_name: cleanText(o?.client_name || client?.name || d?.client_name || '', 'PA KLIENT'), phone: cleanText(o?.client_phone || client?.phone || d?.client_phone || '', '-'), _activeOrder: o, _orphan: true };
-    });
-  activeClients.sort((a, b) => String(a?.code || '').localeCompare(String(b?.code || ''), undefined, { numeric: true, sensitivity: 'base' }));
-  orphanActiveOrders.sort((a, b) => new Date(b?._activeOrder?.created_at || 0).getTime() - new Date(a?._activeOrder?.created_at || 0).getTime());
-  return { activeClients, orphanActiveOrders };
+  return {
+    code: entry?.hints?.code || entry?.order?.code || '',
+    full_name: entry?.hints?.name || 'PA KLIENT',
+    phone: entry?.order?.client_phone || entry?.hints?.phone || '-',
+    _activeOrder: entry?.order || null,
+    _linkIssue: entry?.linkIssue || 'MISSING_CUSTOMER_DATA',
+    _linkedBy: null,
+    _unlinked: true,
+  };
+}
+
+function flattenBaseClientOrders(clients) {
+  return (clients || []).flatMap((client) => (client?._activeOrders || []).map((order) => ({
+    ...client,
+    _activeOrder: order,
+  })));
+}
+
+function baseLinkWarningBox(entries, { title, border, background }) {
+  if (!entries?.length) return '';
+  const rows = entries.map((entry) => {
+    const client = baseEntryClient(entry);
+    return `<tr><td style="padding:5px;border-bottom:1px solid #ccc;font-weight:900;">${escapeHtml(entry?.order?.id || '-')}</td><td style="padding:5px;border-bottom:1px solid #ccc;">#${escapeHtml(client?.code || '-')}</td><td style="padding:5px;border-bottom:1px solid #ccc;">${escapeHtml(nameOfClient(client))}</td><td style="padding:5px;border-bottom:1px solid #ccc;">${escapeHtml(baseLinkIssueLabel(entry?.linkIssue) || '-')}</td></tr>`;
+  }).join('');
+  return `<section style="border:2px solid ${border};background:${background};padding:10px;margin:0 0 18px 0;"><div style="font-size:13px;font-weight:900;margin-bottom:7px;">${escapeHtml(title)} (${escapeHtml(entries.length)})</div><table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr><th style="text-align:left;padding:5px;">ORDER ID</th><th style="text-align:left;padding:5px;">KODI</th><th style="text-align:left;padding:5px;">KLIENTI</th><th style="text-align:left;padding:5px;">PROBLEMI</th></tr></thead><tbody>${rows}</tbody></table></section>`;
 }
 
 function baseClientCard(c) {
   const o = c?._activeOrder || {};
   const lines = orderHandLinesBase(o).map((line) => escapeHtml(line)).join('<br>');
-  return cardShell({ code: `#${cleanText(c?.code, '-')}`, name: nameOfClient(c), phone: phoneOfClient(c), status: String(o?.status || '').toUpperCase() || '-', pieces: piecesSummaryFromOrder(o), linesHtml: lines, total: totalEurFromOrder(o), m2: totalM2FromOrder(o), updatedAt: o?.updated_at || o?.created_at, note: orderNote(o), location: orderLocation(o) });
+  return cardShell({ code: `#${cleanText(c?.code, '-')}`, name: nameOfClient(c), phone: phoneOfClient(c), status: String(o?.status || '').toUpperCase() || '-', pieces: piecesSummaryFromOrder(o), linesHtml: lines, total: totalEurFromOrder(o), m2: totalM2FromOrder(o), updatedAt: o?.updated_at || o?.created_at, note: orderNote(o), location: orderLocation(o), orderId: o?.id, linkIssue: c?._linkIssue });
 }
 
 function transportClientCard(c) {
   const o = c?._activeOrder || {};
   const lines = orderHandLinesTransport(o);
   const linesHtml = [...(lines.lines || []).map((line) => escapeHtml(line)), ...(lines.extra || []).map((line) => `<span style="font-size:11px;">${escapeHtml(line)}</span>`)].join('<br>');
-  return cardShell({ code: cleanText(c?.code || o?.code || o?.code_str, '-'), name: nameOfClient(c), phone: phoneOfClient(c), status: String(o?.status || '').toUpperCase() || '-', pieces: piecesSummaryFromOrder(o), linesHtml, total: totalEurFromOrder(o), m2: totalM2FromOrder(o), updatedAt: o?.updated_at || o?.created_at, note: orderNote(o), address: orderAddress(o), location: orderLocation(o) });
+  return cardShell({ code: cleanText(c?.code || o?.code || o?.code_str, '-'), name: nameOfClient(c), phone: phoneOfClient(c), status: String(o?.status || '').toUpperCase() || '-', pieces: piecesSummaryFromOrder(o), linesHtml, total: totalEurFromOrder(o), m2: totalM2FromOrder(o), updatedAt: o?.updated_at || o?.created_at, note: orderNote(o), address: orderAddress(o), location: orderLocation(o), orderId: o?.id });
 }
 
 function buildFletoreSection({ title, subtitle, count, statusSummaryHtml, cardsHtml }) {
@@ -344,9 +333,34 @@ function buildBackupAttachment(payload) {
   return [{ filename: `tepiha-fletore-backup-${new Date().toISOString().slice(0, 10)}.json`, content: Buffer.from(json, 'utf8').toString('base64') }];
 }
 
-function summaryBox({ baseActiveCount, transportActiveCount, baseOrphanCount, generatedAt, transportGroups }) {
+function summaryBox({ baseClientCount, baseOrderCount, transportActiveCount, baseRepairCount, baseUnlinkedCount, generatedAt, transportGroups }) {
   const driverLines = transportGroups.map((g) => `${g.name}: ${g.activeClients.length}`).join(' • ') || 'Pa transport aktiv';
-  return `<div style="border:2px solid #000;background:#f8fafc;padding:12px;margin:14px 0 22px 0;"><div style="font-size:13px;font-weight:900;text-transform:uppercase;margin-bottom:6px;">PËRMBLEDHJE PËR BACKUP</div><div style="font-size:13px;line-height:1.55;">Gjeneruar: <b>${escapeHtml(fmtDateTime(generatedAt))}</b><br>BAZË në proces: <b>${escapeHtml(baseActiveCount)}</b><br>BAZË pa klient/link të qartë: <b>${escapeHtml(baseOrphanCount)}</b><br>TRANSPORT në proces: <b>${escapeHtml(transportActiveCount)}</b><br>Shoferët: <b>${escapeHtml(driverLines)}</b></div><div style="font-size:12px;color:#444;margin-top:8px;">Ky email është fletore backup live. Mund të forward-ohet te bazistët ose shoferët nëse app-i nuk hapet.</div></div>`;
+  return `<div style="border:2px solid #000;background:#f8fafc;padding:12px;margin:14px 0 22px 0;"><div style="font-size:13px;font-weight:900;text-transform:uppercase;margin-bottom:6px;">PËRMBLEDHJE PËR BACKUP</div><div style="font-size:13px;line-height:1.55;">Gjeneruar: <b>${escapeHtml(fmtDateTime(generatedAt))}</b><br>BAZË në proces: <b>${escapeHtml(baseClientCount)} klientë / ${escapeHtml(baseOrderCount)} porosi</b><br>BAZË me client_id për riparim: <b>${escapeHtml(baseRepairCount)}</b><br>BAZË pa klient të identifikuar: <b>${escapeHtml(baseUnlinkedCount)}</b><br>TRANSPORT në proces: <b>${escapeHtml(transportActiveCount)}</b><br>Shoferët: <b>${escapeHtml(driverLines)}</b></div><div style="font-size:12px;color:#444;margin-top:8px;">Ky email është fletore backup live. Mund të forward-ohet te bazistët ose shoferët nëse app-i nuk hapet.</div></div>`;
+}
+
+function basePayloadOrder(client, order, { linkIssue = null, linkedBy = 'client_id' } = {}) {
+  return {
+    code: client?.code || order?.code || '',
+    name: nameOfClient(client),
+    phone: phoneOfClient(client),
+    client_id: order?.client_id || '',
+    order_id: order?.id || '',
+    status: order?.status || '',
+    total_eur: totalEurFromOrder(order || {}),
+    total_m2: totalM2FromOrder(order || {}),
+    pieces: piecesSummaryFromOrder(order || {}),
+    updated_at: order?.updated_at || order?.created_at || '',
+    linked_by: linkedBy || '',
+    link_issue: linkIssue || '',
+  };
+}
+
+function basePayloadEntry(entry) {
+  const client = baseEntryClient(entry);
+  return basePayloadOrder(client, entry?.order || {}, {
+    linkIssue: entry?.linkIssue || null,
+    linkedBy: entry?.linkedBy || '',
+  });
 }
 
 export default async function handler(req, res) {
@@ -356,50 +370,103 @@ export default async function handler(req, res) {
     const to = pickEnv('BACKUP_EMAIL_TO', 'EMAIL_KU_TE_VIJE');
     if (!to) throw new Error('BACKUP_EMAIL_TO_NOT_SET');
 
-    const [baseRes, clientsRes, transportRes, transportClientsRes, users] = await Promise.all([
-      sb.from('orders').select('id,code,client_name,client_phone,status,created_at,updated_at,data,total').order('created_at', { ascending: false }).limit(5000),
-      sb.from('clients').select('*').order('code', { ascending: true }).limit(5000),
-      sb.from('transport_orders').select('id,created_at,updated_at,code_str,client_id,client_tcode,client_name,client_phone,status,data,transport_id,visit_nr,ready_at').order('created_at', { ascending: false }).limit(5000),
-      sb.from('transport_clients').select('*').order('created_at', { ascending: true }).limit(5000),
+    const [baseOrders, baseClients, transportOrders, transportClientsRes, users] = await Promise.all([
+      fetchAllRows(sb, {
+        table: 'orders',
+        select: 'id,code,client_id,client_name,client_phone,status,created_at,updated_at,data,total',
+        orderBy: [
+          { column: 'created_at', ascending: false },
+          { column: 'id', ascending: false },
+        ],
+      }),
+      fetchAllRows(sb, {
+        table: 'clients',
+        select: '*',
+        orderBy: [
+          { column: 'code', ascending: true },
+          { column: 'id', ascending: true },
+        ],
+      }),
+      fetchAllRows(sb, {
+        table: 'transport_orders',
+        select: 'id,created_at,updated_at,code_str,client_id,client_tcode,client_name,client_phone,status,data,transport_id,visit_nr,ready_at',
+        orderBy: [
+          { column: 'created_at', ascending: false },
+          { column: 'id', ascending: false },
+        ],
+      }),
+      fetchAllRowsResult(sb, {
+        table: 'transport_clients',
+        select: '*',
+        orderBy: [
+          { column: 'created_at', ascending: true },
+          { column: 'id', ascending: true },
+        ],
+      }),
       readUsers(sb),
     ]);
-    if (baseRes?.error) throw baseRes.error;
-    if (transportRes?.error) throw transportRes.error;
 
     const generatedAt = new Date().toISOString();
-    const baseOrders = Array.isArray(baseRes?.data) ? baseRes.data : [];
-    const baseClients = clientsRes?.error ? [] : (Array.isArray(clientsRes?.data) ? clientsRes.data : []);
-    const transportOrders = Array.isArray(transportRes?.data) ? transportRes.data : [];
     const transportClients = transportClientsRes?.error ? [] : (Array.isArray(transportClientsRes?.data) ? transportClientsRes.data : []);
 
-    const { activeClients: baseActiveClients, orphanActiveOrders } = buildBaseClientBuckets(baseClients, baseOrders);
-    const activeBaseOrders = [...baseActiveClients.map((c) => c?._activeOrder).filter(Boolean), ...orphanActiveOrders.map((c) => c?._activeOrder).filter(Boolean)];
+    const baseBuckets = buildBaseOrderBuckets(baseClients, baseOrders);
+    const baseActiveClients = baseBuckets.activeClients;
+    const baseOrderCards = flattenBaseClientOrders(baseActiveClients);
+    const repairActiveOrders = baseBuckets.repairActiveOrders;
+    const unlinkedActiveOrders = baseBuckets.unlinkedActiveOrders;
+    const unlinkedOrderCards = unlinkedActiveOrders.map(baseEntryClient);
+    const activeBaseOrders = [
+      ...baseBuckets.resolvedActiveOrders.map((entry) => entry.order),
+      ...unlinkedActiveOrders.map((entry) => entry.order),
+    ];
     const transportGroups = buildTransportGroups({ transportOrders, transportClients, users });
     const activeTransportOrders = transportGroups.flatMap((group) => group.activeOrders || []);
 
-    const baseSection = buildFletoreSection({ title: '📋 FLETORE BAZË — KLIENTAT NË PROCES', subtitle: 'Pamje e ngjashme me /fletore. Kjo pjesë mund të forward-ohet te bazistët.', count: baseActiveClients.length, statusSummaryHtml: statusPills(statusCounts(activeBaseOrders)), cardsHtml: cardsGrid(baseActiveClients.map(baseClientCard)) });
-    const orphanSection = orphanActiveOrders.length ? buildFletoreSection({ title: '⚠️ BAZË — POROSI PA KLIENT TË LIDHUR', subtitle: 'Këto janë aktive, por nuk u lidhën me client master në fletore. Mos i humb në rast backup-i.', count: orphanActiveOrders.length, statusSummaryHtml: '', cardsHtml: cardsGrid(orphanActiveOrders.map(baseClientCard)) }) : '';
+    const baseSection = buildFletoreSection({ title: '📋 FLETORE BAZË — KLIENTAT NË PROCES', subtitle: 'Çdo porosi aktive shfaqet veçmas dhe lidhet së pari me client_id.', count: `${baseActiveClients.length} klientë / ${baseBuckets.activeOrderCount} porosi`, statusSummaryHtml: statusPills(statusCounts(activeBaseOrders)), cardsHtml: cardsGrid(baseOrderCards.map(baseClientCard)) });
+    const repairWarning = baseLinkWarningBox(repairActiveOrders, { title: '⚠️ LIDHJE QË DUHEN RIPARUAR', border: '#d97706', background: '#fffbeb' });
+    const unlinkedWarning = baseLinkWarningBox(unlinkedActiveOrders, { title: '⛔ POROSI PA KLIENT TË IDENTIFIKUAR', border: '#b91c1c', background: '#fef2f2' });
+    const unlinkedSection = unlinkedOrderCards.length ? buildFletoreSection({ title: '⛔ BAZË — PA KLIENT TË IDENTIFIKUAR', subtitle: 'Këto porosi mbeten të dukshme, por klienti nuk mund të përcaktohet me siguri.', count: unlinkedOrderCards.length, statusSummaryHtml: '', cardsHtml: cardsGrid(unlinkedOrderCards.map(baseClientCard)) }) : '';
     const transportSections = transportGroups.map((group) => buildFletoreSection({ title: `🚚 FLETORE TRANSPORT — ${String(group?.name || 'PA CAKTUAR').toUpperCase()}`, subtitle: `ID: ${group?.id || '-'} • Pamje si /transport/fletore. Kjo pjesë mund të forward-ohet te ky shofer.`, count: group?.activeClients?.length || 0, statusSummaryHtml: statusPills(statusCounts(group?.activeOrders || [])), cardsHtml: cardsGrid((group?.activeClients || []).map(transportClientCard)) })).join('') || buildFletoreSection({ title: '🚚 FLETORE TRANSPORT', subtitle: 'Nuk ka transport aktiv.', count: 0, statusSummaryHtml: '', cardsHtml: cardsGrid([]) });
 
-    const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;max-width:1200px;margin:0 auto;padding:18px;"><div style="border-bottom:3px solid #000;margin-bottom:14px;padding-bottom:10px;"><h1 style="margin:0;font-size:25px;font-weight:900;text-transform:uppercase;">SISTEMI BACKUP — FLETORE DITORE</h1><p style="margin:5px 0 0 0;font-size:14px;color:#555;">Live nga databaza • Data: <b>${escapeHtml(fmtDate(generatedAt))}</b></p></div>${summaryBox({ baseActiveCount: baseActiveClients.length, baseOrphanCount: orphanActiveOrders.length, transportActiveCount: activeTransportOrders.length, generatedAt, transportGroups })}${baseSection}${orphanSection}${transportSections}</div>`;
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;max-width:1200px;margin:0 auto;padding:18px;"><div style="border-bottom:3px solid #000;margin-bottom:14px;padding-bottom:10px;"><h1 style="margin:0;font-size:25px;font-weight:900;text-transform:uppercase;">SISTEMI BACKUP — FLETORE DITORE</h1><p style="margin:5px 0 0 0;font-size:14px;color:#555;">Live nga databaza • Data: <b>${escapeHtml(fmtDate(generatedAt))}</b></p></div>${summaryBox({ baseClientCount: baseActiveClients.length, baseOrderCount: baseBuckets.activeOrderCount, baseRepairCount: repairActiveOrders.length, baseUnlinkedCount: unlinkedActiveOrders.length, transportActiveCount: activeTransportOrders.length, generatedAt, transportGroups })}${repairWarning}${unlinkedWarning}${baseSection}${unlinkedSection}${transportSections}</div>`;
 
     const backupPayload = {
       generated_at: generatedAt,
       base: {
         active_count: baseActiveClients.length,
-        orphan_active_count: orphanActiveOrders.length,
+        active_order_count: baseBuckets.activeOrderCount,
+        link_repair_count: repairActiveOrders.length,
+        unlinked_active_count: unlinkedActiveOrders.length,
+        orphan_active_count: unlinkedActiveOrders.length,
         status_counts: statusCounts(activeBaseOrders),
-        active_clients: baseActiveClients.map((c) => ({ code: c?.code || '', name: nameOfClient(c), phone: phoneOfClient(c), order_id: c?._activeOrder?.id || '', status: c?._activeOrder?.status || '', total_eur: totalEurFromOrder(c?._activeOrder || {}), total_m2: totalM2FromOrder(c?._activeOrder || {}), pieces: piecesSummaryFromOrder(c?._activeOrder || {}), updated_at: c?._activeOrder?.updated_at || c?._activeOrder?.created_at || '' })),
-        orphan_active_orders: orphanActiveOrders.map((c) => ({ code: c?.code || '', name: nameOfClient(c), phone: phoneOfClient(c), order_id: c?._activeOrder?.id || '', status: c?._activeOrder?.status || '', total_eur: totalEurFromOrder(c?._activeOrder || {}), total_m2: totalM2FromOrder(c?._activeOrder || {}), pieces: piecesSummaryFromOrder(c?._activeOrder || {}), updated_at: c?._activeOrder?.updated_at || c?._activeOrder?.created_at || '' })),
+        active_clients: baseActiveClients.map((client) => {
+          const activeOrders = (client?._activeOrders || []).map((order) => {
+            const entry = (client?._activeOrderLinks || []).find((candidate) => candidate?.order === order);
+            return basePayloadOrder(client, order, { linkIssue: entry?.linkIssue || null, linkedBy: entry?.linkedBy || 'client_id' });
+          });
+          return {
+            code: client?.code || '',
+            name: nameOfClient(client),
+            phone: phoneOfClient(client),
+            order_id: activeOrders[0]?.order_id || '',
+            status: activeOrders[0]?.status || '',
+            active_order_count: activeOrders.length,
+            active_orders: activeOrders,
+          };
+        }),
+        active_orders: baseBuckets.resolvedActiveOrders.map(basePayloadEntry),
+        link_repair_orders: repairActiveOrders.map(basePayloadEntry),
+        unlinked_active_orders: unlinkedActiveOrders.map(basePayloadEntry),
+        orphan_active_orders: unlinkedActiveOrders.map(basePayloadEntry),
       },
       transport: transportGroups.map((group) => ({ id: group?.id || '', name: group?.name || '', active_count: group?.activeClients?.length || 0, status_counts: statusCounts(group?.activeOrders || []), active_clients: (group?.activeClients || []).map((c) => ({ code: c?.code || '', name: nameOfClient(c), phone: phoneOfClient(c), order_id: c?._activeOrder?.id || '', status: c?._activeOrder?.status || '', total_eur: totalEurFromOrder(c?._activeOrder || {}), total_m2: totalM2FromOrder(c?._activeOrder || {}), pieces: piecesSummaryFromOrder(c?._activeOrder || {}), address: orderAddress(c?._activeOrder || {}), updated_at: c?._activeOrder?.updated_at || c?._activeOrder?.created_at || '' })) })),
-      warnings: { clients_read_failed: !!clientsRes?.error, transport_clients_read_failed: !!transportClientsRes?.error },
+      warnings: { clients_read_failed: false, transport_clients_read_failed: !!transportClientsRes?.error },
     };
 
     const attachments = buildBackupAttachment(backupPayload);
-    const subject = `Fletore ditore — BAZË ${baseActiveClients.length} / TRANSPORT ${activeTransportOrders.length} (${new Date().toISOString().slice(0, 10)})`;
+    const subject = `Fletore ditore — BAZË ${baseActiveClients.length} klientë / ${baseBuckets.activeOrderCount} porosi — TRANSPORT ${activeTransportOrders.length} (${new Date().toISOString().slice(0, 10)})`;
     const resend = await sendViaResend({ to, subject, html, attachments });
-    return apiOk(res, { sent_to: to, base_count: baseActiveClients.length, base_orphan_count: orphanActiveOrders.length, transport_count: activeTransportOrders.length, transport_groups: transportGroups.map((g) => ({ id: g.id, name: g.name, count: g.activeClients.length })), attachment_count: attachments.length, resend });
+    return apiOk(res, { sent_to: to, base_count: baseActiveClients.length, base_order_count: baseBuckets.activeOrderCount, base_link_repair_count: repairActiveOrders.length, base_unlinked_count: unlinkedActiveOrders.length, base_orphan_count: unlinkedActiveOrders.length, transport_count: activeTransportOrders.length, transport_groups: transportGroups.map((g) => ({ id: g.id, name: g.name, count: g.activeClients.length })), attachment_count: attachments.length, resend });
   } catch (error) {
     return apiFail(res, 'CRON_BACKUP_FAILED', 500, { detail: String(error?.message || error) });
   }
