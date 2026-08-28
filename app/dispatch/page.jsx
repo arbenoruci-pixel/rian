@@ -2485,8 +2485,10 @@ export default function DispatchPage() {
     setSelectedRow(row);
     setEditDate(rowPickupDate(row) || todayYmd);
     setEditSlot(rowPickupSlot(row) || "morning");
-    const pickedDriver = drivers.find((d) => String(d?.id || "") === String(row?.data?.transport_id || row?.data?.transport_user_id || ""));
-    setEditDriver(String(pickedDriver?.id || row?.data?.transport_id || row?.data?.transport_user_id || ""));
+    // Match every supported UUID/PIN/name ownership field so Dispatch can
+    // reassign older orders too, not only rows written with transport_id.
+    const pickedDriver = drivers.find((d) => rowMatchesDriver(row, d)) || null;
+    setEditDriver(pickedDriver ? driverStableId(pickedDriver) : "");
     setEditNote(s(row?.data?.note || ""));
     setEditPickupMeasurements(formatDispatchPickupPlanForInput(row));
     setSmartMessageLabel("COPY PËR KLIENT");
@@ -2499,7 +2501,7 @@ export default function DispatchPage() {
     try {
       const rowTable = getOrderTable(selectedRow);
       if (!rowTable) throw new Error("Burimi i porosisë mungon.");
-      const pickedDriver = drivers.find((d) => String(d?.id || "") === String(editDriver || "")) || null;
+      const pickedDriver = drivers.find((d) => driverStableId(d) === String(editDriver || "")) || null;
       const pickedDriverName = s(pickedDriver?.name || pickedDriver?.full_name);
       const pickedDriverPin = s(pickedDriver?.pin || pickedDriver?.user_pin);
       const nextPickupPlan = buildDispatchPickupPlan({ measurementsText: editPickupMeasurements, noteText: s(editNote), piecesHint: selectedRow?.data?.pickup_plan?.pieces || selectedRow?.data?.planned_pieces || 0 });
@@ -2552,6 +2554,11 @@ export default function DispatchPage() {
       if (assignedClientTcode) planPatch.client_tcode = assignedClientTcode;
       if (nextStatus) planPatch.status = nextStatus;
       await updateOrderRecord(rowTable, selectedRow.id, planPatch);
+      const savedCode = getDispatchCardCode(selectedRow);
+      setMsg(pickedDriver
+        ? `${savedCode} IU LIRUA ${up(pickedDriverName || pickedDriverPin || "TRANSPORTUESIT")} ✅`
+        : `${savedCode} MBETI VETËM TE DISPATCH ✅`);
+      try { window.setTimeout(() => setMsg(""), 3200); } catch {}
       setSelectedRow(null);
       await loadRows();
     } catch (e) {
@@ -2685,6 +2692,7 @@ export default function DispatchPage() {
   const selectedPhoneLink = selectedRow ? phoneHref(selectedRow) : "";
   const selectedWhatsappLink = selectedRow ? whatsappHref(selectedRow) : "";
   const selectedTransportHref = selectedRow?.id ? `/transport/board` : "/transport/board";
+  const selectedEditDriver = drivers.find((d) => driverStableId(d) === String(editDriver || "")) || null;
 
   if (!accessChecked) return <DispatchAccessScreen checking />;
   if (!accessAllowed) return <DispatchAccessScreen />;
@@ -3012,7 +3020,7 @@ Mati 1, nesër paradite, 3 tepiha`}
             ))}
           </div>
           <select style={ui.input} value={driverId} onChange={(e) => setDriverId(e.target.value)}>
-            <option style={ui.selectOption} value="">(PA SHOFER – TË GJITHË E SHOHIN INBOX)</option>
+            <option style={ui.selectOption} value="">(PA TRANSPORTUES — MBETET VETËM TE DISPATCH)</option>
             {drivers.map((d) => (
               <option style={ui.selectOption} key={String(d.id)} value={String(d.id)}>{driverDisplayName(d)}</option>
             ))}
@@ -3295,6 +3303,20 @@ Mati 1, nesër paradite, 3 tepiha`}
             </div>
 
             <div style={ui.updateSection}>
+              <div style={ui.sectionTitle}>LIROJA TRANSPORTUESIT</div>
+              <div style={ui.sectionHint}>Zgjedhe cilindo transportues aktiv. Porosia i del atij në teren, ndërsa statusi ku ka mbërritur nuk kthehet prapa.</div>
+              <div style={ui.field}>
+                <div style={ui.label}>TRANSPORTUESI QË E MERR POROSINË</div>
+                <select style={ui.input} value={editDriver} onChange={(e) => setEditDriver(e.target.value)}>
+                  <option style={ui.selectOption} value="">(PA TRANSPORTUES — MBETET VETËM TE DISPATCH)</option>
+                  {drivers.map((d) => (
+                    <option style={ui.selectOption} key={driverStableId(d)} value={driverStableId(d)}>{driverDisplayName(d)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={ui.updateSection}>
               <div style={ui.sectionTitle}>NDËRRO DATËN / ORARIN</div>
               <div style={ui.sectionHint}>Mos e anulo për datë gabim. Këtu ruhet e njëjta porosi dhe i njëjti T-code.</div>
               <div style={ui.field}>
@@ -3314,15 +3336,6 @@ Mati 1, nesër paradite, 3 tepiha`}
                     </button>
                   ))}
                 </div>
-              </div>
-              <div style={ui.field}>
-                <div style={ui.label}>SHOFERI</div>
-                <select style={ui.input} value={editDriver} onChange={(e) => setEditDriver(e.target.value)}>
-                  <option style={ui.selectOption} value="">(PA SHOFER – TË GJITHË E SHOHIN INBOX)</option>
-                  {drivers.map((d) => (
-                    <option style={ui.selectOption} key={String(d.id)} value={String(d.id)}>{up(d.name || "TRANSPORT")}</option>
-                  ))}
-                </select>
               </div>
               <div style={ui.field}>
                 <div style={ui.label}>SHËNIM</div>
@@ -3352,7 +3365,13 @@ Mati 1, nesër paradite, 3 tepiha`}
             ) : null}
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" style={{ ...ui.btnPrimary, flex: 1 }} onClick={savePlan} disabled={saveBusy}>{saveBusy ? "DUKE RUAJT…" : "RUAJ DATËN / ORARIN"}</button>
+              <button type="button" style={{ ...ui.btnPrimary, flex: 1 }} onClick={savePlan} disabled={saveBusy}>
+                {saveBusy
+                  ? "DUKE RUAJT…"
+                  : selectedEditDriver
+                    ? `RUAJ DHE LIROJA ${driverDisplayName(selectedEditDriver)}`
+                    : "RUAJ PLANIN PA TRANSPORTUES"}
+              </button>
             </div>
           </div>
         </div>
