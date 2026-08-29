@@ -1,4 +1,5 @@
 import { apiFail, apiOk, createAdminClientOrThrow, normalizePin, readBody } from '../_helpers.js';
+import { isRetiredStaffPin } from '../../lib/staffIdentityAliases.js';
 
 export default async function handler(req, res) {
   if (req.method && req.method !== 'POST') return apiFail(res, 'METHOD_NOT_ALLOWED', 405);
@@ -6,6 +7,7 @@ export default async function handler(req, res) {
     const body = await readBody(req);
     const pin = normalizePin(body?.pin, { min: 3, max: 12 });
     if (!pin) return apiFail(res, 'PIN_REQUIRED', 400);
+    if (isRetiredStaffPin(pin)) return apiFail(res, 'PIN_RETIRED_USE_CURRENT_PIN', 404);
     const supabase = createAdminClientOrThrow();
     let data = null;
     let error = null;

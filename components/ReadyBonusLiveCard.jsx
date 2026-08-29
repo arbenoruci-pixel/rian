@@ -82,7 +82,7 @@ export default function ReadyBonusLiveCard({ actor = null, style = null }) {
         <div style={{padding:8,borderRadius:11,background:'rgba(133,77,14,.28)',border:'1px solid rgba(250,204,21,.22)'}}><div style={{fontSize:8,color:'#fde68a',fontWeight:1000}}>PËR ME MBAJT</div><div style={{marginTop:3,fontSize:17,fontWeight:1000}}>{euro(totals?.available_to_keep)}</div><div style={{fontSize:8,color:'#fde68a',fontWeight:800}}>hiqet nga dorëzimi</div></div>
       </div> : <div style={{color:'#fca5a5',fontSize:10,fontWeight:850}}>{error || 'NUK U NGARKUA BONUSI.'}</div>}
 
-      <ReadyBonusAttention compact />
+      <ReadyBonusAttention compact actor={actor} />
       {summary?._offlineSnapshot ? <div style={{fontSize:8,color:'#fde68a',fontWeight:900}}>OFFLINE • SNAPSHOT I FUNDIT</div> : null}
     </div>
   );

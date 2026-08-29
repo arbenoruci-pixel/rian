@@ -1,15 +1,26 @@
 import { createServiceClientOrThrow, apiOk, apiFail, logApiError, readBody } from '@/lib/apiService';
 import { normalizeDeviceId, normalizePin, normalizeRole } from '@/lib/validation';
+import { getExistingDeviceApproval, isDeviceLinkedToOtherUser } from '@/lib/authDeviceApproval';
+import { isRetiredStaffPin } from '@/lib/staffIdentityAliases';
 export const dynamic = 'force-dynamic';
 
 function attachDeviceCookie(res, device_id) {
+  const value = String(device_id || '').trim();
+  if (!value) return res;
   try {
-    res.cookies.set('tepiha_device_id', String(device_id || ''), {
-      path: '/',
-      maxAge: 60 * 60 * 24 * 365,
-      sameSite: 'lax',
-      httpOnly: false,
-    });
+    if (res?.cookies?.set) {
+      res.cookies.set('tepiha_device_id', value, {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 365,
+        sameSite: 'lax',
+        httpOnly: false,
+      });
+    } else if (res?.headers?.append) {
+      res.headers.append(
+        'set-cookie',
+        `tepiha_device_id=${encodeURIComponent(value)}; Path=/; Max-Age=${60 * 60 * 24 * 365}; SameSite=Lax`,
+      );
+    }
   } catch {}
   return res;
 }
@@ -32,7 +43,10 @@ export async function POST(req) {
     device_id = normalizeDeviceId(body?.deviceId || body?.device_id) || '';
 
     if (!pin || !device_id) {
-      return attachDeviceCookie(apiFail('MISSING_FIELDS', 400), device_id);
+      return apiFail('MISSING_FIELDS', 400);
+    }
+    if (isRetiredStaffPin(pin)) {
+      return apiFail('PIN_RETIRED_USE_CURRENT_PIN', 401);
     }
 
     const supabase = createServiceClientOrThrow();
@@ -43,49 +57,63 @@ export async function POST(req) {
       .eq('pin', pin)
       .maybeSingle();
 
-    if (uerr) return attachDeviceCookie(apiFail(uerr.message, 500), device_id);
-    if (!user) return attachDeviceCookie(apiFail('PIN GABIM OSE NUK EKZISTON', 401), device_id);
-    if (user.is_active === false) return attachDeviceCookie(apiFail('USER_DISABLED', 403), device_id);
+    if (uerr) return apiFail(uerr.message, 500);
+    if (!user) return apiFail('PIN GABIM OSE NUK EKZISTON', 401);
+    if (user.is_active === false) return apiFail('USER_DISABLED', 403);
 
     const { data: dev, error: derr } = await supabase
       .from('tepiha_user_devices')
-      .select('id, is_approved, user_id')
+      .select('id, is_approved, user_id, approved_at, approved_by')
       .eq('device_id', device_id)
       .maybeSingle();
 
-    if (derr) return attachDeviceCookie(apiFail(derr.message, 500), device_id);
+    if (derr) return apiFail(derr.message, 500);
 
     const userRole = String(user.role || '').toUpperCase();
-    const isAdmin = ['ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(userRole);
+
+    // A physical browser/device stays bound to its existing user. Trying a
+    // different PIN must never reassign or downgrade that row.
+    if (isDeviceLinkedToOtherUser(dev, user.id)) {
+      return apiFail('DEVICE_LINKED_TO_OTHER_USER', 409, { deviceId: device_id });
+    }
 
     if (requested_role && !rolesCompatible(requested_role, userRole)) {
-      return attachDeviceCookie(apiFail('ROLE_MISMATCH', 403), device_id);
+      return apiFail('ROLE_MISMATCH', 403);
     }
 
     const requestedRoleForRow = requested_role || userRole;
-    const isCurrentlyApproved = dev && dev.user_id === user.id ? !!dev.is_approved : !!isAdmin;
+    const existingApproval = getExistingDeviceApproval(dev, user.id);
+    const isCurrentlyApproved = existingApproval.approved;
 
-    async function syncApprovalMirror(approvedFlag) {
+    async function syncApprovalMirror(approval) {
       const basePayload = {
         pin: user.pin,
         role: requestedRoleForRow,
         device_id,
-        approved: !!approvedFlag,
-        approved_by: approvedFlag ? 'SYSTEM' : null,
-        approved_at: approvedFlag ? new Date().toISOString() : null,
+        approved: approval.approved,
+        approved_by: approval.approvedBy,
+        approved_at: approval.approvedAt,
         last_seen_at: new Date().toISOString(),
       };
 
-      const { data: mirror } = await supabase
+      const { data: mirror, error: mirrorLookupError } = await supabase
         .from('tepiha_device_approvals')
         .select('id')
         .eq('device_id', device_id)
         .maybeSingle();
+      if (mirrorLookupError) throw mirrorLookupError;
 
       if (mirror?.id) {
-        await supabase.from('tepiha_device_approvals').update(basePayload).eq('id', mirror.id);
+        const { error: mirrorUpdateError } = await supabase
+          .from('tepiha_device_approvals')
+          .update(basePayload)
+          .eq('id', mirror.id);
+        if (mirrorUpdateError) throw mirrorUpdateError;
       } else {
-        await supabase.from('tepiha_device_approvals').insert(basePayload);
+        const { error: mirrorInsertError } = await supabase
+          .from('tepiha_device_approvals')
+          .insert(basePayload);
+        if (mirrorInsertError) throw mirrorInsertError;
       }
     }
 
@@ -95,27 +123,29 @@ export async function POST(req) {
       is_approved: isCurrentlyApproved,
       requested_pin: user.pin,
       requested_role: requestedRoleForRow,
-      approved_at: isCurrentlyApproved ? new Date().toISOString() : null,
-      approved_by: isCurrentlyApproved ? 'SYSTEM' : null,
+      approved_at: existingApproval.approvedAt,
+      approved_by: existingApproval.approvedBy,
     };
+
+    // Mirror first, authoritative row last. A mirror failure can never create
+    // or elevate an authoritative device approval.
+    await syncApprovalMirror(existingApproval);
 
     if (dev?.id) {
       const { error: upErr } = await supabase.from('tepiha_user_devices').update(devicePayload).eq('id', dev.id);
-      if (upErr) return attachDeviceCookie(apiFail(upErr.message, 500), device_id);
+      if (upErr) return apiFail(upErr.message, 500);
     } else {
       const { error: insErr } = await supabase.from('tepiha_user_devices').insert(devicePayload);
-      if (insErr) return attachDeviceCookie(apiFail(insErr.message, 500), device_id);
+      if (insErr) return apiFail(insErr.message, 500);
     }
 
-    await syncApprovalMirror(isCurrentlyApproved);
-
     if (!isCurrentlyApproved) {
-      return attachDeviceCookie(apiFail('DEVICE_NOT_APPROVED', 403, { deviceId: device_id }), device_id);
+      return apiFail('DEVICE_NOT_APPROVED', 403, { deviceId: device_id });
     }
 
     return attachDeviceCookie(apiOk({ actor: { pin: user.pin, role: userRole, name: user.name || '', user_id: user.id, device_id, is_hybrid_transport: user.is_hybrid_transport === true } }), device_id);
   } catch (e) {
     logApiError('api.auth.login', e, { device_id });
-    return attachDeviceCookie(apiFail(String(e?.message || e), 500), device_id);
+    return apiFail(String(e?.message || e), 500);
   }
 }

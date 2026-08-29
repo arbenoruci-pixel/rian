@@ -3,8 +3,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "@/lib/routerCompat.jsx";
 import { useRouter } from "@/lib/routerCompat.jsx";
-import { supabase } from "@/lib/supabaseClient";
-import { createUserRecord, deleteUserRecord, fetchUserById, listUserRecords, updateUserRecord } from "@/lib/usersService";
+import { approvePendingDevice, listPendingDevices, rejectPendingDevice } from '@/lib/deviceAdminClient';
+import { isStaffAdmin } from '@/lib/roles';
+import { createUserRecord, deleteUserRecord, fetchUserById, listUserRecords, reactivateUserRecord, updateUserRecord } from "@/lib/usersService";
 import WorkerCompensationEditor from '@/components/WorkerCompensationEditor';
 
 function jparse(s, fallback) {
@@ -20,6 +21,18 @@ function shortDevice(did) {
 function normalizeDbError(errLike) {
   const msg = String(errLike?.message || errLike?.details || errLike?.hint || errLike || "");
   const low = msg.toLowerCase();
+  const code = String(errLike?.code || msg || '').trim().toUpperCase();
+
+  if (code.includes('STAFF_NAME_MATCH_REQUIRES_REACTIVATION')) {
+    return errLike?.canReactivate
+      ? "⚠️ Ky emër i përket një llogarie të vjetër joaktive. Riaktivizo llogarinë ekzistuese; mos krijo përdorues të dytë."
+      : "⚠️ Ekziston tashmë një anëtar stafi me këtë emër. Edito llogarinë ekzistuese.";
+  }
+  if (code.includes('STAFF_PIN_RETIRED')) return "⚠️ Ky PIN është pensionuar dhe ruhet si histori. Zgjidh një PIN të ri.";
+  if (code.includes('STAFF_PIN_CHANGED')) return "⚠️ PIN-i u ndryshua nga një pajisje tjetër. Rifresko listën dhe provo përsëri.";
+  if (code.includes('STAFF_UPDATED_AT_CHANGED')) return "⚠️ Të dhënat u ndryshuan nga një pajisje tjetër. Rifresko listën dhe provo përsëri.";
+  if (code.includes('STAFF_PIN_IN_USE')) return "⚠️ Ky PIN po përdoret nga një anëtar tjetër i stafit.";
+  if (code.includes('DEVICE_NOT_APPROVED') || code.includes('AUTH_REQUIRED')) return "⚠️ Pajisja nuk është e autorizuar për menaxhimin e stafit.";
 
   if (low.includes("duplicate key") && low.includes("pin")) {
     return "⚠️ Ky PIN po përdoret nga një anëtar tjetër i stafit. Zgjidhni një PIN unik.";
@@ -68,7 +81,6 @@ function AccessDeniedPanel() {
 export default function StaffPage() {
   const router = useRouter();
   const [actor, setActor] = useState(null);
-  const [masterPin, setMasterPin] = useState("");
 
   const [pending, setPending] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -76,6 +88,8 @@ export default function StaffPage() {
   const [actionBusy, setActionBusy] = useState(false);
 
   const [editingId, setEditingId] = useState(null);
+  const [editingExpectedPin, setEditingExpectedPin] = useState("");
+  const [editingExpectedUpdatedAt, setEditingExpectedUpdatedAt] = useState("");
   const [editForm, setEditForm] = useState({
     name: "",
     role: "PUNTOR",
@@ -88,7 +102,7 @@ export default function StaffPage() {
   });
 
   const normalizedRole = String(actor?.role || '').toUpperCase();
-  const canManageStaff = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);
+  const canManageStaff = isStaffAdmin(normalizedRole);
 
   const pendingCount = pending.length;
   const activeCount = useMemo(
@@ -107,7 +121,7 @@ export default function StaffPage() {
       try { localStorage.removeItem("MASTER_ADMIN_PIN"); } catch {}
 
       const role = String(a?.role || '').toUpperCase();
-      if (!["ADMIN", "ADMIN_MASTER", "DISPATCH", "OWNER", "PRONAR", "SUPERADMIN"].includes(role)) {
+      if (!isStaffAdmin(role)) {
         router.push('/arka');
         return true;
       }
@@ -137,25 +151,12 @@ export default function StaffPage() {
       const st = await withTimeout(listUserRecords({ orderBy: "name", ascending: true, eq: { is_active: true } }), DB_TIMEOUT_MS, 'arka_stafi_users_timeout');
       setStaff((st || []).filter((u) => u?.is_active !== false));
 
-      const { data: rawDevices, error: devErr } = await withTimeout(supabase
-        .from("tepiha_user_devices")
-        .select("*")
-        .eq("is_approved", false)
-        .order("created_at", { ascending: false }), DB_TIMEOUT_MS, 'arka_stafi_devices_timeout');
-
-      if (devErr) throw devErr;
-
-      const usersMap = {};
-      (st || []).forEach((u) => {
-        usersMap[u.id] = u;
-        if (u.pin) usersMap[u.pin] = u;
-      });
-
-      const hydrated = (rawDevices || []).map((d) => ({
-        ...d,
-        tepiha_users: d.requested_pin ? usersMap[d.requested_pin] : usersMap[d.user_id],
-      }));
-      setPending(hydrated);
+      const devices = await withTimeout(
+        listPendingDevices(),
+        DB_TIMEOUT_MS,
+        'arka_stafi_devices_timeout',
+      );
+      setPending(Array.isArray(devices) ? devices : []);
     } catch (err) {
       console.error("Gabim sinkronizimi:", err);
       if (!isSilent) {
@@ -167,19 +168,9 @@ export default function StaffPage() {
   }
 
   async function handleOneClickApprove(device) {
-    if (!masterPin) return alert("Shkruaj Master PIN-in për ta aprovuar pajisjen.");
     setActionBusy(true);
     try {
-      const { error } = await supabase
-        .from("tepiha_user_devices")
-        .update({
-          is_approved: true,
-          approved_at: new Date().toISOString(),
-        })
-        .eq("device_id", device.device_id);
-
-      if (error) throw error;
-
+      await approvePendingDevice(device?.device_id);
       alert("✅ Pajisja u aprovua me sukses.");
       await reloadAll(false);
     } catch (e) {
@@ -193,12 +184,7 @@ export default function StaffPage() {
     if (!confirm("A dëshironi ta fshini këtë kërkesë pajisjeje?")) return;
     setActionBusy(true);
     try {
-      const { error } = await supabase
-        .from("tepiha_user_devices")
-        .delete()
-        .eq("device_id", device.device_id);
-
-      if (error) throw error;
+      await rejectPendingDevice(device?.device_id);
       await reloadAll(false);
     } catch (e) {
       alert("GABIM: " + normalizeDbError(e));
@@ -210,16 +196,20 @@ export default function StaffPage() {
 
   async function handleDeleteStaff(u) {
     if (!u?.id && !u?.pin) return;
-    if (String(u?.id || '') === String(actor?.id || '')) {
-      alert('Nuk mund ta fshini vetveten nga ky ekran.');
+    if (String(u?.id || '') === String(actor?.id || actor?.user_id || '')) {
+      alert('Nuk mund ta çaktivizoni vetveten nga ky ekran.');
       return;
     }
-    const ok = window.confirm(`A jeni i sigurt që dëshironi ta fshini ${u?.name || 'këtë përdorues'}?`);
+    const ok = window.confirm(`A jeni i sigurt që dëshironi ta çaktivizoni ${u?.name || 'këtë përdorues'}? PIN-i dhe historia ruhen për riaktivizim.`);
     if (!ok) return;
     setActionBusy(true);
     try {
       const res = await deleteUserRecord(u);
-      if (editingId === u.id) setEditingId(null);
+      if (editingId === u.id) {
+        setEditingId(null);
+        setEditingExpectedPin("");
+        setEditingExpectedUpdatedAt("");
+      }
       setStaff((prev) => (prev || []).filter((row) => {
         const sameId = String(row?.id || '') && String(row?.id || '') === String(u?.id || '');
         const samePin = String(row?.pin || '') && String(row?.pin || '') === String(u?.pin || '');
@@ -227,12 +217,8 @@ export default function StaffPage() {
       }));
       await reloadAll(false);
 
-      if (res?.mode === 'deleted') {
-        alert(`✅ ${u?.name || 'Përdoruesi'} u fshi me sukses.`);
-        return;
-      }
       if (res?.mode === 'deactivated') {
-        alert(`✅ ${u?.name || 'Përdoruesi'} u çaktivizua dhe u hoq nga lista aktive.`);
+        alert(`✅ ${u?.name || 'Përdoruesi'} u çaktivizua. PIN-i dhe historia mbetën të lidhura me të njëjtin përdorues.`);
         return;
       }
       if (res?.mode === 'not_found') {
@@ -250,6 +236,8 @@ export default function StaffPage() {
 
   function startCreateStaff() {
     setEditingId("NEW");
+    setEditingExpectedPin("");
+    setEditingExpectedUpdatedAt("");
     setEditForm({
       name: "",
       role: "PUNTOR",
@@ -265,6 +253,8 @@ export default function StaffPage() {
 
   function startEdit(u) {
     setEditingId(u.id);
+    setEditingExpectedPin(String(u?.pin || ""));
+    setEditingExpectedUpdatedAt(String(u?.updated_at || ""));
     setEditForm({
       name: u.name || "",
       role: safeUpper(u.role, "PUNTOR"),
@@ -312,16 +302,42 @@ export default function StaffPage() {
           pay_ready_bonus_enabled: safeUpper(editForm.role, 'PUNTOR') !== 'TRANSPORT',
           pay_cash_mode: ['PUNTOR','TRANSPORT'].includes(safeUpper(editForm.role, 'PUNTOR')) ? 'FULL_CASH' : 'NO_CASH',
         });
-        const createdUser = await createUserRecord(payload);
+        let createdUser = null;
+        let wasReactivated = false;
+        try {
+          createdUser = await createUserRecord(payload);
+        } catch (createError) {
+          const existing = createError?.existingUser;
+          if (
+            createError?.code !== 'STAFF_NAME_MATCH_REQUIRES_REACTIVATION'
+            || createError?.canReactivate !== true
+            || !existing?.id
+          ) throw createError;
+
+          const reactivate = window.confirm(
+            `${existing?.name || payload.name} ekziston si llogari joaktive. `
+            + 'A dëshironi ta riaktivizoni të njëjtin përdorues dhe t’ia lidhni PIN-in e ri, pa krijuar dublikatë?'
+          );
+          if (!reactivate) return;
+          createdUser = await reactivateUserRecord(existing.id, payload, {
+            expectedCurrentPin: existing.pin,
+            expectedUpdatedAt: existing.updated_at,
+          });
+          wasReactivated = true;
+        }
         if (createdUser?.id) {
           await reloadAll(false);
           setEditingId(createdUser.id);
+          setEditingExpectedPin(String(createdUser.pin || ""));
+          setEditingExpectedUpdatedAt(String(createdUser.updated_at || ""));
           setEditForm({
             name: createdUser.name || '', role: safeUpper(createdUser.role, 'PUNTOR'), pin: '', is_active: createdUser.is_active !== false,
             bonus_transport: Number(createdUser.bonus_transport || 0), bonus_ushqim: Number(createdUser.bonus_ushqim || 0),
             is_hybrid_transport: createdUser.is_hybrid_transport === true, commission_rate_m2: Number(createdUser.commission_rate_m2 || 0),
           });
-          alert('✅ PUNTORI U KRIJUA. TASH DEFINO OPSIONET E PAGESËS ME TIK.');
+          alert(wasReactivated
+            ? '✅ PUNTORI U RIAKTIVIZUA SI I NJËJTI PËRDORUES. HISTORIA DHE PIN-AT E VJETËR MBETËN TË LIDHUR.'
+            : '✅ PUNTORI U KRIJUA. TASH DEFINO OPSIONET E PAGESËS ME TIK.');
           return;
         }
       } else {
@@ -333,10 +349,15 @@ export default function StaffPage() {
           }
         }
 
-        await updateUserRecord(editingId, payload);
+        await updateUserRecord(editingId, payload, {
+          expectedCurrentPin: editingExpectedPin,
+          expectedUpdatedAt: editingExpectedUpdatedAt,
+        });
       }
 
       setEditingId(null);
+      setEditingExpectedPin("");
+      setEditingExpectedUpdatedAt("");
       await reloadAll(false);
     } catch (err) {
       alert("GABIM: " + normalizeDbError(err));
@@ -377,20 +398,9 @@ export default function StaffPage() {
           </div>
           <div className="statCard pinCard">
             <div>
-              <span className="statLabel">Master PIN</span>
-              <div className="pinHint">Kërkohet për aprovime pajisjesh</div>
+              <span className="statLabel">SIGURIA E PAJISJEVE</span>
+              <div className="pinHint">Aprovimet verifikohen nga serveri me pajisjen aktive të menaxherit.</div>
             </div>
-            <input
-              type="password"
-              className="pinInput"
-              placeholder="****"
-              value={masterPin}
-              onChange={(e) => {
-                const val = onlyDigits(e.target.value);
-                setMasterPin(val);
-              }}
-              autoComplete="off"
-            />
           </div>
         </div>
 
@@ -466,7 +476,7 @@ export default function StaffPage() {
                       {editingId === "NEW" ? "Shto Anëtar të Ri" : "Edito Anëtarin"}
                     </div>
                   </div>
-                  <button className="closeBtn" onClick={() => setEditingId(null)}>✕</button>
+                  <button className="closeBtn" onClick={() => { setEditingId(null); setEditingExpectedPin(""); setEditingExpectedUpdatedAt(""); }}>✕</button>
                 </div>
 
                 <div className="formGrid">
@@ -504,14 +514,20 @@ export default function StaffPage() {
                     />
                   </label>
 
-                  <label className="toggleField">
-                    <span>Llogari aktive</span>
-                    <input
-                      type="checkbox"
-                      checked={editForm.is_active}
-                      onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
-                    />
-                  </label>
+                  {editingId === "NEW" ? (
+                    <label className="toggleField">
+                      <span>Llogari aktive</span>
+                      <input
+                        type="checkbox"
+                        checked={editForm.is_active}
+                        onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+                      />
+                    </label>
+                  ) : (
+                    <div className="toggleField">
+                      <span>Llogaria është aktive. Për çaktivizim përdor butonin ÇAKTIVIZO te karta e punëtorit.</span>
+                    </div>
+                  )}
 
                   <label className="field" style={{ display:'none' }}>
                     <span>BONUS TRANSPORT (€)</span>
@@ -614,7 +630,7 @@ export default function StaffPage() {
                         ✏️ EDITO
                       </button>
                       <button className="deleteBtn" onClick={() => handleDeleteStaff(u)} disabled={actionBusy}>
-                        🗑️ FSHI
+                        ÇAKTIVIZO
                       </button>
                     </div>
                   </div>

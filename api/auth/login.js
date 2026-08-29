@@ -1,5 +1,7 @@
 import { apiFail, apiOk, createAdminClientOrThrow, normalizeDeviceId, normalizePin, normalizeRole, setClientCookie, readBody } from '../_helpers.js';
-import { canAutoApproveDevice, rolesCompatible } from '../../lib/roles.js';
+import { rolesCompatible } from '../../lib/roles.js';
+import { getExistingDeviceApproval, isDeviceLinkedToOtherUser } from '../../lib/authDeviceApproval.js';
+import { isRetiredStaffPin } from '../../lib/staffIdentityAliases.js';
 
 function withServerTimeout(promise, ms = 6500, label = 'SERVER_SUPABASE_TIMEOUT') {
   let timer = null;
@@ -24,6 +26,7 @@ export default async function handler(req, res) {
     const requested_role = normalizeRole(body?.role);
     device_id = normalizeDeviceId(body?.deviceId || body?.device_id);
     if (!pin || !device_id) return apiFail(res, 'MISSING_FIELDS', 400);
+    if (isRetiredStaffPin(pin)) return apiFail(res, 'PIN_RETIRED_USE_CURRENT_PIN', 401);
 
     const supabase = createAdminClientOrThrow();
     const { data: user, error: uerr } = await withServerTimeout(supabase
@@ -37,17 +40,16 @@ export default async function handler(req, res) {
 
     const { data: dev, error: derr } = await withServerTimeout(supabase
       .from('tepiha_user_devices')
-      .select('id, is_approved, user_id')
+      .select('id, is_approved, user_id, approved_at, approved_by')
       .eq('device_id', device_id)
       .maybeSingle(), 6500, 'LOGIN_DEVICE_LOOKUP_TIMEOUT');
     if (derr) return apiFail(res, derr.message, 500);
 
     const userRole = String(user.role || '').toUpperCase();
-    const isAdmin = canAutoApproveDevice(userRole);
 
     // A physical browser/device may only belong to one approved worker at a time.
     // Never silently reassign and de-approve a shared phone when another PIN is tried.
-    if (dev?.id && dev.user_id && String(dev.user_id) !== String(user.id)) {
+    if (isDeviceLinkedToOtherUser(dev, user.id)) {
       return apiFail(res, 'DEVICE_LINKED_TO_OTHER_USER', 409, { deviceId: device_id });
     }
     if (requested_role && !rolesCompatible(requested_role, userRole) && requested_role !== userRole) {
@@ -55,7 +57,8 @@ export default async function handler(req, res) {
     }
 
     const requestedRoleForRow = requested_role || userRole;
-    const isCurrentlyApproved = dev && dev.user_id === user.id ? !!dev.is_approved : !!isAdmin;
+    const existingApproval = getExistingDeviceApproval(dev, user.id);
+    const isCurrentlyApproved = existingApproval.approved;
 
     const devicePayload = {
       user_id: user.id,
@@ -63,8 +66,8 @@ export default async function handler(req, res) {
       is_approved: isCurrentlyApproved,
       requested_pin: user.pin,
       requested_role: requestedRoleForRow,
-      approved_at: isCurrentlyApproved ? new Date().toISOString() : null,
-      approved_by: isCurrentlyApproved ? 'SYSTEM' : null,
+      approved_at: existingApproval.approvedAt,
+      approved_by: existingApproval.approvedBy,
     };
 
     if (dev?.id) {

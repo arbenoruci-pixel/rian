@@ -8,6 +8,7 @@ import { listPendingPaymentRecords } from "@/lib/arkaService";
 import { ARKA_ACTION, ARKA_SOURCE_MODULE } from "@/lib/arka/arkaConstants";
 import { arkaTransaction, buildArkaIdempotencyKey } from "@/lib/arka/arkaClient";
 import { deleteUserRecord, listUserRecords, updateUserRecord } from "@/lib/usersService";
+import { isStaffAdmin } from "@/lib/roles";
 import WorkerCompensationEditor from '@/components/WorkerCompensationEditor';
 import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow, isPayrollEligibleWorker } from "@/lib/payrollMonthClose";
 
@@ -291,6 +292,7 @@ export default function PayrollPage() {
 
   const normalizedRole = String(actor?.role || '').toUpperCase();
   const isAdminUser = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);
+  const canManageStaffIdentity = isStaffAdmin(normalizedRole);
 
   useEffect(() => {
     let cancelled = false;
@@ -569,6 +571,10 @@ export default function PayrollPage() {
   }
 
   function startFinanceEdit(u) {
+    if (!canManageStaffIdentity || !u?.id) {
+      alert("Vetëm administratori i stafit mund t'i ndryshojë parametrat e përdoruesit.");
+      return;
+    }
     setEditingId(u.id);
     setEditForm({
       salary: String(u.salary ?? ""),
@@ -580,7 +586,7 @@ export default function PayrollPage() {
   }
 
   async function saveFinanceEdit() {
-    if (!editingId) return;
+    if (!editingId || !canManageStaffIdentity) return;
     setActionBusy(true);
 
     const dayRaw = Number(editForm.salary_day || 0);
@@ -769,6 +775,10 @@ export default function PayrollPage() {
   }
 
   async function handleMoveAdvancesToLongTerm() {
+    if (!canManageStaffIdentity) {
+      alert("Vetëm administratori i stafit mund ta ndryshojë borxhin afatgjatë të përdoruesit.");
+      return;
+    }
     if (!salaryModal || !masterPin) {
       alert("Kërkohet Master PIN për këtë veprim.");
       return;
@@ -822,14 +832,17 @@ export default function PayrollPage() {
       }
 
       const nextLongTerm = Number(salaryModal.longTermDebt || 0) + totalToMove;
-      const { error: err2 } = await supabase
-        .from("users")
-        .update({
+      await updateUserRecord(
+        salaryModal.id,
+        {
           avans_manual: 0,
           borxh_afatgjat: nextLongTerm,
-        })
-        .eq("id", salaryModal.id);
-      if (err2) throw err2;
+        },
+        {
+          expectedCurrentPin: String(salaryModal?.pin || '').trim(),
+          expectedUpdatedAt: String(salaryModal?.updated_at || '').trim(),
+        },
+      );
 
       alert(`✅ Avanset u kaluan në borxh afatgjatë për ${salaryModal.name}.`);
       setSalaryModal(null);
@@ -844,8 +857,8 @@ export default function PayrollPage() {
 
 
   async function handleDeleteWorker(u) {
-    if (!isAdminUser || !u?.id) return;
-    const ok = window.confirm(`A jeni i sigurt që dëshironi të fshini punëtorin ${u?.name || ''} nga lista e rrogave?`);
+    if (!canManageStaffIdentity || !u?.id) return;
+    const ok = window.confirm(`A jeni i sigurt që dëshironi ta çaktivizoni punëtorin ${u?.name || ''}? PIN-i dhe historia ruhen për riaktivizim.`);
     if (!ok) return;
     setActionBusy(true);
     try {
@@ -855,7 +868,7 @@ export default function PayrollPage() {
       setStaff((prev) => (prev || []).filter((row) => row?.id !== u.id));
       await reloadAll(false);
       if (res?.mode === 'deactivated') {
-        alert(`✅ ${u?.name || 'Përdoruesi'} u çaktivizua dhe u hoq nga lista aktive.`);
+        alert(`✅ ${u?.name || 'Përdoruesi'} u çaktivizua. PIN-i dhe historia mbetën të lidhura me të njëjtin përdorues.`);
       }
     } catch (err) {
       alert('GABIM: ' + normalizeDbError(err));
@@ -1132,7 +1145,11 @@ export default function PayrollPage() {
                 autoComplete="off"
               />
             </label>
-            <Link prefetch={false} href="/arka/stafi" className="staffManageLink">MENAXHIMI I STAFIT</Link>
+            {canManageStaffIdentity ? (
+              <Link prefetch={false} href="/arka/stafi" className="staffManageLink">MENAXHIMI I STAFIT</Link>
+            ) : (
+              <span className="staffManageNotice">DISPATCH: PAYROLL PA NDRYSHIME TË STAFIT</span>
+            )}
           </div>
         </details>
 
@@ -1422,7 +1439,7 @@ export default function PayrollPage() {
         </section>
         )}
 
-        {editingId && (
+        {editingId && canManageStaffIdentity && (
           <section className="editPanel">
             <div className="editTop">
               <div>
@@ -1677,17 +1694,19 @@ export default function PayrollPage() {
               >
                 💸 SHTO AVANS
               </button>
-              <button
-                type="button"
-                className="editMini"
-                onClick={() => {
-                  const row = selectedPayrollDetails;
-                  setSelectedPayrollRow(null);
-                  startFinanceEdit(getFinanceWorkerForPayrollRow(row));
-                }}
-              >
-                EDITO RROGËN / PARAMETRAT
-              </button>
+              {canManageStaffIdentity ? (
+                <button
+                  type="button"
+                  className="editMini"
+                  onClick={() => {
+                    const row = selectedPayrollDetails;
+                    setSelectedPayrollRow(null);
+                    startFinanceEdit(getFinanceWorkerForPayrollRow(row));
+                  }}
+                >
+                  EDITO RROGËN / PARAMETRAT
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="payBtn detailPayBtn"
@@ -3229,6 +3248,21 @@ export default function PayrollPage() {
           letter-spacing: .08em;
           white-space: nowrap;
         }
+        .staffManageNotice {
+          min-height: 42px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 14px;
+          padding: 0 12px;
+          background: rgba(71, 85, 105, .22);
+          border: 1px solid rgba(148, 163, 184, .22);
+          color: #cbd5e1;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: .06em;
+          text-align: center;
+        }
         .navBtn, .refreshBtn {
           border: 1px solid rgba(148, 163, 184, .22);
           background: rgba(15, 23, 42, .86);
@@ -3559,7 +3593,7 @@ export default function PayrollPage() {
           .payrollHeader { gap: 10px; }
           .topActions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
           .adminToolsBody { grid-template-columns: 1fr; }
-          .staffManageLink { width: 100%; box-sizing: border-box; }
+          .staffManageLink, .staffManageNotice { width: 100%; box-sizing: border-box; }
           .navBtn, .refreshBtn { width: 100%; text-align: center; padding: 11px 10px; }
           .heroStatus { border-radius: 20px; padding: 13px; }
           .heroStatus h2 { font-size: 28px; }

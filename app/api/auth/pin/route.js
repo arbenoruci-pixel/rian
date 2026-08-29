@@ -1,6 +1,7 @@
 import { createAdminClientOrThrow } from '@/lib/supabaseAdminClient';
 import { apiOk, apiFail, logApiError, readBody } from '@/lib/apiService';
 import { normalizePin } from '@/lib/validation';
+import { isRetiredStaffPin } from '@/lib/staffIdentityAliases';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req) {
@@ -8,6 +9,7 @@ export async function POST(req) {
     const body = await readBody(req);
     const pin = normalizePin(body?.pin, { min: 4, max: 8, digitsOnly: true });
     if (!pin) return apiFail('INVALID_PIN', 400);
+    if (isRetiredStaffPin(pin)) return apiFail('PIN_RETIRED_USE_CURRENT_PIN', 404);
 
     const supabase = createAdminClientOrThrow();
     const { data, error } = await supabase

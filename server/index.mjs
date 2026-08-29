@@ -11,10 +11,14 @@ import backupRunHandler from '../api/backup/run.js';
 import backupDatesHandler from '../api/backup/dates.js';
 import backupRestoreHandler from '../api/backup/restore.js';
 import cronBackupHandler from '../api/cron/backup.js';
-import { canAutoApproveDevice, rolesCompatible } from '../lib/roles.js';
+import { rolesCompatible } from '../lib/roles.js';
+import { getExistingDeviceApproval, isDeviceLinkedToOtherUser } from '../lib/authDeviceApproval.js';
 import { runArkaTransaction } from '../lib/arka/arkaEngine.js';
 import { runPranimiDraftDbAction } from '../lib/pranimiDraftDb.js';
 import { reserveBaseCodesForPin } from '../lib/baseCodeAllocatorServer.js';
+import { isRetiredStaffPin } from '../lib/staffIdentityAliases.js';
+import staffIdentityHandler from '../api/admin/staff-identity.js';
+import deviceAdminHandler from '../api/admin/devices.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -162,6 +166,11 @@ app.post('/api/arka/transaction', async (req, res) => {
   }
 });
 
+// Keep the local Vite/Express development route on the same authenticated,
+// service-role-only implementation used by the deployed Vercel function.
+app.post('/api/admin/staff-identity', staffIdentityHandler);
+app.post('/api/admin/devices', deviceAdminHandler);
+
 
 
 
@@ -212,6 +221,7 @@ app.post('/api/auth/validate-pin', async (req, res) => {
   try {
     const pin = normalizePin(req.body?.pin, { min: 3, max: 12 });
     if (!pin) return apiFail(res, 'PIN_REQUIRED', 400);
+    if (isRetiredStaffPin(pin)) return apiFail(res, 'PIN_RETIRED_USE_CURRENT_PIN', 404);
     const supabase = createAdminClientOrThrow();
     let data = null;
     let error = null;
@@ -249,6 +259,7 @@ app.post('/api/auth/login', async (req, res) => {
     const requested_role = normalizeRole(req.body?.role);
     device_id = normalizeDeviceId(req.body?.deviceId || req.body?.device_id);
     if (!pin || !device_id) return apiFail(res, 'MISSING_FIELDS', 400);
+    if (isRetiredStaffPin(pin)) return apiFail(res, 'PIN_RETIRED_USE_CURRENT_PIN', 401);
 
     const supabase = createAdminClientOrThrow();
     const { data: user, error: uerr } = await supabase
@@ -262,17 +273,25 @@ app.post('/api/auth/login', async (req, res) => {
 
     const { data: dev, error: derr } = await supabase
       .from('tepiha_user_devices')
-      .select('id, is_approved, user_id')
+      .select('id, is_approved, user_id, approved_at, approved_by')
       .eq('device_id', device_id)
       .maybeSingle();
     if (derr) return apiFail(res, derr.message, 500);
 
     const userRole = String(user.role || '').toUpperCase();
-    const isAdmin = canAutoApproveDevice(userRole);
-    if (requested_role && !rolesCompatible(requested_role, userRole)) return apiFail(res, 'ROLE_MISMATCH', 403);
+
+    // Match the deployed handler: a browser/device cannot be silently moved
+    // from one canonical user to another merely by trying a different PIN.
+    if (isDeviceLinkedToOtherUser(dev, user.id)) {
+      return apiFail(res, 'DEVICE_LINKED_TO_OTHER_USER', 409, { deviceId: device_id });
+    }
+    if (requested_role && !rolesCompatible(requested_role, userRole) && requested_role !== userRole) {
+      return apiFail(res, 'ROLE_MISMATCH', 403);
+    }
 
     const requestedRoleForRow = requested_role || userRole;
-    const isCurrentlyApproved = dev && dev.user_id === user.id ? !!dev.is_approved : !!isAdmin;
+    const existingApproval = getExistingDeviceApproval(dev, user.id);
+    const isCurrentlyApproved = existingApproval.approved;
 
     const devicePayload = {
       user_id: user.id,
@@ -280,8 +299,8 @@ app.post('/api/auth/login', async (req, res) => {
       is_approved: isCurrentlyApproved,
       requested_pin: user.pin,
       requested_role: requestedRoleForRow,
-      approved_at: isCurrentlyApproved ? new Date().toISOString() : null,
-      approved_by: isCurrentlyApproved ? 'SYSTEM' : null,
+      approved_at: existingApproval.approvedAt,
+      approved_by: existingApproval.approvedBy,
     };
 
     if (dev?.id) {

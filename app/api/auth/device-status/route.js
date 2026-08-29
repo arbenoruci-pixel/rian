@@ -1,5 +1,7 @@
 import { createServiceClientOrThrow, apiOk, apiFail, logApiError, readBody } from '@/lib/apiService';
 import { normalizeDeviceId, normalizePin, normalizeRole } from '@/lib/validation';
+import { getExistingDeviceApproval } from '@/lib/authDeviceApproval';
+import { isRetiredStaffPin } from '@/lib/staffIdentityAliases';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req) {
@@ -12,6 +14,7 @@ export async function POST(req) {
     if (!pin || !device_id) {
       return apiFail('MISSING_FIELDS', 400);
     }
+    if (isRetiredStaffPin(pin)) return apiFail('PIN_RETIRED_USE_CURRENT_PIN', 401);
 
     const supabase = createServiceClientOrThrow();
 
@@ -30,14 +33,14 @@ export async function POST(req) {
 
     const { data: dev, error: derr } = await supabase
       .from('tepiha_user_devices')
-      .select('id, is_approved')
+      .select('id, is_approved, user_id')
       .eq('user_id', user.id)
       .eq('device_id', device_id)
       .maybeSingle();
 
     if (derr) return apiFail(derr.message, 500);
 
-    const approved = userRole === 'ADMIN' ? true : !!dev?.is_approved;
+    const approved = getExistingDeviceApproval(dev, user.id).approved;
     return apiOk({ approved, actor: { pin: user.pin, role: userRole, name: user.name || '', user_id: user.id, device_id } });
   } catch (e) {
     logApiError('api.auth.device-status', e);
