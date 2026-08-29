@@ -3,6 +3,7 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { buildSmsLink, buildTransportConfirmUrl, canonicalizePhone } from '@/lib/smartSms';
 import { useRenderBatches } from '@/lib/renderBatching';
+import { getOrderCodeCircleStyle } from '@/lib/orderCodeBadge';
 
 const BOARD_RENDER_LIMIT = 50;
 const ACTION_DEFER_MS = 300;
@@ -676,6 +677,7 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
         ) : list.length ? (
           visibleItems.map((order, idx) => {
             const realCode = hasRealCode(order);
+            const displayCode = realCode ? orderCode(order) : 'T—';
             const total = orderTotal(order);
             const pieces = orderPieces(order);
             const m2Total = orderPickupM2(order);
@@ -706,8 +708,8 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
               >
                 <div style={{ display: 'grid', gap: 6 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                    <div style={{ width: 32, minWidth: 32, height: 32, marginRight: 4, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#39d86f', color: '#03140a', fontSize: 9.5, fontWeight: 1000, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 6px 12px rgba(57,216,111,0.18)' }}>
-                      {realCode ? orderCode(order) : 'T—'}
+                    <div style={{ width: 32, minWidth: 32, height: 32, marginRight: 4, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#39d86f', color: '#03140a', fontSize: 9.5, fontWeight: 1000, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 6px 12px rgba(57,216,111,0.18)', ...getOrderCodeCircleStyle(displayCode, { diameter: 32, fontSize: 9.5 }) }}>
+                      {displayCode}
                     </div>
                     <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

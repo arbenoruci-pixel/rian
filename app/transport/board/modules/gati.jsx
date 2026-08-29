@@ -6,6 +6,7 @@ import { updateTransportOrderById } from '@/lib/transportOrdersDb';
 import { supabase, storageWithTimeout } from '@/lib/supabaseClient';
 import { ui } from '@/lib/transport/board/ui';
 import { useRenderBatches } from '@/lib/renderBatching';
+import { getOrderCodeCircleStyle } from '@/lib/orderCodeBadge';
 import { getName, getCode, getAddress, getTotals, formatTime, money, pickLatLng, haversine, openMap } from '@/lib/transport/board/shared';
 
 const ACTION_DEFER_MS = 80;
@@ -961,7 +962,7 @@ function ReadyView({
                   <div style={isSelected ? ui.checkboxSelected : ui.checkboxEmpty}>{isSelected && '✓'}</div>
                 </div>
               )}
-              <div style={{ width: 34, minWidth: 34, height: 34, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#39d86f', color: '#03140a', fontSize: 11, fontWeight: 1000, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 16px rgba(57,216,111,0.18)' }}>{item.code}</div>
+              <div style={{ width: 34, minWidth: 34, height: 34, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#39d86f', color: '#03140a', fontSize: 11, fontWeight: 1000, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 16px rgba(57,216,111,0.18)', ...getOrderCodeCircleStyle(item.code, { diameter: 34, fontSize: 11 }) }}>{item.code}</div>
               <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'start', gap: 6, minWidth: 0, maxWidth: '100%' }}>
                   <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 14.5, fontWeight: 950, letterSpacing: 0.2 }}>{item.name}</span>
@@ -1303,7 +1304,7 @@ function ReadyView({
             <div style={{ padding: 16, background: '#000' }}>
               {routeItemsView.map((item) => (
                 <button key={item.id} style={{ ...ui.routeRow, width: '100%', textAlign: 'left' }} onClick={() => runDeferred(() => onOpenSms && onOpenSms(item.row, 'transport_konfirmim'))}>
-                  <div style={ui.circleAvatar}>{item.code}</div>
+                  <div style={{ ...ui.circleAvatar, ...getOrderCodeCircleStyle(item.code, { diameter: 48, fontSize: 14 }) }}>{item.code}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 800 }}>{item.name}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{item.address}</div>

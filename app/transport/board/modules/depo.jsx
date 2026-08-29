@@ -4,6 +4,7 @@
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import { ui } from '@/lib/transport/board/ui';
 import { useRenderBatches } from '@/lib/renderBatching';
+import { getOrderCodeCircleStyle } from '@/lib/orderCodeBadge';
 import { getName, getCode, getAddress, getTotals, formatTime, money, pickLatLng, haversine, openMap, callClient } from '@/lib/transport/board/shared';
 
 const BOARD_RENDER_LIMIT = 50;
@@ -177,7 +178,7 @@ function DepoModule({ items, loading, geo, onOpenModal, onBulkStatus, onOpenSms,
           const riplanLabel = depoRiplanLabel(item);
           return (
             <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: 10, marginBottom: 8, borderRadius: 16, border: '1px solid rgba(245,158,11,0.55)', background: 'linear-gradient(180deg, rgba(245,158,11,0.12), rgba(245,158,11,0.04))', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 24px rgba(0,0,0,0.22)', cursor: 'pointer', ...(unseenStyle || null) }} onClick={() => { setTimeout(() => { onMarkSeen && onMarkSeen(item?.id); setToolsRow(item); }, ACTION_DEFER_MS); }}>
-              <div style={transportCodeCircle}>{transportCode(getCode(item))}</div>
+              <div style={{ ...transportCodeCircle, ...getOrderCodeCircleStyle(transportCode(getCode(item))) }}>{transportCode(getCode(item))}</div>
               <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, letterSpacing: 0.2 }}>{getName(item)}</span>

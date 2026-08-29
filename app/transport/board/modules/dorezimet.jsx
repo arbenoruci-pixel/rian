@@ -3,6 +3,7 @@
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import { ui } from '@/lib/transport/board/ui';
 import { useRenderBatches } from '@/lib/renderBatching';
+import { getOrderCodeCircleStyle } from '@/lib/orderCodeBadge';
 import { getName, getCode, getAddress, getTotals, formatTime, money, openMap, callClient } from '@/lib/transport/board/shared';
 
 const BOARD_RENDER_LIMIT = 50;
@@ -122,7 +123,7 @@ function DeliveredModule({ items, loading, onOpenModal, onMarkSeen, getUnseenRow
               }}
             >
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
-                <div style={transportCodeCircle}>{transportCode(getCode(item))}</div>
+                <div style={{ ...transportCodeCircle, ...getOrderCodeCircleStyle(transportCode(getCode(item))) }}>{transportCode(getCode(item))}</div>
                 <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950 }}>{getName(item)}</span>
