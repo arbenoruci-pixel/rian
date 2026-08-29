@@ -5,7 +5,7 @@ import Link from '@/lib/routerCompat.jsx';
 import { getActor } from '@/lib/actorSession';
 import { supabase } from '@/lib/supabaseClient';
 
-const CACHE_KEY = 'tepiha_ready_bonus_attention_v2';
+const CACHE_KEY = 'tepiha_ready_bonus_attention_v3_72h_live';
 
 function text(v) { try { return String(v ?? '').trim(); } catch { return ''; } }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
@@ -28,6 +28,7 @@ export default function ReadyBonusAttention({ compact = false }) {
   const [payload, setPayload] = useState(null);
   const [offline, setOffline] = useState(false);
   const [open, setOpen] = useState(false);
+  const [viewer, setViewer] = useState({ pin: '', name: '' });
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +40,7 @@ export default function ReadyBonusAttention({ compact = false }) {
         const actor = getActor();
         const pin = text(actor?.pin);
         if (!pin) return;
+        if (!cancelled) setViewer({ pin, name: text(actor?.name) });
         const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
         if (online) {
           const { data, error } = await supabase.rpc('get_base_bonus_opportunities_v1', { p_actor_pin: pin });
@@ -90,11 +92,17 @@ export default function ReadyBonusAttention({ compact = false }) {
   const urgent = items.filter((item) => item.hoursLeft <= 12);
   const possibleMoney = items.reduce((sum, item) => sum + item.bonus, 0);
   const count = urgent.length;
+  const isBujar = viewer.pin === '5555' || /\bBUJAR\b/i.test(viewer.name);
 
   if (!items.length) return null;
 
   return (
     <div data-ready-bonus-attention="2" style={{ marginTop: compact ? 8 : 12 }}>
+      {isBujar ? (
+        <div data-bujar-bonus-motivation="1" style={{marginBottom:8,padding:'10px 12px',borderRadius:13,border:'1px solid rgba(74,222,128,.38)',background:'linear-gradient(135deg,rgba(20,83,45,.48),rgba(15,23,42,.94))',color:'#dcfce7',fontSize:12,lineHeight:1.4,fontWeight:900}}>
+          💪 BUJAR, SOT I KI {items.length} MUNDËSI. NËSE E SHTYN FORT, MUNDESH ME I KAP DERI +{possibleMoney.toFixed(2)}€ BONUS.
+        </div>
+      ) : null}
       <button type="button" onClick={() => setOpen((v) => !v)} style={{ width:'100%', borderRadius:14, border:`1px solid ${count ? 'rgba(248,113,113,.55)' : 'rgba(250,204,21,.35)'}`, background:count ? 'linear-gradient(135deg,rgba(127,29,29,.72),rgba(15,23,42,.95))' : 'linear-gradient(135deg,rgba(113,63,18,.42),rgba(15,23,42,.95))', color:'#fff', padding:'11px 12px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, textAlign:'left' }}>
         <div>
           <div style={{fontSize:10,fontWeight:1000,letterSpacing:'.12em',color:count?'#fecaca':'#fde68a'}}>⚠️ ATTENTION • BONUSI {windowHours}H</div>

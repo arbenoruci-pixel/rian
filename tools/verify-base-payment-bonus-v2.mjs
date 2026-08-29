@@ -26,10 +26,13 @@ check(attention.includes('window_hours'), 'attention list reads live window_hour
 check(!attention.includes('48 * 60 * 60 * 1000'), 'attention list has no hardcoded 48h timer');
 check(attention.includes('hours_left'), 'attention countdown uses server-calculated hours_left');
 check(attention.includes('potential_bonus'), 'attention amount uses server-calculated potential bonus');
+check(attention.includes("viewer.pin === '5555'") && attention.includes('/\\bBUJAR\\b/i'), 'motivational message is restricted to Bujar');
+check(attention.includes('data-bujar-bonus-motivation="1"'), 'Bujar motivational message is rendered');
+check(attention.includes('SOT I KI {items.length} MUNDËSI') && attention.includes('possibleMoney.toFixed(2)'), 'Bujar message uses live opportunity count and bonus amount');
 
 if (failures.length) {
   console.error(`FAIL: ${failures.length} base-payment bonus live-config check(s) failed.`);
   failures.forEach((message,index)=>console.error(`${index+1}. ${message}`));
   process.exit(1);
 }
-console.log(`PASS: ${13} base-payment bonus live-config checks passed.`);
+console.log(`PASS: ${16} base-payment bonus live-config and motivation checks passed.`);

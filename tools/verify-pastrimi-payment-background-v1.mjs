@@ -47,14 +47,17 @@ function functionBlock(name) {
 const fn = functionBlock('applyRowPayAndClose');
 const isV2 = source.includes('PASTRIMI_PAYMENT_BACKGROUND_V2');
 const isPrepaymentV3 = source.includes('PASTRIMI_PREPAYMENT_PRESERVE_STATUS_V3');
+const hasPurposeWizard = source.includes('buildPastrimiPaymentDecision') && source.includes('PastrimiPaymentPurposeWizard');
 check(source.includes('PASTRIMI_PAYMENT_BACKGROUND_V1'), 'marker missing');
 check(source.includes("import { ARKA_ACTION } from '@/lib/arka/arkaConstants';"), 'ARKA action import missing');
 check(source.includes("import { buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';"), 'idempotency import missing');
 check(
-  isPrepaymentV3
+  hasPurposeWizard
+    ? fn.includes('pickupNow') && fn.includes('paymentOutcome') && source.includes('PICKUP_REQUIRES_FULL_PAYMENT')
+    : isPrepaymentV3
     ? fn.includes("const fullPaymentTargetStatus = '';") && fn.includes('const pickupNow = false;')
     : fn.includes("const pickupNow = willSettleFull && fullPaymentTargetStatus === 'dorzim'"),
-  isPrepaymentV3 ? 'prepayment status guard missing' : 'pickup branch missing'
+  hasPurposeWizard ? 'purpose-controlled pickup branch missing' : (isPrepaymentV3 ? 'prepayment status guard missing' : 'pickup branch missing')
 );
 check(fn.includes("queueOp('arka_transaction'") || fn.includes('enqueuePastrimiPaymentIntent(paymentIntent)'), 'durable payment outbox missing');
 check(fn.includes('paymentIdempotencyKey'), 'stable idempotency key missing');
@@ -69,7 +72,7 @@ check(fn.includes('if (queued)') && fn.includes('return;'), 'offline queued succ
 check(isV2 ? fn.includes('savePastrimiPaymentIntent(paymentIntent)') : fn.includes('originalRow'), 'durable pre-UI recovery missing');
 check(fn.includes("last_payment_by_pin"), 'payment actor PIN mirror missing');
 check(fn.includes("last_payment_by_name"), 'payment actor name mirror missing');
-if (isPrepaymentV3) {
+if (isPrepaymentV3 && !hasPurposeWizard) {
   check(fn.includes('PAGUAR PARAPRAKISHT — MBETET NË PASTRIMI'), 'prepayment UI copy missing');
   check(fn.includes('is_paid_upfront: newDebt <= 0 ? true'), 'prepayment metadata missing');
 }

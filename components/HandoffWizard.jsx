@@ -100,7 +100,7 @@ export default function HandoffWizard({
             <SummaryLine label="Punëtori" value={actor?.name || actor?.pin || '—'} />
             {workerHybrid ? <SummaryLine label="Komision transporti që e mban" value={money(safeCommission)} accent="#ffd166" /> : null}
             <SummaryLine label="Cash për bazë para ushqimit/bonusit" value={money(safeBase)} accent="#83d9ff" />
-            <SummaryLine label="Bonus 48H i hapur" value={money(bonusAvailable)} accent="#ffd166" />
+            <SummaryLine label="Bonusi READY i hapur" value={money(bonusAvailable)} accent="#ffd166" />
             <SummaryLine label="Shpenzime në pritje" value={money(openExpenseTotal)} accent="#ffbd66" sub="Nuk zbriten pa aprovim" />
           </div>
           <button type="button" onClick={() => setStep(2)} style={{ width: '100%', marginTop: 18, minHeight: 62, border: 0, borderRadius: 19, background: '#246df2', color: '#fff', fontSize: 20, fontWeight: 950 }}>VAZHDO</button>
@@ -135,7 +135,7 @@ export default function HandoffWizard({
             {workerHybrid ? <Row label="Komisioni që e mban" value={safeCommission > 0 ? `− ${money(safeCommission)}` : '0.00 €'} accent="#ffd166" /> : null}
             <Row label="Për bazë para zbritjeve" value={money(safeBase)} accent="#83d9ff" />
             <Row label="Ushqimi" value={mealDeduct > 0 ? `− ${money(mealDeduct)}` : '0.00 €'} accent={mealDeduct > 0 ? '#ffbd66' : undefined} />
-            <Row label="Bonusi 48H që e mban" value={bonusHeld > 0 ? `− ${money(bonusHeld)}` : '0.00 €'} accent="#ffd166" />
+            <Row label="Bonusi READY që e mban" value={bonusHeld > 0 ? `− ${money(bonusHeld)}` : '0.00 €'} accent="#ffd166" />
             {Number(openExpenseTotal || 0) > 0 ? <Row label="Shpenzime në pritje" value={money(openExpenseTotal)} accent="#ffbd66" sub="Nuk janë zbritur" /> : null}
             <div style={{ padding: 18, background: '#063325' }}>
               <div style={{ color: '#8de6c4', fontWeight: 900 }}>DUHET ME DORËZU</div>

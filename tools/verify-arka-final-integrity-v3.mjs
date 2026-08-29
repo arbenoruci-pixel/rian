@@ -23,7 +23,7 @@ check('secure search_path', migration.includes("set search_path to 'public','pg_
 check('accept retry re-reads handoff', /select\s+\*\s+into\s+v_handoff\s+from\s+public\.cash_handoffs/i.test(acceptSql));
 check('accept verifies item sum', acceptSql.includes('HANDOFF_AMOUNT_MISMATCH'));
 check('accept uses ledger source identity', acceptSql.includes('source_type = $1') && acceptSql.includes("'cash_handoff'"));
-check('engine BASE payment idempotency', engine.includes('BASE_ARKA_IDEMPOTENCY_CONFLICT'));
+check('engine BASE payment atomic idempotency', engine.includes('record_base_order_cash_payment_atomic_v1') && engine.includes('p_idempotency_key'));
 check('engine Transport payment verification', engine.includes('TRANSPORT_ARKA_PAYMENT_VERIFY_FAILED'));
 check('engine handoff requires atomic RPC', engine.includes('submit_cash_handoff_atomic'));
 check('corporate finance RPC-only submit', finance.includes('rpcOnly: true'));

@@ -3315,7 +3315,7 @@ export default function ArkaPageV3() {
         </div>
         <div className="arkaSimpleNav">
           <Link href="/" prefetch={false} className="arkaTopBtn">HOME</Link>
-          <Link href="/arka/bonuset" prefetch={false} className="arkaTopBtn">BONUSI 48H</Link>
+          <Link href="/arka/bonuset" prefetch={false} className="arkaTopBtn">BONUSET</Link>
           {String(actor?.pin || '').trim() === '4563' && canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME</Link> : null}
           {String(actor?.pin || '').trim() === '4563' && masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN ARKA</Link> : null}
           {canOpenKapaku ? <Link href="/arka/kapaku" prefetch={false} className="arkaTopBtn">KAPAKU I ARKËS</Link> : null}

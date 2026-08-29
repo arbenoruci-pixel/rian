@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { runArkaTransaction } from '@/lib/arka/arkaEngine.js';
-import { createAdminClientOrThrow } from '@/lib/supabaseAdminClient.js';
+import { createServiceRoleClientOrThrow } from '@/lib/supabaseAdminClient.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,7 +8,7 @@ export async function POST(req) {
   let body = null;
   try {
     body = await req.json();
-    const supabase = createAdminClientOrThrow();
+    const supabase = createServiceRoleClientOrThrow();
     const result = await runArkaTransaction(body || {}, { supabase });
     return NextResponse.json({ ok: true, ...(result || {}) }, { status: 200 });
   } catch (error) {

@@ -78,6 +78,8 @@ function normalizeLegacyArgs(args) {
         order?.fullPaymentStatus ||
         order?.full_payment_status ||
         null,
+      paymentOutcome: order?.paymentOutcome || order?.payment_outcome || null,
+      expectedDebt: order?.expectedDebt ?? order?.expected_debt ?? null,
     };
   }
 
@@ -118,6 +120,9 @@ export async function recordOrderCashPayment(...args) {
     input.note ||
     `PAGESA ${amt}€ • #${input.code || ''} • ${input.clientName || input.name || ''}`.trim();
   const statusOnFullPayment = normalizeFullPaymentStatus(input);
+  const paymentOutcome = String(input.paymentOutcome || input.payment_outcome || '').trim().toUpperCase();
+  const expectedDebtRaw = input.expectedDebt ?? input.expected_debt;
+  const expectedDebt = Number(expectedDebtRaw);
 
   const result = await arkaTransaction({
     action: ARKA_ACTION.BASE_ORDER_PAYMENT,
@@ -131,6 +136,8 @@ export async function recordOrderCashPayment(...args) {
     orderCode: input.code || input.orderCode || input.order_code || null,
     clientName: input.clientName || input.name || input.client_name || null,
     clientPhone: input.clientPhone || input.client_phone || input.phone || null,
+    ...(paymentOutcome ? { paymentOutcome, payment_outcome: paymentOutcome } : {}),
+    ...(Number.isFinite(expectedDebt) ? { expectedDebt, expected_debt: expectedDebt } : {}),
     ...(statusOnFullPayment ? {
       statusOnFullPayment,
       status_on_full_payment: statusOnFullPayment,

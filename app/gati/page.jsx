@@ -31,6 +31,7 @@ import { markRealUiReady } from '@/lib/markRealUiReady';
 import { isDiagEnabled } from '@/lib/diagMode';
 import { listBaseCreateRecovery } from '@/lib/syncRecovery';
 import { isDbTruthSnapshotMeta, isStrongPendingOfflineRow, selectAuthoritativeOfflineRows } from '@/lib/authoritativeOfflineListPolicy';
+import { getOrderCodeBadgeStyle } from '@/lib/orderCodeBadge';
 
 const RackLocationModal = React.lazy(() => import('@/components/RackLocationModal'));
 
@@ -3073,6 +3074,12 @@ function GatiPageInner() {
       orderCode: payload?.code || payload?.order_code || null,
       clientName: payload?.client_name || payload?.client?.name || null,
       clientPhone: payload?.client_phone || payload?.client?.phone || null,
+      paymentOutcome: 'DELIVERY_TO_DORZIM',
+      payment_outcome: 'DELIVERY_TO_DORZIM',
+      expectedDebt: Number((amt + Math.max(0, Number(payload?.debt || payload?.pay?.debt || 0))).toFixed(2)),
+      expected_debt: Number((amt + Math.max(0, Number(payload?.debt || payload?.pay?.debt || 0))).toFixed(2)),
+      statusOnFullPayment: 'dorzim',
+      status_on_full_payment: 'dorzim',
       idempotencyKey,
       idempotency_key: idempotencyKey,
     };
@@ -3116,6 +3123,9 @@ function GatiPageInner() {
           payment_external_id: idempotencyKey,
           idempotencyKey,
           idempotency_key: idempotencyKey,
+          paymentOutcome: 'DELIVERY_TO_DORZIM',
+          expectedDebt: Number((Number(applied || 0) + Math.max(0, Number(payload?.debt || payload?.pay?.debt || 0))).toFixed(2)),
+          statusOnFullPayment: 'dorzim',
         };
         const payRes = await recordOrderCashPayment(fastPayload, applied, pinData, method);
         if (payRes?.ok === false || !payRes?.payment || !payRes?.order) {
@@ -3450,6 +3460,9 @@ BORXHI PAS: ${newDebt.toFixed(2)}€
           payment_external_id: idempotencyKey,
           idempotencyKey,
           idempotency_key: idempotencyKey,
+          paymentOutcome: 'DELIVERY_TO_DORZIM',
+          expectedDebt: due,
+          statusOnFullPayment: 'dorzim',
         }, applied, pinData, payMethod);
 
         // GATI_OFFLINE_PAYMENT_V1: arkaTransaction already persisted this exact idempotent
@@ -4324,14 +4337,12 @@ async function resolveReturnDbId(row) {
                       style={{
                         background: badgeColorByAge(o.readyTs || o.ts),
                         color: '#fff',
-                        width: 40,
-                        height: 40,
+                        ...getOrderCodeBadgeStyle(normalizeCode(o.code)),
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         borderRadius: 8,
                         fontWeight: 900,
-                        fontSize: 14,
                         flexShrink: 0,
                         cursor: 'pointer',
                       }}
