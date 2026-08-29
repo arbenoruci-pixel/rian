@@ -40,6 +40,7 @@ import { buildPastrimiPaymentDecision, PASTRIMI_PAYMENT_PURPOSE } from '@/lib/pa
 import PastrimiPaymentPurposeWizard from '@/components/PastrimiPaymentPurposeWizard';
 
 const RackLocationModal = React.lazy(() => import('@/components/RackLocationModal'));
+const ClientProfileSheet = React.lazy(() => import('@/components/ClientProfileSheet'));
 
 function createPastrimiPaymentAttemptId() {
   try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); } catch {}
@@ -4031,6 +4032,7 @@ function PastrimiPageInner() {
   const [readyPlaceBusy, setReadyPlaceBusy] = useState(false);
   const [readySlots, setReadySlots] = useState([]);
   const [smsModal, setSmsModal] = useState({ open: false, phone: '', text: '' });
+  const [clientProfileAnchor, setClientProfileAnchor] = useState(null);
   const [paketimiSheet, setPaketimiSheet] = useState(false);
   const [paketimiOrder, setPaketimiOrder] = useState(null);
   const [paketimiDraft, setPaketimiDraft] = useState(null);
@@ -4534,6 +4536,7 @@ function PastrimiPageInner() {
 
     const nextRow = {
       id: row?.id,
+      client_id: row?.client_id || order?.client_id || order?.client_master_id || order?.client?.id || null,
       source: sourceTable === 'transport_orders' ? 'transport_orders' : 'orders',
       ts: Number(order?.ts || Date.parse(row?.updated_at || row?.created_at || 0) || Date.now()),
       name: row?.client_name || order?.client?.name || order?.client_name || 'Pa Emër',
@@ -4646,7 +4649,7 @@ function PastrimiPageInner() {
           tables: ['orders'],
           byTable: {
             orders: {
-              select: 'id,local_oid,status,created_at,data,code,client_name,client_phone',
+              select: 'id,local_oid,status,created_at,updated_at,data,code,client_id,client_name,client_phone',
               in: { status: ['pastrim','pastrimi'] },
               orderBy: 'created_at',
               ascending: false,
@@ -4682,7 +4685,7 @@ function PastrimiPageInner() {
         const localOid = normalizeLocalOidValue(row?.local_oid, order?.local_oid, order?.oid);
         dbMirrorRows.push({ id: row.id, local_oid: localOid || null, status: row.status, data: row.data ?? null, updated_at: row.updated_at || row.created_at || new Date().toISOString(), _table: 'orders' });
         allOrders.push(normalizeRenderableOrderRow({
-          id: row.id, local_oid: localOid || null, status: normalizeStatus(getDbTruthStatus(row) || order?.status || 'pastrim') || 'pastrim', source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
+          id: row.id, client_id: row.client_id || order.client_id || order.client_master_id || order.client?.id || null, local_oid: localOid || null, status: normalizeStatus(getDbTruthStatus(row) || order?.status || 'pastrim') || 'pastrim', source: 'orders', ts: Number(order.ts || Date.parse(row.created_at) || 0) || 0,
           name: row.client_name || order.client?.name || order.client_name || 'Pa Emër', phone: row.client_phone || order.client?.phone || order.client_phone || '',
           code: normalizeCode(order.client?.code || order.code || row.code), m2: metrics.m2,
           cope, total, paid, isPaid: paid >= total && total > 0, isReturn: !!order?.returnInfo?.active, fullOrder: localOid && !String(order?.local_oid || '').trim() ? { ...order, local_oid: localOid } : order
@@ -4699,7 +4702,7 @@ function PastrimiPageInner() {
         dbMirrorRows.push({ id: row.id, local_oid: localOid || null, status: row.status, data: row.data ?? null, updated_at: row.updated_at || row.created_at || new Date().toISOString(), _table: 'transport_orders' });
         const fullOrder = mergeTransportIdentityIntoOrder(row, localOid && !String(order?.local_oid || '').trim() ? { ...order, local_oid: localOid } : order);
         allOrders.push(normalizeRenderableOrderRow({
-          id: row.id, local_oid: localOid || null, status: normalizeStatus(getDbTruthStatus(row) || order?.status || 'pastrim') || 'pastrim', source: 'transport_orders', ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
+          id: row.id, client_id: row.client_id || fullOrder.client_id || fullOrder.client_master_id || fullOrder.client?.id || null, local_oid: localOid || null, status: normalizeStatus(getDbTruthStatus(row) || order?.status || 'pastrim') || 'pastrim', source: 'transport_orders', ts: Number(order.created_at ? Date.parse(order.created_at) : (Date.parse(row.created_at) || 0)),
           name: order.client?.name || '', phone: order.client?.phone || '',
           code: normalizeCode(row.code_str || order.client?.code), m2: metrics.m2,
           cope, total, paid, isPaid: paid >= total && total > 0, isReturn: false, fullOrder
@@ -7146,12 +7149,12 @@ ${destinationLine}
                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.75)', fontWeight: 800 }}>{formatDayMonth(o.ts)}</div>
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
+                    <button type="button" aria-label={`Hap kartelën e klientit ${o.name || ''}`} onClick={(event) => { event.stopPropagation(); setClientProfileAnchor(o); }} style={{ display: 'block', width: '100%', padding: 0, border: 0, background: 'transparent', color: 'inherit', textAlign: 'left', fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', cursor: 'pointer' }}>
                       {o.name} 
                       {/* SHTUAR: Etiketa NË PRITJE për Offline */}
                       {o._outboxPending && <span style={{ color: '#f59e0b', fontWeight: 800, marginLeft: 6 }}>⏳ PRITJE</span>}
                       {o.isReturn && <span style={{color:'#f59e0b'}}>• KTHIM</span>}
-                    </div>
+                    </button>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{cope} copë • {m2.toFixed(2)} m²</div>
                     {showCompactMetaLine ? (
                       <div
@@ -7833,6 +7836,14 @@ ${destinationLine}
         phone={smsModal.phone}
         messageText={smsModal.text}
       />
+
+      {clientProfileAnchor ? (
+        <LocalErrorBoundary boundaryKind="panel" routePath="/pastrimi" routeName="PASTRIMI" moduleName="ClientProfileSheet" componentName="ClientProfileSheet" sourceLayer="pastrimi_panel" showHome={false}>
+          <Suspense fallback={null}>
+            <ClientProfileSheet open anchor={clientProfileAnchor} onClose={() => setClientProfileAnchor(null)} />
+          </Suspense>
+        </LocalErrorBoundary>
+      ) : null}
 
       <style jsx>{`
         .list-item-compact:last-child { border-bottom: none; }

@@ -34,6 +34,7 @@ import { isDbTruthSnapshotMeta, isStrongPendingOfflineRow, selectAuthoritativeOf
 import { getOrderCodeBadgeStyle } from '@/lib/orderCodeBadge';
 
 const RackLocationModal = React.lazy(() => import('@/components/RackLocationModal'));
+const ClientProfileSheet = React.lazy(() => import('@/components/ClientProfileSheet'));
 
 function RouteLoadingFallback({ title = 'DUKE HAPUR...' }) {
   return (
@@ -550,6 +551,7 @@ function mapBaseCacheRowToGati(row) {
   const readyMeta = readGatiReadyMeta(data, row || {});
   return {
     id: String(row?.id || row?.local_oid || ''),
+    client_id: row?.client_id || data?.client_id || data?.client_master_id || data?.client?.id || null,
     ts: Number(data?.ts || 0),
     readyTs: Date.parse(row?.updated_at || row?.created_at || 0) || Date.now(),
     name: row?.client_name || data?.client_name || data?.client?.name || 'Pa Emër',
@@ -568,6 +570,7 @@ function mapBaseCacheRowToGati(row) {
     ready_slots: readyMeta.readySlots,
     fullOrder: {
       ...data,
+      client_id: row?.client_id || data?.client_id || data?.client_master_id || data?.client?.id || null,
       ready_note: readyMeta.readyNote,
       ready_note_text: readyMeta.readyText,
       ready_location: readyMeta.readyLocation,
@@ -839,6 +842,7 @@ function mapLocalOrderToGatiRow(sourceRow = {}) {
   const readyMeta = readGatiReadyMeta(order, sourceRow || {});
   return {
     id: String(order.id || order.local_oid || ''),
+    client_id: order.client_id || order.client_master_id || order.client?.id || null,
     local_oid: String(order.local_oid || order.oid || order.id || ''),
     source: String(order._synced === false ? 'OUTBOX' : 'LOCAL'),
     ts: Number(order.ts || 0),
@@ -1320,6 +1324,7 @@ function GatiPageInner() {
   const [selectedSlots, setSelectedSlots] = useState([]);
   const [slotMap, setSlotMap] = useState({});
   const [smsModal, setSmsModal] = useState({ open: false, phone: '', text: '' });
+  const [clientProfileAnchor, setClientProfileAnchor] = useState(null);
   const smsOpenReqRef = useRef(0);
 
   const [showPaySheet, setShowPaySheet] = useState(false);
@@ -1775,7 +1780,7 @@ function GatiPageInner() {
       })() : Promise.resolve([]);
       let dataError = null;
       const rootGatiPromise = listOrderRecords('orders', {
-        select: 'id,status,ready_at,picked_up_at,delivered_at,local_oid,created_at,updated_at,data,code,client_name,client_phone',
+        select: 'id,status,ready_at,picked_up_at,delivered_at,local_oid,created_at,updated_at,data,code,client_id,client_name,client_phone',
         eq: { status: 'gati' },
         orderBy: 'updated_at',
         ascending: false,
@@ -2035,6 +2040,7 @@ function GatiPageInner() {
             }));
           }
           order.id = String(row.id);
+          order.client_id = row.client_id || order.client_id || order.client_master_id || order.client?.id || null;
           order.status = 'gati';
           order.state = 'gati';
           order.ready_note = readyMeta.readyNote;
@@ -2053,6 +2059,7 @@ function GatiPageInner() {
 
           return {
             id: String(order.id),
+            client_id: row.client_id || order.client_id || order.client_master_id || order.client?.id || null,
             local_oid: String(order.local_oid || row.local_oid || order.oid || order.id || ''),
             source: 'DB',
             status: 'gati',
@@ -2076,6 +2083,7 @@ function GatiPageInner() {
             ready_slots: readyMeta.readySlots,
             fullOrder: {
               ...order,
+              client_id: row.client_id || order.client_id || order.client_master_id || order.client?.id || null,
               local_oid: order.local_oid || row.local_oid || order.oid || order.id || '',
               picked_up_at: row.picked_up_at || order.picked_up_at || order.data?.picked_up_at || null,
               delivered_at: row.delivered_at || order.delivered_at || order.data?.delivered_at || null,
@@ -4357,8 +4365,18 @@ async function resolveReturnDbId(row) {
                     )}
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div
+                    <button
+                      type="button"
+                      aria-label={`Hap kartelën e klientit ${o.name || ''}`}
+                      onClick={(event) => { event.stopPropagation(); setClientProfileAnchor(o); }}
                       style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: 0,
+                        border: 0,
+                        background: 'transparent',
+                        color: 'inherit',
+                        textAlign: 'left',
                         fontWeight: 700,
                         fontSize: 14,
                         whiteSpace: 'nowrap',
@@ -4367,7 +4385,7 @@ async function resolveReturnDbId(row) {
                       }}
                     >
                       {o.name || 'Pa emër'}
-                    </div>
+                    </button>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
                       {cope} copë • {m2.toFixed(2)} m²
                     </div>
@@ -4474,6 +4492,14 @@ async function resolveReturnDbId(row) {
           messageText={smsModal.text}
         />
       </LocalErrorBoundary>
+
+      {clientProfileAnchor ? (
+        <LocalErrorBoundary boundaryKind="panel" routePath="/gati" routeName="GATI" moduleName="ClientProfileSheet" componentName="ClientProfileSheet" sourceLayer="gati_panel" showHome={false}>
+          <Suspense fallback={null}>
+            <ClientProfileSheet open anchor={clientProfileAnchor} onClose={() => setClientProfileAnchor(null)} />
+          </Suspense>
+        </LocalErrorBoundary>
+      ) : null}
 
       {showAuditSheet && auditOrder && (
         <LocalErrorBoundary boundaryKind="panel" routePath="/gati" routeName="GATI" moduleName="GatiAuditSheet" componentName="AuditSheet" sourceLayer="gati_panel" showHome={false}>
