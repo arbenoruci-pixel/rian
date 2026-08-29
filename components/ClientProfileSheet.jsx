@@ -6,6 +6,7 @@ import SmartSmsModal from '@/components/SmartSmsModal';
 import { buildHomeSearchHref } from '@/lib/homeSearch';
 import { buildClientProfileAnchor } from '@/lib/clientProfileIdentity';
 import { fetchClientProfile, readCachedClientProfile } from '@/lib/clientProfileClient';
+import { buildClientProfileSmartSms } from '@/lib/clientProfileSmartSms';
 
 const TABS = Object.freeze([
   { key: 'ACTIVE', label: 'AKTIVE' },
@@ -87,17 +88,6 @@ function safePhoneHref(phone) {
   return value ? `tel:${value}` : '';
 }
 
-function buildMessage(profile) {
-  const client = profile?.client || {};
-  const visits = Array.isArray(profile?.visits) ? profile.visits : [];
-  const current = visits.find((visit) => visit?.current) || visits.find((visit) => visit?.active) || visits[0] || null;
-  const firstName = clean(client.name).split(/\s+/)[0] || 'klient';
-  const lines = [`Përshëndetje ${firstName}, po ju kontaktojmë nga Tepiha.`];
-  if (current?.code && current.code !== '—') lines.push(`Porosia ${current.code}: ${statusLabel(current.status)}.`);
-  if (Number(profile?.summary?.totalDebt || 0) > 0) lines.push(`Obligimi i hapur: ${euro(profile.summary.totalDebt)}.`);
-  return lines.join('\n');
-}
-
 function visitHref(visit) {
   if (!visit?.id) return '';
   return buildHomeSearchHref({
@@ -172,6 +162,10 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
   const [expandedId, setExpandedId] = useState('');
   const [smsOpen, setSmsOpen] = useState(false);
   const scrollRef = useRef({ y: 0, previous: null });
+  const smartSms = useMemo(
+    () => buildClientProfileSmartSms(profile, anchor),
+    [profile, anchor.source, anchor.orderId],
+  );
 
   useEffect(() => {
     if (!open) return undefined;
@@ -186,6 +180,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
     setLoading(true);
     setError('');
     setTab('ACTIVE');
+    setSmsOpen(false);
     setExpandedId(anchor.orderId || '');
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     fetchClientProfile(anchorLike || {}, { signal: controller?.signal })
@@ -231,6 +226,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
   const visibleVisits = tab === 'ACTIVE' ? visits.filter((visit) => visit?.active) : visits;
   const payments = Array.isArray(profile?.payments) ? profile.payments : [];
   const tel = safePhoneHref(client.phone);
+  const canMessage = Boolean(client.phone && smartSms.ready && !loading && !fromCache);
   const mapHref = client.gpsLat && client.gpsLng
     ? `https://www.google.com/maps?q=${encodeURIComponent(`${client.gpsLat},${client.gpsLng}`)}`
     : (client.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(client.address)}` : '');
@@ -259,7 +255,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
           <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', padding: '12px 12px max(20px,env(safe-area-inset-bottom))' }}>
             <div style={{ display: 'grid', gridTemplateColumns: mapHref ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))', gap: 8 }}>
               <button type="button" disabled={!tel} onClick={() => { if (tel) window.location.href = tel; }} style={{ minHeight: 48, borderRadius: 15, border: '1px solid rgba(34,197,94,.30)', background: 'rgba(22,163,74,.18)', color: tel ? '#dcfce7' : '#64748b', fontSize: 13, fontWeight: 1000, cursor: tel ? 'pointer' : 'not-allowed' }}>📞 THIRR</button>
-              <button type="button" disabled={!client.phone} onClick={() => setSmsOpen(true)} style={{ minHeight: 48, borderRadius: 15, border: '1px solid rgba(59,130,246,.35)', background: 'rgba(37,99,235,.20)', color: client.phone ? '#dbeafe' : '#64748b', fontSize: 13, fontWeight: 1000, cursor: client.phone ? 'pointer' : 'not-allowed' }}>💬 MESAZH</button>
+              <button type="button" disabled={!canMessage} onClick={() => { if (canMessage) setSmsOpen(true); }} title={canMessage ? 'Hap Smart Message për vizitën aktuale' : 'Smart Message aktivizohet pasi të verifikohet statusi live i vizitës'} style={{ minHeight: 48, borderRadius: 15, border: '1px solid rgba(59,130,246,.35)', background: 'rgba(37,99,235,.20)', color: canMessage ? '#dbeafe' : '#64748b', fontSize: 13, fontWeight: 1000, cursor: canMessage ? 'pointer' : 'not-allowed' }}>💬 MESAZH</button>
               {mapHref ? <button type="button" onClick={() => { window.location.href = mapHref; }} style={{ minHeight: 48, borderRadius: 15, border: '1px solid rgba(245,158,11,.30)', background: 'rgba(217,119,6,.16)', color: '#fef3c7', fontSize: 13, fontWeight: 1000, cursor: 'pointer' }}>📍 HARTA</button> : null}
             </div>
 
@@ -334,7 +330,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
           </div>
         </section>
       </div>
-      <SmartSmsModal isOpen={smsOpen} onClose={() => setSmsOpen(false)} phone={client.phone || ''} messageText={buildMessage(profile)} />
+      <SmartSmsModal isOpen={smsOpen && canMessage} onClose={() => setSmsOpen(false)} phone={client.phone || ''} messageText={smartSms.messageText} />
     </>
   );
 }
