@@ -36,7 +36,7 @@ import { createPendingCashPayment } from '@/lib/arkaCashSync';
 import { describeReadyBonusResult, markBaseOrderReadyWithBonus, resolveBaseReadyBonusWorker } from '@/lib/baseReadyBonusClient';
 import { isDbTruthSnapshotMeta, isStrongPendingOfflineRow, selectAuthoritativeOfflineRows } from '@/lib/authoritativeOfflineListPolicy';
 import { getOrderCodeBadgeStyle } from '@/lib/orderCodeBadge';
-import { buildPastrimiPaymentDecision, PASTRIMI_PAYMENT_PURPOSE } from '@/lib/pastrimiPaymentPurpose';
+import { buildPastrimiPaymentDecision, buildPastrimiPaymentPinLabel, PASTRIMI_PAYMENT_PURPOSE } from '@/lib/pastrimiPaymentPurpose';
 import PastrimiPaymentPurposeWizard from '@/components/PastrimiPaymentPurposeWizard';
 import { clearCachedClientProfile, fetchClientProfile } from '@/lib/clientProfileClient';
 import {
@@ -6272,6 +6272,8 @@ Shoferi u njoftua në listën e tij.`);
     const due = Math.max(0, Number(Number(rowPayOrder.linkedDue ?? rowPayOrder.currentDebt ?? 0).toFixed(2)));
     if (due <= 0) { alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.'); return false; }
     if (cashGiven <= 0) { alert('SHKRUANI SHUMËN!'); return false; }
+    paymentPurposeBusyRef.current = false;
+    setPaymentPurposeBusy(false);
     setRowPaySheet(false);
     setPaymentPurposeWizard({ source: 'row', due, cashGiven, code: rowPayOrder.code, clientName: rowPayOrder.name });
     return true;
@@ -6305,7 +6307,15 @@ Shoferi u njoftua në listën e tij.`);
     const currentApplied = Number(currentAllocation?.amount || 0) || 0;
     const destinationLine = pickupNow ? 'VEPRIMI: KLIENTI I MERR — KALO NË DORZIM' : (willSettleFull ? 'VEPRIMI: PAGUAR PARAPRAKISHT — MBETET NË PASTRIMI' : 'VEPRIMI: PAGESË PARTIALE — MBETET NË PASTRIMI');
 
-    const pinLabel = `PAGESË NË PASTRIMI\nKODI: ${rowPayOrder.code}\n\nPAGESË SOT: ${applied.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI: ${kusuri.toFixed(2)}€\nBORXHI I KLIENTIT PAS: ${remaining.toFixed(2)}€\n${destinationLine}\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
+    const pinLabel = buildPastrimiPaymentPinLabel({
+      code: rowPayOrder.code,
+      decision,
+      destinationLine,
+    });
+    if (!pinLabel) {
+      alert('PAGESA NUK U HAP. SHUMA E PAGESËS NUK U LEXUA SAKTË.');
+      return false;
+    }
     const pinData = await requirePaymentPin({ label: pinLabel });
     if (!pinData) return false;
 
@@ -6627,6 +6637,8 @@ Shoferi u njoftua në listën e tij.`);
   }
 
   function returnToPaymentAmount() {
+    paymentPurposeBusyRef.current = false;
+    setPaymentPurposeBusy(false);
     setPaymentPurposeWizard(null);
     if (rowPayOrder) setRowPaySheet(true);
   }
@@ -6638,6 +6650,9 @@ Shoferi u njoftua në listën e tij.`);
     try {
       const ok = await applyRowPayAndClose(purpose);
       if (ok) setPaymentPurposeWizard(null);
+    } catch (error) {
+      try { console.error('[PASTRIMI_PAYMENT_PURPOSE_CHOICE_FAILED]', error); } catch {}
+      alert(`PAGESA NUK U HAP. ${String(error?.message || error || 'PROVO PËRSËRI.')}`);
     } finally {
       paymentPurposeBusyRef.current = false;
       setPaymentPurposeBusy(false);
