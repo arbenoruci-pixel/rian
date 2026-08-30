@@ -693,13 +693,31 @@ async function findBaseOrderByLocalOidAny(localOid = '', selectCols = 'id,local_
   const oid = String(localOid || '').trim();
   if (!oid) return null;
 
+  const queryErrors = [];
+
+  function rememberQueryError(label, error) {
+    const message = String(error?.message || error || 'UNKNOWN_DB_QUERY_ERROR').trim() || 'UNKNOWN_DB_QUERY_ERROR';
+    queryErrors.push({
+      via: label,
+      message,
+      code: String(error?.code || '').trim(),
+      details: String(error?.details || '').trim(),
+    });
+  }
+
   async function tryQuery(label, apply) {
     try {
       const base = supabase.from('orders').select(selectCols);
       const query = apply(base);
       const { data, error } = await query.order('updated_at', { ascending: false }).limit(1).maybeSingle();
+      if (error) {
+        rememberQueryError(label, error);
+        return null;
+      }
       if (!error && data) return { found: true, row: data, via: label };
-    } catch {}
+    } catch (error) {
+      rememberQueryError(label, error);
+    }
     return null;
   }
 
@@ -714,26 +732,60 @@ async function findBaseOrderByLocalOidAny(localOid = '', selectCols = 'id,local_
     const found = await tryQuery(label, apply);
     if (found) return found;
   }
-  return null;
+  if (queryErrors.length > 0) {
+    return {
+      found: false,
+      row: null,
+      via: '',
+      unknown: true,
+      error: queryErrors.map((item) => `${item.via}: ${item.message}`).join(' | '),
+      errors: queryErrors,
+    };
+  }
+  return { found: false, row: null, via: '', unknown: false, error: null, errors: [] };
 }
 
 async function verifyBaseOrderInDbBySafetyIds(payload = {}, fallback = {}) {
   const ids = extractPranimiSyncSafety(payload, fallback);
   const selectCols = 'id,local_oid,code,status,client_name,client_phone,price_total,m2_total,pieces,paid_cash,is_paid_upfront,updated_at,data';
+  const queryErrors = [];
+
+  function rememberQueryError(label, error) {
+    const message = String(error?.message || error || 'UNKNOWN_DB_QUERY_ERROR').trim() || 'UNKNOWN_DB_QUERY_ERROR';
+    queryErrors.push({
+      via: label,
+      message,
+      code: String(error?.code || '').trim(),
+      details: String(error?.details || '').trim(),
+    });
+  }
 
   async function tryQuery(label, apply) {
     try {
       const base = supabase.from('orders').select(selectCols);
       const query = apply(base);
       const { data, error } = await query.maybeSingle();
+      if (error) {
+        rememberQueryError(label, error);
+        return null;
+      }
       if (!error && data) return { found: true, row: data, via: label, ids };
-    } catch {}
+    } catch (error) {
+      rememberQueryError(label, error);
+    }
     return null;
   }
 
   if (ids.local_oid) {
     const found = await findBaseOrderByLocalOidAny(ids.local_oid, selectCols);
     if (found?.row) return { found: true, row: found.row, via: found.via || 'local_oid_any', ids };
+    if (found?.unknown && Array.isArray(found?.errors)) queryErrors.push(...found.errors);
+  }
+
+  const serverId = String(fallback?.server_id || fallback?.serverId || '').trim();
+  if (/^\d+$/.test(serverId)) {
+    const found = await tryQuery('server_id', (q) => q.eq('id', Number(serverId)));
+    if (found) return found;
   }
 
   if (ids.save_attempt_id) {
@@ -742,7 +794,17 @@ async function verifyBaseOrderInDbBySafetyIds(payload = {}, fallback = {}) {
   }
 
   // Fallback is debug-only: never treat code/phone/name alone as a verified success.
-  return { found: false, row: null, via: '', ids };
+  return {
+    found: false,
+    row: null,
+    via: '',
+    ids,
+    unknown: queryErrors.length > 0,
+    error: queryErrors.length > 0
+      ? queryErrors.map((item) => `${item.via}: ${item.message}`).join(' | ')
+      : null,
+    errors: queryErrors,
+  };
 }
 
 function readVerifiedBaseOrderCode(row = {}) {
@@ -5671,6 +5733,7 @@ export default function PranimiPage() {
       const codeLifecycleMode = isBaseEdit
         ? 'EDIT_EXISTING_ORDER'
         : (resolvedSelectedClientCode ? 'EXISTING_CLIENT_HISTORICAL_CODE' : 'NEW_ASSIGNED_CODE');
+      const allocatorAssignmentBeforeFinalCode = normalizeCode(getAssignedPranimiCode(codeDraftId));
       const displayedCodeBeforeVerify = normalizeCode(codeRawRef.current || codeRaw || getAssignedPranimiCode(codeDraftId));
       let finalCodeLifecyclePin = resolveDraftCodeLifecyclePin({
         localOid: codeDraftId,
@@ -5755,6 +5818,10 @@ export default function PranimiPage() {
 
       const nowIso = new Date().toISOString();
       const persistedClientCode = Number(normCodeNow || 0) || null;
+      const historicalPreFinalAssignmentPresent = codeLifecycleMode === 'EXISTING_CLIENT_HISTORICAL_CODE'
+        && allocatorAssignmentBeforeFinalCode != null;
+      const historicalTempAssignmentExisted = historicalPreFinalAssignmentPresent
+        && Number(allocatorAssignmentBeforeFinalCode) !== Number(persistedClientCode);
       try {
         order.code = persistedClientCode;
         order.client_code = persistedClientCode;
@@ -5822,6 +5889,16 @@ export default function PranimiPage() {
             final_code_lifecycle: persistedClientCode,
             final_code_reason: finalCodeReason,
             code_lifecycle_mode: codeLifecycleMode,
+            ...(codeLifecycleMode === 'EXISTING_CLIENT_HISTORICAL_CODE' ? {
+              code_lifecycle_pre_final_assignment_present: historicalPreFinalAssignmentPresent,
+              ...(historicalPreFinalAssignmentPresent ? {
+                code_lifecycle_pre_final_assignment_code: Number(allocatorAssignmentBeforeFinalCode),
+              } : {}),
+              code_lifecycle_temp_assignment_existed: historicalTempAssignmentExisted,
+              ...(historicalTempAssignmentExisted ? {
+                code_lifecycle_temp_code: Number(allocatorAssignmentBeforeFinalCode),
+              } : {}),
+            } : {}),
             db_verify_state: canAttemptDirectDbFinalSave ? 'DB_VERIFY_PENDING' : 'LOCAL / NOT SYNCED',
           },
           pieces: Number(copeCount || 0),
@@ -5847,8 +5924,8 @@ export default function PranimiPage() {
       applyPranimiFinalLifecycleToPayload(payload, {
         status: targetStatus,
         localOid: stableLocalOid || String(shadowOrderId || oid),
-        verifyState: canAttemptDirectDbFinalSave ? 'DB_VERIFIED' : 'LOCAL / NOT SYNCED',
-        source: 'DB_FINAL',
+        verifyState: canAttemptDirectDbFinalSave ? 'DB_VERIFY_PENDING' : 'LOCAL / NOT SYNCED',
+        source: canAttemptDirectDbFinalSave ? 'DB_FINAL_PENDING' : 'DB_FINAL_LOCAL_PENDING',
         draftSource: 'FINAL / PRANIMI SAVE',
       });
 
@@ -6084,6 +6161,8 @@ export default function PranimiPage() {
           code_lifecycle_mode: codeLifecycleMode,
           db_verify_state: warning?.status_label || payload?.data?.pranimi_code_lifecycle?.db_verify_state || payload?.data?.local_sync_status || 'LOCAL / NOT SYNCED',
           online: onlineForClientLookup,
+          outbox_op_id: warning?.outbox_op_id || payload?.data?.outbox_op_id || payload?.data?.pranimi_code_lifecycle?.outbox_op_id || null,
+          server_id: warning?.server_id || payload?.data?.pranimi_code_lifecycle?.server_id || null,
           last_error: warning?.last_error || null,
         });
         finalSaveInFlightRef.current = false;
@@ -6610,6 +6689,70 @@ export default function PranimiPage() {
         } catch {}
       }
 
+      let queuedOpId = String(
+        payload?.data?.outbox_op_id ||
+        payload?.data?.pranimi_code_lifecycle?.outbox_op_id ||
+        ''
+      ).trim();
+      const retryCreateLocalOid = String(stableLocalOid || shadowOrderId || oid || '').trim();
+
+      // PRANIMI_EXISTING_CLIENT_REPEAT_SAVE_V1: every failed/ambiguous direct
+      // create is retried with the exact same local_oid + save_attempt_id. The
+      // outbox deduplicates this target, so a successful-but-unread write cannot
+      // become a second order when connectivity/readback recovers.
+      const enqueueExactPranimiCreateForRetry = async (reason = 'DIRECT_SAVE_NOT_CONFIRMED') => {
+        if (!retryCreateLocalOid) {
+          throw Object.assign(new Error('PRANIMI_RETRY_LOCAL_OID_MISSING'), { code: 'PRANIMI_RETRY_LOCAL_OID_MISSING' });
+        }
+        const saveAttemptId = String(
+          payload?.data?.pranimi_code_lifecycle?.save_attempt_id ||
+          payload?.data?.save_attempt_id ||
+          ''
+        ).trim();
+        if (!saveAttemptId) {
+          throw Object.assign(new Error('PRANIMI_RETRY_SAVE_ATTEMPT_ID_MISSING'), { code: 'PRANIMI_RETRY_SAVE_ATTEMPT_ID_MISSING' });
+        }
+        const currentData = (payload?.data && typeof payload.data === 'object') ? payload.data : {};
+        payload.data = {
+          ...currentData,
+          local_oid: retryCreateLocalOid,
+          ...(saveAttemptId ? { save_attempt_id: saveAttemptId } : {}),
+          sync_safety: {
+            ...((currentData?.sync_safety && typeof currentData.sync_safety === 'object') ? currentData.sync_safety : {}),
+            local_oid: retryCreateLocalOid,
+            ...(saveAttemptId ? { save_attempt_id: saveAttemptId } : {}),
+            retry_reason: reason,
+          },
+          pranimi_code_lifecycle: {
+            ...((currentData?.pranimi_code_lifecycle && typeof currentData.pranimi_code_lifecycle === 'object') ? currentData.pranimi_code_lifecycle : {}),
+            local_oid: retryCreateLocalOid,
+            ...(saveAttemptId ? { save_attempt_id: saveAttemptId } : {}),
+          },
+        };
+
+        const queued = await enqueueBaseOrder({
+          ...payload,
+          id: retryCreateLocalOid,
+          local_oid: retryCreateLocalOid,
+          data: payload.data,
+        });
+        queuedOpId = String(queued?.op_id || queued?.outbox_op_id || queuedOpId || '').trim();
+        if (queuedOpId) {
+          payload.data.outbox_op_id = queuedOpId;
+          payload.data.sync_safety = {
+            ...((payload.data.sync_safety && typeof payload.data.sync_safety === 'object') ? payload.data.sync_safety : {}),
+            outbox_op_id: queuedOpId,
+            op_id: queuedOpId,
+          };
+          payload.data.pranimi_code_lifecycle = {
+            ...((payload.data.pranimi_code_lifecycle && typeof payload.data.pranimi_code_lifecycle === 'object') ? payload.data.pranimi_code_lifecycle : {}),
+            outbox_op_id: queuedOpId,
+            op_id: queuedOpId,
+          };
+        }
+        return queued;
+      };
+
       try {
         if (isBaseEdit && editTargetId) {
           applyPranimiFinalLifecycleToPayload(payload, {
@@ -6641,7 +6784,6 @@ export default function PranimiPage() {
         }
 
         pranimiDiagLog('[PRANIMI handleContinue] save body', { mode: 'create', table: 'orders', id: String(oid), payload: { local_oid: stableLocalOid || String(oid), ...payload } });
-        const queuedOpId = '';
 
         const trulyOfflineSave = !canAttemptDirectDbFinalSave;
         if (trulyOfflineSave) {
@@ -6649,12 +6791,18 @@ export default function PranimiPage() {
             payload.data.local_sync_status = 'LOCAL / NOT SYNCED';
             payload.data.pranimi_code_lifecycle.db_verify_state = 'LOCAL / NOT SYNCED';
           } catch {}
-          await enqueueBaseOrder({ id: String(oid), local_oid: String(oid), ...payload }).catch(() => null);
+          let offlineEnqueueError = '';
+          try {
+            await enqueueExactPranimiCreateForRetry('OFFLINE_FINAL_SAVE');
+          } catch (error) {
+            offlineEnqueueError = String(error?.message || error || 'OUTBOX_ENQUEUE_FAILED');
+          }
           appendPranimiCodeDebug('db_verify_failed', {
             save_attempt_id: payload?.data?.pranimi_code_lifecycle?.save_attempt_id || null,
             local_oid: stableLocalOid || String(shadowOrderId || oid),
-            outbox_op_id: null,
+            outbox_op_id: queuedOpId || null,
             reason: 'offline_or_code_verify_offline',
+            error: offlineEnqueueError || null,
           });
           finishLocalOnlyWarning({
             severity: 'yellow',
@@ -6665,13 +6813,15 @@ export default function PranimiPage() {
             problem_title: 'PROBLEM ME ORDER — NUK KA HYRË NË DB',
             allow_sms_after_ack: false,
             is_base_edit: !!isBaseEdit,
+            outbox_op_id: queuedOpId || null,
+            last_error: offlineEnqueueError || null,
           });
           return;
         }
 
         try {
-          payload.data.local_sync_status = 'DB_VERIFIED';
-          payload.data.pranimi_code_lifecycle.db_verify_state = 'DB_VERIFIED';
+          payload.data.local_sync_status = 'DB_VERIFY_PENDING';
+          payload.data.pranimi_code_lifecycle.db_verify_state = 'DB_VERIFY_PENDING';
           payload.data.sync_safety = {
             ...((payload.data.sync_safety && typeof payload.data.sync_safety === 'object') ? payload.data.sync_safety : {}),
             local_oid: stableLocalOid || String(shadowOrderId || oid),
@@ -6702,6 +6852,7 @@ export default function PranimiPage() {
           directOrderLocalOid,
           'id,local_oid,code,status,client_name,client_phone,updated_at,data'
         );
+        let directSaveResult = null;
         if (existingDraftForFinalSave?.row?.id) {
           appendPranimiCodeDebug('final_save_updates_existing_db_draft', {
             local_oid: directOrderLocalOid,
@@ -6709,19 +6860,26 @@ export default function PranimiPage() {
             previous_status: existingDraftForFinalSave.row.status || existingDraftForFinalSave.row?.data?.status || null,
             code: persistedClientCode,
           });
-          await withSupabaseTimeout(
+          directSaveResult = await withSupabaseTimeout(
             updateOrderRecord('orders', existingDraftForFinalSave.row.id, directOrderRow),
             PRANIMI_CONTINUE_ORDER_SAVE_MS,
             'PRANIMI_ORDER_DIRECT_UPDATE_EXISTING_DRAFT_TIMEOUT',
             { source: 'handleContinue:directOrderUpdateExistingDraft', local_oid: directOrderLocalOid, code: persistedClientCode, order_id: existingDraftForFinalSave.row.id }
           );
         } else {
-          await withSupabaseTimeout(
+          directSaveResult = await withSupabaseTimeout(
             upsertOrderRecord('orders', directOrderRow, { onConflict: 'local_oid' }),
             PRANIMI_CONTINUE_ORDER_SAVE_MS,
             'PRANIMI_ORDER_DIRECT_SAVE_TIMEOUT',
             { source: 'handleContinue:directOrderSave', local_oid: directOrderLocalOid, code: persistedClientCode }
           );
+        }
+        const directSaveServerId = String(directSaveResult?.id || existingDraftForFinalSave?.row?.id || '').trim();
+        if (directSaveServerId) {
+          payload.data.pranimi_code_lifecycle = {
+            ...((payload.data.pranimi_code_lifecycle && typeof payload.data.pranimi_code_lifecycle === 'object') ? payload.data.pranimi_code_lifecycle : {}),
+            server_id: directSaveServerId,
+          };
         }
 
         appendPranimiCodeDebug('supabase_insert_success', {
@@ -6737,6 +6895,7 @@ export default function PranimiPage() {
           local_oid: stableLocalOid || String(shadowOrderId || oid),
           save_attempt_id: payload?.data?.pranimi_code_lifecycle?.save_attempt_id || '',
           outbox_op_id: queuedOpId || '',
+          server_id: directSaveServerId,
           code: persistedClientCode,
         });
 
@@ -6968,35 +7127,57 @@ export default function PranimiPage() {
           payload.data.local_sync_status = 'LOCAL / NOT SYNCED';
           payload.data.pranimi_code_lifecycle.db_verify_state = 'DB_VERIFY_FAILED';
         } catch {}
+        const verifyFailureState = verifyRes?.unknown ? 'DB_VERIFY_UNKNOWN' : 'DB_VERIFY_FAILED';
+        const verifyFailureError = String(
+          verifyRes?.error ||
+          (verifyRes?.unknown ? 'DB_VERIFY_QUERY_ERROR' : 'DB_VERIFY_NOT_FOUND_AFTER_WRITE')
+        );
+        let verifyEnqueueError = '';
+        try {
+          await enqueueExactPranimiCreateForRetry(verifyFailureState);
+        } catch (error) {
+          verifyEnqueueError = String(error?.message || error || 'OUTBOX_ENQUEUE_FAILED');
+        }
+        const verifyWarningError = [
+          verifyFailureError,
+          verifyEnqueueError ? `OUTBOX_ENQUEUE_FAILED: ${verifyEnqueueError}` : '',
+        ].filter(Boolean).join(' | ');
         appendPranimiCodeDebug('db_verify_failed', {
           save_attempt_id: payload?.data?.pranimi_code_lifecycle?.save_attempt_id || null,
           local_oid: stableLocalOid || String(shadowOrderId || oid),
           outbox_op_id: queuedOpId || null,
           code: persistedClientCode,
+          reason: verifyFailureState,
+          error: verifyWarningError,
           sync_done: Number(syncRes?.done || 0),
           sync_failed: Number(syncRes?.failed || 0),
           pending: Number(syncRes?.pending || 0),
         });
-        if (syncedClientMaster?.createdInThisFlow) {
+        if (!verifyRes?.unknown && syncedClientMaster?.createdInThisFlow) {
           await safeCleanupPranimiClientCreatedInThisFlow({
             client: syncedClientMaster,
             expected: { code: persistedClientCode, client_phone: finalClientPhone },
             reason: 'ORDER_DB_VERIFY_FAILED',
           });
         }
-        await markPranimiLocalMirrorUnsynced('DB_VERIFY_FAILED', {
+        await markPranimiLocalMirrorUnsynced(verifyFailureState, {
+          outbox_op_id: queuedOpId || null,
+          server_id: directSaveServerId || null,
+          last_error: verifyWarningError,
           last_sync_result: { done: Number(syncRes?.done || 0), failed: Number(syncRes?.failed || 0), pending: Number(syncRes?.pending || 0) },
         });
         finishLocalOnlyWarning({
-          severity: Number(syncRes?.failed || 0) > 0 ? 'red' : 'yellow',
-          title: 'KJO ORDER ËSHTË VETËM LOKALE',
-          subtitle: 'LOCAL / NOT SYNCED',
-          status_label: 'LOCAL / NOT SYNCED',
+          severity: verifyRes?.unknown || Number(syncRes?.failed || 0) > 0 ? 'red' : 'yellow',
+          title: verifyRes?.unknown ? 'DB NUK U MUND TË VERIFIKOHET' : 'KJO ORDER ËSHTË VETËM LOKALE',
+          subtitle: verifyFailureState.replaceAll('_', ' '),
+          status_label: verifyFailureState.replaceAll('_', ' '),
           message: 'KJO ORDER ËSHTË VETËM LOKALE\nNUK KA HYRË ENDE NË DB\nLAJMËRO ADMININ',
           problem_title: 'PROBLEM ME ORDER — NUK KA HYRË NË DB',
           allow_sms_after_ack: false,
           is_base_edit: !!isBaseEdit,
-          last_error: syncRes?.error || (Number(syncRes?.failed || 0) > 0 ? 'SYNC_FAILED' : 'DB_VERIFY_FAILED'),
+          outbox_op_id: queuedOpId || null,
+          server_id: directSaveServerId || null,
+          last_error: verifyWarningError,
         });
         return;
       } catch (err) {
@@ -7010,6 +7191,17 @@ export default function PranimiPage() {
             payload.data.local_sync_status = 'LOCAL / NOT SYNCED';
             payload.data.pranimi_code_lifecycle.db_verify_state = 'DB_VERIFY_FAILED';
           } catch {}
+          const directSaveError = String(err?.message || err || 'DB_VERIFY_FAILED');
+          let directSaveEnqueueError = '';
+          try {
+            await enqueueExactPranimiCreateForRetry('DIRECT_ONLINE_SAVE_THROW');
+          } catch (error) {
+            directSaveEnqueueError = String(error?.message || error || 'OUTBOX_ENQUEUE_FAILED');
+          }
+          const directSaveWarningError = [
+            directSaveError,
+            directSaveEnqueueError ? `OUTBOX_ENQUEUE_FAILED: ${directSaveEnqueueError}` : '',
+          ].filter(Boolean).join(' | ');
           if (syncedClientMaster?.createdInThisFlow) {
             await safeCleanupPranimiClientCreatedInThisFlow({
               client: syncedClientMaster,
@@ -7018,7 +7210,8 @@ export default function PranimiPage() {
             });
           }
           await markPranimiLocalMirrorUnsynced('DB_VERIFY_FAILED', {
-            last_error: String(err?.message || err || 'DB_VERIFY_FAILED'),
+            outbox_op_id: queuedOpId || null,
+            last_error: directSaveWarningError,
           });
           finishLocalOnlyWarning({
             severity: 'red',
@@ -7029,10 +7222,13 @@ export default function PranimiPage() {
             problem_title: 'PROBLEM ME ORDER — NUK KA HYRË NË DB',
             allow_sms_after_ack: false,
             is_base_edit: !!isBaseEdit,
+            outbox_op_id: queuedOpId || null,
+            last_error: directSaveWarningError,
           });
           return;
         }
 
+        let offlineRetryError = '';
         try {
           if (isBaseEdit && editTargetId) {
             await saveOrderLocal({ id: String(editTargetId), local_oid: stableLocalOid || String(editTargetId), table: 'orders', ...payload, _synced: false, _local: true, _syncPending: true, _syncing: false, _syncFailed: false });
@@ -7045,10 +7241,17 @@ export default function PranimiPage() {
               payload: { id: String(editTargetId), local_oid: stableLocalOid || String(editTargetId), table: 'orders', ...payload },
             }).catch(() => {});
           } else {
-            await enqueueBaseOrder({ id: String(oid), local_oid: String(oid), ...payload });
+            await enqueueExactPranimiCreateForRetry('DIRECT_SAVE_NETWORK_ERROR');
           }
-        } catch {}
+        } catch (error) {
+          offlineRetryError = String(error?.message || error || 'OUTBOX_ENQUEUE_FAILED');
+        }
         try { syncNow().catch(()=>{}); } catch {}
+
+        const offlineSaveWarningError = [
+          String(err?.message || err || 'NETWORK_ERROR'),
+          offlineRetryError ? `OUTBOX_ENQUEUE_FAILED: ${offlineRetryError}` : '',
+        ].filter(Boolean).join(' | ');
 
         finishLocalOnlyWarning({
           severity: 'yellow',
@@ -7059,6 +7262,8 @@ export default function PranimiPage() {
           problem_title: 'PROBLEM ME ORDER — NUK KA HYRË NË DB',
           allow_sms_after_ack: false,
           is_base_edit: !!isBaseEdit,
+          outbox_op_id: queuedOpId || null,
+          last_error: offlineSaveWarningError,
         });
         return;
       }
@@ -7574,13 +7779,89 @@ KOMPANIA JONI`;
   async function finalizeRetryCodeLifecycle(verifiedRow = {}, payload = {}, warning = {}) {
     const data = (payload?.data && typeof payload.data === 'object') ? payload.data : {};
     const life = (data?.pranimi_code_lifecycle && typeof data.pranimi_code_lifecycle === 'object') ? data.pranimi_code_lifecycle : {};
-    const pin = normalizeRealPin(life?.pin) || resolvePranimiActorPin(actor);
+    const remoteData = (verifiedRow?.data && typeof verifiedRow.data === 'object') ? verifiedRow.data : {};
+    const remoteLife = (remoteData?.pranimi_code_lifecycle && typeof remoteData.pranimi_code_lifecycle === 'object') ? remoteData.pranimi_code_lifecycle : {};
+    const pin = normalizeRealPin(life?.code_lifecycle_pin)
+      || normalizeRealPin(remoteLife?.code_lifecycle_pin)
+      || normalizeRealPin(life?.pin)
+      || normalizeRealPin(remoteLife?.pin)
+      || resolvePranimiActorPin(actor);
     const draftId = String(life?.local_oid || data?.local_oid || payload?.local_oid || warning?.local_oid || '').trim();
     const code = normalizeCode(payload?.code ?? data?.code ?? life?.final_code ?? warning?.code ?? null);
     const orderId = String(verifiedRow?.id || warning?.server_id || '').trim();
-    const mode = String(warning?.code_lifecycle_mode || life?.code_lifecycle_mode || (warning?.is_base_edit ? 'EDIT_EXISTING_ORDER' : (life?.selected_client_id ? 'EXISTING_CLIENT_HISTORICAL_CODE' : 'NEW_ASSIGNED_CODE'))).trim();
+    const mode = String(life?.code_lifecycle_mode || warning?.code_lifecycle_mode || (warning?.is_base_edit ? 'EDIT_EXISTING_ORDER' : (life?.selected_client_id ? 'EXISTING_CLIENT_HISTORICAL_CODE' : 'NEW_ASSIGNED_CODE'))).trim();
     if (!pin || !draftId || code == null || !orderId) return { ok: false, reason: 'RETRY_CODE_LIFECYCLE_KEYS_MISSING', mode, pin, draftId, code, orderId };
     if (mode === 'EDIT_EXISTING_ORDER') return { ok: true, skipped: true, reason: 'EDIT_KEEPS_EXISTING_CODE', mode };
+
+    const durableState = String(remoteLife?.code_lifecycle_finalize_state || '').trim();
+    if (durableState) {
+      if (durableState !== 'ACKNOWLEDGED') {
+        return { ok: false, reason: 'DURABLE_CODE_LIFECYCLE_ACK_STATE_INVALID', mode, durableState };
+      }
+      const markerOrderId = String(remoteLife?.code_lifecycle_finalize_order_id || '').trim();
+      const markerLocalOid = String(remoteLife?.code_lifecycle_finalize_local_oid || '').trim();
+      const markerCode = normalizeCode(remoteLife?.code_lifecycle_finalize_code);
+      const markerMode = String(remoteLife?.code_lifecycle_finalize_mode || '').trim();
+      const remoteOrderId = String(verifiedRow?.id || '').trim();
+      const remoteLocalOid = String(verifiedRow?.local_oid || remoteData?.local_oid || '').trim();
+      const remoteCode = normalizeCode(verifiedRow?.code ?? remoteData?.code ?? remoteLife?.final_code ?? null);
+      const remoteMode = String(remoteLife?.code_lifecycle_mode || '').trim();
+      const exactMarker = !!markerOrderId
+        && markerOrderId === orderId
+        && markerOrderId === remoteOrderId
+        && !!markerLocalOid
+        && markerLocalOid === draftId
+        && markerLocalOid === remoteLocalOid
+        && markerCode != null
+        && markerCode === code
+        && markerCode === remoteCode
+        && !!markerMode
+        && markerMode === mode
+        && markerMode === remoteMode;
+      if (!exactMarker) {
+        return {
+          ok: false,
+          reason: 'DURABLE_CODE_LIFECYCLE_ACK_IDENTITY_MISMATCH',
+          mode,
+          orderId,
+          draftId,
+          code,
+          markerOrderId,
+          markerLocalOid,
+          markerCode,
+          markerMode,
+        };
+      }
+
+      const assignedForReplay = normalizeCode(getAssignedPranimiCode(draftId));
+      if (assignedForReplay != null) {
+        const markerAckCode = normalizeCode(remoteLife?.code_lifecycle_temp_code ?? (mode === 'NEW_ASSIGNED_CODE' ? markerCode : null));
+        if (markerAckCode == null || markerAckCode !== assignedForReplay) {
+          return {
+            ok: false,
+            reason: 'DURABLE_CODE_LIFECYCLE_LOCAL_ACK_CODE_MISMATCH',
+            mode,
+            assignedForReplay,
+            markerAckCode,
+          };
+        }
+        const replayAck = acknowledgeFinalizedPranimiCode(pin, draftId, markerAckCode, orderId);
+        if (!replayAck?.ok) {
+          return { ok: false, reason: replayAck?.reason || 'DURABLE_CODE_LIFECYCLE_LOCAL_ACK_FAILED', mode };
+        }
+      }
+      return {
+        ok: true,
+        skipped: true,
+        durableAcknowledgement: true,
+        reason: assignedForReplay != null ? 'DURABLE_CODE_LIFECYCLE_LOCAL_ACK_REPLAYED' : 'DURABLE_CODE_LIFECYCLE_ALREADY_ACKNOWLEDGED',
+        mode,
+        orderId,
+        draftId,
+        code,
+      };
+    }
+
     let result;
     if (mode === 'EXISTING_CLIENT_HISTORICAL_CODE') result = await finalizeExistingClientPranimiCode(pin, draftId, code, orderId);
     else result = await consumePranimiCode(pin, draftId, code, orderId, payload?.client_phone || data?.client_phone || '');
@@ -7600,6 +7881,26 @@ KOMPANIA JONI`;
     setLocalSyncWarning({ ...current, retrying: true, retry_message: 'DUKE VERIFIKUAR DB PARA RETRY...' });
     try {
       const before = await verifyBaseOrderInDbBySafetyIds(payload, current);
+      if (before?.unknown) {
+        const verifyError = String(before?.error || 'DB_VERIFY_QUERY_ERROR');
+        appendPranimiCodeDebug('manual_retry_precheck_unknown', {
+          local_oid: safety.local_oid || '',
+          save_attempt_id: safety.save_attempt_id || '',
+          outbox_op_id: safety.outbox_op_id || '',
+          error: verifyError,
+        });
+        setLocalSyncWarning((prev) => ({
+          ...(prev || current),
+          retrying: false,
+          severity: 'red',
+          title: 'DB NUK U MUND TË VERIFIKOHET PARA RETRY',
+          subtitle: 'DB VERIFY UNKNOWN',
+          status_label: 'DB VERIFY UNKNOWN',
+          retry_message: 'RETRY U NDAL PA E FUTUR NË OUTBOX. PROVO PËRSËRI KUR DB TË PËRGJIGJET.',
+          last_error: verifyError,
+        }));
+        return;
+      }
       if (before?.found) {
         const lifecycleResult = await finalizeRetryCodeLifecycle(before.row || {}, payload, current);
         if (!lifecycleResult?.ok) {
@@ -7645,15 +7946,35 @@ KOMPANIA JONI`;
 
       setLocalSyncWarning((prev) => ({ ...(prev || current), retrying: true, retry_message: 'DB nuk e ka ende. DUKE E KTHYER NË OUTBOX ME TË NJËJTIN local_oid/save_attempt_id...' }));
       const retryLocalOid = safety.local_oid || payload?.local_oid || payload?.data?.local_oid || oid;
+      const retrySaveAttemptId = String(
+        safety.save_attempt_id ||
+        payload?.data?.pranimi_code_lifecycle?.save_attempt_id ||
+        payload?.data?.save_attempt_id ||
+        ''
+      ).trim();
+      if (!String(retryLocalOid || '').trim() || !retrySaveAttemptId) {
+        const missingKeyError = !String(retryLocalOid || '').trim()
+          ? 'PRANIMI_RETRY_LOCAL_OID_MISSING'
+          : 'PRANIMI_RETRY_SAVE_ATTEMPT_ID_MISSING';
+        setLocalSyncWarning((prev) => ({
+          ...(prev || current),
+          retrying: false,
+          severity: 'red',
+          title: 'RETRY U NDAL — IDENTIFIKUESI I SIGURISË MUNGON',
+          retry_message: 'POROSIA NUK U FUT NË OUTBOX QË TË MOS KRIJOHET DUPLIKATË.',
+          last_error: missingKeyError,
+        }));
+        return;
+      }
       const retryPayload = applyPranimiFinalLifecycleToPayload({ ...payload, data: { ...((payload?.data && typeof payload.data === 'object') ? payload.data : {}) } }, {
         status: payload?.status || payload?.data?.status || 'pastrim',
         localOid: retryLocalOid,
-        saveAttemptId: safety.save_attempt_id || payload?.data?.pranimi_code_lifecycle?.save_attempt_id || payload?.data?.save_attempt_id || '',
-        verifyState: 'LOCAL / NOT SYNCED',
-        source: 'DB_FINAL_LOCAL_PENDING',
+        saveAttemptId: retrySaveAttemptId,
+        verifyState: 'DB_VERIFY_PENDING',
+        source: 'DB_FINAL_PENDING',
         draftSource: 'FINAL / MANUAL RETRY OUTBOX',
       });
-      retryPayload.data.save_attempt_id = safety.save_attempt_id || retryPayload.data.save_attempt_id || null;
+      retryPayload.data.save_attempt_id = retrySaveAttemptId;
       const requeued = await enqueueBaseOrder({
         id: retryLocalOid,
         local_oid: retryLocalOid,
@@ -7696,12 +8017,15 @@ KOMPANIA JONI`;
       setLocalSyncWarning((prev) => ({
         ...(prev || current),
         retrying: false,
-        retry_message: after?.found ? 'ORDER U RUAJT NË SISTEM. Nuk u krijua duplicate.' : 'RETRY U PROVUA, POR ENDE NUK KA KONFIRMIM DB.',
-        subtitle: after?.found ? 'DB VERIFIED' : 'LOCAL / NOT SYNCED',
-        status_label: after?.found ? 'DB VERIFIED' : 'LOCAL / NOT SYNCED',
-        severity: after?.found ? 'green' : (Number(res?.failed || 0) > 0 ? 'red' : 'yellow'),
+        retry_message: after?.found
+          ? 'ORDER U RUAJT NË SISTEM. Nuk u krijua duplicate.'
+          : (after?.unknown ? 'RETRY U FUT NË OUTBOX, POR DB NUK U MUND TË VERIFIKOHET.' : 'RETRY U PROVUA, POR ENDE NUK KA KONFIRMIM DB.'),
+        subtitle: after?.found ? 'DB VERIFIED' : (after?.unknown ? 'DB VERIFY UNKNOWN' : 'LOCAL / NOT SYNCED'),
+        status_label: after?.found ? 'DB VERIFIED' : (after?.unknown ? 'DB VERIFY UNKNOWN' : 'LOCAL / NOT SYNCED'),
+        severity: after?.found ? 'green' : (after?.unknown || Number(res?.failed || 0) > 0 ? 'red' : 'yellow'),
         outbox_op_id: requeued?.op_id || requeued?.outbox_op_id || safety.outbox_op_id || '',
-        retry_result: { ok: !!after?.found, pending: res?.pending ?? null, done: res?.done ?? null, failed: res?.failed ?? null, server_id: String(after?.row?.id || '') },
+        last_error: after?.unknown ? String(after?.error || 'DB_VERIFY_QUERY_ERROR') : (prev?.last_error || current?.last_error || null),
+        retry_result: { ok: !!after?.found, pending: res?.pending ?? null, done: res?.done ?? null, failed: res?.failed ?? null, server_id: String(after?.row?.id || ''), error: after?.unknown ? String(after?.error || 'DB_VERIFY_QUERY_ERROR') : null },
       }));
     } catch (err) {
       appendPranimiCodeDebug('db_verify_failed', {
