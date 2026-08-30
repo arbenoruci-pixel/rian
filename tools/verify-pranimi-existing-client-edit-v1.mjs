@@ -108,6 +108,33 @@ has(page, 'const synthesizedClick = Number(ev?.detail || 0) === 0;', 'assistive-
 check(count(page, /onPointerUp=\{\(e\) => guardedApplyChip/g) === 0, 'pointer and click handlers cannot double-add a chip value');
 check(count(page, /touch-action:manipulation;/g) >= 2, 'card actions and chips use mobile tap semantics');
 has(page, '.chip-bump { animation: chipBump 140ms ease-in-out; }', 'unsupported haptic devices retain visible tap feedback');
+check(count(page, /className="chip-haptic-shell"/g) === 2, 'Tepih and Staza each use one delegated haptic shell');
+check(count(page, /type="checkbox"\s+switch=""\s+className="chip-ios-haptic-switch"\s+tabIndex=\{-1\}\s+aria-hidden="true"/g) === 2, 'both chip groups expose a directly tapped native iOS switch overlay');
+check(count(page, /<button[\s\S]*?<\/button>\s*<input\s+type="checkbox"\s+switch=""\s+className="chip-ios-haptic-switch"/g) >= 2, 'native haptic overlays remain siblings of accessible buttons instead of invalid nested controls');
+const hapticSwitchTags = Array.from(page.matchAll(/<input\s+type="checkbox"\s+switch=""\s+className="chip-ios-haptic-switch"[\s\S]*?\/>/g), (match) => match[0]);
+check(hapticSwitchTags.length === 2 && hapticSwitchTags.every((tag) => !/on(?:Click|Change|PointerUp)=/.test(tag)), 'native switch overlays own no second activation handler');
+check(/\.chip-ios-haptic-switch\{[^}]*position:absolute;[^}]*inset:0;[^}]*width:100%;[^}]*height:100%;[^}]*opacity:0;[^}]*pointer-events:auto;[^}]*-webkit-appearance:auto;[^}]*appearance:auto;/s.test(page), 'the real native switch receives the full visible chip tap target with its native appearance intact');
+check(!/\.chip-ios-haptic-switch\{[^}]*(?:display:none|visibility:hidden|appearance:none|-webkit-appearance:none)/s.test(page), 'the native iOS switch is not removed or stripped of its haptic control behavior');
+
+const guardedChipSource = page
+  .slice(page.indexOf('function guardedApplyChip('), page.indexOf('const [showWizard'))
+  .trim();
+check(guardedChipSource.startsWith('function guardedApplyChip('), 'chip activation guard can be executed by the verifier');
+let chipApplyCount = 0;
+let chipTapAccepted = true;
+const guardedChip = Function(
+  'isRealTap',
+  'applyChip',
+  'chipTapRef',
+  `${guardedChipSource}\nreturn guardedApplyChip;`,
+)(() => chipTapAccepted, () => { chipApplyCount += 1; }, { current: {} });
+guardedChip('tepiha', 1.5, { detail: 1 });
+check(chipApplyCount === 1, 'one accepted native switch click adds exactly one dimension');
+chipTapAccepted = false;
+guardedChip('tepiha', 1.5, { detail: 1 });
+check(chipApplyCount === 1, 'a moved/scroll pointer gesture adds no dimension');
+guardedChip('tepiha', 1.5, { detail: 0 });
+check(chipApplyCount === 2, 'one keyboard or assistive-tech click adds exactly one dimension');
 
 /* ----------------------- Browser client retry and cache behavior ----------------- */
 has(client, "const UPDATE_ENDPOINT = '/api/client-profile';", 'browser updates share the protected profile endpoint');

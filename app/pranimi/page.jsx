@@ -8331,20 +8331,30 @@ KOMPANIA JONI`;
           {TEPIHA_CHIPS.map((v) => {
             const isActive = activeChipKey === `tepiha:${Number(v)}`;
             return (
-            <button
+            <span
               key={v}
-              type="button"
-              className={`chip chip-modern ${isActive ? 'selected' : ''}`}
-              aria-label={`Shto tepih ${v.toFixed(1)} metra katrorë`}
+              className="chip-haptic-shell"
               onPointerDown={(e) => tapDown(chipTapRef, e)}
               onPointerMove={(e) => tapMove(chipTapRef, e)}
               onPointerCancel={() => { chipTapRef.current = { ...(chipTapRef.current || {}), moved: true }; }}
               onClick={(e) => guardedApplyChip('tepiha', v, e)}
-              style={chipStyleForVal(v, isActive)}
             >
-              <span className="chip-text">{v.toFixed(1)}</span>
-              
-            </button>
+              <button
+                type="button"
+                className={`chip chip-modern ${isActive ? 'selected' : ''}`}
+                aria-label={`Shto tepih ${v.toFixed(1)} metra katrorë`}
+                style={chipStyleForVal(v, isActive)}
+              >
+                <span className="chip-text">{v.toFixed(1)}</span>
+              </button>
+              <input
+                type="checkbox"
+                switch=""
+                className="chip-ios-haptic-switch"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+            </span>
           )})}
         </div>
         {tepihaRows.map((row) => (
@@ -8374,20 +8384,30 @@ KOMPANIA JONI`;
           {STAZA_CHIPS.map((v) => {
             const isActive = activeChipKey === `staza:${Number(v)}`;
             return (
-            <button
+            <span
               key={v}
-              type="button"
-              className={`chip chip-modern ${isActive ? 'selected' : ''}`}
-              aria-label={`Shto stazë ${v.toFixed(1)} metra katrorë`}
+              className="chip-haptic-shell"
               onPointerDown={(e) => tapDown(chipTapRef, e)}
               onPointerMove={(e) => tapMove(chipTapRef, e)}
               onPointerCancel={() => { chipTapRef.current = { ...(chipTapRef.current || {}), moved: true }; }}
               onClick={(e) => guardedApplyChip('staza', v, e)}
-              style={chipStyleForVal(v, isActive)}
             >
-              <span className="chip-text">{v.toFixed(1)}</span>
-              
-            </button>
+              <button
+                type="button"
+                className={`chip chip-modern ${isActive ? 'selected' : ''}`}
+                aria-label={`Shto stazë ${v.toFixed(1)} metra katrorë`}
+                style={chipStyleForVal(v, isActive)}
+              >
+                <span className="chip-text">{v.toFixed(1)}</span>
+              </button>
+              <input
+                type="checkbox"
+                switch=""
+                className="chip-ios-haptic-switch"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+            </span>
           )})}
         </div>
         {stazaRows.map((row) => (
@@ -9254,6 +9274,27 @@ KOMPANIA JONI`;
           font-size:12px;
           line-height:1.35;
           font-weight:900;
+        }
+        .chip-haptic-shell{
+          position:relative;
+          display:inline-flex;
+          border-radius:18px;
+        }
+        .chip-ios-haptic-switch{
+          position:absolute;
+          inset:0;
+          z-index:2;
+          width:100%;
+          height:100%;
+          margin:0;
+          opacity:0;
+          cursor:pointer;
+          pointer-events:auto;
+          -webkit-appearance:auto;
+          appearance:auto;
+          touch-action:manipulation;
+          -webkit-tap-highlight-color:transparent;
+          clip-path:inset(0 round 18px);
         }
         .chip-modern{
           touch-action:manipulation;
