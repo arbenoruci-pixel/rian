@@ -25,6 +25,11 @@ check(!page.includes('await runPaymentInBackground();'), 'UI still waits for the
 check(page.includes("60000,\n          'PASTRIMI_ROW_PAYMENT_TIMEOUT'"), 'background timeout remains too short for the observed 20-second server completion');
 check(page.includes("console.warn('[PASTRIMI_PAYMENT_FAST_CLOSE_V4] background sync pending'"), 'background failure is not recorded safely');
 check(!page.includes("alert(`❌ PAGESA NUK U RUAJT: ${err?.message || 'PROVO PËRSËRI.'}`);"), 'false post-journal failure alert remains');
+check(page.includes("durableQueueOpId = String(await enqueuePastrimiPaymentIntent(paymentIntent) || '').trim()"), 'durable queue op id is not retained');
+check(page.includes('await deleteOp(durableQueueOpId).catch(() => {})'), 'terminal linked-debt failure does not delete its queued retry');
+check(installer.includes('await deleteOp(durableQueueOpId).catch(() => {})'), 'installer can erase terminal queued-retry cleanup');
+check(page.includes('currentDebtBefore - currentApplied') && page.includes('effectiveCurrentTotal'), 'explicit-debt-only optimistic balance can be cleared incorrectly');
+check(installer.includes('LEGACY_EXPLICIT_DEBT_OPTIMISTIC_MONEY_MISSING'), 'installer does not preserve explicit-debt-only optimistic money');
 
 check(pos.includes('POS_MODAL_TOUCH_CONFIRM_V3'), 'iOS touch confirm protection missing');
 check(pos.includes('confirmGuardRef'), 'duplicate touch/click guard missing');

@@ -60,9 +60,160 @@ function serverError(code) {
   return error;
 }
 
-function safeError(error) {
+const SAFE_ERROR_CODE_RE = /^[A-Z][A-Z0-9_À-Ž-]{2,}$/;
+
+export function safeError(error) {
   const message = String(error?.message || error || '').trim();
-  return /^[A-Z0-9_À-Ž-]+$/.test(message) ? message : 'ARKA_TRANSACTION_FAILED';
+  if (SAFE_ERROR_CODE_RE.test(message)) return message;
+
+  // PostgreSQL RAISE messages may append private diagnostics after a stable
+  // domain code (for example `BASE_CLIENT_PAYMENT_STALE_DEBT expected=...`).
+  // Return only that leading code so clients can reconcile terminal failures
+  // without exposing the diagnostic payload.
+  const leadingCode = message.match(/^([A-Z][A-Z0-9_À-Ž-]{2,})(?=$|[\s:])/u)?.[1] || '';
+  if (SAFE_ERROR_CODE_RE.test(leadingCode)) return leadingCode;
+
+  const errorCode = String(error?.code || '').trim().toUpperCase();
+  return SAFE_ERROR_CODE_RE.test(errorCode) ? errorCode : 'ARKA_TRANSACTION_FAILED';
+}
+
+function cleanBaseOrderId(value) {
+  const id = String(value ?? '').trim();
+  return /^\d+$/.test(id) && !/^0+$/.test(id) ? id : '';
+}
+
+function moneyCents(value) {
+  if (value === '' || value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
+}
+
+function cleanText(value) {
+  return String(value ?? '').trim();
+}
+
+function normalizeExpectedDebts(value) {
+  let source = value;
+  if (typeof source === 'string') {
+    try { source = JSON.parse(source); } catch { return null; }
+  }
+  if (!Array.isArray(source) || source.length === 0) return null;
+
+  const seen = new Set();
+  const rows = [];
+  for (const item of source) {
+    const orderId = cleanBaseOrderId(item?.orderId ?? item?.order_id ?? item?.id);
+    const debtCents = moneyCents(item?.debt ?? item?.expectedDebt ?? item?.expected_debt);
+    if (!orderId || debtCents == null || debtCents <= 0 || seen.has(orderId)) return null;
+    seen.add(orderId);
+    rows.push({ orderId, debtCents });
+  }
+  rows.sort((a, b) => a.orderId.length - b.orderId.length || a.orderId.localeCompare(b.orderId));
+  return rows;
+}
+
+function sameExpectedDebts(left, right) {
+  const a = normalizeExpectedDebts(left);
+  const b = normalizeExpectedDebts(right);
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((item, index) => (
+    item.orderId === b[index].orderId
+    && item.debtCents === b[index].debtCents
+  ));
+}
+
+export function isExactCommittedBaseBatchRetry(bodyLike = {}, batchLike = {}) {
+  const body = bodyLike && typeof bodyLike === 'object' ? bodyLike : {};
+  const batch = batchLike && typeof batchLike === 'object' ? batchLike : {};
+  const action = cleanText(body.action).toUpperCase();
+  if (action !== 'BASE_ORDER_PAYMENT') return false;
+  if (cleanText(batch.status).toUpperCase() !== 'CONFIRMED') return false;
+
+  const idempotencyKey = cleanText(body.idempotencyKey || body.idempotency_key);
+  const actorPin = cleanPin(
+    body.actorPin
+    || body.actor_pin
+    || body.created_by_pin
+    || body.createdByPin
+    || body.actor?.pin
+    || body.user?.pin
+  );
+  const orderId = cleanBaseOrderId(body.orderId ?? body.order_id);
+  const clientId = cleanUuid(body.clientId || body.client_id).toLowerCase();
+  const amountCents = moneyCents(body.amount);
+  const expectedDebtCents = moneyCents(body.expectedDebt ?? body.expected_debt);
+  const cashGivenCents = moneyCents(body.cashGiven ?? body.cash_given ?? body.amount);
+  const changeCents = moneyCents(
+    body.changeAmount
+    ?? body.change_amount
+    ?? ((cashGivenCents != null && amountCents != null) ? (cashGivenCents - amountCents) / 100 : null)
+  );
+  const linkedDebts = body.linkedDebts || body.linked_debts;
+  const outcome = cleanText(body.paymentOutcome || body.payment_outcome).toUpperCase();
+  const fullStatus = cleanText(
+    body.statusOnFullPayment
+    || body.status_on_full_payment
+    || body.fullPaymentStatus
+    || body.full_payment_status
+  ).toLowerCase();
+  const expectedFullStatus = outcome === 'PREPAY_STAYS_PASTRIMI'
+    ? 'pastrim'
+    : (outcome === 'CLIENT_PICKED_UP_TO_DORZIM' ? 'dorzim' : '');
+  const method = cleanText(body.method || 'CASH').toUpperCase();
+
+  if (
+    !idempotencyKey
+    || !actorPin
+    || !orderId
+    || !clientId
+    || amountCents == null
+    || amountCents <= 0
+    || expectedDebtCents == null
+    || expectedDebtCents <= 0
+    || cashGivenCents == null
+    || cashGivenCents < amountCents
+    || changeCents == null
+    || changeCents < 0
+    || !expectedFullStatus
+    || fullStatus !== expectedFullStatus
+    || method !== 'CASH'
+    || !sameExpectedDebts(linkedDebts, batch.expected_order_debts)
+  ) return false;
+
+  return (
+    idempotencyKey === cleanText(batch.idempotency_key)
+    && actorPin === cleanPin(batch.created_by_pin)
+    && orderId === cleanBaseOrderId(batch.anchor_order_id)
+    && clientId === cleanUuid(batch.client_id).toLowerCase()
+    && amountCents === moneyCents(batch.amount_applied)
+    && cashGivenCents === moneyCents(batch.amount_given)
+    && changeCents === moneyCents(batch.change_amount)
+    && expectedDebtCents === moneyCents(batch.expected_total_debt)
+    && outcome === cleanText(batch.payment_outcome).toUpperCase()
+    && cleanText(body.note) === cleanText(batch.note)
+  );
+}
+
+export async function authorizeCommittedBaseBatchRetry(supabase, body, { deviceApproved = false } = {}) {
+  if (!deviceApproved || cleanText(body?.action).toUpperCase() !== 'BASE_ORDER_PAYMENT') return null;
+  const idempotencyKey = cleanText(body?.idempotencyKey || body?.idempotency_key);
+  if (!idempotencyKey || idempotencyKey.length > 240) return null;
+
+  const { data: batch, error } = await supabase
+    .from('base_payment_batches')
+    .select('id,client_id,anchor_order_id,amount_given,amount_applied,change_amount,expected_total_debt,expected_order_debts,payment_outcome,status,created_by_pin,created_by_name,created_by_role,note,idempotency_key')
+    .eq('idempotency_key', idempotencyKey)
+    .maybeSingle();
+  if (error || !batch || !isExactCommittedBaseBatchRetry(body, batch)) return null;
+
+  return {
+    batchId: batch.id,
+    actor: {
+      pin: cleanPin(batch.created_by_pin),
+      name: cleanText(batch.created_by_name),
+      role: cleanText(batch.created_by_role).toUpperCase(),
+    },
+  };
 }
 
 async function authenticateDevice(supabase, req) {
@@ -86,11 +237,12 @@ async function authenticateDevice(supabase, req) {
     .maybeSingle();
   if (userError) throw serverError('AUTH_USER_LOOKUP_FAILED');
   if (!user || user.is_active === false || !cleanPin(user.pin)) {
-    return { ok: false, error: 'AUTH_USER_DISABLED', status: 403 };
+    return { ok: false, error: 'AUTH_USER_DISABLED', status: 403, deviceApproved: true };
   }
 
   return {
     ok: true,
+    deviceApproved: true,
     user: {
       ...user,
       pin: cleanPin(user.pin),
@@ -169,8 +321,6 @@ export default async function handler(req, res) {
     const body = typeof readBody === 'function' ? await readBody(req) : (req.body || {});
     const supabase = createAdminClientOrThrow();
     const auth = await authenticateDevice(supabase, req);
-    if (!auth.ok) return apiFail(res, auth.error, auth.status);
-
     const requestedActorPin = cleanPin(
       body?.actorPin
       || body?.actor_pin
@@ -179,13 +329,20 @@ export default async function handler(req, res) {
       || body?.actor?.pin
       || body?.user?.pin
     );
-    if (requestedActorPin && requestedActorPin !== auth.user.pin) {
-      return apiFail(res, 'ACTOR_SESSION_MISMATCH', 403);
-    }
-
     const action = String(body?.action || '').trim().toUpperCase();
+    const sessionMismatch = Boolean(auth.ok && requestedActorPin && requestedActorPin !== auth.user.pin);
+    let committedRetry = null;
+    if (auth.deviceApproved && (!auth.ok || sessionMismatch)) {
+      committedRetry = await authorizeCommittedBaseBatchRetry(supabase, body, {
+        deviceApproved: auth.deviceApproved === true,
+      });
+    }
+    if (!auth.ok && !committedRetry) return apiFail(res, auth.error, auth.status);
+    if (sessionMismatch && !committedRetry) return apiFail(res, 'ACTOR_SESSION_MISMATCH', 403);
+
+    const authorizedActor = committedRetry?.actor || auth.user;
     if (action === 'TRANSPORT_ORDER_PAYMENT') {
-      const access = await authorizeLegacyTransportPayment(supabase, body, auth.user);
+      const access = await authorizeLegacyTransportPayment(supabase, body, authorizedActor);
       if (!access.ok) return apiFail(res, access.error, access.status);
       // Transport cash writes are ledger-only. Returning here (before the
       // legacy engine) removes the check-then-write race with delivery/FIFO.
@@ -194,9 +351,9 @@ export default async function handler(req, res) {
 
     const guardedBody = {
       ...(body || {}),
-      actorPin: auth.user.pin,
-      actorName: String(auth.user.name || ''),
-      actorRole: auth.user.role,
+      actorPin: authorizedActor.pin,
+      actorName: String(authorizedActor.name || ''),
+      actorRole: String(authorizedActor.role || ''),
     };
     const result = await runArkaTransaction(guardedBody, { supabase });
     return apiOk(res, result || {});

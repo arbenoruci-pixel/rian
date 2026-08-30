@@ -28,6 +28,8 @@ export default function PosModal({
   extraTopRows = null,
   footerNote = null,
   allowPartial = false,
+  totalLabel = 'TOTALI I POROSISË:',
+  dueLabel = 'BORXHI PËR SOT:',
 }) {
   // POS_MODAL_TOUCH_CONFIRM_V3: iOS/PWA touch fallback plus duplicate-tap guard.
   const confirmGuardRef = useRef(0);
@@ -72,7 +74,7 @@ export default function PosModal({
       <div className="posfs__body">
         <div className="poscard">
           <div className="posrow">
-            <span>TOTALI I POROSISË:</span>
+            <span>{totalLabel}</span>
             <strong>{totalN.toFixed(2)} €</strong>
           </div>
           {paidN > 0 ? (
@@ -85,7 +87,7 @@ export default function PosModal({
           {extraTopRows}
 
           <div className="posdue" style={{ color: dueNow > 0 ? '#ef4444' : '#10b981' }}>
-            <span>{dueNow > 0 ? 'BORXHI PËR SOT:' : 'E PAGUAR PLOTËSISHT'}</span>
+            <span>{dueNow > 0 ? dueLabel : 'E PAGUAR PLOTËSISHT'}</span>
             <strong>{dueNow.toFixed(2)} €</strong>
           </div>
         </div>

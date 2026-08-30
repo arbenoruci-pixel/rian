@@ -6,8 +6,8 @@ const GATI_INSTALLER_PATH = 'tools/apply-gati-rack-save-v1.mjs';
 const MARKER = 'PASTRIMI_PAYMENT_FAST_CLOSE_V4';
 const INSTALLER = 'node tools/apply-pastrimi-payment-fast-close-v4.mjs';
 const TEST_COMMAND = 'npm run test:pastrimi-payment-fast-close-v4';
-const APP_VERSION = '2.0.115-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1';
-const CACHE_VERSION = 'v44-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1';
+const APP_VERSION = '2.0.118-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-base-client-linked-debt-payment-v1';
+const CACHE_VERSION = 'v47-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-base-client-linked-debt-payment-v1';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
   if (source[start] !== openChar) throw new Error(`${label}_OPEN_MISSING`);
@@ -84,7 +84,7 @@ function patchPastrimiPayment() {
       throw new Error('PAYMENT_QUEUE_REGION_NOT_FOUND');
     }
 
-    const optimisticBlock = `    let durableQueueCreated = false;
+    const optimisticBlock = `    let durableQueueOpId = '';
     // PASTRIMI_FAST_CLOSE_OPTIMISTIC_V4
     // The command is already in the synchronous intent journal. From this
     // point the cashier must never wait for network, ARKA verification, bonus
@@ -121,7 +121,7 @@ function patchPastrimiPayment() {
             ...o,
             paid: newPaid,
             isPaid: newDebt <= 0,
-            total: Number(rowPayOrder.total || o?.total || 0),
+            total: effectiveCurrentTotal,
             fullOrder: visibleOptimisticOrder,
           }
         : o
@@ -169,7 +169,7 @@ function patchPastrimiPayment() {
   const successEnd = scanBalanced(fn, successOpen, '{', '}', 'BACKGROUND_SUCCESS_BLOCK');
   const successReplacement = `        if (!pickupNow) {
           setOrders((prev) => (prev || []).map((o) => String(o?.id) === orderId
-            ? { ...o, paid: enginePaid, isPaid: engineDebt <= 0, total: Number(rowPayOrder.total || o?.total || 0), fullOrder: localOrder }
+            ? { ...o, paid: enginePaid, isPaid: engineDebt <= 0, total: effectiveCurrentTotal, fullOrder: localOrder }
             : o
           ));
           setPaymentSmsReceipt((prev) => prev ? { ...prev, syncPending: false } : prev);
@@ -183,6 +183,49 @@ function patchPastrimiPayment() {
   const catchOpen = fn.indexOf('{', catchStart);
   const catchEnd = scanBalanced(fn, catchOpen, '{', '}', 'BACKGROUND_CATCH_BLOCK');
   const catchReplacement = `      } catch (err) {
+        // BASE_CLIENT_PAYMENT_TERMINAL_RECONCILE_V1
+        if (isTerminalBaseClientPaymentError(err)) {
+          if (durableQueueOpId) {
+            await deleteOp(durableQueueOpId).catch(() => {});
+            durableQueueOpId = '';
+            try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
+          }
+          removePastrimiPaymentIntent(paymentIdempotencyKey);
+          clearCachedClientProfile({ source: 'orders', id: orderId, client_id: rowPayOrder.clientId, phone: rowPayOrder.phone });
+          setPaymentSmsReceipt(null);
+          if (originalRow) {
+            const originalData = unwrapOrderData(originalRow?.fullOrder || originalRow?.data || originalRow || {});
+            setOrders((prev) => {
+              const rows = (Array.isArray(prev) ? prev : []).filter((item) => String(item?.id || item?.dbId || '') !== orderId);
+              return [originalRow, ...rows];
+            });
+            try { localStorage.setItem('order_' + orderId, JSON.stringify(originalData)); } catch {}
+            try {
+              patchBaseMasterRow({
+                id: orderId,
+                status: originalRow?.status || originalData?.status || 'pastrim',
+                data: originalData,
+                updated_at: originalRow?.updated_at || new Date().toISOString(),
+                paid_amount: Number(originalRow?.paid ?? originalData?.paid ?? originalData?.pay?.paid ?? 0) || 0,
+                price_total: Number(originalRow?.total ?? originalData?.price_total ?? originalData?.pay?.euro ?? 0) || 0,
+                _table: 'orders',
+              });
+            } catch {}
+            void saveOrderLocal({
+              ...originalRow,
+              id: orderId,
+              status: originalRow?.status || originalData?.status || 'pastrim',
+              data: originalData,
+              fullOrder: originalData,
+              _table: 'orders',
+              _synced: true,
+              _syncPending: false,
+            }).catch(() => {});
+          }
+          alert('PAGESA U NDAL SEPSE BORXHI LIVE NDRYSHOI. LISTA U RIKTHYE; HAPE PAGUAJ DHE KONTROLLOJE SHUMËN E RE.');
+          void refreshOrders({ force: true, source: 'base_client_payment_terminal_reconcile' });
+          return;
+        }
         // The durable journal remains authoritative. A slow server response or
         // temporary network failure must not reopen the payment sheet or invite
         // a second cash entry with the same idempotency key.
@@ -217,6 +260,9 @@ function patchPastrimiPayment() {
   if (fn.includes('await runPaymentInBackground();')) throw new Error('BLOCKING_BACKGROUND_WAIT_REMAINS');
   if (!fn.includes("amount: applied,\n      syncPending: true")) throw new Error('OPTIMISTIC_RECEIPT_AMOUNT_MISSING');
   if (!fn.includes("60000,\n          'PASTRIMI_ROW_PAYMENT_TIMEOUT'")) throw new Error('BACKGROUND_TIMEOUT_NOT_RELAXED');
+  if (!fn.includes('BASE_CLIENT_PAYMENT_TERMINAL_RECONCILE_V1')) throw new Error('TERMINAL_RECONCILE_MISSING');
+  if (!fn.includes('await deleteOp(durableQueueOpId)')) throw new Error('TERMINAL_OUTBOX_DELETE_MISSING');
+  if (!fn.includes('currentDebtBefore - currentApplied') || !fn.includes('effectiveCurrentTotal')) throw new Error('LEGACY_EXPLICIT_DEBT_OPTIMISTIC_MONEY_MISSING');
 
   source = source.slice(0, range.start) + fn + source.slice(range.end);
   fs.writeFileSync(PASTRIMI_PATH, source, 'utf8');

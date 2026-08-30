@@ -80,6 +80,11 @@ function normalizeLegacyArgs(args) {
         null,
       paymentOutcome: order?.paymentOutcome || order?.payment_outcome || null,
       expectedDebt: order?.expectedDebt ?? order?.expected_debt ?? null,
+      clientId: order?.clientId || order?.client_id || null,
+      linkedDebts: order?.linkedDebts || order?.linked_debts || null,
+      cashGiven: order?.cashGiven ?? order?.cash_given ?? null,
+      changeAmount: order?.changeAmount ?? order?.change_amount ?? null,
+      queueOnNetworkFailure: order?.queueOnNetworkFailure,
     };
   }
 
@@ -123,6 +128,12 @@ export async function recordOrderCashPayment(...args) {
   const paymentOutcome = String(input.paymentOutcome || input.payment_outcome || '').trim().toUpperCase();
   const expectedDebtRaw = input.expectedDebt ?? input.expected_debt;
   const expectedDebt = Number(expectedDebtRaw);
+  const linkedDebts = Array.isArray(input.linkedDebts || input.linked_debts)
+    ? (input.linkedDebts || input.linked_debts)
+    : [];
+  const clientId = String(input.clientId || input.client_id || '').trim() || null;
+  const cashGiven = Number(input.cashGiven ?? input.cash_given ?? amt);
+  const changeAmount = Number(input.changeAmount ?? input.change_amount ?? Math.max(0, cashGiven - amt));
 
   const result = await arkaTransaction({
     action: ARKA_ACTION.BASE_ORDER_PAYMENT,
@@ -138,6 +149,17 @@ export async function recordOrderCashPayment(...args) {
     clientPhone: input.clientPhone || input.client_phone || input.phone || null,
     ...(paymentOutcome ? { paymentOutcome, payment_outcome: paymentOutcome } : {}),
     ...(Number.isFinite(expectedDebt) ? { expectedDebt, expected_debt: expectedDebt } : {}),
+    ...(linkedDebts.length ? {
+      linkedDebts,
+      linked_debts: linkedDebts,
+      clientId,
+      client_id: clientId,
+      cashGiven: Number.isFinite(cashGiven) ? cashGiven : amt,
+      cash_given: Number.isFinite(cashGiven) ? cashGiven : amt,
+      changeAmount: Number.isFinite(changeAmount) ? changeAmount : 0,
+      change_amount: Number.isFinite(changeAmount) ? changeAmount : 0,
+    } : {}),
+    ...(input.queueOnNetworkFailure === false ? { queueOnNetworkFailure: false } : {}),
     ...(statusOnFullPayment ? {
       statusOnFullPayment,
       status_on_full_payment: statusOnFullPayment,

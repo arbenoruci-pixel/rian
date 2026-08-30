@@ -67,7 +67,16 @@ check(fn.includes('setRowPaySheet(false)'), 'instant modal close missing');
 check(fn.includes("payment_sync_state: 'BACKGROUND_PENDING'"), 'background payment marker missing');
 check(fn.includes("delivery_sync_state: 'BACKGROUND_PENDING'"), 'background delivery marker missing');
 check(fn.includes('Promise.resolve().then(runPaymentInBackground)'), 'detached background execution missing');
-check(fn.includes('durableQueueCreated'), 'durable queue fallback missing');
+check(fn.includes("let durableQueueOpId = '';"), 'durable queue op identity missing');
+check(
+  fn.includes("durableQueueOpId = String(await enqueuePastrimiPaymentIntent(paymentIntent) || '').trim()"),
+  'durable queue op id is not retained after enqueue',
+);
+check(
+  source.includes("import { deleteOp, getAllOrdersLocal, saveOrderLocal } from '@/lib/offlineStore';")
+    && fn.includes('await deleteOp(durableQueueOpId).catch(() => {})'),
+  'terminal linked-debt failure does not delete the exact stale queued retry',
+);
 check(fn.includes('if (queued)') && fn.includes('return;'), 'offline queued success handling missing');
 check(isV2 ? fn.includes('savePastrimiPaymentIntent(paymentIntent)') : fn.includes('originalRow'), 'durable pre-UI recovery missing');
 check(fn.includes("last_payment_by_pin"), 'payment actor PIN mirror missing');

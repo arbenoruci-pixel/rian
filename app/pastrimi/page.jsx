@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import Link from '@/lib/routerCompat.jsx';
 import { supabase, storageWithTimeout } from '@/lib/supabaseClient';
 import { fetchOrderDataById, fetchOrderByIdSafe, listMixedOrderRecords, transitionOrderStatus, updateOrderData } from '@/lib/ordersService';
-import { getAllOrdersLocal, saveOrderLocal } from '@/lib/offlineStore';
+import { deleteOp, getAllOrdersLocal, saveOrderLocal } from '@/lib/offlineStore';
 import { requirePaymentPin } from '@/lib/paymentPin';
 import { getOutboxSnapshot } from '@/lib/syncManager';
 import { queueOp } from '@/lib/offlineSyncClient';
@@ -38,14 +38,17 @@ import { isDbTruthSnapshotMeta, isStrongPendingOfflineRow, selectAuthoritativeOf
 import { getOrderCodeBadgeStyle } from '@/lib/orderCodeBadge';
 import { buildPastrimiPaymentDecision, PASTRIMI_PAYMENT_PURPOSE } from '@/lib/pastrimiPaymentPurpose';
 import PastrimiPaymentPurposeWizard from '@/components/PastrimiPaymentPurposeWizard';
+import { clearCachedClientProfile, fetchClientProfile } from '@/lib/clientProfileClient';
+import {
+  allocateBaseClientLinkedDebt,
+  buildBaseClientDebtSnapshotToken,
+  buildBaseClientLinkedDebtPlan,
+  resolveBaseVisitMoney,
+  serializeBaseClientDebtSnapshot,
+} from '@/lib/baseClientLinkedDebt';
 
 const RackLocationModal = React.lazy(() => import('@/components/RackLocationModal'));
 const ClientProfileSheet = React.lazy(() => import('@/components/ClientProfileSheet'));
-
-function createPastrimiPaymentAttemptId() {
-  try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); } catch {}
-  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
 
 function RouteLoadingFallback({ title = 'DUKE HAPUR...' }) {
   return (
@@ -72,6 +75,15 @@ function fallbackReconciledRows({ baseRows = [], localRows = [] } = {}) {
   (Array.isArray(baseRows) ? baseRows : []).forEach(push);
   (Array.isArray(localRows) ? localRows : []).forEach(push);
   return out;
+}
+
+function isTerminalBaseClientPaymentError(error) {
+  const text = [error?.code, error?.message, error?.details, error?.hint, error]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  return /(?:BASE_CLIENT_(?:PAYMENT_(?:STALE(?:_DEBT|_TOTAL)?|IDEMPOTENCY_CONFLICT|OVER_DEBT|ALLOCATION(?:_INCOMPLETE|_SUM_MISMATCH)?|ARKA(?:_SUM_MISMATCH|_INVARIANT_FAILED)?|BATCH_EMPTY|RETURN_ROW_MISSING)|EXPECTED_TOTAL_MISMATCH|ID_MISMATCH|ORDER_IDENTITY_CONFLICT|ATOMIC_PAYMENT_VERIFY_FAILED)|CANONICAL_CLIENT_ID_REQUIRED|PICKUP_REQUIRES_FULL_CLIENT_DEBT|ANCHOR_(?:ORDER_NOT_IN_PASTRIM|LIFECYCLE_STALE)|EXPECTED_ORDER_(?:DEBTS_REQUIRED|ID_INVALID|DEBT_INVALID|DUPLICATE)|PAYMENT_OUTCOME_(?:REQUIRED|INVALID|STATUS_INVALID|STATUS_MISMATCH)|EXPECTED_DEBT_REQUIRED|ACTOR_(?:PIN_REQUIRED|NOT_FOUND|NOT_ACTIVE|DISABLED)|IDEMPOTENCY_KEY_(?:REQUIRED|TOO_LONG)|ORDER_(?:ID_INVALID|NOT_FOUND)|AMOUNT_INVALID|CASH_GIVEN_BELOW_APPLIED|CHANGE_AMOUNT_MISMATCH)\b/i
+    .test(text);
 }
 
 async function safeBuildReconciledRows(args = {}) {
@@ -3679,13 +3691,15 @@ function appendPastrimDelayReviewHistory(data = {}, reviewEntry = {}) {
   const existingCurrent = current?.pastrim_delay_review && typeof current.pastrim_delay_review === 'object'
     ? current.pastrim_delay_review
     : null;
+  const reviewId = String(reviewEntry?.id || '').trim();
+  if (reviewId && history.some((item) => String(item?.id || '').trim() === reviewId)) return history;
   const existingKey = (item) => [item?.reviewed_at, item?.status, item?.reason, item?.responsible_worker_pin].map((x) => String(x || '')).join('|');
   const keys = new Set(history.map(existingKey));
   if (existingCurrent && !keys.has(existingKey(existingCurrent))) {
     history.push(existingCurrent);
     keys.add(existingKey(existingCurrent));
   }
-  history.push(reviewEntry);
+  if (!keys.has(existingKey(reviewEntry))) history.push(reviewEntry);
   return history;
 }
 
@@ -4015,7 +4029,6 @@ function PastrimiPageInner() {
   const [returnNote, setReturnNote] = useState('');
   const [returnPhoto, setReturnPhoto] = useState('');
 
-  const [showPaySheet, setShowPaySheet] = useState(false);
   const [rowPaySheet, setRowPaySheet] = useState(false);
   const [rowPayOrder, setRowPayOrder] = useState(null);
   const [rowPayAmount, setRowPayAmount] = useState(0);
@@ -4042,7 +4055,6 @@ function PastrimiPageInner() {
   const [paketimiRackZone, setPaketimiRackZone] = useState('A');
   const paketimiRackInputRef = useRef(null);
   const [slotMap, setSlotMap] = useState({});
-  const [payAdd, setPayAdd] = useState(0);
 
   const [streamPastrimM2, setStreamPastrimM2] = useState(0);
   const [localProblemRows, setLocalProblemRows] = useState([]);
@@ -5033,6 +5045,36 @@ function PastrimiPageInner() {
     setPastrimDelayReview((prev) => ({ ...(prev || {}), ...(patch || {}) }));
   }
 
+  async function selectPastrimDelayReviewStatus(status) {
+    const key = String(status || '').trim();
+    updatePastrimDelayReviewDraft({ status: key });
+    if (key !== 'client_picked_up') return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setPastrimDelayReviewMsg('Ky rast kërkon borxhin live dhe duhet të kryhet online.');
+      return;
+    }
+    const row = pastrimDelayReview?.row;
+    if (!row) return;
+    setPastrimDelayReviewBusy(true);
+    setPastrimDelayReviewMsg('Duke lexuar krejt borxhin e klientit...');
+    try {
+      const context = await loadBaseClientLinkedDebtContext(row);
+      const linkedDue = Number(context?.linkedDue || 0);
+      updatePastrimDelayReviewDraft({
+        status: key,
+        cash_amount: linkedDue.toFixed(2),
+        linked_due: linkedDue,
+        linked_debt_items: context?.debtItems || [],
+      });
+      setPastrimDelayReviewMsg(`BORXHI LIVE I KLIENTIT: ${linkedDue.toFixed(2)}€.`);
+    } catch {
+      updatePastrimDelayReviewDraft({ status: key, cash_amount: '', linked_due: null, linked_debt_items: [] });
+      setPastrimDelayReviewMsg('NUK U LEXUA BORXHI LIVE I KLIENTIT. PROVO PËRSËRI ONLINE.');
+    } finally {
+      setPastrimDelayReviewBusy(false);
+    }
+  }
+
   function openPastrimDelayReview(row, source = 'manual') {
     if (!row) return false;
     const dueInfo = getPastrimDelayReviewInfo(row);
@@ -5129,7 +5171,6 @@ function PastrimiPageInner() {
     }
 
     const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
-    const moneyBefore = readPastrimDelayMoney(row);
     const enteredCash = Number(String(draft.cash_amount || '').replace(',', '.')) || 0;
     if (selectedStatus === 'client_picked_up') {
       const responsibleDraft = resolvePastrimDelayResponsible(draft, null);
@@ -5141,12 +5182,8 @@ function PastrimiPageInner() {
         setPastrimDelayReviewMsg('Ky rast kërkon ARKA record dhe duhet të kryhet online.');
         return;
       }
-      if (enteredCash < 0 || enteredCash > moneyBefore.debt + 0.01) {
-        setPastrimDelayReviewMsg(`Shuma e pranuar nuk mund të jetë më e madhe se borxhi (${moneyBefore.debt.toFixed(2)}€).`);
-        return;
-      }
-      if (moneyBefore.debt > 0.01 && Math.abs(enteredCash - moneyBefore.debt) > 0.009) {
-        setPastrimDelayReviewMsg(`KLIENTI NUK MUND T’I MARRË TEPIHAT PA E PAGUAR BORXHIN PLOTË (${moneyBefore.debt.toFixed(2)}€).`);
+      if (enteredCash < 0) {
+        setPastrimDelayReviewMsg('Shuma e pranuar nuk mund të jetë negative.');
         return;
       }
     }
@@ -5154,6 +5191,24 @@ function PastrimiPageInner() {
     setPastrimDelayReviewBusy(true);
     setPastrimDelayReviewMsg('Duke ruajtur review...');
     try {
+      const rawId = String(row?.id || row?.dbId || '').trim();
+      const numericId = /^\d+$/.test(rawId) ? Number(rawId) : null;
+      if (!numericId && selectedStatus === 'client_picked_up') throw new Error('ORDER_ID_REQUIRED_FOR_ARKA');
+
+      let linkedPaymentContext = null;
+      if (selectedStatus === 'client_picked_up') {
+        linkedPaymentContext = await loadBaseClientLinkedDebtContext(row);
+        if (!linkedPaymentContext?.linkedDebtFresh || !linkedPaymentContext?.clientId) {
+          throw new Error('BASE_CLIENT_DEBT_NOT_VERIFIED');
+        }
+        const fullClientDebt = Number(linkedPaymentContext.linkedDue || 0);
+        if (Math.round(enteredCash * 100) !== Math.round(fullClientDebt * 100)) {
+          updatePastrimDelayReviewDraft({ cash_amount: fullClientDebt.toFixed(2) });
+          setPastrimDelayReviewMsg(`BORXHI I PLOTË I KLIENTIT ËSHTË ${fullClientDebt.toFixed(2)}€. SHUMA U PËRDITËSUA; KONTROLLOJE DHE SHTYP RUAJ PRAPË.`);
+          return;
+        }
+      }
+
       const actor = await requirePaymentPin({ label: 'PIN për PASTRIM DELAY REVIEW' });
       if (!actor?.pin && !actor?.name) throw new Error('REVIEW_ACTOR_REQUIRED');
       const responsible = selectedStatus === 'client_picked_up'
@@ -5161,12 +5216,8 @@ function PastrimiPageInner() {
         : (selectedStatus === 'forgot_to_mark_gati' ? resolvePastrimDelayResponsible(draft, actor) : { pin: null, name: null });
       if (selectedStatus === 'client_picked_up' && !responsible.pin && !responsible.name) throw new Error('RESPONSIBLE_WORKER_REQUIRED');
 
-      const rawId = String(row?.id || row?.dbId || '').trim();
-      const numericId = /^\d+$/.test(rawId) ? Number(rawId) : null;
-      if (!numericId && selectedStatus === 'client_picked_up') throw new Error('ORDER_ID_REQUIRED_FOR_ARKA');
-
-      let fresh = null;
-      if (online && numericId) {
+      let fresh = linkedPaymentContext?.dbRow || null;
+      if (!fresh && online && numericId) {
         fresh = await fetchOrderByIdSafe('orders', numericId, 'id,local_oid,code,status,client_name,client_phone,price_total,updated_at,created_at,data', { timeoutMs: 9000 });
       }
       if (!fresh) {
@@ -5193,43 +5244,87 @@ function PastrimiPageInner() {
       if (selectedStatus === 'client_picked_up') nextStatus = 'dorzim';
 
       let paymentRecord = null;
+      let paymentBatch = null;
+      let paymentRecords = [];
+      let paymentAllocations = [];
+      let paymentIdempotencyKey = '';
       let debtRecord = null;
       let acceptedCashRecorded = 0;
-      let remainingDebt = readPastrimDelayMoney({ ...row, ...fresh, fullOrder: currentData, data: currentData }).debt;
+      let remainingDebt = selectedStatus === 'client_picked_up'
+        ? Number(linkedPaymentContext?.linkedDue || 0)
+        : readPastrimDelayMoney({ ...row, ...fresh, fullOrder: currentData, data: currentData }).debt;
 
       if (selectedStatus === 'client_picked_up') {
-        if (enteredCash > remainingDebt + 0.01) throw new Error(`CASH_AMOUNT_OVER_DEBT_${remainingDebt.toFixed(2)}`);
-        const acceptedAmount = Number(Math.min(Math.max(0, enteredCash), remainingDebt).toFixed(2));
+        const acceptedAmount = Number(Math.max(0, enteredCash).toFixed(2));
         acceptedCashRecorded = acceptedAmount;
         if (acceptedAmount > 0.01) {
+          const debtSnapshot = serializeBaseClientDebtSnapshot(linkedPaymentContext?.debtItems || []);
+          const paymentActor = {
+            ...actor,
+            pin: responsible.pin || actor.pin,
+            name: responsible.name || actor.name,
+            role: actor.role,
+          };
+          paymentIdempotencyKey = buildArkaIdempotencyKey(ARKA_ACTION.BASE_ORDER_PAYMENT, [
+            linkedPaymentContext.clientId,
+            buildBaseClientDebtSnapshotToken(debtSnapshot),
+            acceptedAmount,
+            paymentActor.pin,
+            PASTRIMI_PAYMENT_PURPOSE.PICKUP_NOW,
+          ]);
           const payRes = await recordOrderCashPayment({
-            ...(currentData || {}),
-            id: numericId,
+            rawOrder: currentData || {},
             orderId: numericId,
-            code: normalizeCode(fresh?.code || currentData?.code || currentData?.client?.code || row?.code || ''),
-            clientName: fresh?.client_name || currentData?.client_name || currentData?.client?.name || row?.name || '',
-            clientPhone: fresh?.client_phone || currentData?.client_phone || currentData?.client?.phone || row?.phone || '',
-            payment_note: `PASTRIM DELAY REVIEW • ${PASTRIM_DELAY_REVIEW_STATUS_LABELS[selectedStatus]} • pranoi: ${responsible.name || responsible.pin || ''}`,
+            code: linkedPaymentContext.code,
+            clientName: linkedPaymentContext.name,
+            clientPhone: linkedPaymentContext.phone,
+            amount: acceptedAmount,
+            note: `PASTRIM DELAY REVIEW • ${PASTRIM_DELAY_REVIEW_STATUS_LABELS[selectedStatus]} • pranoi: ${responsible.name || responsible.pin || ''}`,
             source: 'PASTRIM_DELAY_REVIEW',
-            payment_external_id: `pastrim_delay_review_payment:${numericId}:${acceptedAmount.toFixed(2)}:${responsible.pin || responsible.name || 'worker'}`,
+            payMethod: 'CASH',
+            user: paymentActor,
+            idempotencyKey: paymentIdempotencyKey,
             paymentOutcome: PASTRIMI_PAYMENT_PURPOSE.PICKUP_NOW,
             expectedDebt: remainingDebt,
+            clientId: linkedPaymentContext.clientId,
+            linkedDebts: debtSnapshot,
+            cashGiven: acceptedAmount,
+            changeAmount: 0,
+            queueOnNetworkFailure: false,
             statusOnFullPayment: 'dorzim',
-          }, acceptedAmount, { ...actor, pin: responsible.pin || actor.pin, name: responsible.name || actor.name, role: actor.role }, 'CASH');
-          if (!payRes?.ok || !payRes?.payment) throw new Error(payRes?.error || 'ARKA_PAYMENT_REQUIRED');
+          });
+          paymentRecords = Array.isArray(payRes?.payments) ? payRes.payments : (payRes?.payment ? [payRes.payment] : []);
+          paymentAllocations = Array.isArray(payRes?.allocations) ? payRes.allocations : [];
+          const settledOrderIds = new Set(paymentAllocations
+            .filter((allocation) => Number(allocation?.debt_after || 0) <= 0.009)
+            .map((allocation) => String(allocation?.order_id || '')));
+          const expectedOrderIds = debtSnapshot.map((item) => String(item.orderId));
+          if (
+            !payRes?.ok
+            || !payRes?.payment?.id
+            || String(payRes?.order?.id || '') !== String(numericId)
+            || !payRes?.batch?.id
+            || paymentAllocations.length !== debtSnapshot.length
+            || expectedOrderIds.some((orderId) => !settledOrderIds.has(orderId))
+          ) {
+            throw new Error(payRes?.error || 'BASE_CLIENT_BATCH_VERIFY_FAILED');
+          }
           paymentRecord = payRes.payment || payRes.row || null;
+          paymentBatch = payRes.batch || null;
           if (payRes?.order) {
             fresh = { ...fresh, ...payRes.order };
             currentData = unwrapOrderData(payRes.order?.data || currentData);
           }
         }
 
-        remainingDebt = readPastrimDelayMoney({ ...row, ...fresh, fullOrder: currentData, data: currentData }).debt;
+        remainingDebt = Number(Math.max(0, Number(linkedPaymentContext?.linkedDue || 0) - acceptedCashRecorded).toFixed(2));
         if (remainingDebt > 0.01) throw new Error('PICKUP_REQUIRES_FULL_PAYMENT');
       }
 
       const reviewEntry = {
-        id: `pastrim_delay_review_${Date.now()}_${rawId || numericId || 'order'}`,
+        id: selectedStatus === 'client_picked_up'
+          ? `pastrim_delay_review_${paymentBatch?.id || paymentIdempotencyKey || `paid_${numericId}`}`
+          : `pastrim_delay_review_${Date.now()}_${rawId || numericId || 'order'}`,
         status: selectedStatus,
         reason: reason || incidentNote || PASTRIM_DELAY_REVIEW_STATUS_LABELS[selectedStatus],
         reviewed_by_pin: actor?.pin || '',
@@ -5244,12 +5339,14 @@ function PastrimiPageInner() {
           accepted_amount: Number(Math.max(0, acceptedCashRecorded).toFixed(2)),
           remaining_debt: Number(Math.max(0, remainingDebt).toFixed(2)),
           payment_id: paymentRecord?.id || null,
+          payment_ids: paymentRecords.map((payment) => payment?.id).filter(Boolean),
+          batch_id: paymentBatch?.id || null,
+          allocations: paymentAllocations,
           worker_debt_id: debtRecord?.row?.id || debtRecord?.payment?.id || null,
           incident_note: incidentNote || null,
         } : null,
       };
 
-      const nextHistory = appendPastrimDelayReviewHistory(currentData, reviewEntry);
       const incidentEntry = selectedStatus === 'client_picked_up' && Number(remainingDebt || 0) > 0.01 ? {
         id: `pastrim_delay_incident_${Date.now()}_${rawId || numericId || 'order'}`,
         type: 'PASTRIM_DELAY_CLIENT_PICKED_UP_WITH_DEBT',
@@ -5262,32 +5359,40 @@ function PastrimiPageInner() {
         created_by_pin: actor?.pin || '',
         created_by_name: actor?.name || '',
       } : null;
-      const nextIncidentHistory = incidentEntry
-        ? [...(Array.isArray(currentData?.arka_incident_history) ? currentData.arka_incident_history : []), incidentEntry]
-        : (Array.isArray(currentData?.arka_incident_history) ? currentData.arka_incident_history : []);
-
-      const nextData = {
-        ...(currentData || {}),
-        status: nextStatus,
-        state: nextStatus,
-        pastrim_delay_started_at: startedInfo.started_at || currentData?.pastrim_delay_started_at || currentData?.pastrim_started_at || currentData?.pastrim_at || currentData?.created_at || null,
-        pastrim_delay_review: reviewEntry,
-        pastrim_delay_review_history: nextHistory,
-        pastrim_delay_next_review_at: nextReviewAt,
-        updated_at: nowIso,
+      const buildNextReviewData = (latestLike = {}) => {
+        const latestData = unwrapOrderData(latestLike || {});
+        const nextData = {
+          ...latestData,
+          status: nextStatus,
+          state: nextStatus,
+          pastrim_delay_started_at: startedInfo.started_at || latestData?.pastrim_delay_started_at || latestData?.pastrim_started_at || latestData?.pastrim_at || latestData?.created_at || null,
+          pastrim_delay_review: reviewEntry,
+          pastrim_delay_review_history: appendPastrimDelayReviewHistory(latestData, reviewEntry),
+          pastrim_delay_next_review_at: nextReviewAt,
+          updated_at: nowIso,
+        };
+        if (nextStatus === 'gati') {
+          nextData.ready_at = latestData?.ready_at || nowIso;
+          nextData.ready_note_at = latestData?.ready_note_at || nowIso;
+          nextData.ready_note_by = latestData?.ready_note_by || actor?.name || actor?.pin || '';
+        }
+        if (incidentEntry) {
+          const incidentHistory = Array.isArray(latestData?.arka_incident_history) ? latestData.arka_incident_history : [];
+          nextData.arka_incident = incidentEntry;
+          nextData.arka_incident_history = incidentHistory.some((item) => String(item?.id || '') === String(incidentEntry.id))
+            ? incidentHistory
+            : [...incidentHistory, incidentEntry];
+        }
+        return nextData;
       };
-      if (nextStatus === 'gati') {
-        nextData.ready_at = currentData?.ready_at || nowIso;
-        nextData.ready_note_at = currentData?.ready_note_at || nowIso;
-        nextData.ready_note_by = currentData?.ready_note_by || actor?.name || actor?.pin || '';
-      }
-      if (incidentEntry) {
-        nextData.arka_incident = incidentEntry;
-        nextData.arka_incident_history = nextIncidentHistory;
-      }
+
+      let nextData = buildNextReviewData(currentData);
 
       if (online && numericId) {
-        await updateOrderData('orders', numericId, () => nextData, { status: nextStatus, updated_at: nowIso });
+        await updateOrderData('orders', numericId, (latestData) => {
+          nextData = buildNextReviewData(latestData);
+          return nextData;
+        }, { status: nextStatus, updated_at: nowIso });
       } else {
         await queueOp('patch_order_data', { table: 'orders', id: rawId || currentData?.local_oid || currentData?.oid, status: nextStatus, data: nextData, updated_at: nowIso });
       }
@@ -6016,90 +6121,110 @@ Shoferi u njoftua në listën e tij.`);
     }
   }
 
-  function openPay() {
-    const dueNow = Number((totalEuro - Number(clientPaid || 0)).toFixed(2));
-    setPayAdd(dueNow > 0 ? dueNow : 0);
-    setPayMethod("CASH");
-    setShowPaySheet(true);
-  }
+  async function loadBaseClientLinkedDebtContext(row = {}) {
+    const rawId = row?.db_id ?? row?.id ?? row?.fullOrder?.db_id ?? row?.fullOrder?.id ?? null;
+    const orderId = typeof rawId === 'number'
+      ? rawId
+      : (/^\d+$/.test(String(rawId || '').trim()) ? Number(String(rawId).trim()) : null);
+    if (!orderId) throw new Error('ORDER_ID_REQUIRED');
 
-  function openEditPaymentPurposeWizard() {
-    const cashGiven = Number((Number(payAdd) || 0).toFixed(2));
-    const due = Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2)));
-    if (due <= 0) {
-      alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.');
-      return false;
-    }
-    if (cashGiven <= 0) {
-      alert('SHKRUANI SHUMËN!');
-      return false;
-    }
-    setShowPaySheet(false);
-    setPaymentPurposeWizard({ source: 'edit', due, cashGiven, code: normalizeCode(codeRaw), clientName: name.trim(), attemptId: createPastrimiPaymentAttemptId() });
-    return true;
-  }
+    const dbRow = await withTimeout(
+      fetchOrderByIdSafe('orders', orderId, 'id,local_oid,status,created_at,updated_at,data,code,client_id,client_name,client_phone,price_total,paid,paid_cash,is_paid_upfront'),
+      5200
+    );
+    if (!dbRow?.id) throw new Error('ORDER_NOT_FOUND');
 
-  async function applyPayAndClose(purpose = '') {
-    const decision = buildPastrimiPaymentDecision({
-      due: Math.max(0, Number((Number(totalEuro || 0) - Number(clientPaid || 0)).toFixed(2))),
-      cashGiven: Number((Number(payAdd) || 0).toFixed(2)),
-      purpose,
-    });
-    if (!decision.ok) {
-      alert(decision.error === 'PICKUP_REQUIRES_FULL_PAYMENT' ? 'KLIENTI NUK MUND T’I MARRË TEPIHAT PA U PAGUAR BORXHI PLOTË.' : 'PAGESA NUK ËSHTË E VLEFSHME.');
-      return false;
-    }
-    const { applied, remaining, change: kusuri, pickupNow, statusOnFullPayment, paymentOutcome, due } = decision;
-    const destinationLine = pickupNow ? 'VEPRIMI: KLIENTI I MERR — KALO NË DORZIM' : 'VEPRIMI: PARAPAGESË — MBETET NË PASTRIMI';
-
-    const pinLabel = `PAGESË: ${applied.toFixed(2)}€
-KLIENTI DHA: ${cashGiven.toFixed(2)}€
-KUSURI (RESTO): ${kusuri.toFixed(2)}€
-BORXHI PAS: ${remaining.toFixed(2)}€
-${destinationLine}
-
-👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
-
-    const pinData = await requirePaymentPin({ label: pinLabel });
-    if (!pinData) return false;
-
+    let localShadow = null;
     try {
-      if (payMethod === 'CASH') {
-        const payRes = await recordOrderCashPayment({
-          orderId: oid,
-          code: normalizeCode(codeRaw),
-          clientName: name.trim(),
-          clientPhone: normalizePastrimiResolverPhone(phone) || `${phonePrefix}${phone}`,
-          amount: applied,
-          note: `PAGESA ${applied}€ • #${normalizeCode(codeRaw)} • ${name.trim()} • ${paymentOutcome}`,
-          source: 'PASTRIMI_EDIT_PAY',
-          payMethod: 'CASH',
-          user: pinData,
-          rawOrder: {
-            id: oid,
-            status: statusOnFullPayment,
-            code: normalizeCode(codeRaw),
-            client_name: name.trim(),
-            client_phone: normalizePastrimiResolverPhone(phone) || `${phonePrefix}${phone}`,
-            price_total: Number(totalEuro || 0) || 0,
-          },
-          statusOnFullPayment,
-          paymentOutcome,
-          expectedDebt: due,
-          idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.BASE_ORDER_PAYMENT, [oid, applied, pinData.pin, paymentOutcome, paymentPurposeWizard?.attemptId || createPastrimiPaymentAttemptId()]),
-        });
-        if (!payRes?.ok || !payRes?.payment || !payRes?.order) throw new Error(payRes?.error || 'ARKA_VERIFY_FAILED');
-        const pay = payRes?.order?.data?.pay || {};
-        setClientPaid(Number(pay.paid ?? payRes?.order?.data?.clientPaid ?? (Number(clientPaid || 0) + applied)) || 0);
-        setArkaRecordedPaid(Number(pay.arkaRecordedPaid ?? (Number(arkaRecordedPaid || 0) + applied)) || 0);
-      }
-      setShowPaySheet(false);
-      if (pickupNow) router.push('/pastrimi');
-      return true;
-    } catch (e) {
-      alert(`❌ PAGESA NUK U KRYE: ${e?.message || 'PROVO PËRSËRI.'}`);
-      return false;
+      const raw = localStorage.getItem(`order_${orderId}`) || localStorage.getItem(`order_${row?.local_oid || ''}`);
+      if (raw) localShadow = JSON.parse(raw);
+    } catch {}
+
+    const baseOrder = mergePastrimEditOrderForBridge(
+      { ...(row || {}), fullOrder: localShadow || row?.fullOrder || row?.data || {} },
+      dbRow
+    );
+    const dbOrderData = unwrapOrderData(dbRow?.data || {});
+    const safeCode = normalizeCode(dbRow?.code || dbOrderData?.code || dbOrderData?.client?.code || baseOrder?.code || row?.code || '');
+    const existingPay = (baseOrder?.pay && typeof baseOrder.pay === 'object') ? baseOrder.pay : {};
+    const currentMoney = resolveBaseVisitMoney({
+      ...dbRow,
+      data: dbOrderData,
+    });
+    const clientId = String(dbRow?.client_id || '').trim().toLowerCase();
+    if (!clientId) throw new Error('CANONICAL_CLIENT_ID_REQUIRED');
+    const clientName = dbRow?.client_name || dbOrderData?.client_name || dbOrderData?.client?.name || baseOrder?.client_name || row?.name || '';
+    const clientPhone = dbRow?.client_phone || dbOrderData?.client_phone || dbOrderData?.client?.phone || baseOrder?.client_phone || row?.phone || '';
+    const currentVisit = {
+      id: String(orderId),
+      source: 'BASE',
+      clientId,
+      status: normalizeStatus(dbRow?.status || dbOrderData?.status || 'pastrim') || 'pastrim',
+      createdAt: dbRow?.created_at || dbOrderData?.created_at || '',
+      total: currentMoney.total,
+      paid: currentMoney.paid,
+      debt: currentMoney.debt,
+      code: safeCode,
+    };
+    const singleItem = {
+      ...currentVisit,
+      orderId: String(orderId),
+      current: true,
+      debtCents: Math.round(currentMoney.debt * 100),
+    };
+    let debtPlan = {
+      ok: true,
+      clientId: clientId || null,
+      currentOrderId: String(orderId),
+      current: singleItem,
+      items: currentMoney.debt > 0 ? [singleItem] : [],
+      total: currentMoney.debt,
+      totalCents: Math.round(currentMoney.debt * 100),
+      linked: false,
+      fresh: false,
+    };
+
+    const profileResult = await fetchClientProfile({
+      source: 'orders',
+      id: orderId,
+      code: safeCode,
+      client_id: clientId,
+      name: clientName,
+      phone: clientPhone,
+    }, { timeoutMs: 5200, requireFresh: true });
+    const linkedPlan = buildBaseClientLinkedDebtPlan({
+      currentOrderId: String(orderId),
+      currentClientId: clientId,
+      profileClientId: profileResult?.profile?.identity?.baseClientId,
+      currentVisit,
+      visits: profileResult?.profile?.visits,
+    });
+    if (!linkedPlan.ok && linkedPlan.error !== 'CLIENT_HAS_NO_DEBT') {
+      throw new Error(linkedPlan.error || 'BASE_CLIENT_DEBT_NOT_VERIFIED');
     }
+    debtPlan = { ...linkedPlan, ok: true, fresh: true };
+
+    return {
+      orderId,
+      dbRow,
+      baseOrder,
+      existingPay,
+      code: safeCode,
+      name: clientName,
+      phone: clientPhone,
+      total: currentMoney.total,
+      paid: currentMoney.paid,
+      currentDebt: currentMoney.debt,
+      clientId: debtPlan.clientId || clientId || null,
+      debtItems: debtPlan.items || [],
+      linkedDue: Number(debtPlan.total || 0),
+      linkedDebtFresh: debtPlan.fresh === true,
+      paidUpfront: !!existingPay?.paidUpfront,
+    };
+  }
+
+  function openPay() {
+    alert('RUAJI NDRYSHIMET, PASTAJ KRYEJE PAGESËN NGA BUTONI PAGUAJ NË LISTË. ATY VERIFIKOHEN TË GJITHA BORXHET E KLIENTIT.');
   }
 
 
@@ -6116,52 +6241,21 @@ ${destinationLine}
     if (isPastrimDelayReviewDue(row) && openPastrimDelayReview(row, 'open_order_payment_flow')) return;
 
     try {
-      const rawId = row?.db_id ?? row?.id ?? row?.fullOrder?.db_id ?? row?.fullOrder?.id ?? null;
-      const orderId = typeof rawId === 'number' ? rawId : (/^\d+$/.test(String(rawId || '').trim()) ? Number(String(rawId).trim()) : null);
-      if (!orderId) {
-        alert('NUK U GJET ID E POROSISË PËR PAGESË.');
+      const context = await loadBaseClientLinkedDebtContext(row);
+      if (context.linkedDue <= 0) {
+        alert('KJO POROSI DHE BORXHET E KLIENTIT JANË TË PAGUARA.');
         return;
       }
-
-      let dbRow = null;
-      try {
-        dbRow = await withTimeout(
-          fetchOrderByIdSafe('orders', orderId, 'id,local_oid,status,created_at,updated_at,data,code,client_name,client_phone,price_total'),
-          2600
-        );
-      } catch {}
-
-      let localShadow = null;
-      try {
-        const raw = localStorage.getItem(`order_${orderId}`) || localStorage.getItem(`order_${row?.local_oid || ''}`);
-        if (raw) localShadow = JSON.parse(raw);
-      } catch {}
-
-      const baseOrder = mergePastrimEditOrderForBridge(
-        { ...(row || {}), fullOrder: localShadow || row?.fullOrder || row?.data || {} },
-        dbRow
-      );
-      const safeCode = normalizeCode(baseOrder?.code || row?.code || dbRow?.code || baseOrder?.client?.code || '');
-      const existingPay = (baseOrder?.pay && typeof baseOrder.pay === 'object') ? baseOrder.pay : {};
-      const total = Number(computeOrderDisplayTotal({ ...baseOrder, total: row?.total, price_total: dbRow?.price_total }) || existingPay?.euro || row?.total || 0) || 0;
-      const paid = Number(existingPay?.paid ?? baseOrder?.clientPaid ?? row?.paid ?? 0) || 0;
-      const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
-
       setRowPayBusy(false);
       setRowPayOrder({
-        id: String(orderId),
-        order: baseOrder,
-        code: safeCode,
-        name: baseOrder?.client?.name || baseOrder?.client_name || row?.name || dbRow?.client_name || '',
-        phone: baseOrder?.client?.phone || baseOrder?.client_phone || row?.phone || dbRow?.client_phone || '',
-        total,
-        paid,
-        paidUpfront: !!existingPay?.paidUpfront,
+        ...context,
+        id: String(context.orderId),
+        order: context.baseOrder,
       });
-      setRowPayAmount(dueNow);
+      setRowPayAmount(context.linkedDue);
       setRowPaySheet(true);
     } catch {
-      alert('❌ GABIM GJATË HAPJES SË PAGESËS.');
+      alert('NUK U LEXUA BORXHI LIVE I KLIENTIT. LIDHU ME INTERNET DHE PROVO PËRSËRI.');
     }
   }
 
@@ -6175,11 +6269,11 @@ ${destinationLine}
   function openRowPayPurposeWizard() {
     if (!rowPayOrder || rowPayBusy) return false;
     const cashGiven = Number((Number(rowPayAmount) || 0).toFixed(2));
-    const due = Math.max(0, Number((Number(rowPayOrder.total || 0) - Number(rowPayOrder.paid || 0)).toFixed(2)));
+    const due = Math.max(0, Number(Number(rowPayOrder.linkedDue ?? rowPayOrder.currentDebt ?? 0).toFixed(2)));
     if (due <= 0) { alert('KJO POROSI ËSHTË E PAGUAR PLOTËSISHT.'); return false; }
     if (cashGiven <= 0) { alert('SHKRUANI SHUMËN!'); return false; }
     setRowPaySheet(false);
-    setPaymentPurposeWizard({ source: 'row', due, cashGiven, code: rowPayOrder.code, clientName: rowPayOrder.name, attemptId: createPastrimiPaymentAttemptId() });
+    setPaymentPurposeWizard({ source: 'row', due, cashGiven, code: rowPayOrder.code, clientName: rowPayOrder.name });
     return true;
   }
 
@@ -6191,7 +6285,7 @@ ${destinationLine}
     if (!rowPayOrder || rowPayBusy) return;
 
     const decision = buildPastrimiPaymentDecision({
-      due: Math.max(0, Number((Number(rowPayOrder.total || 0) - Number(rowPayOrder.paid || 0)).toFixed(2))),
+      due: Math.max(0, Number(Number(rowPayOrder.linkedDue ?? rowPayOrder.currentDebt ?? 0).toFixed(2))),
       cashGiven: Number((Number(rowPayAmount) || 0).toFixed(2)),
       purpose,
     });
@@ -6200,17 +6294,38 @@ ${destinationLine}
       return false;
     }
     const { applied, remaining, change: kusuri, settlesFull: willSettleFull, statusOnFullPayment: fullPaymentTargetStatus, pickupNow, paymentOutcome, due } = decision;
+    if (pickupNow && !rowPayOrder.linkedDebtFresh) {
+      alert('NUK U VERIFIKUA BORXHI I PLOTË I KLIENTIT. MARRJA KËRKON LIDHJE LIVE DHE CLIENT_ID.');
+      return false;
+    }
+    const debtItems = Array.isArray(rowPayOrder.debtItems) ? rowPayOrder.debtItems : [];
+    const debtSnapshot = serializeBaseClientDebtSnapshot(debtItems);
+    const allocationPlan = allocateBaseClientLinkedDebt(debtItems, applied);
+    const currentAllocation = allocationPlan.allocations.find((allocation) => String(allocation.orderId) === String(rowPayOrder.id));
+    const currentApplied = Number(currentAllocation?.amount || 0) || 0;
     const destinationLine = pickupNow ? 'VEPRIMI: KLIENTI I MERR — KALO NË DORZIM' : (willSettleFull ? 'VEPRIMI: PAGUAR PARAPRAKISHT — MBETET NË PASTRIMI' : 'VEPRIMI: PAGESË PARTIALE — MBETET NË PASTRIMI');
 
-    const pinLabel = `PAGESË NË PASTRIMI\nKODI: ${rowPayOrder.code}\n\nPAGESË SOT: ${applied.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI: ${kusuri.toFixed(2)}€\nBORXHI PAS: ${remaining.toFixed(2)}€\n${destinationLine}\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
+    const pinLabel = `PAGESË NË PASTRIMI\nKODI: ${rowPayOrder.code}\n\nPAGESË SOT: ${applied.toFixed(2)}€\nKLIENTI DHA: ${cashGiven.toFixed(2)}€\nKUSURI: ${kusuri.toFixed(2)}€\nBORXHI I KLIENTIT PAS: ${remaining.toFixed(2)}€\n${destinationLine}\n\n👉 SHKRUAJ PIN-IN TËND PËR TË KRYER PAGESËN:`;
     const pinData = await requirePaymentPin({ label: pinLabel });
     if (!pinData) return false;
 
     const actionAt = new Date().toISOString();
     const orderId = String(rowPayOrder.id || '').trim();
-    const paymentIdempotencyKey = buildArkaIdempotencyKey(ARKA_ACTION.BASE_ORDER_PAYMENT, [orderId, applied, pinData.pin, paymentOutcome, paymentPurposeWizard?.attemptId || createPastrimiPaymentAttemptId()]);
-    const newPaid = Number((Number(rowPayOrder.paid || 0) + applied).toFixed(2));
-    const newDebt = Math.max(0, Number((Number(rowPayOrder.total || 0) - newPaid).toFixed(2)));
+    const paymentIdempotencyKey = buildArkaIdempotencyKey(ARKA_ACTION.BASE_ORDER_PAYMENT, [
+      rowPayOrder.clientId || `ORDER-${orderId}`,
+      buildBaseClientDebtSnapshotToken(debtSnapshot),
+      applied,
+      pinData.pin,
+      paymentOutcome,
+    ]);
+    const currentPaidBefore = Math.max(0, Number(rowPayOrder.paid || 0) || 0);
+    const currentDebtBefore = Math.max(0, Number(rowPayOrder.currentDebt || 0) || 0);
+    const effectiveCurrentTotal = Number(Math.max(
+      Number(rowPayOrder.total || 0) || 0,
+      currentPaidBefore + currentDebtBefore,
+    ).toFixed(2));
+    const newPaid = Number((currentPaidBefore + currentApplied).toFixed(2));
+    const newDebt = Math.max(0, Number((currentDebtBefore - currentApplied).toFixed(2)));
     const baseOrder = rowPayOrder.order || {};
     const existingPay = (baseOrder?.pay && typeof baseOrder.pay === 'object') ? baseOrder.pay : {};
     const nextOrder = {
@@ -6220,25 +6335,25 @@ ${destinationLine}
       code: rowPayOrder.code || baseOrder?.code || '',
       client_name: baseOrder?.client_name || baseOrder?.client?.name || rowPayOrder.name || '',
       client_phone: baseOrder?.client_phone || baseOrder?.client?.phone || rowPayOrder.phone || '',
-      price_total: Number(baseOrder?.price_total ?? existingPay?.euro ?? rowPayOrder.total ?? 0) || 0,
+      price_total: effectiveCurrentTotal,
       paid_cash: newPaid,
       pay: {
         ...existingPay,
-        euro: Number(existingPay?.euro ?? rowPayOrder.total ?? 0) || 0,
+        euro: effectiveCurrentTotal,
         paid: newPaid,
         debt: newDebt,
-        arkaRecordedPaid: Number((Number(existingPay?.arkaRecordedPaid || 0) + applied).toFixed(2)),
+        arkaRecordedPaid: Number((Number(existingPay?.arkaRecordedPaid || 0) + currentApplied).toFixed(2)),
         method: 'CASH',
-        paidUpfront: !!existingPay?.paidUpfront,
+        paidUpfront: !pickupNow && currentApplied > 0.009 && newDebt <= 0 ? true : !!existingPay?.paidUpfront,
       },
       clientPaid: newPaid,
       paid: newPaid,
       debt: newDebt,
       isPaid: newDebt <= 0,
-      is_paid_upfront: newDebt <= 0 ? true : !!baseOrder?.is_paid_upfront,
-      prepaid_at: newDebt <= 0 ? actionAt : (baseOrder?.prepaid_at || null),
-      prepaid_by_pin: newDebt <= 0 ? String(pinData.pin || '') : (baseOrder?.prepaid_by_pin || ''),
-      prepaid_by_name: newDebt <= 0 ? String(pinData.name || '') : (baseOrder?.prepaid_by_name || ''),
+      is_paid_upfront: !pickupNow && currentApplied > 0.009 && newDebt <= 0 ? true : !!baseOrder?.is_paid_upfront,
+      prepaid_at: !pickupNow && currentApplied > 0.009 && newDebt <= 0 ? actionAt : (baseOrder?.prepaid_at || null),
+      prepaid_by_pin: !pickupNow && currentApplied > 0.009 && newDebt <= 0 ? String(pinData.pin || '') : (baseOrder?.prepaid_by_pin || ''),
+      prepaid_by_name: !pickupNow && currentApplied > 0.009 && newDebt <= 0 ? String(pinData.name || '') : (baseOrder?.prepaid_by_name || ''),
       updated_at: actionAt,
     };
     if (!nextOrder.client || typeof nextOrder.client !== 'object') nextOrder.client = {};
@@ -6281,6 +6396,14 @@ ${destinationLine}
       payment_outcome: paymentOutcome,
       expectedDebt: due,
       expected_debt: due,
+      clientId: rowPayOrder.clientId || undefined,
+      client_id: rowPayOrder.clientId || undefined,
+      linkedDebts: debtSnapshot,
+      linked_debts: debtSnapshot,
+      cashGiven: decision.cashGiven,
+      cash_given: decision.cashGiven,
+      changeAmount: kusuri,
+      change_amount: kusuri,
       idempotencyKey: paymentIdempotencyKey,
       idempotency_key: paymentIdempotencyKey,
     };
@@ -6290,6 +6413,7 @@ ${destinationLine}
       code: rowPayOrder.code,
       clientName: rowPayOrder.name,
       pickupNow,
+      linkedDebts: debtSnapshot,
       saved_at: actionAt,
       transaction: paymentTransaction,
     };
@@ -6303,8 +6427,9 @@ ${destinationLine}
       alert(`❌ KOMANDA NUK U RUAJT: ${intentError?.message || 'PROVO PËRSËRI.'}`);
       return;
     }
+    clearCachedClientProfile({ source: 'orders', id: orderId, client_id: rowPayOrder.clientId, phone: rowPayOrder.phone });
 
-    let durableQueueCreated = false;
+    let durableQueueOpId = '';
     // PASTRIMI_FAST_CLOSE_OPTIMISTIC_V4
     // The command is already in the synchronous intent journal. From this
     // point the cashier must never wait for network, ARKA verification, bonus
@@ -6341,7 +6466,7 @@ ${destinationLine}
             ...o,
             paid: newPaid,
             isPaid: newDebt <= 0,
-            total: Number(rowPayOrder.total || o?.total || 0),
+            total: effectiveCurrentTotal,
             fullOrder: visibleOptimisticOrder,
           }
         : o
@@ -6373,8 +6498,7 @@ ${destinationLine}
     const runPaymentInBackground = async () => {
       try {
         try {
-          await enqueuePastrimiPaymentIntent(paymentIntent);
-          durableQueueCreated = true;
+          durableQueueOpId = String(await enqueuePastrimiPaymentIntent(paymentIntent) || '').trim();
         } catch {
           // The synchronous journal remains and will retry on app open/online.
         }
@@ -6398,22 +6522,32 @@ ${destinationLine}
           idempotency_key: paymentIdempotencyKey,
           paymentOutcome,
           expectedDebt: due,
+          clientId: rowPayOrder.clientId || undefined,
+          linkedDebts: debtSnapshot,
+          cashGiven: decision.cashGiven,
+          changeAmount: kusuri,
           ...(fullPaymentTargetStatus ? { statusOnFullPayment: fullPaymentTargetStatus } : {}),
         }),
           60000,
           'PASTRIMI_ROW_PAYMENT_TIMEOUT'
         );
 
-        const queued = !!(payRes?.queued || payRes?.offlineQueued || payRes?.localOnly || payRes?.pending);
+        const queued = !!(
+          payRes?.queued
+          || payRes?.offlineQueued
+          || payRes?.localOnly
+          || (payRes?.pending && (!payRes?.payment?.id || !payRes?.order?.id))
+        );
         if ((!payRes?.ok || !payRes?.payment || !payRes?.order) && !queued) {
           throw new Error(payRes?.error || 'ARKA_VERIFY_FAILED');
         }
         if (queued) {
-          if (durableQueueCreated) removePastrimiPaymentIntent(paymentIdempotencyKey);
+          if (durableQueueOpId) removePastrimiPaymentIntent(paymentIdempotencyKey);
           return;
         }
 
         removePastrimiPaymentIntent(paymentIdempotencyKey);
+        clearCachedClientProfile({ source: 'orders', id: orderId, client_id: rowPayOrder.clientId, phone: rowPayOrder.phone });
         const engineOrder = payRes.order;
         const engineData = engineOrder?.data || nextOrder;
         const enginePay = engineData?.pay || {};
@@ -6427,12 +6561,55 @@ ${destinationLine}
 
         if (!pickupNow) {
           setOrders((prev) => (prev || []).map((o) => String(o?.id) === orderId
-            ? { ...o, paid: enginePaid, isPaid: engineDebt <= 0, total: Number(rowPayOrder.total || o?.total || 0), fullOrder: localOrder }
+            ? { ...o, paid: enginePaid, isPaid: engineDebt <= 0, total: effectiveCurrentTotal, fullOrder: localOrder }
             : o
           ));
           setPaymentSmsReceipt((prev) => prev ? { ...prev, syncPending: false } : prev);
         }
       } catch (err) {
+        // BASE_CLIENT_PAYMENT_TERMINAL_RECONCILE_V1
+        if (isTerminalBaseClientPaymentError(err)) {
+          if (durableQueueOpId) {
+            await deleteOp(durableQueueOpId).catch(() => {});
+            durableQueueOpId = '';
+            try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
+          }
+          removePastrimiPaymentIntent(paymentIdempotencyKey);
+          clearCachedClientProfile({ source: 'orders', id: orderId, client_id: rowPayOrder.clientId, phone: rowPayOrder.phone });
+          setPaymentSmsReceipt(null);
+          if (originalRow) {
+            const originalData = unwrapOrderData(originalRow?.fullOrder || originalRow?.data || originalRow || {});
+            setOrders((prev) => {
+              const rows = (Array.isArray(prev) ? prev : []).filter((item) => String(item?.id || item?.dbId || '') !== orderId);
+              return [originalRow, ...rows];
+            });
+            try { localStorage.setItem('order_' + orderId, JSON.stringify(originalData)); } catch {}
+            try {
+              patchBaseMasterRow({
+                id: orderId,
+                status: originalRow?.status || originalData?.status || 'pastrim',
+                data: originalData,
+                updated_at: originalRow?.updated_at || new Date().toISOString(),
+                paid_amount: Number(originalRow?.paid ?? originalData?.paid ?? originalData?.pay?.paid ?? 0) || 0,
+                price_total: Number(originalRow?.total ?? originalData?.price_total ?? originalData?.pay?.euro ?? 0) || 0,
+                _table: 'orders',
+              });
+            } catch {}
+            void saveOrderLocal({
+              ...originalRow,
+              id: orderId,
+              status: originalRow?.status || originalData?.status || 'pastrim',
+              data: originalData,
+              fullOrder: originalData,
+              _table: 'orders',
+              _synced: true,
+              _syncPending: false,
+            }).catch(() => {});
+          }
+          alert('PAGESA U NDAL SEPSE BORXHI LIVE NDRYSHOI. LISTA U RIKTHYE; HAPE PAGUAJ DHE KONTROLLOJE SHUMËN E RE.');
+          void refreshOrders({ force: true, source: 'base_client_payment_terminal_reconcile' });
+          return;
+        }
         // The durable journal remains authoritative. A slow server response or
         // temporary network failure must not reopen the payment sheet or invite
         // a second cash entry with the same idempotency key.
@@ -6450,10 +6627,8 @@ ${destinationLine}
   }
 
   function returnToPaymentAmount() {
-    const source = paymentPurposeWizard?.source;
     setPaymentPurposeWizard(null);
-    if (source === 'edit') setShowPaySheet(true);
-    if (source === 'row' && rowPayOrder) setRowPaySheet(true);
+    if (rowPayOrder) setRowPaySheet(true);
   }
 
   async function choosePaymentPurpose(purpose) {
@@ -6461,8 +6636,7 @@ ${destinationLine}
     paymentPurposeBusyRef.current = true;
     setPaymentPurposeBusy(true);
     try {
-      const source = paymentPurposeWizard?.source;
-      const ok = source === 'edit' ? await applyPayAndClose(purpose) : await applyRowPayAndClose(purpose);
+      const ok = await applyRowPayAndClose(purpose);
       if (ok) setPaymentPurposeWizard(null);
     } finally {
       paymentPurposeBusyRef.current = false;
@@ -6519,43 +6693,13 @@ ${destinationLine}
         ))}
 
         <section className="card">
-          <div className="row util-row" style={{ gap: '10px' }}><button className="btn secondary" style={{ flex: 1 }} onClick={openPay}>€ PAGESA</button></div>
+          <div className="row util-row" style={{ gap: '10px' }}><button className="btn secondary" style={{ flex: 1 }} onClick={openPay}>RUAJ, PASTAJ PAGUAJ NGA LISTA</button></div>
           <div className="tot-line">M² Total: <strong>{totalM2}</strong></div>
           <div className="tot-line">Total: <strong>{totalEuro.toFixed(2)} €</strong></div>
           <div className="tot-line" style={{ borderTop: '1px solid #eee', marginTop: 10, paddingTop: 10 }}>Paguar: <strong style={{ color: '#16a34a' }}>{Number(clientPaid || 0).toFixed(2)} €</strong></div>
         </section>
 
         <footer className="footer-bar"><button className="btn secondary" onClick={() => setEditMode(false)}>← ANULO</button><button className="btn primary" onClick={handleSave} disabled={saving}>{saving ? 'RUHET...' : 'RUAJ'}</button></footer>
-
-        {/* MODALI I ARKËS POS */}
-        <PosModal
-          open={showPaySheet}
-          onClose={() => setShowPaySheet(false)}
-          title="PAGESA (ARKË)"
-          subtitle={`KODI: ${normalizeCode(codeRaw)} • ${name}`}
-          total={totalEuro}
-          alreadyPaid={Number(clientPaid || 0)}
-          amount={payAdd}
-          setAmount={setPayAdd}
-          payChips={PAY_CHIPS}
-          confirmText="KRYEJ PAGESËN"
-          cancelText="ANULO"
-          disabled={saving}
-          onConfirm={openEditPaymentPurposeWizard}
-          allowPartial
-          footerNote="MUNDESH ME PRANU PAGESË TË PJESSHME. BORXHI I MBETUR RUHET AUTOMATIKISHT."
-        />
-
-        <PastrimiPaymentPurposeWizard
-          open={paymentPurposeWizard?.source === 'edit'}
-          code={paymentPurposeWizard?.code}
-          clientName={paymentPurposeWizard?.clientName}
-          due={paymentPurposeWizard?.due}
-          cashGiven={paymentPurposeWizard?.cashGiven}
-          busy={paymentPurposeBusy}
-          onChoose={choosePaymentPurpose}
-          onBack={returnToPaymentAmount}
-        />
 
         <style jsx>{`
           .client-mini{ width: 34px; height: 34px; border-radius: 999px; object-fit: cover; border: 1px solid rgba(255,255,255,0.18); }
@@ -7272,7 +7416,9 @@ ${destinationLine}
         const isClientPicked = selectedStatus === 'client_picked_up';
         const selectedResponsibleValue = `${pastrimDelayReview.responsible_pin || ''}|||${pastrimDelayReview.responsible_name || ''}`;
         const cashAmountPreview = Number(pastrimDelayReview.cash_amount || 0);
-        const remainingDebtAfterCash = Number(Math.max(0, (money.debt || 0) - (Number.isFinite(cashAmountPreview) ? cashAmountPreview : 0)).toFixed(2));
+        const verifiedClientDebt = Number(pastrimDelayReview.linked_due ?? money.debt ?? 0);
+        const verifiedDebtItems = Array.isArray(pastrimDelayReview.linked_debt_items) ? pastrimDelayReview.linked_debt_items : [];
+        const remainingDebtAfterCash = Number(Math.max(0, verifiedClientDebt - (Number.isFinite(cashAmountPreview) ? cashAmountPreview : 0)).toFixed(2));
         const reviewOrderCode = normalizeCode(row?.code || row?.fullOrder?.code || row?.fullOrder?.client?.code || '') || '—';
         const reviewClientName = row?.name || row?.fullOrder?.client_name || row?.fullOrder?.client?.name || 'Pa emër';
         const reviewAgeLabel = `${info.age_days_exact || info.age_days} ditë në PASTRIM`;
@@ -7337,10 +7483,7 @@ ${destinationLine}
                     key={key}
                     type="button"
                     disabled={pastrimDelayReviewBusy}
-                    onClick={() => updatePastrimDelayReviewDraft({
-                      status: key,
-                      cash_amount: key === 'client_picked_up' && !pastrimDelayReview.cash_amount && money.debt > 0 ? money.debt.toFixed(2) : pastrimDelayReview.cash_amount,
-                    })}
+                    onClick={() => selectPastrimDelayReviewStatus(key)}
                     style={{
                       width: '100%',
                       textAlign: 'left',
@@ -7415,10 +7558,10 @@ ${destinationLine}
                       type="number"
                       step="0.01"
                       min="0"
-                      max={money.debt || 0}
+                      max={verifiedClientDebt || 0}
                       value={pastrimDelayReview.cash_amount || ''}
                       onChange={(e) => updatePastrimDelayReviewDraft({ cash_amount: e.target.value })}
-                      placeholder={`Borxhi: ${money.debt.toFixed(2)}€`}
+                      placeholder={`Borxhi i klientit: ${verifiedClientDebt.toFixed(2)}€`}
                       disabled={pastrimDelayReviewBusy}
                       style={{ width: '100%', boxSizing: 'border-box' }}
                     />
@@ -7426,11 +7569,22 @@ ${destinationLine}
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     <span style={{ borderRadius: 999, padding: '4px 9px', background: 'rgba(15,23,42,.7)', border: '1px solid rgba(148,163,184,.20)', color: '#e2e8f0', fontSize: 12, fontWeight: 900 }}>Total {money.total.toFixed(2)}€</span>
-                    <span style={{ borderRadius: 999, padding: '4px 9px', background: 'rgba(15,23,42,.7)', border: '1px solid rgba(148,163,184,.20)', color: '#e2e8f0', fontSize: 12, fontWeight: 900 }}>Borxh {money.debt.toFixed(2)}€</span>
+                    <span style={{ borderRadius: 999, padding: '4px 9px', background: 'rgba(15,23,42,.7)', border: '1px solid rgba(148,163,184,.20)', color: '#e2e8f0', fontSize: 12, fontWeight: 900 }}>Borxhi i klientit {verifiedClientDebt.toFixed(2)}€</span>
                     <span style={{ borderRadius: 999, padding: '4px 9px', background: remainingDebtAfterCash > 0 ? 'rgba(136,19,55,.24)' : 'rgba(20,83,45,.22)', border: remainingDebtAfterCash > 0 ? '1px solid rgba(244,114,182,.28)' : '1px solid rgba(74,222,128,.28)', color: remainingDebtAfterCash > 0 ? '#fda4af' : '#bbf7d0', fontSize: 12, fontWeight: 1000 }}>
                       Mbetet {remainingDebtAfterCash.toFixed(2)}€
                     </span>
                   </div>
+
+                  {verifiedDebtItems.length > 1 ? (
+                    <div style={{ display: 'grid', gap: 5, borderTop: '1px solid rgba(251,191,36,.22)', paddingTop: 9 }}>
+                      {verifiedDebtItems.map((item) => (
+                        <div key={String(item?.orderId || '')} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: item?.current ? '#bfdbfe' : '#fde68a', fontSize: 12, fontWeight: 950 }}>
+                          <span>{item?.current ? 'VIZITA AKTUALE' : 'BORXH NGA VIZITA E KALUAR'}</span>
+                          <strong>{Number(item?.debt || 0).toFixed(2)}€</strong>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
 
                   <label style={{ display: 'grid', gap: 6 }}>
                     <span style={{ fontSize: 12, color: '#cbd5e1', fontWeight: 1000 }}>Shënim</span>
@@ -7767,8 +7921,8 @@ ${destinationLine}
             onClose={closeRowPay}
             title="PAGESA (ARKË)"
             subtitle={`KODI: ${normalizeCode(rowPayOrder.code)} • ${rowPayOrder.name || ''}`}
-            total={Number(rowPayOrder.total || 0)}
-            alreadyPaid={Number(rowPayOrder.paid || 0)}
+            total={Number(rowPayOrder.linkedDue ?? rowPayOrder.currentDebt ?? 0)}
+            alreadyPaid={0}
             amount={rowPayAmount}
             setAmount={setRowPayAmount}
             payChips={PAY_CHIPS}
@@ -7777,7 +7931,27 @@ ${destinationLine}
             disabled={rowPayBusy}
             onConfirm={openRowPayPurposeWizard}
             allowPartial
-            footerNote="BORXHI SHFAQET VETËM KËTU. PAGESA E PJESSHME RUAHET AUTOMATIKISHT."
+            totalLabel={Array.isArray(rowPayOrder.debtItems) && rowPayOrder.debtItems.length > 1 ? 'TOTALI I BORXHIT TË KLIENTIT:' : 'TOTALI I BORXHIT:'}
+            dueLabel="TOTAL PËR PAGESË:"
+            extraTopRows={Array.isArray(rowPayOrder.debtItems) && rowPayOrder.debtItems.length > 0 ? (
+              <div style={{display:'grid',gap:7,marginTop:10,paddingTop:10,borderTop:'1px solid rgba(255,255,255,.10)'}}>
+                {rowPayOrder.debtItems.map((item) => {
+                  const created = item?.createdAt ? new Date(item.createdAt) : null;
+                  const dateLabel = created && !Number.isNaN(created.getTime())
+                    ? created.toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                    : 'PA DATË';
+                  return (
+                    <div key={String(item.orderId)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,color:item.current?'#bfdbfe':'#fde68a',fontSize:14,fontWeight:900}}>
+                      <span>{item.current ? 'VIZITA AKTUALE' : `BORXH NGA ${dateLabel}`}</span>
+                      <strong>{Number(item.debt || 0).toFixed(2)} €</strong>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            footerNote={Array.isArray(rowPayOrder.debtItems) && rowPayOrder.debtItems.length > 1
+              ? 'PAGESA NDAHET AUTOMATIKISHT: BORXHI MË I VJETËR MBYLLET I PARI.'
+              : 'PAGESA E PJESSHME RUAHET AUTOMATIKISHT.'}
           />
         </LocalErrorBoundary>
       )}
