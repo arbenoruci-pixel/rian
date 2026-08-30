@@ -3,6 +3,7 @@ import {
   ClientProfileError,
   authenticateClientProfileViewer,
   buildClientProfile,
+  updateBaseClientProfileServer,
 } from '../lib/clientProfileServer.js';
 
 function setPrivateNoStore(res) {
@@ -55,7 +56,10 @@ export default async function handler(req, res) {
     const supabase = createAdminClientOrThrow();
     const deviceId = readCookie(req, 'tepiha_device_id');
     const authUser = await authenticateClientProfileViewer(supabase, deviceId);
-    const output = await buildClientProfile(body, { supabase, authUser });
+    const action = String(body?.action || 'GET_PROFILE').trim().toUpperCase();
+    const output = action === 'UPDATE_BASE_CLIENT'
+      ? await updateBaseClientProfileServer(body, { supabase, authUser })
+      : await buildClientProfile(body, { supabase, authUser });
     return apiOk(res, output);
   } catch (error) {
     const safe = safeError(error);

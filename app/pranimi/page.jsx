@@ -24,6 +24,7 @@ import { requirePaymentPin } from '@/lib/paymentPin';
 import { getClientBalanceByPhone } from '@/lib/clientBalanceDb';
 import SmartSmsModal from '@/components/SmartSmsModal';
 import { buildSmartSmsText, buildSmsLink } from '@/lib/smartSms';
+import { updateBaseClientProfile } from '@/lib/clientProfileClient';
 import { logDebugEvent, trackRender } from '@/lib/sensor';
 import { bootLog, bootMarkReady } from '@/lib/bootLog';
 import { patchBaseMasterRow } from '@/lib/baseMasterCache';
@@ -310,6 +311,7 @@ async function detectExistingClientSmart({ name, phone, clientsIndex, allowLive 
       name: String(row?.name || row?.full_name || row?.client_name || `${row?.first_name || ''} ${row?.last_name || ''}`.trim() || '').trim(),
       phone: String(row?.phone || row?.client_phone || '').trim(),
       photo_url: String(row?.photo_url || row?.client_photo_url || row?.photoUrl || '').trim(),
+      updated_at: row?.updated_at || null,
       active: Number(row?.active || 0) || 0,
       last_seen: row?.last_seen || row?.updated_at || null,
       phoneNorm,
@@ -445,6 +447,7 @@ async function searchClientsLive(q) {
       full_name: c?.full_name || full || '',
       first_name: c?.first_name || '',
       last_name: c?.last_name || '',
+      updated_at: c?.updated_at || null,
       active: info.active,
       last_seen: info.last_seen,
     };
@@ -475,6 +478,7 @@ async function resolveExplicitExistingClientHandoff({ clientId = '', code = null
       full_name: row?.full_name || full,
       first_name: row?.first_name || '',
       last_name: row?.last_name || '',
+      updated_at: row?.updated_at || null,
     };
   };
 
@@ -2630,6 +2634,8 @@ export default function PranimiPage() {
   const [oldClientDebt, setOldClientDebt] = useState(0);
   const [clientPhotoUrl, setClientPhotoUrl] = useState('');
   const [selectedClient, setSelectedClient] = useState(null);
+  const [clientEditUi, setClientEditUi] = useState({ saving: false, error: '', savedAt: 0 });
+  const clientEditSnapshotRef = useRef(null);
   const [clientMatchPrompt, setClientMatchPrompt] = useState({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
   const [clientMatchDecision, setClientMatchDecision] = useState({ matchKey: '', mode: '', candidate: null });
   const [localSyncWarning, setLocalSyncWarning] = useState(null);
@@ -2757,6 +2763,10 @@ export default function PranimiPage() {
   useEffect(() => {
     codeRawRef.current = String(codeRaw || '');
   }, [codeRaw]);
+
+  useEffect(() => {
+    setClientEditUi((prev) => ({ ...prev, saving: false, error: '', savedAt: 0 }));
+  }, [selectedClient?.id]);
 
   function getPhoneDigitsRaw(value = phone) {
     try { return String(value || '').replace(/\D+/g, ''); } catch { return ''; }
@@ -3257,20 +3267,28 @@ export default function PranimiPage() {
       if (explicitExisting && lockedExistingPhone) {
         nextPhonePrefill = normalizeMatchPhone(lockedExistingPhone);
       }
+      const hasRealPhonePrefill = isValidClientPhoneDigits(nextPhonePrefill);
 
       setName(nextNamePrefill);
-      if (nextPhonePrefill) {
+      if (hasRealPhonePrefill) {
         setPhone(nextPhonePrefill);
         setNoPhone(false);
       } else {
         setPhone('');
-        setNoPhone(false);
+        setNoPhone(explicitExisting);
       }
       setClientPhotoUrl(explicitExisting ? String(verifiedExistingClient?.photo_url || '') : '');
       // A historical client is accepted only through explicit handoff/search and exact DB verification.
       // A normal new-client entry stays blank and cannot hydrate by allocated code.
       const lockedDecisionCandidate = (explicitExisting && lockedExistingId && lockedExistingCode)
-        ? { id: lockedExistingId, code: String(lockedExistingCode), name: lockedExistingName, phone: lockedExistingPhone }
+        ? {
+            id: lockedExistingId,
+            code: String(lockedExistingCode),
+            name: lockedExistingName,
+            phone: lockedExistingPhone,
+            photo_url: String(verifiedExistingClient?.photo_url || ''),
+            updated_at: verifiedExistingClient?.updated_at || null,
+          }
         : null;
       setSelectedClient(lockedDecisionCandidate);
       setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
@@ -3529,7 +3547,10 @@ export default function PranimiPage() {
   }
 
   function guardedApplyChip(kind, val, ev) {
-    if (!isRealTap(chipTapRef)) return;
+    // Native pointer taps are scroll-guarded. Keyboard and assistive-tech
+    // activations arrive as synthetic clicks with detail=0 and must still work.
+    const synthesizedClick = Number(ev?.detail || 0) === 0;
+    if (!synthesizedClick && !isRealTap(chipTapRef)) return;
     applyChip(kind, val, ev);
   }
 
@@ -3540,11 +3561,150 @@ export default function PranimiPage() {
   const [showStairsArea, setShowStairsArea] = useState(false);
 
   function openWizard() {
+    if (clientEditUi.saving || photoUploading) return;
+    clientEditSnapshotRef.current = selectedClient?.id ? {
+      selectedClient: { ...selectedClient },
+      name: String(name || ''),
+      phone: String(phone || ''),
+      noPhone: !!noPhone,
+      clientPhotoUrl: String(clientPhotoUrl || ''),
+    } : null;
+    if (selectedClient?.id) {
+      setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
+    }
+    setClientEditUi((prev) => ({ ...prev, saving: false, error: '' }));
     setShowWizard(true);
   }
-  function closeWizard() { setShowWizard(false); }
-  function saveClientFromWizard() {
-    try { setShowWizard(false); } catch {}
+
+  function closeWizard() {
+    // Once a photo upload or atomic save has started, closing would make a
+    // committed change look cancelled. Keep the sheet visible until it settles.
+    if (clientEditUi.saving || photoUploading) return;
+    const snapshot = clientEditSnapshotRef.current;
+    if (snapshot?.selectedClient?.id) {
+      setSelectedClient({ ...snapshot.selectedClient });
+      setName(snapshot.name);
+      setPhone(snapshot.phone);
+      setNoPhone(snapshot.noPhone);
+      setClientPhotoUrl(snapshot.clientPhotoUrl);
+    }
+    clientEditSnapshotRef.current = null;
+    setClientEditUi((prev) => ({ ...prev, saving: false, error: '' }));
+    setShowWizard(false);
+  }
+
+  function clientEditErrorMessage(error) {
+    const code = String(error?.code || error?.message || error || '').toUpperCase();
+    if (code.includes('STALE')) return 'Ky klient është ndryshu në një pajisje tjetër. Mbylle, kërkoje prapë dhe provo përsëri.';
+    if (code.includes('PHONE') && (code.includes('CONFLICT') || code.includes('DUPLICATE'))) return 'Ky numër i takon një klienti tjetër. Numri nuk u ndryshu.';
+    if (code.includes('PHONE') && code.includes('LINK')) return 'Ky numër ka histori ose borxh të lidhur. Ndryshimi u ndal për siguri.';
+    if (code.includes('DEVICE') || code.includes('AUTH')) return 'Pajisja nuk u verifikua. Dil e hyr prapë me PIN.';
+    if (code.includes('TIMEOUT') || code.includes('NETWORK') || code.includes('FETCH')) return 'Lidhja dështoi. Të dhënat nuk u ndryshuan; provo përsëri.';
+    return 'Të dhënat nuk u ruajtën. Provo përsëri.';
+  }
+
+  function updateLocalClientIndexAfterEdit(client) {
+    const id = String(client?.id || '').trim();
+    const code = String(client?.code || '').trim();
+    const nextItem = {
+      id,
+      code,
+      name: String(client?.name || '').trim(),
+      phone: String(client?.phone || '').trim(),
+      photo_url: String(client?.photoUrl || ''),
+      updated_at: client?.updatedAt || null,
+    };
+    setClientsIndex((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      let replaced = false;
+      const next = rows.map((row) => {
+        const sameId = id && String(row?.id || '').trim() === id;
+        const sameCode = !row?.id && code && String(row?.code || '').trim() === code;
+        if (!sameId && !sameCode) return row;
+        replaced = true;
+        return { ...row, ...nextItem };
+      });
+      return replaced ? next : [nextItem, ...next];
+    });
+  }
+
+  async function saveClientFromWizard() {
+    const snapshot = clientEditSnapshotRef.current;
+    const target = snapshot?.selectedClient;
+    if (!target?.id) {
+      clientEditSnapshotRef.current = null;
+      setShowWizard(false);
+      return;
+    }
+    if (clientEditUi.saving) return;
+
+    const nextName = String(name || '').trim().replace(/\s+/g, ' ');
+    const nextPhoneDigits = noPhone ? '' : normalizeMatchPhone(phone || '');
+    if (!nextName) {
+      setClientEditUi((prev) => ({ ...prev, error: 'Shkruaje emrin e klientit.' }));
+      return;
+    }
+    if (!noPhone && !isValidClientPhoneDigits(nextPhoneDigits)) {
+      setClientEditUi((prev) => ({ ...prev, error: 'Shkruaje numrin e plotë të telefonit.' }));
+      return;
+    }
+
+    const expectedUpdatedAt = String(target?.updated_at || target?.updatedAt || '').trim();
+    if (!expectedUpdatedAt) {
+      setClientEditUi((prev) => ({ ...prev, error: 'Versioni i klientit mungon. Mbylle dhe zgjidhe klientin përsëri.' }));
+      return;
+    }
+
+    setClientEditUi((prev) => ({ ...prev, saving: true, error: '' }));
+    try {
+      const result = await updateBaseClientProfile({
+        clientId: target.id,
+        expectedCode: target.code,
+        expectedUpdatedAt,
+        name: nextName,
+        phone: noPhone ? '' : `${phonePrefix}${nextPhoneDigits}`,
+        photoUrl: clientPhotoUrl || '',
+      });
+      const client = result?.client || null;
+      if (!client?.id || String(client.id) !== String(target.id) || String(client.code) !== String(target.code)) {
+        throw new Error('BASE_CLIENT_UPDATE_IDENTITY_NOT_VERIFIED');
+      }
+
+      const savedNoPhone = !isValidClientPhoneDigits(normalizeMatchPhone(client.phone || ''));
+      const savedPhone = savedNoPhone ? '' : normalizeMatchPhone(client.phone || '');
+      const nextSelected = {
+        ...target,
+        id: client.id,
+        code: client.code,
+        name: client.name || nextName,
+        phone: savedNoPhone ? '' : client.phone,
+        photo_url: client.photoUrl || '',
+        updated_at: client.updatedAt,
+      };
+      setSelectedClient(nextSelected);
+      setClientMatchDecision((prev) => prev?.mode === 'use_existing'
+        ? { ...prev, candidate: { ...(prev?.candidate || {}), ...nextSelected } }
+        : prev
+      );
+      if (newOrderUrlClientRef.current?.explicit === true && String(newOrderUrlClientRef.current?.id || '') === String(client.id)) {
+        newOrderUrlClientRef.current = {
+          ...newOrderUrlClientRef.current,
+          name: nextSelected.name,
+          phone: nextSelected.phone,
+        };
+      }
+      setName(nextSelected.name);
+      setPhone(savedPhone);
+      setNoPhone(savedNoPhone);
+      setClientPhotoUrl(nextSelected.photo_url);
+      updateLocalClientIndexAfterEdit(client);
+      clientEditSnapshotRef.current = null;
+      setShowWizard(false);
+      setClientEditUi({ saving: false, error: '', savedAt: Date.now() });
+      vibrateTap(20);
+    } catch (error) {
+      setClientEditUi((prev) => ({ ...prev, saving: false, error: clientEditErrorMessage(error) }));
+    }
   }
   function wizNext() { setWizStep((s) => Math.min(5, s + 1)); }
   function wizBack() { setWizStep((s) => Math.max(1, s - 1)); }
@@ -3646,10 +3806,19 @@ export default function PranimiPage() {
         if (!codeStr) continue;
         const first = String(c?.first_name || '').trim();
         const last = String(c?.last_name || '').trim();
-        const name = (first + ' ' + last).trim();
+        const name = String(c?.full_name || c?.name || (first + ' ' + last)).trim().replace(/\s+/g, ' ');
         const phone = String(c?.phone || '').trim();
         const info = byCode.get(codeStr) || { active: 0, last_seen: null };
-        items.push({ code: codeStr, name, phone, active: info.active ? 1 : 0, last_seen: info.last_seen });
+        items.push({
+          id: c?.id || null,
+          code: codeStr,
+          name,
+          phone,
+          photo_url: c?.photo_url || '',
+          updated_at: c?.updated_at || null,
+          active: info.active ? 1 : 0,
+          last_seen: info.last_seen,
+        });
         if (items.length >= 2000) break;
       }
 
@@ -3854,17 +4023,25 @@ export default function PranimiPage() {
       if (!verdict?.ok) throw Object.assign(new Error(verdict?.reason || 'EXISTING_CLIENT_CODE_NOT_VERIFIED'), { code: verdict?.reason || 'EXISTING_CLIENT_CODE_NOT_VERIFIED' });
       const codeVal = String(normalizeCode(verdict.code));
       if (!codeVal) throw Object.assign(new Error('EXISTING_CLIENT_VERIFIED_CODE_EMPTY'), { code: 'EXISTING_CLIENT_VERIFIED_CODE_EMPTY' });
-      const decisionCandidate = { id: candId, code: Number(codeVal), name: candName, phone: candPhoneRaw };
+      const decisionCandidate = {
+        id: candId,
+        code: Number(codeVal),
+        name: candName,
+        phone: candPhoneRaw,
+        photo_url: String(cand?.photo_url || ''),
+        updated_at: cand?.updated_at || null,
+      };
       setClientMatchPrompt({ open: false, reason: '', matchKey: '', candidate: null, phoneDigits: '', fullName: '' });
       setClientMatchDecision({ matchKey, mode: 'use_existing', candidate: decisionCandidate });
-      setSelectedClient({ id: candId, code: codeVal, name: candName, phone: candPhoneRaw });
+      setSelectedClient({ ...decisionCandidate, code: codeVal });
       codeRawRef.current = codeVal;
       setCodeRaw(codeVal);
       setCodeReserveUi({ status: 'ready', message: '', raw: '' });
       appendPranimiCodeDebug('existing_phone_client_confirmed_db_verified', { local_oid: String(oidRef.current || oid || ''), matchKey, selected_client_id: candId, selected_client_code: codeVal, final_code: codeVal, final_code_reason: 'EXISTING_CLIENT_EXACT_DB_VERIFIED' });
       if (candName) setName(candName);
       const candPhone = normalizeMatchPhone(candPhoneRaw);
-      if (candPhone) { setPhone(candPhone); setNoPhone(false); } else { setPhone(''); setNoPhone(true); }
+      const candHasRealPhone = isValidClientPhoneDigits(candPhone);
+      if (candHasRealPhone) { setPhone(candPhone); setNoPhone(false); } else { setPhone(''); setNoPhone(true); }
       if (cand?.photo_url) setClientPhotoUrl(String(cand.photo_url || ''));
     } catch (error) {
       if (!isPranimiClientContextCurrent(contextToken, contextOid)) return;
@@ -3880,6 +4057,11 @@ export default function PranimiPage() {
     const fullName = normalizeMatchName(name);
     const canCheckPhone = isValidClientPhoneDigits(phoneDigits);
     const canCheckFullName = fullName.split(' ').filter(Boolean).length >= 2;
+
+    if (showWizard && clientEditSnapshotRef.current?.selectedClient?.id) {
+      if (clientMatchPrompt?.open) closeClientMatchPrompt('canonical_client_edit');
+      return;
+    }
 
     if (clientMatchPrompt?.open) {
       const promptDigits = normalizeMatchPhone(clientMatchPrompt?.phoneDigits || clientMatchPrompt?.candidate?.phone || '');
@@ -3938,7 +4120,7 @@ export default function PranimiPage() {
     }, 650);
 
     return () => { alive = false; try { clearTimeout(t); } catch {} };
-  }, [name, phone, noPhone, clientsIndex, selectedClient, clientMatchDecision, clientMatchPrompt?.open, clientMatchPrompt?.matchKey, isBridgeEditMode]);
+  }, [name, phone, noPhone, clientsIndex, selectedClient, clientMatchDecision, clientMatchPrompt?.open, clientMatchPrompt?.matchKey, isBridgeEditMode, showWizard]);
 
   useEffect(() => {
     if (!epochReady) return;
@@ -4560,7 +4742,26 @@ export default function PranimiPage() {
   }
 
   function vibrateTap(ms = 15) {
-    try { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(ms); } catch {}
+    try {
+      const nativeHaptics = typeof window !== 'undefined' ? window?.Capacitor?.Plugins?.Haptics : null;
+      if (typeof nativeHaptics?.impact === 'function') {
+        void nativeHaptics.impact({ style: 'LIGHT' });
+        return true;
+      }
+    } catch {}
+    try {
+      const iosBridge = typeof window !== 'undefined' ? window?.webkit?.messageHandlers?.haptics : null;
+      if (typeof iosBridge?.postMessage === 'function') {
+        iosBridge.postMessage({ type: 'impact', style: 'light', duration: Number(ms) || 15 });
+        return true;
+      }
+    } catch {}
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        return navigator.vibrate(Math.max(8, Math.min(40, Number(ms) || 15))) !== false;
+      }
+    } catch {}
+    return false;
   }
 
   function bumpEl(el) {
@@ -5374,6 +5575,7 @@ export default function PranimiPage() {
             name: String(candidate?.name || candidate?.full_name || candidate?.client_name || [candidate?.first_name, candidate?.last_name].filter(Boolean).join(' ') || '').trim(),
             phone: String(candidate?.phone || candidate?.client_phone || currentCanonicalPhone || '').trim(),
             photo_url: String(candidate?.photo_url || candidate?.client_photo_url || candidate?.photoUrl || '').trim(),
+            updated_at: candidate?.updated_at || null,
           },
         };
         const decisionSameMatch = String(clientMatchDecision?.matchKey || '') === String(prompt.matchKey || '');
@@ -7622,6 +7824,11 @@ KOMPANIA JONI`;
     try { localStorage.setItem(AUTO_MSG_KEY, next ? '1' : '0'); } catch {}
   }
 
+  const editingCanonicalRealPhone = !!(
+    selectedClient?.id
+    && isValidClientPhoneDigits(normalizeMatchPhone(selectedClient?.phone || ''))
+  );
+
   if (creating) {
     return (
       <div className="wrap">
@@ -7743,38 +7950,52 @@ KOMPANIA JONI`;
         </div>
 
         {(name || phone || clientPhotoUrl) ? (
-          <div className="client-selected-card">
-            <button
-              type="button"
-              className="client-card-close"
-              aria-label="Mbyll klientin"
-              title="ANULO KLIENTIN"
-              onClick={() => {
-                clearSelectedClientBinding('client_card_closed_restore_temp_code', { clearIdentity: true });
-                // Keep and restore the active reserved BAZ code tied to this local_oid.
-              }}
-            >
-              ✕
-            </button>
-            <div className="client-selected-main">
-              {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="client-mini large" /> : <div className="client-avatar-fallback">👤</div>}
-              <div className="client-selected-copy">
-                <div className="client-copy-topline">
-                  <div className="client-code-pill">{`NR ${formatKod(getActivePranimiCodeForDisplay(), netState.ok)}`}</div>
-                  <button
-                    type="button"
-                    className="client-inline-edit"
-                    aria-label="Ndrysho klientin"
-                    title="NDRYSHO KLIENTIN"
-                    onClick={openWizard}
-                  >
-                    ✎
-                  </button>
-                </div>
-                <div className="client-selected-name">{name || 'KLIENT I RI'}</div>
-                <div className="client-selected-phone">{noPhone ? 'PA NUMËR' : (String(phone || '').replace(/\D+/g, '') ? `${phonePrefix} ${String(phone || '').replace(/\D+/g, '')}` : 'PA TELEFON')}</div>
+          <div className="client-selected-card client-selected-card--active" data-client-card-version="pro-v1">
+            <div className="client-selected-head">
+              <div className="client-selected-eyebrow">{selectedClient?.id ? 'KLIENTI I ZGJEDHUR' : 'KLIENTI I RI'}</div>
+              <div className="client-code-pill">
+                {`NR ${formatKod(selectedClient?.code || getActivePranimiCodeForDisplay(), netState.ok)}`}
               </div>
             </div>
+            <div className="client-selected-main">
+              {clientPhotoUrl ? (
+                <img src={clientPhotoUrl} alt="" className="client-mini large" />
+              ) : (
+                <div className="client-avatar-fallback" aria-hidden="true">👤</div>
+              )}
+              <div className="client-selected-copy">
+                <div className="client-selected-name">{name || 'KLIENT I RI'}</div>
+                <div className="client-selected-phone">
+                  {noPhone ? 'PA NUMËR' : (String(phone || '').replace(/\D+/g, '') ? `${phonePrefix} ${String(phone || '').replace(/\D+/g, '')}` : 'PA TELEFON')}
+                </div>
+              </div>
+            </div>
+            <div className="client-selected-actions">
+              <button
+                type="button"
+                className="client-card-action client-card-action--edit"
+                aria-label={`Ndrysho të dhënat e klientit ${name || ''}`}
+                title="NDRYSHO TË DHËNAT"
+                onClick={openWizard}
+              >
+                <span aria-hidden="true">✎</span>
+                <span>NDRYSHO</span>
+              </button>
+              <button
+                type="button"
+                className="client-card-action client-card-action--remove"
+                aria-label={`Hiqe klientin ${name || ''} nga kjo porosi`}
+                title="HIQE KLIENTIN"
+                onClick={() => {
+                  clearSelectedClientBinding('client_card_closed_restore_temp_code', { clearIdentity: true });
+                  // Keep and restore the active reserved BAZ code tied to this local_oid.
+                }}
+              >
+                <span aria-hidden="true">✕</span>
+                <span>HIQE</span>
+              </button>
+            </div>
+            {clientEditUi.savedAt > 0 ? <div className="client-save-confirmation" role="status">✓ TË DHËNAT U RUAJTËN</div> : null}
           </div>
         ) : null}
 
@@ -7786,7 +8007,17 @@ KOMPANIA JONI`;
           {TEPIHA_CHIPS.map((v) => {
             const isActive = activeChipKey === `tepiha:${Number(v)}`;
             return (
-            <button key={v} type="button" className={`chip chip-modern ${isActive ? 'selected' : ''}`} onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('tepiha', v, e)} style={chipStyleForVal(v, isActive)}>
+            <button
+              key={v}
+              type="button"
+              className={`chip chip-modern ${isActive ? 'selected' : ''}`}
+              aria-label={`Shto tepih ${v.toFixed(1)} metra katrorë`}
+              onPointerDown={(e) => tapDown(chipTapRef, e)}
+              onPointerMove={(e) => tapMove(chipTapRef, e)}
+              onPointerCancel={() => { chipTapRef.current = { ...(chipTapRef.current || {}), moved: true }; }}
+              onClick={(e) => guardedApplyChip('tepiha', v, e)}
+              style={chipStyleForVal(v, isActive)}
+            >
               <span className="chip-text">{v.toFixed(1)}</span>
               
             </button>
@@ -7819,7 +8050,17 @@ KOMPANIA JONI`;
           {STAZA_CHIPS.map((v) => {
             const isActive = activeChipKey === `staza:${Number(v)}`;
             return (
-            <button key={v} type="button" className={`chip chip-modern ${isActive ? 'selected' : ''}`} onPointerDown={(e) => tapDown(chipTapRef, e)} onPointerMove={(e) => tapMove(chipTapRef, e)} onPointerUp={(e) => guardedApplyChip('staza', v, e)} style={chipStyleForVal(v, isActive)}>
+            <button
+              key={v}
+              type="button"
+              className={`chip chip-modern ${isActive ? 'selected' : ''}`}
+              aria-label={`Shto stazë ${v.toFixed(1)} metra katrorë`}
+              onPointerDown={(e) => tapDown(chipTapRef, e)}
+              onPointerMove={(e) => tapMove(chipTapRef, e)}
+              onPointerCancel={() => { chipTapRef.current = { ...(chipTapRef.current || {}), moved: true }; }}
+              onClick={(e) => guardedApplyChip('staza', v, e)}
+              style={chipStyleForVal(v, isActive)}
+            >
               <span className="chip-text">{v.toFixed(1)}</span>
               
             </button>
@@ -8170,10 +8411,18 @@ KOMPANIA JONI`;
                           if (c.photo_url) setClientPhotoUrl(String(c.photo_url || ''));
                           codeRawRef.current = verifiedCode;
                           setCodeRaw(verifiedCode);
-                          setSelectedClient({ id: cId, code: verifiedCode, name: c?.name || '', phone: c?.phone || '' });
-                          const nextPhone = String(c.phone || '').replace(/\D/g, '');
-                          setPhone(nextPhone);
-                          setNoPhone(!nextPhone);
+                          setSelectedClient({
+                            id: cId,
+                            code: verifiedCode,
+                            name: c?.name || '',
+                            phone: c?.phone || '',
+                            photo_url: c?.photo_url || '',
+                            updated_at: c?.updated_at || null,
+                          });
+                          const nextPhone = normalizeMatchPhone(c.phone || '');
+                          const nextHasRealPhone = isValidClientPhoneDigits(nextPhone);
+                          setPhone(nextHasRealPhone ? nextPhone : '');
+                          setNoPhone(!nextHasRealPhone);
                           setCodeReserveUi({ status: 'ready', message: '', raw: '' });
                           setClientQuery('');
                           setClientHits([]);
@@ -8188,7 +8437,11 @@ KOMPANIA JONI`;
                       }}
                     >
                       <div className="apple-result-title"><span className="result-code-badge">NR {String(c.code || '')}</span> <span>{String(c.name || '').toUpperCase()}</span></div>
-                      <div className="apple-result-sub">{phonePrefix} {String(c.phone || '')}</div>
+                      <div className="apple-result-sub">
+                        {isValidClientPhoneDigits(normalizeMatchPhone(c.phone || ''))
+                          ? `${phonePrefix} ${normalizeMatchPhone(c.phone || '')}`
+                          : 'PA NUMËR'}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -8201,21 +8454,33 @@ KOMPANIA JONI`;
       ) : null}
 
       {showWizard ? (
-        <div className="wiz-backdrop" onClick={closeWizard}>
+        <div className="wiz-backdrop" onClick={closeWizard} aria-busy={clientEditUi.saving || photoUploading}>
           <div className="apple-sheet compact" onClick={(e) => e.stopPropagation()}>
             <div className="apple-sheet-top">
               <div>
-                <div className="apple-sheet-title">KLIENT I RI</div>
-                <div className="apple-sheet-sub">FORMË E THJESHTË</div>
+                <div className="apple-sheet-title">{selectedClient?.id ? 'NDRYSHO KLIENTIN' : 'KLIENT I RI'}</div>
+                <div className="apple-sheet-sub">{selectedClient?.id ? `PROFILI NR ${String(selectedClient.code || '—')}` : 'FORMË E THJESHTË'}</div>
               </div>
-              <button type="button" className="apple-close" onClick={closeWizard}>✕</button>
+              <button
+                type="button"
+                className="apple-close"
+                onClick={closeWizard}
+                disabled={clientEditUi.saving || photoUploading}
+                aria-label="Mbylle ndryshimin e klientit"
+              >✕</button>
             </div>
 
             <div className="apple-sheet-body">
               <div className="apple-photo-row">
                 <label className="apple-photo-picker">
                   {clientPhotoUrl ? <img src={clientPhotoUrl} alt="" className="apple-photo-preview" /> : <span>📸</span>}
-                  <input type="file" hidden accept="image/*" onChange={(e) => handleClientPhotoChange(e.target.files?.[0])} />
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    disabled={clientEditUi.saving || photoUploading}
+                    onChange={(e) => handleClientPhotoChange(e.target.files?.[0])}
+                  />
                 </label>
                 <div className="apple-help-text">FOTO</div>
               </div>
@@ -8225,11 +8490,12 @@ KOMPANIA JONI`;
                 <input
                   className="input"
                   value={name}
+                  disabled={clientEditUi.saving}
                   onChange={(e) => {
                     const nextName = e.target.value;
                     setName(nextName);
                     const selectedName = normalizeMatchName(selectedClient?.name || '');
-                    if (selectedClient?.id && selectedName && selectedName !== normalizeMatchName(nextName)) {
+                    if (selectedClient?.id && !clientEditSnapshotRef.current && selectedName && selectedName !== normalizeMatchName(nextName)) {
                       clearSelectedClientBinding('selected_client_name_changed_restore_temp_code');
                     }
                   }}
@@ -8254,41 +8520,53 @@ KOMPANIA JONI`;
                         closeClientMatchPrompt('phone_input_changed');
                       }
                       const selectedPhoneDigits = normalizeMatchPhone(selectedClient?.phone || '');
-                      if (selectedClient?.id && selectedPhoneDigits && selectedPhoneDigits !== digits) {
+                      if (selectedClient?.id && !clientEditSnapshotRef.current && selectedPhoneDigits && selectedPhoneDigits !== digits) {
                         clearSelectedClientBinding('selected_client_phone_changed_restore_temp_code');
                       }
                     }}
                     inputMode="numeric"
                     placeholder={noPhone ? 'PA NUMËR' : '44XXXXXX'}
-                    disabled={noPhone}
+                    disabled={noPhone || clientEditUi.saving}
                   />
                 </div>
                 <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     className={`btn secondary ${noPhone ? 'active' : ''}`}
+                    disabled={clientEditUi.saving || photoUploading || editingCanonicalRealPhone}
                     onClick={() => {
                       if (noPhone) {
                         setNoPhone(false);
                       } else {
                         setNoPhone(true);
                         setPhone('');
-                        clearSelectedClientBinding('selected_client_switched_to_no_phone_restore_temp_code');
+                        if (!clientEditSnapshotRef.current) {
+                          clearSelectedClientBinding('selected_client_switched_to_no_phone_restore_temp_code');
+                        }
                       }
                     }}
                   >
-                    {noPhone ? 'PA NUMËR ✓' : 'PA NUMËR'}
+                    {editingCanonicalRealPhone ? 'NUMRI RUHET' : (noPhone ? 'PA NUMËR ✓' : 'PA NUMËR')}
                   </button>
-                  <div style={{ alignSelf: 'center', fontSize: 12, color: 'rgba(255,255,255,0.68)', fontWeight: 700 }}>RUAJE KLIENTIN PA NUMËR REAL</div>
+                  <div style={{ alignSelf: 'center', fontSize: 12, color: 'rgba(255,255,255,0.68)', fontWeight: 700 }}>
+                    {editingCanonicalRealPhone
+                      ? 'NUMRIN MUNDESH ME NDËRRU, POR JO ME FSHI — E LIDH HISTORINË E KLIENTIT'
+                      : 'RUAJE KLIENTIN PA NUMËR REAL'}
+                  </div>
                 </div>
               </div>
 
               {oldClientDebt > 0 && <div style={{ marginTop:8, padding:'10px 12px', borderRadius:12, background:'rgba(239,68,68,0.16)', border:'1px solid rgba(239,68,68,0.35)', color:'#fecaca', fontWeight:900, fontSize:12 }}>⚠️ KUJDES: KY KLIENT KA {oldClientDebt.toFixed(2)}€ BORXH TË VJETËR!</div>}
+              {clientEditUi.error ? <div role="alert" className="client-edit-error">{clientEditUi.error}</div> : null}
             </div>
 
             <div className="apple-sheet-actions">
-              <button type="button" className="btn secondary" onClick={closeWizard}>ANULO</button>
-              <button type="button" className="btn" onClick={saveClientFromWizard}>RUAJ KLIENTIN</button>
+              <button type="button" className="btn secondary" onClick={closeWizard} disabled={clientEditUi.saving || photoUploading}>ANULO</button>
+              <button type="button" className="btn" onClick={saveClientFromWizard} disabled={clientEditUi.saving || photoUploading}>
+                {clientEditUi.saving
+                  ? 'DUKE RUAJTUR…'
+                  : (photoUploading ? 'DUKE NGARKUAR FOTON…' : (selectedClient?.id ? 'RUAJ NDRYSHIMET' : 'RUAJ KLIENTIN'))}
+              </button>
             </div>
           </div>
         </div>
@@ -8516,6 +8794,154 @@ KOMPANIA JONI`;
         }
         .client-inline-edit:active{
           transform:scale(.96);
+        }
+        .client-selected-card--active{
+          position:relative;
+          display:grid;
+          grid-template-columns:minmax(0,1fr);
+          gap:14px;
+          width:100%;
+          padding:16px;
+          overflow:hidden;
+          border:1px solid rgba(96,165,250,.34);
+          background:
+            radial-gradient(circle at 92% 8%, rgba(56,189,248,.16), transparent 34%),
+            linear-gradient(145deg, rgba(15,34,64,.98), rgba(10,18,36,.98));
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 16px 36px rgba(0,0,0,.26);
+        }
+        .client-selected-head{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:12px;
+          min-width:0;
+        }
+        .client-selected-eyebrow{
+          min-width:0;
+          color:#7dd3fc;
+          font-size:10px;
+          line-height:1.2;
+          font-weight:1000;
+          letter-spacing:.14em;
+        }
+        .client-selected-card--active .client-code-pill{
+          flex:0 0 auto;
+          min-height:30px;
+          margin:0;
+          padding:0 13px;
+          color:#062512;
+          background:linear-gradient(180deg,#5df39b 0%,#2dd676 100%);
+          box-shadow:0 8px 20px rgba(45,214,118,.22), inset 0 1px 0 rgba(255,255,255,.5);
+        }
+        .client-selected-card--active .client-selected-main{
+          display:grid;
+          grid-template-columns:56px minmax(0,1fr);
+          align-items:center;
+          gap:13px;
+          min-width:0;
+        }
+        .client-selected-card--active .client-avatar-fallback,
+        .client-selected-card--active .client-mini.large{
+          width:56px;
+          height:56px;
+          border-radius:18px;
+          border:1px solid rgba(125,211,252,.3);
+          box-shadow:0 10px 24px rgba(0,0,0,.28);
+        }
+        .client-selected-card--active .client-avatar-fallback{
+          background:linear-gradient(155deg,#f8fbff,#dbeafe);
+          font-size:24px;
+        }
+        .client-selected-card--active .client-selected-name{
+          max-width:100%;
+          overflow-wrap:anywhere;
+          color:#fff;
+          font-size:clamp(20px,5.8vw,28px);
+          line-height:1.06;
+          font-weight:1000;
+          letter-spacing:-.02em;
+        }
+        .client-selected-card--active .client-selected-phone{
+          max-width:100%;
+          overflow-wrap:anywhere;
+          margin-top:7px;
+          color:#cbd5e1;
+          font-size:clamp(14px,4.5vw,18px);
+          line-height:1.2;
+          font-weight:850;
+          font-variant-numeric:tabular-nums;
+          letter-spacing:.01em;
+        }
+        .client-selected-card--active .client-selected-actions{
+          display:grid;
+          grid-template-columns:minmax(0,1fr) minmax(0,.72fr);
+          gap:10px;
+          width:100%;
+        }
+        .client-card-action{
+          min-width:0;
+          min-height:48px;
+          padding:0 13px;
+          border-radius:15px;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          gap:8px;
+          color:#eff6ff;
+          font-size:12px;
+          line-height:1;
+          font-weight:1000;
+          letter-spacing:.06em;
+          touch-action:manipulation;
+          -webkit-tap-highlight-color:transparent;
+          transition:transform .14s ease, filter .14s ease, border-color .14s ease;
+        }
+        .client-card-action--edit{
+          border:1px solid rgba(96,165,250,.62);
+          background:linear-gradient(180deg,rgba(37,99,235,.9),rgba(29,78,216,.9));
+          box-shadow:0 10px 22px rgba(37,99,235,.2);
+        }
+        .client-card-action--remove{
+          border:1px solid rgba(248,113,113,.36);
+          background:rgba(127,29,29,.28);
+          color:#fecaca;
+        }
+        .client-card-action:active{ transform:scale(.975); }
+        .client-card-action:focus-visible,
+        .chip-modern:focus-visible{
+          outline:3px solid rgba(125,211,252,.88);
+          outline-offset:3px;
+        }
+        .client-save-confirmation{
+          margin-top:-2px;
+          color:#86efac;
+          font-size:10px;
+          font-weight:1000;
+          letter-spacing:.08em;
+          text-align:center;
+        }
+        .client-edit-error{
+          margin-top:12px;
+          padding:11px 12px;
+          border:1px solid rgba(248,113,113,.42);
+          border-radius:14px;
+          background:rgba(127,29,29,.28);
+          color:#fecaca;
+          font-size:12px;
+          line-height:1.35;
+          font-weight:900;
+        }
+        .chip-modern{
+          touch-action:manipulation;
+          user-select:none;
+          -webkit-user-select:none;
+        }
+        @media (max-width:390px){
+          .client-selected-card--active{ padding:14px; gap:12px; }
+          .client-selected-card--active .client-selected-main{ grid-template-columns:50px minmax(0,1fr); gap:11px; }
+          .client-selected-card--active .client-avatar-fallback,
+          .client-selected-card--active .client-mini.large{ width:50px; height:50px; border-radius:16px; }
+          .client-card-action{ min-height:46px; padding:0 10px; font-size:11px; }
         }
       `}</style>
     </div>

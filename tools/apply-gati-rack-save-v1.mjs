@@ -10,8 +10,8 @@ const ARKA_INSTALLER_PATH = 'tools/apply-arka-daily-close-v2.mjs';
 const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 
 const MARKER = 'GATI_RACK_SAVE_V1';
-const APP_VERSION = '2.0.118-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2';
-const CACHE_VERSION = 'v47-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2';
+const APP_VERSION = '2.0.122-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1';
+const CACHE_VERSION = 'v48-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
   if (source[start] !== openChar) throw new Error(`${label}_OPEN_MISSING`);
