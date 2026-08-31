@@ -463,7 +463,10 @@ assert.ok(
   allocatorDefinitions.length > 0,
   'a migration must version the live reserve_transport_codes_batch allocator',
 );
-const allocator = allocatorDefinitions.at(-1);
+const strictAllocatorMigrationName = '20260830212000_transport_tcode_strict_smallest_allocator_v2.sql';
+const hotPathMigrationName = '20260831143000_transport_tcode_allocator_hot_path_v3.sql';
+const allocator = allocatorDefinitions.find(({ name }) => name === strictAllocatorMigrationName);
+assert.ok(allocator, 'strict-smallest allocator V2 migration missing');
 const allocatorSql = allocator.block.toLowerCase();
 const allocatorExecutableSql = stripSqlComments(allocatorSql);
 const allocatorMigrationSql = migrationSources.find(({ name }) => name === allocator.name)?.sql || '';
@@ -491,11 +494,13 @@ assert.ok(migrationIndex(atomicMigrationName) >= 0, 'atomic create migration mis
 assert.ok(migrationIndex(cleanupV1Name) >= 0, 'first exact cleanup migration missing');
 assert.ok(migrationIndex(cleanupV2Name) >= 0, 'second exact cleanup migration missing');
 assert.ok(migrationIndex(cleanupV3Name) >= 0, 'third exact cleanup migration missing');
+assert.ok(migrationIndex(hotPathMigrationName) >= 0, 'allocator hot-path V3 migration missing');
 assert.ok(
   migrationIndex(atomicMigrationName) < migrationIndex(allocator.name)
     && migrationIndex(allocator.name) < migrationIndex(cleanupV1Name)
     && migrationIndex(cleanupV1Name) < migrationIndex(cleanupV2Name)
-    && migrationIndex(cleanupV2Name) < migrationIndex(cleanupV3Name),
+    && migrationIndex(cleanupV2Name) < migrationIndex(cleanupV3Name)
+    && migrationIndex(cleanupV3Name) < migrationIndex(hotPathMigrationName),
   `unsafe migration order: expected atomic < strict allocator < cleanup v1 < cleanup v2 < cleanup v3, got ${atomicMigrationName}, ${allocator.name}, ${cleanupV1Name}, ${cleanupV2Name}, ${cleanupV3Name}`,
 );
 
@@ -526,6 +531,44 @@ assert.equal(
   (allocatorSql.match(/\bp_n\b/g) || []).length,
   1,
   `${allocator.name}: caller-controlled p_n must not increase the public allocation count`,
+);
+
+const hotPathMigrationSql = migrationSources
+  .find(({ name }) => name === hotPathMigrationName)?.sql || '';
+const hotPathAllocatorSql = extractFunction(
+  hotPathMigrationSql,
+  'reserve_transport_codes_batch',
+).toLowerCase();
+const hotPathExecutableSql = stripSqlComments(hotPathAllocatorSql);
+assert.ok(hotPathAllocatorSql, `${hotPathMigrationName}: allocator replacement missing`);
+assert.match(hotPathAllocatorSql, /transport-code-allocator-v3/, `${hotPathMigrationName}: global allocator lock missing`);
+assert.match(hotPathAllocatorSql, /v_wanted\s+constant\s+integer\s*:=\s*1/, `${hotPathMigrationName}: public one-code cap changed`);
+assert.match(hotPathAllocatorSql, /public\.transport_code_allocator_state_v2/, `${hotPathMigrationName}: transactional fresh cursor missing`);
+assert.match(hotPathAllocatorSql, /v_pool_scan_after/, `${hotPathMigrationName}: numeric candidate cursor missing`);
+assert.match(hotPathAllocatorSql, /order\s+by\s+parsed\.code_n\s+asc\s*,\s*p\.code\s+asc/, `${hotPathMigrationName}: pool scan is not numeric smallest-first`);
+assert.match(hotPathAllocatorSql, /limit\s+1\s+for\s+update/, `${hotPathMigrationName}: candidate row is not bounded and locked`);
+assert.doesNotMatch(hotPathExecutableSql, /skip\s+locked/, `${hotPathMigrationName}: SKIP LOCKED breaks strict ordering`);
+assert.doesNotMatch(hotPathAllocatorSql, /nextval\s*\(/, `${hotPathMigrationName}: failed creates can burn sequence values`);
+assert.match(hotPathAllocatorSql, /v_pool_code_n\s*<=\s*v_fresh_n/, `${hotPathMigrationName}: global minimum comparison missing`);
+const hotCandidateSelectStart = hotPathAllocatorSql.indexOf('select p.code, parsed.code_n');
+const hotCandidateSelectEnd = hotPathAllocatorSql.indexOf('for update;', hotCandidateSelectStart);
+const hotLifecycleCheck = hotPathAllocatorSql.indexOf(
+  'transport_tcode_has_lifecycle_reference_v2(v_pool_code)',
+  hotCandidateSelectEnd,
+);
+const hotPoolClaim = hotPathAllocatorSql.indexOf(
+  'update public.transport_code_pool',
+  hotLifecycleCheck,
+);
+assert.ok(hotCandidateSelectStart >= 0 && hotCandidateSelectEnd > hotCandidateSelectStart, `${hotPathMigrationName}: bounded candidate SELECT missing`);
+assert.doesNotMatch(
+  hotPathAllocatorSql.slice(hotCandidateSelectStart, hotCandidateSelectEnd),
+  /transport_tcode_has_lifecycle_reference_v2/,
+  `${hotPathMigrationName}: lifecycle guard still runs for the whole available pool`,
+);
+assert.ok(
+  hotLifecycleCheck > hotCandidateSelectEnd && hotPoolClaim > hotLifecycleCheck,
+  `${hotPathMigrationName}: candidate must pass the lifecycle guard before claim`,
 );
 
 // Pool provenance is server-maintained. Installed PWAs retain read-only
