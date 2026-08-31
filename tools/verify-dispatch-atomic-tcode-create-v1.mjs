@@ -111,12 +111,16 @@ check(repairMigrationV3.includes('generate_series(1301::bigint, 1310::bigint)'),
 check(repairMigrationV3.includes('generate_series(1312::bigint, 1326::bigint)'), 'third repair includes the second exact retry-storm interval');
 check(repairMigrationV3.includes('generate_series(1329::bigint, 1330::bigint)'), 'third repair includes the final two pre-cutover stranded codes');
 check(repairMigrationV3.includes('v_expected_count <> 27'), 'third repair requires exactly twenty-seven incident codes');
+check(repairMigrationV3.includes('v_pool_count <> v_expected_count'), 'third repair couples pool cardinality to the exact incident set');
 check(repairMigrationV3.includes("('T1300'::text, 1300::bigint)"), 'third repair protects completed T1300');
 check(repairMigrationV3.includes("('T1311'::text, 1311::bigint)"), 'third repair protects completed T1311');
 check(repairMigrationV3.includes("('T1327'::text, 1327::bigint)"), 'third repair protects completed T1327');
 check(repairMigrationV3.includes("('T1328'::text, 1328::bigint)"), 'third repair protects completed T1328');
 check(repairMigrationV3.includes('transport_tcode_has_lifecycle_reference_v2'), 'third repair uses the strict lifecycle reference guard');
 check(repairMigrationV3.includes('DISPATCH_TCODE_CLEANUP_V3_REFERENCE_BLOCKERS'), 'third repair aborts on lifecycle references');
+check(repairMigrationV3.includes('DISPATCH_TCODE_CLEANUP_V3_UPDATE_COUNT_CHANGED'), 'third repair verifies its exact update count');
+check(repairMigrationV3.includes('DISPATCH_TCODE_CLEANUP_V3_POSTCHECK_FAILED'), 'third repair verifies every released code');
+check(repairMigrationV3.includes('DISPATCH_TCODE_CLEANUP_V3_PROTECTED_POSTCHECK_FAILED'), 'third repair re-verifies protected completed codes');
 check(repairMigrationV3.includes('backup_dispatch_tcode_stranded_cleanup_20260831_v3'), 'third repair creates a separate protected recovery backup');
 
 if (failures.length) {

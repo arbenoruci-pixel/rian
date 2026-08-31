@@ -80,7 +80,7 @@ begin
   from dispatch_tcode_cleanup_v3_expected e
   join public.transport_code_pool p on p.code = e.code;
 
-  if v_pool_count <> 25 then
+  if v_pool_count <> v_expected_count then
     raise exception 'DISPATCH_TCODE_CLEANUP_V3_POOL_SET_CHANGED:%',
       v_pool_count;
   end if;

@@ -685,8 +685,12 @@ assert.match(cleanupV3, /generate_series\s*\(\s*1301::bigint\s*,\s*1310::bigint\
 assert.match(cleanupV3, /generate_series\s*\(\s*1312::bigint\s*,\s*1326::bigint\s*\)/, 'third cleanup second interval is not incident-exact');
 assert.match(cleanupV3, /generate_series\s*\(\s*1329::bigint\s*,\s*1330::bigint\s*\)/, 'third cleanup final pre-cutover interval is not incident-exact');
 assert.match(cleanupV3, /v_expected_count\s*<>\s*27/, 'third cleanup expected cardinality guard missing');
+assert.match(cleanupV3, /v_pool_count\s*<>\s*v_expected_count/, 'third cleanup pool guard must stay coupled to the incident-set cardinality');
 assert.match(cleanupV3, /'t1300'::text[\s\S]{0,220}'t1328'::text/, 'third cleanup does not protect its four completed boundary orders');
 assert.match(cleanupV3, /transport_tcode_has_lifecycle_reference_v2/, 'third cleanup does not use the strict lifecycle guard');
+assert.match(cleanupV3, /dispatch_tcode_cleanup_v3_update_count_changed/, 'third cleanup does not verify its exact update count');
+assert.match(cleanupV3, /dispatch_tcode_cleanup_v3_postcheck_failed/, 'third cleanup does not verify all released codes after update');
+assert.match(cleanupV3, /dispatch_tcode_cleanup_v3_protected_postcheck_failed/, 'third cleanup does not re-verify protected completed codes');
 assert.doesNotMatch(`${cleanupV1}\n${cleanupV2}\n${cleanupV3}`, /t3972|\b3972\b/, 'historical valid outlier T3972 entered an incident cleanup');
 for (const [label, cleanupSql] of [['v1', cleanupV1], ['v2', cleanupV2]]) {
   assert.match(cleanupSql, /data->'client'->>'code_str'/, `${label} cleanup misses nested client.code_str references`);
