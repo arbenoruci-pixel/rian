@@ -8,8 +8,9 @@ import { listUsers } from "@/lib/usersDb";
 import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
 import { supabase } from "@/lib/supabaseClient";
-import { clearTransportCodeReservationForOrder, releaseTransportCodeIfUnused, reserveTransportCode } from "@/lib/transportCodes";
+import { clearTransportCodeReservationForOrder, releaseTransportCodeIfUnused } from "@/lib/transportCodes";
 import { findTransportClientByPhoneOnly, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
+import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -172,22 +173,11 @@ function getDispatchPhoneDigits(value) {
   return normalizeTransportPhoneKey(value);
 }
 
-// Transport T-code allocation is centralized in transportCodes.js.
-// Dispatch never prefetches or buffers codes; it reserves one code only after the
-// final phone lookup confirms a genuinely new client.
+// Dispatch never prefetches or buffers codes. After the final phone lookup
+// confirms a genuinely new client, create_transport_order allocates its T-code
+// in the same DB transaction as the client and order.
 
-function createDispatchOrderUuid() {
-  try {
-    if (globalThis?.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  } catch {}
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
-    const r = Math.floor(Math.random() * 16);
-    const v = ch === 'x' ? r : ((r & 0x3) | 0x8);
-    return v.toString(16);
-  });
-}
-
-async function prepareDispatchTransportClientLink({ name, phone, address, existingPhoneClient, verifiedPhoneClient = undefined, tcodeOwner, orderId }) {
+async function prepareDispatchTransportClientLink({ name, phone, address, existingPhoneClient, verifiedPhoneClient = undefined, orderId }) {
   const cleanName = s(name);
   const cleanPhone = onlyDigits(phone);
   const phoneDigits = getDispatchPhoneDigits(cleanPhone);
@@ -209,7 +199,7 @@ async function prepareDispatchTransportClientLink({ name, phone, address, existi
       // A transient iPhone/LTE fetch timeout must not block Dispatch before the
       // authoritative create_transport_order RPC gets a chance to resolve the
       // phone under its advisory lock. Reuse only an exact cached phone match;
-      // otherwise reserve a temporary T-code and let the atomic RPC reconcile it.
+      // otherwise let the create RPC allocate a permanent T-code atomically.
       phoneLookupDegraded = true;
       phoneLookupError = String(error?.message || error || 'TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED');
       const cachedExactClient = existingPhoneClient
@@ -229,20 +219,12 @@ async function prepareDispatchTransportClientLink({ name, phone, address, existi
 
   const clientId = selectedClient ? getTransportClientId(selectedClient) : '';
   let tcode = selectedClient ? getTransportTCode(selectedClient) : '';
-  let reservedNewTcode = '';
+  const atomicDbTcodeAllocation = !tcode;
+  const reservedNewTcode = '';
 
-  if (!tcode) {
-    try {
-      reservedNewTcode = normTCode(await reserveTransportCode(tcodeOwner || 'DISPATCH', { oid: reservationOid }));
-      tcode = reservedNewTcode;
-    } catch (error) {
-      throw new Error(`NUK U REZERVUA T-CODE PËR KLIENTIN E RI. ${error?.message || ''}`.trim());
-    }
-  }
-  if (!tcode) throw new Error('NUK U GJET / KRIJUA T-CODE. POROSIA NUK U RUAJT.');
-
-  // Client creation/reuse happens inside create_transport_order together with the
-  // exact order UUID. This prevents an orphan client when the order insert fails.
+  // A genuinely new Dispatch client reaches create_transport_order without a
+  // pre-reserved code. The DB allocates the T-code in the same transaction as the
+  // client and order, so a failed/lost response cannot strand a pool row.
   return {
     clientId: clientId || null,
     tcode,
@@ -254,6 +236,7 @@ async function prepareDispatchTransportClientLink({ name, phone, address, existi
     address: s(address),
     source: getTransportClientSource(selectedClient) || 'transport_clients',
     rowId: selectedClient?.row_id || selectedClient?.id || null,
+    atomicDbTcodeAllocation,
     phoneLookupDegraded,
     phoneLookupError,
   };
@@ -1667,6 +1650,8 @@ export default function DispatchPage() {
   const [discountMessagesOpen, setDiscountMessagesOpen] = useState(false);
   const [otherOptionsOpen, setOtherOptionsOpen] = useState(false);
   const realtimeTimerRef = useRef(null);
+  const createIntentJournalRef = useRef(null);
+  const sendInFlightRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -2289,6 +2274,9 @@ export default function DispatchPage() {
   const canCreateNewDispatchOrder = canSend && !activePhoneOrder;
 
   async function send() {
+    // React state updates after the click handler returns. Keep a synchronous
+    // guard too so a rapid iPhone double-tap cannot start two create flows.
+    if (sendInFlightRef.current) return;
     if (!canSend) {
       setErr("PLOTËSO EMRIN DHE TELEFON VALID");
       return;
@@ -2302,6 +2290,7 @@ export default function DispatchPage() {
     if (!confirmSmartCreateIncomplete(smartCreateLiveFillStatus)) {
       return;
     }
+    sendInFlightRef.current = true;
     setBusy(true);
     setErr("");
     setMsg("");
@@ -2323,7 +2312,27 @@ export default function DispatchPage() {
       const verifiedPhoneClient = undefined;
       const actorNow = getActor() || null;
       const poolOwner = pickedDriverPin || String(actorNow?.pin || '').trim() || 'DISPATCH';
-      const orderId = createDispatchOrderUuid();
+      if (!createIntentJournalRef.current) {
+        createIntentJournalRef.current = createDispatchCreateIntentJournal();
+      }
+      // DISPATCH_CREATE_INTENT_V1: retries for the exact same form reuse the
+      // same UUID, including after reload/lost response. Until DB success is
+      // verified, form edits keep that UUID so a committed-but-lost response
+      // cannot turn into a duplicate visit.
+      const orderId = await createIntentJournalRef.current.acquire({
+        actor: String(actorNow?.id || actorNow?.user_id || actorNow?.pin || '').trim(),
+        poolOwner,
+        name: cleanName,
+        phone: cleanPhone,
+        address: cleanAddress,
+        note: cleanNote,
+        pickupMeasurements,
+        plannedPieces: smartPasteResult?.pieces || 0,
+        plannedDate,
+        slot,
+        planMode,
+        driverId,
+      });
       pendingOrderId = orderId;
       pendingCodeOwner = poolOwner;
       const clientLink = await prepareDispatchTransportClientLink({
@@ -2332,12 +2341,12 @@ export default function DispatchPage() {
         address: cleanAddress,
         existingPhoneClient,
         verifiedPhoneClient,
-        tcodeOwner: poolOwner,
         orderId,
       });
       pendingReservedTcode = clientLink.reservedNewTcode || '';
+      const atomicDbTcodeAllocation = clientLink.atomicDbTcodeAllocation === true;
       let officialOrderCode = normTCode(clientLink.tcode);
-      if (!officialOrderCode) {
+      if (!officialOrderCode && !atomicDbTcodeAllocation) {
         throw new Error('TRANSPORT_CLIENT_TCODE_MISSING');
       }
       // Dispatch-created orders assigned to a driver must appear in TË REJA first.
@@ -2357,10 +2366,13 @@ export default function DispatchPage() {
           client: {
             id: clientLink.clientId || null,
             tcode: officialOrderCode,
+            code_str: officialOrderCode,
             code: officialOrderCode,
-            transport_client_tcode: clientLink.tcode || null,
             order_code: officialOrderCode,
             official_order_code: officialOrderCode,
+            order_tcode: officialOrderCode,
+            client_tcode: officialOrderCode,
+            transport_client_tcode: clientLink.tcode || null,
             name: clientLink.name,
             phone: clientLink.phone,
             phone_digits: clientLink.phoneDigits,
@@ -2386,6 +2398,8 @@ export default function DispatchPage() {
           pickup_measurements_text: String(pickupMeasurements || '').trim(),
           created_by: "DISPATCH",
           created_by_role: "DISPATCH",
+          code_owner: poolOwner,
+          transport_tcode_allocation_mode: atomicDbTcodeAllocation ? "ATOMIC_DB" : "EXISTING_CLIENT",
           created_by_pin: String(actorNow?.pin || '').trim() || null,
           created_by_name: s(actorNow?.name || actorNow?.full_name || actorNow?.role || 'DISPATCH'),
           order_origin: "DISPATCH",
@@ -2416,13 +2430,20 @@ export default function DispatchPage() {
             dispatch_phone_lookup_degraded: {
               at: nowIso,
               reason: clientLink.phoneLookupError || 'TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED',
-              fallback: clientLink.clientId ? 'EXACT_CACHED_CLIENT_THEN_ATOMIC_RPC' : 'RESERVED_CODE_THEN_ATOMIC_RPC',
+              fallback: clientLink.clientId ? 'EXACT_CACHED_CLIENT_THEN_ATOMIC_RPC' : 'ATOMIC_CREATE_TRANSPORT_ORDER_RPC',
             },
           } : {}),
         },
       };
 
-      if (!payload.id || !payload.client_tcode || !payload.code_str || !payload.client_phone || !payload.data?.client?.tcode) {
+      if (
+        !payload.id
+        || !payload.client_phone
+        || (
+          !atomicDbTcodeAllocation
+          && (!payload.client_tcode || !payload.code_str || !payload.data?.client?.tcode)
+        )
+      ) {
         throw new Error("TRANSPORT_ORDER_PAYLOAD_INCOMPLETE");
       }
 
@@ -2442,6 +2463,7 @@ export default function DispatchPage() {
       officialOrderCode = savedTcode;
       pendingReservedTcode = '';
       clearTransportCodeReservationForOrder(orderId);
+      createIntentJournalRef.current?.clear(orderId);
       setMsg(`U DËRGUA ${officialOrderCode} ✅`);
       setBusy(false);
       setCreateOpen(false);
@@ -2472,11 +2494,16 @@ export default function DispatchPage() {
       } catch {}
     } catch (e) {
       if (pendingReservedTcode) {
-        try { await releaseTransportCodeIfUnused(pendingReservedTcode, pendingCodeOwner); } catch {}
+        try {
+          const released = await releaseTransportCodeIfUnused(pendingReservedTcode, pendingCodeOwner);
+          if (released && pendingOrderId) clearTransportCodeReservationForOrder(pendingOrderId);
+        } catch {}
       }
-      if (pendingOrderId) clearTransportCodeReservationForOrder(pendingOrderId);
+      // Keep the order→T-code binding when release could not be confirmed. The
+      // stable UUID retry must reuse that reservation instead of burning a new one.
       setErr(e?.message || "GABIM");
     } finally {
+      sendInFlightRef.current = false;
       setBusy(false);
     }
   }

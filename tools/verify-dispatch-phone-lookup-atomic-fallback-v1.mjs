@@ -18,7 +18,8 @@ check(dispatchBlock.includes('cachedExactClient'), 'exact cached phone fallback'
 check(dispatchBlock.includes('phoneLookupDegraded'), 'dispatch degraded audit flag');
 check(!dispatchBlock.includes('throw new Error(`NUK U VERIFIKUA KLIENTI ME TELEFON'), 'dispatch no longer hard-fails before atomic RPC');
 check(dispatch.includes('dispatch_phone_lookup_degraded'), 'dispatch payload audit marker');
-check(dispatch.includes('reserveTransportCode'), 'T-code reservation preserved');
+check(!dispatchBlock.includes('reserveTransportCode'), 'Dispatch new-client pre-reservation removed');
+check(dispatchBlock.includes('atomicDbTcodeAllocation'), 'Dispatch marks DB-atomic T-code allocation');
 check(dispatch.includes('releaseTransportCodeIfUnused'), 'Dispatch cleanup preserved');
 
 check(insertBlock.includes('DISPATCH_PHONE_LOOKUP_ATOMIC_FALLBACK_V1'), 'transport insert fallback marker');

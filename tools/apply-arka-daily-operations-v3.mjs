@@ -15,8 +15,8 @@ const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 const MARKER = 'ARKA_DAILY_OPERATIONS_V3';
 const INSTALLER = 'node tools/apply-arka-daily-operations-v3.mjs';
 const TEST_COMMAND = 'npm run test:arka-daily-operations-v3';
-const APP_VERSION = '2.0.125-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1';
-const CACHE_VERSION = 'v51-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1';
+const APP_VERSION = '2.0.126-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2';
+const CACHE_VERSION = 'v52-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2';
 
 function replaceOnce(source, oldText, newText, label) {
   if (source.includes(newText)) return source;
@@ -243,9 +243,17 @@ function patchFastCloseCompatibility() {
 
 function patchGatiFinalOwner() {
   let source = fs.readFileSync(GATI_INSTALLER_PATH, 'utf8');
+  const currentAppVersion = source.match(/const APP_VERSION = '([^']+)';/)?.[1] || '';
+  const currentCacheVersion = source.match(/const CACHE_VERSION = '([^']+)';/)?.[1] || '';
+  const appRelease = Number(currentAppVersion.match(/^2\.0\.(\d+)/)?.[1] || 0);
+  const wantedAppRelease = Number(APP_VERSION.match(/^2\.0\.(\d+)/)?.[1] || 0);
+  const cacheRelease = Number(currentCacheVersion.match(/^v(\d+)(?:-|$)/)?.[1] || 0);
+  const wantedCacheRelease = Number(CACHE_VERSION.match(/^v(\d+)(?:-|$)/)?.[1] || 0);
+  const finalAppVersion = appRelease > wantedAppRelease ? currentAppVersion : APP_VERSION;
+  const finalCacheVersion = cacheRelease > wantedCacheRelease ? currentCacheVersion : CACHE_VERSION;
   source = source
-    .replace(/const APP_VERSION = '[^']+';/, `const APP_VERSION = '${APP_VERSION}';`)
-    .replace(/const CACHE_VERSION = '[^']+';/, `const CACHE_VERSION = '${CACHE_VERSION}';`)
+    .replace(/const APP_VERSION = '[^']+';/, `const APP_VERSION = '${finalAppVersion}';`)
+    .replace(/const CACHE_VERSION = '[^']+';/, `const CACHE_VERSION = '${finalCacheVersion}';`)
     .replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3513');
 
   const homeDecl = "  const homeSearchLocalOidDedupeV1Installer = 'node tools/apply-home-search-local-oid-dedupe-v1.mjs';";

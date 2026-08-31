@@ -10,8 +10,10 @@ const ARKA_INSTALLER_PATH = 'tools/apply-arka-daily-close-v2.mjs';
 const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 
 const MARKER = 'GATI_RACK_SAVE_V1';
-const APP_VERSION = '2.0.125-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1';
-const CACHE_VERSION = 'v51-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1';
+const APP_VERSION = '2.0.126-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2';
+const CACHE_VERSION = 'v52-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2';
+const RELEASE_EPOCH = 'RESET-2026-08-30-DISPATCH-ATOMIC-TCODE-V2';
+const RUNTIME_VERSION = '2.0.126-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
   if (source[start] !== openChar) throw new Error(`${label}_OPEN_MISSING`);
@@ -331,6 +333,9 @@ function patchBuildIdentity() {
   fs.writeFileSync(VITE_PATH, vite, 'utf8');
 
   let epoch = fs.readFileSync(EPOCH_PATH, 'utf8');
+  epoch = epoch
+    .replace(/export const APP_DATA_EPOCH = '[^']+';/, `export const APP_DATA_EPOCH = '${RELEASE_EPOCH}';`)
+    .replace(/export const APP_VERSION = '[^']+';/, `export const APP_VERSION = '${RUNTIME_VERSION}';`);
   if (/export const GATI_RACK_SAVE_BUILD = '[^']+';/.test(epoch)) {
     epoch = epoch.replace(/export const GATI_RACK_SAVE_BUILD = '[^']+';/, `export const GATI_RACK_SAVE_BUILD = '${APP_VERSION}';`);
   } else {
@@ -339,7 +344,9 @@ function patchBuildIdentity() {
   fs.writeFileSync(EPOCH_PATH, epoch, 'utf8');
 
   let index = fs.readFileSync(INDEX_PATH, 'utf8');
+  index = index.replace(/(<meta name="tepiha-app-epoch" content=")[^"]+(" \/>)/, `$1${RELEASE_EPOCH}$2`);
   index = index.replace(/(<meta name="tepiha-build-id" content=")[^"]+(" \/>)/, `$1${APP_VERSION}$2`);
+  index = index.replace(/window\.__TEPIHA_APP_EPOCH = '[^']+';/, `window.__TEPIHA_APP_EPOCH = '${RELEASE_EPOCH}';`);
   index = index.replace(/window\.__TEPIHA_BUILD_ID = '[^']+';/, `window.__TEPIHA_BUILD_ID = '${APP_VERSION}';`);
   fs.writeFileSync(INDEX_PATH, index, 'utf8');
 }

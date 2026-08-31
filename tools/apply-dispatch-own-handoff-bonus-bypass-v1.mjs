@@ -103,24 +103,40 @@ function patchCorporateFinance() {
 
 function patchBuildIdentityAndCaches() {
   let indexSource = fs.readFileSync(INDEX_FILE, 'utf8');
-  indexSource = indexSource
-    .replace(/(<meta name="tepiha-build-id" content=")[^"]+(" \/>)/, `$1${BUILD_VERSION}$2`)
-    .replace(/window\.__TEPIHA_BUILD_ID\s*=\s*'[^']+';/, `window.__TEPIHA_BUILD_ID = '${BUILD_VERSION}';`);
-  if (!indexSource.includes(`content="${BUILD_VERSION}"`) || !indexSource.includes(`window.__TEPIHA_BUILD_ID = '${BUILD_VERSION}';`)) {
+  const metaBuild = indexSource.match(/<meta name="tepiha-build-id" content="([^"]+)" \/>/)?.[1] || '';
+  const runtimeBuild = indexSource.match(/window\.__TEPIHA_BUILD_ID\s*=\s*'([^']+)';/)?.[1] || '';
+  // This installer runs before every build. Once the feature is installed it
+  // must preserve newer release identities instead of downgrading them to the
+  // historical version that first introduced the feature.
+  if (!metaBuild || !runtimeBuild || metaBuild !== runtimeBuild) {
     throw new Error('DISPATCH_BONUS_BYPASS_V2_INDEX_BUILD_VERIFY_FAILED');
   }
-  fs.writeFileSync(INDEX_FILE, indexSource, 'utf8');
 
   let viteSource = fs.readFileSync(VITE_FILE, 'utf8');
-  viteSource = viteSource
-    .replace(/sw-navigation-diag\.js\?v=\d+/, 'sw-navigation-diag.js?v=3505')
-    .replace(/tepiha-vite-business-routes-v\d+-[A-Za-z0-9-]+/g, `tepiha-vite-business-routes-${CACHE_GENERATION}`)
-    .replace(/tepiha-vite-static-assets-v\d+-[A-Za-z0-9-]+/g, `tepiha-vite-static-assets-${CACHE_GENERATION}`)
-    .replace(/tepiha-vite-media-v\d+-[A-Za-z0-9-]+/g, `tepiha-vite-media-${CACHE_GENERATION}`);
-  if (!viteSource.includes(`tepiha-vite-business-routes-${CACHE_GENERATION}`)
-      || !viteSource.includes(`tepiha-vite-static-assets-${CACHE_GENERATION}`)
-      || !viteSource.includes(`tepiha-vite-media-${CACHE_GENERATION}`)
-      || !viteSource.includes('sw-navigation-diag.js?v=3505')) {
+  const usesDynamicReleaseCacheGeneration = viteSource.includes('const pwaCacheBuild =')
+    && viteSource.includes('cacheName: `tepiha-vite-business-routes-${pwaCacheBuild}`')
+    && viteSource.includes('cacheName: `tepiha-vite-static-assets-${pwaCacheBuild}`')
+    && viteSource.includes('cacheName: `tepiha-vite-media-${pwaCacheBuild}`');
+  const literalCacheGenerations = [
+    ...viteSource.matchAll(/cacheName:\s*['`]tepiha-vite-(?:business-routes|static-assets|media)-([^'`]+)['`]/g),
+  ].map((match) => match[1]);
+  const usesLiteralReleaseCacheGeneration = literalCacheGenerations.length === 3
+    && new Set(literalCacheGenerations).size === 1;
+  const usesReleaseCacheGeneration = usesDynamicReleaseCacheGeneration
+    || usesLiteralReleaseCacheGeneration;
+  if (!usesReleaseCacheGeneration) {
+    viteSource = viteSource
+      .replace(/sw-navigation-diag\.js\?v=\d+/, 'sw-navigation-diag.js?v=3505')
+      .replace(/tepiha-vite-business-routes-v\d+-[A-Za-z0-9-]+/g, `tepiha-vite-business-routes-${CACHE_GENERATION}`)
+      .replace(/tepiha-vite-static-assets-v\d+-[A-Za-z0-9-]+/g, `tepiha-vite-static-assets-${CACHE_GENERATION}`)
+      .replace(/tepiha-vite-media-v\d+-[A-Za-z0-9-]+/g, `tepiha-vite-media-${CACHE_GENERATION}`);
+  }
+  const hasNavigationDiagnostic = /sw-navigation-diag\.js\?v=\d+/.test(viteSource);
+  if ((!usesReleaseCacheGeneration
+      && (!viteSource.includes(`tepiha-vite-business-routes-${CACHE_GENERATION}`)
+        || !viteSource.includes(`tepiha-vite-static-assets-${CACHE_GENERATION}`)
+        || !viteSource.includes(`tepiha-vite-media-${CACHE_GENERATION}`)))
+      || !hasNavigationDiagnostic) {
     throw new Error('DISPATCH_BONUS_BYPASS_V2_CACHE_VERIFY_FAILED');
   }
   fs.writeFileSync(VITE_FILE, viteSource, 'utf8');
@@ -131,4 +147,4 @@ patchCorporateFinance();
 patchBuildIdentityAndCaches();
 
 console.log('PASS: dispatch/admin handoff uses allowNonWorker bonus lookup and cannot be blocked by BONUS_WORKER_ONLY.');
-console.log(`PASS: build identity ${BUILD_VERSION} and cache generation ${CACHE_GENERATION} are active.`);
+console.log(`PASS: current build identity is preserved and cache generation ${CACHE_GENERATION} or newer is active.`);

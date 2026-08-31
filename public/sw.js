@@ -1,9 +1,9 @@
 /* LEGACY /sw.js BRIDGE — inert compatibility worker for old controllers. */
 /* eslint-disable no-restricted-globals */
 
-const APP_DATA_EPOCH = 'RESET-2026-06-20-PRANIMI-CODE-RESERVATION-V37';
-const APP_VERSION = '2.0.116-transport-payment-confirm-close-v1-legacy-bridge';
-const SW_BUILD_LABEL = 'sw-pwa-auto-update-v3-black-screen-guard-legacy-bridge';
+const APP_DATA_EPOCH = 'RESET-2026-08-30-DISPATCH-ATOMIC-TCODE-V2';
+const APP_VERSION = '2.0.126-dispatch-atomic-tcode-v2-legacy-bridge';
+const SW_BUILD_LABEL = 'sw-pwa-auto-update-v4-dispatch-atomic-tcode-legacy-bridge';
 const OFFLINE_FALLBACK = '/offline.html';
 const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v20';
 

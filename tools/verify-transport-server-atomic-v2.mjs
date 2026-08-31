@@ -209,6 +209,7 @@ const RACE_ID = '33333333-3333-4333-8333-333333333333';
   assert.equal(created.data.client_tcode, 'T5');
   assert.equal(created.data.visit_nr, 1);
   assert.equal(db.calls.reserve, 1);
+  assert.equal(db.calls.createArgs[0].p_data.code_owner, 'ONLINE_BOOKING', 'server stamps the exact pool owner for supplied-code verification');
   assert.equal(db.state.transport_code_pool.find((row) => row.code === 'T5').status, 'used');
   assert.equal(db.state.transport_code_pool.find((row) => row.code === 'T15').status, 'available');
 }
@@ -248,6 +249,7 @@ const RACE_ID = '33333333-3333-4333-8333-333333333333';
   assert.equal(created.data.code_str, 'T9');
   assert.equal(created.data.client_tcode, 'T9');
   assert.equal(db.calls.reserve, 0, 'new offline client reuses its one reserved code');
+  assert.equal(db.calls.createArgs[0].p_data.code_owner, 'OFFLINE_SYNC', 'offline supplied code keeps its exact server owner');
   assert.equal(db.state.transport_code_pool.find((row) => row.code === 'T5').status, 'available');
 }
 

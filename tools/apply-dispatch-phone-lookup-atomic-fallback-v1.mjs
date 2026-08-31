@@ -41,7 +41,7 @@ if (!dispatchSource.includes(MARKER)) {
       // A transient iPhone/LTE fetch timeout must not block Dispatch before the
       // authoritative create_transport_order RPC gets a chance to resolve the
       // phone under its advisory lock. Reuse only an exact cached phone match;
-      // otherwise reserve a temporary T-code and let the atomic RPC reconcile it.
+      // otherwise let the create RPC allocate a permanent T-code atomically.
       phoneLookupDegraded = true;
       phoneLookupError = String(error?.message || error || 'TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED');
       const cachedExactClient = existingPhoneClient
@@ -90,7 +90,7 @@ if (!dispatchSource.includes(MARKER)) {
             dispatch_phone_lookup_degraded: {
               at: nowIso,
               reason: clientLink.phoneLookupError || 'TRANSPORT_CLIENT_PHONE_LOOKUP_FAILED',
-              fallback: clientLink.clientId ? 'EXACT_CACHED_CLIENT_THEN_ATOMIC_RPC' : 'RESERVED_CODE_THEN_ATOMIC_RPC',
+              fallback: clientLink.clientId ? 'EXACT_CACHED_CLIENT_THEN_ATOMIC_RPC' : 'ATOMIC_CREATE_TRANSPORT_ORDER_RPC',
             },
           } : {}),`,
     'Dispatch payload lookup-degradation audit marker',
@@ -196,7 +196,11 @@ if (!dbSource.includes(MARKER)) {
       rowData?.client_tcode,
       rowData?.transport_client_tcode,
       rowClientData?.tcode,
+      rowClientData?.code_str,
       rowClientData?.code,
+      rowClientData?.order_code,
+      rowClientData?.official_order_code,
+      rowClientData?.order_tcode,
       rowClientData?.client_tcode,
       rowClientData?.transport_client_tcode,
     ].some((value) => normTCode(value) !== dbPermanentTcode);
@@ -214,11 +218,13 @@ if (!dbSource.includes(MARKER)) {
         client: {
           ...rowClientData,
           tcode: dbPermanentTcode,
+          code_str: dbPermanentTcode,
           code: dbPermanentTcode,
-          client_tcode: dbPermanentTcode,
-          transport_client_tcode: dbPermanentTcode,
           order_code: dbPermanentTcode,
           official_order_code: dbPermanentTcode,
+          order_tcode: dbPermanentTcode,
+          client_tcode: dbPermanentTcode,
+          transport_client_tcode: dbPermanentTcode,
         },
       };
       const reconciled = await supabase
@@ -246,7 +252,7 @@ const dbAfter = fs.readFileSync(TRANSPORT_DB_PATH, 'utf8');
 for (const token of [
   MARKER,
   'phoneLookupDegraded',
-  'RESERVED_CODE_THEN_ATOMIC_RPC',
+  'ATOMIC_CREATE_TRANSPORT_ORDER_RPC',
   'dispatch_phone_lookup_degraded',
 ]) {
   if (!dispatchAfter.includes(token)) throw new Error(`DISPATCH_VERIFY_MISSING:${token}`);

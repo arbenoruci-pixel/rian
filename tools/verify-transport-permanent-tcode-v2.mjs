@@ -76,7 +76,8 @@ check(transportDb.includes('releaseTransportCodeIfUnused(requestedCode'), 'Super
 check(transportDb.includes('TRANSPORT_ORDER_VERIFY_VISIT_NR_MISSING'), 'Save requires verified visit_nr');
 
 // Dispatch.
-check((dispatch.match(/reserveTransportCode\(/g) || []).length === 1, 'Dispatch allocates only inside new-client preparation');
+check((dispatch.match(/reserveTransportCode\(/g) || []).length === 0, 'Dispatch leaves new-client allocation inside the atomic DB create');
+check(dispatch.includes('transport_tcode_allocation_mode: atomicDbTcodeAllocation ? "ATOMIC_DB" : "EXISTING_CLIENT"'), 'Dispatch explicitly marks the atomic DB allocator path');
 check(dispatch.includes('prepareDispatchTransportClientLink'), 'Dispatch has phone-first preparation');
 check(dispatch.includes('The final DB lookup is authoritative'), 'Dispatch cached CRM hit cannot override final DB lookup');
 check(dispatch.includes('const verifiedPhoneClient = undefined;'), 'Dispatch forces one final live lookup immediately before allocation');

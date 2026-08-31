@@ -20,6 +20,7 @@ import { isRetiredStaffPin } from '../lib/staffIdentityAliases.js';
 import staffIdentityHandler from '../api/admin/staff-identity.js';
 import deviceAdminHandler from '../api/admin/devices.js';
 import clientProfileHandler from '../api/client-profile.js';
+import transportOrderHandler from '../api/transport/order.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -172,6 +173,7 @@ app.post('/api/arka/transaction', async (req, res) => {
 app.post('/api/admin/staff-identity', staffIdentityHandler);
 app.post('/api/admin/devices', deviceAdminHandler);
 app.post('/api/client-profile', clientProfileHandler);
+app.post('/api/transport/order', transportOrderHandler);
 
 
 
