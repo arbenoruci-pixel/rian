@@ -474,7 +474,7 @@ function renderBatchHint(remainingCount, onMore) {
   );
 }
 
-function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, onAssign, onCancel, onSaveGps, getOrderLatLng, onOpenSms, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
+function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, onAssign, onCancel, onSaveGps, getOrderLatLng, onOpenSms, onOpenProfile, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
   const [activeOrder, setActiveOrder] = useState(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [gpsBusy, setGpsBusy] = useState(false);
@@ -685,17 +685,20 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
             const address = cleanAddress(orderAddress(order));
             const dateBadge = inboxPickupDateBadge(order);
             const isNew = !!(getUnseenRowStyle ? getUnseenRowStyle(order) : null);
+            const openInboxOrder = () => {
+              setTimeout(() => {
+                onMarkSeen && onMarkSeen(order?.id);
+                setActiveOrder(order || null);
+                setAssignOpen(false);
+              }, ACTION_DEFER_MS);
+            };
             return (
-              <button
+              <div
                 key={String(order?.id || order?.local_oid || idx)}
-                type="button"
-                onClick={() => {
-                  setTimeout(() => {
-                    onMarkSeen && onMarkSeen(order?.id);
-                    setActiveOrder(order || null);
-                    setAssignOpen(false);
-                  }, ACTION_DEFER_MS);
-                }}
+                role="group"
+                aria-label={`Porosia ${displayCode} e ${orderTitle(order)}`}
+                data-transport-inbox-card="v1"
+                onClick={openInboxOrder}
                 style={{
                   ...listCardStyle,
                   padding: 8,
@@ -713,7 +716,7 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                     </div>
                     <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 14.5, fontWeight: 950, letterSpacing: 0.1 }}>
+                        <span role="button" tabIndex={0} aria-label={`Hap kartelën e ${orderTitle(order)}`} onClick={(e) => { e.stopPropagation(); onOpenProfile && onOpenProfile(order); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenProfile && onOpenProfile(order); } }} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 14.5, fontWeight: 950, letterSpacing: 0.1, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
                           {orderTitle(order)}
                         </span>
                         {isNew ? <span style={newPillStyle}>NEW</span> : null}
@@ -736,13 +739,25 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
 
                       <div style={cardFooterStyle}>
                         <span style={{ color: 'rgba(255,255,255,0.70)', fontSize: 12, fontWeight: 900 }}>{pieces} copë{m2Total > 0 ? ' • ' + Number(m2Total).toFixed(1) + ' m²' : ''}{total > 0 ? ' • ' + Number(total).toFixed(2) + ' €' : ''}</span>
-                        <span style={openPillStyle}>HAP ➔</span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Hap porosinë ${displayCode}`}
+                          onClick={(event) => { event.stopPropagation(); openInboxOrder(); }}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' && event.key !== ' ') return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openInboxOrder();
+                          }}
+                          style={openPillStyle}
+                        >HAP ➔</span>
                       </div>
 
                     </div>
                   </div>
                 </div>
-              </button>
+              </div>
             );
           })
         ) : (
@@ -950,6 +965,10 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 7 }}>
+                <ActionButton onClick={() => { const order = activeOrder; closeModal(); setTimeout(() => { onOpenProfile && order && onOpenProfile(order); }, ACTION_DEFER_MS); }}>
+                  <span style={{ color: '#c4b5fd' }}>👤</span>
+                  <span>KARTELA</span>
+                </ActionButton>
                 <ActionButton onClick={() => openHref(telHref)} disabled={!telHref}>
                   <span style={{ color: '#34d399' }}>📞</span>
                   <span>THIRR</span>

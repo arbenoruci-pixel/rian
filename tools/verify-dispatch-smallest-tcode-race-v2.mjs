@@ -734,17 +734,17 @@ assert.match(transportDbSource, /body:\s*requestJson/, 'network retry does not r
 
 // Force installed PWAs off the stale browser-side reservation bundle. Both
 // service-worker entry points must advertise the same epoch/cache generation.
-const expectedEpoch = 'RESET-2026-08-30-DISPATCH-ATOMIC-TCODE-V2';
+const expectedEpoch = 'RESET-2026-08-31-TRANSPORT-RECOVERY-V1';
 const appEpochSource = fs.readFileSync(path.join(root, 'lib', 'appEpoch.js'), 'utf8');
 const serviceWorkerSource = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
 const viteSource = fs.readFileSync(path.join(root, 'vite.config.js'), 'utf8');
 const packageSource = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 assert.match(appEpochSource, new RegExp(expectedEpoch), 'application data epoch was not bumped for the atomic allocator');
 assert.match(serviceWorkerSource, new RegExp(expectedEpoch), 'service worker epoch does not match the application');
-assert.match(viteSource, /v52-query-authority-transport-guard-payment-button-v3-[^'\n]*dispatch-atomic-tcode-v2/, 'Workbox cache generation was not bumped without preserving prior feature guards');
+assert.match(viteSource, /v53-query-authority-transport-guard-payment-button-v3-[^'\n]*dispatch-atomic-tcode-v2-transport-recovery-v1/, 'Workbox cache generation was not bumped without preserving prior feature guards');
 assert.match(viteSource, /clientsClaim:\s*true/, 'new service worker must claim stale clients immediately');
 assert.match(viteSource, /skipWaiting:\s*true/, 'new service worker must skip the stale waiting worker');
 assert.match(serviceWorkerSource, /self\.skipWaiting\s*\(/, 'custom service worker update path cannot activate immediately');
-assert.match(packageSource, /dispatch-atomic-tcode-v2/, 'application version was not bumped for stale PWA clients');
+assert.match(packageSource, /dispatch-atomic-tcode-v2-transport-recovery-v1/, 'application version was not bumped for stale PWA clients');
 
 console.log(`PASS: Dispatch smallest-code and race/retry regression checks (${allocator.name}).`);

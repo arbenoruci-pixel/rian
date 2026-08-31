@@ -78,7 +78,7 @@ function getPaySummary(row) {
 }
 
 // MODULE: DORËZIM (status: delivery)
-function DorzimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, setGpsSort, onBulkStatus, onOpenModal, onOpenSms, onOpenRack, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
+function DorzimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, setGpsSort, onBulkStatus, onOpenModal, onOpenSms, onOpenProfile, onOpenRack, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
   const [toolsRow, setToolsRow] = useState(null);
   const [showReturn, setShowReturn] = useState(false);
   const [retReason, setRetReason] = useState('');
@@ -238,7 +238,7 @@ function DorzimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, se
                 <div style={{ ...transportCodeCircle, ...getOrderCodeCircleStyle(transportCode(getCode(item))) }}>{transportCode(getCode(item))}</div>
                 <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, letterSpacing: 0.2 }}>{getName(item)}</span>
+                    <span role="button" tabIndex={0} aria-label={`Hap kartelën e ${getName(item)}`} onClick={(e) => { e.stopPropagation(); onOpenProfile && onOpenProfile(item); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenProfile && onOpenProfile(item); } }} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, letterSpacing: 0.2, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>{getName(item)}</span>
                     <span style={{ ...pillBase, background: 'rgba(59,130,246,0.16)', color: '#bfdbfe', border: '1px solid rgba(59,130,246,0.30)', whiteSpace: 'nowrap' }}>PËR DORËZIM</span>
                   </div>
 
@@ -310,6 +310,7 @@ function DorzimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, se
               <div style={{ fontSize: 13, opacity: 0.7 }}>{getAddress(toolsRow)}</div>
             </div>
             <div style={ui.toolsGrid}>
+              <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenProfile && row && onOpenProfile(row); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>👤</span><span style={{ fontSize: 14 }}>KARTELA</span></button>
               <button style={ui.toolBtnBig} onClick={() => openMap(toolsRow)}><span style={{ fontSize: 24 }}>📍</span><span style={{ fontSize: 14 }}>MAPS</span></button>
               <button style={ui.toolBtnBig} onClick={() => callClient(toolsRow)}><span style={{ fontSize: 24 }}>📞</span><span style={{ fontSize: 14 }}>THIRR</span></button>
               <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenSms && row && onOpenSms(row, 'transport_dorzim'); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>💬</span><span style={{ fontSize: 14 }}>SMS</span></button>

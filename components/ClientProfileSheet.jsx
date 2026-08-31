@@ -230,7 +230,8 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
   const mapHref = client.gpsLat && client.gpsLng
     ? `https://www.google.com/maps?q=${encodeURIComponent(`${client.gpsLat},${client.gpsLng}`)}`
     : (client.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(client.address)}` : '');
-  const newVisitHref = profile?.identity?.baseClientId
+  const isTransportProfile = anchor.source === 'TRANSPORT';
+  const newVisitHref = !isTransportProfile && profile?.identity?.baseClientId
     ? `/pranimi?existingClient=1&clientId=${encodeURIComponent(profile.identity.baseClientId)}${client.baseCode ? `&code=${encodeURIComponent(client.baseCode)}` : ''}&name=${encodeURIComponent(client.name || '')}&phone=${encodeURIComponent(client.phone || '')}&from=client_profile`
     : '';
 

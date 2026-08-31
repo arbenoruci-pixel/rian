@@ -392,6 +392,7 @@ function ReadyView({
   onBulkStatus,
   onGoDorzo,
   onOpenSms,
+  onOpenProfile,
   getSmsCount,
   onOpenRack,
   onMarkSeen,
@@ -965,7 +966,7 @@ function ReadyView({
               <div style={{ width: 34, minWidth: 34, height: 34, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#39d86f', color: '#03140a', fontSize: 11, fontWeight: 1000, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 16px rgba(57,216,111,0.18)', ...getOrderCodeCircleStyle(item.code, { diameter: 34, fontSize: 11 }) }}>{item.code}</div>
               <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'start', gap: 6, minWidth: 0, maxWidth: '100%' }}>
-                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 14.5, fontWeight: 950, letterSpacing: 0.2 }}>{item.name}</span>
+                  <span role="button" tabIndex={0} aria-label={`Hap kartelën e ${item.name}`} onClick={(e) => { e.stopPropagation(); onOpenProfile && onOpenProfile(item.row); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenProfile && onOpenProfile(item.row); } }} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 14.5, fontWeight: 950, letterSpacing: 0.2, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>{item.name}</span>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, flexWrap: 'wrap', maxWidth: 158, minWidth: 0 }}>
                     {needsOverdueFollowup ? <span style={readyMetaPillStyle}>NDJEKJE</span> : null}
                     {followupWasHandled ? <span style={readyMetaPillStyle}>NDJEKUR</span> : null}
@@ -1077,6 +1078,7 @@ function ReadyView({
               <div style={{ fontSize: 13, opacity: 0.7 }}>{getAddress(toolsRow)}</div>
             </div>
             <div style={ui.toolsGrid}>
+              <button style={ui.toolBtnBig} onClick={() => runDeferred(() => { const row = toolsRow; setToolsRow(null); onOpenProfile && row && onOpenProfile(row); })}><span style={{ fontSize: 22 }}>👤</span><span>KARTELA</span></button>
               <button style={ui.toolBtnBig} onClick={() => runDeferred(() => openMap(toolsRow))}><span style={{ fontSize: 22 }}>📍</span><span>MAPS</span></button>
               <div><StrikeDots count={getSmsCount ? getSmsCount(toolsRow) : Number(toolsRow?.data?.sms_count || 0)} /><button style={ui.toolBtnBig} onClick={() => runDeferred(() => onOpenSms && onOpenSms(toolsRow, 'transport_konfirmim'))}><span style={{ fontSize: 22 }}>💬</span><span>SMS</span></button></div>
               <button style={{ ...ui.toolBtnBig, background: 'rgba(255,255,255,0.06)' }} onClick={() => runDeferred(() => { setToolsRow(null); onOpenModal(`/transport/pranimi?id=${encodeURIComponent(toolsRow.id)}&edit=1`); })}><span style={{ fontSize: 24 }}>✏️</span><span style={{ fontSize: 14 }}>EDIT</span></button>

@@ -4,6 +4,7 @@ import React, { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "@/lib/routerCompat.jsx";
 import { useRouter, useSearchParams } from "@/lib/routerCompat.jsx";
 import RackLocationModal from "@/components/RackLocationModal";
+import ClientProfileSheet from "@/components/ClientProfileSheet";
 import { fetchRackMapFromDb, normalizeRackSlots } from "@/lib/rackLocations";
 import { getTransportSession } from "@/lib/transportAuth";
 import { getActor } from '@/lib/actorSession';
@@ -367,6 +368,7 @@ function TransportItemPageInner() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [row, setRow] = useState(null);
+  const [clientProfileAnchor, setClientProfileAnchor] = useState(null);
   const [busy, setBusy] = useState(false);
   const [baseNote, setBaseNote] = useState("");
   const [rackModal, setRackModal] = useState({
@@ -641,6 +643,11 @@ function TransportItemPageInner() {
     }
   }
 
+  function openClientProfile() {
+    if (!row || typeof row !== 'object') return;
+    setClientProfileAnchor({ ...row, source: 'TRANSPORT', _table: 'transport_orders' });
+  }
+
   return (
     <div style={ui.page}>
       <div style={ui.top}>
@@ -661,7 +668,7 @@ function TransportItemPageInner() {
           </div>
         </div>
 
-        <div style={ui.name}>{meta.name}</div>
+        <span role="button" tabIndex={0} aria-label={`Hap kartelën e ${meta.name}`} onClick={openClientProfile} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openClientProfile(); } }} style={{ ...ui.name, display: 'inline-block', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>{meta.name}</span>
         <div style={ui.sub}>{meta.phone ? `+${meta.phone}` : "—"}</div>
 
         <div style={ui.badgeRow}>
@@ -684,6 +691,7 @@ function TransportItemPageInner() {
         </div>
 
         <div style={ui.actionsRow}>
+          <button style={ui.smallBtn} onClick={openClientProfile} disabled={!row}>👤 KARTELA</button>
           <button style={ui.iconBtn} onClick={() => openChannel("sms", row, "pickup_default")}>✉️</button>
           <button style={ui.iconBtn} onClick={() => openChannel("wa", row, "pickup_default")}>🟢</button>
           <button style={ui.iconBtn} onClick={() => openChannel("viber", row, "pickup_default")}>🟣</button>
@@ -766,6 +774,7 @@ function TransportItemPageInner() {
         onSave={saveRackPicker}
         error={rackModal.error}
       />
+      <ClientProfileSheet open={!!clientProfileAnchor} anchor={clientProfileAnchor} onClose={() => setClientProfileAnchor(null)} />
     </div>
   );
 }

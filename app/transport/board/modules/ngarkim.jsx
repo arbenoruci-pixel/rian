@@ -62,7 +62,7 @@ function renderBatchHint(remainingCount, onMore) {
 }
 
 // MODULE: NGARKIM (status: loaded)
-function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, setGpsSort, onBulkStatus, onGoRiplan, onOpenModal, onOpenSms, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
+function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, setGpsSort, onBulkStatus, onGoRiplan, onOpenModal, onOpenSms, onOpenProfile, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
   const [toolsRow, setToolsRow] = useState(null);
   const selectedCount = selectedIds?.size || 0;
 
@@ -137,7 +137,7 @@ function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, s
                 <div style={{ ...transportCodeCircle, ...getOrderCodeCircleStyle(transportCode(getCode(item))) }}>{transportCode(getCode(item))}</div>
                 <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, letterSpacing: 0.2 }}>{getName(item)}</span>
+                    <span role="button" tabIndex={0} aria-label={`Hap kartelën e ${getName(item)}`} onClick={(e) => { e.stopPropagation(); onOpenProfile && onOpenProfile(item); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenProfile && onOpenProfile(item); } }} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, letterSpacing: 0.2, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>{getName(item)}</span>
                     <span style={{ color: 'rgba(255,255,255,0.48)', fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap', flexShrink: 0 }}>{formatTime(item.created_at)}</span>
                   </div>
 
@@ -196,6 +196,7 @@ function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, s
               <div style={{ fontSize: 13, opacity: 0.7 }}>{getAddress(toolsRow)}</div>
             </div>
             <div style={ui.toolsGrid}>
+              <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenProfile && row && onOpenProfile(row); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>👤</span><span style={{ fontSize: 14 }}>KARTELA</span></button>
               <button style={ui.toolBtnBig} onClick={() => openMap(toolsRow)}><span style={{ fontSize: 24 }}>📍</span><span style={{ fontSize: 14 }}>MAPS</span></button>
               <button style={ui.toolBtnBig} onClick={() => callClient(toolsRow)}><span style={{ fontSize: 24 }}>📞</span><span style={{ fontSize: 14 }}>THIRR</span></button>
               <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenSms && row && onOpenSms(row, 'transport_pikap_konfirmim'); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>💬</span><span style={{ fontSize: 14 }}>SMS</span></button>

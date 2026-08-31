@@ -124,7 +124,7 @@ function renderBatchHint(remainingCount, onMore) {
   );
 }
 
-function DepoModule({ items, loading, geo, onOpenModal, onBulkStatus, onOpenSms, onOpenRack, onGoGati, onGoDorzo, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
+function DepoModule({ items, loading, geo, onOpenModal, onBulkStatus, onOpenSms, onOpenProfile, onOpenRack, onGoGati, onGoDorzo, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
   const [toolsRow, setToolsRow] = useState(null);
   const [gpsSort, setGpsSort] = useState(null);
 
@@ -181,7 +181,7 @@ function DepoModule({ items, loading, geo, onOpenModal, onBulkStatus, onOpenSms,
               <div style={{ ...transportCodeCircle, ...getOrderCodeCircleStyle(transportCode(getCode(item))) }}>{transportCode(getCode(item))}</div>
               <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, letterSpacing: 0.2 }}>{getName(item)}</span>
+                  <span role="button" tabIndex={0} aria-label={`Hap kartelën e ${getName(item)}`} onClick={(e) => { e.stopPropagation(); onOpenProfile && onOpenProfile(item); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenProfile && onOpenProfile(item); } }} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, letterSpacing: 0.2, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>{getName(item)}</span>
                   <span style={pillStyle('rgba(255,59,48,0.16)', '#ffb4ab', '1px solid rgba(255,95,87,0.25)')}>DEPO</span>
                 </div>
 
@@ -216,6 +216,7 @@ function DepoModule({ items, loading, geo, onOpenModal, onBulkStatus, onOpenSms,
               <div style={{ fontSize: 13, opacity: 0.7 }}>{getAddress(toolsRow)}</div>
             </div>
             <div style={ui.toolsGrid}>
+              <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenProfile && row && onOpenProfile(row); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>👤</span><span style={{ fontSize: 14 }}>KARTELA</span></button>
               <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setTimeout(() => { onOpenModal && row && onOpenModal(`/transport/item?id=${encodeURIComponent(row.id)}`); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>✏️</span><span style={{ fontSize: 14 }}>EDIT</span></button>
               <button style={{ ...ui.toolBtnBig, background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', color: '#34C759' }} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenRack && row && onOpenRack(row); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>📍</span><span style={{ fontSize: 14 }}>RAFTI</span></button>
               <button style={{ ...ui.toolBtnBig, background: '#34C759' }} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onBulkStatus && row && onBulkStatus([row.id], 'gati'); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>📦</span><span style={{ fontSize: 14 }}>KTHE NË GATI</span></button>

@@ -15,6 +15,7 @@ import { supabase, storageWithTimeout, withSupabaseTimeout } from '@/lib/supabas
 import { getPendingOps } from '@/lib/offlineStore';
 import { getTransportSession, getTransportContext } from '@/lib/transportAuth';
 import { readBestActor } from '@/lib/sessionStore';
+import { ADMIN_ROLES } from '@/lib/roles';
 import { ARKA_ACTION } from '@/lib/arka/arkaConstants';
 import { arkaTransaction, buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';
 import PosModal from '@/components/PosModalV2';
@@ -22,6 +23,7 @@ import SmartSmsModal from '@/components/SmartSmsModal';
 import { requirePaymentPin } from '@/lib/paymentPin';
 import { getClientBalanceByPhone } from '@/lib/clientBalanceDb';
 import { enqueueTransportOrder, syncNow } from '@/lib/syncManager';
+import { attachOfflineCodeLeaseToPayload } from '@/lib/offlineCodeBank';
 import { addTransportCollected } from '@/lib/transportArkaStore';
 import {
   collectTransportClientPayment,
@@ -357,12 +359,15 @@ function assertVerifiedTransportOrderRow(row = {}, expected = {}) {
   }
   const expectedTid = String(expected?.transportId || '').trim();
   const rowTid = String(rowData?.transport_id || rowData?.transport_user_id || rowData?.assigned_driver_id || row?.transport_id || '').trim();
-  if (expectedTid && rowTid !== expectedTid) {
+  // Legacy Transport sessions can still expose a PIN as transport_id. The
+  // approved-device server canonicalizes that identity to users.id UUID, so a
+  // PIN-shaped expectation must not reject the authoritative row.
+  if (looksUuid(expectedTid) && rowTid.toLowerCase() !== expectedTid.toLowerCase()) {
     throw new Error('TRANSPORT_ORDER_VERIFY_DRIVER_MISMATCH');
   }
   const expectedAssignedDriverId = String(expected?.assignedDriverId || expected?.transportId || '').trim();
   const rowAssignedDriverId = String(rowData?.assigned_driver_id || '').trim();
-  if (expectedAssignedDriverId && rowAssignedDriverId !== expectedAssignedDriverId) {
+  if (looksUuid(expectedAssignedDriverId) && rowAssignedDriverId.toLowerCase() !== expectedAssignedDriverId.toLowerCase()) {
     throw new Error('TRANSPORT_ORDER_VERIFY_ASSIGNED_DRIVER_ID_MISMATCH');
   }
   const expectedTransportPin = String(expected?.transportPin || '').trim();
@@ -425,8 +430,15 @@ async function createTransportOrderOnlineVerifiedOrQueue(payload = {}, expected 
   // A previous failed attempt could leave that flag behind and force every later online
   // self-entry into local outbox without even trying public.transport_orders.
   const browserOffline = runtime?.forceOffline === true || isBrowserTransportOffline();
+  const allowOfflineQueue = runtime?.allowOfflineQueue !== false;
   if (browserOffline) {
-    await enqueueTransportOrder(payload);
+    if (!allowOfflineQueue) {
+      throw decorateTransportSaveError(
+        new Error('PRANIMI NGA ADMIN/DISPATCH KËRKON LIDHJE ONLINE. U RUAJT VETËM SI DRAFT; ASNJË T-KOD NUK U REZERVUA.'),
+        { noOfflineQueue: true },
+      );
+    }
+    await enqueueTransportOrder(attachOfflineCodeLeaseToPayload('transport', payload));
     throw decorateTransportSaveError(new Error('LOCAL_NOT_SYNCED: pajisja është offline; porosia u ruajt vetëm në transport offline queue. SMS nuk hapet derisa të verifikohet në DB.'), { offlineQueued: true });
   }
 
@@ -440,7 +452,7 @@ async function createTransportOrderOnlineVerifiedOrQueue(payload = {}, expected 
   };
 
   try {
-    const insertRes = await withSupabaseTimeout(insertTransportOrder(payload), 12000, 'TRANSPORT_ORDER_DIRECT_INSERT_TIMEOUT', { id: payload?.id, code: payload?.code_str });
+    const insertRes = await withSupabaseTimeout(insertTransportOrder(payload), 45000, 'TRANSPORT_ORDER_DIRECT_INSERT_TIMEOUT', { id: payload?.id, code: payload?.code_str });
     if (!insertRes?.ok) {
       const insertError = new Error(insertRes?.error || 'TRANSPORT_ORDER_INSERT_FAILED');
       insertError.code = insertRes?.code || insertError.code || '';
@@ -457,7 +469,13 @@ async function createTransportOrderOnlineVerifiedOrQueue(payload = {}, expected 
     // Only a real browser-offline state may become local outbox. If the app is online,
     // show the real DB/network/verify error so the worker cannot mistake queue for success.
     if (isBrowserTransportOffline()) {
-      await enqueueTransportOrder(payload);
+      if (!allowOfflineQueue) {
+        throw decorateTransportSaveError(
+          new Error(`PRANIMI NGA ADMIN/DISPATCH HUMBI LIDHJEN GJATË RUAJTJES. U MBAJT VETËM DRAFTI. ${error?.message || ''}`),
+          { noOfflineQueue: true },
+        );
+      }
+      await enqueueTransportOrder(attachOfflineCodeLeaseToPayload('transport', payload));
       throw decorateTransportSaveError(new Error(`LOCAL_NOT_SYNCED: lidhja ra offline gjatë ruajtjes; transport_order mbeti në offline queue. ${error?.message || ''}`), { offlineQueued: true });
     }
 
@@ -687,12 +705,14 @@ function getMainOnlyTransportActorScope() {
     if (actor && (actor.role || actor.pin || actor.id || actor.user_id)) {
       const role = String(actor.role || '').trim().toUpperCase() || 'UNKNOWN';
       const pin = String(actor.pin || actor.transport_pin || '').trim();
+      const id = String(actor.id || actor.user_id || '').trim();
       return {
         role,
         pin,
+        id: looksUuid(id) ? id : '',
         transport_id: role === 'TRANSPORT'
-          ? String(actor.transport_id || actor.id || actor.user_id || pin || '').trim()
-          : (pin ? `ADMIN_${pin}` : ''),
+          ? String(actor.transport_id || id || pin || '').trim()
+          : '',
         name: String(actor.name || actor.username || actor.full_name || '').trim(),
       };
     }
@@ -704,11 +724,13 @@ function getMainOnlyTransportActorScope() {
     const u = m?.user || m?.actor || m || null;
     const role = String(u?.role || '').trim().toUpperCase();
     const pin = String(u?.pin || '').trim();
+    const id = String(u?.id || u?.user_id || '').trim();
     if (role || pin) {
       return {
         role: role || 'UNKNOWN',
         pin,
-        transport_id: role === 'TRANSPORT' ? String(u?.transport_id || pin || '').trim() : (pin ? `ADMIN_${pin}` : ''),
+        id: looksUuid(id) ? id : '',
+        transport_id: role === 'TRANSPORT' ? String(u?.transport_id || id || pin || '').trim() : '',
         name: String(u?.name || u?.username || u?.full_name || '').trim(),
       };
     }
@@ -719,11 +741,13 @@ function getMainOnlyTransportActorScope() {
     const u = safeParse(rawCurrent);
     const role = String(u?.role || '').trim().toUpperCase();
     const pin = String(u?.pin || '').trim();
+    const id = String(u?.id || u?.user_id || '').trim();
     if (role || pin) {
       return {
         role: role || 'UNKNOWN',
         pin,
-        transport_id: role === 'TRANSPORT' ? String(u?.transport_id || pin || '').trim() : (pin ? `ADMIN_${pin}` : ''),
+        id: looksUuid(id) ? id : '',
+        transport_id: role === 'TRANSPORT' ? String(u?.transport_id || id || pin || '').trim() : '',
         name: String(u?.name || u?.username || u?.full_name || '').trim(),
       };
     }
@@ -750,9 +774,11 @@ function getSafeTransportActorScope({ allowTransportFallback = true } = {}) {
     if (typeof getTransportContext === 'function') {
       const ctx = getTransportContext();
       if (ctx && (ctx.role || ctx.transport_id || ctx.transport_pin || ctx.pin)) {
+        const id = String(ctx.id || ctx.user_id || (looksUuid(ctx.transport_id) ? ctx.transport_id : '') || '').trim();
         return {
           role: String(ctx.role || '').toUpperCase() || 'UNKNOWN',
           pin: String(ctx.pin || ctx.transport_pin || '').trim(),
+          id: looksUuid(id) ? id : '',
           transport_id: String(ctx.transport_id || ctx.pin || ctx.transport_pin || '').trim(),
           name: String(ctx.name || ctx.transport_name || '').trim(),
         };
@@ -764,9 +790,11 @@ function getSafeTransportActorScope({ allowTransportFallback = true } = {}) {
     if (typeof getTransportSession === 'function') {
       const ts = getTransportSession();
       if (ts?.transport_id) {
+        const id = String(ts.id || ts.user_id || (looksUuid(ts.transport_id) ? ts.transport_id : '') || '').trim();
         return {
           role: 'TRANSPORT',
           pin: String(ts.pin || ts.transport_pin || ts.transport_id || '').trim(),
+          id: looksUuid(id) ? id : '',
           transport_id: String(ts.transport_id || '').trim(),
           name: String(ts.name || ts.transport_name || '').trim(),
         };
@@ -778,9 +806,11 @@ function getSafeTransportActorScope({ allowTransportFallback = true } = {}) {
     const rawTransport = localStorage.getItem('tepiha_transport_session_v1');
     const t = safeParse(rawTransport);
     if (t?.transport_id) {
+      const id = String(t.id || t.user_id || (looksUuid(t.transport_id) ? t.transport_id : '') || '').trim();
       return {
         role: 'TRANSPORT',
         pin: String(t.pin || t.transport_pin || t.transport_id || '').trim(),
+        id: looksUuid(id) ? id : '',
         transport_id: String(t.transport_id || '').trim(),
         name: String(t.name || t.transport_name || '').trim(),
       };
@@ -1017,9 +1047,16 @@ function PranimiPageInner() {
   const [actor, setActor] = useState(null); // { role, pin }
   const [lockedBridgeTransportId, setLockedBridgeTransportId] = useState('');
   const [editOriginalData, setEditOriginalData] = useState(null);
-  const [assignTid, setAssignTid] = useState(''); // transport_id to write into order.data.transport_id
-  const [transportUsers, setTransportUsers] = useState([]); // [{pin,name}]
-  const transportUserNameMap = useMemo(() => new Map((Array.isArray(transportUsers) ? transportUsers : []).map((u) => [String(u?.pin || u?.transport_id || '').trim(), String(u?.name || '').trim()]).filter((entry) => entry[0] && entry[1])), [transportUsers]);
+  const [assignTid, setAssignTid] = useState(''); // empty = ADMIN_ONLY; otherwise canonical users.id UUID
+  const [transportUsers, setTransportUsers] = useState([]); // [{id,pin,name,actualRole,isHybridTransport}]
+  const transportUserNameMap = useMemo(() => new Map(
+    (Array.isArray(transportUsers) ? transportUsers : []).flatMap((u) => {
+      const name = String(u?.name || '').trim();
+      return [u?.id, u?.pin]
+        .map((key) => [String(key || '').trim(), name])
+        .filter((entry) => entry[0] && entry[1]);
+    }),
+  ), [transportUsers]);
   // Detect actor/session changes (logout/login) without full page reload.
   // Safari/PWA can keep this page alive; without this, a new PIN can inherit the previous actor's code/oid.
   const actorSigRef = useRef('');
@@ -1070,7 +1107,8 @@ function PranimiPageInner() {
         const scope = getSafeTransportActorScope({ allowTransportFallback: !isBaseBridgeEdit });
         const role = String(scope?.role || 'UNKNOWN').toUpperCase();
         const pin = String(scope?.pin || '').trim();
-        const actorObj = { role, pin };
+        const actorId = String(scope?.id || (looksUuid(scope?.transport_id) ? scope.transport_id : '') || '').trim();
+        const actorObj = { role, pin, id: looksUuid(actorId) ? actorId : '' };
         setActor(actorObj);
         if (isBaseBridgeEdit && !isBaseWorkerRoleForTransportBridge(role) && !['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(role)) {
           router.push('/login');
@@ -1084,22 +1122,49 @@ function PranimiPageInner() {
           setMe({ ...transportScope, role: 'TRANSPORT', pin });
           setAssignTid(String(transportScope.transport_id));
         } else {
-          const adminTid = String(scope?.transport_id || (pin ? `ADMIN_${pin}` : 'ADMIN'));
-          adminTidLocal = adminTid;
-          setMe({ transport_id: null, role, pin });
-          setAssignTid(adminTid);
+          const adminDraftScope = actorObj.id || (pin ? `ADMIN_DRAFT_${pin}` : 'ADMIN_DRAFT');
+          adminTidLocal = adminDraftScope;
+          setMe({ transport_id: null, role, pin, id: actorObj.id });
+          setAssignTid('');
           try {
-            const { data } = await supabase
-              .from('users')
-              .select('name,pin,role')
-              .eq('role', 'TRANSPORT')
-              .order('name', { ascending: true })
-              .limit(200);
-            const rows = Array.isArray(data) ? data : [];
+            // Fetch only assignable Transport identities. Never load staff PINs
+            // or unrelated admin/owner identities into the browser.
+            const [transportResult, hybridResult] = await Promise.all([
+              supabase
+                .from('users')
+                .select('id,name,role,is_active,is_hybrid_transport')
+                .eq('is_active', true)
+                .eq('role', 'TRANSPORT')
+                .order('name', { ascending: true })
+                .limit(200),
+              supabase
+                .from('users')
+                .select('id,name,role,is_active,is_hybrid_transport')
+                .eq('is_active', true)
+                .eq('role', 'PUNTOR')
+                .eq('is_hybrid_transport', true)
+                .order('name', { ascending: true })
+                .limit(200),
+            ]);
+            if (transportResult?.error) throw transportResult.error;
+            if (hybridResult?.error) throw hybridResult.error;
+            const rows = [...(transportResult?.data || []), ...(hybridResult?.data || [])];
             setTransportUsers(
               rows
-                .filter((r) => r?.pin)
-                .map((r) => ({ pin: String(r.pin), name: String(r.name || r.pin) }))
+                .filter((user) => {
+                  const actualRole = String(user?.role || '').trim().toUpperCase();
+                  return looksUuid(user?.id)
+                    && user?.is_active !== false
+                    && (actualRole === 'TRANSPORT' || (actualRole === 'PUNTOR' && user?.is_hybrid_transport === true));
+                })
+                .map((user) => ({
+                  id: String(user.id).toLowerCase(),
+                  name: String(user.name || 'TRANSPORT'),
+                  actualRole: String(user.role || '').trim().toUpperCase(),
+                  effectiveRole: 'TRANSPORT',
+                  isHybridTransport: user?.is_hybrid_transport === true,
+                }))
+                .sort((a, b) => a.name.localeCompare(b.name))
             );
           } catch {}
         }
@@ -1278,12 +1343,16 @@ function PranimiPageInner() {
       const scope = getSafeTransportActorScope({ allowTransportFallback: !isBaseBridgeEdit });
       const role = String(scope?.role || 'UNKNOWN').toUpperCase();
       const pin = String(scope?.pin || '').trim();
-      const tid = String(scope?.transport_id || (pin ? `ADMIN_${pin}` : 'ADMIN')).trim();
+      const actorId = String(scope?.id || (looksUuid(scope?.transport_id) ? scope.transport_id : '') || '').trim();
+      const tid = role === 'TRANSPORT' ? String(scope?.transport_id || '').trim() : '';
+      const draftScopeId = role === 'TRANSPORT'
+        ? tid
+        : (looksUuid(actorId) ? actorId : (pin ? `ADMIN_DRAFT_${pin}` : 'ADMIN_DRAFT'));
       if (isBaseBridgeEdit && !isBaseWorkerRoleForTransportBridge(role) && !['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(role)) {
         router.push('/login');
         return;
       }
-      const sig = `${role}|${pin}|${tid}`;
+      const sig = `${role}|${pin}|${actorId}|${tid}`;
       if (!actorSigRef.current) {
         actorSigRef.current = sig;
         return;
@@ -1291,16 +1360,16 @@ function PranimiPageInner() {
       if (sig !== actorSigRef.current) {
         actorSigRef.current = sig;
         // Update actor scope + reset order session.
-        setActor({ role: role || 'UNKNOWN', pin });
+        setActor({ role: role || 'UNKNOWN', pin, id: looksUuid(actorId) ? actorId : '' });
         if (role === 'TRANSPORT') {
           if (!scope?.transport_id) { router.push('/transport/menu'); return; }
           setMe({ ...scope, role: 'TRANSPORT', pin });
           setAssignTid(String(scope.transport_id));
           await resetFor(role, pin, String(scope.transport_id));
         } else {
-          setMe({ transport_id: null, role, pin });
-          setAssignTid(tid);
-          await resetFor(role, pin, tid);
+          setMe({ transport_id: null, role, pin, id: looksUuid(actorId) ? actorId : '' });
+          setAssignTid('');
+          await resetFor(role, pin, draftScopeId);
         }
       }
     };
@@ -1542,17 +1611,34 @@ function PranimiPageInner() {
       if(url) setStairsPhotoUrl(url);
       setPhotoUploading(false);
   }
+  function triggerTransportChipHaptic() {
+      try {
+        const nativeHaptics = typeof window !== 'undefined' ? window?.Capacitor?.Plugins?.Haptics : null;
+        if (typeof nativeHaptics?.impact === 'function') {
+          void nativeHaptics.impact({ style: 'LIGHT' });
+          return;
+        }
+      } catch {}
+      try {
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(24);
+      } catch {}
+  }
   function applyChip(kind, val) {
+      triggerTransportChipHaptic();
       setActiveChipKey(`${kind}:${Number(val)}`);
-      const rows = kind === 'tepiha' ? tepihaRows : stazaRows;
       const setter = kind === 'tepiha' ? setTepihaRows : setStazaRows;
       const p = kind === 'tepiha' ? 't' : 's';
-      if(!rows.length) setter([{ id: `${p}1`, m2: String(val), qty: '1', photoUrl: '' }]);
-      else {
-          const empty = rows.findIndex(r => !r.m2);
-          if(empty !== -1) { const n=[...rows]; n[empty].m2=String(val); n[empty].qty=(n[empty].qty!=='0'?n[empty].qty:'1'); setter(n); }
-          else setter([...rows, { id: `${p}${Date.now()}`, m2: String(val), qty: '1', photoUrl: '' }]);
-      }
+      setter((previous) => {
+        const rows = Array.isArray(previous) ? previous : [];
+        if (!rows.length) return [{ id: `${p}${Date.now()}_1`, m2: String(val), qty: '1', photoUrl: '' }];
+        const empty = rows.findIndex((row) => !row?.m2);
+        if (empty !== -1) {
+          return rows.map((row, index) => index === empty
+            ? { ...row, m2: String(val), qty: String(row?.qty || '') !== '0' && String(row?.qty || '') ? row.qty : '1' }
+            : row);
+        }
+        return [...rows, { id: `${p}${Date.now()}_${rows.length + 1}`, m2: String(val), qty: '1', photoUrl: '' }];
+      });
   }
   async function handleGetGPS() {
       try {
@@ -1764,6 +1850,7 @@ function PranimiPageInner() {
       if(!name) return alert("Shkruaj emrin!");
       const currentActorRole = String(actor?.role || '').trim().toUpperCase();
       const currentIsBaseWorker = isBaseWorkerRoleForTransportBridge(currentActorRole);
+      const currentIsPranimiAdmin = ADMIN_ROLES.includes(currentActorRole);
       if (currentIsBaseWorker && !isBaseBridgeEdit) {
         alert('Ky rol mund të hapë TRANSPORT PRANIMI vetëm nga PASTRIMI për editim.');
         return;
@@ -1781,7 +1868,7 @@ function PranimiPageInner() {
       const tid = (currentIsBaseWorker && isBaseBridgeEdit)
         ? preservedBridgeTid
         : ((actor?.role === 'TRANSPORT') ? me?.transport_id : assignTid);
-      if(!tid) return alert("S'je i kyçur (PIN)!");
+      if (!tid && !currentIsPranimiAdmin) return alert("S'je i kyçur (PIN)!");
       if (currentIsBaseWorker && isBaseBridgeEdit && !preservedBridgeTid) {
         alert('Nuk u gjet shoferi/transport_id ekzistues për këtë transport order. Nuk u ruajt që të mos ndryshohet assignment-i.');
         return;
@@ -1794,21 +1881,37 @@ function PranimiPageInner() {
       const phoneDigits = normalizePhoneDigits(phoneFull);
       const phoneKey = normalizeTransportPhoneKey(phoneFull);
       const phoneIsValidForMatch = isValidTransportPhoneDigits(phoneKey);
+      const browserOfflineAtSave = isBrowserTransportOffline();
       if (!phoneIsValidForMatch) {
         setSavingContinue(false);
         alert('TELEFONI NUK ËSHTË VALID. SHKRUAJ NUMËR ME SË PAKU 8 SHIFRA.');
         return;
       }
+      if (!isEdit && currentIsPranimiAdmin && browserOfflineAtSave) {
+        try {
+          const draftActorPin = String(actor?.pin || me?.pin || '').trim();
+          upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw: '', name, phone, phonePrefix, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, actor?.id || (draftActorPin ? `ADMIN_DRAFT_${draftActorPin}` : 'ADMIN_DRAFT')));
+        } catch {}
+        setSavingContinue(false);
+        alert('PRANIMI NGA ADMIN/DISPATCH KËRKON LIDHJE ONLINE. U RUAJT VETËM SI DRAFT; ASNJË T-KOD NUK U REZERVUA.');
+        return;
+      }
       const actorPin = String(actor?.pin || me?.pin || me?.transport_pin || '').trim();
       const actorName = String(actor?.name || me?.name || me?.full_name || me?.username || displayTransportName(actorPin, transportUserNameMap, '') || '').trim();
+      const selectedPranimiDriver = currentIsPranimiAdmin && looksUuid(tid)
+        ? transportUsers.find((user) => String(user?.id || '').toLowerCase() === String(tid).toLowerCase()) || null
+        : null;
       let existingPhoneClient = null;
-      if (!isEdit && phoneIsValidForMatch) {
+      if (!isEdit && phoneIsValidForMatch && !browserOfflineAtSave) {
         try {
           existingPhoneClient = await findTransportClientByPhoneCanonical(phoneFull, { timeoutMs: 5500 });
         } catch (lookupError) {
-          setSavingContinue(false);
-          alert(`NUK U VERIFIKUA TELEFONI NË DB. POROSIA NUK U RUAJT. ${lookupError?.message || ''}`.trim());
-          return;
+          const lookupMessage = String(lookupError?.message || lookupError || '');
+          if (!currentIsPranimiAdmin || lookupMessage.includes('TRANSPORT_PHONE_IDENTITY_CONFLICT')) {
+            setSavingContinue(false);
+            alert(`NUK U VERIFIKUA TELEFONI NË DB. POROSIA NUK U RUAJT. ${lookupMessage}`.trim());
+            return;
+          }
         }
         if (existingPhoneClient && !isSelectedTransportPhoneClient(existingPhoneClient)) {
           const matchKey = buildTransportPhoneMatchKey(existingPhoneClient, phoneFull);
@@ -1821,7 +1924,9 @@ function PranimiPageInner() {
         }
       }
 
-      const acceptedExistingByPhone = isEdit ? isAcceptedTransportClientForCurrentPhone() : Boolean(existingPhoneClient);
+      const acceptedExistingByPhone = (isEdit || browserOfflineAtSave)
+        ? isAcceptedTransportClientForCurrentPhone()
+        : Boolean(existingPhoneClient);
       let clientBookTcode = officialTransportCode(existingPhoneClient?.tcode || (acceptedExistingByPhone ? clientTcode : ''));
       let nextClientId = existingPhoneClient?.id || (acceptedExistingByPhone ? clientId : null) || null;
       if (!isEdit && acceptedExistingByPhone && clientBookTcode) {
@@ -1833,6 +1938,9 @@ function PranimiPageInner() {
       }
       let reservedNewTcode = '';
       let officialOrderTcode = '';
+      const serverAllocatesOnlineTcode = !isEdit
+        && (currentActorRole === 'TRANSPORT' || currentIsPranimiAdmin)
+        && !browserOfflineAtSave;
 
       if (isEdit) {
         officialOrderTcode = officialTransportCode(
@@ -1844,6 +1952,8 @@ function PranimiPageInner() {
           editDataForTransport?.order_code ||
           codeRaw
         );
+      } else if (serverAllocatesOnlineTcode) {
+        officialOrderTcode = '';
       } else if (acceptedExistingByPhone) {
         officialOrderTcode = clientBookTcode;
       } else {
@@ -1858,16 +1968,24 @@ function PranimiPageInner() {
         }
       }
 
-      if (!officialOrderTcode || officialOrderTcode === 'T0') {
+      if ((!officialOrderTcode || officialOrderTcode === 'T0') && !serverAllocatesOnlineTcode) {
         try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw, name, phone, phonePrefix, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
         alert('S’MORI T-KOD. U RUAJT SI DRAFT. Provo prap online.');
         setSavingContinue(false);
         return;
       }
 
-      clientBookTcode = clientBookTcode || officialOrderTcode;
-      setCodeRaw(officialOrderTcode);
-      setClientTcode(clientBookTcode);
+      if (serverAllocatesOnlineTcode) {
+        // The approved-device server resolves both new and existing clients by
+        // phone and returns the permanent T-code. Do not send cached code/client
+        // identity into the blank atomic allocator.
+        clientBookTcode = '';
+        nextClientId = null;
+      } else {
+        clientBookTcode = clientBookTcode || officialOrderTcode;
+      }
+      if (officialOrderTcode) setCodeRaw(officialOrderTcode);
+      if (clientBookTcode) setClientTcode(clientBookTcode);
       // DB/RPC creates or reuses the client and verifies the exact order before Smart SMS.
       const order = {
           id: oid, ts: Date.now(),
@@ -1904,7 +2022,17 @@ function PranimiPageInner() {
             order_tcode: officialOrderTcode,
             client_tcode: officialOrderTcode,
             transport_client_tcode: clientBookTcode || null,
-            order_origin: (!isEdit && currentActorRole === 'TRANSPORT') ? 'TRANSPORT_SELF_ENTRY' : (editDataForTransport?.order_origin || null),
+            ...((!isEdit && currentActorRole === 'TRANSPORT') ? {
+              transport_tcode_allocation_mode: 'ATOMIC_DB',
+              order_origin: 'TRANSPORT_SELF_ENTRY',
+            } : ((!isEdit && currentIsPranimiAdmin) ? {
+              transport_tcode_allocation_mode: 'ATOMIC_DB',
+              transport_create_flow: 'PRANIMI',
+              order_origin: 'TRANSPORT_PRANIMI_ADMIN',
+            } : {
+              transport_tcode_allocation_mode: editDataForTransport?.transport_tcode_allocation_mode || null,
+              order_origin: editDataForTransport?.order_origin || null,
+            })),
             client_id: nextClientId || null,
             client_name: cleanClientName,
             client_phone: phoneFull,
@@ -1921,13 +2049,22 @@ function PranimiPageInner() {
               phone: phoneFull,
               phone_digits: phoneDigits,
             },
-            transport_id: tid,
+            transport_id: tid || null,
+            queued_actor_id: currentActorRole === 'TRANSPORT' ? tid : (actor?.id || null),
             transport_user_id: isBaseWorkerBridgeEdit ? (editDataForTransport?.transport_user_id || tid || null) : (tid || null),
             assigned_driver_id: isBaseWorkerBridgeEdit ? (editDataForTransport?.assigned_driver_id || tid || null) : (tid || null),
-            transport_pin: isBaseWorkerBridgeEdit ? (editDataForTransport?.transport_pin || editDataForTransport?.driver_pin || null) : (actorPin || me?.transport_pin || me?.pin || null),
-            driver_pin: isBaseWorkerBridgeEdit ? (editDataForTransport?.driver_pin || editDataForTransport?.transport_pin || null) : (actorPin || me?.transport_pin || me?.pin || null),
-            transport_name: isBaseWorkerBridgeEdit ? (editDataForTransport?.transport_name || editDataForTransport?.driver_name || null) : (actorName || displayTransportName(actorPin, transportUserNameMap, '') || null),
-            driver_name: isBaseWorkerBridgeEdit ? (editDataForTransport?.driver_name || editDataForTransport?.transport_name || null) : (actorName || displayTransportName(actorPin, transportUserNameMap, '') || null),
+            transport_pin: isBaseWorkerBridgeEdit
+              ? (editDataForTransport?.transport_pin || editDataForTransport?.driver_pin || null)
+              : (currentIsPranimiAdmin ? (selectedPranimiDriver?.pin || null) : (actorPin || me?.transport_pin || me?.pin || null)),
+            driver_pin: isBaseWorkerBridgeEdit
+              ? (editDataForTransport?.driver_pin || editDataForTransport?.transport_pin || null)
+              : (currentIsPranimiAdmin ? (selectedPranimiDriver?.pin || null) : (actorPin || me?.transport_pin || me?.pin || null)),
+            transport_name: isBaseWorkerBridgeEdit
+              ? (editDataForTransport?.transport_name || editDataForTransport?.driver_name || null)
+              : (currentIsPranimiAdmin ? (selectedPranimiDriver?.name || null) : (actorName || displayTransportName(actorPin, transportUserNameMap, '') || null)),
+            driver_name: isBaseWorkerBridgeEdit
+              ? (editDataForTransport?.driver_name || editDataForTransport?.transport_name || null)
+              : (currentIsPranimiAdmin ? (selectedPranimiDriver?.name || null) : (actorName || displayTransportName(actorPin, transportUserNameMap, '') || null)),
             brought_by_pin: isBaseWorkerBridgeEdit ? (editDataForTransport?.brought_by_pin || editDataForTransport?.created_by_pin || actorPin || null) : (actorPin || null),
             brought_by_name: isBaseWorkerBridgeEdit ? (editDataForTransport?.brought_by_name || editDataForTransport?.created_by_name || actorName || null) : (actorName || null),
             created_by_pin: isBaseWorkerBridgeEdit ? (editDataForTransport?.created_by_pin || actorPin || null) : (actorPin || null),
@@ -1972,7 +2109,11 @@ function PranimiPageInner() {
               pickupDate: payload?.data?.pickup_date,
               pickupWindow: payload?.data?.pickup_window,
             },
-            { forceOffline: isBrowserTransportOffline(), netOk: netState?.ok }
+            {
+              forceOffline: isBrowserTransportOffline(),
+              netOk: netState?.ok,
+              allowOfflineQueue: !currentIsPranimiAdmin,
+            }
           );
 
           nextClientId = verifiedOrder?.client_id || nextClientId || null;
@@ -1986,9 +2127,10 @@ function PranimiPageInner() {
           if (!nextClientId || !clientBookTcode) {
             throw decorateTransportSaveError(new Error('TRANSPORT_CLIENT_LINK_NOT_VERIFIED'), { noOfflineQueue: true });
           }
-          if (clientBookTcode !== officialOrderTcode) {
+          if (officialOrderTcode && clientBookTcode !== officialOrderTcode) {
             throw decorateTransportSaveError(new Error(`TRANSPORT_PERMANENT_TCODE_MISMATCH: ${officialOrderTcode} / ${clientBookTcode}`), { noOfflineQueue: true });
           }
+          officialOrderTcode = clientBookTcode;
           setClientId(nextClientId);
           setClientTcode(clientBookTcode);
           setCodeRaw(clientBookTcode);
@@ -2008,10 +2150,10 @@ function PranimiPageInner() {
             const browserOfflineNow = isBrowserTransportOffline();
             // Online create/verify errors must not be reclassified as queue just because an old
             // pending op exists for the same draft id. Queue fallback is allowed only offline.
-            if (!e?.noOfflineQueue && browserOfflineNow) {
+            if (!currentIsPranimiAdmin && !e?.noOfflineQueue && browserOfflineNow) {
               if (!queuedTransportOffline) queuedTransportOffline = await hasPendingTransportQueueItem(oid);
               if (!queuedTransportOffline && payload && !isEdit) {
-                await enqueueTransportOrder(payload);
+                await enqueueTransportOrder(attachOfflineCodeLeaseToPayload('transport', payload));
                 queuedTransportOffline = true;
               }
             }
@@ -2728,9 +2870,15 @@ function PranimiPageInner() {
                 }}
                 style={{width:'100%', padding:'10px 12px', borderRadius:12, background:'#0f172a', color:'#fff', border:'1px solid rgba(255,255,255,0.12)'}}
               >
-                <option value={assignTid}>{assignTid.startsWith('ADMIN_') || assignTid==='ADMIN' ? 'VETEM ADMIN' : (displayTransportName(assignTid, transportUserNameMap, 'SHOFER I CAKTUAR') || 'SHOFER I CAKTUAR')}</option>
-                {actor?.pin && <option value={`ADMIN_${actor.pin}`}>VETEM ADMIN</option>}
-                {transportUsers.map(u => <option key={u.pin} value={u.pin}>{u.name}</option>)}
+                <option value="">VETËM ADMIN</option>
+                {assignTid && !transportUsers.some((user) => String(user?.id || '').toLowerCase() === String(assignTid).toLowerCase()) && (
+                  <option value={assignTid}>{displayTransportName(assignTid, transportUserNameMap, 'SHOFER I CAKTUAR') || 'SHOFER I CAKTUAR'}</option>
+                )}
+                {transportUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}{user.isHybridTransport ? ' · HYBRID' : ''}
+                  </option>
+                ))}
               </select>
             </div>
           </section>
@@ -2863,7 +3011,7 @@ function PranimiPageInner() {
           <div className="chip-row modern">
             {TEPIHA_CHIPS.map((v) => (
               <button key={v} type="button" className="chip chip-modern" onClick={() => applyChip('tepiha', v)} style={chipStyleForVal(v, activeChipKey === `tepiha:${Number(v)}`)}>
-                {v.toFixed(1)}
+                {activeChipKey === `tepiha:${Number(v)}` ? '✓ ' : ''}{v.toFixed(1)}
               </button>
             ))}
           </div>
@@ -2887,7 +3035,7 @@ function PranimiPageInner() {
           <div className="chip-row modern">
             {STAZA_CHIPS.map((v) => (
               <button key={v} type="button" className="chip chip-modern" onClick={() => applyChip('staza', v)} style={chipStyleForVal(v, activeChipKey === `staza:${Number(v)}`)}>
-                {v.toFixed(1)}
+                {activeChipKey === `staza:${Number(v)}` ? '✓ ' : ''}{v.toFixed(1)}
               </button>
             ))}
           </div>

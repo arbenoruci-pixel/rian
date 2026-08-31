@@ -90,7 +90,7 @@ function safeDeliveredTs(row) {
   }
 }
 
-function DeliveredModule({ items, loading, onOpenModal, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
+function DeliveredModule({ items, loading, onOpenModal, onOpenProfile, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
   const [toolsRow, setToolsRow] = useState(null);
   const deferredItems = useDeferredValue(items);
   const sortedItems = useMemo(() => Array.isArray(deferredItems) ? deferredItems.slice(0, BOARD_RENDER_LIMIT).sort((a, b) => safeDeliveredTs(b) - safeDeliveredTs(a)) : [], [deferredItems]);
@@ -126,7 +126,7 @@ function DeliveredModule({ items, loading, onOpenModal, onMarkSeen, getUnseenRow
                 <div style={{ ...transportCodeCircle, ...getOrderCodeCircleStyle(transportCode(getCode(item))) }}>{transportCode(getCode(item))}</div>
                 <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 5 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950 }}>{getName(item)}</span>
+                    <span role="button" tabIndex={0} aria-label={`Hap kartelën e ${getName(item)}`} onClick={(e) => { e.stopPropagation(); onOpenProfile && onOpenProfile(item); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenProfile && onOpenProfile(item); } }} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 15, fontWeight: 950, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>{getName(item)}</span>
                     <span style={{ ...pillBase, background: 'rgba(52,199,89,0.18)', color: '#86efac', border: '1px solid rgba(52,199,89,0.35)', whiteSpace: 'nowrap' }}>DORËZUAR ✓</span>
                   </div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -153,6 +153,7 @@ function DeliveredModule({ items, loading, onOpenModal, onMarkSeen, getUnseenRow
               <div style={{ fontSize: 13, opacity: 0.7 }}>{getAddress(toolsRow)}</div>
             </div>
             <div style={ui.toolsGrid}>
+              <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenProfile && row && onOpenProfile(row); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>👤</span><span style={{ fontSize: 14 }}>KARTELA</span></button>
               <button style={ui.toolBtnBig} onClick={() => openMap(toolsRow)}><span style={{ fontSize: 24 }}>📍</span><span style={{ fontSize: 14 }}>MAPS</span></button>
               <button style={ui.toolBtnBig} onClick={() => callClient(toolsRow)}><span style={{ fontSize: 24 }}>📞</span><span style={{ fontSize: 14 }}>THIRR</span></button>
               <button style={{ ...ui.toolBtnBig, background: '#222' }} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { row && onOpenModal(`/transport/pranimi?id=${encodeURIComponent(row.id)}&focus=pay`); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>💵</span><span style={{ fontSize: 14 }}>PAGUJ</span></button>

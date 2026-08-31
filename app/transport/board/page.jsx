@@ -20,6 +20,7 @@ import { ui } from '@/lib/transport/board/ui';
 // gets moved/overridden.
 
 import SmartSmsModal from '@/components/SmartSmsModal';
+import ClientProfileSheet from '@/components/ClientProfileSheet';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import RackLocationModal from '@/components/RackLocationModal';
 import { buildSmartSmsText } from '@/lib/smartSms';
@@ -906,6 +907,7 @@ function TransportBoardInner() {
 
   const [modal, setModal] = useState({ open: false, url: '' });
   const [smsModal, setSmsModal] = useState({ open: false, phone: '', text: '', strikeOrder: null, strikeAction: '', strikeDone: false });
+  const [clientProfileAnchor, setClientProfileAnchor] = useState(null);
   const smsOpenReqRef = useRef(0);
   const [transportUsers, setTransportUsers] = useState([]);
   const [seenIds, setSeenIds] = useState({});
@@ -914,6 +916,11 @@ function TransportBoardInner() {
 
   // RIPLAN panel (clock on truck icon)
   const [showRiplan, setShowRiplan] = useState(false);
+
+  const openClientProfile = useCallback((row) => {
+    if (!row || typeof row !== 'object') return;
+    setClientProfileAnchor({ ...row, source: 'TRANSPORT', _table: 'transport_orders' });
+  }, []);
 
   function startOfTodayIso() {
     const d = new Date();
@@ -2558,6 +2565,7 @@ function TransportBoardInner() {
             onSaveGps: saveInboxGps,
             getOrderLatLng: pickOrderLatLng,
             onOpenSms: handleOpenSms,
+            onOpenProfile: openClientProfile,
             onMarkSeen: markSeen,
             getUnseenRowStyle,
               renderUnseenBadge,
@@ -2583,6 +2591,7 @@ function TransportBoardInner() {
             onBulkStatus: updateTransportStatus,
             onOpenModal: (url) => { const match = String(url || '').match(/[?&]id=([^&]+)/); if (match?.[1]) markSeen(decodeURIComponent(match[1])); router.push(url); },
             onOpenSms: handleOpenSms,
+            onOpenProfile: openClientProfile,
             onMarkSeen: markSeen,
             getUnseenRowStyle,
             renderUnseenBadge,
@@ -2607,6 +2616,7 @@ function TransportBoardInner() {
             onBulkStatus: updateTransportStatus,
             onOpenModal: (url) => { const match = String(url || '').match(/[?&]id=([^&]+)/); if (match?.[1]) markSeen(decodeURIComponent(match[1])); router.push(url); },
             onOpenSms: handleOpenSms,
+            onOpenProfile: openClientProfile,
             onOpenRack: openRackPicker,
             onMarkSeen: markSeen,
             getUnseenRowStyle,
@@ -2628,6 +2638,7 @@ function TransportBoardInner() {
             onOpenModal: (url) => { const match = String(url || '').match(/[?&]id=([^&]+)/); if (match?.[1]) markSeen(decodeURIComponent(match[1])); router.push(url); },
             onBulkStatus: updateTransportStatus,
             onOpenSms: handleOpenSms,
+            onOpenProfile: openClientProfile,
             onGoDorzo: () => switchLoadedMode('out'),
             getSmsCount,
             onOpenRack: openRackPicker,
@@ -2651,6 +2662,7 @@ function TransportBoardInner() {
             onOpenModal: (url) => { const match = String(url || '').match(/[?&]id=([^&]+)/); if (match?.[1]) markSeen(decodeURIComponent(match[1])); router.push(url); },
             onBulkStatus: updateTransportStatus,
             onOpenSms: handleOpenSms,
+            onOpenProfile: openClientProfile,
             onOpenRack: openRackPicker,
             onGoGati: () => switchMainTab('ready'),
             onGoDorzo: () => switchLoadedMode('out'),
@@ -2672,6 +2684,7 @@ function TransportBoardInner() {
             loading,
             onOpenModal: (url) => { const match = String(url || '').match(/[?&]id=([^&]+)/); if (match?.[1]) markSeen(decodeURIComponent(match[1])); router.push(url); },
             onOpenSms: handleOpenSms,
+            onOpenProfile: openClientProfile,
             onMarkSeen: markSeen,
             getUnseenRowStyle,
             renderUnseenBadge,
@@ -2691,6 +2704,11 @@ function TransportBoardInner() {
           onAction={handleSmartSmsModalAction}
         />
       </LocalErrorBoundary>
+      <ClientProfileSheet
+        open={!!clientProfileAnchor}
+        anchor={clientProfileAnchor}
+        onClose={() => setClientProfileAnchor(null)}
+      />
 
       <LocalErrorBoundary boundaryKind="panel" routePath="/transport/board" routeName="TRANSPORT BOARD" moduleName="RackLocationModal" componentName="RackLocationModal" sourceLayer="transport_board_panel" showHome={false}>
         <RackLocationModal

@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeTransportOrderPayload } from '@/lib/transport/sanitize';
 import { createTransportOrderAtomicServer } from '@/lib/transport/transportServer';
+import { selectTransportOrderPatchSource } from '@/lib/transportCore/syncPolicy';
 import { runArkaTransaction } from '@/lib/arka/arkaEngine';
 export const dynamic = 'force-dynamic';
 
@@ -66,7 +67,7 @@ export async function POST(req) {
 
     const table = pickTable(body || {});
 
-    const stripNonSchemaCols = (row, tableName = "orders") => {
+    const stripNonSchemaCols = (row, tableName = "orders", opts = {}) => {
       if (!row || typeof row !== "object") return row;
       const out = { ...row };
       if ("table" in out) delete out.table;
@@ -81,7 +82,7 @@ export async function POST(req) {
         return out;
       }
 
-      return sanitizeTransportOrderPayload(out);
+      return sanitizeTransportOrderPayload(out, { patch: opts?.patch === true });
     };
 
     const isUuid = (v) =>
@@ -463,20 +464,34 @@ export async function POST(req) {
     // 2. PATCH ORDER DATA (Ndryshime ekzistuese)
     // ==========================================
     if (type === "patch_order_data") {
+      const rawPatch = table === 'transport_orders'
+        ? selectTransportOrderPatchSource(body || {})
+        : (data || payload?.data || payload || {});
       let patch = stripNonSchemaCols({
-        ...(data || {}),
-        updated_at: new Date().toISOString(),
-      }, table);
+        ...(rawPatch || {}),
+        updated_at: rawPatch?.updated_at || new Date().toISOString(),
+      }, table, { patch: true });
 
       const target = table === "transport_orders" ? "transport_orders" : "orders";
       patch = await normalizeBasePatchForWrite(target, id, patch);
       await ensureArkaForPaidCashPatch(target, id, patch);
       const q = supabase.from(target).update(patch);
       const useLocalOid = target === "orders" && !isDbNumericId(String(id || ""));
-      const { error } = await (useLocalOid ? q.eq("local_oid", String(id)) : q.eq("id", id));
+      const { data: updated, error } = await (useLocalOid ? q.eq("local_oid", String(id)) : q.eq("id", id))
+        .select('id')
+        .maybeSingle();
 
       if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
-      return NextResponse.json({ ok: true }, { status: 200 });
+      if (!updated?.id) {
+        return NextResponse.json({
+          ok: false,
+          error: `${target.toUpperCase()}_PATCH_TARGET_NOT_FOUND`,
+          code: target === 'transport_orders'
+            ? 'TRANSPORT_ORDER_PATCH_TARGET_NOT_FOUND'
+            : 'ORDER_PATCH_TARGET_NOT_FOUND',
+        }, { status: 404 });
+      }
+      return NextResponse.json({ ok: true, id: updated.id }, { status: 200 });
     }
 
     // ==========================================
@@ -493,10 +508,21 @@ export async function POST(req) {
         .update(patch);
 
       const useLocalOid = target === "orders" && !isDbNumericId(String(id || ""));
-      const { error } = await (useLocalOid ? q.eq("local_oid", String(id)) : q.eq("id", id));
+      const { data: updated, error } = await (useLocalOid ? q.eq("local_oid", String(id)) : q.eq("id", id))
+        .select('id')
+        .maybeSingle();
 
       if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
-      return NextResponse.json({ ok: true }, { status: 200 });
+      if (!updated?.id) {
+        return NextResponse.json({
+          ok: false,
+          error: `${target.toUpperCase()}_STATUS_TARGET_NOT_FOUND`,
+          code: target === 'transport_orders'
+            ? 'TRANSPORT_ORDER_PATCH_TARGET_NOT_FOUND'
+            : 'ORDER_PATCH_TARGET_NOT_FOUND',
+        }, { status: 404 });
+      }
+      return NextResponse.json({ ok: true, id: updated.id }, { status: 200 });
     }
 
     return NextResponse.json({ ok: false, error: "UNKNOWN_OP_TYPE" }, { status: 200 });

@@ -46,6 +46,11 @@ const api = fs.readFileSync('api/client-profile.js', 'utf8');
 const component = fs.readFileSync('components/ClientProfileSheet.jsx', 'utf8');
 const pastrimi = fs.readFileSync('app/pastrimi/page.jsx', 'utf8');
 const gati = fs.readFileSync('app/gati/page.jsx', 'utf8');
+const transportBoard = fs.readFileSync('app/transport/board/page.jsx', 'utf8');
+const transportItem = fs.readFileSync('app/transport/item/page.jsx', 'utf8');
+const transportModules = [
+  'inbox', 'ngarkim', 'dorzim', 'gati', 'depo', 'dorezimet',
+].map((name) => [name, fs.readFileSync(`app/transport/board/modules/${name}.jsx`, 'utf8')]);
 const expressServer = fs.readFileSync('server/index.mjs', 'utf8');
 
 check(server.includes(".eq('client_id', client.id)") && server.includes(".is('client_id', null)"), 'history queries separate canonical and legacy-unlinked visits');
@@ -55,11 +60,17 @@ check(api.includes("readCookie(req, 'tepiha_device_id')") && api.includes('authe
 check(api.includes('requestOriginAllowed') && api.includes('private, no-store'), 'profile API is same-origin and never publicly cached');
 check(component.includes('HAP VIZITËN E SAKTË') && component.includes('buildHomeSearchHref'), 'history opens exact order routes');
 check(component.includes('THIRR') && component.includes('MESAZH') && component.includes('HARTA'), 'client card includes operational contact tools');
+check(component.includes("anchor.source === 'TRANSPORT'") && component.includes('!isTransportProfile && profile?.identity?.baseClientId'), 'Transport cards never expose the BASE new-visit action');
 for (const [file, source] of [['Pastrimi', pastrimi], ['Gati', gati]]) {
   check(source.includes("import('@/components/ClientProfileSheet')") && source.includes('setClientProfileAnchor(o)'), `${file} opens the shared client card from the client name`);
   check(source.includes('client_id'), `${file} carries canonical client_id into the card`);
 }
 check(expressServer.includes("app.post('/api/client-profile', clientProfileHandler)"), 'local/production-compatible server exposes one profile endpoint');
+check(transportBoard.includes("setClientProfileAnchor({ ...row, source: 'TRANSPORT', _table: 'transport_orders' })") && transportBoard.includes('<ClientProfileSheet'), 'Transport board owns one shared profile sheet with a transport_orders anchor');
+for (const [name, source] of transportModules) {
+  check(source.includes('onOpenProfile') && source.includes('KARTELA'), `Transport ${name} opens the shared client card from its name and tools`);
+}
+check(transportItem.includes("source: 'TRANSPORT', _table: 'transport_orders'") && transportItem.includes('KARTELA') && transportItem.includes('<ClientProfileSheet'), 'Transport item opens the shared card with its exact transport visit anchor');
 
 if (failures.length) {
   failures.forEach((failure, index) => console.error(`${index + 1}. ${failure}`));
