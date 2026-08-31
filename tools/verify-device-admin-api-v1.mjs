@@ -95,7 +95,7 @@ function roleActionSeed(action, user) {
   };
 }
 
-function fakeSupabase(seed = {}, failureSpecs = []) {
+function fakeSupabase(seed = {}, failureSpecs = [], options = {}) {
   const tables = {
     users: clone(seed.users || []),
     tepiha_user_devices: clone(seed.tepiha_user_devices || []),
@@ -105,10 +105,21 @@ function fakeSupabase(seed = {}, failureSpecs = []) {
   const failures = failureSpecs.map((spec) => ({ remaining: 1, ...spec }));
   let generatedId = 0;
 
+  function postgresTimestamp(value) {
+    if (!options.postgresTimestamps || typeof value !== 'string') return value;
+    const match = value.match(/^(.*?)(?:\.(\d+))?Z$/);
+    if (!match) return value;
+    const fraction = String(match[2] || '').replace(/0+$/, '');
+    return `${match[1]}${fraction ? `.${fraction}` : ''}+00:00`;
+  }
+
   function project(row, columns) {
     if (!row || !columns || columns === '*') return clone(row);
     const fields = String(columns).split(',').map((field) => field.trim()).filter(Boolean);
-    return Object.fromEntries(fields.map((field) => [field, clone(row[field])]));
+    return Object.fromEntries(fields.map((field) => [
+      field,
+      clone(field.endsWith('_at') ? postgresTimestamp(row[field]) : row[field]),
+    ]));
   }
 
   function takeFailure(table, operation) {
@@ -370,6 +381,33 @@ assert.equal(normalizeDeviceAdminId(`d${'x'.repeat(120)}`), '');
   const deviceUpdateIndex = db.calls.findIndex((call) => call.table === 'tepiha_user_devices' && call.operation === 'update');
   const mirrorUpdateIndex = db.calls.findIndex((call) => call.table === 'tepiha_device_approvals' && call.operation === 'update');
   assert.ok(mirrorUpdateIndex >= 0 && deviceUpdateIndex > mirrorUpdateIndex, 'authoritative approval must be the final elevating write');
+}
+
+{
+  const db = fakeSupabase({
+    users: [WORKER],
+    tepiha_user_devices: [pendingDevice()],
+    tepiha_device_approvals: [approvalMirror()],
+  }, [], { postgresTimestamps: true });
+  const result = await runDeviceAdminAction({
+    action: 'APPROVE',
+    deviceId: DEVICE_ID,
+  }, { supabase: db, authUser: MANAGER });
+  assert.equal(result.device.is_approved, true);
+  assert.match(result.device.approved_at, /\+00:00$/);
+  const approvalUpdate = db.calls.find((call) => (
+    call.table === 'tepiha_user_devices'
+    && call.operation === 'update'
+    && call.payload?.is_approved === true
+  ));
+  assert.notEqual(result.device.approved_at, approvalUpdate?.payload?.approved_at);
+  assert.equal(
+    Date.parse(result.device.approved_at),
+    Date.parse(approvalUpdate?.payload?.approved_at),
+    'PostgREST timestamp formatting must preserve the approved instant',
+  );
+  assert.equal(db.tables.tepiha_user_devices[0].is_approved, true);
+  assert.equal(db.tables.tepiha_device_approvals[0].approved, true);
 }
 
 {
