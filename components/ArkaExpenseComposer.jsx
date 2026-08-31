@@ -149,11 +149,15 @@ export default function ArkaExpenseComposer({
 
   return (
     <div className="arkaExpenseComposerBackdrop" role="presentation" onMouseDown={handleBackdrop}>
-      <section
+      <form
         className="arkaExpenseComposer"
         role="dialog"
         aria-modal="true"
         aria-labelledby="arka-expense-composer-title"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!busy) onSubmit?.();
+        }}
       >
         <header className="arkaExpenseComposerHeader">
           <div>
@@ -380,15 +384,15 @@ export default function ArkaExpenseComposer({
         <footer className="arkaExpenseComposerFooter">
           <button type="button" className="secondary" onClick={onClose} disabled={busy}>ANULO</button>
           <button
-            type="button"
+            type="submit"
             className="primary"
-            onClick={onSubmit}
-            disabled={busy || !canSubmit}
+            disabled={busy}
+            aria-disabled={!canSubmit ? 'true' : undefined}
           >
             {busy ? 'DUKE RUAJTUR...' : `DËRGO PËR MIRATIM${amountNumber > 0 ? ` • €${formatMoney(amountNumber)}` : ''}`}
           </button>
         </footer>
-      </section>
+      </form>
     </div>
   );
 }

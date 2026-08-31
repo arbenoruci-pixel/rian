@@ -1,9 +1,9 @@
 /* LEGACY /sw.js BRIDGE — inert compatibility worker for old controllers. */
 /* eslint-disable no-restricted-globals */
 
-const APP_DATA_EPOCH = 'RESET-2026-08-31-TRANSPORT-RECOVERY-V1';
-const APP_VERSION = '2.0.127-transport-recovery-v1-legacy-bridge';
-const SW_BUILD_LABEL = 'sw-pwa-auto-update-v4-transport-recovery-v1-legacy-bridge';
+const APP_DATA_EPOCH = 'RESET-2026-08-31-TRANSPORT-RECOVERY-V1-ARKA-EXPENSE-SUBMIT-V1-DISPATCH-TIMEOUT-RECONCILE-V1';
+const APP_VERSION = '2.0.129-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-legacy-bridge';
+const SW_BUILD_LABEL = 'sw-pwa-auto-update-v4-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-legacy-bridge';
 const OFFLINE_FALLBACK = '/offline.html';
 const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v20';
 

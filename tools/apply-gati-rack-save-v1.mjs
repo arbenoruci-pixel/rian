@@ -10,10 +10,10 @@ const ARKA_INSTALLER_PATH = 'tools/apply-arka-daily-close-v2.mjs';
 const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 
 const MARKER = 'GATI_RACK_SAVE_V1';
-const APP_VERSION = '2.0.127-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1';
-const CACHE_VERSION = 'v53-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1';
-const RELEASE_EPOCH = 'RESET-2026-08-31-TRANSPORT-RECOVERY-V1';
-const RUNTIME_VERSION = '2.0.127-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1';
+const APP_VERSION = '2.0.129-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1';
+const CACHE_VERSION = 'v55-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1';
+const RELEASE_EPOCH = 'RESET-2026-08-31-TRANSPORT-RECOVERY-V1-ARKA-EXPENSE-SUBMIT-V1-DISPATCH-TIMEOUT-RECONCILE-V1';
+const RUNTIME_VERSION = '2.0.129-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
   if (source[start] !== openChar) throw new Error(`${label}_OPEN_MISSING`);
@@ -357,3 +357,7 @@ patchVersionOwners();
 patchPackage();
 patchBuildIdentity();
 console.log('PASS GATI rack save V1 installer: atomic verified RPC, stale-final lifecycle repair, offline clean queue and cache generation bump.');
+
+// Final operational hotfix owner. This runs after every legacy version owner so
+// installed iPhones always receive the ARKA/Dispatch recovery bundle.
+await import('./apply-arka-expense-submit-v1.mjs');

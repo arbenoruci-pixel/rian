@@ -4,6 +4,7 @@ const failures = [];
 const check = (condition, message) => { if (!condition) failures.push(message); };
 
 const component = fs.readFileSync('components/ArkaDailyCloseWizard.jsx', 'utf8');
+const workerComposer = fs.readFileSync('components/ArkaExpenseComposer.jsx', 'utf8');
 const installer = fs.readFileSync('tools/apply-arka-daily-expense-step-v1.mjs', 'utf8');
 const gatiInstaller = fs.readFileSync('tools/apply-gati-rack-save-v1.mjs', 'utf8');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -27,6 +28,10 @@ check(component.includes('REGJISTRO DHE ZBRITE NGA BUXHETI'), 'new expense posti
 check(component.includes("pendingExpenseCount > 0 ? `VENDOS EDHE ${pendingExpenseCount} KËRKESA` : 'VAZHDO TE NUMËRIMI →'"), 'continue-state explanation missing');
 check(component.includes('await loadPreview({ force: true })'), 'post-mutation authoritative refresh missing');
 check(component.includes("window.dispatchEvent(new Event('arka:refresh'))"), 'cross-view ARKA refresh missing');
+check(workerComposer.includes('<form') && workerComposer.includes('onSubmit={(event) => {'), 'worker expense composer must submit as a form');
+check(workerComposer.includes('type="submit"'), 'worker expense confirmation must support keyboard/mobile form submit');
+check(workerComposer.includes('disabled={busy}'), 'worker expense confirmation must only lock while a save is active');
+check(!workerComposer.includes('disabled={busy || !canSubmit}'), 'worker expense validation must not silently disable the submit button');
 
 const prebuild = String(pkg.scripts?.prebuild || '');
 const expenseInstaller = 'node tools/apply-arka-daily-expense-step-v1.mjs';

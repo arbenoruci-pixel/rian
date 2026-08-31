@@ -741,7 +741,7 @@ const viteSource = fs.readFileSync(path.join(root, 'vite.config.js'), 'utf8');
 const packageSource = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 assert.match(appEpochSource, new RegExp(expectedEpoch), 'application data epoch was not bumped for the atomic allocator');
 assert.match(serviceWorkerSource, new RegExp(expectedEpoch), 'service worker epoch does not match the application');
-assert.match(viteSource, /v53-query-authority-transport-guard-payment-button-v3-[^'\n]*dispatch-atomic-tcode-v2-transport-recovery-v1/, 'Workbox cache generation was not bumped without preserving prior feature guards');
+assert.match(viteSource, /v(?:5[3-9]|[6-9]\d)-query-authority-transport-guard-payment-button-v3-[^'\n]*dispatch-atomic-tcode-v2-transport-recovery-v1/, 'Workbox cache generation was not bumped without preserving prior feature guards');
 assert.match(viteSource, /clientsClaim:\s*true/, 'new service worker must claim stale clients immediately');
 assert.match(viteSource, /skipWaiting:\s*true/, 'new service worker must skip the stale waiting worker');
 assert.match(serviceWorkerSource, /self\.skipWaiting\s*\(/, 'custom service worker update path cannot activate immediately');
