@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#05070d" />
+  <title>Ring • TEPIHA</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:#05070d; color:#f8fafc; }
+    .wrap { width:min(760px,100%); margin:0 auto; padding:calc(18px + env(safe-area-inset-top)) 16px calc(30px + env(safe-area-inset-bottom)); }
+    .top { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+    .back { display:inline-grid; place-items:center; width:42px; height:42px; border-radius:13px; background:#111827; color:#fff; text-decoration:none; font-size:22px; border:1px solid #243044; }
+    h1 { margin:0; font-size:24px; }
+    .sub { color:#94a3b8; font-size:14px; margin-top:4px; }
+    .card { background:#0b1220; border:1px solid #1f2d43; border-radius:20px; padding:16px; margin-bottom:14px; box-shadow:0 12px 36px rgba(0,0,0,.22); }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .status { display:inline-flex; align-items:center; gap:8px; font-weight:900; font-size:13px; padding:8px 11px; border-radius:999px; background:#182235; color:#cbd5e1; }
+    .status.ok { background:#0d2a1f; color:#86efac; }
+    .status.warn { background:#30240a; color:#fde68a; }
+    .btn { width:100%; border:0; border-radius:15px; padding:14px 16px; font-weight:900; font-size:16px; cursor:pointer; background:#2563eb; color:#fff; margin-top:12px; }
+    .btn.secondary { background:#172033; color:#e2e8f0; border:1px solid #2a3850; }
+    .btn.danger { background:#3a1518; color:#fecaca; border:1px solid #6b2228; }
+    .btn:disabled { opacity:.55; cursor:not-allowed; }
+    .grid { display:grid; gap:10px; margin-top:12px; }
+    .device { padding:13px; border-radius:15px; background:#0f172a; border:1px solid #22314a; }
+    .device strong { display:block; font-size:15px; }
+    .device small { color:#94a3b8; word-break:break-all; }
+    .setup { display:grid; gap:8px; margin-top:12px; }
+    .kv { background:#09111e; border:1px solid #1f2b3d; border-radius:12px; padding:11px; }
+    .kv b { display:block; font-size:12px; color:#94a3b8; margin-bottom:5px; text-transform:uppercase; letter-spacing:.05em; }
+    .kv code { font-size:12px; color:#dbeafe; word-break:break-all; }
+    .msg { margin-top:10px; font-size:14px; line-height:1.45; color:#cbd5e1; }
+    .err { color:#fca5a5; }
+    .oktext { color:#86efac; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="top">
+      <a class="back" href="/" aria-label="Kthehu">‹</a>
+      <div><h1>Ring Cameras</h1><div class="sub">Lidhe llogarinë Ring me sistemin TEPIHA.</div></div>
+    </div>
+
+    <section class="card">
+      <div class="row">
+        <div><strong>Gjendja e lidhjes</strong><div class="sub" id="statusText">Duke kontrolluar…</div></div>
+        <span class="status" id="statusPill">KONTROLL</span>
+      </div>
+      <button class="btn" id="connectBtn" disabled>LIDH RING</button>
+      <button class="btn secondary" id="refreshBtn">RIFRESKO KAMERAT</button>
+      <button class="btn danger" id="disconnectBtn" style="display:none">SHKËPUT RING</button>
+      <div class="msg" id="message"></div>
+    </section>
+
+    <section class="card" id="devicesCard" style="display:none">
+      <strong>Kamerat e autorizuara</strong>
+      <div class="grid" id="devices"></div>
+    </section>
+
+    <section class="card" id="setupCard" style="display:none">
+      <strong>Konfigurimi për Ring Developer</strong>
+      <div class="sub">Këto vlera përdoren në Ring Developer Portal. Client Secret dhe çelësi i enkriptimit ruhen vetëm në server.</div>
+      <div class="setup">
+        <div class="kv"><b>OAuth Redirect URI</b><code id="redirectUri">—</code></div>
+        <div class="kv"><b>App Homepage URL</b><code id="homepageUrl">—</code></div>
+        <div class="kv"><b>Scope</b><code id="scope">ava</code></div>
+        <div class="kv"><b>Server env</b><code>RING_CLIENT_ID, RING_CLIENT_SECRET, RING_REDIRECT_URI, RING_TOKEN_ENCRYPTION_KEY</code></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const el = (id) => document.getElementById(id);
+    const state = { busy:false, status:null };
+    function setBusy(value) {
+      state.busy = !!value;
+      el('connectBtn').disabled = value || !state.status?.configured;
+      el('refreshBtn').disabled = value;
+      el('disconnectBtn').disabled = value;
+    }
+    function message(text, kind='') {
+      el('message').textContent = text || '';
+      el('message').className = 'msg ' + (kind === 'error' ? 'err' : kind === 'ok' ? 'oktext' : '');
+    }
+    function renderStatus(data) {
+      state.status = data;
+      const configured = !!data?.configured;
+      const connected = !!data?.connected;
+      el('connectBtn').disabled = state.busy || !configured;
+      el('disconnectBtn').style.display = connected ? 'block' : 'none';
+      el('setupCard').style.display = configured ? 'none' : 'block';
+      el('redirectUri').textContent = data?.config?.redirectUri || (location.origin + '/api/ring/callback');
+      el('homepageUrl').textContent = location.origin + (data?.config?.appHomepagePath || '/ring.html');
+      el('scope').textContent = data?.config?.scope || 'ava';
+      if (connected) {
+        el('statusPill').textContent = 'LIDHUR';
+        el('statusPill').className = 'status ok';
+        el('statusText').textContent = 'Ring është i lidhur me sistemin.';
+      } else if (configured) {
+        el('statusPill').textContent = 'GATI';
+        el('statusPill').className = 'status warn';
+        el('statusText').textContent = 'Konfigurimi është gati. Mund ta lidhësh Ring.';
+      } else {
+        el('statusPill').textContent = 'SETUP';
+        el('statusPill').className = 'status warn';
+        el('statusText').textContent = 'Duhet të vendosen kredencialet Ring Developer në server.';
+      }
+      const devices = Array.isArray(data?.devices) ? data.devices : [];
+      el('devicesCard').style.display = devices.length ? 'block' : 'none';
+      el('devices').innerHTML = devices.map((d) => {
+        const name = String(d?.name || 'Ring camera').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const id = String(d?.id || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        return `<div class="device"><strong>${name}</strong><small>${id}</small></div>`;
+      }).join('');
+    }
+    async function post(url) {
+      const res = await fetch(url, { method:'POST', credentials:'same-origin', headers:{'content-type':'application/json'}, body:'{}', cache:'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) throw new Error(data?.error || ('HTTP_' + res.status));
+      return data;
+    }
+    async function loadStatus() {
+      setBusy(true); message('');
+      try { renderStatus(await post('/api/ring/status')); }
+      catch (e) { message(String(e?.message || e), 'error'); }
+      finally { setBusy(false); }
+    }
+    el('connectBtn').addEventListener('click', async () => {
+      setBusy(true); message('Duke hapur autorizimin Ring…');
+      try {
+        const data = await post('/api/ring/start');
+        if (!data?.url) throw new Error('RING_AUTH_URL_MISSING');
+        location.href = data.url;
+      } catch (e) { message(String(e?.message || e), 'error'); setBusy(false); }
+    });
+    el('refreshBtn').addEventListener('click', loadStatus);
+    el('disconnectBtn').addEventListener('click', async () => {
+      if (!confirm('A je i sigurt që dëshiron me shkëput Ring nga sistemi?')) return;
+      setBusy(true); message('Duke shkëputur Ring…');
+      try { await post('/api/ring/disconnect'); message('Ring u shkëput.', 'ok'); await loadStatus(); }
+      catch (e) { message(String(e?.message || e), 'error'); }
+      finally { setBusy(false); }
+    });
+    const params = new URLSearchParams(location.search);
+    if (params.get('connected') === '1') message('Ring u lidh me sukses.', 'ok');
+    if (params.get('ring_error')) message('Ring: ' + params.get('ring_error'), 'error');
+    loadStatus();
+  </script>
+</body>
+</html>

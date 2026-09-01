@@ -1,0 +1,27 @@
+import { buildRingAuthorization } from '../../lib/ringIntegrationServer.js';
+import {
+  apiFail,
+  apiOk,
+  authenticateRingManager,
+  requestOriginAllowed,
+  safeRingError,
+  setPrivateNoStore,
+} from './_common.js';
+
+export default async function handler(req, res) {
+  setPrivateNoStore(res);
+  try {
+    if (String(req?.method || '').toUpperCase() !== 'POST') {
+      res.setHeader('allow', 'POST');
+      return apiFail(res, 'METHOD_NOT_ALLOWED', 405);
+    }
+    if (!requestOriginAllowed(req)) return apiFail(res, 'ORIGIN_NOT_ALLOWED', 403);
+    await authenticateRingManager(req);
+    const auth = buildRingAuthorization(req, res);
+    return apiOk(res, auth);
+  } catch (error) {
+    const safe = safeRingError(error);
+    console.error('[ring-start]', { code: safe.code, status: safe.httpStatus });
+    return apiFail(res, safe.code, safe.httpStatus, safe.extra);
+  }
+}
