@@ -13,7 +13,6 @@ function safeGet(key) {
   try { return typeof window !== "undefined" ? window.localStorage.getItem(key) : null; } catch { return null; }
 }
 
-
 function safeDel(key) {
   try { if (typeof window !== "undefined") window.localStorage.removeItem(key); } catch {}
 }
@@ -67,7 +66,6 @@ function LoginContent() {
     const p = String(pin || "").trim();
     return p.length >= 2;
   }, [pin]);
-
 
   function clearStaleTransportSession(currentPin) {
     try {
@@ -140,7 +138,12 @@ function LoginContent() {
     } catch {}
 
     try {
-      router.replace(returnTo);
+      const target = String(returnTo || '/').trim() || '/';
+      if (/^\/api\//i.test(target) || /^https?:\/\//i.test(target)) {
+        window.location.assign(target);
+        return;
+      }
+      router.replace(target);
     } catch {
       setErr('HYRJA U RUAJT, POR NAVIGIMI DËSHTOI. PROVO PËRSËRI.');
     }
