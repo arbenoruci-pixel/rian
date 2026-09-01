@@ -1,4 +1,4 @@
-import { getRingStatus } from '../../lib/ringIntegrationServer.js';
+import { getOneWayRingStatus } from '../../lib/ringOneWayServer.js';
 import {
   apiFail,
   apiOk,
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     }
     if (!requestOriginAllowed(req)) return apiFail(res, 'ORIGIN_NOT_ALLOWED', 403);
     const { supabase } = await authenticateRingManager(req);
-    const status = await getRingStatus(req, { supabase, syncDevices: true });
+    const status = await getOneWayRingStatus({ supabase, syncDevices: true });
     return apiOk(res, status);
   } catch (error) {
     const safe = safeRingError(error);
