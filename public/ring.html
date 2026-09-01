@@ -34,6 +34,9 @@
     .device strong { display:block; font-size:16px; }
     .device small { display:block; margin-top:6px; color:#94a3b8; word-break:break-all; line-height:1.35; }
     .meta { display:none; margin-top:12px; padding-top:12px; border-top:1px solid #22314a; color:#94a3b8; font-size:12px; line-height:1.5; }
+    .steps { margin:12px 0 0; padding:0; list-style:none; display:grid; gap:9px; }
+    .steps li { display:flex; gap:10px; align-items:flex-start; color:#cbd5e1; font-size:13px; font-weight:750; line-height:1.45; }
+    .steps b { display:inline-grid; place-items:center; flex:0 0 24px; width:24px; height:24px; border-radius:999px; background:#1d4ed8; color:#fff; font-size:12px; }
   </style>
 </head>
 <body>
@@ -49,15 +52,23 @@
         <span class="status" id="statusPill">KONTROLL</span>
       </div>
 
-      <a class="btn" id="ringConsoleBtn" href="https://developer.amazon.com/ring/console/apps" target="_blank" rel="noopener">HAPE RING DEVELOPER</a>
+      <a class="btn" id="ringStoreBtn" href="https://ring.com/appstore" target="_blank" rel="noopener">HAPE RING APPSTORE</a>
+      <a class="btn secondary" id="ringConsoleBtn" href="https://developer.amazon.com/ring/console/apps" target="_blank" rel="noopener">RING DEVELOPER</a>
       <button class="btn secondary" id="refreshBtn" type="button">RIFRESKO KAMERAT</button>
       <div class="msg" id="message"></div>
-      <div class="hint" id="connectHint">Lidhja e private app-it fillon në Ring Developer me “Connect Ring account”. Pas autorizimit, Ring të sjell te faqja “Lidh Ring me TEPIHA”.</div>
+      <div class="hint" id="connectHint">Account-i 1/10 në Ring Developer vetëm e lejon llogarinë me e pa private app-in. Lidhja reale bëhet te Ring Appstore.</div>
+
+      <ol class="steps" id="installSteps">
+        <li><b>1</b><span>Hape Ring app → Menu ☰ → Apps.</span></li>
+        <li><b>2</b><span>Hape Explore/Browse Ring Appstore dhe gjeje <strong>TEPIHA Camera Integration</strong> me shenjën Private.</span></li>
+        <li><b>3</b><span>Shtype Connect App, zgjidhi kamerat dhe konfirmo lejet.</span></li>
+        <li><b>4</b><span>Kur të hapet “Lidh Ring me TEPIHA”, kyçu si OWNER/ADMIN dhe shtype KONFIRMO LIDHJEN.</span></li>
+      </ol>
 
       <div class="auth-help" id="authHelp">
         <strong>Duhet me u kyç në TEPIHA</strong>
         <p>Kjo dritare nuk e ka sesionin e app-it. Kyçu si OWNER ose ADMIN dhe kthehu këtu.</p>
-        <a class="btn" id="loginBtn" href="/login?from=ring">KYÇU NË TEPIHA</a>
+        <a class="btn" id="loginBtn" href="/login?returnTo=%2Fring.html%3Fv%3Done-way-v2">KYÇU NË TEPIHA</a>
         <a class="btn secondary" href="/">HAPE TEPIHA</a>
       </div>
 
@@ -94,8 +105,10 @@
       state.status = null;
       el('authHelp').style.display = 'block';
       el('devicesCard').style.display = 'none';
+      el('ringStoreBtn').style.display = 'none';
       el('ringConsoleBtn').style.display = 'none';
       el('connectHint').style.display = 'none';
+      el('installSteps').style.display = 'none';
       el('statusPill').textContent = 'KYÇU';
       el('statusPill').className = 'status warn';
       el('statusText').textContent = 'Kjo dritare nuk është e kyçur në TEPIHA.';
@@ -122,33 +135,36 @@
       const pending = Math.max(0, Number(data?.pendingTokens || 0));
       const devices = Array.isArray(data?.devices) ? data.devices : [];
 
+      el('ringStoreBtn').style.display = 'block';
+      el('ringConsoleBtn').style.display = 'block';
+      el('connectHint').style.display = 'block';
+      el('installSteps').style.display = connected ? 'none' : 'grid';
+
       if (connected) {
         el('statusPill').textContent = 'LIDHUR';
         el('statusPill').className = 'status ok';
         el('statusText').textContent = devices.length
           ? `Ring është lidhur. U gjetën ${devices.length} kamera.`
           : 'Ring është lidhur. Ende nuk u kthye asnjë kamerë e autorizuar.';
-        el('ringConsoleBtn').textContent = 'MENAXHO RING ACCOUNT';
+        el('ringStoreBtn').textContent = 'MENAXHO MY APPS NË RING';
         el('connectHint').textContent = 'Lidhja është aktive. Shtyp RIFRESKO KAMERAT për statusin më të ri.';
-        message(devices.length ? 'Kamerat u sinkronizuan me sukses.' : 'Lidhja është aktive; kontrollo në Ring a ke zgjedhur kamerat.', devices.length ? 'ok' : '');
+        message(devices.length ? 'Kamerat u sinkronizuan me sukses.' : 'Lidhja është aktive; kontrollo te My apps cilat kamera janë zgjedhur.', devices.length ? 'ok' : '');
       } else if (pending > 0) {
         el('statusPill').textContent = 'NË PRITJE';
         el('statusPill').className = 'status warn';
         el('statusText').textContent = 'Tokeni i Ring ka ardhur. Duhet përfunduar faqja “Lidh Ring me TEPIHA”.';
-        el('ringConsoleBtn').textContent = 'KTHEHU TE RING DEVELOPER';
-        el('connectHint').textContent = 'Ka një lidhje në pritje. Hap procesin e Ring dhe përfundo redirect-in te TEPIHA brenda 10 minutave.';
+        el('ringStoreBtn').textContent = 'KTHEHU TE RING APPSTORE';
+        el('connectHint').textContent = 'Ka një lidhje në pritje. Përfundo redirect-in te TEPIHA brenda 10 minutave.';
         message('Lidhja server-side është pranuar, por ende nuk është konfirmuar me llogarinë TEPIHA.', '');
       } else {
         el('statusPill').textContent = 'GATI';
         el('statusPill').className = 'status warn';
-        el('statusText').textContent = 'Backend-i është gati. Lidhja fillon nga Ring Developer.';
-        el('ringConsoleBtn').textContent = 'HAPE RING DEVELOPER';
-        el('connectHint').textContent = 'Në Ring Developer shtyp “Connect Ring account”, zgjidh kamerat dhe autorizo. Ring pastaj të sjell te TEPIHA për konfirmim.';
+        el('statusText').textContent = 'Backend-i është gati. Private app-i duhet instaluar nga Ring Appstore.';
+        el('ringStoreBtn').textContent = 'HAPE RING APPSTORE';
+        el('connectHint').textContent = '1/10 në Ring Developer është allowlist. Tash hape Ring Appstore, gjeje TEPIHA Camera Integration dhe shtype Connect App.';
         message('Nuk ka ende token aktiv të Ring në TEPIHA.', '');
       }
 
-      el('ringConsoleBtn').style.display = 'block';
-      el('connectHint').style.display = 'block';
       renderDevices(devices);
 
       const meta = [];
@@ -186,12 +202,6 @@
       }
     }
 
-    el('loginBtn').addEventListener('click', () => {
-      try {
-        window.localStorage?.setItem('tepiha_ring_return_after_login_v1', '/ring.html?v=one-way-v1');
-        window.sessionStorage?.setItem('tepiha_ring_return_after_login_v1', '/ring.html?v=one-way-v1');
-      } catch {}
-    });
     el('refreshBtn').addEventListener('click', loadStatus);
 
     const params = new URLSearchParams(location.search);
