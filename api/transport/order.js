@@ -4,6 +4,7 @@ import {
   authenticateDispatchOrderActor,
   createDispatchTransportPranimiOrderServer,
   createDispatchTransportOrderServer,
+  inspectDispatchTransportPhoneServer,
 } from '../../lib/transport/dispatchOrderServer.js';
 
 function setPrivateNoStore(res) {
@@ -73,6 +74,10 @@ export default async function handler(req, res) {
     const supabase = createAdminClientOrThrow();
     const deviceId = readCookie(req, 'tepiha_device_id');
     const authUser = await authenticateDispatchOrderActor(supabase, deviceId);
+    const action = String(body?.action || '').trim().toUpperCase();
+    if (action === 'PHONE_CHECK') {
+      return apiOk(res, await inspectDispatchTransportPhoneServer(body, { supabase, authUser }));
+    }
     const flow = String(body?.flow || '').trim().toUpperCase();
     const output = flow === 'PRANIMI'
       ? await createDispatchTransportPranimiOrderServer(body, { supabase, authUser })

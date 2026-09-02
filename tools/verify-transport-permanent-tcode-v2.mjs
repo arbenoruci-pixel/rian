@@ -80,7 +80,8 @@ check((dispatch.match(/reserveTransportCode\(/g) || []).length === 0, 'Dispatch 
 check(dispatch.includes('transport_tcode_allocation_mode: atomicDbTcodeAllocation ? "ATOMIC_DB" : "EXISTING_CLIENT"'), 'Dispatch explicitly marks the atomic DB allocator path');
 check(dispatch.includes('prepareDispatchTransportClientLink'), 'Dispatch has phone-first preparation');
 check(dispatch.includes('The final DB lookup is authoritative'), 'Dispatch cached CRM hit cannot override final DB lookup');
-check(dispatch.includes('const verifiedPhoneClient = undefined;'), 'Dispatch forces one final live lookup immediately before allocation');
+check(dispatch.includes('inspectDispatchTransportPhoneViaApi(cleanPhone'), 'Dispatch repeats an approved-device DB lookup immediately before allocation');
+check(dispatch.includes('const verifiedPhoneClient = authoritativePhoneClient || null;'), 'Dispatch carries only the authoritative phone identity into allocation');
 check(!dispatch.includes(': (existingPhoneClient && dispatchSamePhone'), 'Dispatch does not fall back to stale cached client identity');
 check(dispatch.includes('insertTransportOrder({ ...payload, code_owner: poolOwner })'), 'Dispatch uses atomic shared create path');
 check(!dispatch.includes('createOrderRecord("transport_orders"'), 'Dispatch no longer inserts transport order directly');

@@ -5,6 +5,7 @@ import {
   authenticateDispatchOrderActor,
   buildDispatchOrderFingerprint,
   createDispatchTransportOrderServer,
+  inspectDispatchTransportPhoneServer,
 } from '../lib/transport/dispatchOrderServer.js';
 
 const ORDER_ID = '11111111-1111-4111-8111-111111111111';
@@ -28,8 +29,33 @@ function clone(value) {
 }
 
 function fakeSupabase({ rpcMode = 'success', approved = true } = {}) {
+  const activeDuplicateId = '77777777-7777-4777-8777-777777777777';
+  const activeDuplicateClientId = '44444444-4444-4444-8444-444444444444';
+  const activeDuplicate = rpcMode === 'active-duplicate'
+    ? {
+        id: activeDuplicateId,
+        client_id: activeDuplicateClientId,
+        client_tcode: 'T1233',
+        code_str: 'T1233',
+        code_n: 1233,
+        client_name: 'Klienti Ekzistues',
+        client_phone: '+383 44 123 456',
+        status: 'assigned',
+        visit_nr: 1,
+        data: {
+          status: 'assigned',
+          client_phone: '+383 44 123 456',
+          transport_client_tcode: 'T1233',
+          client: {
+            id: activeDuplicateClientId,
+            phone: '+383 44 123 456',
+            tcode: 'T1233',
+          },
+        },
+      }
+    : null;
   const state = {
-    orders: [],
+    orders: activeDuplicate ? [activeDuplicate] : [],
     rpcCalls: [],
     users: [
       { ...ACTOR, is_active: true },
@@ -67,6 +93,31 @@ function fakeSupabase({ rpcMode = 'success', approved = true } = {}) {
     from(table) { return new Query(table); },
     async rpc(name, args) {
       state.rpcCalls.push({ name, args: clone(args) });
+      if (name === 'inspect_dispatch_transport_phone') {
+        return {
+          data: {
+            status: 'FOUND',
+            phone_key: '44123456',
+            candidate: {
+              id: activeDuplicateClientId,
+              source: 'transport_clients',
+              tcode: activeDuplicate ? 'T1233' : 'T1234',
+              client_tcode: activeDuplicate ? 'T1233' : 'T1234',
+              code_str: activeDuplicate ? 'T1233' : 'T1234',
+              name: activeDuplicate ? 'Klienti Ekzistues' : 'Klienti Test',
+              phone: '+383 44 123 456',
+              phone_digits: '38344123456',
+            },
+            active_order: activeDuplicate
+              ? { id: activeDuplicateId, client_id: activeDuplicateClientId, client_tcode: 'T1233' }
+              : null,
+          },
+          error: null,
+        };
+      }
+      if (rpcMode === 'active-duplicate') {
+        return { data: null, error: { code: '23505', message: 'DISPATCH_ACTIVE_ORDER_EXISTS' } };
+      }
       if (rpcMode === 'error') return { data: null, error: { message: 'DB_UNAVAILABLE' } };
       if (rpcMode === 'business-failure') return { data: { success: false, error: 'TRANSPORT_PHONE_IDENTITY_CONFLICT' }, error: null };
 
@@ -118,6 +169,17 @@ function fakeSupabase({ rpcMode = 'success', approved = true } = {}) {
     },
   };
   return { supabase, state };
+}
+
+{
+  const { supabase } = fakeSupabase({ rpcMode: 'active-duplicate' });
+  const inspection = await inspectDispatchTransportPhoneServer(
+    { phone: '+383 44 123 456' },
+    { supabase, authUser: ACTOR },
+  );
+  assert.equal(inspection.ok, true);
+  assert.equal(inspection.client.tcode, 'T1233');
+  assert.equal(inspection.activeOrder.id, '77777777-7777-4777-8777-777777777777');
 }
 
 function request(overrides = {}) {
@@ -290,6 +352,21 @@ async function expectCode(run, code) {
 }
 
 {
+  const { supabase, state } = fakeSupabase({ rpcMode: 'active-duplicate' });
+  const result = await createDispatchTransportOrderServer(request(), { supabase, authUser: ACTOR });
+  assert.equal(result.ok, true);
+  assert.equal(result.idempotent, true);
+  assert.equal(result.deduplicatedActive, true);
+  assert.equal(result.requestedOrderId, ORDER_ID);
+  assert.equal(result.data.id, '77777777-7777-4777-8777-777777777777');
+  assert.equal(state.orders.length, 1, 'a second UUID must not create a second active visit');
+  assert.deepEqual(
+    state.rpcCalls.map((call) => call.name),
+    ['create_transport_order', 'inspect_dispatch_transport_phone'],
+  );
+}
+
+{
   const { supabase } = fakeSupabase({ rpcMode: 'mismatch' });
   await expectCode(
     () => createDispatchTransportOrderServer(request(), { supabase, authUser: ACTOR }),
@@ -303,6 +380,7 @@ async function expectCode(run, code) {
   assert.match(endpoint, /CONTENT_TYPE_NOT_ALLOWED/);
   assert.match(endpoint, /tepiha_device_id/);
   assert.match(endpoint, /createAdminClientOrThrow/);
+  assert.match(endpoint, /action === 'PHONE_CHECK'/);
   assert.match(endpoint, /cache-control.*private, no-store/i);
   const server = fs.readFileSync(new URL('../server/index.mjs', import.meta.url), 'utf8');
   assert.match(server, /app\.post\('\/api\/transport\/order', transportOrderHandler\)/);

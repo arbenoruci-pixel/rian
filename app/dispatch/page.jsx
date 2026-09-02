@@ -9,7 +9,7 @@ import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
 import { supabase } from "@/lib/supabaseClient";
 import { clearTransportCodeReservationForOrder, releaseTransportCodeIfUnused } from "@/lib/transportCodes";
-import { findTransportClientByPhoneOnly, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
+import { findTransportClientByPhoneOnly, inspectDispatchTransportPhoneViaApi, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
 import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
 
 const TAB_TODAY = "today";
@@ -257,6 +257,14 @@ function dispatchSamePhone(a, b) {
 }
 function dispatchPhoneSearchReady(value) {
   return getDispatchPhoneDigits(value).length >= 7;
+}
+
+function dispatchExistingClientDecisionKey(row, phoneValue) {
+  if (!row) return '';
+  const phoneKey = getDispatchPhoneDigits(phoneValue || getClientPhone(row) || row?.phone_digits || row?.phone || '');
+  const clientId = getTransportClientId(row);
+  const tcode = getTransportTCode(row);
+  return phoneKey && clientId && tcode ? `${phoneKey}|${clientId}|${tcode}` : '';
 }
 
 function isEditableActiveDispatchOrder(row) {
@@ -1609,6 +1617,11 @@ export default function DispatchPage() {
   const [crmHits, setCrmHits] = useState([]);
   const [phoneHit, setPhoneHit] = useState(null);
   const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneCheckedKey, setPhoneCheckedKey] = useState('');
+  const [phoneCheckError, setPhoneCheckError] = useState('');
+  const [phoneCheckNonce, setPhoneCheckNonce] = useState(0);
+  const [serverActivePhoneOrder, setServerActivePhoneOrder] = useState(null);
+  const [existingClientDecision, setExistingClientDecision] = useState(null);
   const [planMode, setPlanMode] = useState("today");
   const [customDate, setCustomDate] = useState(todayYmd);
   const [slot, setSlot] = useState("morning");
@@ -1622,6 +1635,7 @@ export default function DispatchPage() {
   const [deleteBusyId, setDeleteBusyId] = useState("");
   const [searchTimer, setSearchTimer] = useState(null);
   const phoneTimer = useRef(null);
+  const phoneCheckSeqRef = useRef(0);
   const nameRef = useRef('');
   const addressRef = useRef('');
   const autoAddressRef = useRef({ phoneKey: '', address: '' });
@@ -1829,10 +1843,18 @@ export default function DispatchPage() {
   useEffect(() => {
     const digits = onlyDigits(phone);
     const phoneDigits = getDispatchPhoneDigits(digits);
+    const checkSeq = Number(phoneCheckSeqRef.current || 0) + 1;
+    phoneCheckSeqRef.current = checkSeq;
     if (phoneTimer.current) clearTimeout(phoneTimer.current);
 
     setCrmHits([]);
     setCrmOpen(false);
+    setPhoneCheckedKey('');
+    setPhoneCheckError('');
+    setServerActivePhoneOrder(null);
+    setExistingClientDecision((current) => (
+      current?.phoneKey === phoneDigits ? current : null
+    ));
 
     const auto = autoAddressRef.current || { phoneKey: '', address: '' };
     if (auto.phoneKey && auto.phoneKey !== phoneDigits) {
@@ -1842,15 +1864,22 @@ export default function DispatchPage() {
 
     if (!isValidTransportPhoneDigits(phoneDigits)) {
       setPhoneHit(null);
+      setExistingClientDecision(null);
       return;
     }
 
     phoneTimer.current = setTimeout(async () => {
       setPhoneBusy(true);
       try {
-        const rawHit = await findTransportClientByPhoneOnly(phone, { timeoutMs: 5500 }).catch(() => null);
+        const inspection = await inspectDispatchTransportPhoneViaApi(phone, { timeoutMs: 15000 });
+        if (Number(phoneCheckSeqRef.current || 0) !== checkSeq) return;
+        const rawHit = inspection?.client || null;
         const hit = rawHit && dispatchSamePhone(getClientPhone(rawHit) || rawHit?.phone_digits || rawHit?.phone, phone) ? rawHit : null;
         setPhoneHit(hit || null);
+        setServerActivePhoneOrder(inspection?.activeOrder || null);
+        setPhoneCheckedKey(phoneDigits);
+        setPhoneCheckError('');
+        if (!hit) setExistingClientDecision(null);
         if (hit && !s(nameRef.current)) setName(getClientName(hit));
         if (hit && !s(addressRef.current)) {
           const hitAddress = getAddress(hit);
@@ -1859,16 +1888,21 @@ export default function DispatchPage() {
             autoAddressRef.current = { phoneKey: getDispatchPhoneDigits(phone), address: hitAddress };
           }
         }
-      } catch {
+      } catch (error) {
+        if (Number(phoneCheckSeqRef.current || 0) !== checkSeq) return;
         setPhoneHit(null);
+        setServerActivePhoneOrder(null);
+        setPhoneCheckedKey(phoneDigits);
+        setPhoneCheckError(String(error?.code || error?.message || 'DISPATCH_PHONE_CHECK_FAILED'));
+        setExistingClientDecision(null);
       } finally {
-        setPhoneBusy(false);
+        if (Number(phoneCheckSeqRef.current || 0) === checkSeq) setPhoneBusy(false);
       }
     }, 320);
     return () => {
       if (phoneTimer.current) clearTimeout(phoneTimer.current);
     };
-  }, [phone]);
+  }, [phone, phoneCheckNonce]);
 
   useEffect(() => {
     if (searchTimer) clearTimeout(searchTimer);
@@ -1923,6 +1957,7 @@ export default function DispatchPage() {
     const currentPhone = phone || crmQuery;
     if (!dispatchSamePhone(rowPhone, currentPhone)) {
       setPhoneHit(null);
+      setExistingClientDecision(null);
       setCrmHits([]);
       setCrmOpen(false);
       return;
@@ -1938,6 +1973,13 @@ export default function DispatchPage() {
     setCrmOpen(false);
     setCrmHits([]);
     setPhoneHit(options?.keepPhoneHit ? row : row);
+    if (options?.confirmExisting === true) {
+      const phoneKey = getDispatchPhoneDigits(cleanPhone);
+      const key = dispatchExistingClientDecisionKey(row, cleanPhone);
+      setExistingClientDecision(key ? { mode: 'use_existing', phoneKey, key } : null);
+      setPhoneCheckError('');
+      setPhoneCheckedKey(phoneKey);
+    }
   }
 
   function prefillCreateFromCommandSearch() {
@@ -2270,8 +2312,25 @@ export default function DispatchPage() {
   }, [smartCreateFillStatus, address, name, phone]);
 
   const canSend = useMemo(() => s(name).length >= 2 && isValidTransportPhoneDigits(getDispatchPhoneDigits(phone)), [name, phone]);
-  const activePhoneOrder = useMemo(() => findActiveDispatchOrderForPhone(allRows, phone), [allRows, phone]);
-  const canCreateNewDispatchOrder = canSend && !activePhoneOrder;
+  const currentPhoneKey = getDispatchPhoneDigits(phone);
+  const activePhoneOrder = useMemo(
+    () => serverActivePhoneOrder || findActiveDispatchOrderForPhone(allRows, phone),
+    [serverActivePhoneOrder, allRows, phone],
+  );
+  const existingClientDecisionKey = dispatchExistingClientDecisionKey(phoneHit, phone);
+  const existingClientConfirmed = !phoneHit || (
+    !!existingClientDecisionKey
+    && existingClientDecision?.mode === 'use_existing'
+    && existingClientDecision?.key === existingClientDecisionKey
+  );
+  const phoneCheckReady = canSend
+    && phoneCheckedKey === currentPhoneKey
+    && !phoneBusy
+    && !phoneCheckError;
+  const canCreateNewDispatchOrder = canSend
+    && phoneCheckReady
+    && existingClientConfirmed
+    && !activePhoneOrder;
 
   async function send() {
     // React state updates after the click handler returns. Keep a synchronous
@@ -2285,6 +2344,16 @@ export default function DispatchPage() {
       setErr(`KY TELEFON KA POROSI AKTIVE ${getDispatchCardCode(activePhoneOrder)}. NDRYSHO DATËN/ORARIN TE EDITO PLANIN, MOS KRIJO KOD TË RI.`);
       setCreateOpen(false);
       openRow(activePhoneOrder);
+      return;
+    }
+    if (!phoneCheckReady) {
+      setErr(phoneCheckError
+        ? 'KONTROLLI I TELEFONIT DËSHTOI. PROVO PËRSËRI PARA DËRGIMIT.'
+        : 'PRIT PAK — PO KONTROLLOHET TELEFONI NË DB.');
+      return;
+    }
+    if (phoneHit && !existingClientConfirmed) {
+      setErr(`KY NUMËR E KA KODIN ${getTransportTCode(phoneHit) || 'EKZISTUES'}. ZGJIDH “PËRDOR KODIN” PARA DËRGIMIT.`);
       return;
     }
     if (!confirmSmartCreateIncomplete(smartCreateLiveFillStatus)) {
@@ -2301,15 +2370,43 @@ export default function DispatchPage() {
       const pickedDriver = drivers.find((d) => String(d?.id || "") === String(driverId || "")) || null;
       const pickedDriverName = String(pickedDriver?.name || pickedDriver?.full_name || "").trim();
       const pickedDriverPin = String(pickedDriver?.pin || pickedDriver?.user_pin || "").trim();
-      const cleanName = s(name);
+      let cleanName = s(name);
       const cleanPhone = onlyDigits(phone);
-      const cleanAddress = s(address);
+      let cleanAddress = s(address);
       const cleanNote = s(note);
+      const inspection = await inspectDispatchTransportPhoneViaApi(cleanPhone, { timeoutMs: 15000 });
+      setPhoneCheckedKey(inspection.phoneKey || getDispatchPhoneDigits(cleanPhone));
+      setPhoneCheckError('');
+      setServerActivePhoneOrder(inspection.activeOrder || null);
+      if (inspection.activeOrder) {
+        setErr(`KY TELEFON KA POROSI AKTIVE ${getDispatchCardCode(inspection.activeOrder)}. KËRKESA E RE U NDAL QË TË MOS DYFISHOHET.`);
+        setCreateOpen(false);
+        openRow(inspection.activeOrder);
+        return;
+      }
+      const authoritativePhoneClient = inspection.client
+        && dispatchSamePhone(getClientPhone(inspection.client) || inspection.client?.phone_digits || inspection.client?.phone, cleanPhone)
+        ? inspection.client
+        : null;
+      if (authoritativePhoneClient) {
+        setPhoneHit(authoritativePhoneClient);
+        const authoritativeKey = dispatchExistingClientDecisionKey(authoritativePhoneClient, cleanPhone);
+        if (!authoritativeKey || existingClientDecision?.mode !== 'use_existing' || existingClientDecision?.key !== authoritativeKey) {
+          setExistingClientDecision(null);
+          setErr(`KY NUMËR E KA KODIN ${getTransportTCode(authoritativePhoneClient) || 'EKZISTUES'}. KONFIRMO KODIN PARA DËRGIMIT.`);
+          return;
+        }
+        cleanName = s(getClientName(authoritativePhoneClient) || cleanName);
+        cleanAddress = s(cleanAddress || getAddress(authoritativePhoneClient));
+      } else {
+        setPhoneHit(null);
+        setExistingClientDecision(null);
+      }
       const pickupPlan = buildDispatchPickupPlan({ measurementsText: pickupMeasurements, noteText: cleanNote, piecesHint: smartPasteResult?.pieces || 0 });
-      const existingPhoneClient = phoneHit && dispatchSamePhone(getClientPhone(phoneHit) || phoneHit?.phone_digits || phoneHit?.phone, cleanPhone) ? phoneHit : null;
-      // A cached card may prefill the form only. prepareDispatchTransportClientLink
-      // always repeats the live DB lookup immediately before code allocation.
-      const verifiedPhoneClient = undefined;
+      const existingPhoneClient = authoritativePhoneClient;
+      // The approved-device phone check above is authoritative for this send.
+      // null means the phone was checked and is a genuinely new client.
+      const verifiedPhoneClient = authoritativePhoneClient || null;
       const actorNow = getActor() || null;
       const poolOwner = pickedDriverPin || String(actorNow?.pin || '').trim() || 'DISPATCH';
       if (!createIntentJournalRef.current) {
@@ -2450,11 +2547,12 @@ export default function DispatchPage() {
       const createResult = await insertTransportOrder({ ...payload, code_owner: poolOwner });
       if (!createResult?.ok) throw new Error(createResult?.error || 'TRANSPORT_ORDER_CREATE_FAILED');
       const createdRecord = createResult.data;
+      const deduplicatedActive = createResult?.deduplicatedActive === true;
       const savedOrderId = String(createdRecord?.id || '').trim();
       const savedClientId = String(createdRecord?.client_id || '').trim();
       const savedTcode = normTCode(createdRecord?.client_tcode || createdRecord?.data?.transport_client_tcode || createdRecord?.data?.client?.tcode || '');
       const savedCode = normTCode(createdRecord?.code_str || createdRecord?.data?.code_str || '');
-      if (savedOrderId !== orderId) throw new Error('TRANSPORT_ORDER_UUID_VERIFY_FAILED');
+      if (!deduplicatedActive && savedOrderId !== orderId) throw new Error('TRANSPORT_ORDER_UUID_VERIFY_FAILED');
       if (!savedClientId) throw new Error('TRANSPORT_CLIENT_LINK_NOT_VERIFIED');
       if (!savedTcode || savedCode !== savedTcode) throw new Error(`TRANSPORT_PERMANENT_TCODE_VERIFY_FAILED: ${savedCode || '-'} / ${savedTcode || '-'}`);
       if (!dispatchSamePhone(createdRecord?.client_phone || createdRecord?.data?.client?.phone || '', cleanPhone)) throw new Error('TRANSPORT_ORDER_PHONE_VERIFY_FAILED');
@@ -2464,7 +2562,9 @@ export default function DispatchPage() {
       pendingReservedTcode = '';
       clearTransportCodeReservationForOrder(orderId);
       createIntentJournalRef.current?.clear(orderId);
-      setMsg(`U DËRGUA ${officialOrderCode} ✅`);
+      setMsg(deduplicatedActive
+        ? `POROSIA ${officialOrderCode} VEÇ EKZISTON — NUK U DYFISHUA ✅`
+        : `U DËRGUA ${officialOrderCode} ✅`);
       setBusy(false);
       setCreateOpen(false);
       setName("");
@@ -2476,6 +2576,10 @@ export default function DispatchPage() {
       setCrmHits([]);
       setCrmOpen(false);
       setPhoneHit(null);
+      setPhoneCheckedKey('');
+      setPhoneCheckError('');
+      setServerActivePhoneOrder(null);
+      setExistingClientDecision(null);
       resetSmartCreateFillStatus();
       try {
         const createdItem = createdRecord || payload;
@@ -2919,7 +3023,7 @@ Mati 1, nesër paradite, 3 tepiha`}
           {crmOpen && crmHits.length > 0 ? (
             <div style={ui.suggestBox}>
               {crmHits.map((row) => (
-                <button key={`${getOrderTable(row)}_${row.id}`} type="button" style={ui.suggestItem} onClick={() => applySuggestion(row)}>
+                <button key={`${getOrderTable(row)}_${row.id}`} type="button" style={ui.suggestItem} onClick={() => applySuggestion(row, { keepPhoneHit: true, confirmExisting: true })}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                     <div style={{ fontWeight: 900 }}>{up(getClientName(row) || "PA EMËR")}</div>
                     <div style={ui.badge}>{sourceLabel(row)}</div>
@@ -2941,20 +3045,35 @@ Mati 1, nesër paradite, 3 tepiha`}
             <div style={ui.label}>TEL</div>
             <input style={ui.input} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+383..." inputMode="tel" />
             {phoneBusy ? <div style={ui.mini}>PO KONTROLLOJ KLIENTIN…</div> : null}
+            {phoneCheckError ? (
+              <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ ...ui.mini, color: "#b91c1c" }}>KONTROLLI NË DB DËSHTOI</div>
+                <button type="button" style={ui.btnGhostMini} onClick={() => setPhoneCheckNonce((value) => Number(value || 0) + 1)}>RIPROVO</button>
+              </div>
+            ) : null}
           </div>
         </div>
 
         {phoneHit ? (
           <div style={ui.crmHitBox}>
-            <div style={ui.crmHitTitle}>KY KLIENT EKZISTON NË DB. A DON ME SHTU POROSI TË RE TE KY KLIENT?</div>
+            <div style={ui.crmHitTitle}>KY NUMËR EKZISTON — KODI {getTransportTCode(phoneHit) || "—"}</div>
             <div style={ui.crmHitSub}>EMRI: {up(getClientName(phoneHit) || "PA EMËR")}</div>
             <div style={ui.crmHitSub}>TEL: {getClientPhone(phoneHit) || phoneHit?.phone_digits || "PA TEL"}</div>
             <div style={ui.crmHitSub}>T-CODE: {getTransportTCode(phoneHit) || "PA T-CODE"}</div>
             <div style={ui.crmHitSub}>ADRESA/GPS: {getAddress(phoneHit) || "PA ADRESË"}{phoneHit?.gps_lat && phoneHit?.gps_lng ? ` • ${phoneHit.gps_lat}, ${phoneHit.gps_lng}` : ""}</div>
             <div style={ui.crmHitSub}>BURIMI: {phoneHit?.source === "transport_clients" ? "TRANSPORT_CLIENTS" : "TRANSPORT ORDER HISTORY"} • {niceDate(phoneHit?.updated_at || phoneHit?.created_at)}</div>
+            {existingClientConfirmed ? (
+              <div style={{ ...ui.crmHitSub, marginTop: 8, color: "#166534", fontWeight: 1000 }}>
+                KODI {getTransportTCode(phoneHit)} U ZGJODH. POROSIA E RE LIDHET ME KËTË KLIENT.
+              </div>
+            ) : (
+              <div style={{ ...ui.crmHitSub, marginTop: 8, color: "#92400e", fontWeight: 1000 }}>
+                ZGJIDH KODIN EKZISTUES PARA DËRGIMIT.
+              </div>
+            )}
             <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" style={ui.btnGhostMini} onClick={() => applySuggestion(phoneHit, { keepPhoneHit: true })}>PO, PËRDOR KËTË KLIENT</button>
-              <button type="button" style={ui.btnGhostMini} onClick={() => setPhoneHit(null)}>JO, VAZHDO PA LIDHJE</button>
+              <button type="button" style={ui.btnGhostMini} onClick={() => applySuggestion(phoneHit, { keepPhoneHit: true, confirmExisting: true })}>PËRDOR KODIN {getTransportTCode(phoneHit) || "EKZISTUES"}</button>
+              <button type="button" style={ui.btnGhostMini} onClick={() => { setPhone(""); setPhoneHit(null); setExistingClientDecision(null); }}>KTHEHU / NDËRRO NUMRIN</button>
             </div>
           </div>
         ) : null}
@@ -3070,7 +3189,7 @@ Mati 1, nesër paradite, 3 tepiha`}
           </button>
         ) : (
           <button style={{ ...ui.btnPrimary, opacity: canCreateNewDispatchOrder && !busy ? 1 : 0.5 }} disabled={!canCreateNewDispatchOrder || busy} onClick={send}>
-            {busy ? "DUKE DËRGU…" : "DËRGO"}
+            {busy ? "DUKE DËRGU…" : phoneBusy ? "DUKE KONTROLLU TELEFONIN…" : (phoneHit && !existingClientConfirmed) ? "ZGJIDH KODIN EKZISTUES" : "DËRGO"}
           </button>
         )}
       </div>

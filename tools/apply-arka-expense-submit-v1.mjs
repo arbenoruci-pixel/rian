@@ -9,10 +9,10 @@ const SW_PATH = 'public/sw.js';
 const GATI_INSTALLER_PATH = 'tools/apply-gati-rack-save-v1.mjs';
 
 const INSTALLER = 'node tools/apply-arka-expense-submit-v1.mjs';
-const APP_VERSION = '2.0.130-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1';
-const CACHE_VERSION = 'v56-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1';
-const RELEASE_EPOCH = 'RESET-2026-08-31-TRANSPORT-RECOVERY-V1-ARKA-EXPENSE-SUBMIT-V1-DISPATCH-TIMEOUT-RECONCILE-V1-DEVICE-APPROVAL-TIME-V1';
-const RUNTIME_VERSION = '2.0.130-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1';
+const APP_VERSION = '2.0.131-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1';
+const CACHE_VERSION = 'v57-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1';
+const RELEASE_EPOCH = 'RESET-2026-08-31-TRANSPORT-RECOVERY-V1-ARKA-EXPENSE-SUBMIT-V1-DISPATCH-TIMEOUT-RECONCILE-V1-DEVICE-APPROVAL-TIME-V1-DISPATCH-EXISTING-CLIENT-GUARD-V1';
+const RUNTIME_VERSION = '2.0.131-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1';
 
 function patchComposer() {
   let source = fs.readFileSync(COMPOSER_PATH, 'utf8');
@@ -70,8 +70,8 @@ function patchBuildIdentity() {
   let sw = fs.readFileSync(SW_PATH, 'utf8');
   sw = sw
     .replace(/const APP_DATA_EPOCH = '[^']+';/, `const APP_DATA_EPOCH = '${RELEASE_EPOCH}';`)
-    .replace(/const APP_VERSION = '[^']+';/, `const APP_VERSION = '2.0.130-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-legacy-bridge';`)
-    .replace(/const SW_BUILD_LABEL = '[^']+';/, `const SW_BUILD_LABEL = 'sw-pwa-auto-update-v4-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-legacy-bridge';`);
+    .replace(/const APP_VERSION = '[^']+';/, `const APP_VERSION = '2.0.131-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1-legacy-bridge';`)
+    .replace(/const SW_BUILD_LABEL = '[^']+';/, `const SW_BUILD_LABEL = 'sw-pwa-auto-update-v4-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1-legacy-bridge';`);
   fs.writeFileSync(SW_PATH, sw, 'utf8');
 
   let gatiInstaller = fs.readFileSync(GATI_INSTALLER_PATH, 'utf8');
