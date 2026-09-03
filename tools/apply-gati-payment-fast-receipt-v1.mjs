@@ -62,3 +62,4 @@ console.log('PASS GATI payment fast receipt V1 installer: version/cache identity
 // Final Dispatch/Boss operational edit layer. Running here keeps it after the
 // legacy release/version owners while preserving the established GATI flow.
 await import('./apply-dispatch-boss-controls-v1.mjs');
+await import('./apply-dispatch-boss-fixed-phone-v2.mjs');
