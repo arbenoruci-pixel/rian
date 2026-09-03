@@ -59,7 +59,7 @@ fs.writeFileSync('vite.config.js', vite, 'utf8');
 
 console.log('PASS GATI payment fast receipt V1 installer: version/cache identity and required safety markers are active.');
 
-// Final Dispatch/Boss operational edit layer. Running here keeps it after the
-// legacy release/version owners while preserving the established GATI flow.
+// Final operational layers run after the legacy release/version owners.
 await import('./apply-dispatch-boss-controls-v1.mjs');
 await import('./apply-dispatch-boss-fixed-phone-v2.mjs');
+await import('./apply-transport-payment-fast-close-v1.mjs');
