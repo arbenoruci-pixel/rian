@@ -63,6 +63,12 @@ function normalizeLegacyArgs(args) {
         order?.client_name ||
         order?.customer_name ||
         null,
+      clientPhone:
+        order?.clientPhone ||
+        order?.client_phone ||
+        order?.phone ||
+        order?.client?.phone ||
+        null,
       amount,
       note:
         order?.payment_note ||
@@ -85,6 +91,7 @@ function normalizeLegacyArgs(args) {
       cashGiven: order?.cashGiven ?? order?.cash_given ?? null,
       changeAmount: order?.changeAmount ?? order?.change_amount ?? null,
       queueOnNetworkFailure: order?.queueOnNetworkFailure,
+      arkaOptions: order?.arkaOptions && typeof order.arkaOptions === 'object' ? order.arkaOptions : null,
     };
   }
 
@@ -172,7 +179,7 @@ export async function recordOrderCashPayment(...args) {
       input.externalId ||
       input.external_id ||
       buildArkaIdempotencyKey(ARKA_ACTION.BASE_ORDER_PAYMENT, [orderId, amt, actor.pin]),
-  });
+  }, input?.arkaOptions || {});
 
   if (result?.offlineQueued || result?.queued || result?.localOnly) {
     // SAFETY V501: never mark an order paid/dorzim from the client when the

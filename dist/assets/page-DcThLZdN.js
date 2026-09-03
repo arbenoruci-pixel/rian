@@ -1,0 +1,1 @@
+import{h as e,r,j as s}from"./index-ZVwzPY8v.js";function o(){const t=e();return r.useEffect(()=>{t.replace("/transport/board")},[t]),s.jsx("div",{style:{minHeight:"100vh",background:"#f5f5f7",display:"grid",placeItems:"center",fontWeight:900},children:"DUKE HAPUR…"})}export{o as default};

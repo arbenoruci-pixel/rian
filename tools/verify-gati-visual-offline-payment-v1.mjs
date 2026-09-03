@@ -24,11 +24,11 @@ check(files.gati.includes('GATI_OFFLINE_PAYMENT_V1'), 'GATI offline payment patc
 check(files.gati.includes('async function finalizeDeliveredUi(payload, options = {})'), 'GATI finalize UI must accept sync-pending mode');
 check(files.gati.includes('_synced: !syncPending'), 'Offline UI shadow must stay marked unsynced');
 check(files.gati.includes('_syncPending: syncPending'), 'Offline UI shadow must preserve pending state');
-check(files.gati.includes("payment_sync_state: 'OUTBOX_PENDING'"), 'Offline payment must carry an outbox pending marker');
+check(files.gati.includes("payment_sync_state: 'BACKGROUND_PENDING'"), 'Offline payment must carry a background-pending marker');
 check(files.gati.includes('payment_idempotency_key: idempotencyKey'), 'Offline payment must preserve its idempotency key');
-check(files.gati.includes('payRes?.offlineQueued || payRes?.queued || payRes?.localOnly'), 'GATI must recognize an ARKA queued result');
-check(files.gati.includes('finalizeDeliveredUi(queuedPayload, { syncPending: true })'), 'Queued payment must close only the local GATI UI');
-check(files.gati.includes("throw new Error(payRes?.error || 'ARKA_PAYMENT_VERIFY_FAILED')"), 'Real ARKA verification failures must remain blocking');
+check(files.gati.includes("queueOp('gati_payment_delivery'"), 'GATI must persist the combined payment/delivery command before network');
+check(files.gati.includes('finalizeDeliveredUi(queuedPayload, { syncPending: true, closeImmediately: true })'), 'Queued payment must close only the local GATI UI immediately');
+check(files.gati.includes("throw new Error(payRes?.error || 'ARKA_PAYMENT_FAILED')"), 'Background ARKA verification failures must preserve the queued command');
 check(files.gati.includes("queueOp('patch_order_data'"), 'Paid-up delivery must also have an offline outbox path');
 check(files.gati.includes("showFastPayNotice('U konfirmu. Mund të vazhdosh me klientin tjetër.'"), 'Worker should receive the same normal success feedback');
 
@@ -41,12 +41,12 @@ check(files.syncRunner.includes("window.addEventListener('online'"), 'Offline sy
 check(files.syncRunner.includes("window.addEventListener('tepiha:outbox-changed'"), 'Offline sync runner must wake when a payment is queued');
 check(files.syncRunner.includes("window.addEventListener('TEPIHA_SYNC_TRIGGER'"), 'Offline sync runner must support immediate background triggers');
 
-const queuedBranchStart = files.gati.indexOf('const queuedOffline = Boolean(');
-const queuedBranchEnd = files.gati.indexOf("if (!payRes?.ok || !payRes?.payment?.id || !payRes?.order?.id)", queuedBranchStart);
+const queuedBranchStart = files.gati.indexOf("const deliveryOpId = await queueOp('gati_payment_delivery'");
+const queuedBranchEnd = files.gati.indexOf('return true;', queuedBranchStart);
 const queuedBranch = queuedBranchStart >= 0 && queuedBranchEnd > queuedBranchStart
-  ? files.gati.slice(queuedBranchStart, queuedBranchEnd)
+  ? files.gati.slice(queuedBranchStart, queuedBranchEnd + 'return true;'.length)
   : '';
-check(queuedBranch.includes('setPayBusy(false);') && queuedBranch.includes('return;'), 'Queued payment branch must finish cleanly without falling into the error alert');
+check(queuedBranch.includes('closeImmediately: true') && queuedBranch.includes('return true;'), 'Queued payment branch must finish cleanly without falling into the error alert');
 check(!/alert\s*\(/.test(queuedBranch), 'Queued payment branch must not show an offline/error alert to the worker');
 
 if (failures.length) {

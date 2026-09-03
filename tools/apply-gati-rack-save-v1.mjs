@@ -361,3 +361,8 @@ console.log('PASS GATI rack save V1 installer: atomic verified RPC, stale-final 
 // Final operational hotfix owner. This runs after every legacy version owner so
 // installed iPhones always receive the ARKA/Dispatch recovery bundle.
 await import('./apply-arka-expense-submit-v1.mjs');
+
+// Re-apply the GATI fast-payment release identity after the legacy ARKA owner.
+// The standalone installer also sits directly before this outer release owner,
+// preserving the historical "GATI rack last" invariant used by release checks.
+await import('./apply-gati-payment-fast-receipt-v1.mjs');

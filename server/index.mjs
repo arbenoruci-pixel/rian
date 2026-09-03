@@ -13,7 +13,6 @@ import backupRestoreHandler from '../api/backup/restore.js';
 import cronBackupHandler from '../api/cron/backup.js';
 import { rolesCompatible } from '../lib/roles.js';
 import { getExistingDeviceApproval, isDeviceLinkedToOtherUser } from '../lib/authDeviceApproval.js';
-import { runArkaTransaction } from '../lib/arka/arkaEngine.js';
 import { runPranimiDraftDbAction } from '../lib/pranimiDraftDb.js';
 import { reserveBaseCodesForPin } from '../lib/baseCodeAllocatorServer.js';
 import { isRetiredStaffPin } from '../lib/staffIdentityAliases.js';
@@ -22,6 +21,7 @@ import deviceAdminHandler from '../api/admin/devices.js';
 import clientProfileHandler from '../api/client-profile.js';
 import transportOrderHandler from '../api/transport/order.js';
 import transportSelfOrderHandler from '../api/transport/self-order.js';
+import arkaTransactionHandler from '../api/arka/transaction.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -159,15 +159,7 @@ app.get('/api/version', (_req, res) => {
   apiOk(res, { v: APP_VERSION, epoch: APP_DATA_EPOCH });
 });
 
-app.post('/api/arka/transaction', async (req, res) => {
-  try {
-    const supabase = createAdminClientOrThrow();
-    const result = await runArkaTransaction(req.body || {}, { supabase });
-    return apiOk(res, result || {});
-  } catch (error) {
-    return apiFail(res, error, 400);
-  }
-});
+app.post('/api/arka/transaction', arkaTransactionHandler);
 
 // Keep the local Vite/Express development route on the same authenticated,
 // service-role-only implementation used by the deployed Vercel function.

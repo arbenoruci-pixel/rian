@@ -1,0 +1,1 @@
+import{h as r,r as e,j as o}from"./index-ZVwzPY8v.js";function a(){const t=r();return e.useEffect(()=>{t.replace("/transport/board?tab=inbox")},[t]),o.jsx("div",{style:{minHeight:"100vh",background:"#f2f2f7",display:"grid",placeItems:"center",fontWeight:900},children:"DUKE HAPUR…"})}export{a as default};

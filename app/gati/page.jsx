@@ -14,10 +14,11 @@ import { createOrderRecord, fetchOrderByIdSafe, findLatestOrderByCode, listOrder
 import { recordOrderCashPayment } from '@/components/payments/payService';
 import { ARKA_ACTION } from '@/lib/arka/arkaConstants';
 import { buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';
-import { saveOrderLocal, getAllOrdersLocal } from '@/lib/offlineStore';
+import { deleteOp, saveOrderLocal, getAllOrdersLocal } from '@/lib/offlineStore';
 import { getOutboxSnapshot } from '@/lib/syncManager';
 import { queueOp } from '@/lib/offlineSyncClient';
 import { requirePaymentPin } from '@/lib/paymentPin';
+import { ensureApprovedDeviceSession, isDeviceSessionError } from '@/lib/deviceSessionRecovery';
 import { fetchRackMapFromDb, formatRackLocationLabel, hasConcreteRackLocation, normalizeRackSlots } from '@/lib/rackLocations';
 import SmartSmsModal from '@/components/SmartSmsModal';
 import { buildSmartSmsText } from '@/lib/smartSms';
@@ -32,6 +33,7 @@ import { isDiagEnabled } from '@/lib/diagMode';
 import { listBaseCreateRecovery } from '@/lib/syncRecovery';
 import { isDbTruthSnapshotMeta, isStrongPendingOfflineRow, selectAuthoritativeOfflineRows } from '@/lib/authoritativeOfflineListPolicy';
 import { getOrderCodeBadgeStyle } from '@/lib/orderCodeBadge';
+import { isCandidateBlockedByTombstone, readReconcileTombstones, recordReconcileTombstone } from '@/lib/reconcile/tombstones';
 
 const RackLocationModal = React.lazy(() => import('@/components/RackLocationModal'));
 const ClientProfileSheet = React.lazy(() => import('@/components/ClientProfileSheet'));
@@ -50,10 +52,9 @@ function RouteLoadingFallback({ title = 'DUKE HAPUR...' }) {
 
 async function safeRecordReconcileTombstone(payload, options) {
   try {
-    const mod = await import('@/lib/reconcile/tombstones');
-    if (typeof mod?.recordReconcileTombstone === 'function') return mod.recordReconcileTombstone(payload, options);
+    return recordReconcileTombstone(payload, options);
   } catch (err) {
-    try { console.warn('[GATI] tombstone lazy load failed; continuing', err); } catch {}
+    try { console.warn('[GATI] tombstone write failed; continuing', err); } catch {}
   }
   return null;
 }
@@ -1185,6 +1186,51 @@ function getGatiRowMatchTokens(row) {
   return Array.from(new Set(tokens));
 }
 
+function isGatiRowBlockedByDeliveryTombstone(row) {
+  try {
+    return isCandidateBlockedByTombstone(
+      { ...(row || {}), table: 'orders', status: 'gati' },
+      readReconcileTombstones(),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function sameGatiRowIdentity(left, right) {
+  const wanted = new Set(getGatiRowMatchTokens(right));
+  if (!wanted.size) return false;
+  return getGatiRowMatchTokens(left).some((token) => wanted.has(token));
+}
+
+async function evictDeliveredRowFromGatiSnapshots(row) {
+  try {
+    const pageSnapshot = readPageSnapshot('gati');
+    const pageRows = (Array.isArray(pageSnapshot?.rows) ? pageSnapshot.rows : [])
+      .filter((item) => !sameGatiRowIdentity(item, row));
+    writePageSnapshot('gati', pageRows, {
+      ...(pageSnapshot?.meta || {}),
+      source: 'DB_ONLY',
+      sourceMode: 'DB_ONLY',
+      allowEmptyDbTruth: true,
+      optimisticDeliveryEvictedAt: new Date().toISOString(),
+    });
+
+    const durableSnapshot = await readDurableGatiSnapshot();
+    const durableRows = (Array.isArray(durableSnapshot?.rows) ? durableSnapshot.rows : [])
+      .filter((item) => !sameGatiRowIdentity(item, row));
+    await writeDurableGatiSnapshot(durableRows, {
+      ...(durableSnapshot?.meta || {}),
+      source: 'DB_ONLY',
+      sourceMode: 'DB_ONLY',
+      allowEmptyDbTruth: true,
+      optimisticDeliveryEvictedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    try { console.warn('[GATI SNAPSHOT EVICT PENDING]', error); } catch {}
+  }
+}
+
 function rowLooksPendingOrLocalGati(row) {
   // AUTHORITATIVE_OFFLINE_LISTS_V2:GATI — source LOCAL alone is never proof of pending work.
   return isStrongPendingOfflineRow(row, isPersistedDbLikeId);
@@ -1286,6 +1332,26 @@ function GatiPageInner() {
   useEffect(() => {
     markRealUiReady('gati_page_visible');
   }, []);
+  useEffect(() => {
+    // Warm and repair the approved-device cookie after the visible UI opens so
+    // the cashier does not pay the round-trip cost when pressing KONFIRMO.
+    const warmSession = (force = false) => {
+      void ensureApprovedDeviceSession({ force, timeoutMs: 3500 }).catch((error) => {
+        try { console.warn('[GATI DEVICE SESSION WARMUP]', error?.code || error?.message || error); } catch {}
+      });
+    };
+    const timer = window.setTimeout(() => warmSession(false), 0);
+    const interval = window.setInterval(() => warmSession(true), 90 * 1000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') warmSession(true);
+    };
+    try { document.addEventListener('visibilitychange', onVisible); } catch {}
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+      try { document.removeEventListener('visibilitychange', onVisible); } catch {}
+    };
+  }, []);
   const router = useRouter();
   const sp = useSearchParams();
   const exactMode = String(sp?.get('exact') || '') === '1';
@@ -1335,6 +1401,8 @@ function GatiPageInner() {
   const [payErr, setPayErr] = useState('');
   const [payDeliveryPending, setPayDeliveryPending] = useState(false);
   const [fastPayNotice, setFastPayNotice] = useState(null);
+  const [paymentSmsReceipt, setPaymentSmsReceipt] = useState(null);
+  const paySubmitLockRef = useRef(false);
 
   const [showReturnSheet, setShowReturnSheet] = useState(false);
   const [retOrder, setRetOrder] = useState(null);
@@ -1645,8 +1713,35 @@ function GatiPageInner() {
     }
     const currentRows = Array.isArray(currentOrdersRef.current) ? currentOrdersRef.current.slice() : [];
     const onlineAtStart = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+    // Start live truth immediately; local snapshot hydration runs alongside it
+    // instead of delaying the network request behind IndexedDB.
+    let dataError = null;
+    const rootGatiPromise = onlineAtStart
+      ? listOrderRecords('orders', {
+        select: 'id,status,ready_at,picked_up_at,delivered_at,local_oid,created_at,updated_at,data,code,client_id,client_name,client_phone',
+        eq: { status: 'gati' },
+        orderBy: 'updated_at',
+        ascending: false,
+        limit: GATI_FETCH_LIMIT,
+        timeoutMs: GATI_DB_TIMEOUT_MS,
+      }).catch((err) => {
+        dataError = dataError || err;
+        return [];
+      })
+      : Promise.resolve(null);
+    const dataPromise = rootGatiPromise.then((rootGatiRows) => {
+      if (rootGatiRows === null) return null;
+      const merged = new Map();
+      for (const row of Array.isArray(rootGatiRows) ? rootGatiRows : []) {
+        const key = String(row?.id || '').trim() || `${String(row?.code || '').trim()}|${String(row?.updated_at || row?.created_at || '').trim()}`;
+        if (key && !merged.has(key)) merged.set(key, row);
+      }
+      return Array.from(merged.values());
+    }).catch((err) => {
+      dataError = dataError || err;
+      return null;
+    });
     let syncSnapshot = [];
-    if (!onlineAtStart) {
     try {
       bootLog('before_local_read', {
         page: 'gati',
@@ -1664,14 +1759,14 @@ function GatiPageInner() {
       syncSnapshot = dedupeGatiSnapshotRows([
         ...(Array.isArray(pageSnapshotRows) ? pageSnapshotRows : []),
         ...readGatiRowsFromBaseMasterCache(),
-      ]);
-      if (!Array.isArray(syncSnapshot) || syncSnapshot.length === 0) {
+      ]).filter((row) => !isGatiRowBlockedByDeliveryTombstone(row));
+      if ((!Array.isArray(syncSnapshot) || syncSnapshot.length === 0) && !onlineAtStart) {
         try {
           const hydratedCache = await ensureFreshBaseMasterCache();
           syncSnapshot = dedupeGatiSnapshotRows([
             ...(Array.isArray(pageSnapshotRows) ? pageSnapshotRows : []),
             ...readGatiRowsFromBaseMasterCache(hydratedCache),
-          ]);
+          ]).filter((row) => !isGatiRowBlockedByDeliveryTombstone(row));
         } catch {}
       }
       bootLog('after_local_read', {
@@ -1683,9 +1778,10 @@ function GatiPageInner() {
         count: Array.isArray(syncSnapshot) ? syncSnapshot.length : 0,
       });
     } catch {}
-    }
 
-    const hasSyncSnapshot = !onlineAtStart && Array.isArray(syncSnapshot) && syncSnapshot.length > 0;
+    // Show the last verified local snapshot immediately on both online and
+    // offline opens. The live DB request below still reconciles it in place.
+    const hasSyncSnapshot = Array.isArray(syncSnapshot) && syncSnapshot.length > 0;
     const shouldHydrateFromSnapshot = seq === refreshSeqRef.current && hasSyncSnapshot && currentRows.length === 0;
     if (shouldHydrateFromSnapshot) {
       applyOrdersIfChanged(syncSnapshot, { seq, reason, source: 'sync_snapshot' });
@@ -1731,6 +1827,7 @@ function GatiPageInner() {
           ...transitionPendingRows,
         ])
           .filter((row) => !/^T\d+$/i.test(String(row?.code || '').trim()))
+          .filter((row) => !isGatiRowBlockedByDeliveryTombstone(row))
           .filter((row) => !isTerminalRecoveryGhostRow(row, buildTerminalRecoveryIndex()))
           .map((row) => ({
             ...(row || {}),
@@ -1778,32 +1875,6 @@ function GatiPageInner() {
         } catch {}
         return rows;
       })() : Promise.resolve([]);
-      let dataError = null;
-      const rootGatiPromise = listOrderRecords('orders', {
-        select: 'id,status,ready_at,picked_up_at,delivered_at,local_oid,created_at,updated_at,data,code,client_id,client_name,client_phone',
-        eq: { status: 'gati' },
-        orderBy: 'updated_at',
-        ascending: false,
-        limit: GATI_FETCH_LIMIT,
-        timeoutMs: GATI_DB_TIMEOUT_MS,
-      }).catch((err) => {
-        dataError = dataError || err;
-        return [];
-      });
-      const recentBasePromise = Promise.resolve([]);
-      const dataPromise = Promise.all([rootGatiPromise, recentBasePromise]).then(([rootGatiRows, recentBaseRows]) => {
-        const merged = new Map();
-        for (const row of [...(Array.isArray(rootGatiRows) ? rootGatiRows : []), ...(Array.isArray(recentBaseRows) ? recentBaseRows : [])]) {
-          const key = String(row?.id || '').trim() || `${String(row?.code || '').trim()}|${String(row?.updated_at || row?.created_at || '').trim()}`;
-          if (!key) continue;
-          if (!merged.has(key)) merged.set(key, row);
-        }
-        return Array.from(merged.values());
-      }).catch((err) => {
-        dataError = dataError || err;
-        return null;
-      });
-
       const warmRows = await localWarmPromise;
       const canApplyWarmRows = (
         seq === refreshSeqRef.current
@@ -1935,6 +2006,7 @@ function GatiPageInner() {
           ...errorPendingRows,
         ])
           .filter((row) => !/^T\d+$/i.test(String(row?.code || '').trim()))
+          .filter((row) => !isGatiRowBlockedByDeliveryTombstone(row))
           .filter((row) => !isTerminalRecoveryGhostRow(row, buildTerminalRecoveryIndex()))
           .sort((a, b) => (Number(b?.readyTs || b?.ts || 0) - Number(a?.readyTs || a?.ts || 0)));
         if (keepVisibleRows.length > 0) {
@@ -2155,12 +2227,19 @@ function GatiPageInner() {
           localPendingTimer.current = null;
         }
       }
-      const rawRows = (Array.isArray(finalRows) ? finalRows : []).filter((row) => !isTerminalRecoveryGhostRow(row, typeof recoveryIndex !== 'undefined' ? recoveryIndex : buildTerminalRecoveryIndex()));
+      const rawRows = (Array.isArray(finalRows) ? finalRows : [])
+        .filter((row) => !isGatiRowBlockedByDeliveryTombstone(row))
+        .filter((row) => !isTerminalRecoveryGhostRow(row, typeof recoveryIndex !== 'undefined' ? recoveryIndex : buildTerminalRecoveryIndex()));
       const transportHidden = rawRows.filter((r) => /^T\d+$/i.test(String(r?.code || '').trim()));
       const nonTransportRows = rawRows.filter((r) => !/^T\d+$/i.test(String(r?.code || '').trim()));
       const baseOnly = dedupeOrders(nonTransportRows);
 
-      if (exactMode && /^\d+$/.test(String(openId || '').trim()) && !baseOnly.some((row) => String(row?.id || row?.dbId || '').trim() === openId)) {
+      if (
+        exactMode
+        && /^\d+$/.test(String(openId || '').trim())
+        && !isGatiRowBlockedByDeliveryTombstone({ id: openId, status: 'gati' })
+        && !baseOnly.some((row) => String(row?.id || row?.dbId || '').trim() === openId)
+      ) {
         try {
           const exactHit = await dbFetchOrderById(openId);
           const exactRow = exactHit?.row;
@@ -2926,7 +3005,36 @@ function GatiPageInner() {
   }
 
   // ---------------- PAY FULLSCREEN ----------------
-  async function openPay(row) {
+  async function openPay(sourceRow) {
+    const originalRowId = String(sourceRow?.id || '').trim();
+    const canonicalOrderId = [
+      sourceRow?.id,
+      sourceRow?.db_id,
+      sourceRow?.server_id,
+      sourceRow?.fullOrder?.id,
+      sourceRow?.fullOrder?.db_id,
+      sourceRow?.fullOrder?.server_id,
+    ]
+      .map((value) => String(value || '').trim())
+      .find((value) => /^\d+$/.test(value) && Number(value) > 0);
+    if (!canonicalOrderId) {
+      alert('Kjo porosi ende nuk e ka ID-në zyrtare. Prit sinkronizimin para pagesës.');
+      return;
+    }
+    const row = {
+      ...(sourceRow || {}),
+      id: canonicalOrderId,
+      local_oid: String(sourceRow?.local_oid || sourceRow?.fullOrder?.local_oid || sourceRow?.fullOrder?.oid || originalRowId || ''),
+      fullOrder: sourceRow?.fullOrder && typeof sourceRow.fullOrder === 'object'
+        ? { ...sourceRow.fullOrder, id: canonicalOrderId }
+        : sourceRow?.fullOrder,
+    };
+    if (isGatiRowBlockedByDeliveryTombstone(row)) {
+      void evictDeliveredRowFromGatiSnapshots(row);
+      void refreshOrders('gati_blocked_stale_payment_row');
+      alert('Kjo porosi veç është dorëzuar ose pagesa e saj është në sinkronizim. Nuk lejohet pagesë e dytë.');
+      return;
+    }
     if (!hasConcreteReadyRack(row)) {
       alert(buildConcreteRackRequiredMessage('PAGUAJ nuk lejohet.'));
       await openPlaceCard(row);
@@ -2963,8 +3071,20 @@ function GatiPageInner() {
       }
 
       const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
-      if (!order && online) {
+      const cacheBackedRow = Boolean(
+        row?._pageSnapshot
+        || row?._durableSnapshot
+        || row?._masterCache
+        || ['PAGE_SNAPSHOT', 'BASE_CACHE'].includes(String(row?.source || '').trim().toUpperCase())
+      );
+      if (online && (cacheBackedRow || !order)) {
         const res = await dbFetchOrderById(row.id);
+        if (extractGatiStatus(res?.row, res?.order) !== 'gati') {
+          void evictDeliveredRowFromGatiSnapshots(row);
+          void refreshOrders('gati_cached_payment_row_not_ready');
+          alert('Kjo porosi nuk është më në GATI. Lista po përditësohet.');
+          return;
+        }
         order = res.order;
         scheduleLocalShadowWrite(`order_${row.id}`, order, 650);
       }
@@ -3002,6 +3122,7 @@ function GatiPageInner() {
       const dueNow = Math.max(0, Number((total - paid).toFixed(2)));
       setPayAdd(dueNow);
       setPayMethod('CASH');
+      setPayErr('');
       setShowPaySheet(true);
     } catch {
       alert('❌ Gabim gjatë hapjes së pagesës.');
@@ -3024,7 +3145,7 @@ function GatiPageInner() {
     }
   }
 
-  function markPaymentDoneButDeliveryPending(orderId, meta = {}) {
+  function markPaymentDoneButDeliveryPending(orderId, meta = {}, options = {}) {
     if (!orderId || typeof localStorage === 'undefined') return;
     try {
       localStorage.setItem(deliveryPendingStorageKey(orderId), JSON.stringify({
@@ -3039,13 +3160,13 @@ function GatiPageInner() {
         created_at: new Date().toISOString(),
       }));
     } catch {}
-    setPayDeliveryPending(true);
+    if (options?.updateUi !== false) setPayDeliveryPending(true);
   }
 
-  function clearPaymentDoneButDeliveryPending(orderId) {
+  function clearPaymentDoneButDeliveryPending(orderId, options = {}) {
     if (!orderId || typeof localStorage === 'undefined') return;
     try { localStorage.removeItem(deliveryPendingStorageKey(orderId)); } catch {}
-    setPayDeliveryPending(false);
+    if (options?.updateUi !== false) setPayDeliveryPending(false);
   }
 
   function showFastPayNotice(text, tone = 'ok', ttlMs = 2800) {
@@ -3121,10 +3242,10 @@ function GatiPageInner() {
     };
   }
 
-  async function finishFastDeliverySync({ payload, optimisticPayload, applied, pinData, method, orderId, idempotencyKey } = {}) {
-    let paymentRecordedOrExisting = Number(applied || 0) <= 0;
-    let engineOrder = null;
+  async function finishFastDeliverySync({ payload, optimisticPayload, applied, pinData, method, orderId, idempotencyKey, deliveryOpId } = {}) {
     try {
+      let engineOrder = null;
+      let finalPayload = optimisticPayload || payload;
       if (Number(applied || 0) > 0) {
         const fastPayload = {
           ...(payload || {}),
@@ -3134,18 +3255,87 @@ function GatiPageInner() {
           paymentOutcome: 'DELIVERY_TO_DORZIM',
           expectedDebt: Number((Number(applied || 0) + Math.max(0, Number(payload?.debt || payload?.pay?.debt || 0))).toFixed(2)),
           statusOnFullPayment: 'dorzim',
+          queueOnNetworkFailure: false,
+          arkaOptions: {
+            queueOnNetworkFailure: false,
+            timeoutMs: 5000,
+            maxAttempts: 1,
+          },
         };
         const payRes = await recordOrderCashPayment(fastPayload, applied, pinData, method);
         if (payRes?.ok === false || !payRes?.payment || !payRes?.order) {
           throw new Error(payRes?.error || 'ARKA_PAYMENT_FAILED');
         }
-        paymentRecordedOrExisting = true;
         engineOrder = payRes.order;
+        const engineData = engineOrder?.data && typeof engineOrder.data === 'object' ? engineOrder.data : {};
+        finalPayload = {
+          ...finalPayload,
+          ...engineData,
+          id: String(engineOrder?.id || finalPayload?.id || orderId),
+          status: engineOrder?.status || engineData?.status || finalPayload?.status || 'dorzim',
+          state: engineOrder?.status || engineData?.status || finalPayload?.state || 'dorzim',
+          pay: {
+            ...(finalPayload?.pay || {}),
+            ...(engineData?.pay || {}),
+          },
+        };
       }
 
-      if (!engineOrder?.id) await closeOrderStatusWithVerification(orderId, optimisticPayload || payload);
+      if (!engineOrder?.id || !isDeliveredStatus(engineOrder?.status || engineOrder?.data?.status)) {
+        await closeOrderStatusWithVerification(orderId, finalPayload);
+      }
 
-      clearPaymentDoneButDeliveryPending(orderId);
+      finalPayload = {
+        ...finalPayload,
+        status: 'dorzim',
+        state: 'dorzim',
+        offline_payment_pending: false,
+        offline_delivery_pending: false,
+        payment_sync_state: 'SYNCED',
+        delivery_sync_state: 'SYNCED',
+        payment_idempotency_key: idempotencyKey,
+        updated_at: finalPayload?.updated_at || payload?.updated_at || new Date().toISOString(),
+      };
+
+      clearPaymentDoneButDeliveryPending(orderId, { updateUi: false });
+      setPaymentSmsReceipt((current) => (
+        current?.idempotencyKey === idempotencyKey
+          ? { ...current, syncPending: false, syncState: 'synced', syncError: '' }
+          : current
+      ));
+      try {
+        await saveOrderLocal({
+          id: orderId,
+          status: 'dorzim',
+          data: finalPayload,
+          updated_at: finalPayload?.updated_at || new Date().toISOString(),
+          delivered_at: finalPayload?.delivered_at || payload?.delivered_at || new Date().toISOString(),
+          picked_up_at: finalPayload?.picked_up_at || payload?.picked_up_at || payload?.delivered_at || new Date().toISOString(),
+          _synced: true,
+          _syncPending: false,
+          dirty: false,
+          pending_ops: 0,
+          _table: 'orders',
+        });
+      } catch {}
+      try {
+        patchBaseMasterRow({
+          id: orderId,
+          status: 'dorzim',
+          data: finalPayload,
+          updated_at: finalPayload?.updated_at || new Date().toISOString(),
+          delivered_at: finalPayload?.delivered_at || payload?.delivered_at || null,
+          picked_up_at: finalPayload?.picked_up_at || payload?.picked_up_at || null,
+          _synced: true,
+          _syncPending: false,
+          dirty: false,
+          pending_ops: 0,
+          _table: 'orders',
+        });
+      } catch {}
+      // Delete the durable command only after canonical local state is saved.
+      // A suspension anywhere earlier leaves an idempotent retry available.
+      if (deliveryOpId) await deleteOp(deliveryOpId).catch(() => {});
       showFastPayNotice('Sinkronizimi u krye.', 'ok', 2200);
       try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
       try { window.setTimeout(() => refreshOrders('gati_fast_confirm_background_done'), 900); } catch {}
@@ -3155,13 +3345,24 @@ function GatiPageInner() {
           code: payload?.code || payOrder?.code || '',
           amount: applied,
           idempotency_key: idempotencyKey,
-          status: paymentRecordedOrExisting ? 'PENDING_SYNC_VERIFY' : 'QUEUED_FOR_SYNC',
+          status: 'QUEUED_FOR_SYNC',
           ...(err?.row || {}),
-        });
+        }, { updateUi: false });
       }
+      setPaymentSmsReceipt((current) => (
+        current?.idempotencyKey === idempotencyKey
+          ? {
+            ...current,
+            syncPending: true,
+            syncState: 'error',
+            syncError: String(err?.response?.error || err?.message || 'SINKRONIZIMI NË PRITJE'),
+          }
+          : current
+      ));
       try { console.error('[GATI FAST CONFIRM BACKGROUND FAILED]', err?.response || err); } catch {}
       showFastPayNotice('U ruajt lokalisht — kontrollo Sync/ARKA nëse mbetet pending.', 'warn', 5200);
       try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
+      try { window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER')); } catch {}
       try { window.setTimeout(() => refreshOrders('gati_fast_confirm_background_retry_needed'), 1200); } catch {}
     }
   }
@@ -3336,15 +3537,22 @@ function GatiPageInner() {
   async function finalizeDeliveredUi(payload, options = {}) {
     // GATI_OFFLINE_PAYMENT_V1: an outbox-backed offline payment may close only the local UI.
     const syncPending = options?.syncPending === true;
-    try {
-      await safeRecordReconcileTombstone({
+    const closeImmediately = options?.closeImmediately === true;
+    const tombstonePromise = safeRecordReconcileTombstone({
         id: payload?.id,
         local_oid: payOrder?.order?.local_oid || payOrder?.order?.oid || payOrder?.id || '',
         code: payload?.code || payOrder?.order?.code || payOrder?.order?.client?.code || '',
         table: 'orders',
         status: 'dorzim',
       }, { reason: 'gati_confirm_delivery', ttlMs: 1000 * 60 * 60 * 8 });
-    } catch {}
+    const snapshotEvictPromise = evictDeliveredRowFromGatiSnapshots(payload);
+    if (closeImmediately) {
+      // React closes the sheet before the first await; durable writes complete
+      // before the receipt/SMS action becomes available.
+      setOrders((prev) => (prev || []).filter((o) => String(o.id) !== String(payload.id)));
+      closePay();
+    }
+    try { await tombstonePromise; } catch {}
 
     try {
       scheduleLocalShadowWrite(`tepiha_delivered_${payload.id}`, payload, 650);
@@ -3404,8 +3612,13 @@ function GatiPageInner() {
     } catch {}
 
     if (!syncPending) clearPaymentDoneButDeliveryPending(payload?.id);
-    setOrders((prev) => (prev || []).filter((o) => String(o.id) !== String(payload.id)));
-    closePay();
+    // The synchronous page snapshot and tombstone already block stale taps;
+    // let the slower IndexedDB snapshot cleanup finish without holding SMS.
+    void snapshotEvictPromise;
+    if (!closeImmediately) {
+      setOrders((prev) => (prev || []).filter((o) => String(o.id) !== String(payload.id)));
+      closePay();
+    }
   }
 
   function closePay() {
@@ -3413,12 +3626,19 @@ function GatiPageInner() {
     setPayOrder(null);
     setPayAdd(0);
     setPayMethod('CASH');
+    setPayErr('');
     setPayDeliveryPending(false);
   }
 
   // DORËZIMI FINAL DHE PAGESA
   async function confirmDelivery() {
-    if (!payOrder || payBusy) return;
+    if (!payOrder || payBusy || paySubmitLockRef.current) return;
+
+    const canonicalOrderId = Number(payOrder?.id || payOrder?.order?.id || 0);
+    if (!Number.isInteger(canonicalOrderId) || canonicalOrderId <= 0) {
+      alert('Kjo porosi ende nuk e ka ID-në zyrtare. Prit sinkronizimin para pagesës.');
+      return false;
+    }
 
     const due = Math.max(0, Number((Number(payOrder.total || 0) - Number(payOrder.paid || 0)).toFixed(2)));
     const payNow = Number((Number(payAdd) || 0).toFixed(2));
@@ -3441,147 +3661,137 @@ KUSURI: ${kusuri.toFixed(2)}€
 BORXHI PAS: ${newDebt.toFixed(2)}€
 
 👉 SHKRUAJ PIN-IN TËND PËR TË KONFIRMUAR:`;
-    const pinData = await requirePaymentPin({ label: pinLabel });
-    if (!pinData) return;
-
-    const actionAt = new Date().toISOString();
-    const payload = buildDeliveredPayload({ pinData, newPaid, newDebt, actionAt });
-    const orderId = Number(payload?.id || payOrder?.id || 0);
-    const idempotencyKey = applied > 0
-      ? buildFastBasePaymentIdempotencyKey({ orderId, amount: applied, actorPin: pinData?.pin })
-      : '';
-    const optimisticPayload = withOptimisticArkaRecordedPaid(payload, applied);
-
+    paySubmitLockRef.current = true;
     setPayBusy(true);
-    setPayErr('Duke regjistru pagesën dhe dorëzimin...');
+    setPayErr('');
 
     try {
-      // SAFETY V501: ARKA must be the first remote write for CASH payments.
-      // The server transaction inserts/reuses arka_pending_payments and updates
-      // the order in one verified flow. We only close the UI after that succeeds.
-      let finalPayload = optimisticPayload;
+      const pinData = await requirePaymentPin({ label: pinLabel });
+      if (!pinData) return false;
+
+      const actionAt = new Date().toISOString();
+      const payload = buildDeliveredPayload({ pinData, newPaid, newDebt, actionAt });
+      const orderId = canonicalOrderId;
+      const idempotencyKey = applied > 0
+        ? buildFastBasePaymentIdempotencyKey({ orderId, amount: applied, actorPin: pinData?.pin })
+        : '';
+      const optimisticPayload = withOptimisticArkaRecordedPaid(payload, applied);
 
       if (applied > 0) {
-        setPayErr('Duke regjistru pagesën në ARKË...');
-        const payRes = await recordOrderCashPayment({
-          ...payload,
-          payment_external_id: idempotencyKey,
+        setPayErr('Duke verifikuar pajisjen...');
+        await ensureApprovedDeviceSession({ actor: pinData, timeoutMs: 1800 });
+
+        // GATI_PAYMENT_FAST_RECEIPT_V1: persist the complete, idempotent money +
+        // delivery command locally before closing. The worker now waits only
+        // for IndexedDB, while network/ARKA verification continues detached.
+        setPayErr('Duke ruajtur pagesën...');
+        const syncTransaction = buildFastPaymentTransaction({
+          payload,
+          amount: applied,
+          pinData,
+          method: payMethod,
           idempotencyKey,
+        });
+        const deliveryOpId = await queueOp('gati_payment_delivery', {
+          table: 'orders',
+          id: orderId,
+          order_id: orderId,
           idempotency_key: idempotencyKey,
-          paymentOutcome: 'DELIVERY_TO_DORZIM',
-          expectedDebt: due,
-          statusOnFullPayment: 'dorzim',
-        }, applied, pinData, payMethod);
-
-        // GATI_OFFLINE_PAYMENT_V1: arkaTransaction already persisted this exact idempotent
-        // payment in IndexedDB. Close the worker UI quietly; OfflineSyncRunner
-        // sends it when connectivity returns and the ARKA engine updates the
-        // order atomically on the server.
-        const queuedOffline = Boolean(payRes?.offlineQueued || payRes?.queued || payRes?.localOnly);
-        if (queuedOffline) {
-          const syncTransaction = buildFastPaymentTransaction({
-            payload,
-            amount: applied,
-            pinData,
-            method: payMethod,
-            idempotencyKey,
-          });
-          const deliveryOpId = await queueOp('gati_payment_delivery', {
-            table: 'orders',
-            id: orderId,
-            order_id: orderId,
-            idempotency_key: idempotencyKey,
-            transaction: syncTransaction,
-            delivery_patch: {
-              status: 'dorzim',
-              data: payload,
-              updated_at: payload?.updated_at || actionAt,
-              delivered_at: payload?.delivered_at || actionAt,
-              picked_up_at: payload?.picked_up_at || actionAt,
-            },
-          });
-          const queuedPayload = {
-            ...optimisticPayload,
-            offline_payment_pending: true,
-            offline_delivery_pending: true,
-            payment_sync_state: 'OUTBOX_PENDING',
-            delivery_sync_state: 'OUTBOX_PENDING',
-            payment_outbox_op_id: payRes?.queuedOpId || null,
-            delivery_outbox_op_id: deliveryOpId || null,
-            payment_idempotency_key: idempotencyKey,
-            updated_at: actionAt,
-          };
-          await finalizeDeliveredUi(queuedPayload, { syncPending: true });
-          showFastPayNotice('U ruajt. Mund të vazhdosh me klientin tjetër.', 'ok', 2200);
-          try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
-          setPayBusy(false);
-          return;
-        }
-
-        if (!payRes?.ok || !payRes?.payment?.id || !payRes?.order?.id) {
-          throw new Error(payRes?.error || 'ARKA_PAYMENT_VERIFY_FAILED');
-        }
-        const engineOrder = payRes.order || {};
-        const engineData = (engineOrder?.data && typeof engineOrder.data === 'object') ? engineOrder.data : {};
-        finalPayload = {
-          ...payload,
-          ...engineData,
-          id: String(engineOrder.id || payload.id || orderId),
-          status: engineOrder.status || engineData.status || 'dorzim',
-          state: engineOrder.status || engineData.status || 'dorzim',
-          updated_at: engineOrder.updated_at || engineData.updated_at || actionAt,
-          delivered_at: engineData.delivered_at || payload.delivered_at || actionAt,
-          picked_up_at: engineData.picked_up_at || payload.picked_up_at || actionAt,
-          pay: {
-            ...(payload.pay || {}),
-            ...(engineData.pay || {}),
-          },
-        };
-      } else {
-        const offlineAtConfirm = typeof navigator !== 'undefined' && navigator.onLine === false;
-        if (offlineAtConfirm) {
-          const deliveryOpId = await queueOp('patch_order_data', {
-            id: orderId,
-            table: 'orders',
+          transaction: syncTransaction,
+          delivery_patch: {
             status: 'dorzim',
-            data: {
-              status: 'dorzim',
-              data: payload,
-              updated_at: payload?.updated_at || actionAt,
-              delivered_at: payload?.delivered_at || actionAt,
-              picked_up_at: payload?.picked_up_at || actionAt,
-            },
-          });
-          const queuedDeliveryPayload = {
-            ...payload,
-            offline_delivery_pending: true,
-            delivery_sync_state: 'OUTBOX_PENDING',
-            delivery_outbox_op_id: deliveryOpId || null,
-          };
-          await finalizeDeliveredUi(queuedDeliveryPayload, { syncPending: true });
-          showFastPayNotice('U konfirmu. Mund të vazhdosh me klientin tjetër.', 'ok', 2200);
-          setPayBusy(false);
-          return;
-        }
-        await closeOrderStatusWithVerification(orderId, payload);
+            data: optimisticPayload,
+            updated_at: payload?.updated_at || actionAt,
+            delivered_at: payload?.delivered_at || actionAt,
+            picked_up_at: payload?.picked_up_at || actionAt,
+          },
+        }, { deferSync: true });
+        if (!deliveryOpId) throw new Error('GATI_PAYMENT_LOCAL_QUEUE_FAILED');
+
+        const queuedPayload = {
+          ...optimisticPayload,
+          offline_payment_pending: true,
+          offline_delivery_pending: true,
+          payment_sync_state: 'BACKGROUND_PENDING',
+          delivery_sync_state: 'BACKGROUND_PENDING',
+          delivery_outbox_op_id: deliveryOpId,
+          payment_idempotency_key: idempotencyKey,
+          updated_at: actionAt,
+        };
+        await finalizeDeliveredUi(queuedPayload, { syncPending: true, closeImmediately: true });
+        setPaymentSmsReceipt({
+          code: String(payOrder?.code || payload?.code || '').replace(/^T/i, ''),
+          name: String(payOrder?.name || payload?.client_name || payload?.client?.name || 'Klient').trim(),
+          phone: String(payOrder?.phone || payload?.client_phone || payload?.client?.phone || '').trim(),
+          amount: applied,
+          syncPending: true,
+          syncState: 'pending',
+          syncError: '',
+          idempotencyKey,
+        });
+        showFastPayNotice('U ruajt. SMS-i i pagesës është gati.', 'ok', 2600);
+
+        Promise.resolve().then(() => finishFastDeliverySync({
+          payload,
+          optimisticPayload: queuedPayload,
+          applied,
+          pinData,
+          method: payMethod,
+          orderId,
+          idempotencyKey,
+          deliveryOpId,
+        }));
+        return true;
       }
 
-      await finalizeDeliveredUi(finalPayload);
+      const offlineAtConfirm = typeof navigator !== 'undefined' && navigator.onLine === false;
+      if (offlineAtConfirm) {
+        const deliveryOpId = await queueOp('patch_order_data', {
+          id: orderId,
+          table: 'orders',
+          status: 'dorzim',
+          data: {
+            status: 'dorzim',
+            data: payload,
+            updated_at: payload?.updated_at || actionAt,
+            delivered_at: payload?.delivered_at || actionAt,
+            picked_up_at: payload?.picked_up_at || actionAt,
+          },
+        });
+        const queuedDeliveryPayload = {
+          ...payload,
+          offline_delivery_pending: true,
+          delivery_sync_state: 'OUTBOX_PENDING',
+          delivery_outbox_op_id: deliveryOpId || null,
+        };
+        await finalizeDeliveredUi(queuedDeliveryPayload, { syncPending: true });
+        showFastPayNotice('U konfirmu. Mund të vazhdosh me klientin tjetër.', 'ok', 2200);
+        return true;
+      }
+
+      await closeOrderStatusWithVerification(orderId, payload);
+      await finalizeDeliveredUi(payload);
       showFastPayNotice('U konfirmu. Mund të vazhdosh me klientin tjetër.', 'ok', 3200);
-      setPayBusy(false);
+      return true;
     } catch (err) {
       const rawReason = String(err?.response?.error || err?.message || err || '').trim();
-      const friendlyNetworkReason = /load failed|failed to fetch|arka_network_unreachable|arka_offline|network/i.test(rawReason)
-        ? 'RRJETI NUK U PËRGJIGJ. Pagesa nuk shënohet si e paguar pa u regjistruar në ARKË. Provo prapë kur të kthehet lidhja.'
-        : rawReason;
-      const reasonLine = friendlyNetworkReason ? `
+      const deviceBlocked = isDeviceSessionError(err) || /device_not_approved|auth_required|actor_session_mismatch/i.test(rawReason);
+      const friendlyReason = deviceBlocked
+        ? 'PAJISJA NUK U VERIFIKUA. DIL TE LOGIN DHE HY PËRSËRI. NËSE DEL NË PRITJE, APROVOJE TE ADMIN / DEVICES.'
+        : (/load failed|failed to fetch|arka_network_unreachable|arka_offline|network/i.test(rawReason)
+          ? 'RRJETI NUK U PËRGJIGJ DHE PAJISJA S’KISHTE APROVIM OFFLINE TË RUAJTUR. PROVO KUR TË KTHEHET LIDHJA.'
+          : rawReason);
+      const reasonLine = friendlyReason ? `
 
-ARSYE: ${friendlyNetworkReason}` : '';
+ARSYE: ${friendlyReason}` : '';
       const msg = `Dorëzimi/pagesa nuk u krye plotësisht. Provo përsëri.${reasonLine}`;
       try { console.error('[GATI FAST CONFIRM FAILED BEFORE UI CLOSE]', err?.response || err); } catch {}
       setPayErr(msg);
       alert(msg);
-      await refreshOrders('gati_fast_confirm_failed_before_ui_close');
+      void refreshOrders('gati_fast_confirm_failed_before_ui_close');
+      return false;
+    } finally {
+      paySubmitLockRef.current = false;
       setPayBusy(false);
     }
   }
@@ -4121,6 +4331,12 @@ async function resolveReturnDbId(row) {
     openPay(row);
   }
 
+  const receiptSyncState = String(paymentSmsReceipt?.syncState || (paymentSmsReceipt?.syncPending ? 'pending' : 'synced')).toLowerCase();
+  const receiptIsSynced = receiptSyncState === 'synced';
+  const receiptHasError = receiptSyncState === 'error';
+  const receiptAccent = receiptIsSynced ? '#86efac' : (receiptHasError ? '#fca5a5' : '#fde68a');
+  const receiptBorder = receiptIsSynced ? 'rgba(34,197,94,.55)' : (receiptHasError ? 'rgba(248,113,113,.62)' : 'rgba(245,158,11,.58)');
+
   return (
     <div className="wrap">
       {fastPayNotice ? (
@@ -4145,6 +4361,45 @@ async function resolveReturnDbId(row) {
           }}
         >
           {fastPayNotice.text}
+        </div>
+      ) : null}
+      {paymentSmsReceipt ? (
+        <div role="status" aria-live="polite" style={{ position: 'fixed', left: 8, right: 8, bottom: 'max(10px, env(safe-area-inset-bottom))', zIndex: 100500, borderRadius: 20, border: `1px solid ${receiptBorder}`, background: receiptIsSynced ? 'linear-gradient(145deg,#052e24,#071a17)' : (receiptHasError ? 'linear-gradient(145deg,#450a0a,#1f1010)' : 'linear-gradient(145deg,#3b2506,#1f1708)'), boxShadow: '0 18px 60px rgba(0,0,0,.72)', padding: 15, color: '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ color: receiptAccent, fontSize: 12, fontWeight: 950, letterSpacing: 1.2 }}>
+                {receiptIsSynced ? 'PAGESA U REGJISTRUA' : (receiptHasError ? 'PAGESA U RUAJT • SINKRONIZIM NË PRITJE' : 'PAGESA U RUAJT • DUKE U SINKRONIZUAR')}
+              </div>
+              <div style={{ marginTop: 5, fontSize: 21, fontWeight: 950 }}>{Number(paymentSmsReceipt.amount || 0).toFixed(2)} € • Kodi {paymentSmsReceipt.code || '—'}</div>
+              <div style={{ marginTop: 3, color: '#cbd5e1' }}>{paymentSmsReceipt.name}</div>
+              {!receiptIsSynced ? (
+                <div style={{ marginTop: 6, color: receiptHasError ? '#fecaca' : '#fde68a', fontSize: 12, fontWeight: 850 }}>
+                  {receiptHasError ? 'Pagesa është e sigurt në telefon dhe do të provohet përsëri.' : 'Konfirmimi në ARKË po vazhdon në prapavijë.'}
+                </div>
+              ) : null}
+            </div>
+            <button type="button" onClick={() => setPaymentSmsReceipt(null)} style={{ width: 42, height: 42, borderRadius: 13, border: '1px solid #355047', background: '#0b1f1a', color: '#fff', fontSize: 22 }}>×</button>
+          </div>
+          <button
+            type="button"
+            disabled={!String(paymentSmsReceipt.phone || '').trim()}
+            onClick={() => {
+              const phone = String(paymentSmsReceipt.phone || '').replace(/[^+\d]/g, '');
+              const amount = Number(paymentSmsReceipt.amount || 0).toFixed(2);
+              const code = String(paymentSmsReceipt.code || '').trim();
+              const name = String(paymentSmsReceipt.name || 'Klient').trim();
+              const text = receiptIsSynced
+                ? 'Pershendetje ' + name + ', pagesa juaj prej ' + amount + ' € per porosine me kodin ' + code + ' u regjistrua me sukses. Faleminderit!'
+                : 'Pershendetje ' + name + ', pagesa juaj prej ' + amount + ' € per porosine me kodin ' + code + ' u pranua dhe u ruajt. Regjistrimi ne sistem po perfundohet. Faleminderit!';
+              if (!phone) return;
+              window.location.href = 'sms:' + phone + '?&body=' + encodeURIComponent(text);
+            }}
+            style={{ width: '100%', minHeight: 56, marginTop: 13, borderRadius: 17, border: 0, background: String(paymentSmsReceipt.phone || '').trim() ? (receiptIsSynced ? '#22c55e' : '#fbbf24') : '#334155', color: '#04130a', fontSize: 18, fontWeight: 950 }}
+          >
+            {String(paymentSmsReceipt.phone || '').trim()
+              ? (receiptIsSynced ? 'DËRGO SMS TË PAGESËS' : 'DËRGO SMS • PAGESA U RUAJT')
+              : 'KLIENTI NUK KA TELEFON'}
+          </button>
         </div>
       ) : null}
       <header className="header-row">

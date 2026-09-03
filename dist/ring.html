@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#05070d" />
+  <title>Ring • TEPIHA</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:#05070d; color:#f8fafc; }
+    .wrap { width:min(760px,100%); margin:0 auto; padding:calc(18px + env(safe-area-inset-top)) 16px calc(30px + env(safe-area-inset-bottom)); }
+    .top { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+    .back { display:inline-grid; place-items:center; width:46px; height:46px; flex:0 0 46px; border-radius:14px; background:#111827; color:#fff; text-decoration:none; font-size:25px; border:1px solid #243044; }
+    h1 { margin:0; font-size:27px; letter-spacing:-.02em; }
+    .sub { color:#94a3b8; font-size:14px; margin-top:4px; line-height:1.4; }
+    .card { background:#0b1220; border:1px solid #1f2d43; border-radius:20px; padding:17px; margin-bottom:14px; box-shadow:0 12px 36px rgba(0,0,0,.22); }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .status { display:inline-flex; align-items:center; gap:8px; font-weight:950; font-size:13px; padding:9px 12px; border-radius:999px; background:#182235; color:#cbd5e1; }
+    .status.ok { background:#0d2a1f; color:#86efac; }
+    .status.warn { background:#30240a; color:#fde68a; }
+    .btn { width:100%; display:block; text-align:center; text-decoration:none; border:0; border-radius:15px; padding:15px 16px; font-weight:950; font-size:16px; cursor:pointer; background:#2563eb; color:#fff; margin-top:12px; }
+    .btn.secondary { background:#172033; color:#e2e8f0; border:1px solid #2a3850; }
+    .btn:disabled { opacity:.55; cursor:not-allowed; }
+    .msg { margin-top:12px; font-size:14px; line-height:1.5; color:#cbd5e1; }
+    .err { color:#fca5a5; }
+    .oktext { color:#86efac; }
+    .hint { margin-top:12px; border-radius:13px; background:#111827; border:1px solid #26344c; padding:12px; color:#bfdbfe; font-size:13px; font-weight:800; line-height:1.45; }
+    .auth-help { display:none; margin-top:14px; padding-top:14px; border-top:1px solid #22314a; }
+    .auth-help strong { display:block; font-size:16px; margin-bottom:6px; }
+    .auth-help p { margin:0; color:#cbd5e1; font-size:14px; line-height:1.45; }
+    .grid { display:grid; gap:10px; margin-top:12px; }
+    .device { padding:14px; border-radius:15px; background:#0f172a; border:1px solid #22314a; }
+    .device strong { display:block; font-size:16px; }
+    .device small { display:block; margin-top:6px; color:#94a3b8; word-break:break-all; line-height:1.35; }
+    .meta { display:none; margin-top:12px; padding-top:12px; border-top:1px solid #22314a; color:#94a3b8; font-size:12px; line-height:1.5; }
+    .steps { margin:12px 0 0; padding:0; list-style:none; display:grid; gap:9px; }
+    .steps li { display:flex; gap:10px; align-items:flex-start; color:#cbd5e1; font-size:13px; font-weight:750; line-height:1.45; }
+    .steps b { display:inline-grid; place-items:center; flex:0 0 24px; width:24px; height:24px; border-radius:999px; background:#1d4ed8; color:#fff; font-size:12px; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="top">
+      <a class="back" href="/" aria-label="Kthehu">‹</a>
+      <div><h1>Ring Cameras</h1><div class="sub">Kamerat e autorizuara për sistemin TEPIHA.</div></div>
+    </div>
+
+    <section class="card">
+      <div class="row">
+        <div><strong>Gjendja e lidhjes</strong><div class="sub" id="statusText">Duke kontrolluar…</div></div>
+        <span class="status" id="statusPill">KONTROLL</span>
+      </div>
+
+      <a class="btn" id="ringStoreBtn" href="https://ring.com/appstore" target="_blank" rel="noopener">HAPE RING APPSTORE</a>
+      <a class="btn secondary" id="ringConsoleBtn" href="https://developer.amazon.com/ring/console/apps" target="_blank" rel="noopener">RING DEVELOPER</a>
+      <button class="btn secondary" id="refreshBtn" type="button">RIFRESKO KAMERAT</button>
+      <div class="msg" id="message"></div>
+      <div class="hint" id="connectHint">Account-i 1/10 në Ring Developer vetëm e lejon llogarinë me e pa private app-in. Lidhja reale bëhet te Ring Appstore.</div>
+
+      <ol class="steps" id="installSteps">
+        <li><b>1</b><span>Hape Ring app → Menu ☰ → Apps.</span></li>
+        <li><b>2</b><span>Hape Explore/Browse Ring Appstore dhe gjeje <strong>TEPIHA Camera Integration</strong> me shenjën Private.</span></li>
+        <li><b>3</b><span>Shtype Connect App, zgjidhi kamerat dhe konfirmo lejet.</span></li>
+        <li><b>4</b><span>Kur të hapet “Lidh Ring me TEPIHA”, kyçu si OWNER/ADMIN dhe shtype KONFIRMO LIDHJEN.</span></li>
+      </ol>
+
+      <div class="auth-help" id="authHelp">
+        <strong>Duhet me u kyç në TEPIHA</strong>
+        <p>Kjo dritare nuk e ka sesionin e app-it. Kyçu si OWNER ose ADMIN dhe kthehu këtu.</p>
+        <a class="btn" id="loginBtn" href="/login?returnTo=%2Fring.html%3Fv%3Done-way-v2">KYÇU NË TEPIHA</a>
+        <a class="btn secondary" href="/">HAPE TEPIHA</a>
+      </div>
+
+      <div class="meta" id="connectionMeta"></div>
+    </section>
+
+    <section class="card" id="devicesCard" style="display:none">
+      <div class="row"><strong>Kamerat e autorizuara</strong><span class="status ok" id="deviceCount">0</span></div>
+      <div class="grid" id="devices"></div>
+    </section>
+  </main>
+
+  <script>
+    const el = (id) => document.getElementById(id);
+    const state = { busy:false, status:null, authRequired:false };
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function setBusy(value) {
+      state.busy = !!value;
+      el('refreshBtn').disabled = state.busy;
+      el('refreshBtn').textContent = state.busy ? 'DUKE KONTROLLUAR…' : 'RIFRESKO KAMERAT';
+    }
+
+    function message(text, kind='') {
+      el('message').textContent = text || '';
+      el('message').className = 'msg ' + (kind === 'error' ? 'err' : kind === 'ok' ? 'oktext' : '');
+    }
+
+    function showAuthRequired() {
+      state.authRequired = true;
+      state.status = null;
+      el('authHelp').style.display = 'block';
+      el('devicesCard').style.display = 'none';
+      el('ringStoreBtn').style.display = 'none';
+      el('ringConsoleBtn').style.display = 'none';
+      el('connectHint').style.display = 'none';
+      el('installSteps').style.display = 'none';
+      el('statusPill').textContent = 'KYÇU';
+      el('statusPill').className = 'status warn';
+      el('statusText').textContent = 'Kjo dritare nuk është e kyçur në TEPIHA.';
+      message('Kyçu në TEPIHA në këtë browser dhe shtyp RIFRESKO KAMERAT.', 'error');
+    }
+
+    function renderDevices(devices) {
+      const rows = Array.isArray(devices) ? devices : [];
+      el('deviceCount').textContent = String(rows.length);
+      el('devicesCard').style.display = rows.length ? 'block' : 'none';
+      el('devices').innerHTML = rows.map((d) => {
+        const name = escapeHtml(d?.name || 'Ring camera');
+        const id = escapeHtml(d?.id || '');
+        const type = escapeHtml(d?.type || 'device');
+        return `<div class="device"><strong>${name}</strong><small>${type}${id ? ' • ' + id : ''}</small></div>`;
+      }).join('');
+    }
+
+    function renderStatus(data) {
+      state.authRequired = false;
+      state.status = data || {};
+      el('authHelp').style.display = 'none';
+      const connected = !!data?.connected;
+      const pending = Math.max(0, Number(data?.pendingTokens || 0));
+      const devices = Array.isArray(data?.devices) ? data.devices : [];
+
+      el('ringStoreBtn').style.display = 'block';
+      el('ringConsoleBtn').style.display = 'block';
+      el('connectHint').style.display = 'block';
+      el('installSteps').style.display = connected ? 'none' : 'grid';
+
+      if (connected) {
+        el('statusPill').textContent = 'LIDHUR';
+        el('statusPill').className = 'status ok';
+        el('statusText').textContent = devices.length
+          ? `Ring është lidhur. U gjetën ${devices.length} kamera.`
+          : 'Ring është lidhur. Ende nuk u kthye asnjë kamerë e autorizuar.';
+        el('ringStoreBtn').textContent = 'MENAXHO MY APPS NË RING';
+        el('connectHint').textContent = 'Lidhja është aktive. Shtyp RIFRESKO KAMERAT për statusin më të ri.';
+        message(devices.length ? 'Kamerat u sinkronizuan me sukses.' : 'Lidhja është aktive; kontrollo te My apps cilat kamera janë zgjedhur.', devices.length ? 'ok' : '');
+      } else if (pending > 0) {
+        el('statusPill').textContent = 'NË PRITJE';
+        el('statusPill').className = 'status warn';
+        el('statusText').textContent = 'Tokeni i Ring ka ardhur. Duhet përfunduar faqja “Lidh Ring me TEPIHA”.';
+        el('ringStoreBtn').textContent = 'KTHEHU TE RING APPSTORE';
+        el('connectHint').textContent = 'Ka një lidhje në pritje. Përfundo redirect-in te TEPIHA brenda 10 minutave.';
+        message('Lidhja server-side është pranuar, por ende nuk është konfirmuar me llogarinë TEPIHA.', '');
+      } else {
+        el('statusPill').textContent = 'GATI';
+        el('statusPill').className = 'status warn';
+        el('statusText').textContent = 'Backend-i është gati. Private app-i duhet instaluar nga Ring Appstore.';
+        el('ringStoreBtn').textContent = 'HAPE RING APPSTORE';
+        el('connectHint').textContent = '1/10 në Ring Developer është allowlist. Tash hape Ring Appstore, gjeje TEPIHA Camera Integration dhe shtype Connect App.';
+        message('Nuk ka ende token aktiv të Ring në TEPIHA.', '');
+      }
+
+      renderDevices(devices);
+
+      const meta = [];
+      if (data?.accountId) meta.push('Account: ' + escapeHtml(data.accountId));
+      if (data?.connectedAt) meta.push('Lidhur: ' + escapeHtml(new Date(data.connectedAt).toLocaleString('sq-AL')));
+      if (data?.lastDeviceSyncAt) meta.push('Sinkronizimi: ' + escapeHtml(new Date(data.lastDeviceSyncAt).toLocaleString('sq-AL')));
+      el('connectionMeta').innerHTML = meta.join('<br>');
+      el('connectionMeta').style.display = meta.length ? 'block' : 'none';
+    }
+
+    async function post(url) {
+      const res = await fetch(url, {
+        method:'POST',
+        credentials:'same-origin',
+        headers:{'content-type':'application/json'},
+        body:'{}',
+        cache:'no-store'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) throw new Error(data?.error || ('HTTP_' + res.status));
+      return data;
+    }
+
+    async function loadStatus() {
+      setBusy(true);
+      message('');
+      try {
+        renderStatus(await post('/api/ring/status'));
+      } catch (error) {
+        const code = String(error?.message || error || 'RING_STATUS_FAILED');
+        if (code.includes('AUTH_REQUIRED')) showAuthRequired();
+        else message(code, 'error');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    el('refreshBtn').addEventListener('click', loadStatus);
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('connected') === '1') message('Ring u lidh me sukses.', 'ok');
+    if (params.get('ring_error')) message('Ring: ' + params.get('ring_error'), 'error');
+    loadStatus();
+  </script>
+</body>
+</html>
