@@ -58,3 +58,7 @@ vite = vite.replace(/(cacheName:\s*'tepiha-vite-(?:business-routes|static-assets
 fs.writeFileSync('vite.config.js', vite, 'utf8');
 
 console.log('PASS GATI payment fast receipt V1 installer: version/cache identity and required safety markers are active.');
+
+// Final Dispatch/Boss operational edit layer. Running here keeps it after the
+// legacy release/version owners while preserving the established GATI flow.
+await import('./apply-dispatch-boss-controls-v1.mjs');
