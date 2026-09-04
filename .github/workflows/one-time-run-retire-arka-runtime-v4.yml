@@ -1,0 +1,27 @@
+name: Final ARKA legacy cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-run-retire-arka-runtime-v4.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/retire_legacy_arka_runtime.py
+      - run: git diff --check
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/arka/page.jsx app/arka/layout.jsx src/generated/routes.generated.jsx
+          git commit -m "fix: restore direct ARKA flow and retire daily open-close UI"
+          git pull --rebase origin main
+          git push origin main
