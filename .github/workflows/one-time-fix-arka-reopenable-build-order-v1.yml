@@ -1,0 +1,88 @@
+name: One-time fix ARKA reopenable build order v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-fix-arka-reopenable-build-order-v1.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-fix-arka-reopenable-build-order-v1
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start from latest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Keep the compatible GATI owner last
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          installer_path = Path('tools/apply-arka-reopenable-daily-wizard-v1.mjs')
+          source = installer_path.read_text()
+          old = """  prebuildParts.push(INSTALLER);\n  scripts.prebuild = prebuildParts.join(' && ');"""
+          new = """  const finalVersionOwner = 'node tools/apply-gati-rack-save-v1.mjs';\n  const finalOwnerIndex = prebuildParts.lastIndexOf(finalVersionOwner);\n  if (finalOwnerIndex >= 0) prebuildParts.splice(finalOwnerIndex, 0, INSTALLER);\n  else prebuildParts.push(INSTALLER);\n  scripts.prebuild = prebuildParts.join(' && ');"""
+          if old in source:
+              source = source.replace(old, new, 1)
+          elif new not in source:
+              raise SystemExit('INSTALLER_BUILD_ORDER_ANCHOR_NOT_FOUND')
+          source = source.replace(
+              'installer owns the final prebuild position.',
+              'installer runs immediately before the compatible final version owner.'
+          )
+          installer_path.write_text(source)
+
+          verifier_path = Path('tools/verify-arka-reopenable-daily-wizard-v1.mjs')
+          source = verifier_path.read_text()
+          old = """const installer = 'node tools/apply-arka-reopenable-daily-wizard-v1.mjs';\nconst prebuildParts = prebuild.split('&&').map((part) => part.trim()).filter(Boolean);\ncheck(prebuildParts.at(-1) === installer, 'reopenable wizard installer must run last in prebuild');"""
+          new = """const installer = 'node tools/apply-arka-reopenable-daily-wizard-v1.mjs';\nconst finalVersionOwner = 'node tools/apply-gati-rack-save-v1.mjs';\nconst prebuildParts = prebuild.split('&&').map((part) => part.trim()).filter(Boolean);\nconst installerIndex = prebuildParts.indexOf(installer);\nconst ownerIndex = prebuildParts.lastIndexOf(finalVersionOwner);\ncheck(installerIndex >= 0, 'reopenable wizard installer missing from prebuild');\ncheck(ownerIndex >= 0 ? installerIndex === ownerIndex - 1 : installerIndex === prebuildParts.length - 1, 'reopenable wizard installer is not immediately before the compatible final version owner');"""
+          if old in source:
+              source = source.replace(old, new, 1)
+          elif new not in source:
+              raise SystemExit('VERIFIER_BUILD_ORDER_ANCHOR_NOT_FOUND')
+          verifier_path.write_text(source)
+          PY
+
+      - name: Reapply and verify
+        run: |
+          node tools/apply-arka-reopenable-daily-wizard-v1.mjs
+          node tools/verify-arka-reopenable-daily-wizard-v1.mjs
+          node tools/verify-home-search-base-role-boundary-v1.mjs
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/apply-arka-reopenable-daily-wizard-v1.mjs \
+            tools/verify-arka-reopenable-daily-wizard-v1.mjs \
+            components/ArkaDailyCloseWizard.jsx \
+            package.json \
+            vite.config.js \
+            lib/appEpoch.js \
+            index.html
+          if git diff --cached --quiet; then
+            echo "Build-order patch already present."
+            exit 0
+          fi
+          git commit -m "fix: preserve ARKA wizard in compatible build order"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          exit 1
