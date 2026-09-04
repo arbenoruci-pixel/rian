@@ -31,7 +31,6 @@ import ArkaKapakuPageEager from '@/app/arka/kapaku/page.jsx';
 import ArkaObligimetPageEager from '@/app/arka/obligimet/page.jsx';
 import ArkaPayrollPageEager from '@/app/arka/payroll/page.jsx';
 import ArkaStafiPageEager from '@/app/arka/stafi/page.jsx';
-import ArkaDitorePageEager from '@/app/arka/ditore/page.jsx';
 import ArkaBonusetPageEager from '@/app/arka/bonuset/page.jsx';
 // BASE_READY_48H_BONUS_V1:ROUTES
 // ARKA_DAILY_CONTROL_V1:ROUTES
@@ -661,7 +660,7 @@ export const appRoutes = [
   { path: '/arka/borqet', element: <Navigate to='/arka/obligimet' replace /> },
   { path: '/arka/investimet', element: <Navigate to='/arka' replace /> },
   { path: '/arka/bonuset', element: eagerElement(ArkaBonusetPageEager, '/arka/bonuset') },
-  { path: '/arka/ditore', element: eagerElement(ArkaDitorePageEager, '/arka/ditore') },
+  { path: '/arka/ditore', element: <Navigate to='/arka' replace /> },
   { path: '/arka/obligimet', element: eagerElement(ArkaObligimetPageEager, '/arka/obligimet') },
   { path: '/arka/kapaku', element: eagerElement(ArkaKapakuPageEager, '/arka/kapaku') },
   { path: '/arka', element: eagerElement(ArkaPageEager, '/arka') },
