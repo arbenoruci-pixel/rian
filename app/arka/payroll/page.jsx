@@ -253,7 +253,6 @@ function AccessDeniedPanel() {
 export default function PayrollPage() {
   const router = useRouter();
   const [actor, setActor] = useState(null);
-  const [masterPin, setMasterPin] = useState("");
   const [staff, setStaff] = useState([]);
   const [debtsMap, setDebtsMap] = useState({});
   const [loading, setLoading] = useState(true);
@@ -541,7 +540,7 @@ export default function PayrollPage() {
         status_snapshot: payment?.status || null,
         type_snapshot: payment?.type || null,
         source_module_snapshot: payment?.source_module || null,
-        created_by_pin: String(actor?.pin || masterPin || '2380'),
+        created_by_pin: String(actor?.pin || '2380'),
         created_by_name: String(actor?.name || actor?.full_name || actor?.display_name || 'MASTER USER'),
         created_at: new Date().toISOString(),
       };
@@ -659,8 +658,8 @@ export default function PayrollPage() {
   }
 
   async function handleAddAdvance() {
-    if (!advanceModal || !masterPin) {
-      alert("Kërkohet Master PIN për këtë veprim.");
+    if (!advanceModal || !isAdminUser) {
+      alert("Nuk ke leje për këtë veprim.");
       return;
     }
     const amt = parseAmountInput(advanceAmount);
@@ -707,8 +706,8 @@ export default function PayrollPage() {
   }, [salaryModal]);
 
   async function handlePaySalary() {
-    if (!salaryModal || !masterPin) {
-      alert("Kërkohet Master PIN për pagesën e rrogës.");
+    if (!salaryModal || !isAdminUser) {
+      alert("Nuk ke leje për pagesën e rrogës.");
       return;
     }
     if (actionBusy) return;
@@ -744,7 +743,7 @@ export default function PayrollPage() {
     try {
       const res = await arkaTransaction({
         action: ARKA_ACTION.PAYROLL_SALARY_PAYMENT,
-        actorPin: String(masterPin || '').trim(),
+        actorPin: String(actor?.pin || '').trim(),
         actorName: actor?.name || 'MASTER USER',
         actorRole: actor?.role || 'ADMIN',
         workerId: salaryModal?.id || null,
@@ -779,8 +778,8 @@ export default function PayrollPage() {
       alert("Vetëm administratori i stafit mund ta ndryshojë borxhin afatgjatë të përdoruesit.");
       return;
     }
-    if (!salaryModal || !masterPin) {
-      alert("Kërkohet Master PIN për këtë veprim.");
+    if (!salaryModal || !isAdminUser) {
+      alert("Nuk ke leje për këtë veprim.");
       return;
     }
     const totalToMove = Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0);
@@ -822,7 +821,7 @@ export default function PayrollPage() {
       for (const row of targetMap.values()) {
         const res = await arkaTransaction({
           action: ARKA_ACTION.VOID_OR_REVERSE_PAYMENT,
-          actorPin: String(masterPin || workerPin || 'MASTER'),
+          actorPin: String(actor?.pin || workerPin || 'MASTER'),
           actorName: `Payroll ${String(workerName || workerPin || '').trim()}`.trim(),
           paymentId: row.id,
           note: `MOVE_ADVANCE_TO_LONG_TERM • ${workerName || workerPin}`,
@@ -1135,16 +1134,6 @@ export default function PayrollPage() {
         <details className="adminTools">
           <summary>ADMIN TOOLS</summary>
           <div className="adminToolsBody">
-            <label className="adminPinBox">
-              <span>Master PIN</span>
-              <input
-                type="password"
-                value={masterPin}
-                placeholder="****"
-                onChange={(e) => setMasterPin(onlyDigits(e.target.value))}
-                autoComplete="off"
-              />
-            </label>
             {canManageStaffIdentity ? (
               <Link prefetch={false} href="/arka/stafi" className="staffManageLink">MENAXHIMI I STAFIT</Link>
             ) : (
