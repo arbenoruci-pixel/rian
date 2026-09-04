@@ -1,10 +1,11 @@
-name: One-time retire legacy ARKA open-close UI v3
+name: Retire legacy ARKA runtime
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
-      - '.github/workflows/one-time-retire-arka-open-close-ui-v1.yml'
+      - .github/workflows/one-time-retire-arka-open-close-ui-v1.yml
 
 permissions:
   contents: write
@@ -13,250 +14,22 @@ jobs:
   patch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Restore direct ARKA flow and remove old open-close UI
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+      - name: Patch active runtime
+        run: python3 scripts/retire_legacy_arka_runtime.py
 
-          changed = []
+      - name: Verify diff
+        run: git diff --check
 
-          def save(path, before, after):
-            if before != after:
-              Path(path).write_text(after)
-              changed.append(path)
-
-          # Routing truth: the retired URL remains harmless and redirects to ARKA.
-          route_path = 'src/generated/routes.generated.jsx'
-          before = Path(route_path).read_text()
-          after = before.replace(
-            "import ArkaDitorePageEager from '@/app/arka/ditore/page.jsx';\n",
-            ''
-          ).replace(
-            "  { path: '/arka/ditore', element: eagerElement(ArkaDitorePageEager, '/arka/ditore') },",
-            "  { path: '/arka/ditore', element: <Navigate to='/arka' replace /> },"
-          )
-          save(route_path, before, after)
-
-          # The global floating daily-close shortcut is removed from every ARKA screen.
-          layout_path = 'app/arka/layout.jsx'
-          before = Path(layout_path).read_text()
-          after = before.replace(
-            "import ArkaDailyCloseShortcut from '@/components/ArkaDailyCloseShortcut.jsx';\n",
-            ''
-          ).replace(
-            "        <ArkaDailyCloseShortcut />\n",
-            ''
-          )
-          save(layout_path, before, after)
-
-          page_path = 'app/arka/page.jsx'
-          before = Path(page_path).read_text()
-          after = before
-
-          disabled_row_accept = """  function handleAccept() {
-      // ARKA_DAILY_CLOSE_V2_ONE_WAY: individual acceptance is disabled; Dispatch closes all confirmed cash in one wizard.
-      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
-    }
-"""
-          direct_row_accept = """  async function handleAccept() {
-    if (onReviewAccept) {
-      onReviewAccept({
-        worker: workerSummary?.worker || { pin: row?.worker_pin, name: row?.worker_name },
-        pendingHandoffRows: [row],
-      });
-      return;
-    }
-    if (review.hasDuplicateTransportItems) {
-      alert('🔴 U GJET DUPLICATE TRANSPORT ITEM. Totali u shfaq me dedupe, por pranimi raw u ndalua për siguri.');
-      return;
-    }
-    try {
-      setBusy('accept');
-      await acceptDispatchHandoff({ handoffId: row.id, actor });
-      await onDone?.(row?.id);
-      alert('✅ CASH U PRANUA.');
-    } catch (e) {
-      alert(`🔴 ${e?.message || 'NUK U PRANUA CASH.'}`);
-    } finally {
-      setBusy('');
-    }
-  }
-"""
-          if disabled_row_accept not in after:
-            raise SystemExit('Expected disabled PendingHandoffRow accept block was not found')
-          after = after.replace(disabled_row_accept, direct_row_accept, 1)
-          after = after.replace(
-            "{busy === 'accept' ? '...' : 'HAP MBYLLJEN DITORE'}",
-            "{busy === 'accept' ? '...' : 'PRANO CASH'}",
-            1
-          )
-
-          disabled_manager_accept = """  function acceptWorkerCashFromCard() {
-      // ARKA_DAILY_CLOSE_V2_ONE_WAY: every manager entry point uses the same daily close route.
-      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
-    }
-
-  async function confirmCashAcceptReview() {
-      // ARKA_DAILY_CLOSE_V2_ONE_WAY: legacy review modal cannot post to the budget.
-      setCashAcceptReview(null);
-      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
-    }
-"""
-          direct_manager_accept = """  function acceptWorkerCashFromCard(item) {
-    const rows = Array.isArray(item?.pendingHandoffRows) ? item.pendingHandoffRows : [];
-    if (!rows.length) {
-      alert('S’KA DORËZIM CASH NË PRITJE PËR KËTË PUNTOR.');
-      return;
-    }
-    setCashAcceptReview(buildWorkerHandoffReview(item));
-  }
-
-  async function confirmCashAcceptReview() {
-    const review = cashAcceptReview;
-    const rows = Array.isArray(review?.handoffRows) ? review.handoffRows : [];
-    if (!rows.length) {
-      setCashAcceptReview(null);
-      alert('S’KA DORËZIM CASH NË PRITJE.');
-      return;
-    }
-    if (review?.hasDuplicateTransportItems) {
-      alert('🔴 U GJET DUPLICATE TRANSPORT ITEM. Totali u korrigjua me dedupe në ekran, por pranimi raw u ndalua për siguri.');
-      return;
-    }
-    try {
-      setBusy('accept_cash_review');
-      for (const row of rows) {
-        await acceptDispatchHandoff({ handoffId: row.id, actor });
-        await handlePendingHandoffDone(row?.id);
-      }
-      setCashAcceptReview(null);
-      alert('✅ CASH U PRANUA NË ARKË: ' + euro(review?.baseTotal || 0));
-      await scheduleManagerMutationRefresh(actor);
-    } catch (e) {
-      alert('🔴 ' + (e?.message || 'NUK U PRANUA CASH.'));
-    } finally {
-      setBusy('');
-    }
-  }
-"""
-          if disabled_manager_accept not in after:
-            raise SystemExit('Expected disabled manager accept block was not found')
-          after = after.replace(disabled_manager_accept, direct_manager_accept, 1)
-
-          after = after.replace(
-            "{pendingCount ? 'MBYLL DITËN (' + pendingCount + ')' : 'MBYLL DITËN'}",
-            "{pendingCount ? 'PRANO CASH (' + pendingCount + ')' : 'PRANO CASH'}",
-            1
-          )
-
-          # Remove the old daily-close sales card; live totals and direct acceptance stay below.
-          daily_card = re.compile(
-            r"\n\s*\{/\* ARKA_DAILY_CONTROL_V1:ARKA[^\n]*\*/\}\s*"
-            r"<div className=\"arkaSectionCard\"[^>]*>.*?</div>\s*"
-            r"(?=<div className=\"arkaWorkerStats adminTopGrid ownerTotalsGrid\">)",
-            re.S,
-          )
-          after, removed = daily_card.subn('\n          ', after, count=1)
-          if removed != 1:
-            raise SystemExit(f'Expected one daily-control card, removed={removed}')
-
-          save(page_path, before, after)
-
-          if not changed:
-            raise SystemExit('No active-runtime files changed')
-          print('Changed files:')
-          print('\n'.join(changed))
-          PY
-
-      - name: Verify old system is absent from active runtime
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          roots = [Path('app'), Path('components'), Path('src'), Path('lib')]
-          extensions = {'.js', '.jsx', '.ts', '.tsx'}
-          archived = {
-            Path('app/arka/ditore/page.jsx'),
-            Path('components/ArkaDailyCloseShortcut.jsx'),
-            Path('components/ArkaDailyCloseWizard.jsx'),
-          }
-          route_path = Path('src/generated/routes.generated.jsx')
-          forbidden = (
-            'ArkaDitorePageEager',
-            'ArkaDailyCloseShortcut',
-            'ArkaDailyCloseWizard',
-            'ARKA_DAILY_CLOSE_V2_ONE_WAY',
-            'HAP MBYLLJEN DITORE',
-            'MBYLLJA DITORE',
-            'get_arka_daily_close_preview_v2',
-            'get_arka_daily_close_preview_v3',
-            'get_arka_daily_close_preview_v4',
-            'close_arka_day_v2',
-            'add_arka_closed_day_expense_v1',
-            'arka_open_cycle_safe',
-          )
-          bad = []
-
-          for root in roots:
-            if not root.exists():
-              continue
-            for p in root.rglob('*'):
-              if not p.is_file() or p.suffix not in extensions or p in archived:
-                continue
-              for number, line in enumerate(p.read_text().splitlines(), 1):
-                if any(token in line for token in forbidden):
-                  bad.append(f'{p}:{number}: {line.strip()}')
-                if '/arka/ditore' in line:
-                  allowed = (
-                    p == route_path
-                    and "path: '/arka/ditore'" in line
-                    and "<Navigate to='/arka' replace />" in line
-                  )
-                  if not allowed:
-                    bad.append(f'{p}:{number}: {line.strip()}')
-
-          if bad:
-            raise SystemExit('Active legacy ARKA references remain:\n' + '\n'.join(bad[:200]))
-
-          route = route_path.read_text()
-          if "{ path: '/arka/ditore', element: <Navigate to='/arka' replace /> }" not in route:
-            raise SystemExit('Retired route redirect missing')
-          if 'ArkaDitorePageEager' in route:
-            raise SystemExit('Retired route component remains imported')
-
-          page = Path('app/arka/page.jsx').read_text()
-          for required in (
-            "async function handleAccept()",
-            "await acceptDispatchHandoff({ handoffId: row.id, actor });",
-            "setCashAcceptReview(buildWorkerHandoffReview(item));",
-            "PRANO CASH",
-          ):
-            if required not in page:
-              raise SystemExit(f'Direct ARKA acceptance missing: {required}')
-
-          print('Verified: direct ARKA flow is active and daily open-close UI is retired.')
-          PY
-
-      - name: Commit active-runtime cleanup
-        shell: bash
+      - name: Commit cleanup
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/generated/routes.generated.jsx app/arka/layout.jsx app/arka/page.jsx
-          git commit -m "fix: restore direct arka flow and retire daily open-close UI"
+          git add app/arka/page.jsx app/arka/layout.jsx src/generated/routes.generated.jsx
+          git commit -m "fix: restore direct ARKA flow and retire daily open-close UI"
           git pull --rebase origin main
           git push origin main
-
-      - name: Build verification
-        continue-on-error: true
-        shell: bash
-        run: |
-          npm ci
-          npm run build
