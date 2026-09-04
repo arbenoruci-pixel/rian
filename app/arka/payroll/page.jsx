@@ -1119,7 +1119,6 @@ export default function PayrollPage() {
 
           <div className="topActions">
             <Link prefetch={false} href="/arka" className="navBtn">← KTHEHU</Link>
-            <Link prefetch={false} href="/arka/ditore" className="navBtn">MBYLLJA DITORE</Link>
             <button
               type="button"
               className="navBtn refreshBtn"

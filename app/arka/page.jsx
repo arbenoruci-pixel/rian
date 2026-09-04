@@ -3319,7 +3319,6 @@ export default function ArkaPageV3() {
           {String(actor?.pin || '').trim() === '4563' && canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME</Link> : null}
           {String(actor?.pin || '').trim() === '4563' && masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN ARKA</Link> : null}
           {canOpenKapaku ? <Link href="/arka/kapaku" prefetch={false} className="arkaTopBtn">KAPAKU I ARKËS</Link> : null}
-          {canManage ? <Link href="/arka/ditore" prefetch={false} className="arkaTopBtn">MBYLLJA DITORE</Link> : null}
           {canManage ? <Link href="/arka/payroll" prefetch={false} className="arkaTopBtn">PAYROLL</Link> : null}
           {canManage ? <Link href="/arka/stafi" prefetch={false} className="arkaTopBtn">STAFI</Link> : null}
           {canManage ? <Link href="/arka/obligimet" prefetch={false} className="arkaTopBtn">OBLIGIMET</Link> : null}

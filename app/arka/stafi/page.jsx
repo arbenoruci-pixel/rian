@@ -382,7 +382,6 @@ export default function StaffPage() {
 
           <div className="topActions">
             <Link prefetch={false} href="/arka" className="navBtn">← KTHEHU NË ARKË</Link>
-            <Link prefetch={false} href="/arka/ditore" className="navBtn">MBYLLJA DITORE</Link>
             <Link prefetch={false} href="/arka/payroll" className="navBtn primaryGhost">FINANCAT / PAYROLL</Link>
           </div>
         </div>

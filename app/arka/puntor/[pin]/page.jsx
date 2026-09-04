@@ -1408,7 +1408,6 @@ export default function ArkaWorkerDetailPage() {
         <div className="arkaSimpleNav">
           <Link prefetch={false} href="/arka" className="arkaTopBtn">← KTHEHU</Link>
           {canManage ? <Link prefetch={false} href="/arka/payroll" className="arkaTopBtn">PAYROLL</Link> : null}
-          {canManage ? <Link prefetch={false} href="/arka/ditore" className="arkaTopBtn">MBYLLJA DITORE</Link> : null}
         </div>
       </div>
 

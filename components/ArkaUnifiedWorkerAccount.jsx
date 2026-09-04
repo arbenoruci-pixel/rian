@@ -238,7 +238,6 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
 
       {manager && showManagerLinks ? (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:8 }}>
-          <Link to="/arka/ditore" style={linkStyle}>MBYLLJA DITORE</Link>
           <Link to="/arka/payroll" style={linkStyle}>PAYROLL</Link>
           <Link to="/arka/stafi" style={linkStyle}>DEFINO STAFIN</Link>
           <Link to="/arka" style={linkStyle}>ADMIN ARKA</Link>
