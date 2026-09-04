@@ -25,3 +25,5 @@ jobs:
           git commit -m "fix: restore direct ARKA flow and retire daily open-close UI"
           git pull --rebase origin main
           git push origin main
+
+# rerun: 2
