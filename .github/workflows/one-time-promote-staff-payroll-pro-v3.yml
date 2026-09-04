@@ -1,0 +1,68 @@
+name: One-time promote staff payroll pro v3
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/staff-payroll-pro-v3
+    paths:
+      - .github/workflows/one-time-promote-staff-payroll-pro-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested feature
+        uses: actions/checkout@v4
+        with:
+          ref: feature/staff-payroll-pro-v3
+          fetch-depth: 0
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prove installers are idempotent
+        run: |
+          npm run prebuild
+          node tools/apply-staff-payroll-pro-v3.mjs
+          git diff --exit-code -- \
+            api/auth/login.js \
+            app/arka/payroll/page.jsx \
+            app/arka/puntor/'[pin]'/page.jsx \
+            app/arka/stafi/page.jsx \
+            index.html \
+            lib/appEpoch.js \
+            package.json \
+            server/index.mjs \
+            vite.config.js
+
+      - name: Full regression build
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_COMMAND="$(node -p "require('./package.json').scripts.build")"
+          bash -euo pipefail -c "$BUILD_COMMAND"
+
+      - name: Focused security checks
+        run: |
+          npm run test:staff-payroll-pro-v3
+          node --check api/arka/worker-control.js
+          node --check lib/arka/workerControlClient.js
+
+      - name: Fast-forward production branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git merge-base --is-ancestor origin/main HEAD
+          git push origin HEAD:main
