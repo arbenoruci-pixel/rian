@@ -21,8 +21,9 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Remove retired build hooks
+      - name: Remove retired build hooks and dependencies
         run: |
+          python3 scripts/decouple_home_search_from_legacy_arka.py
           python3 scripts/remove_legacy_arka_build_hooks.py
           git rm -f \
             tools/apply-arka-daily-control-v1.mjs \
@@ -57,7 +58,7 @@ jobs:
             -e 'test:arka-daily-close-v2' \
             -e 'test:arka-daily-expense-step-v1' \
             -e 'test:arka-daily-operations-v3' \
-            package.json
+            package.json tools/apply-home-search-base-role-boundary-v1.mjs
           grep -F "{ path: '/arka/ditore', element: <Navigate to='/arka' replace /> }" src/generated/routes.generated.jsx
           grep -F "await acceptDispatchHandoff({ handoffId: row.id, actor });" app/arka/page.jsx
           git diff --check
@@ -66,7 +67,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json
+          git add package.json tools/apply-home-search-base-role-boundary-v1.mjs
           git commit -m "fix: remove retired ARKA daily-close build hooks"
           git pull --rebase origin main
           git push origin main
+
+# rerun: 3
