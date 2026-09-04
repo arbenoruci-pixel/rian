@@ -1,0 +1,69 @@
+name: One-time retire legacy ARKA open-close UI v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-retire-arka-open-close-ui-v1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove active daily-close navigation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          roots = [Path('app'), Path('components'), Path('src')]
+          changed = []
+          for root in roots:
+            if not root.exists():
+              continue
+            for p in root.rglob('*'):
+              if p.suffix not in {'.js', '.jsx', '.ts', '.tsx'} or not p.is_file():
+                continue
+              s = p.read_text()
+              lines = s.splitlines(True)
+              out = []
+              touched = False
+              for line in lines:
+                low = line.lower()
+                if ('/arka/ditore' in low) and ('href=' in low or '<link' in low):
+                  touched = True
+                  continue
+                out.append(line)
+              if touched:
+                p.write_text(''.join(out))
+                changed.append(str(p))
+          print('Changed:', changed)
+          PY
+
+      - name: Verify no daily-close navigation remains
+        shell: bash
+        run: |
+          if git grep -nE 'href=["'"']?/arka/ditore|<Link[^>]+/arka/ditore' -- app components src ':!app/arka/ditore/page.jsx'; then
+            echo 'Legacy daily-close navigation remains' >&2
+            exit 1
+          fi
+
+      - name: Commit UI retirement
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No UI navigation changes needed.'
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app components src
+          git commit -m "fix: remove legacy arka daily close navigation"
+          git push origin main
