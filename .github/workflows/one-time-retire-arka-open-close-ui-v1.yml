@@ -37,7 +37,7 @@ jobs:
               touched = False
               for line in lines:
                 low = line.lower()
-                if ('/arka/ditore' in low) and ('href=' in low or '<link' in low):
+                if '/arka/ditore' in low and ('href=' in low or '<link' in low):
                   touched = True
                   continue
                 out.append(line)
@@ -50,10 +50,26 @@ jobs:
       - name: Verify no daily-close navigation remains
         shell: bash
         run: |
-          if git grep -nE 'href=["'"']?/arka/ditore|<Link[^>]+/arka/ditore' -- app components src ':!app/arka/ditore/page.jsx'; then
-            echo 'Legacy daily-close navigation remains' >&2
-            exit 1
-          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          bad = []
+          for root_name in ('app', 'components', 'src'):
+            root = Path(root_name)
+            if not root.exists():
+              continue
+            for p in root.rglob('*'):
+              if p.suffix not in {'.js', '.jsx', '.ts', '.tsx'} or not p.is_file():
+                continue
+              if str(p) == 'app/arka/ditore/page.jsx':
+                continue
+              for i, line in enumerate(p.read_text().splitlines(), 1):
+                low = line.lower()
+                if '/arka/ditore' in low and ('href=' in low or '<link' in low):
+                  bad.append(f'{p}:{i}:{line.strip()}')
+          if bad:
+            raise SystemExit('Legacy daily-close navigation remains:\n' + '\n'.join(bad))
+          print('Verified: no active /arka/ditore navigation remains.')
+          PY
 
       - name: Commit UI retirement
         shell: bash
