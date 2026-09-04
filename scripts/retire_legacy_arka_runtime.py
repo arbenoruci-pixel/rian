@@ -183,6 +183,15 @@ def patch_arka_page(changed: list[str]) -> None:
         )
     updated = updated[:start] + updated[end:]
 
+    # Remove any remaining marker-only comments from the former one-way system.
+    had_trailing_newline = updated.endswith("\n")
+    updated = "\n".join(
+        line for line in updated.splitlines()
+        if "ARKA_DAILY_CLOSE_V2_ONE_WAY" not in line
+    )
+    if had_trailing_newline:
+        updated += "\n"
+
     write_changed(ARKA_PATH, original, updated, changed)
 
 
