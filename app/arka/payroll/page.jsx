@@ -7,7 +7,6 @@ import { supabase } from "@/lib/supabaseClient";
 import { listPendingPaymentRecords } from "@/lib/arkaService";
 import { ARKA_ACTION, ARKA_SOURCE_MODULE } from "@/lib/arka/arkaConstants";
 import { arkaTransaction, buildArkaIdempotencyKey } from "@/lib/arka/arkaClient";
-import { createPayrollAdvanceCycleFree } from "@/lib/arka/payrollAdvance";
 import { deleteUserRecord, listUserRecords, updateUserRecord } from "@/lib/usersService";
 import { isStaffAdmin } from "@/lib/roles";
 import WorkerCompensationEditor from '@/components/WorkerCompensationEditor';
@@ -291,7 +290,7 @@ export default function PayrollPage() {
   const [adminCashMarkMessage, setAdminCashMarkMessage] = useState("");
 
   const normalizedRole = String(actor?.role || '').toUpperCase();
-  const isAdminUser = ['ADMIN', 'ADMIN_MASTER', 'ADMINISTRATOR', 'DISPATCH', 'MASTER', 'MASTER_USER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);
+  const isAdminUser = ['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(normalizedRole);
   const canManageStaffIdentity = isStaffAdmin(normalizedRole);
 
   useEffect(() => {
@@ -305,7 +304,7 @@ export default function PayrollPage() {
       try { localStorage.removeItem("MASTER_ADMIN_PIN"); } catch {}
 
       const role = String(a?.role || '').toUpperCase();
-      if (!["ADMIN", "ADMIN_MASTER", "ADMINISTRATOR", "DISPATCH", "MASTER", "MASTER_USER", "OWNER", "PRONAR", "SUPERADMIN"].includes(role)) {
+      if (!["ADMIN", "ADMIN_MASTER", "DISPATCH", "OWNER", "PRONAR", "SUPERADMIN"].includes(role)) {
         router.push('/arka');
         return true;
       }
@@ -673,13 +672,20 @@ export default function PayrollPage() {
 
     setAdvanceBusy(true);
     try {
-await createPayrollAdvanceCycleFree({
-  supabase,
-  actor,
-  worker: advanceModal,
-  amount: amt,
-  note: String(advanceNote || 'AVANS').trim() || 'AVANS',
-});
+      await arkaTransaction({
+        action: ARKA_ACTION.EXPENSE_REQUEST,
+        actorPin: actor?.pin || advanceModal?.pin || null,
+        actorName: actor?.name || null,
+        actorRole: actor?.role || null,
+        workerPin: advanceModal?.pin || null,
+        workerName: advanceModal?.name || null,
+        paymentType: 'ADVANCE',
+        sourceModule: ARKA_SOURCE_MODULE.ARKA,
+        status: 'ADVANCE',
+        amount: amt,
+        note: String(advanceNote || 'AVANS').trim() || 'AVANS',
+        idempotencyKey: buildArkaIdempotencyKey(ARKA_ACTION.EXPENSE_REQUEST, [advanceModal?.pin || '', 'ADVANCE', amt]),
+      });
       alert(`✅ Avansi ${euro(amt)} u regjistrua për ${advanceModal?.name || 'punëtorin'}.`);
       setAdvanceModal(null);
       setAdvanceAmount("");
@@ -1113,6 +1119,7 @@ await createPayrollAdvanceCycleFree({
 
           <div className="topActions">
             <Link prefetch={false} href="/arka" className="navBtn">← KTHEHU</Link>
+            <Link prefetch={false} href="/arka/ditore" className="navBtn">MBYLLJA DITORE</Link>
             <button
               type="button"
               className="navBtn refreshBtn"

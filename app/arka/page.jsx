@@ -1898,29 +1898,10 @@ function PendingHandoffRow({ row, actor, onDone, workerSummary, onReviewAccept }
   const clients = review.clientRows;
   const clientCount = Number(row?.count_clients || clients.length || 0) || 0;
 
-  async function handleAccept() {
-    if (onReviewAccept) {
-      onReviewAccept({
-        worker: workerSummary?.worker || { pin: row?.worker_pin, name: row?.worker_name },
-        pendingHandoffRows: [row],
-      });
-      return;
+  function handleAccept() {
+      // ARKA_DAILY_CLOSE_V2_ONE_WAY: individual acceptance is disabled; Dispatch closes all confirmed cash in one wizard.
+      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
     }
-    if (review.hasDuplicateTransportItems) {
-      alert('🔴 U GJET DUPLICATE TRANSPORT ITEM. Totali u shfaq me dedupe, por pranimi raw u ndalua për siguri.');
-      return;
-    }
-    try {
-      setBusy('accept');
-      await acceptDispatchHandoff({ handoffId: row.id, actor });
-      await onDone?.(row?.id);
-      alert('✅ CASH U PRANUA.');
-    } catch (e) {
-      alert(`🔴 ${e?.message || 'NUK U PRANUA CASH.'}`);
-    } finally {
-      setBusy('');
-    }
-  }
 
   async function handleReject() {
     const note = window.prompt('SHËNIMI I REFUZIMIT', 'KTHEJE DHE KONTROLLO PARATË') || '';
@@ -1960,7 +1941,7 @@ function PendingHandoffRow({ row, actor, onDone, workerSummary, onReviewAccept }
       </div>
 
       <div className="arkaPendingActions" style={{ justifyContent: 'flex-end' }}>
-        <button type="button" className="arkaTinyBtn ok" disabled={!!busy} onClick={handleAccept}>{busy === 'accept' ? '...' : 'PRANO CASH'}</button>
+        <button type="button" className="arkaTinyBtn ok" disabled={!!busy} onClick={handleAccept}>{busy === 'accept' ? '...' : 'HAP MBYLLJEN DITORE'}</button>
         <button type="button" className="arkaTinyBtn bad" disabled={!!busy} onClick={handleReject}>{busy === 'reject' ? '...' : 'KTHEJE / REFUZO'}</button>
       </div>
     </div>
@@ -2270,7 +2251,7 @@ function WorkerSummaryCard({ item, busy = '', onAcceptCash, onAddExpense, onAddA
       {!cashRows.length && historyRows.length ? <div className="arkaCashCompactList adminMini">{historyRows.slice(0,3).map((row)=><CashClientCompactRow key={`worker_history_${item?.worker?.pin}_${row.id || row.created_at}`} row={row} workerName={workerFirstName} mini />)}{historyRows.length > 3 ? <div className="arkaCashMore">+ {historyRows.length - 3} HISTORI</div> : null}</div> : null}
       <div className="arkaWorkerActions mainOnly">
         <Link prefetch={false} href={`/arka/puntor/${encodeURIComponent(item?.worker?.pin || '')}`} className="arkaTopBtn">HAP</Link>
-        <button type="button" className="arkaTopBtn" disabled={!!busy || !pendingCount} onClick={() => onAcceptCash?.(item)}>{pendingCount ? 'PRANO CASH (' + pendingCount + ')' : 'PRANO CASH'}</button>
+        <button type="button" className="arkaTopBtn" disabled={!!busy || !pendingCount} onClick={() => onAcceptCash?.(item)}>{pendingCount ? 'MBYLL DITËN (' + pendingCount + ')' : 'MBYLL DITËN'}</button>
       </div>
       <details className="arkaInlineAdminTools"><summary>ADMIN</summary><div className="arkaWorkerActions adminTools"><button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddExpense?.(item)}>SHTO SHPENZIM</button><button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddAdvance?.(item)}>SHTO AVANS</button></div></details>
     </div>
@@ -2402,42 +2383,16 @@ export default function ArkaPageV3() {
     await scheduleManagerMutationRefresh(actor);
   }
 
-  function acceptWorkerCashFromCard(item) {
-    const rows = Array.isArray(item?.pendingHandoffRows) ? item.pendingHandoffRows : [];
-    if (!rows.length) {
-      alert('S’KA DORËZIM CASH NË PRITJE PËR KËTË PUNTOR.');
-      return;
+  function acceptWorkerCashFromCard() {
+      // ARKA_DAILY_CLOSE_V2_ONE_WAY: every manager entry point uses the same daily close route.
+      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
     }
-    setCashAcceptReview(buildWorkerHandoffReview(item));
-  }
 
   async function confirmCashAcceptReview() {
-    const review = cashAcceptReview;
-    const rows = Array.isArray(review?.handoffRows) ? review.handoffRows : [];
-    if (!rows.length) {
+      // ARKA_DAILY_CLOSE_V2_ONE_WAY: legacy review modal cannot post to the budget.
       setCashAcceptReview(null);
-      alert('S’KA DORËZIM CASH NË PRITJE.');
-      return;
+      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
     }
-    if (review?.hasDuplicateTransportItems) {
-      alert('🔴 U GJET DUPLICATE TRANSPORT ITEM. Totali u korrigjua me dedupe në ekran, por pranimi raw u ndalua për siguri.');
-      return;
-    }
-    try {
-      setBusy('accept_cash_review');
-      for (const row of rows) {
-        await acceptDispatchHandoff({ handoffId: row.id, actor });
-        await handlePendingHandoffDone(row?.id);
-      }
-      setCashAcceptReview(null);
-      alert('✅ CASH U PRANUA NË ARKË: ' + euro(review?.baseTotal || 0));
-      await scheduleManagerMutationRefresh(actor);
-    } catch (e) {
-      alert('🔴 ' + (e?.message || 'NUK U PRANUA CASH.'));
-    } finally {
-      setBusy('');
-    }
-  }
 
   async function addWorkerExpenseFromCard(item) {
     const worker = item?.worker || {};
@@ -2465,6 +2420,7 @@ export default function ArkaPageV3() {
   }
 
   async function insertWorkerAdvance({ worker, amount, note }) {
+    // ARKA_DAILY_CLOSE_V2_ONE_WAY: an advance is created together with its immediate audited budget OUT.
     const workerPin = String(worker?.pin || actor?.pin || '').trim();
     const workerName = String(worker?.name || actor?.name || workerPin).trim();
     if (!workerPin) throw new Error('MUNGON PIN-I I PUNËTORIT.');
@@ -3363,6 +3319,7 @@ export default function ArkaPageV3() {
           {String(actor?.pin || '').trim() === '4563' && canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME</Link> : null}
           {String(actor?.pin || '').trim() === '4563' && masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN ARKA</Link> : null}
           {canOpenKapaku ? <Link href="/arka/kapaku" prefetch={false} className="arkaTopBtn">KAPAKU I ARKËS</Link> : null}
+          {canManage ? <Link href="/arka/ditore" prefetch={false} className="arkaTopBtn">MBYLLJA DITORE</Link> : null}
           {canManage ? <Link href="/arka/payroll" prefetch={false} className="arkaTopBtn">PAYROLL</Link> : null}
           {canManage ? <Link href="/arka/stafi" prefetch={false} className="arkaTopBtn">STAFI</Link> : null}
           {canManage ? <Link href="/arka/obligimet" prefetch={false} className="arkaTopBtn">OBLIGIMET</Link> : null}
@@ -3803,6 +3760,24 @@ export default function ArkaPageV3() {
       {!loading && actor?.pin && canManage ? (
         <>
           <ReadyBonusLiveCard actor={actor} />
+          {/* ARKA_DAILY_CONTROL_V1:ARKA — read-only daily facts for DISPATCH. */}
+          <div className="arkaSectionCard" style={{ marginBottom: 14, display: 'grid', gap: 9, border: '1px solid rgba(59,130,246,.34)', background: 'linear-gradient(135deg,rgba(30,64,175,.22),rgba(15,23,42,.82))' }}>
+            <div className="arkaSectionHeadCompact">
+              <div>
+                <div className="arkaSectionTitle">KONTROLLI DITOR</div>
+                <div className="arkaSectionSub">HYRJE / DALJE M² • CASH • SHPENZIME • KOMISIONE • ALARME</div>
+              </div>
+              <Link
+                to="/arka/ditore"
+                className="arkaSolidBtn big"
+                style={{ textDecoration: 'none', textAlign: 'center', minWidth: 150 }}
+              >
+                HAPE MBYLLJEN DITORE
+              </Link>
+            </div>
+            <div className="arkaSimpleSub">Dorëzimet hyjnë në buxhet vetëm nga wizard-i ditor. Numërimi fizik, daljet dhe diferenca ruhen me audit.</div>
+          </div>
+
           <div className="arkaWorkerStats adminTopGrid ownerTotalsGrid">
             <Stat label="NË DORË TE SHOFERËT" value={euro(totals.remainingToHandover)} tone="strong" />
             <Stat label="PËR PRANIM" value={euro(totals.pendingHandoffTotal)} tone="info" />
