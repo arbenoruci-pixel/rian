@@ -1,7 +1,7 @@
 'use client';
 
-import ArkaDailyCloseWizard from '@/components/ArkaDailyCloseWizard.jsx';
+import { Navigate } from 'react-router-dom';
 
 export default function ArkaDitorePage() {
-  return <ArkaDailyCloseWizard />;
+  return <Navigate to="/arka" replace />;
 }
