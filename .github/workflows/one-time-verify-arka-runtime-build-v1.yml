@@ -1,4 +1,4 @@
-name: Verify ARKA runtime cleanup build
+name: Finalize ARKA legacy removal
 
 on:
   push:
@@ -7,19 +7,36 @@ on:
       - '.github/workflows/one-time-verify-arka-runtime-build-v1.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+
+      - name: Remove retired build hooks
+        run: |
+          python3 scripts/remove_legacy_arka_build_hooks.py
+          git rm -f \
+            tools/apply-arka-daily-control-v1.mjs \
+            tools/verify-arka-daily-control-v1.mjs \
+            tools/apply-arka-daily-close-v2.mjs \
+            tools/verify-arka-daily-close-v2.mjs \
+            tools/apply-arka-daily-expense-step-v1.mjs \
+            tools/verify-arka-daily-expense-step-v1.mjs \
+            tools/apply-arka-daily-operations-v3.mjs \
+            tools/verify-arka-daily-operations-v3.mjs
+
       - run: npm ci
       - run: npm run build
+
       - name: Scan active ARKA runtime
         run: |
           ! grep -RIn --include='*.js' --include='*.jsx' --include='*.ts' --include='*.tsx' \
@@ -31,5 +48,25 @@ jobs:
             -e 'MBYLLJA DITORE' \
             -e "window.location.assign('/arka/ditore')" \
             app components src lib
+          ! grep -F \
+            -e 'apply-arka-daily-control-v1' \
+            -e 'apply-arka-daily-close-v2' \
+            -e 'apply-arka-daily-expense-step-v1' \
+            -e 'apply-arka-daily-operations-v3' \
+            -e 'test:arka-daily-control' \
+            -e 'test:arka-daily-close-v2' \
+            -e 'test:arka-daily-expense-step-v1' \
+            -e 'test:arka-daily-operations-v3' \
+            package.json
           grep -F "{ path: '/arka/ditore', element: <Navigate to='/arka' replace /> }" src/generated/routes.generated.jsx
           grep -F "await acceptDispatchHandoff({ handoffId: row.id, actor });" app/arka/page.jsx
+          git diff --check
+
+      - name: Commit final cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "fix: remove retired ARKA daily-close build hooks"
+          git pull --rebase origin main
+          git push origin main
