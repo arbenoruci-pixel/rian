@@ -21,7 +21,14 @@ check(component.includes('SHUMA U VENDOS AUTOMATIKISHT'), 'automatic physical ca
 check(component.includes('SHPJEGO DIFERENCËN'), 'daily discrepancy explanation missing');
 check(component.includes('MBYLL DITËN DHE BARAZO BUXHETIN'), 'final close action missing');
 check(component.includes("navigator.onLine === false"), 'offline close guard missing');
-check(component.includes('activeReceiptCycle?.is_closed'), 'closed receipt mode missing');
+check(
+  component.includes('activeReceiptCycle?.is_closed') || component.includes('showClosedReceiptOnly'),
+  'closed receipt mode missing',
+);
+check(
+  !component.includes('ARKA_REOPENABLE_DAILY_WIZARD_V1') || component.includes('const showClosedReceiptOnly = isClosed && !hasLiveWizardWork;'),
+  'reopenable receipt gate is incomplete',
+);
 
 check(dailyPage.includes("import ArkaDailyCloseWizard from '@/components/ArkaDailyCloseWizard.jsx';"), 'daily route is not canonical wizard wrapper');
 check(dailyPage.includes('<ArkaDailyCloseWizard />'), 'daily wizard is not mounted');
