@@ -396,6 +396,19 @@ export default function ArkaDailyCloseWizard() {
   const hasDiscrepancy = discrepancy != null && Math.abs(discrepancy) > 0.01;
   const everySelectedConfirmed = selectedHandoffs.every((row) => confirmedIds[String(row?.id)] === true);
   const pendingExpenseCount = n(preview?.pending_expenses_count ?? pendingExpenses.length);
+  // ARKA_REOPENABLE_DAILY_WIZARD_V1: a prior final report never hides later worker handoffs or cash movements.
+  const openCashAtWorkers = rows(preview?.open_cash_at_workers);
+  const receivedTodayTotal = +receivedToday.reduce((sum, row) => sum + n(row?.amount), 0).toFixed(2);
+  const hasUnreflectedClosedTotals = isClosed && (
+    Math.abs(receivedTodayTotal - n(closedCycle?.accepted_handoffs_total)) > 0.01
+    || Math.abs(n(preview?.today_expenses?.total) - n(closedCycle?.posted_expenses_total)) > 0.01
+    || Math.abs(n(preview?.today_advances?.total) - n(closedCycle?.posted_advances_total)) > 0.01
+  );
+  const hasLiveWizardWork = pendingHandoffs.length > 0
+    || pendingExpenseCount > 0
+    || openCashAtWorkers.length > 0
+    || hasUnreflectedClosedTotals;
+  const showClosedReceiptOnly = isClosed && !hasLiveWizardWork;
   const dailyOperations = obj(preview?.operations);
   const dailyIncoming = obj(dailyOperations?.incoming);
   const dailyOutgoing = obj(dailyOperations?.outgoing);
@@ -407,10 +420,10 @@ export default function ArkaDailyCloseWizard() {
   const dailyGatiM2 = n(dailyCurrent?.gati?.m2);
 
   useEffect(() => {
-    if (!preview || isClosed || countedCashManualRef.current) return;
+    if (!preview || showClosedReceiptOnly || countedCashManualRef.current) return;
     const automaticValue = expectedCash.toFixed(2);
     setCountedCash((current) => current === automaticValue ? current : automaticValue);
-  }, [expectedCash, isClosed, preview?.generated_at]);
+  }, [expectedCash, showClosedReceiptOnly, preview?.generated_at]);
 
   async function loadPreview({ force = false } = {}) {
     const pin = String(actor?.pin || '').trim();
@@ -452,7 +465,7 @@ export default function ArkaDailyCloseWizard() {
       setPreview(next);
       setOfflineSnapshot(false);
       writeCache(pin, date, next);
-      if (!initializedRef.current && !obj(next?.closed_cycle)?.is_closed) {
+      if (!initializedRef.current) {
         const ids = rows(next?.pending_handoffs).map((row) => Number(row?.id)).filter((id) => id > 0);
         setSelectedIds(ids);
         setConfirmedIds({});
@@ -784,10 +797,15 @@ export default function ArkaDailyCloseWizard() {
           </Card>
         ) : null}
 
-        {activeReceiptCycle?.is_closed ? (
+        {showClosedReceiptOnly ? (
           <Receipt cycle={activeReceiptCycle} items={activeReceiptItems} onRefresh={() => void loadPreview({ force: true })} />
         ) : preview ? (
           <>
+            {isClosed && hasLiveWizardWork ? (
+              <Alert tone="warn">
+                RAPORTI I DITËS ËSHTË FINALIZUAR MË HERËT, POR KA DORËZIME OSE DALJE TË REJA. WIZARD-I ËSHTË RIHAPUR; PRANOJI DHE FINALIZOJE RAPORTIN PËRSËRI.
+              </Alert>
+            ) : null}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 6 }}>
               <StepPill index={1} title="DORËZIMET" current={step} done={step > 1} onClick={() => setStep(1)} />
               <StepPill index={2} title="DALJET" current={step} done={step > 2} onClick={() => step > 1 && setStep(2)} />
