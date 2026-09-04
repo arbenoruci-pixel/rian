@@ -1,0 +1,63 @@
+name: One-time ship staff payroll control center V3
+
+on:
+  push:
+    branches:
+      - feature/staff-payroll-pro-v3
+    paths:
+      - .github/workflows/one-time-ship-staff-payroll-control-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Unpack reviewed source bundle
+        run: |
+          set -euo pipefail
+          tar -xzf tools/staff-payroll-v3-source.tgz
+          rm -f tools/staff-payroll-v3-source.tgz
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Static checks and deterministic patch
+        run: |
+          set -euo pipefail
+          node --check tools/apply-staff-payroll-control-center-v3.mjs
+          node --check tools/verify-staff-payroll-control-v3.mjs
+          node tools/apply-staff-payroll-control-center-v3.mjs
+          node tools/verify-staff-payroll-control-v3.mjs
+
+      - name: Full regression build
+        run: npm run build
+
+      - name: Verify generated result again
+        run: node tools/verify-staff-payroll-control-v3.mjs
+
+      - name: Commit reviewed implementation
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit."
+            exit 0
+          fi
+          git commit -m "Build professional staff and payroll control center V3"
+          git push origin HEAD:feature/staff-payroll-pro-v3
