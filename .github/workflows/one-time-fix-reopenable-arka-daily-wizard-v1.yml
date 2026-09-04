@@ -1,0 +1,57 @@
+name: One-time fix reopenable ARKA daily wizard v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-fix-reopenable-arka-daily-wizard-v1.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-fix-reopenable-arka-daily-wizard-v1
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start from latest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Restore the complete wizard logic
+        run: |
+          node tools/apply-arka-reopenable-daily-wizard-v1.mjs
+          node tools/verify-arka-reopenable-daily-wizard-v1.mjs
+
+      - name: Commit and push the source patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            components/ArkaDailyCloseWizard.jsx \
+            package.json \
+            vite.config.js \
+            lib/appEpoch.js \
+            index.html
+          if git diff --cached --quiet; then
+            echo "Patch already present."
+            exit 0
+          fi
+          git commit -m "fix: keep daily wizard open for later worker handoffs"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          exit 1
