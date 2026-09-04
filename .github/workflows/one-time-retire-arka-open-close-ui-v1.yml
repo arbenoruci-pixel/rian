@@ -1,4 +1,4 @@
-name: One-time retire legacy ARKA open-close UI v1
+name: One-time retire legacy ARKA open-close UI v2
 
 on:
   push:
@@ -17,69 +17,91 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Remove active daily-close navigation
+      - name: Retire the daily-close route from active runtime
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          roots = [Path('app'), Path('components'), Path('src')]
-          changed = []
+          p = Path('src/generated/routes.generated.jsx')
+          s = p.read_text()
+          original = s
+
+          s = s.replace(
+            "import ArkaDitorePageEager from '@/app/arka/ditore/page.jsx';\n",
+            ''
+          )
+          s = s.replace(
+            "  { path: '/arka/ditore', element: eagerElement(ArkaDitorePageEager, '/arka/ditore') },",
+            "  { path: '/arka/ditore', element: <Navigate to='/arka' replace /> },"
+          )
+
+          if 'ArkaDitorePageEager' in s:
+            raise SystemExit('ArkaDitorePageEager still exists in routing truth')
+          if "{ path: '/arka/ditore', element: <Navigate to='/arka' replace /> }" not in s:
+            raise SystemExit('Safe /arka/ditore redirect was not installed')
+          if s == original:
+            raise SystemExit('Routing truth was already unchanged; inspect manually')
+
+          p.write_text(s)
+          PY
+
+      - name: Prove active UI no longer exposes open-close
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          roots = [Path('app'), Path('components'), Path('src'), Path('lib')]
+          extensions = {'.js', '.jsx', '.ts', '.tsx'}
+          archived = {
+            Path('app/arka/ditore/page.jsx'),
+            Path('components/ArkaDailyCloseShortcut.jsx'),
+            Path('components/ArkaDailyCloseWizard.jsx'),
+          }
+          forbidden = (
+            'ArkaDitorePageEager',
+            'ArkaDailyCloseShortcut',
+            'ArkaDailyCloseWizard',
+            'MBYLLJA DITORE',
+            'get_arka_daily_close_preview_v2',
+            'get_arka_daily_close_preview_v3',
+            'get_arka_daily_close_preview_v4',
+            'close_arka_day_v2',
+            'add_arka_closed_day_expense_v1',
+            'arka_open_cycle_safe',
+          )
+          bad = []
+          route_path = Path('src/generated/routes.generated.jsx')
+
           for root in roots:
             if not root.exists():
               continue
             for p in root.rglob('*'):
-              if p.suffix not in {'.js', '.jsx', '.ts', '.tsx'} or not p.is_file():
-                continue
-              s = p.read_text()
-              lines = s.splitlines(True)
-              out = []
-              touched = False
-              for line in lines:
-                low = line.lower()
-                if '/arka/ditore' in low and ('href=' in low or '<link' in low):
-                  touched = True
-                  continue
-                out.append(line)
-              if touched:
-                p.write_text(''.join(out))
-                changed.append(str(p))
-          print('Changed:', changed)
-          PY
-
-      - name: Verify no daily-close navigation remains
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          bad = []
-          for root_name in ('app', 'components', 'src'):
-            root = Path(root_name)
-            if not root.exists():
-              continue
-            for p in root.rglob('*'):
-              if p.suffix not in {'.js', '.jsx', '.ts', '.tsx'} or not p.is_file():
-                continue
-              if str(p) == 'app/arka/ditore/page.jsx':
+              if not p.is_file() or p.suffix not in extensions or p in archived:
                 continue
               for i, line in enumerate(p.read_text().splitlines(), 1):
-                low = line.lower()
-                if '/arka/ditore' in low and ('href=' in low or '<link' in low):
-                  bad.append(f'{p}:{i}:{line.strip()}')
+                if any(token in line for token in forbidden):
+                  bad.append(f'{p}:{i}: {line.strip()}')
+                if '/arka/ditore' in line:
+                  allowed = (
+                    p == route_path
+                    and "path: '/arka/ditore'" in line
+                    and "<Navigate to='/arka' replace />" in line
+                  )
+                  if not allowed:
+                    bad.append(f'{p}:{i}: {line.strip()}')
+
           if bad:
-            raise SystemExit('Legacy daily-close navigation remains:\n' + '\n'.join(bad))
-          print('Verified: no active /arka/ditore navigation remains.')
+            raise SystemExit('Active legacy ARKA references remain:\n' + '\n'.join(bad[:200]))
+          print('Verified: old ARKA open-close is absent from active runtime; old URL safely redirects to /arka.')
           PY
 
-      - name: Commit UI retirement
+      - name: Commit route retirement
         shell: bash
         run: |
-          if git diff --quiet; then
-            echo 'No UI navigation changes needed.'
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app components src
-          git commit -m "fix: remove legacy arka daily close navigation"
+          git add src/generated/routes.generated.jsx
+          git commit -m "fix: retire legacy arka daily-close route"
           git push origin main
