@@ -1,0 +1,62 @@
+name: One-time fix payroll admin permissions v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'TRIGGER_PAYROLL_ADMIN_PERMISSION_FIX.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch payroll permissions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('app/arka/payroll/page.jsx')
+          s = p.read_text()
+          original = s
+
+          s = s.replace('  const [masterPin, setMasterPin] = useState("");\n', '')
+          s = s.replace('''    if (!advanceModal || !masterPin) {\n      alert("Kërkohet Master PIN për këtë veprim.");\n      return;\n    }''', '''    if (!advanceModal || !isAdminUser) {\n      alert("Nuk ke leje për këtë veprim.");\n      return;\n    }''')
+          s = s.replace('''    if (!salaryModal || !masterPin) {\n      alert("Kërkohet Master PIN për pagesën e rrogës.");\n      return;\n    }''', '''    if (!salaryModal || !isAdminUser) {\n      alert("Nuk ke leje për pagesën e rrogës.");\n      return;\n    }''')
+          s = s.replace('''    if (!salaryModal || !masterPin) {\n      alert("Kërkohet Master PIN për këtë veprim.");\n      return;\n    }''', '''    if (!salaryModal || !isAdminUser) {\n      alert("Nuk ke leje për këtë veprim.");\n      return;\n    }''')
+          s = s.replace("actor?.pin || masterPin || '2380'", "actor?.pin || '2380'")
+          s = s.replace("String(masterPin || '').trim()", "String(actor?.pin || '').trim()")
+          s = s.replace("String(masterPin || workerPin || 'MASTER')", "String(actor?.pin || workerPin || 'MASTER')")
+
+          admin_pin_block = '''            <label className="adminPinBox">\n              <span>Master PIN</span>\n              <input\n                type="password"\n                value={masterPin}\n                placeholder="****"\n                onChange={(e) => setMasterPin(onlyDigits(e.target.value))}\n                autoComplete="off"\n              />\n            </label>\n'''
+          s = s.replace(admin_pin_block, '')
+
+          if 'masterPin' in s or 'setMasterPin' in s:
+            hits = [(i + 1, line) for i, line in enumerate(s.splitlines()) if 'masterPin' in line or 'setMasterPin' in line]
+            raise SystemExit(f'Legacy Master PIN references remain: {hits}')
+          if s == original:
+            raise SystemExit('No changes made')
+
+          p.write_text(s)
+          PY
+
+      - name: Verify
+        run: |
+          grep -n "ADMIN_MASTER.*DISPATCH.*OWNER.*PRONAR.*SUPERADMIN" app/arka/payroll/page.jsx
+          ! grep -n "Kërkohet Master PIN\|masterPin\|setMasterPin" app/arka/payroll/page.jsx
+          grep -n "if (!advanceModal || !isAdminUser)" app/arka/payroll/page.jsx
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/arka/payroll/page.jsx
+          git commit -m "fix: remove payroll master pin gate for authorized admin roles"
+          git push origin main
