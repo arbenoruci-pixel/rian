@@ -86,7 +86,10 @@ function patchPackage() {
     .map((part) => part.trim())
     .filter(Boolean)
     .filter((part) => part !== INSTALLER);
-  prebuildParts.push(INSTALLER);
+  const finalVersionOwner = 'node tools/apply-gati-rack-save-v1.mjs';
+  const finalOwnerIndex = prebuildParts.lastIndexOf(finalVersionOwner);
+  if (finalOwnerIndex >= 0) prebuildParts.splice(finalOwnerIndex, 0, INSTALLER);
+  else prebuildParts.push(INSTALLER);
   scripts.prebuild = prebuildParts.join(' && ');
 
   scripts['test:arka-reopenable-daily-wizard-v1'] = 'node tools/verify-arka-reopenable-daily-wizard-v1.mjs';
@@ -135,4 +138,4 @@ const buildId = patchPackage();
 patchViteBuildIdentity();
 patchEpoch(buildId);
 patchIndex();
-console.log(`PASS ${MARKER}: closed reports no longer hide later handoffs; installer owns the final prebuild position.`);
+console.log(`PASS ${MARKER}: closed reports no longer hide later handoffs; installer runs immediately before the compatible final version owner.`);

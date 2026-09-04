@@ -21,8 +21,12 @@ check(component.includes('WIZARD-I ËSHTË RIHAPUR'), 'reopened-day warning miss
 check(component.includes("const CLOSE_RPC = 'close_arka_day_v2';"), 'daily finalization RPC missing');
 
 const installer = 'node tools/apply-arka-reopenable-daily-wizard-v1.mjs';
+const finalVersionOwner = 'node tools/apply-gati-rack-save-v1.mjs';
 const prebuildParts = prebuild.split('&&').map((part) => part.trim()).filter(Boolean);
-check(prebuildParts.at(-1) === installer, 'reopenable wizard installer must run last in prebuild');
+const installerIndex = prebuildParts.indexOf(installer);
+const ownerIndex = prebuildParts.lastIndexOf(finalVersionOwner);
+check(installerIndex >= 0, 'reopenable wizard installer missing from prebuild');
+check(ownerIndex >= 0 ? installerIndex === ownerIndex - 1 : installerIndex === prebuildParts.length - 1, 'reopenable wizard installer is not immediately before the compatible final version owner');
 check(String(pkg.scripts?.['test:arka-reopenable-daily-wizard-v1'] || '').includes('verify-arka-reopenable-daily-wizard-v1.mjs'), 'reopenable wizard test script missing');
 check(build.split('&&').map((part) => part.trim()).includes('npm run test:arka-reopenable-daily-wizard-v1'), 'reopenable wizard verifier missing from build');
 
