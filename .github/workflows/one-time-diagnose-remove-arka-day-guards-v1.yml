@@ -1,0 +1,55 @@
+name: One-time diagnose legacy arka day guards v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-diagnose-remove-arka-day-guards-v1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Locate active open-close guards
+        shell: bash
+        run: |
+          {
+            echo 'LEGACY ARKA DAY GUARD DIAGNOSTIC'
+            echo "HEAD=$(git rev-parse HEAD)"
+            echo
+            echo '=== EXACT ERROR / RPC / CYCLE REFERENCES ==='
+            rg -n -i \
+              --glob '!node_modules/**' \
+              --glob '!dist/**' \
+              --glob '!.git/**' \
+              --glob '!.github/workflows/**' \
+              --glob '!*.tmp' \
+              --glob '!*.log' \
+              'ARKA_DAY_ALREADY_CLOSED|DAY_ALREADY_CLOSED|arka_cycles|is_closed|arka_open_cycle|arka_get_active_day|create_arka_advance|worker_advance|advance_atomic|cycle_id|applied_cycle_id' \
+              app src components lib server api supabase 2>/dev/null || true
+            echo
+            echo '=== EXPENSE_REQUEST / ADVANCE HANDLERS ==='
+            rg -n -C 8 \
+              --glob '!node_modules/**' \
+              --glob '!dist/**' \
+              --glob '!.git/**' \
+              --glob '!.github/workflows/**' \
+              'EXPENSE_REQUEST|paymentType.*ADVANCE|ADVANCE.*paymentType|status.*ADVANCE' \
+              app src components lib server api supabase 2>/dev/null || true
+          } > ARKA_OPEN_CLOSE_DIAGNOSTIC.txt
+
+      - name: Commit diagnostic
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ARKA_OPEN_CLOSE_DIAGNOSTIC.txt
+          git commit -m 'chore: record legacy arka open-close guard locations'
+          git push origin main
