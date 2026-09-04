@@ -1,0 +1,297 @@
+name: One-time retire arka open-close runtime v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-retire-arka-open-close-runtime-v4.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Retire open-close runtime
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          helper = Path('lib/arka/payrollAdvance.js')
+          if not helper.exists():
+              helper.parent.mkdir(parents=True, exist_ok=True)
+              helper.write_text(r'''const PAYROLL_ADMIN_ROLES = new Set([
+            'ADMIN', 'ADMIN_MASTER', 'ADMINMASTER', 'ADMINISTRATOR', 'DISPATCH',
+            'MASTER', 'MASTER_USER', 'MASTERUSER', 'OWNER', 'PRONAR',
+            'SUPERADMIN', 'SUPER_ADMIN',
+          ]);
+
+          function text(value, fallback = '') {
+            const result = String(value ?? '').trim();
+            return result || fallback;
+          }
+
+          function pin(value) {
+            return text(value).replace(/\D/g, '');
+          }
+
+          function role(value) {
+            return text(value).toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+          }
+
+          function money(value) {
+            const parsed = Number(String(value ?? '').replace(',', '.'));
+            return Number.isFinite(parsed) ? Math.round((parsed + Number.EPSILON) * 100) / 100 : 0;
+          }
+
+          function schemaError(error) {
+            const code = text(error?.code).toUpperCase();
+            const message = text(error?.message || error?.details || error?.hint || error).toLowerCase();
+            return ['42703', 'PGRST202', 'PGRST204'].includes(code) ||
+              (message.includes('schema cache') || message.includes('column') && message.includes('does not exist'));
+          }
+
+          function actionId(workerPin) {
+            try {
+              if (globalThis.crypto?.randomUUID) return `payroll-advance:${workerPin}:${globalThis.crypto.randomUUID()}`;
+            } catch {}
+            return `payroll-advance:${workerPin}:${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
+          }
+
+          async function verifiedActor(supabase, actor = {}) {
+            const actorPin = pin(actor.pin);
+            if (!actorPin) throw new Error('ACTOR_PIN_REQUIRED');
+            let result = await supabase.from('users').select('id,pin,name,role,is_active').eq('pin', actorPin).maybeSingle();
+            if (result?.error && schemaError(result.error)) {
+              result = await supabase.from('users').select('id,pin,name,role').eq('pin', actorPin).maybeSingle();
+            }
+            if (result?.error) throw result.error;
+            if (!result?.data?.pin) throw new Error('ACTOR_NOT_FOUND');
+            if (Object.prototype.hasOwnProperty.call(result.data, 'is_active') && result.data.is_active === false) {
+              throw new Error('ACTOR_DISABLED');
+            }
+            const actorRole = role(result.data.role || actor.role);
+            const compact = actorRole.replace(/_/g, '');
+            if (!PAYROLL_ADMIN_ROLES.has(actorRole) && !PAYROLL_ADMIN_ROLES.has(compact)) {
+              throw new Error('ACTOR_ROLE_NOT_ALLOWED');
+            }
+            return {
+              pin: pin(result.data.pin),
+              name: text(result.data.name, text(actor.name, actorPin)),
+              role: actorRole,
+            };
+          }
+
+          // Cycle-free source of truth for payroll advances. No day open/close state is read or written.
+          export async function createPayrollAdvanceCycleFree({ supabase, actor, worker, amount, note = 'AVANS' } = {}) {
+            if (!supabase?.from) throw new Error('SUPABASE_CLIENT_REQUIRED');
+            const admin = await verifiedActor(supabase, actor);
+            const workerPin = pin(worker?.pin);
+            const workerName = text(worker?.name, workerPin);
+            const cleanAmount = money(amount);
+            if (!workerPin || !workerName) throw new Error('WORKER_REQUIRED');
+            if (!(cleanAmount > 0)) throw new Error('ADVANCE_AMOUNT_REQUIRED');
+
+            const createdAt = new Date().toISOString();
+            const key = actionId(workerPin);
+            const cleanNote = text(note, 'AVANS');
+            const variants = [
+              {
+                amount: cleanAmount, type: 'ADVANCE', status: 'ADVANCE', method: 'CASH', note: cleanNote,
+                created_by_pin: workerPin, created_by_name: workerName, created_by_role: 'WORKER',
+                actor_pin: admin.pin, actor_name: admin.name, source: 'PAYROLL', source_module: 'ARKA',
+                source_ref: key, idempotency_key: key, client_name: workerName,
+                created_at: createdAt, updated_at: createdAt,
+              },
+              {
+                amount: cleanAmount, type: 'ADVANCE', status: 'ADVANCE', note: cleanNote,
+                created_by_pin: workerPin, created_by_name: workerName,
+                actor_pin: admin.pin, actor_name: admin.name, source_module: 'ARKA',
+                idempotency_key: key, client_name: workerName, created_at: createdAt,
+              },
+              {
+                amount: cleanAmount, type: 'ADVANCE', status: 'ADVANCE', note: cleanNote,
+                created_by_pin: workerPin, created_by_name: workerName,
+                client_name: workerName, created_at: createdAt,
+              },
+            ];
+
+            let lastError = null;
+            for (const row of variants) {
+              const result = await supabase.from('arka_pending_payments').insert(row);
+              if (!result?.error) return { ok: true, amount: cleanAmount, workerPin, workerName, actionId: key };
+              lastError = result.error;
+              if (schemaError(result.error)) continue;
+              throw result.error;
+            }
+            throw lastError || new Error('PAYROLL_ADVANCE_INSERT_FAILED');
+          }
+          ''')
+
+          payroll = Path('app/arka/payroll/page.jsx')
+          s = payroll.read_text()
+          import_line = 'import { createPayrollAdvanceCycleFree } from "@/lib/arka/payrollAdvance";\n'
+          if import_line not in s:
+              anchor = 'import { arkaTransaction, buildArkaIdempotencyKey } from "@/lib/arka/arkaClient";\n'
+              if anchor not in s:
+                  raise SystemExit('Missing payroll import anchor')
+              s = s.replace(anchor, anchor + import_line, 1)
+
+          s = s.replace(
+              "['ADMIN', 'ADMIN_MASTER', 'DISPATCH', 'OWNER', 'PRONAR', 'SUPERADMIN']",
+              "['ADMIN', 'ADMIN_MASTER', 'ADMINISTRATOR', 'DISPATCH', 'MASTER', 'MASTER_USER', 'OWNER', 'PRONAR', 'SUPERADMIN']",
+          )
+          s = s.replace(
+              '["ADMIN", "ADMIN_MASTER", "DISPATCH", "OWNER", "PRONAR", "SUPERADMIN"]',
+              '["ADMIN", "ADMIN_MASTER", "ADMINISTRATOR", "DISPATCH", "MASTER", "MASTER_USER", "OWNER", "PRONAR", "SUPERADMIN"]',
+          )
+
+          start = s.find('  async function handleAddAdvance()')
+          end = s.find('\n  const payableAmount', start)
+          if start < 0 or end < 0:
+              raise SystemExit('Missing handleAddAdvance')
+          block = s[start:end]
+          if 'createPayrollAdvanceCycleFree({' not in block:
+              call_start = block.find('      await arkaTransaction({')
+              if call_start < 0:
+                  raise SystemExit('Missing advance transaction call')
+              brace = block.find('{', call_start)
+              depth = 0
+              call_end = None
+              for i in range(brace, len(block)):
+                  if block[i] == '{': depth += 1
+                  elif block[i] == '}':
+                      depth -= 1
+                      if depth == 0:
+                          semi = block.find(';', i)
+                          call_end = semi + 1
+                          break
+              if call_end is None:
+                  raise SystemExit('Cannot parse advance transaction call')
+              replacement = '''      await createPayrollAdvanceCycleFree({
+                supabase,
+                actor,
+                worker: advanceModal,
+                amount: amt,
+                note: String(advanceNote || 'AVANS').trim() || 'AVANS',
+              });'''
+              block = block[:call_start] + replacement + block[call_end:]
+              s = s[:start] + block + s[end:]
+
+          s = re.sub(
+              r'\s*<Link\s+prefetch=\{false\}\s+href="/arka/ditore"\s+className="navBtn">MBYLLJA DITORE</Link>',
+              '', s,
+          )
+          payroll.write_text(s)
+
+          guards = Path('lib/arka/arkaGuards.js')
+          g = guards.read_text()
+          if 'export function isLegacyArkaDayGuardError' not in g:
+              marker = 'export function isMissingColumnOrFunctionError'
+              index = g.find(marker)
+              if index < 0: raise SystemExit('Missing compatibility guard')
+              g = g[:index] + '''export function isLegacyArkaDayGuardError(error) {
+            const message = String(error?.message || error?.details || error?.hint || error || '').toLowerCase();
+            return message.includes('arka_day_already_closed') ||
+              message.includes('day_already_closed') ||
+              message.includes('arka day already closed') ||
+              message.includes('arka është mbyllur') ||
+              message.includes('arka eshte mbyllur');
+          }
+
+          ''' + g[index:]
+          match = re.search(r'export function isMissingColumnOrFunctionError\(([^)]*)\)\s*\{', g)
+          if not match: raise SystemExit('Cannot parse compatibility guard')
+          param = match.group(1).split(',')[0].strip() or 'error'
+          insertion = f"\n  if (isLegacyArkaDayGuardError({param})) return true;"
+          if insertion.strip() not in g[match.end():match.end()+250]:
+              g = g[:match.end()] + insertion + g[match.end():]
+          guards.write_text(g)
+
+          engine = Path('lib/arka/arkaEngine.js')
+          e = engine.read_text()
+          if 'isLegacyArkaDayGuardError,' not in e:
+              anchor = '  isMissingColumnOrFunctionError,\n'
+              if anchor not in e: raise SystemExit('Missing arkaEngine guard import')
+              e = e.replace(anchor, '  isLegacyArkaDayGuardError,\n' + anchor, 1)
+          marker = "function isMissingRpcFunctionError(error, functionName = '') {"
+          index = e.find(marker)
+          if index < 0: raise SystemExit('Missing RPC compatibility function')
+          body = index + len(marker)
+          insertion = '\n  if (isLegacyArkaDayGuardError(error)) return true;'
+          if insertion.strip() not in e[body:body+250]:
+              e = e[:body] + insertion + e[body:]
+          marker = 'function pendingInsertVariants(payload = {}) {'
+          index = e.find(marker)
+          if index < 0: raise SystemExit('Missing pendingInsertVariants')
+          body = index + len(marker)
+          insertion = "\n  payload = stripKeys(payload, ['cycle_id', 'applied_cycle_id']);"
+          if insertion.strip() not in e[body:body+250]:
+              e = e[:body] + insertion + e[body:]
+          engine.write_text(e)
+
+          shortcut = Path('components/ArkaDailyCloseShortcut.jsx')
+          if shortcut.exists():
+              shortcut.write_text('export default function ArkaDailyCloseShortcut() { return null; }\n')
+
+          retired_page = Path('app/arka/ditore/page.jsx')
+          if retired_page.exists():
+              retired_page.write_text(r'''"use client";
+
+          import Link from "@/lib/routerCompat.jsx";
+
+          export default function RetiredArkaDailyClosePage() {
+            return (
+              <main style={{ minHeight: '100vh', background: '#05070d', color: '#f8fafc', display: 'grid', placeItems: 'center', padding: 20 }}>
+                <section style={{ width: 'min(520px, 100%)', border: '1px solid #243044', borderRadius: 22, padding: 22, background: '#0b1120' }}>
+                  <h1 style={{ margin: 0, fontSize: 26 }}>Arka funksionon vazhdimisht</h1>
+                  <p style={{ color: '#cbd5e1', lineHeight: 1.55 }}>Qel/mbyllja ditore është larguar. Pagesat, avanset dhe shpenzimet regjistrohen me datën dhe orën reale.</p>
+                  <Link prefetch={false} href="/arka" style={{ display: 'block', textAlign: 'center', textDecoration: 'none', borderRadius: 14, padding: 13, background: '#2563eb', color: '#fff', fontWeight: 900 }}>KTHEHU NË ARKË</Link>
+                </section>
+              </main>
+            );
+          }
+          ''')
+
+          Path('ARKA_OPEN_CLOSE_RETIRED.md').write_text('''# ARKA open/close retired
+
+          Active payroll advances use `createPayrollAdvanceCycleFree` and never read or write a daily cycle.
+          Legacy closed-day errors are treated as compatibility fallbacks by the canonical arka engine.
+          New pending records strip `cycle_id` and `applied_cycle_id`.
+          The daily-close shortcut is disabled and its route is informational only.
+          Historical records and old migration files remain unchanged for audit history.
+          ''')
+          PY
+
+      - name: Verify patch
+        shell: bash
+        run: |
+          grep -n "createPayrollAdvanceCycleFree" app/arka/payroll/page.jsx lib/arka/payrollAdvance.js
+          grep -n "isLegacyArkaDayGuardError" lib/arka/arkaGuards.js lib/arka/arkaEngine.js
+          ! sed -n '/async function handleAddAdvance()/,/const payableAmount/p' app/arka/payroll/page.jsx | grep -q 'ARKA_ACTION.EXPENSE_REQUEST'
+          ! sed -n '/async function handleAddAdvance()/,/const payableAmount/p' app/arka/payroll/page.jsx | grep -q 'cycle_id\|applied_cycle_id\|arka_cycles\|is_closed'
+          node --check lib/arka/payrollAdvance.js
+          node --check lib/arka/arkaGuards.js
+          node --check lib/arka/arkaEngine.js
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/arka/payroll/page.jsx app/arka/ditore/page.jsx components/ArkaDailyCloseShortcut.jsx lib/arka/payrollAdvance.js lib/arka/arkaGuards.js lib/arka/arkaEngine.js ARKA_OPEN_CLOSE_RETIRED.md
+          if git diff --cached --quiet; then
+            echo 'Patch already present.'
+            exit 0
+          fi
+          git commit -m 'fix: remove legacy arka open-close guards from active runtime'
+          git pull --rebase origin main
+          git push origin main
