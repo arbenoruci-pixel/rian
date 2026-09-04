@@ -1,0 +1,53 @@
+name: One-time run retire arka open-close v5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-run-retire-arka-open-close-v5.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refresh main before patch
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Apply deterministic patch
+        run: python3 scripts/retire_arka_open_close_runtime.py
+
+      - name: Verify JavaScript syntax
+        run: |
+          node --check lib/arka/payrollAdvance.js
+          node --check lib/arka/arkaGuards.js
+          node --check lib/arka/arkaEngine.js
+          grep -n "createPayrollAdvanceCycleFree" app/arka/payroll/page.jsx lib/arka/payrollAdvance.js
+          ! sed -n '/async function handleAddAdvance()/,/const payableAmount/p' app/arka/payroll/page.jsx | grep -q 'ARKA_ACTION.EXPENSE_REQUEST'
+
+      - name: Build
+        run: |
+          npm ci --ignore-scripts || npm install --ignore-scripts
+          npm run build
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/arka/payroll/page.jsx app/arka/ditore/page.jsx components/ArkaDailyCloseShortcut.jsx lib/arka/payrollAdvance.js lib/arka/arkaGuards.js lib/arka/arkaEngine.js ARKA_OPEN_CLOSE_RETIRED.md scripts/retire_arka_open_close_runtime.py
+          if git diff --cached --quiet; then
+            echo "Patch already present on main."
+            exit 0
+          fi
+          git commit -m "fix: retire arka open-close guards from active runtime"
+          git pull --rebase origin main
+          git push origin main
