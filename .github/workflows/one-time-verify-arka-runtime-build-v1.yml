@@ -1,0 +1,35 @@
+name: Verify ARKA runtime cleanup build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-verify-arka-runtime-build-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Scan active ARKA runtime
+        run: |
+          ! grep -RIn --include='*.js' --include='*.jsx' --include='*.ts' --include='*.tsx' \
+            -e 'ARKA_DAY_ALREADY_CLOSED' \
+            -e 'ArkaDailyCloseShortcut' \
+            -e 'ArkaDailyCloseWizard' \
+            -e 'ARKA_DAILY_CLOSE_V2_ONE_WAY' \
+            -e 'HAP MBYLLJEN DITORE' \
+            -e 'MBYLLJA DITORE' \
+            -e "window.location.assign('/arka/ditore')" \
+            app components src lib
+          grep -F "{ path: '/arka/ditore', element: <Navigate to='/arka' replace /> }" src/generated/routes.generated.jsx
+          grep -F "await acceptDispatchHandoff({ handoffId: row.id, actor });" app/arka/page.jsx
