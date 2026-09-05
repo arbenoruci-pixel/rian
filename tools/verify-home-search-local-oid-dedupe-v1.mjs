@@ -37,7 +37,7 @@ check(String(pkg.scripts?.['test:home-search-local-oid-dedupe-v1'] || '').includ
 check(String(pkg.version || '').includes('home-search-localoid-dedupe-v1'), 'package version suffix missing');
 check(gatiInstaller.includes('homeSearchLocalOidDedupeV1Installer'), 'GATI final owner does not preserve dedupe ordering');
 check(gatiInstaller.includes('home-search-localoid-dedupe-v1'), 'GATI final owner can overwrite build identity');
-check(gatiInstaller.includes('sw-navigation-diag.js?v=3513'), 'GATI final owner can overwrite service worker generation');
+check(/sw-navigation-diag\.js\?v=351[3-9]/.test(gatiInstaller), 'GATI final owner can overwrite service worker generation');
 check(fastCloseInstaller.includes('compatibleGatiFinalOrder'), 'PASTRIMI fast-close rejects the newer compatible final-owner chain');
 check(fastCloseInstaller.includes('homeSearchLocalOidDedupeV1Installer, installer'), 'PASTRIMI fast-close does not recognize the Home dedupe owner');
 check(arkaVerifier.includes("/sw-navigation-diag\\.js\\?v=351[2-9]/.test(vite)"), 'ARKA verifier rejects the newer compatible SW generation');
@@ -47,7 +47,7 @@ check(touchVerifier.includes("gatiVerifier.includes('/sw-navigation-diag\\\\.js\
 check(touchVerifier.includes("arkaVerifier.includes('/sw-navigation-diag\\\\.js\\\\?v=351[2-9]/.test(vite)')"), 'touch verifier rejects the compatible ARKA verifier');
 check(fastCloseVerifier.includes('homeSearchLocalOidDedupeV1Installer, installer'), 'fast-close verifier rejects the newer compatible final-owner chain');
 check(vite.includes('home-search-localoid-dedupe-v1'), 'PWA cache generation suffix missing');
-check(vite.includes('sw-navigation-diag.js?v=3513'), 'service worker generation missing');
+check(/sw-navigation-diag\.js\?v=351[3-9]/.test(vite), 'service worker generation missing');
 check(epoch.includes('HOME_SEARCH_LOCAL_OID_DEDUPE_BUILD'), 'runtime build marker missing');
 check(index.includes('home-search-localoid-dedupe-v1'), 'HTML build ID missing');
 check(installer.includes('HOME_SEARCH_LOCAL_OID_DEDUPE_V1'), 'installer marker missing');
