@@ -1,0 +1,58 @@
+name: One-time apply Dispatch phone-check resilience v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-apply-dispatch-phone-check-resilience-v2.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-apply-dispatch-phone-check-resilience-v2
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start from latest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Apply resilient Dispatch phone check
+        run: |
+          node --check tools/apply-dispatch-phone-check-resilience-v2.mjs
+          node --check tools/verify-dispatch-phone-check-resilience-v2.mjs
+          node tools/apply-dispatch-phone-check-resilience-v2.mjs
+          node tools/verify-dispatch-phone-check-resilience-v2.mjs
+          node tools/verify-dispatch-phone-lookup-atomic-fallback-v1.mjs
+          node tools/verify-dispatch-atomic-order-server-v1.mjs
+          node tools/verify-dispatch-existing-client-guard-v1.mjs
+
+      - name: Commit and push source patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/dispatch/page.jsx \
+            tools/apply-gati-rack-save-v1.mjs \
+            package.json
+          if git diff --cached --quiet; then
+            echo "Patch already present."
+            exit 0
+          fi
+          git commit -m "fix: keep Dispatch create working through transient phone checks"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          exit 1
