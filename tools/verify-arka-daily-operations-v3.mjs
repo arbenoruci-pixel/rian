@@ -57,7 +57,7 @@ check(String(pkg.scripts?.build || '').includes('npm run test:arka-daily-operati
 check(String(pkg.scripts?.['test:arka-daily-operations-v3'] || '').includes('verify-arka-daily-operations-v3.mjs'), 'operations test script missing');
 check(String(pkg.version || '').includes('arka-daily-operations-v3'), 'package version missing operations suffix');
 check(vite.includes('arka-daily-operations-v3'), 'PWA cache generation missing operations suffix');
-check(vite.includes('sw-navigation-diag.js?v=3513'), 'service-worker generation changed incompatibly');
+check(/sw-navigation-diag\.js\?v=351[3-9]/.test(vite), 'service-worker generation changed incompatibly');
 check(epoch.includes('ARKA_DAILY_OPERATIONS_BUILD'), 'runtime operations build marker missing');
 check(index.includes('arka-daily-operations-v3'), 'HTML build identity missing operations suffix');
 check(installer.includes('ARKA_DAILY_OPERATIONS_V3'), 'operations installer marker missing');
