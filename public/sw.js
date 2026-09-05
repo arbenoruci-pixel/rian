@@ -2,7 +2,7 @@
 /* eslint-disable no-restricted-globals */
 
 const APP_DATA_EPOCH = 'RESET-2026-08-31-TRANSPORT-RECOVERY-V1-ARKA-EXPENSE-SUBMIT-V1-DISPATCH-TIMEOUT-RECONCILE-V1-DEVICE-APPROVAL-TIME-V1-DISPATCH-EXISTING-CLIENT-GUARD-V1';
-const APP_VERSION = '2.0.131-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1-legacy-bridge-gati-payment-fast-receipt-v1';
+const APP_VERSION = '2.0.131-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1-legacy-bridge-gati-payment-fast-receipt-v1-dispatch-phone-check-resilience-v2';
 const SW_BUILD_LABEL = 'sw-pwa-auto-update-v4-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1-legacy-bridge';
 const OFFLINE_FALLBACK = '/offline.html';
 const LEGACY_OFFLINE_CACHE = 'tepiha-legacy-sw-offline-v20';

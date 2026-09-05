@@ -366,3 +366,6 @@ await import('./apply-arka-expense-submit-v1.mjs');
 // The standalone installer also sits directly before this outer release owner,
 // preserving the historical "GATI rack last" invariant used by release checks.
 await import('./apply-gati-payment-fast-receipt-v1.mjs');
+
+// DISPATCH_PHONE_CHECK_FINAL_IDENTITY_V2: run after all nested legacy release writers.
+await import('./apply-dispatch-phone-check-final-identity-v2.mjs');

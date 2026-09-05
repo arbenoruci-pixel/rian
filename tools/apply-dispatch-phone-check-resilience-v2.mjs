@@ -240,6 +240,10 @@ function patchFinalVersionOwner() {
   source = source.replace(/const CACHE_VERSION = '([^']+)';/, (_match, value) => `const CACHE_VERSION = '${appendTag(value)}';`);
   source = source.replace(/const RUNTIME_VERSION = '([^']+)';/, (_match, value) => `const RUNTIME_VERSION = '${appendTag(value)}';`);
   source = source.replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3514');
+  const finalIdentityImport = "await import('./apply-dispatch-phone-check-final-identity-v2.mjs');";
+  if (!source.includes(finalIdentityImport)) {
+    source = `${source.trimEnd()}\n\n// DISPATCH_PHONE_CHECK_FINAL_IDENTITY_V2: run after nested legacy release writers.\n${finalIdentityImport}\n`;
+  }
   if (!source.includes(TAG)) throw new Error('FINAL_VERSION_OWNER_TAG_MISSING');
   fs.writeFileSync(GATI_OWNER_PATH, source, 'utf8');
 }

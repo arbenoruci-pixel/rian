@@ -5,6 +5,7 @@ const check = (condition, message) => { if (!condition) failures.push(message); 
 
 const dispatch = fs.readFileSync('app/dispatch/page.jsx', 'utf8');
 const gatiOwner = fs.readFileSync('tools/apply-gati-rack-save-v1.mjs', 'utf8');
+const finalIdentity = fs.readFileSync('tools/apply-dispatch-phone-check-final-identity-v2.mjs', 'utf8');
 const vite = fs.readFileSync('vite.config.js', 'utf8');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const prebuildParts = String(pkg.scripts?.prebuild || '').split('&&').map((part) => part.trim()).filter(Boolean);
@@ -32,6 +33,8 @@ check(dispatch.includes('const deduplicatedActive = createResult?.deduplicatedAc
 // has already generated this build. The built Vite cache identity is authoritative.
 check(vite.includes('dispatch-phone-check-resilience-v2'), 'built PWA identity lacks resilience tag');
 check(gatiOwner.includes('sw-navigation-diag.js?v=3514'), 'service-worker generation was not bumped');
+check(gatiOwner.includes("apply-dispatch-phone-check-final-identity-v2.mjs"), 'final identity layer is not called after nested release writers');
+check(finalIdentity.includes('DISPATCH_PHONE_CHECK_FINAL_IDENTITY_V2'), 'final identity script marker missing');
 
 const installerIndex = prebuildParts.indexOf(installer);
 const ownerIndex = prebuildParts.lastIndexOf(finalOwner);
