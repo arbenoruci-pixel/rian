@@ -9,6 +9,7 @@ const INSTALLER = 'node tools/apply-arka-reopenable-daily-wizard-v1.mjs';
 const TEST_COMMAND = 'npm run test:arka-reopenable-daily-wizard-v1';
 const TAG = 'arka-reopenable-daily-wizard-v1';
 const MARKER = 'ARKA_REOPENABLE_DAILY_WIZARD_V1';
+const ACTIONABLE_MARKER = 'ARKA_ACTIONABLE_REOPEN_V2';
 
 function replaceOnce(source, oldValue, newValue, label) {
   if (source.includes(newValue)) return source;
@@ -29,12 +30,30 @@ function appendTag(value, tag = TAG) {
 function patchWizard() {
   let source = fs.readFileSync(COMPONENT_PATH, 'utf8');
 
-  source = replaceOnce(
-    source,
-    `  const pendingExpenseCount = n(preview?.pending_expenses_count ?? pendingExpenses.length);\n  const dailyOperations = obj(preview?.operations);`,
-    `  const pendingExpenseCount = n(preview?.pending_expenses_count ?? pendingExpenses.length);\n  // ${MARKER}: a prior final report never hides later worker handoffs or cash movements.\n  const openCashAtWorkers = rows(preview?.open_cash_at_workers);\n  const receivedTodayTotal = +receivedToday.reduce((sum, row) => sum + n(row?.amount), 0).toFixed(2);\n  const hasUnreflectedClosedTotals = isClosed && (\n    Math.abs(receivedTodayTotal - n(closedCycle?.accepted_handoffs_total)) > 0.01\n    || Math.abs(n(preview?.today_expenses?.total) - n(closedCycle?.posted_expenses_total)) > 0.01\n    || Math.abs(n(preview?.today_advances?.total) - n(closedCycle?.posted_advances_total)) > 0.01\n  );\n  const hasLiveWizardWork = pendingHandoffs.length > 0\n    || pendingExpenseCount > 0\n    || openCashAtWorkers.length > 0\n    || hasUnreflectedClosedTotals;\n  const showClosedReceiptOnly = isClosed && !hasLiveWizardWork;\n  const dailyOperations = obj(preview?.operations);`,
-    'LIVE_WORK_FLAGS',
-  );
+  const liveWorkBlock = `  const pendingExpenseCount = n(preview?.pending_expenses_count ?? pendingExpenses.length);\n  // ${MARKER} / ${ACTIONABLE_MARKER}: a prior final report reopens only for actions Dispatch can complete now.\n  const openCashAtWorkers = rows(preview?.open_cash_at_workers);\n  const receivedTodayTotal = +receivedToday.reduce((sum, row) => sum + n(row?.amount), 0).toFixed(2);\n  const hasUnreflectedClosedTotals = isClosed && (\n    Math.abs(receivedTodayTotal - n(closedCycle?.accepted_handoffs_total)) > 0.01\n    || Math.abs(n(preview?.today_expenses?.total) - n(closedCycle?.posted_expenses_total)) > 0.01\n    || Math.abs(n(preview?.today_advances?.total) - n(closedCycle?.posted_advances_total)) > 0.01\n  );\n  const hasLiveWizardWork = pendingHandoffs.length > 0\n    || pendingExpenseCount > 0\n    || hasUnreflectedClosedTotals;\n  const showClosedReceiptOnly = isClosed && !hasLiveWizardWork;\n  const dailyOperations = obj(preview?.operations);`;
+
+  if (!source.includes(MARKER)) {
+    source = replaceOnce(
+      source,
+      `  const pendingExpenseCount = n(preview?.pending_expenses_count ?? pendingExpenses.length);\n  const dailyOperations = obj(preview?.operations);`,
+      liveWorkBlock,
+      'LIVE_WORK_FLAGS',
+    );
+  } else {
+    source = source.replace(
+      `  // ${MARKER}: a prior final report never hides later worker handoffs or cash movements.\n`,
+      `  // ${MARKER} / ${ACTIONABLE_MARKER}: a prior final report reopens only for actions Dispatch can complete now.\n`,
+    );
+    source = source.replace(
+      `  const hasLiveWizardWork = pendingHandoffs.length > 0\n    || pendingExpenseCount > 0\n    || openCashAtWorkers.length > 0\n    || hasUnreflectedClosedTotals;`,
+      `  const hasLiveWizardWork = pendingHandoffs.length > 0\n    || pendingExpenseCount > 0\n    || hasUnreflectedClosedTotals;`,
+    );
+    if (!source.includes(ACTIONABLE_MARKER)) {
+      const markerAnchor = `  // ${MARKER}`;
+      if (!source.includes(markerAnchor)) throw new Error('ACTIONABLE_MARKER_ANCHOR_NOT_FOUND');
+      source = source.replace(markerAnchor, `  // ${MARKER} / ${ACTIONABLE_MARKER}`, 1);
+    }
+  }
 
   source = replaceOnce(
     source,
@@ -59,18 +78,30 @@ function patchWizard() {
 
   source = replaceOnce(
     source,
+    `        {showClosedReceiptOnly ? (\n          <Receipt cycle={activeReceiptCycle} items={activeReceiptItems} onRefresh={() => void loadPreview({ force: true })} />\n        ) : preview ? (`,
+    `        {showClosedReceiptOnly ? (\n          <>\n            <Receipt cycle={activeReceiptCycle} items={activeReceiptItems} onRefresh={() => void loadPreview({ force: true })} />\n            {openCashAtWorkers.length ? (\n              <Card tone="warn">\n                <div style={{ fontSize: 13, fontWeight: 1000 }}>PARA ENDE TE PUNËTORËT</div>\n                <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>\n                  Këto pagesa ende s’janë dorëzuar. Raporti mbetet i finalizuar; wizard-i rihapet vetëm pasi punëtori krijon dorëzim ose del një hyrje/dalje që Dispatch-i duhet ta përfundojë.\n                </div>\n                {openCashAtWorkers.map((row) => (\n                  <Row\n                    key={\`closed_open_worker_\${row?.worker_pin}\`}\n                    title={upper(row?.worker_name || row?.worker_pin)}\n                    meta={\`\${n(row?.payment_count)} pagesa të hapura • prit dorëzimin e punëtorit\`}\n                    amount={money(row?.amount)}\n                    tone="warn"\n                  />\n                ))}\n              </Card>\n            ) : null}\n          </>\n        ) : preview ? (`,
+    'CLOSED_RECEIPT_WORKER_CASH_INFO',
+  );
+
+  source = replaceOnce(
+    source,
     `        ) : preview ? (\n          <>\n            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 6 }}>`,
     `        ) : preview ? (\n          <>\n            {isClosed && hasLiveWizardWork ? (\n              <Alert tone="warn">\n                RAPORTI I DITËS ËSHTË FINALIZUAR MË HERËT, POR KA DORËZIME OSE DALJE TË REJA. WIZARD-I ËSHTË RIHAPUR; PRANOJI DHE FINALIZOJE RAPORTIN PËRSËRI.\n              </Alert>\n            ) : null}\n            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 6 }}>`,
     'REOPEN_WARNING',
   );
 
   if (!source.includes(MARKER)) throw new Error('REOPENABLE_WIZARD_MARKER_MISSING');
+  if (!source.includes(ACTIONABLE_MARKER)) throw new Error('ACTIONABLE_REOPEN_MARKER_MISSING');
   if (source.includes('if (!initializedRef.current && !obj(next?.closed_cycle)?.is_closed)')) {
     throw new Error('CLOSED_CYCLE_INITIALIZATION_GUARD_REMAINS');
   }
   if (source.includes('{activeReceiptCycle?.is_closed ? (')) {
     throw new Error('CLOSED_RECEIPT_GATE_REMAINS');
   }
+  if (source.includes('|| openCashAtWorkers.length > 0')) {
+    throw new Error('UNSUBMITTED_WORKER_CASH_STILL_REOPENS_WIZARD');
+  }
+  if (!source.includes('prit dorëzimin e punëtorit')) throw new Error('CLOSED_WORKER_CASH_INFO_MISSING');
   if (!source.includes('showClosedReceiptOnly ? (')) throw new Error('LIVE_WIZARD_GATE_MISSING');
 
   fs.writeFileSync(COMPONENT_PATH, source, 'utf8');
@@ -138,4 +169,4 @@ const buildId = patchPackage();
 patchViteBuildIdentity();
 patchEpoch(buildId);
 patchIndex();
-console.log(`PASS ${MARKER}: closed reports no longer hide later handoffs; installer runs immediately before the compatible final version owner.`);
+console.log(`PASS ${ACTIONABLE_MARKER}: a finalized report reopens only for submitted handoffs or actionable posted movements; unsubmitted worker cash stays informational.`);
