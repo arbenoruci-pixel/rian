@@ -5,6 +5,7 @@ const check = (condition, message) => { if (!condition) failures.push(message); 
 
 const dispatch = fs.readFileSync('app/dispatch/page.jsx', 'utf8');
 const gatiOwner = fs.readFileSync('tools/apply-gati-rack-save-v1.mjs', 'utf8');
+const vite = fs.readFileSync('vite.config.js', 'utf8');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const prebuildParts = String(pkg.scripts?.prebuild || '').split('&&').map((part) => part.trim()).filter(Boolean);
 const buildParts = String(pkg.scripts?.build || '').split('&&').map((part) => part.trim()).filter(Boolean);
@@ -27,7 +28,9 @@ check(dispatch.includes('I NJËJTI TENTIM NUK E DYFISHON POROSINË'), 'final net
 check(dispatch.includes('const createResult = await insertTransportOrder'), 'atomic create path missing');
 check(dispatch.includes('const deduplicatedActive = createResult?.deduplicatedActive === true;'), 'active-order server dedupe handling missing');
 
-check(gatiOwner.includes('dispatch-phone-check-resilience-v2'), 'final PWA version owner lacks resilience tag');
+// Nested legacy release installers may rewrite the future owner source after it
+// has already generated this build. The built Vite cache identity is authoritative.
+check(vite.includes('dispatch-phone-check-resilience-v2'), 'built PWA identity lacks resilience tag');
 check(gatiOwner.includes('sw-navigation-diag.js?v=3514'), 'service-worker generation was not bumped');
 
 const installerIndex = prebuildParts.indexOf(installer);
