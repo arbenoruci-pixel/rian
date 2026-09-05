@@ -14,7 +14,10 @@ const ACTIONABLE_MARKER = 'ARKA_ACTIONABLE_REOPEN_V2';
 function replaceOnce(source, oldValue, newValue, label) {
   if (source.includes(newValue)) return source;
   const first = source.indexOf(oldValue);
-  if (first < 0) throw new Error(`${label}_ANCHOR_NOT_FOUND`);
+  if (first < 0) {
+    if (label === 'RECEIPT_GATE_REOPEN' && source.includes('{showClosedReceiptOnly ? (')) return source;
+    throw new Error(`${label}_ANCHOR_NOT_FOUND`);
+  }
   if (source.indexOf(oldValue, first + oldValue.length) >= 0) {
     throw new Error(`${label}_ANCHOR_NOT_UNIQUE`);
   }
