@@ -1,0 +1,128 @@
+name: One-time fix Dispatch phone PWA compatibility v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-fix-dispatch-phone-sw-compat-v1.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-fix-dispatch-phone-sw-compat-v1
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start from latest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Make the compatibility patch durable
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          installer_path = Path('tools/apply-dispatch-phone-check-resilience-v2.mjs')
+          source = installer_path.read_text()
+          constant = "const HOME_LOCAL_OID_VERIFY_PATH = 'tools/verify-home-search-local-oid-dedupe-v1.mjs';"
+          if constant not in source:
+              anchor = "const PACKAGE_PATH = 'package.json';"
+              if anchor not in source:
+                  raise SystemExit('DISPATCH_INSTALLER_CONSTANT_ANCHOR_NOT_FOUND')
+              source = source.replace(anchor, anchor + "\n" + constant, 1)
+
+          function_text = r'''
+function patchHomeLocalOidVerifierCompatibility() {
+  let source = fs.readFileSync(HOME_LOCAL_OID_VERIFY_PATH, 'utf8');
+  const oldGatiCheck = "check(gatiInstaller.includes('sw-navigation-diag.js?v=3513'), 'GATI final owner can overwrite service worker generation');";
+  const newGatiCheck = "check(/sw-navigation-diag\\.js\\?v=351[3-9]/.test(gatiInstaller), 'GATI final owner can overwrite service worker generation');";
+  if (!source.includes("/sw-navigation-diag\\.js\\?v=351[3-9]/.test(gatiInstaller)")) {
+    source = replaceOnce(source, oldGatiCheck, newGatiCheck, 'HOME_LOCAL_OID_GATI_SW_COMPAT');
+  }
+  const oldViteCheck = "check(vite.includes('sw-navigation-diag.js?v=3513'), 'service worker generation missing');";
+  const newViteCheck = "check(/sw-navigation-diag\\.js\\?v=351[3-9]/.test(vite), 'service worker generation missing');";
+  if (!source.includes("/sw-navigation-diag\\.js\\?v=351[3-9]/.test(vite)")) {
+    source = replaceOnce(source, oldViteCheck, newViteCheck, 'HOME_LOCAL_OID_VITE_SW_COMPAT');
+  }
+  fs.writeFileSync(HOME_LOCAL_OID_VERIFY_PATH, source, 'utf8');
+}
+'''.strip('\n')
+          if 'function patchHomeLocalOidVerifierCompatibility()' not in source:
+              anchor = 'function patchPackage() {'
+              if anchor not in source:
+                  raise SystemExit('DISPATCH_INSTALLER_FUNCTION_ANCHOR_NOT_FOUND')
+              source = source.replace(anchor, function_text + '\n\n' + anchor, 1)
+
+          call = 'patchHomeLocalOidVerifierCompatibility();'
+          if call not in source:
+              anchor = 'patchFinalVersionOwner();\npatchPackage();'
+              if anchor not in source:
+                  raise SystemExit('DISPATCH_INSTALLER_CALL_ANCHOR_NOT_FOUND')
+              source = source.replace(anchor, 'patchFinalVersionOwner();\n' + call + '\npatchPackage();', 1)
+          installer_path.write_text(source)
+
+          home_verify = Path('tools/verify-home-search-local-oid-dedupe-v1.mjs')
+          source = home_verify.read_text()
+          source = source.replace(
+              "check(gatiInstaller.includes('sw-navigation-diag.js?v=3513'), 'GATI final owner can overwrite service worker generation');",
+              "check(/sw-navigation-diag\\.js\\?v=351[3-9]/.test(gatiInstaller), 'GATI final owner can overwrite service worker generation');",
+          )
+          source = source.replace(
+              "check(vite.includes('sw-navigation-diag.js?v=3513'), 'service worker generation missing');",
+              "check(/sw-navigation-diag\\.js\\?v=351[3-9]/.test(vite), 'service worker generation missing');",
+          )
+          if "/sw-navigation-diag\\.js\\?v=351[3-9]/.test(gatiInstaller)" not in source:
+              raise SystemExit('HOME_LOCAL_OID_GATI_COMPAT_NOT_PATCHED')
+          if "/sw-navigation-diag\\.js\\?v=351[3-9]/.test(vite)" not in source:
+              raise SystemExit('HOME_LOCAL_OID_VITE_COMPAT_NOT_PATCHED')
+          home_verify.write_text(source)
+
+          resilience_verify = Path('tools/verify-dispatch-phone-check-resilience-v2.mjs')
+          source = resilience_verify.read_text()
+          anchor = "check(gatiOwner.includes('sw-navigation-diag.js?v=3514'), 'service-worker generation was not bumped');"
+          extra = anchor + "\ncheck(fs.readFileSync('tools/verify-home-search-local-oid-dedupe-v1.mjs', 'utf8').includes('/sw-navigation-diag\\\\.js\\\\?v=351[3-9]/.test(vite)'), 'Home local_oid verifier rejects compatible SW generation');"
+          if 'Home local_oid verifier rejects compatible SW generation' not in source:
+              if anchor not in source:
+                  raise SystemExit('RESILIENCE_VERIFIER_COMPAT_ANCHOR_NOT_FOUND')
+              source = source.replace(anchor, extra, 1)
+          resilience_verify.write_text(source)
+          PY
+
+      - name: Reapply and verify
+        run: |
+          node tools/apply-dispatch-phone-check-resilience-v2.mjs
+          node tools/verify-dispatch-phone-check-resilience-v2.mjs
+          node tools/verify-home-search-local-oid-dedupe-v1.mjs
+          node tools/verify-dispatch-phone-lookup-atomic-fallback-v1.mjs
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/apply-dispatch-phone-check-resilience-v2.mjs \
+            tools/verify-dispatch-phone-check-resilience-v2.mjs \
+            tools/verify-home-search-local-oid-dedupe-v1.mjs \
+            tools/apply-gati-rack-save-v1.mjs \
+            package.json
+          if git diff --cached --quiet; then
+            echo "Compatibility patch already present."
+            exit 0
+          fi
+          git commit -m "fix: preserve Dispatch phone resilience in full PWA build"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          exit 1
