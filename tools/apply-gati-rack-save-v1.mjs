@@ -10,10 +10,10 @@ const ARKA_INSTALLER_PATH = 'tools/apply-arka-daily-close-v2.mjs';
 const ARKA_VERIFY_PATH = 'tools/verify-arka-daily-close-v2.mjs';
 
 const MARKER = 'GATI_RACK_SAVE_V1';
-const APP_VERSION = '2.0.131-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1';
-const CACHE_VERSION = 'v57-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1';
+const APP_VERSION = '2.0.131-query-authority-transport-guard-v4-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1-dispatch-phone-check-resilience-v2';
+const CACHE_VERSION = 'v57-query-authority-transport-guard-payment-button-v3-arka-daily-close-v2-home-search-base-role-v1-gati-rack-save-v1-pastrimi-payment-touch-v3-unified-arka-payroll-v1-repeat-visit-v2-pastrimi-payment-fast-close-v4-arka-daily-expense-step-v1-home-search-localoid-dedupe-v1-arka-daily-operations-v3-arka-salary-only-handoff-v1-canonical-staff-identity-v1-client-profile-v1-client-profile-smart-sms-v1-responsive-tcode-fit-v2-pranimi-client-edit-v1-pranimi-existing-client-repeat-save-v1-pranimi-ios-haptic-v1-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1-dispatch-phone-check-resilience-v2';
 const RELEASE_EPOCH = 'RESET-2026-08-31-TRANSPORT-RECOVERY-V1-ARKA-EXPENSE-SUBMIT-V1-DISPATCH-TIMEOUT-RECONCILE-V1-DEVICE-APPROVAL-TIME-V1-DISPATCH-EXISTING-CLIENT-GUARD-V1';
-const RUNTIME_VERSION = '2.0.131-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1';
+const RUNTIME_VERSION = '2.0.131-pastrimi-purpose-click-v1-dispatch-atomic-tcode-v2-transport-recovery-v1-arka-expense-submit-v1-dispatch-timeout-reconcile-v1-device-approval-time-v1-dispatch-existing-client-guard-v1-dispatch-phone-check-resilience-v2';
 
 function scanBalanced(source, start, openChar, closeChar, label) {
   if (source[start] !== openChar) throw new Error(`${label}_OPEN_MISSING`);
@@ -326,7 +326,7 @@ function patchPackage() {
 
 function patchBuildIdentity() {
   let vite = fs.readFileSync(VITE_PATH, 'utf8');
-  vite = vite.replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3513');
+  vite = vite.replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3514');
   vite = vite.replace(/tepiha-vite-business-routes-[^']+/g, `tepiha-vite-business-routes-${CACHE_VERSION}`);
   vite = vite.replace(/tepiha-vite-static-assets-[^']+/g, `tepiha-vite-static-assets-${CACHE_VERSION}`);
   vite = vite.replace(/tepiha-vite-media-[^']+/g, `tepiha-vite-media-${CACHE_VERSION}`);

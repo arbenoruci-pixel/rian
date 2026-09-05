@@ -259,6 +259,21 @@ function dispatchPhoneSearchReady(value) {
   return getDispatchPhoneDigits(value).length >= 7;
 }
 
+// DISPATCH_PHONE_CHECK_RESILIENCE_V2: a transient iPhone/PWA fetch failure is a degraded pre-check,
+// not proof that the phone is new and not a reason to lock the create button.
+// The approved-device CREATE endpoint still performs the authoritative phone,
+// active-order and permanent T-code checks atomically before it writes anything.
+function dispatchPhoneCheckErrorCode(error) {
+  return String(error?.code || error?.message || error || '').trim().toUpperCase();
+}
+
+function isTransientDispatchPhoneCheckError(error) {
+  const code = dispatchPhoneCheckErrorCode(error);
+  return code === 'DISPATCH_PHONE_CHECK_NETWORK_FAILED'
+    || code === 'DISPATCH_PHONE_CHECK_TIMEOUT'
+    || /^DISPATCH_PHONE_CHECK_HTTP_(408|425|429|500|502|503|504)$/.test(code);
+}
+
 function dispatchExistingClientDecisionKey(row, phoneValue) {
   if (!row) return '';
   const phoneKey = getDispatchPhoneDigits(phoneValue || getClientPhone(row) || row?.phone_digits || row?.phone || '');
@@ -1890,11 +1905,28 @@ export default function DispatchPage() {
         }
       } catch (error) {
         if (Number(phoneCheckSeqRef.current || 0) !== checkSeq) return;
-        setPhoneHit(null);
-        setServerActivePhoneOrder(null);
+        const phoneError = dispatchPhoneCheckErrorCode(error) || 'DISPATCH_PHONE_CHECK_FAILED';
+        const transient = isTransientDispatchPhoneCheckError(phoneError);
         setPhoneCheckedKey(phoneDigits);
-        setPhoneCheckError(String(error?.code || error?.message || 'DISPATCH_PHONE_CHECK_FAILED'));
-        setExistingClientDecision(null);
+        setPhoneCheckError(phoneError);
+        if (transient) {
+          // Keep only exact local evidence. The final CREATE request will recheck
+          // everything server-side and will return an existing active order instead
+          // of creating a duplicate.
+          setPhoneHit((current) => current && dispatchSamePhone(
+            getClientPhone(current) || current?.phone_digits || current?.phone,
+            phone,
+          ) ? current : null);
+          setServerActivePhoneOrder((current) => current && dispatchSamePhone(
+            getClientPhone(current) || current?.phone_digits || current?.phone,
+            phone,
+          ) ? current : null);
+          setExistingClientDecision((current) => current?.phoneKey === phoneDigits ? current : null);
+        } else {
+          setPhoneHit(null);
+          setServerActivePhoneOrder(null);
+          setExistingClientDecision(null);
+        }
       } finally {
         if (Number(phoneCheckSeqRef.current || 0) === checkSeq) setPhoneBusy(false);
       }
@@ -2323,10 +2355,11 @@ export default function DispatchPage() {
     && existingClientDecision?.mode === 'use_existing'
     && existingClientDecision?.key === existingClientDecisionKey
   );
+  const phoneCheckDegraded = isTransientDispatchPhoneCheckError(phoneCheckError);
   const phoneCheckReady = canSend
     && phoneCheckedKey === currentPhoneKey
     && !phoneBusy
-    && !phoneCheckError;
+    && (!phoneCheckError || phoneCheckDegraded);
   const canCreateNewDispatchOrder = canSend
     && phoneCheckReady
     && existingClientConfirmed
@@ -2374,10 +2407,35 @@ export default function DispatchPage() {
       const cleanPhone = onlyDigits(phone);
       let cleanAddress = s(address);
       const cleanNote = s(note);
-      const inspection = await inspectDispatchTransportPhoneViaApi(cleanPhone, { timeoutMs: 15000 });
-      setPhoneCheckedKey(inspection.phoneKey || getDispatchPhoneDigits(cleanPhone));
-      setPhoneCheckError('');
-      setServerActivePhoneOrder(inspection.activeOrder || null);
+      let inspection = null;
+      let submitPhoneCheckDegraded = false;
+      let submitPhoneCheckError = '';
+      try {
+        inspection = await inspectDispatchTransportPhoneViaApi(cleanPhone, { timeoutMs: 15000 });
+        setPhoneCheckedKey(inspection.phoneKey || getDispatchPhoneDigits(cleanPhone));
+        setPhoneCheckError('');
+        setServerActivePhoneOrder(inspection.activeOrder || null);
+      } catch (phoneError) {
+        submitPhoneCheckError = dispatchPhoneCheckErrorCode(phoneError) || 'DISPATCH_PHONE_CHECK_FAILED';
+        if (!isTransientDispatchPhoneCheckError(submitPhoneCheckError)) throw phoneError;
+        submitPhoneCheckDegraded = true;
+        const exactCachedClient = phoneHit && dispatchSamePhone(
+          getClientPhone(phoneHit) || phoneHit?.phone_digits || phoneHit?.phone,
+          cleanPhone,
+        ) ? phoneHit : null;
+        const exactLocalActiveOrder = activePhoneOrder && dispatchSamePhone(
+          getClientPhone(activePhoneOrder) || activePhoneOrder?.phone_digits || activePhoneOrder?.phone,
+          cleanPhone,
+        ) ? activePhoneOrder : null;
+        inspection = {
+          phoneKey: getDispatchPhoneDigits(cleanPhone),
+          client: exactCachedClient,
+          activeOrder: exactLocalActiveOrder,
+        };
+        setPhoneCheckedKey(getDispatchPhoneDigits(cleanPhone));
+        setPhoneCheckError(submitPhoneCheckError);
+        setServerActivePhoneOrder(exactLocalActiveOrder);
+      }
       if (inspection.activeOrder) {
         setErr(`KY TELEFON KA POROSI AKTIVE ${getDispatchCardCode(inspection.activeOrder)}. KËRKESA E RE U NDAL QË TË MOS DYFISHOHET.`);
         setCreateOpen(false);
@@ -2404,9 +2462,12 @@ export default function DispatchPage() {
       }
       const pickupPlan = buildDispatchPickupPlan({ measurementsText: pickupMeasurements, noteText: cleanNote, piecesHint: smartPasteResult?.pieces || 0 });
       const existingPhoneClient = authoritativePhoneClient;
-      // The approved-device phone check above is authoritative for this send.
-      // null means the phone was checked and is a genuinely new client.
-      const verifiedPhoneClient = authoritativePhoneClient || null;
+      // A successful approved-device pre-check is authoritative. During a
+      // transient pre-check failure, leave this undefined so the existing
+      // direct DB lookup gets a chance before the atomic server CREATE.
+      const verifiedPhoneClient = submitPhoneCheckDegraded
+        ? undefined
+        : (authoritativePhoneClient || null);
       const actorNow = getActor() || null;
       const poolOwner = pickedDriverPin || String(actorNow?.pin || '').trim() || 'DISPATCH';
       if (!createIntentJournalRef.current) {
@@ -2440,6 +2501,12 @@ export default function DispatchPage() {
         verifiedPhoneClient,
         orderId,
       });
+      if (submitPhoneCheckDegraded) {
+        clientLink.phoneLookupDegraded = true;
+        clientLink.phoneLookupError = [submitPhoneCheckError, clientLink.phoneLookupError]
+          .filter(Boolean)
+          .join(' | ');
+      }
       pendingReservedTcode = clientLink.reservedNewTcode || '';
       const atomicDbTcodeAllocation = clientLink.atomicDbTcodeAllocation === true;
       let officialOrderCode = normTCode(clientLink.tcode);
@@ -2605,7 +2672,12 @@ export default function DispatchPage() {
       }
       // Keep the order→T-code binding when release could not be confirmed. The
       // stable UUID retry must reuse that reservation instead of burning a new one.
-      setErr(e?.message || "GABIM");
+      const sendErrorCode = dispatchPhoneCheckErrorCode(e);
+      setErr(
+        ['DISPATCH_ORDER_API_NETWORK_FAILED', 'DISPATCH_ORDER_API_TIMEOUT'].includes(sendErrorCode)
+          ? 'LIDHJA U NDËRPRE. POROSIA NUK U RUAJT. PROVO PRAPË — I NJËJTI TENTIM NUK E DYFISHON POROSINË.'
+          : (e?.message || "GABIM"),
+      );
     } finally {
       sendInFlightRef.current = false;
       setBusy(false);
@@ -3047,7 +3119,11 @@ Mati 1, nesër paradite, 3 tepiha`}
             {phoneBusy ? <div style={ui.mini}>PO KONTROLLOJ KLIENTIN…</div> : null}
             {phoneCheckError ? (
               <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <div style={{ ...ui.mini, color: "#b91c1c" }}>KONTROLLI NË DB DËSHTOI</div>
+                <div style={{ ...ui.mini, color: phoneCheckDegraded ? "#a16207" : "#b91c1c" }}>
+                  {phoneCheckDegraded
+                    ? "LIDHJA E KONTROLLIT U NDËRPRE — MUND TA DËRGOSH; SERVERI E VERIFIKON NË RUAJTJE"
+                    : "KONTROLLI NË DB DËSHTOI"}
+                </div>
                 <button type="button" style={ui.btnGhostMini} onClick={() => setPhoneCheckNonce((value) => Number(value || 0) + 1)}>RIPROVO</button>
               </div>
             ) : null}
