@@ -1,0 +1,57 @@
+name: One-time fix ARKA unsubmitted worker cash v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-fix-arka-unsubmitted-worker-cash-v2.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-fix-arka-unsubmitted-worker-cash-v2
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start from latest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Apply actionable reopen logic
+        run: |
+          node tools/apply-arka-reopenable-daily-wizard-v1.mjs
+          # Keep source release ownership unchanged in this one-time source patch.
+          git checkout -- package.json vite.config.js lib/appEpoch.js index.html
+
+      - name: Verify ARKA flow
+        run: |
+          node tools/verify-arka-reopenable-daily-wizard-v1.mjs
+          node tools/verify-arka-daily-close-v2.mjs
+          node tools/verify-arka-daily-operations-v3.mjs
+
+      - name: Commit and push component patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/ArkaDailyCloseWizard.jsx
+          if git diff --cached --quiet; then
+            echo "Actionable reopen logic already present."
+            exit 0
+          fi
+          git commit -m "fix: keep unsubmitted worker cash outside ARKA reopen flow"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          exit 1
