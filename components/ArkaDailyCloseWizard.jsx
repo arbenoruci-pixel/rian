@@ -396,7 +396,7 @@ export default function ArkaDailyCloseWizard() {
   const hasDiscrepancy = discrepancy != null && Math.abs(discrepancy) > 0.01;
   const everySelectedConfirmed = selectedHandoffs.every((row) => confirmedIds[String(row?.id)] === true);
   const pendingExpenseCount = n(preview?.pending_expenses_count ?? pendingExpenses.length);
-  // ARKA_REOPENABLE_DAILY_WIZARD_V1: a prior final report never hides later worker handoffs or cash movements.
+  // ARKA_REOPENABLE_DAILY_WIZARD_V1 / ARKA_ACTIONABLE_REOPEN_V2: a prior final report reopens only for actions Dispatch can complete now.
   const openCashAtWorkers = rows(preview?.open_cash_at_workers);
   const receivedTodayTotal = +receivedToday.reduce((sum, row) => sum + n(row?.amount), 0).toFixed(2);
   const hasUnreflectedClosedTotals = isClosed && (
@@ -406,7 +406,6 @@ export default function ArkaDailyCloseWizard() {
   );
   const hasLiveWizardWork = pendingHandoffs.length > 0
     || pendingExpenseCount > 0
-    || openCashAtWorkers.length > 0
     || hasUnreflectedClosedTotals;
   const showClosedReceiptOnly = isClosed && !hasLiveWizardWork;
   const dailyOperations = obj(preview?.operations);
@@ -798,7 +797,26 @@ export default function ArkaDailyCloseWizard() {
         ) : null}
 
         {showClosedReceiptOnly ? (
-          <Receipt cycle={activeReceiptCycle} items={activeReceiptItems} onRefresh={() => void loadPreview({ force: true })} />
+          <>
+            <Receipt cycle={activeReceiptCycle} items={activeReceiptItems} onRefresh={() => void loadPreview({ force: true })} />
+            {openCashAtWorkers.length ? (
+              <Card tone="warn">
+                <div style={{ fontSize: 13, fontWeight: 1000 }}>PARA ENDE TE PUNËTORËT</div>
+                <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>
+                  Këto pagesa ende s’janë dorëzuar. Raporti mbetet i finalizuar; wizard-i rihapet vetëm pasi punëtori krijon dorëzim ose del një hyrje/dalje që Dispatch-i duhet ta përfundojë.
+                </div>
+                {openCashAtWorkers.map((row) => (
+                  <Row
+                    key={`closed_open_worker_${row?.worker_pin}`}
+                    title={upper(row?.worker_name || row?.worker_pin)}
+                    meta={`${n(row?.payment_count)} pagesa të hapura • prit dorëzimin e punëtorit`}
+                    amount={money(row?.amount)}
+                    tone="warn"
+                  />
+                ))}
+              </Card>
+            ) : null}
+          </>
         ) : preview ? (
           <>
             {isClosed && hasLiveWizardWork ? (
