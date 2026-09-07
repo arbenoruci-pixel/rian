@@ -1,0 +1,64 @@
+name: One-time fix Dispatch create network resilience v3
+
+on:
+  push:
+    branches: [fix/dispatch-create-network-resilience-v3]
+    paths:
+      - '.github/workflows/one-time-fix-dispatch-create-network-resilience-v3.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-fix-dispatch-create-network-resilience-v3
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start from latest fix branch
+        run: |
+          git fetch origin fix/dispatch-create-network-resilience-v3
+          git reset --hard origin/fix/dispatch-create-network-resilience-v3
+
+      - name: Apply direct atomic-create resilience
+        run: |
+          node --check tools/apply-dispatch-create-network-resilience-v3.mjs
+          node --check tools/verify-dispatch-create-network-resilience-v3.mjs
+          node tools/apply-dispatch-create-network-resilience-v3.mjs
+          node tools/verify-dispatch-create-network-resilience-v3.mjs
+          node tools/verify-dispatch-phone-check-resilience-v2.mjs
+          node tools/verify-dispatch-phone-lookup-atomic-fallback-v1.mjs
+          node tools/verify-dispatch-atomic-order-server-v1.mjs
+          node tools/verify-dispatch-existing-client-guard-v1.mjs
+          node tools/verify-dispatch-create-intent-v1.mjs
+          node tools/verify-dispatch-atomic-tcode-create-v1.mjs
+
+      - name: Commit and push verified source patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/dispatch/page.jsx \
+            tools/apply-dispatch-phone-check-resilience-v2.mjs \
+            tools/verify-dispatch-phone-check-resilience-v2.mjs \
+            tools/verify-dispatch-existing-client-guard-v1.mjs \
+            vite.config.js \
+            package.json
+          if git diff --cached --quiet; then
+            echo "Patch already present."
+            exit 0
+          fi
+          git commit -m "fix: make Dispatch create independent of phone pre-check"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:fix/dispatch-create-network-resilience-v3; then exit 0; fi
+            git fetch origin fix/dispatch-create-network-resilience-v3
+            git rebase origin/fix/dispatch-create-network-resilience-v3
+          done
+          exit 1
