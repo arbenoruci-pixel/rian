@@ -139,11 +139,20 @@ assert.match(dispatchSource, /if \(sendInFlightRef\.current\) return;/);
 assert.match(dispatchSource, /const orderId = await createIntentJournalRef\.current\.acquire\(/);
 assert.match(dispatchSource, /createIntentJournalRef\.current\?\.clear\(orderId\)/);
 assert.ok(!dispatchSource.includes('const orderId = createDispatchOrderUuid()'));
-assert.ok(
-  dispatchSource.indexOf('const orderId = await createIntentJournalRef.current.acquire(')
-    < dispatchSource.indexOf('const clientLink = await prepareDispatchTransportClientLink({'),
-  'stable UUID must be acquired before T-code reservation',
-);
+
+const uuidAcquireIndex = dispatchSource.indexOf('const orderId = await createIntentJournalRef.current.acquire(');
+const authoritativeV3 = dispatchSource.includes('DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3');
+const firstCreateAuthorityIndex = authoritativeV3
+  ? dispatchSource.indexOf('const clientLink = {', uuidAcquireIndex)
+  : dispatchSource.indexOf('const clientLink = await prepareDispatchTransportClientLink({', uuidAcquireIndex);
+assert.ok(firstCreateAuthorityIndex > uuidAcquireIndex, authoritativeV3
+  ? 'stable UUID must be acquired before server-authoritative create payload authority'
+  : 'stable UUID must be acquired before T-code reservation');
+if (authoritativeV3) {
+  assert.match(dispatchSource, /server_atomic_create/);
+  assert.ok(!dispatchSource.includes('let submitPhoneCheckDegraded = false;'), 'V3 must not run a second submit-time phone precheck');
+}
+
 const sendCatchStart = dispatchSource.indexOf('    } catch (e) {', dispatchSource.indexOf('  async function send()'));
 const sendCatchEnd = dispatchSource.indexOf('    } finally {', sendCatchStart);
 const sendCatch = dispatchSource.slice(sendCatchStart, sendCatchEnd);
@@ -154,4 +163,6 @@ assert.ok(
   'an unconfirmed release must retain the order-to-code retry binding',
 );
 
-console.log('PASS: Dispatch keeps one UUID until reconciliation; completed/expired intents receive fresh UUIDs.');
+console.log(authoritativeV3
+  ? 'PASS: Dispatch V3 keeps one UUID before server-authoritative create and preserves reconciliation safety.'
+  : 'PASS: Dispatch keeps one UUID until reconciliation; completed/expired intents receive fresh UUIDs.');
