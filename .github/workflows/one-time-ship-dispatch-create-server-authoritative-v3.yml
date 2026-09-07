@@ -8,6 +8,7 @@ on:
       - 'tools/apply-dispatch-create-server-authoritative-v3.mjs'
       - 'tools/apply-dispatch-authoritative-build-compat-v3.mjs'
       - 'tools/verify-dispatch-create-intent-v1.mjs'
+      - 'tools/verify-dispatch-existing-client-guard-v1.mjs'
 
 permissions:
   contents: write
@@ -61,6 +62,7 @@ jobs:
           node --check lib/transport/dispatchOrderServer.js
           node tools/verify-dispatch-phone-check-resilience-v2.mjs
           node tools/verify-dispatch-create-intent-v1.mjs
+          node tools/verify-dispatch-existing-client-guard-v1.mjs
 
       - name: Build
         run: |
