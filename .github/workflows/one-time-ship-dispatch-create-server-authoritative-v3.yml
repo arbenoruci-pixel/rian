@@ -7,6 +7,7 @@ on:
       - '.github/workflows/one-time-ship-dispatch-create-server-authoritative-v3.yml'
       - 'tools/apply-dispatch-create-server-authoritative-v3.mjs'
       - 'tools/apply-dispatch-authoritative-build-compat-v3.mjs'
+      - 'tools/verify-dispatch-create-intent-v1.mjs'
 
 permissions:
   contents: write
