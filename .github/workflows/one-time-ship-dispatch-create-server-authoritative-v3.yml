@@ -37,8 +37,12 @@ jobs:
           grep -q 'DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3' app/dispatch/page.jsx
           grep -q 'const canCreateNewDispatchOrder = canSend;' app/dispatch/page.jsx
           grep -q "source: 'server_atomic_create'" app/dispatch/page.jsx
-          if grep -q "KONTROLLI I TELEFONIT DËSHTOI. PROVO PËRSËRI PARA DËRGIMIT." app/dispatch/page.jsx; then
-            echo 'Blocking phone-check gate still present'
+          if grep -q 'if (!phoneCheckReady)' app/dispatch/page.jsx; then
+            echo 'Blocking phoneCheckReady gate still present in send()'
+            exit 1
+          fi
+          if grep -q 'if (phoneHit && !existingClientConfirmed)' app/dispatch/page.jsx; then
+            echo 'Blocking existing-client confirmation gate still present in send()'
             exit 1
           fi
           node --check lib/transport/transportDb.js
