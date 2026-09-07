@@ -1356,6 +1356,9 @@ function GatiPageInner() {
   const sp = useSearchParams();
   const exactMode = String(sp?.get('exact') || '') === '1';
   const openId = String(sp?.get('openId') || '').trim();
+  // GATI_EXACT_CODE_AUTHORITY_V1: HOME search may carry a stale visit id from cache.
+  // The permanent client code remains a safe fallback to the current GATI visit.
+  const openCode = String(sp?.get('openCode') || sp?.get('q') || '').trim();
 
   const holdTimer = useRef(null);
   const holdFired = useRef(false);
@@ -2387,8 +2390,17 @@ function GatiPageInner() {
   const filtered = useMemo(() => {
     const q = (search || '').trim().toLowerCase();
     const list = Array.isArray(orders) ? orders : [];
-    if (exactMode && openId) {
-      return list.filter((o) => String(o?.id || '').trim() === openId || String(o?.dbId || '').trim() === openId);
+    if (exactMode && (openId || openCode)) {
+      const wantedId = String(openId || '').trim();
+      const wantedCode = normalizeCode(openCode || search || '');
+      return list.filter((o) => {
+        const rowId = String(o?.id || '').trim();
+        const rowDbId = String(o?.dbId || o?.db_id || '').trim();
+        const rowCode = normalizeCode(o?.code || o?.fullOrder?.code || o?.fullOrder?.client?.code || '');
+        const idMatch = !!wantedId && (rowId === wantedId || rowDbId === wantedId);
+        const codeMatch = !!wantedCode && rowCode === wantedCode;
+        return idMatch || codeMatch;
+      });
     }
     if (!q) return list;
     return list.filter((o) => {
@@ -2397,7 +2409,7 @@ function GatiPageInner() {
       const code = normalizeCode(o.code).toLowerCase();
       return name.includes(q) || phone.includes(q) || code.includes(q);
     });
-  }, [orders, search, exactMode, openId]);
+  }, [orders, search, exactMode, openId, openCode]);
 
   const discrepancyRows = useMemo(() => {
     return (Array.isArray(orders) ? orders : [])
