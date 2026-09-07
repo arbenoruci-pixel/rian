@@ -74,9 +74,18 @@ source = replaceOnce(
   'REMOVE_SUBMIT_PHONE_PRECHECK',
 );
 
+// Drop browser-side phone/client authority, while deliberately preserving the
+// actor + create-intent UUID journal between this block and the final CREATE.
 source = replaceOnce(
   source,
-  /      const existingPhoneClient = authoritativePhoneClient;[\s\S]*?      pendingReservedTcode = clientLink\.reservedNewTcode \|\| '';/,
+  /      const existingPhoneClient = authoritativePhoneClient;[\s\S]*?        : \(authoritativePhoneClient \|\| null\);/,
+`      // ${MARKER}: browser-side phone lookup is advisory only.`,
+  'REMOVE_BROWSER_PHONE_AUTHORITY',
+);
+
+source = replaceOnce(
+  source,
+  /      const clientLink = await prepareDispatchTransportClientLink\(\{[\s\S]*?      pendingReservedTcode = clientLink\.reservedNewTcode \|\| '';/,
 `      // The browser deliberately sends no client id/T-code authority here.
       // /api/transport/order resolves the normalized phone under the DB lock,
       // reuses the permanent client/T-code when present, allocates atomically
@@ -99,6 +108,19 @@ source = replaceOnce(
       pendingReservedTcode = '';`,
   'REMOVE_DIRECT_PHONE_LOOKUP_BEFORE_CREATE',
 );
+
+for (const token of [
+  MARKER,
+  'const orderId = await createIntentJournalRef.current.acquire(',
+  'pendingOrderId = orderId;',
+  "source: exactCachedClient ? (getTransportClientSource(exactCachedClient) || 'cached_exact_phone') : 'server_atomic_create'",
+  'const createResult = await insertTransportOrder',
+]) {
+  if (!source.includes(token)) throw new Error(`V3_VERIFY_MISSING:${token}`);
+}
+if (source.includes('if (!phoneCheckReady)')) throw new Error('V3_PHONE_CHECK_GATE_REMAINS');
+if (source.includes('if (phoneHit && !existingClientConfirmed)')) throw new Error('V3_EXISTING_CLIENT_GATE_REMAINS');
+if (source.includes('let submitPhoneCheckDegraded = false;')) throw new Error('V3_REDUNDANT_SUBMIT_PHONE_CHECK_REMAINS');
 
 fs.writeFileSync(PATH, source);
 console.log(`${MARKER}: applied`);
