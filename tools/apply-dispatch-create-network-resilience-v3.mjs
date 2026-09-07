@@ -4,12 +4,15 @@ const DISPATCH_PATH = 'app/dispatch/page.jsx';
 const V2_INSTALLER_PATH = 'tools/apply-dispatch-phone-check-resilience-v2.mjs';
 const V2_VERIFIER_PATH = 'tools/verify-dispatch-phone-check-resilience-v2.mjs';
 const EXISTING_GUARD_VERIFIER_PATH = 'tools/verify-dispatch-existing-client-guard-v1.mjs';
+const GATI_OWNER_PATH = 'tools/apply-gati-rack-save-v1.mjs';
 const VITE_PATH = 'vite.config.js';
 const PACKAGE_PATH = 'package.json';
 const MARKER = 'DISPATCH_CREATE_NETWORK_RESILIENCE_V3';
 const TAG = 'dispatch-create-network-resilience-v3';
 const INSTALLER = 'node tools/apply-dispatch-create-network-resilience-v3.mjs';
+const GATI_INSTALLER = 'node tools/apply-gati-rack-save-v1.mjs';
 const TEST_COMMAND = 'npm run test:dispatch-create-network-resilience-v3';
+const GATI_FINAL_IMPORT = "await import('./apply-dispatch-create-network-resilience-v3.mjs');";
 
 function replaceOnce(source, oldText, newText, label) {
   if (source.includes(newText)) return source;
@@ -192,6 +195,24 @@ function patchExistingClientVerifier() {
   fs.writeFileSync(EXISTING_GUARD_VERIFIER_PATH, source);
 }
 
+function patchGatiFinalOwner() {
+  let source = fs.readFileSync(GATI_OWNER_PATH, 'utf8');
+  if (!source.includes(GATI_FINAL_IMPORT)) {
+    const anchor = "await import('./apply-dispatch-phone-check-final-identity-v2.mjs');";
+    if (!source.includes(anchor)) throw new Error('GATI_FINAL_OWNER_V2_ANCHOR_MISSING');
+    source = source.replace(
+      anchor,
+`${anchor}
+
+// ${MARKER}: GATI remains the historical final prebuild owner. Re-apply V3
+// after every nested release writer so Dispatch source and installed-PWA cache
+// identity finish on the resilient direct-CREATE generation.
+${GATI_FINAL_IMPORT}`,
+    );
+  }
+  fs.writeFileSync(GATI_OWNER_PATH, source);
+}
+
 function patchViteIdentity() {
   let source = fs.readFileSync(VITE_PATH, 'utf8');
   if (!source.includes(TAG)) {
@@ -212,8 +233,15 @@ function patchPackage() {
   pkg.scripts ||= {};
   pkg.scripts['test:dispatch-create-network-resilience-v3'] = 'node tools/verify-dispatch-create-network-resilience-v3.mjs';
 
-  const prebuildParts = String(pkg.scripts.prebuild || '').split('&&').map((part) => part.trim()).filter(Boolean);
-  pkg.scripts.prebuild = [...prebuildParts.filter((part) => part !== INSTALLER), INSTALLER].join(' && ');
+  const prebuildParts = String(pkg.scripts.prebuild || '')
+    .split('&&')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => part !== INSTALLER);
+  const gatiIndex = prebuildParts.lastIndexOf(GATI_INSTALLER);
+  if (gatiIndex >= 0) prebuildParts.splice(gatiIndex, 0, INSTALLER);
+  else prebuildParts.push(INSTALLER);
+  pkg.scripts.prebuild = prebuildParts.join(' && ');
 
   const buildParts = String(pkg.scripts.build || '').split('&&').map((part) => part.trim()).filter(Boolean).filter((part) => part !== TEST_COMMAND);
   const viteIndex = buildParts.lastIndexOf('vite build');
@@ -228,7 +256,8 @@ patchDispatch();
 patchV2Installer();
 patchV2Verifier();
 patchExistingClientVerifier();
+patchGatiFinalOwner();
 patchViteIdentity();
 patchPackage();
 
-console.log(`Applied ${MARKER}: advisory PHONE_CHECK, direct atomic CREATE, PWA cache bump and regression guards.`);
+console.log(`Applied ${MARKER}: advisory PHONE_CHECK, direct atomic CREATE, GATI-compatible final ownership, PWA cache bump and regression guards.`);
