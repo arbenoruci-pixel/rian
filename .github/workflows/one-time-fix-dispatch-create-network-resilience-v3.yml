@@ -16,7 +16,7 @@ concurrency:
 jobs:
   patch:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,6 +39,20 @@ jobs:
           node tools/verify-dispatch-existing-client-guard-v1.mjs
           node tools/verify-dispatch-create-intent-v1.mjs
           node tools/verify-dispatch-atomic-tcode-create-v1.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Full production build
+        run: npm run build
+
+      - name: Re-verify V3 after all prebuild owners
+        run: node tools/verify-dispatch-create-network-resilience-v3.mjs
 
       - name: Commit and push verified source patch
         run: |
