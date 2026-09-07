@@ -31,12 +31,15 @@ jobs:
         run: |
           node --check tools/apply-dispatch-create-server-authoritative-v3.mjs
           node tools/apply-dispatch-create-server-authoritative-v3.mjs
+          node --check tools/apply-dispatch-authoritative-build-compat-v3.mjs
+          node tools/apply-dispatch-authoritative-build-compat-v3.mjs
 
       - name: Verify critical invariants
         run: |
           grep -q 'DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3' app/dispatch/page.jsx
           grep -q 'const canCreateNewDispatchOrder = canSend;' app/dispatch/page.jsx
           grep -q 'server_atomic_create' app/dispatch/page.jsx
+          grep -q 'DISPATCH_AUTHORITATIVE_BUILD_COMPAT_V3' tools/apply-dispatch-phone-check-resilience-v2.mjs
           if grep -q 'if (!phoneCheckReady)' app/dispatch/page.jsx; then
             echo 'Blocking phoneCheckReady gate still present in send()'
             exit 1
@@ -47,6 +50,7 @@ jobs:
           fi
           node --check lib/transport/transportDb.js
           node --check lib/transport/dispatchOrderServer.js
+          node tools/verify-dispatch-phone-check-resilience-v2.mjs
 
       - name: Build
         run: |
@@ -57,7 +61,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/dispatch/page.jsx
+          git add app/dispatch/page.jsx tools/apply-dispatch-phone-check-resilience-v2.mjs tools/verify-dispatch-phone-check-resilience-v2.mjs
           if git diff --cached --quiet; then
             echo 'Patch already present.'
             exit 0
