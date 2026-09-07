@@ -1,0 +1,67 @@
+name: One-time ship Dispatch server-authoritative create v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-ship-dispatch-create-server-authoritative-v3.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-ship-dispatch-create-server-authoritative-v3
+  cancel-in-progress: false
+
+jobs:
+  patch-test-ship:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start from latest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Apply authoritative create patch
+        run: |
+          node --check tools/apply-dispatch-create-server-authoritative-v3.mjs
+          node tools/apply-dispatch-create-server-authoritative-v3.mjs
+
+      - name: Verify critical invariants
+        run: |
+          grep -q 'DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3' app/dispatch/page.jsx
+          grep -q 'const canCreateNewDispatchOrder = canSend;' app/dispatch/page.jsx
+          grep -q "source: 'server_atomic_create'" app/dispatch/page.jsx
+          if grep -q "KONTROLLI I TELEFONIT DËSHTOI. PROVO PËRSËRI PARA DËRGIMIT." app/dispatch/page.jsx; then
+            echo 'Blocking phone-check gate still present'
+            exit 1
+          fi
+          node --check lib/transport/transportDb.js
+          node --check lib/transport/dispatchOrderServer.js
+
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit and push source fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/dispatch/page.jsx
+          if git diff --cached --quiet; then
+            echo 'Patch already present.'
+            exit 0
+          fi
+          git commit -m "fix: make Dispatch create server-authoritative"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          exit 1
