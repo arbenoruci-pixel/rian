@@ -1,0 +1,26 @@
+name: Verify payment PIN session resilience v1
+
+on:
+  push:
+    branches:
+      - fix/bujar-payment-session-resilience-v1
+    paths:
+      - 'lib/paymentPin.js'
+      - 'tools/verify-payment-pin-session-resilience-v1.mjs'
+      - '.github/workflows/payment-pin-session-resilience-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify targeted payment PIN invariants
+        run: node tools/verify-payment-pin-session-resilience-v1.mjs
+      - name: Full regression build
+        run: |
+          npm ci
+          npm run build
