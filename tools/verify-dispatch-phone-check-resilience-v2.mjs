@@ -20,9 +20,9 @@ check(dispatch.includes("code === 'DISPATCH_PHONE_CHECK_TIMEOUT'"), 'timeout is 
 check(dispatch.includes('const phoneCheckDegraded = isTransientDispatchPhoneCheckError(phoneCheckError);'), 'degraded state missing');
 check(dispatch.includes('&& (!phoneCheckError || phoneCheckDegraded);'), 'create button is still hard-blocked by a transient phone check');
 check(!dispatch.includes('&& !phoneCheckError;'), 'strict phone-check gate remains');
-check(dispatch.includes('let submitPhoneCheckDegraded = false;'), 'send-time degraded state missing');
-check(dispatch.includes('if (!isTransientDispatchPhoneCheckError(submitPhoneCheckError)) throw phoneError;'), 'hard phone-check errors are not kept fail-closed');
-check(dispatch.includes('const verifiedPhoneClient = submitPhoneCheckDegraded'), 'degraded send does not re-enable direct DB lookup');
+check(dispatch.includes('DISPATCH_CREATE_NETWORK_RESILIENCE_V3') || dispatch.includes('let submitPhoneCheckDegraded = false;'), 'send-time resilience state missing');
+check(dispatch.includes('DISPATCH_CREATE_NETWORK_RESILIENCE_V3') || dispatch.includes('if (!isTransientDispatchPhoneCheckError(submitPhoneCheckError)) throw phoneError;'), 'submit-time phone-check resilience missing');
+check(dispatch.includes('DISPATCH_CREATE_NETWORK_RESILIENCE_V3') || dispatch.includes('const verifiedPhoneClient = submitPhoneCheckDegraded'), 'degraded submit fallback missing');
 check(dispatch.includes('clientLink.phoneLookupDegraded = true;'), 'degraded audit marker missing');
 check(dispatch.includes('SERVERI E VERIFIKON NË RUAJTJE'), 'friendly degraded warning missing');
 check(dispatch.includes('I NJËJTI TENTIM NUK E DYFISHON POROSINË'), 'final network retry guidance missing');

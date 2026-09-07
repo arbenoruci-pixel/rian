@@ -23,6 +23,9 @@ function appendTag(value, tag = TAG) {
 
 function patchDispatch() {
   let source = fs.readFileSync(DISPATCH_PATH, 'utf8');
+  // DISPATCH_CREATE_NETWORK_RESILIENCE_V3: V3 supersedes the V2 submit gate. Keep V2 as a compatibility
+  // owner for older source, and leave a V3 source untouched during prebuild.
+  if (source.includes('DISPATCH_CREATE_NETWORK_RESILIENCE_V3')) return;
 
   source = replaceOnce(
     source,

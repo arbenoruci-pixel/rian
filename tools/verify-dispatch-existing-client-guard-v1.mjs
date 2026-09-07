@@ -20,7 +20,16 @@ assert.match(transportDb, /inspectDispatchTransportPhoneViaApi/, 'browser must u
 assert.match(transportDb, /assertDeduplicatedActiveDispatchOrder/, 'browser must verify a deduplicated active order');
 assert.match(page, /existingClientDecisionKey/, 'existing client selection must bind phone, client and permanent T-code');
 assert.match(page, /existingClientConfirmed/, 'send must require an explicit existing-client decision');
-assert.match(page, /inspectDispatchTransportPhoneViaApi\(cleanPhone/, 'send must repeat the authoritative lookup immediately before create');
+if (page.includes('DISPATCH_CREATE_NETWORK_RESILIENCE_V3')) {
+  const sendStart = page.indexOf('async function send()');
+  const sendEnd = page.indexOf('\n\n  function openRow', sendStart);
+  const sendBlock = sendStart >= 0 && sendEnd > sendStart ? page.slice(sendStart, sendEnd) : '';
+  assert.doesNotMatch(sendBlock, /inspectDispatchTransportPhoneViaApi\(cleanPhone/, 'V3 submit must not depend on a second PHONE_CHECK');
+  assert.match(sendBlock, /insertTransportOrder/, 'V3 submit must reach the atomic CREATE path directly');
+  assert.match(server, /create_transport_order/, 'V3 duplicate/client identity authority must stay in the atomic server RPC');
+} else {
+  assert.match(page, /inspectDispatchTransportPhoneViaApi\(cleanPhone/, 'send must repeat the authoritative lookup immediately before create');
+}
 assert.match(page, /PËRDOR KODIN/, 'Dispatch must present the existing permanent code');
 assert.doesNotMatch(page, /JO, VAZHDO PA LIDHJE/, 'Dispatch must not offer an identity-bypass action');
 
