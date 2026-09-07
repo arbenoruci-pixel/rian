@@ -9,20 +9,32 @@ const server = read('lib/transport/dispatchOrderServer.js');
 const transportDb = read('lib/transport/transportDb.js');
 const migration = read('supabase/migrations/20260902094308_dispatch_existing_client_guard_v1.sql');
 const epoch = read('lib/appEpoch.js');
+const authoritativeV3 = page.includes('DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3');
 
-assert.match(api, /action === 'PHONE_CHECK'/, 'approved-device API must expose the phone inspection action');
+assert.match(api, /action === 'PHONE_CHECK'/, 'approved-device API must expose the advisory phone inspection action');
 assert.match(api, /inspectDispatchTransportPhoneServer/, 'phone inspection must stay server-side');
 assert.match(server, /inspect_dispatch_transport_phone/, 'server must call the service-only inspection RPC');
 assert.match(server, /DISPATCH_ACTIVE_ORDER_EXISTS/, 'server must recognize the DB duplicate guard');
 assert.match(server, /deduplicatedActive: true/, 'a blocked concurrent request must return the existing active order');
 
-assert.match(transportDb, /inspectDispatchTransportPhoneViaApi/, 'browser must use the approved-device phone check');
+assert.match(transportDb, /inspectDispatchTransportPhoneViaApi/, 'browser may use the approved-device phone check for advisory CRM/autofill');
 assert.match(transportDb, /assertDeduplicatedActiveDispatchOrder/, 'browser must verify a deduplicated active order');
-assert.match(page, /existingClientDecisionKey/, 'existing client selection must bind phone, client and permanent T-code');
-assert.match(page, /existingClientConfirmed/, 'send must require an explicit existing-client decision');
-assert.match(page, /inspectDispatchTransportPhoneViaApi\(cleanPhone/, 'send must repeat the authoritative lookup immediately before create');
-assert.match(page, /PËRDOR KODIN/, 'Dispatch must present the existing permanent code');
+assert.match(page, /existingClientDecisionKey/, 'existing-client UI identity remains bound to phone, client and permanent T-code');
+assert.match(page, /PËRDOR KODIN/, 'Dispatch must still present the existing permanent code when the advisory lookup succeeds');
 assert.doesNotMatch(page, /JO, VAZHDO PA LIDHJE/, 'Dispatch must not offer an identity-bypass action');
+
+if (authoritativeV3) {
+  assert.match(page, /const canCreateNewDispatchOrder = canSend;/, 'V3 create readiness must depend on valid form data, not the advisory lookup');
+  assert.match(page, /server_atomic_create/, 'V3 must delegate client/T-code authority to the atomic server create');
+  assert.match(page, /const createResult = await insertTransportOrder/, 'V3 must use the approved-device CREATE endpoint');
+  assert.doesNotMatch(page, /inspectDispatchTransportPhoneViaApi\(cleanPhone/, 'V3 must not repeat the fragile phone precheck during submit');
+  assert.doesNotMatch(page, /if \(!phoneCheckReady\)/, 'V3 must not block create on advisory phone-check state');
+  assert.doesNotMatch(page, /if \(phoneHit && !existingClientConfirmed\)/, 'V3 must not require a browser confirmation before server identity resolution');
+  assert.match(page, /const orderId = await createIntentJournalRef\.current\.acquire\(/, 'V3 must keep stable UUID idempotency before CREATE');
+} else {
+  assert.match(page, /existingClientConfirmed/, 'legacy send must require an explicit existing-client decision');
+  assert.match(page, /inspectDispatchTransportPhoneViaApi\(cleanPhone/, 'legacy send must repeat the authoritative lookup immediately before create');
+}
 
 assert.match(migration, /create or replace function public\.inspect_dispatch_transport_phone/, 'inspection RPC migration missing');
 assert.match(migration, /revoke all on function public\.inspect_dispatch_transport_phone\(text\) from public,anon,authenticated/, 'inspection RPC must not be callable by browsers');
@@ -46,4 +58,6 @@ for (const id of [
 assert.match(epoch, /DISPATCH-EXISTING-CLIENT-GUARD-V1/, 'app data epoch must invalidate stale Dispatch clients');
 assert.match(epoch, /dispatch-existing-client-guard-v1/, 'runtime version must identify this release');
 
-console.log('PASS verify-dispatch-existing-client-guard-v1');
+console.log(authoritativeV3
+  ? 'PASS verify-dispatch-existing-client-guard-v1: V3 resolves identity and active-order dedupe in atomic server CREATE.'
+  : 'PASS verify-dispatch-existing-client-guard-v1');
