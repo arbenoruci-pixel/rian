@@ -28,6 +28,7 @@ const prebuildParts = String(pkg.scripts?.prebuild || '').split('&&').map((part)
 const buildParts = String(pkg.scripts?.build || '').split('&&').map((part) => part.trim()).filter(Boolean);
 const v3Index = prebuildParts.lastIndexOf(installer);
 const gatiIndex = prebuildParts.lastIndexOf(gatiInstaller);
+const cacheValues = [...vite.matchAll(/tepiha-vite-(?:business-routes|static-assets|media)-([^']+)/g)].map((match) => match[1]);
 
 check(dispatch.includes(marker), 'V3 marker missing from Dispatch source');
 check(createGate.includes('canSend'), 'create gate lost form validation');
@@ -56,7 +57,9 @@ check(v3Index >= 0, 'V3 installer missing from prebuild');
 check(gatiIndex >= 0, 'GATI final owner missing from prebuild');
 check(gatiIndex === prebuildParts.length - 1, 'historical GATI final owner must remain last');
 check(v3Index === gatiIndex - 1, 'V3 installer must run directly before GATI final owner');
-check(vite.includes('dispatch-phone-check-resilience-v2-dispatch-create-network-resilience-v3'), 'installed-PWA cache identity was not bumped');
+check(cacheValues.length >= 3, 'expected PWA cache identities are missing');
+check(cacheValues.every((value) => value.includes('dispatch-phone-check-resilience-v2')), 'a PWA cache lost the V2 phone-check generation');
+check(cacheValues.every((value) => value.includes('dispatch-create-network-resilience-v3')), 'a PWA cache did not receive the V3 direct-CREATE generation');
 check(vite.includes('sw-navigation-diag.js?v=3515'), 'service-worker navigation generation was not bumped');
 check(String(pkg.version || '').includes('dispatch-create-network-resilience-v3'), 'package release identity missing V3 tag');
 check(String(pkg.scripts?.['test:dispatch-create-network-resilience-v3'] || '').includes('verify-dispatch-create-network-resilience-v3.mjs'), 'V3 test script missing');
@@ -68,4 +71,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('PASS Dispatch create network resilience V3: PHONE_CHECK is advisory, submit goes straight to idempotent atomic CREATE, GATI remains the final release owner, V3 is re-applied after nested writers, and installed PWA identity is refreshed.');
+console.log('PASS Dispatch create network resilience V3: PHONE_CHECK is advisory, submit goes straight to idempotent atomic CREATE, GATI remains the final release owner, V3 is re-applied after nested writers, and every installed-PWA cache carries the V3 generation regardless of suffix order.');
