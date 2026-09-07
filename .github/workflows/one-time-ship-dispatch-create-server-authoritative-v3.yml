@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/one-time-ship-dispatch-create-server-authoritative-v3.yml'
+      - 'tools/apply-dispatch-create-server-authoritative-v3.mjs'
+      - 'tools/apply-dispatch-authoritative-build-compat-v3.mjs'
 
 permissions:
   contents: write
@@ -39,6 +41,8 @@ jobs:
           grep -q 'DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3' app/dispatch/page.jsx
           grep -q 'const canCreateNewDispatchOrder = canSend;' app/dispatch/page.jsx
           grep -q 'server_atomic_create' app/dispatch/page.jsx
+          grep -q 'const orderId = await createIntentJournalRef.current.acquire(' app/dispatch/page.jsx
+          grep -q 'pendingOrderId = orderId;' app/dispatch/page.jsx
           grep -q 'DISPATCH_AUTHORITATIVE_BUILD_COMPAT_V3' tools/apply-dispatch-phone-check-resilience-v2.mjs
           if grep -q 'if (!phoneCheckReady)' app/dispatch/page.jsx; then
             echo 'Blocking phoneCheckReady gate still present in send()'
@@ -48,9 +52,14 @@ jobs:
             echo 'Blocking existing-client confirmation gate still present in send()'
             exit 1
           fi
+          if grep -q 'let submitPhoneCheckDegraded = false;' app/dispatch/page.jsx; then
+            echo 'Redundant submit-time phone precheck still present'
+            exit 1
+          fi
           node --check lib/transport/transportDb.js
           node --check lib/transport/dispatchOrderServer.js
           node tools/verify-dispatch-phone-check-resilience-v2.mjs
+          node tools/verify-dispatch-create-intent-v1.mjs
 
       - name: Build
         run: |
