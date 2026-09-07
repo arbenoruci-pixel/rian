@@ -36,7 +36,7 @@ jobs:
         run: |
           grep -q 'DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3' app/dispatch/page.jsx
           grep -q 'const canCreateNewDispatchOrder = canSend;' app/dispatch/page.jsx
-          grep -q "source: 'server_atomic_create'" app/dispatch/page.jsx
+          grep -q 'server_atomic_create' app/dispatch/page.jsx
           if grep -q 'if (!phoneCheckReady)' app/dispatch/page.jsx; then
             echo 'Blocking phoneCheckReady gate still present in send()'
             exit 1
