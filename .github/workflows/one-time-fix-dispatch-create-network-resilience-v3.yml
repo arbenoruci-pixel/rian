@@ -5,6 +5,8 @@ on:
     branches: [fix/dispatch-create-network-resilience-v3]
     paths:
       - '.github/workflows/one-time-fix-dispatch-create-network-resilience-v3.yml'
+      - 'tools/apply-dispatch-create-network-resilience-v3.mjs'
+      - 'tools/verify-dispatch-create-network-resilience-v3.mjs'
 
 permissions:
   contents: write
@@ -60,6 +62,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             app/dispatch/page.jsx \
+            tools/apply-gati-rack-save-v1.mjs \
             tools/apply-dispatch-phone-check-resilience-v2.mjs \
             tools/verify-dispatch-phone-check-resilience-v2.mjs \
             tools/verify-dispatch-existing-client-guard-v1.mjs \
