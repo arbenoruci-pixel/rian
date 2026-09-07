@@ -9,7 +9,7 @@ import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
 import { supabase } from "@/lib/supabaseClient";
 import { clearTransportCodeReservationForOrder, releaseTransportCodeIfUnused } from "@/lib/transportCodes";
-import { findTransportClientByPhoneOnly, inspectDispatchTransportPhoneViaApi, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
+import { editDispatchTransportClientViaApi, findTransportClientByPhoneOnly, inspectDispatchTransportPhoneViaApi, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
 import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
 
 const TAB_TODAY = "today";
@@ -271,6 +271,9 @@ function isTransientDispatchPhoneCheckError(error) {
   const code = dispatchPhoneCheckErrorCode(error);
   return code === 'DISPATCH_PHONE_CHECK_NETWORK_FAILED'
     || code === 'DISPATCH_PHONE_CHECK_TIMEOUT'
+    || code === 'DISPATCH_PHONE_CHECK_FAILED'
+    || code === 'AUTH_DEVICE_LOOKUP_FAILED'
+    || code === 'AUTH_USER_LOOKUP_FAILED'
     || /^DISPATCH_PHONE_CHECK_HTTP_(408|425|429|500|502|503|504)$/.test(code);
 }
 
@@ -1646,6 +1649,9 @@ export default function DispatchPage() {
   const [editDriver, setEditDriver] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editPickupMeasurements, setEditPickupMeasurements] = useState("");
+  const [editClientName, setEditClientName] = useState("");
+  const [editClientPhone, setEditClientPhone] = useState("");
+  const [editClientAddress, setEditClientAddress] = useState(""); // DISPATCH_BOSS_CONTROLS_V1
   const [saveBusy, setSaveBusy] = useState(false);
   const [deleteBusyId, setDeleteBusyId] = useState("");
   const [searchTimer, setSearchTimer] = useState(null);
@@ -2350,20 +2356,15 @@ export default function DispatchPage() {
     [serverActivePhoneOrder, allRows, phone],
   );
   const existingClientDecisionKey = dispatchExistingClientDecisionKey(phoneHit, phone);
-  const existingClientConfirmed = !phoneHit || (
-    !!existingClientDecisionKey
-    && existingClientDecision?.mode === 'use_existing'
-    && existingClientDecision?.key === existingClientDecisionKey
-  );
+  // DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3: exact-phone identity is finalized by the approved-device server CREATE.
+  // A successful pre-check can enrich the form, but it never gates order creation.
+  const existingClientConfirmed = true;
   const phoneCheckDegraded = isTransientDispatchPhoneCheckError(phoneCheckError);
   const phoneCheckReady = canSend
     && phoneCheckedKey === currentPhoneKey
     && !phoneBusy
     && (!phoneCheckError || phoneCheckDegraded);
-  const canCreateNewDispatchOrder = canSend
-    && phoneCheckReady
-    && existingClientConfirmed
-    && !activePhoneOrder;
+  const canCreateNewDispatchOrder = canSend;
 
   async function send() {
     // React state updates after the click handler returns. Keep a synchronous
@@ -2373,22 +2374,10 @@ export default function DispatchPage() {
       setErr("PLOTËSO EMRIN DHE TELEFON VALID");
       return;
     }
-    if (activePhoneOrder) {
-      setErr(`KY TELEFON KA POROSI AKTIVE ${getDispatchCardCode(activePhoneOrder)}. NDRYSHO DATËN/ORARIN TE EDITO PLANIN, MOS KRIJO KOD TË RI.`);
-      setCreateOpen(false);
-      openRow(activePhoneOrder);
-      return;
-    }
-    if (!phoneCheckReady) {
-      setErr(phoneCheckError
-        ? 'KONTROLLI I TELEFONIT DËSHTOI. PROVO PËRSËRI PARA DËRGIMIT.'
-        : 'PRIT PAK — PO KONTROLLOHET TELEFONI NË DB.');
-      return;
-    }
-    if (phoneHit && !existingClientConfirmed) {
-      setErr(`KY NUMËR E KA KODIN ${getTransportTCode(phoneHit) || 'EKZISTUES'}. ZGJIDH “PËRDOR KODIN” PARA DËRGIMIT.`);
-      return;
-    }
+    // DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3: local/pre-check state is advisory only. The server CREATE
+    // atomically resolves the exact phone, reuses the permanent T-code, and
+    // deduplicates an already-active order. This avoids blocking Dispatch on
+    // flaky iPhone/PWA pre-check requests or stale local rows.
     if (!confirmSmartCreateIncomplete(smartCreateLiveFillStatus)) {
       return;
     }
@@ -2407,67 +2396,18 @@ export default function DispatchPage() {
       const cleanPhone = onlyDigits(phone);
       let cleanAddress = s(address);
       const cleanNote = s(note);
-      let inspection = null;
-      let submitPhoneCheckDegraded = false;
-      let submitPhoneCheckError = '';
-      try {
-        inspection = await inspectDispatchTransportPhoneViaApi(cleanPhone, { timeoutMs: 15000 });
-        setPhoneCheckedKey(inspection.phoneKey || getDispatchPhoneDigits(cleanPhone));
-        setPhoneCheckError('');
-        setServerActivePhoneOrder(inspection.activeOrder || null);
-      } catch (phoneError) {
-        submitPhoneCheckError = dispatchPhoneCheckErrorCode(phoneError) || 'DISPATCH_PHONE_CHECK_FAILED';
-        if (!isTransientDispatchPhoneCheckError(submitPhoneCheckError)) throw phoneError;
-        submitPhoneCheckDegraded = true;
-        const exactCachedClient = phoneHit && dispatchSamePhone(
-          getClientPhone(phoneHit) || phoneHit?.phone_digits || phoneHit?.phone,
-          cleanPhone,
-        ) ? phoneHit : null;
-        const exactLocalActiveOrder = activePhoneOrder && dispatchSamePhone(
-          getClientPhone(activePhoneOrder) || activePhoneOrder?.phone_digits || activePhoneOrder?.phone,
-          cleanPhone,
-        ) ? activePhoneOrder : null;
-        inspection = {
-          phoneKey: getDispatchPhoneDigits(cleanPhone),
-          client: exactCachedClient,
-          activeOrder: exactLocalActiveOrder,
-        };
-        setPhoneCheckedKey(getDispatchPhoneDigits(cleanPhone));
-        setPhoneCheckError(submitPhoneCheckError);
-        setServerActivePhoneOrder(exactLocalActiveOrder);
-      }
-      if (inspection.activeOrder) {
-        setErr(`KY TELEFON KA POROSI AKTIVE ${getDispatchCardCode(inspection.activeOrder)}. KËRKESA E RE U NDAL QË TË MOS DYFISHOHET.`);
-        setCreateOpen(false);
-        openRow(inspection.activeOrder);
-        return;
-      }
-      const authoritativePhoneClient = inspection.client
-        && dispatchSamePhone(getClientPhone(inspection.client) || inspection.client?.phone_digits || inspection.client?.phone, cleanPhone)
-        ? inspection.client
-        : null;
-      if (authoritativePhoneClient) {
-        setPhoneHit(authoritativePhoneClient);
-        const authoritativeKey = dispatchExistingClientDecisionKey(authoritativePhoneClient, cleanPhone);
-        if (!authoritativeKey || existingClientDecision?.mode !== 'use_existing' || existingClientDecision?.key !== authoritativeKey) {
-          setExistingClientDecision(null);
-          setErr(`KY NUMËR E KA KODIN ${getTransportTCode(authoritativePhoneClient) || 'EKZISTUES'}. KONFIRMO KODIN PARA DËRGIMIT.`);
-          return;
-        }
-        cleanName = s(getClientName(authoritativePhoneClient) || cleanName);
-        cleanAddress = s(cleanAddress || getAddress(authoritativePhoneClient));
-      } else {
-        setPhoneHit(null);
-        setExistingClientDecision(null);
+      // DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3: submit goes straight to the authoritative server CREATE.
+      // Keep an exact cached phone hit only for harmless form enrichment.
+      const exactCachedClient = phoneHit && dispatchSamePhone(
+        getClientPhone(phoneHit) || phoneHit?.phone_digits || phoneHit?.phone,
+        cleanPhone,
+      ) ? phoneHit : null;
+      if (exactCachedClient) {
+        cleanName = s(getClientName(exactCachedClient) || cleanName);
+        cleanAddress = s(cleanAddress || getAddress(exactCachedClient));
       }
       const pickupPlan = buildDispatchPickupPlan({ measurementsText: pickupMeasurements, noteText: cleanNote, piecesHint: smartPasteResult?.pieces || 0 });
-      const existingPhoneClient = authoritativePhoneClient;
-      // A successful approved-device pre-check is authoritative. During a
-      // transient pre-check failure, leave this undefined so the existing
-      // direct DB lookup gets a chance before the atomic server CREATE.
-      const verifiedPhoneClient = submitPhoneCheckDegraded
-        ? undefined
-        : (authoritativePhoneClient || null);
+      // DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3: browser-side phone lookup is advisory only.
       const actorNow = getActor() || null;
       const poolOwner = pickedDriverPin || String(actorNow?.pin || '').trim() || 'DISPATCH';
       if (!createIntentJournalRef.current) {
@@ -2493,21 +2433,26 @@ export default function DispatchPage() {
       });
       pendingOrderId = orderId;
       pendingCodeOwner = poolOwner;
-      const clientLink = await prepareDispatchTransportClientLink({
+      // The browser deliberately sends no client id/T-code authority here.
+      // /api/transport/order resolves the normalized phone under the DB lock,
+      // reuses the permanent client/T-code when present, allocates atomically
+      // for a new phone, and returns the committed canonical row.
+      const clientLink = {
+        clientId: null,
+        tcode: '',
+        reservedNewTcode: '',
+        reservationOid: orderId,
         name: cleanName,
         phone: cleanPhone,
+        phoneDigits: getDispatchPhoneDigits(cleanPhone),
         address: cleanAddress,
-        existingPhoneClient,
-        verifiedPhoneClient,
-        orderId,
-      });
-      if (submitPhoneCheckDegraded) {
-        clientLink.phoneLookupDegraded = true;
-        clientLink.phoneLookupError = [submitPhoneCheckError, clientLink.phoneLookupError]
-          .filter(Boolean)
-          .join(' | ');
-      }
-      pendingReservedTcode = clientLink.reservedNewTcode || '';
+        source: exactCachedClient ? (getTransportClientSource(exactCachedClient) || 'cached_exact_phone') : 'server_atomic_create',
+        rowId: exactCachedClient?.row_id || exactCachedClient?.id || null,
+        atomicDbTcodeAllocation: true,
+        phoneLookupDegraded: !!phoneCheckError,
+        phoneLookupError: phoneCheckError || '',
+      };
+      pendingReservedTcode = '';
       const atomicDbTcodeAllocation = clientLink.atomicDbTcodeAllocation === true;
       let officialOrderCode = normTCode(clientLink.tcode);
       if (!officialOrderCode && !atomicDbTcodeAllocation) {
@@ -2694,6 +2639,9 @@ export default function DispatchPage() {
     setEditDriver(pickedDriver ? driverStableId(pickedDriver) : "");
     setEditNote(s(row?.data?.note || ""));
     setEditPickupMeasurements(formatDispatchPickupPlanForInput(row));
+    setEditClientName(getClientName(row));
+    setEditClientPhone(getClientPhone(row));
+    setEditClientAddress(getAddress(row));
     setSmartMessageLabel("COPY PËR KLIENT");
     setSmartMessageText(buildCustomerConfirmText(row));
   }
@@ -2707,9 +2655,38 @@ export default function DispatchPage() {
       const pickedDriver = drivers.find((d) => driverStableId(d) === String(editDriver || "")) || null;
       const pickedDriverName = s(pickedDriver?.name || pickedDriver?.full_name);
       const pickedDriverPin = s(pickedDriver?.pin || pickedDriver?.user_pin);
+      const bossClientName = s(editClientName || getClientName(selectedRow));
+      const bossClientPhone = onlyDigits(editClientPhone || getClientPhone(selectedRow));
+      const bossClientPhoneKey = getDispatchPhoneDigits(bossClientPhone);
+      const bossClientAddress = s(editClientAddress);
+      if (!bossClientName) throw new Error('EMRI I KLIENTIT MUNGON.');
+      if (!isValidTransportPhoneDigits(bossClientPhoneKey)) throw new Error('TELEFONI NUK ËSHTË VALID.');
+      if (rowTable === 'transport_orders') {
+        const bossClientId = getTransportClientId(selectedRow);
+        if (!bossClientId) throw new Error('CLIENT ID MUNGON — NUK U BË EDITIMI.');
+        await editDispatchTransportClientViaApi({
+          clientId: bossClientId,
+          orderId: selectedRow.id,
+          name: bossClientName,
+          phone: bossClientPhone,
+          address: bossClientAddress,
+        }, { timeoutMs: 18000 });
+      }
       const nextPickupPlan = buildDispatchPickupPlan({ measurementsText: editPickupMeasurements, noteText: s(editNote), piecesHint: selectedRow?.data?.pickup_plan?.pieces || selectedRow?.data?.planned_pieces || 0 });
       const nextData = {
         ...(selectedRow.data || {}),
+        client_name: bossClientName,
+        client_phone: bossClientPhone,
+        phone_digits: bossClientPhoneKey,
+        address: bossClientAddress,
+        pickup_address: bossClientAddress,
+        client: {
+          ...((selectedRow?.data?.client && typeof selectedRow.data.client === 'object') ? selectedRow.data.client : {}),
+          name: bossClientName,
+          phone: bossClientPhone,
+          phone_digits: bossClientPhoneKey,
+          address: bossClientAddress,
+        },
         note: s(editNote),
         pickup_plan: nextPickupPlan,
         planned_tepiha: nextPickupPlan.items,
@@ -2755,6 +2732,10 @@ export default function DispatchPage() {
       if (nextStatus) nextData.status = nextStatus;
       const planPatch = { updated_at: new Date().toISOString(), data: nextData };
       if (assignedClientTcode) planPatch.client_tcode = assignedClientTcode;
+      if (rowTable === 'transport_orders') {
+        planPatch.client_name = bossClientName;
+        planPatch.client_phone = bossClientPhone;
+      }
       if (nextStatus) planPatch.status = nextStatus;
       await updateOrderRecord(rowTable, selectedRow.id, planPatch);
       const savedCode = getDispatchCardCode(selectedRow);
@@ -3149,6 +3130,13 @@ Mati 1, nesër paradite, 3 tepiha`}
             )}
             <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" style={ui.btnGhostMini} onClick={() => applySuggestion(phoneHit, { keepPhoneHit: true, confirmExisting: true })}>PËRDOR KODIN {getTransportTCode(phoneHit) || "EKZISTUES"}</button>
+              <button type="button" style={ui.btnGhostMini} onClick={() => {
+                applySuggestion(phoneHit, { keepPhoneHit: true, confirmExisting: true });
+                const phoneKey = getDispatchPhoneDigits(phone);
+                autoAddressRef.current = { phoneKey, address: '' };
+                addressRef.current = '';
+                setAddress('');
+              }}>PËRDOR {getTransportTCode(phoneHit) || "KODIN"} + ADRESË TJETËR</button>
               <button type="button" style={ui.btnGhostMini} onClick={() => { setPhone(""); setPhoneHit(null); setExistingClientDecision(null); }}>KTHEHU / NDËRRO NUMRIN</button>
             </div>
           </div>
@@ -3463,7 +3451,7 @@ Mati 1, nesër paradite, 3 tepiha`}
                 <button type="button" style={ui.actionBtn} onClick={() => copyReply(selectedRow)}>KOPJO PËRGJIGJEN</button>
                 <button type="button" style={ui.actionBtn} onClick={() => setDispatchReschedule(selectedRow)}>RIPLAN</button>
                 <a href={selectedTransportHref} style={ui.actionBtn}>HAP NË TRANSPORT</a>
-                <button type="button" style={ui.actionBtnDisabled} disabled>EDITO ADRESËN</button>
+                <button type="button" style={ui.actionBtn} onClick={() => document.getElementById("dispatch-boss-edit-address")?.focus()}>EDITO KLIENTIN / ADRESËN</button>
               </div>
               {copyMsg ? <div style={ui.ok}>{copyMsg}</div> : null}
             </div>
@@ -3522,6 +3510,26 @@ Mati 1, nesër paradite, 3 tepiha`}
                   </div>
                 </div>
               ) : null}
+            </div>
+
+            <div style={ui.updateSection}>
+              <div style={ui.sectionTitle}>DISPATCH ADMIN / BOSS — EDITO KLIENTIN</div>
+              <div style={ui.sectionHint}>Ky Dispatch ka të drejta operative admin. T-code dhe numri i telefonit mbesin të njëjtë. Mundesh me ndërru emrin dhe adresën.</div>
+              <div style={ui.row2}>
+                <div style={ui.field}>
+                  <div style={ui.label}>EMRI</div>
+                  <input style={ui.input} value={editClientName} onChange={(e) => setEditClientName(e.target.value)} placeholder="EMRI I KLIENTIT" />
+                </div>
+                <div style={ui.field}>
+                  <div style={ui.label}>TELEFONI — MBETET I NJËJTË</div>
+                  <input style={{ ...ui.input, opacity: 0.72 }} value={editClientPhone} readOnly aria-readonly="true" inputMode="tel" />
+                  <div style={ui.sectionHint}>DISPATCH_BOSS_FIXED_PHONE_V2: numri është identiteti i klientit dhe nuk ndryshohet prej këtij editimi.</div>
+                </div>
+              </div>
+              <div style={ui.field}>
+                <div style={ui.label}>ADRESA E KËSAJ VIZITE / KLIENTIT</div>
+                <input id="dispatch-boss-edit-address" style={ui.input} value={editClientAddress} onChange={(e) => setEditClientAddress(e.target.value)} placeholder="RRUGA / LAGJJA / BANESA E RE" />
+              </div>
             </div>
 
             <div style={ui.updateSection}>

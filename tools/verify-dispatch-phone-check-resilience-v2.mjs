@@ -13,21 +13,31 @@ const buildParts = String(pkg.scripts?.build || '').split('&&').map((part) => pa
 const installer = 'node tools/apply-dispatch-phone-check-resilience-v2.mjs';
 const finalOwner = 'node tools/apply-gati-rack-save-v1.mjs';
 
-check(dispatch.includes('DISPATCH_PHONE_CHECK_RESILIENCE_V2'), 'resilience marker missing');
+const authoritativeV3 = dispatch.includes('DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3');
 check(dispatch.includes('function isTransientDispatchPhoneCheckError'), 'transient classifier missing');
 check(dispatch.includes("code === 'DISPATCH_PHONE_CHECK_NETWORK_FAILED'"), 'network failure is not classified');
 check(dispatch.includes("code === 'DISPATCH_PHONE_CHECK_TIMEOUT'"), 'timeout is not classified');
 check(dispatch.includes('const phoneCheckDegraded = isTransientDispatchPhoneCheckError(phoneCheckError);'), 'degraded state missing');
-check(dispatch.includes('&& (!phoneCheckError || phoneCheckDegraded);'), 'create button is still hard-blocked by a transient phone check');
 check(!dispatch.includes('&& !phoneCheckError;'), 'strict phone-check gate remains');
-check(dispatch.includes('let submitPhoneCheckDegraded = false;'), 'send-time degraded state missing');
-check(dispatch.includes('if (!isTransientDispatchPhoneCheckError(submitPhoneCheckError)) throw phoneError;'), 'hard phone-check errors are not kept fail-closed');
-check(dispatch.includes('const verifiedPhoneClient = submitPhoneCheckDegraded'), 'degraded send does not re-enable direct DB lookup');
-check(dispatch.includes('clientLink.phoneLookupDegraded = true;'), 'degraded audit marker missing');
 check(dispatch.includes('SERVERI E VERIFIKON NË RUAJTJE'), 'friendly degraded warning missing');
 check(dispatch.includes('I NJËJTI TENTIM NUK E DYFISHON POROSINË'), 'final network retry guidance missing');
 check(dispatch.includes('const createResult = await insertTransportOrder'), 'atomic create path missing');
 check(dispatch.includes('const deduplicatedActive = createResult?.deduplicatedActive === true;'), 'active-order server dedupe handling missing');
+
+if (authoritativeV3) {
+  check(dispatch.includes('const canCreateNewDispatchOrder = canSend;'), 'V3 create button is not form-validity only');
+  check(dispatch.includes('server_atomic_create'), 'V3 server-atomic create marker missing');
+  check(!dispatch.includes('if (!phoneCheckReady)'), 'V3 send is still blocked by phone pre-check');
+  check(!dispatch.includes('if (phoneHit && !existingClientConfirmed)'), 'V3 send is still blocked by client confirmation');
+  check(!dispatch.includes('let submitPhoneCheckDegraded = false;'), 'V3 still performs redundant submit-time phone pre-check');
+} else {
+  check(dispatch.includes('DISPATCH_PHONE_CHECK_RESILIENCE_V2'), 'resilience marker missing');
+  check(dispatch.includes('&& (!phoneCheckError || phoneCheckDegraded);'), 'create button is still hard-blocked by a transient phone check');
+  check(dispatch.includes('let submitPhoneCheckDegraded = false;'), 'send-time degraded state missing');
+  check(dispatch.includes('if (!isTransientDispatchPhoneCheckError(submitPhoneCheckError)) throw phoneError;'), 'hard phone-check errors are not kept fail-closed');
+  check(dispatch.includes('const verifiedPhoneClient = submitPhoneCheckDegraded'), 'degraded send does not re-enable direct DB lookup');
+  check(dispatch.includes('clientLink.phoneLookupDegraded = true;'), 'degraded audit marker missing');
+}
 
 // Nested legacy release installers may rewrite the future owner source after it
 // has already generated this build. The built Vite cache identity is authoritative.
@@ -49,4 +59,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('PASS Dispatch phone-check resilience V2: transient iPhone/PWA pre-check failures warn instead of blocking, while server create remains atomic and deduplicated.');
+console.log(authoritativeV3 ? 'PASS Dispatch server-authoritative V3: pre-check is advisory and CREATE is atomic/idempotent.' : 'PASS Dispatch phone-check resilience V2: transient iPhone/PWA pre-check failures warn instead of blocking, while server create remains atomic and deduplicated.');

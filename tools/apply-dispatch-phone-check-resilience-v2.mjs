@@ -24,6 +24,24 @@ function appendTag(value, tag = TAG) {
 function patchDispatch() {
   let source = fs.readFileSync(DISPATCH_PATH, 'utf8');
 
+  // DISPATCH_AUTHORITATIVE_BUILD_COMPAT_V3: the server-authoritative V3 flow supersedes the older V2
+  // submit-time pre-check patch. Keep V2's version/PWA ownership work, while
+  // leaving the stronger V3 create path untouched on every future build.
+  if (source.includes('DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3')) {
+    for (const token of [
+      'DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3',
+      'const canCreateNewDispatchOrder = canSend;',
+      'server_atomic_create',
+      'const createResult = await insertTransportOrder',
+    ]) {
+      if (!source.includes(token)) throw new Error('AUTHORITATIVE_DISPATCH_VERIFY_MISSING:' + token);
+    }
+    if (source.includes('if (!phoneCheckReady)')) throw new Error('AUTHORITATIVE_PHONE_GATE_REGRESSED');
+    if (source.includes('if (phoneHit && !existingClientConfirmed)')) throw new Error('AUTHORITATIVE_CLIENT_CONFIRM_GATE_REGRESSED');
+    console.log('SKIP Dispatch phone-check V2 source rewrite: server-authoritative V3 is active');
+    return;
+  }
+
   source = replaceOnce(
     source,
 `function dispatchPhoneSearchReady(value) {
