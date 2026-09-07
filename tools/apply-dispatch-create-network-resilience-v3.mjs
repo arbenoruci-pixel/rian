@@ -215,15 +215,11 @@ ${GATI_FINAL_IMPORT}`,
 
 function patchViteIdentity() {
   let source = fs.readFileSync(VITE_PATH, 'utf8');
-  if (!source.includes(TAG)) {
-    const oldSuffix = "dispatch-phone-check-resilience-v2'";
-    const count = source.split(oldSuffix).length - 1;
-    if (count < 3) throw new Error(`VITE_CACHE_IDENTITY: expected >=3 V2 cache names, found ${count}`);
-    source = source.split(oldSuffix).join(`dispatch-phone-check-resilience-v2-${TAG}'`);
-  }
-  if (source.includes('sw-navigation-diag.js?v=3514')) {
-    source = source.replace('sw-navigation-diag.js?v=3514', 'sw-navigation-diag.js?v=3515');
-  }
+  source = source.replace(
+    /(tepiha-vite-(?:business-routes|static-assets|media)-)([^']+)/g,
+    (_all, prefix, value) => `${prefix}${appendTag(value)}`,
+  );
+  source = source.replace(/sw-navigation-diag\.js\?v=\d+/g, 'sw-navigation-diag.js?v=3515');
   fs.writeFileSync(VITE_PATH, source);
 }
 
@@ -260,4 +256,4 @@ patchGatiFinalOwner();
 patchViteIdentity();
 patchPackage();
 
-console.log(`Applied ${MARKER}: advisory PHONE_CHECK, direct atomic CREATE, GATI-compatible final ownership, PWA cache bump and regression guards.`);
+console.log(`Applied ${MARKER}: advisory PHONE_CHECK, direct atomic CREATE, GATI-compatible final ownership, suffix-order-independent PWA cache bump and regression guards.`);
