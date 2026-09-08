@@ -1,10 +1,12 @@
 import { apiFail, apiOk, createAdminClientOrThrow, readBody } from '../_helpers.js';
+import { editDispatchOrderServer } from '../../lib/transport/dispatchEditServer.js';
 import {
   DispatchOrderServerError,
   authenticateDispatchOrderActor,
   createDispatchTransportPranimiOrderServer,
   createDispatchTransportOrderServer,
   inspectDispatchTransportPhoneServer,
+  editDispatchTransportClientServer,
 } from '../../lib/transport/dispatchOrderServer.js';
 
 function setPrivateNoStore(res) {
@@ -75,8 +77,14 @@ export default async function handler(req, res) {
     const deviceId = readCookie(req, 'tepiha_device_id');
     const authUser = await authenticateDispatchOrderActor(supabase, deviceId);
     const action = String(body?.action || '').trim().toUpperCase();
+    if (action === 'EDIT_ORDER') return apiOk(res, await editDispatchOrderServer(body, { supabase, authUser }));
     if (action === 'PHONE_CHECK') {
       return apiOk(res, await inspectDispatchTransportPhoneServer(body, { supabase, authUser }));
+    }
+    if (action === 'CLIENT_ADMIN_EDIT') {
+      // Older installed clients send a second unguarded JSON write after this call.
+      // Require the new atomic edit contract before allowing a client edit.
+      return apiFail(res, 'DISPATCH_EDIT_REFRESH_APP_REQUIRED', 409);
     }
     const flow = String(body?.flow || '').trim().toUpperCase();
     const output = flow === 'PRANIMI'

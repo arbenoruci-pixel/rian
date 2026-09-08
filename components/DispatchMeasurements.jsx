@@ -1,0 +1,11 @@
+'use client';
+const input = { width: '100%', minWidth: 0, minHeight: 42, boxSizing: 'border-box', background: '#0f172a', color: '#f8fafc', border: '1px solid #64748b', borderRadius: 8, padding: 8, fontSize: 16 };
+export default function DispatchMeasurements({ value, onChange, disabled }) {
+  if (!value) return null;
+  const changeRow = (kind, index, key, val) => onChange({ ...value, [kind]: value[kind].map((row, i) => i === index ? { ...row, [key]: val } : row) });
+  return <details style={{ marginTop: 12, color: '#f8fafc' }}><summary style={{ padding: '12px 0', fontWeight: 800 }}>EDITO MASAT E REGJISTRUARA</summary><p>Statusi dhe punëtori mbeten të njëjtë. Totali rillogaritet me çmimin ekzistues.</p>{disabled ? <p>Kjo porosi ka pagesë. Korrigjimi i masave kërkon rishikim në Arkë.</p> : null}<fieldset disabled={disabled} style={{ border: 0, padding: 0 }}>
+    {['tepiha', 'staza'].map((kind) => <div key={kind}><strong>{kind.toUpperCase()}</strong>{value[kind].map((row, index) => <div key={row.id || index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6, margin: '8px 0' }}><label>m²<input aria-label={`${kind} ${index + 1} m²`} style={input} type="number" min="0.01" step="0.01" value={row.m2} onChange={(e) => changeRow(kind, index, 'm2', e.target.value)} /></label><label>Copë<input aria-label={`${kind} ${index + 1} copë`} style={input} type="number" min="1" step="1" value={row.qty} onChange={(e) => changeRow(kind, index, 'qty', e.target.value)} /></label><button type="button" aria-label={`Hiq ${kind} ${index + 1}`} style={input} onClick={() => onChange({ ...value, [kind]: value[kind].filter((_, i) => i !== index) })}>×</button></div>)}<button type="button" style={{ ...input, marginBottom: 12 }} onClick={() => onChange({ ...value, [kind]: [...value[kind], { id: crypto.randomUUID(), m2: '', qty: 1 }] })}>+ RRESHT</button></div>)}
+    <label>Shkallore · copë<input style={input} type="number" min="0" step="1" value={value.shkallore.qty} onChange={(e) => onChange({ ...value, shkallore: { ...value.shkallore, qty: e.target.value } })} /></label>
+    <label>Shkallore · m² për copë<input style={input} type="number" min="0.01" step="0.01" value={value.shkallore.per} onChange={(e) => onChange({ ...value, shkallore: { ...value.shkallore, per: e.target.value } })} /></label>
+  </fieldset></details>;
+}

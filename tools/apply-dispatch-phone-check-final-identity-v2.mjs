@@ -5,8 +5,9 @@ const TAG = 'dispatch-phone-check-resilience-v2';
 
 function appendTag(value) {
   const text = String(value || '').trim();
-  if (!text) return TAG;
-  return text.includes(TAG) ? text : `${text}-${TAG}`;
+  const base = !text ? TAG : text.includes(TAG) ? text : `${text}-${TAG}`;
+  const release = 'dispatch-customer-arka-v1';
+  return base.includes(release) ? base : `${base}-${release}`;
 }
 
 const packagePath = 'package.json';

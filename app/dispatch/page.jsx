@@ -9,7 +9,10 @@ import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
 import { supabase } from "@/lib/supabaseClient";
 import { clearTransportCodeReservationForOrder, releaseTransportCodeIfUnused } from "@/lib/transportCodes";
-import { editDispatchTransportClientViaApi, findTransportClientByPhoneOnly, inspectDispatchTransportPhoneViaApi, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
+import { editDispatchOrderViaApi, findTransportClientByPhoneOnly, inspectDispatchTransportPhoneViaApi, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
+import { withDeadline } from '@/lib/boundedRequest';
+import CustomerCare from '@/components/CustomerCare';
+import DispatchMeasurements from '@/components/DispatchMeasurements';
 import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
 
 const TAB_TODAY = "today";
@@ -85,7 +88,7 @@ function resolveAssignPlanStatus(currentStatus, hasDriver) {
   return hasDriver ? "assigned" : "inbox";
 }
 
-const DISPATCH_ACCESS_ROLES = new Set(["DISPATCH", "ADMIN", "ADMIN_MASTER", "OWNER", "PRONAR", "SUPERADMIN"]);
+const DISPATCH_ACCESS_ROLES = new Set(["DISPATCH", "ADMIN", "ADMIN_MASTER", "OWNER", "PRONAR", "SUPERADMIN", "MASTER"]);
 
 function canAccessDispatch(actor) {
   return DISPATCH_ACCESS_ROLES.has(up(actor?.role));
@@ -1647,6 +1650,12 @@ export default function DispatchPage() {
   const [editDate, setEditDate] = useState(todayYmd);
   const [editSlot, setEditSlot] = useState("morning");
   const [editDriver, setEditDriver] = useState("");
+  const [editAssignmentChanged, setEditAssignmentChanged] = useState(false);
+  const [editMeasurements, setEditMeasurements] = useState(null);
+  const [editMeasurementsChanged, setEditMeasurementsChanged] = useState(false);
+  const savePlanInFlight = useRef(false);
+  const rowsInFlight = useRef(false);
+  const [rowsError, setRowsError] = useState('');
   const [editNote, setEditNote] = useState("");
   const [editPickupMeasurements, setEditPickupMeasurements] = useState("");
   const [editClientName, setEditClientName] = useState("");
@@ -1743,10 +1752,17 @@ export default function DispatchPage() {
     let cancelled = false;
     let retryTimer = 0;
     let attempt = 0;
+    let loadingDrivers = false;
+    try {
+      const cached = JSON.parse(window.localStorage.getItem('tepiha_dispatch_drivers_v1') || 'null');
+      if (Array.isArray(cached?.items)) setDrivers(cached.items);
+    } catch {}
     const loadDrivers = async () => {
+      if (loadingDrivers || cancelled) return;
+      loadingDrivers = true;
       attempt += 1;
       try {
-        const res = await listUsers();
+        const res = await withDeadline(() => listUsers(), 10000, 'DISPATCH_DRIVERS_TIMEOUT');
         if (cancelled) return;
         if (res?.ok) {
           const ds = (res.items || []).filter((u) => {
@@ -1763,7 +1779,7 @@ export default function DispatchPage() {
             return;
           }
         }
-      } catch {}
+      } catch {} finally { loadingDrivers = false; }
       try {
         const cached = JSON.parse(window.localStorage.getItem('tepiha_dispatch_drivers_v1') || 'null');
         if (!cancelled && Array.isArray(cached?.items) && cached.items.length) setDrivers((current) => current.length ? current : cached.items);
@@ -1783,20 +1799,25 @@ export default function DispatchPage() {
   }, [accessChecked, accessAllowed]); // DISPATCH_MIDNIGHT_DRIVERS_V1: resilient drivers
 
   const loadRows = useCallback(async () => {
+    if (rowsInFlight.current) return;
+    rowsInFlight.current = true;
     setLoadingRows(true);
     try {
       const merged = keepDispatchTransportOnly(
-        await listMixedOrderRecords({
+        await withDeadline((signal) => listMixedOrderRecords({
+          signal,
           tables: ["transport_orders"],
           byTable: {
             transport_orders: { orderBy: "updated_at", ascending: false, limit: DISPATCH_LOAD_LIMIT_TRANSPORT },
           },
-        })
+        }), 12000, 'DISPATCH_LIST_TIMEOUT')
       );
       setAllRows(merged);
+      setRowsError('');
     } catch {
-      setAllRows([]);
+      setRowsError('LISTA NUK U RIFRESKUA. KONTROLLO INTERNETIN DHE PROVO PËRSËRI.');
     } finally {
+      rowsInFlight.current = false;
       setLoadingRows(false);
     }
   }, []);
@@ -1884,6 +1905,7 @@ export default function DispatchPage() {
     }
 
     if (!isValidTransportPhoneDigits(phoneDigits)) {
+      setPhoneBusy(false);
       setPhoneHit(null);
       setExistingClientDecision(null);
       return;
@@ -2630,6 +2652,9 @@ export default function DispatchPage() {
   }
 
   function openRow(row) {
+    setEditAssignmentChanged(false);
+    setEditMeasurementsChanged(false);
+    setEditMeasurements({ tepiha: row.data?.tepiha || row.data?.tepihaRows || [], staza: row.data?.staza || row.data?.stazaRows || [], shkallore: row.data?.shkallore || { qty: 0, per: 0.3 } });
     setSelectedRow(row);
     setEditDate(rowPickupDate(row) || todayYmd);
     setEditSlot(rowPickupSlot(row) || "morning");
@@ -2637,7 +2662,7 @@ export default function DispatchPage() {
     // reassign older orders too, not only rows written with transport_id.
     const pickedDriver = drivers.find((d) => rowMatchesDriver(row, d)) || null;
     setEditDriver(pickedDriver ? driverStableId(pickedDriver) : "");
-    setEditNote(s(row?.data?.note || ""));
+    setEditNote(s(row?.data?.note || row?.data?.notes || ""));
     setEditPickupMeasurements(formatDispatchPickupPlanForInput(row));
     setEditClientName(getClientName(row));
     setEditClientPhone(getClientPhone(row));
@@ -2647,107 +2672,39 @@ export default function DispatchPage() {
   }
 
   async function savePlan() {
-    if (!selectedRow?.id) return;
+    if (!selectedRow?.id || savePlanInFlight.current) return;
+    savePlanInFlight.current = true;
     setSaveBusy(true);
     try {
-      const rowTable = getOrderTable(selectedRow);
-      if (!rowTable) throw new Error("Burimi i porosisë mungon.");
-      const pickedDriver = drivers.find((d) => driverStableId(d) === String(editDriver || "")) || null;
-      const pickedDriverName = s(pickedDriver?.name || pickedDriver?.full_name);
-      const pickedDriverPin = s(pickedDriver?.pin || pickedDriver?.user_pin);
-      const bossClientName = s(editClientName || getClientName(selectedRow));
-      const bossClientPhone = onlyDigits(editClientPhone || getClientPhone(selectedRow));
-      const bossClientPhoneKey = getDispatchPhoneDigits(bossClientPhone);
-      const bossClientAddress = s(editClientAddress);
-      if (!bossClientName) throw new Error('EMRI I KLIENTIT MUNGON.');
-      if (!isValidTransportPhoneDigits(bossClientPhoneKey)) throw new Error('TELEFONI NUK ËSHTË VALID.');
-      if (rowTable === 'transport_orders') {
-        const bossClientId = getTransportClientId(selectedRow);
-        if (!bossClientId) throw new Error('CLIENT ID MUNGON — NUK U BË EDITIMI.');
-        await editDispatchTransportClientViaApi({
-          clientId: bossClientId,
-          orderId: selectedRow.id,
-          name: bossClientName,
-          phone: bossClientPhone,
-          address: bossClientAddress,
-        }, { timeoutMs: 18000 });
-      }
       const nextPickupPlan = buildDispatchPickupPlan({ measurementsText: editPickupMeasurements, noteText: s(editNote), piecesHint: selectedRow?.data?.pickup_plan?.pieces || selectedRow?.data?.planned_pieces || 0 });
-      const nextData = {
-        ...(selectedRow.data || {}),
-        client_name: bossClientName,
-        client_phone: bossClientPhone,
-        phone_digits: bossClientPhoneKey,
-        address: bossClientAddress,
-        pickup_address: bossClientAddress,
-        client: {
-          ...((selectedRow?.data?.client && typeof selectedRow.data.client === 'object') ? selectedRow.data.client : {}),
-          name: bossClientName,
-          phone: bossClientPhone,
-          phone_digits: bossClientPhoneKey,
-          address: bossClientAddress,
-        },
+      const result = await editDispatchOrderViaApi({
+        orderId: selectedRow.id, expectedUpdatedAt: selectedRow.updated_at,
+        name: s(editClientName), address: s(editClientAddress),
         note: s(editNote),
-        pickup_plan: nextPickupPlan,
-        planned_tepiha: nextPickupPlan.items,
-        planned_pieces: nextPickupPlan.pieces,
-        planned_m2_total: nextPickupPlan.m2_total,
-        pickup_measurements_text: String(editPickupMeasurements || '').trim(),
-        pickup_date: editDate,
-        pickup_slot: editSlot,
-        pickup_window: slotWindow(editSlot),
-        planning_bucket: editDate === todayYmd ? "today" : editDate === tomorrowYmd ? "tomorrow" : "scheduled",
-        transport_id: editDriver || null,
-        transport_user_id: editDriver || null,
-        transport_name: pickedDriverName || null,
-        transport_pin: pickedDriverPin || null,
-        actor: pickedDriverName || pickedDriverPin || null,
-        driver_name: pickedDriverName || null,
-        driver_pin: pickedDriverPin || null,
-        assigned_driver_id: editDriver || null,
-        assigned_at: new Date().toISOString(),
-        defer_dispatch_code: false,
-      };
-      const assignedClientTcode = rowTable === 'transport_orders'
-        ? normTCode(getTransportTCode(selectedRow) || selectedRow?.client_tcode || selectedRow?.data?.transport_client_tcode || selectedRow?.data?.client?.tcode || '')
-        : '';
-      if (rowTable === 'transport_orders' && !assignedClientTcode) {
-        throw new Error('T-KODI PERMANENT I KLIENTIT MUNGON. ASSIGNMENT NUK U RUAJT.');
-      }
-      if (assignedClientTcode) {
-        nextData.client_tcode = assignedClientTcode;
-        nextData.transport_client_tcode = assignedClientTcode;
-        nextData.client = {
-          ...((nextData.client && typeof nextData.client === 'object') ? nextData.client : {}),
-          tcode: assignedClientTcode,
-          code: assignedClientTcode,
-          client_tcode: assignedClientTcode,
-          transport_client_tcode: assignedClientTcode,
-        };
-      }
-      const currentStatus = getDbTruthStatus(selectedRow) || "";
-      const nextStatus = rowTable === "transport_orders"
-        ? resolveAssignPlanStatus(currentStatus, !!editDriver)
-        : (editDriver ? "assigned" : "inbox");
-      if (nextStatus) nextData.status = nextStatus;
-      const planPatch = { updated_at: new Date().toISOString(), data: nextData };
-      if (assignedClientTcode) planPatch.client_tcode = assignedClientTcode;
-      if (rowTable === 'transport_orders') {
-        planPatch.client_name = bossClientName;
-        planPatch.client_phone = bossClientPhone;
-      }
-      if (nextStatus) planPatch.status = nextStatus;
-      await updateOrderRecord(rowTable, selectedRow.id, planPatch);
-      const savedCode = getDispatchCardCode(selectedRow);
-      setMsg(pickedDriver
-        ? `${savedCode} IU LIRUA ${up(pickedDriverName || pickedDriverPin || "TRANSPORTUESIT")} ✅`
-        : `${savedCode} MBETI VETËM TE DISPATCH ✅`);
-      try { window.setTimeout(() => setMsg(""), 3200); } catch {}
+        changeAssignment: editAssignmentChanged, driverId: editDriver || null,
+        plan: {
+          pickup_plan: nextPickupPlan, planned_tepiha: nextPickupPlan.items,
+          planned_pieces: nextPickupPlan.pieces, planned_m2_total: nextPickupPlan.m2_total,
+          pickup_measurements_text: editPickupMeasurements, pickup_date: editDate,
+          pickup_slot: editSlot, pickup_window: slotWindow(editSlot),
+          planning_bucket: editDate === todayYmd ? 'today' : editDate === tomorrowYmd ? 'tomorrow' : 'scheduled',
+        },
+        ...(editMeasurementsChanged ? { measurements: editMeasurements } : {}),
+      }, { timeoutMs: 18000 });
+      setAllRows((current) => current.map((row) => row.id === result.order.id ? { ...row, ...result.order } : row));
+      setMsg('NDRYSHIMET U RUAJTËN ✅');
       setSelectedRow(null);
-      await loadRows();
-    } catch (e) {
-      alert(e?.message || "Gabim gjatë ruajtjes.");
+      void loadRows();
+    } catch (error) {
+      const messages = {
+        DISPATCH_EDIT_CONFLICT: 'POROSIA U NDRYSHUA NDËRKOHË. MBYLLE, RIFRESKOJE DHE HAPE PËRSËRI.',
+        DISPATCH_EDIT_PAID_MEASUREMENTS: 'KJO POROSI KA PAGESË TË REGJISTRUAR. KORRIGJIMI I SHUMËS KËRKON RISHIKIM NË ARKË.',
+        DISPATCH_MEASUREMENTS_INVALID: 'KONTROLLO MASAT DHE COPËT: DUHEN VLERA POZITIVE.',
+        DISPATCH_EDIT_ORDER_CLOSED: 'POROSIA ËSHTË PËRFUNDUAR OSE ANULUAR.',
+      };
+      alert(messages[error?.code] || 'NUK U KONFIRMUA RUAJTJA. KONTROLLO INTERNETIN DHE RIHAPE POROSINË PARA TENTIMIT TJETËR.');
     } finally {
+      savePlanInFlight.current = false;
       setSaveBusy(false);
     }
   }
@@ -2883,6 +2840,7 @@ export default function DispatchPage() {
 
   return (
     <div style={ui.page}>
+      {rowsError ? <div role="alert" style={{ ...ui.crmHitBox, marginBottom: 12 }}>{rowsError} <button type="button" style={ui.btnGhostMini} disabled={loadingRows} onClick={loadRows}>PROVO PËRSËRI</button></div> : null}
       <div style={ui.top}>
         <div style={ui.headerLeft}>
           <div style={ui.title}>DISPATCH</div>
@@ -3113,6 +3071,7 @@ Mati 1, nesër paradite, 3 tepiha`}
 
         {phoneHit ? (
           <div style={ui.crmHitBox}>
+            <CustomerCare key={phoneHit.id} clientId={phoneHit.id} compact />
             <div style={ui.crmHitTitle}>KY NUMËR EKZISTON — KODI {getTransportTCode(phoneHit) || "—"}</div>
             <div style={ui.crmHitSub}>EMRI: {up(getClientName(phoneHit) || "PA EMËR")}</div>
             <div style={ui.crmHitSub}>TEL: {getClientPhone(phoneHit) || phoneHit?.phone_digits || "PA TEL"}</div>
@@ -3523,7 +3482,8 @@ Mati 1, nesër paradite, 3 tepiha`}
                 <div style={ui.field}>
                   <div style={ui.label}>TELEFONI — MBETET I NJËJTË</div>
                   <input style={{ ...ui.input, opacity: 0.72 }} value={editClientPhone} readOnly aria-readonly="true" inputMode="tel" />
-                  <div style={ui.sectionHint}>DISPATCH_BOSS_FIXED_PHONE_V2: numri është identiteti i klientit dhe nuk ndryshohet prej këtij editimi.</div>
+                  {/* DISPATCH_BOSS_FIXED_PHONE_V2: permanent identity stays locked. */}
+                  <div style={ui.sectionHint}>Numri dhe kodi permanent i klientit mbeten të njëjtë.</div>
                 </div>
               </div>
               <div style={ui.field}>
@@ -3537,7 +3497,8 @@ Mati 1, nesër paradite, 3 tepiha`}
               <div style={ui.sectionHint}>Zgjedhe cilindo transportues aktiv. Porosia i del atij në teren, ndërsa statusi ku ka mbërritur nuk kthehet prapa.</div>
               <div style={ui.field}>
                 <div style={ui.label}>TRANSPORTUESI QË E MERR POROSINË</div>
-                <select style={ui.input} value={editDriver} onChange={(e) => setEditDriver(e.target.value)}>
+                <select style={ui.input} value={editAssignmentChanged ? editDriver : '__keep'} onChange={(e) => { setEditAssignmentChanged(e.target.value !== '__keep'); if (e.target.value !== '__keep') setEditDriver(e.target.value); }}>
+                  <option style={ui.selectOption} value="__keep">MBAJE CAKTIMIN AKTUAL</option>
                   <option style={ui.selectOption} value="">(PA TRANSPORTUES — MBETET VETËM TE DISPATCH)</option>
                   {drivers.map((d) => (
                     <option style={ui.selectOption} key={driverStableId(d)} value={driverStableId(d)}>{driverDisplayName(d)}</option>
@@ -3577,6 +3538,9 @@ Mati 1, nesër paradite, 3 tepiha`}
               </div>
             </div>
 
+            <DispatchMeasurements value={editMeasurements} onChange={(value) => { setEditMeasurements(value); setEditMeasurementsChanged(true); }} disabled={Math.max(Number(selectedRow.data?.pay?.paid || 0), Number(selectedRow.data?.pay?.arkaRecordedPaid || 0), Number(selectedRow.data?.clientPaid || 0), Number(selectedRow.data?.paid || 0)) > 0} />
+            <CustomerCare key={selectedRow.id} orderId={selectedRow.id} compact />
+
             {canDispatchRemoveRow(selectedRow) ? (
               <div style={ui.adminRiskBox}>
                 <div>
@@ -3598,6 +3562,7 @@ Mati 1, nesër paradite, 3 tepiha`}
               <button type="button" style={{ ...ui.btnPrimary, flex: 1 }} onClick={savePlan} disabled={saveBusy}>
                 {saveBusy
                   ? "DUKE RUAJT…"
+                  : !editAssignmentChanged ? 'RUAJ NDRYSHIMET · MBAJE CAKTIMIN'
                   : selectedEditDriver
                     ? `RUAJ DHE LIROJA ${driverDisplayName(selectedEditDriver)}`
                     : "RUAJ PLANIN PA TRANSPORTUES"}

@@ -1,6 +1,7 @@
 'use client';
 
-import Link from '@/lib/routerCompat.jsx';
+import Link, { useSearchParams } from '@/lib/routerCompat.jsx';
+import { isPersonalArkaMode } from '@/lib/arkaPersonalMode';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import ReadyBonusLiveCard from '@/components/ReadyBonusLiveCard';
 import ArkaExpenseComposer from '@/components/ArkaExpenseComposer';
@@ -374,14 +375,15 @@ function actorIsWorkerAccount(actor = {}) {
 }
 
 function isMasterPersonalArkaMode(actor = {}) {
-  const pin = String(actor?.pin || '').trim();
-  if (pin !== '4563') return false;
   try {
     if (typeof window === 'undefined') return false;
-    return new URLSearchParams(window.location.search || '').get('personal') === '1';
+    return isPersonalArkaMode(actor, window.location.search);
   } catch {
     return false;
   }
+}
+function actorUsesPersonalArka(actor = {}) {
+  return isMasterPersonalArkaMode(actor) || (actorIsWorkerAccount(actor) && !roleCanManage(actor?.role));
 }
 function isArkaRouteActive() {
   try {
@@ -2259,6 +2261,12 @@ function WorkerSummaryCard({ item, busy = '', onAcceptCash, onAddExpense, onAddA
 }
 
 export default function ArkaPageV3() {
+  const search = useSearchParams();
+  return <ArkaAccountPage key={search.get('personal') === '1' ? 'personal' : 'manager'} />;
+}
+
+function ArkaAccountPage() {
+  const arkaSearch = useSearchParams();
   useRouteAlive('arka_page');
   const [actor, setActor] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2310,7 +2318,7 @@ export default function ArkaPageV3() {
   const [sessionChecked, setSessionChecked] = useState(false);
 
   const role = normalizeArkaRole(actor?.role);
-  const masterPersonalMode = isMasterPersonalArkaMode(actor);
+  const masterPersonalMode = isPersonalArkaMode(actor, arkaSearch.toString());
   const isWorker = actorIsWorkerAccount(actor) || masterPersonalMode;
   const canManage = roleCanManage(role) && !masterPersonalMode;
   const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || String(actor?.pin || '').trim() === '4563' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(normalizeArkaRole(role)));
@@ -2319,7 +2327,7 @@ export default function ArkaPageV3() {
   function applyCachedBootState(currentActor = null) {
     const act = currentActor || actor || getActor();
     if (!act?.pin) return false;
-    if (actorIsWorkerAccount(act) && !roleCanManage(act?.role)) {
+    if (actorUsesPersonalArka(act)) {
       const cached = readStoredJson(getWorkerArkaCacheKey(act.pin));
       if (!cached || typeof cached !== 'object') return false;
       if (cached?.workerSnapshot) setWorkerSnapshot(cached.workerSnapshot || null);
@@ -2354,7 +2362,7 @@ export default function ArkaPageV3() {
     mutationCooldownUntilRef.current = Date.now() + MUTATION_COOLDOWN_MS;
     clearPostMutationPrimaryTimer();
 
-    if (actorIsWorkerAccount(act) && !roleCanManage(act?.role)) {
+    if (actorUsesPersonalArka(act)) {
       await reloadAll(act, { force: true, source: 'mutation_worker', target: 'all' });
       return;
     }
@@ -2802,7 +2810,7 @@ export default function ArkaPageV3() {
     let runPrimary = false;
     let runSecondary = false;
 
-    if (actorIsWorkerAccount(act) && !roleCanManage(act?.role)) {
+    if (actorUsesPersonalArka(act)) {
       runPrimary = true;
       runSecondary = true;
     } else {
@@ -2823,7 +2831,7 @@ export default function ArkaPageV3() {
 
     if (!runPrimary && !runSecondary) return;
 
-    const isWorkerView = actorIsWorkerAccount(act) && !roleCanManage(act?.role);
+    const isWorkerView = actorUsesPersonalArka(act);
     const cachedPrimary = isWorkerView
       ? !!readStoredJson(getWorkerArkaCacheKey(act?.pin))?.workerSnapshot
       : !!(readStoredJson(ARKA_MANAGER_CACHE_KEY)?.workerCards || []).length;
@@ -2956,7 +2964,7 @@ export default function ArkaPageV3() {
 
   useEffect(() => {
     if (!actor?.pin) return;
-    const isManagerActor = roleCanManage(actor?.role) && !roleIsWorker(actor?.role);
+    const isManagerActor = roleCanManage(actor?.role) && !actorUsesPersonalArka(actor);
     const cancelPrimary = scheduleIdleTask(() => {
       if (!isArkaRouteActive()) return;
       void reloadAll(actor, { force: true, source: 'initial', target: isManagerActor ? 'primary' : 'all' });
@@ -2974,7 +2982,7 @@ export default function ArkaPageV3() {
       try { cancelPrimary?.(); } catch {}
       try { cancelSecondary?.(); } catch {}
     };
-  }, [actor?.pin, actor?.role]);
+  }, [actor?.pin, actor?.role, masterPersonalMode]);
 
   useEffect(() => {
     if (!actor?.pin) return;
@@ -3217,7 +3225,7 @@ export default function ArkaPageV3() {
 
     try {
       const openBonusRows = unifiedWorkerFinance?.profile?.ready_bonus_enabled === true
-        ? await listOpenBaseReadyBonusPayments(actor?.pin)
+        ? await listOpenBaseReadyBonusPayments(actor?.pin, { allowNonWorker: true })
         : [];
       const bonusAvailable = +(openBonusRows.reduce((sum, row) => sum + n(row?.remaining_amount), 0)).toFixed(2);
       setHandoffWizard({ open: true, bonusAvailable });
@@ -3316,8 +3324,8 @@ export default function ArkaPageV3() {
         <div className="arkaSimpleNav">
           <Link href="/" prefetch={false} className="arkaTopBtn">HOME</Link>
           <Link href="/arka/bonuset" prefetch={false} className="arkaTopBtn">BONUSET</Link>
-          {String(actor?.pin || '').trim() === '4563' && canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME</Link> : null}
-          {String(actor?.pin || '').trim() === '4563' && masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN ARKA</Link> : null}
+          {canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME · DORËZO PARATË</Link> : null}
+          {masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN / DISPATCH ARKA</Link> : null}
           {canOpenKapaku ? <Link href="/arka/kapaku" prefetch={false} className="arkaTopBtn">KAPAKU I ARKËS</Link> : null}
           {canManage ? <Link href="/arka/ditore" prefetch={false} className="arkaTopBtn">MBYLLJA DITORE</Link> : null}
           {canManage ? <Link href="/arka/payroll" prefetch={false} className="arkaTopBtn">PAYROLL</Link> : null}

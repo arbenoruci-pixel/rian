@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import './verify-dispatch-customer-arka-v1.mjs';
 
 const dispatch = fs.readFileSync('app/dispatch/page.jsx', 'utf8');
 const ordersService = fs.readFileSync('lib/ordersService.js', 'utf8');
@@ -13,15 +14,12 @@ check(!dispatch.includes('PA SHOFER – TË GJITHË E SHOHIN INBOX'), 'false all
 
 check(dispatch.includes('drivers.find((d) => rowMatchesDriver(row, d))'), 'legacy UUID/PIN/name driver matching is missing');
 check(dispatch.includes('drivers.find((d) => driverStableId(d) === String(editDriver || ""))'), 'stable selected-driver lookup is missing');
-check(dispatch.includes('transport_id: editDriver || null'), 'transport UUID ownership write is missing');
-check(dispatch.includes('transport_user_id: editDriver || null'), 'transport user ownership write is missing');
-check(dispatch.includes('assigned_driver_id: editDriver || null'), 'assigned driver ownership write is missing');
-check(dispatch.includes('transport_pin: pickedDriverPin || null'), 'transport PIN ownership write is missing');
-check(dispatch.includes('driver_pin: pickedDriverPin || null'), 'driver PIN ownership write is missing');
+check(dispatch.includes('changeAssignment: editAssignmentChanged'), 'explicit assignment choice is not sent to the server');
+check(dispatch.includes('expectedUpdatedAt: selectedRow.updated_at'), 'stale edit guard is missing');
 
 check(dispatch.includes("const activeOk = u?.is_active !== false"), 'inactive users are not excluded');
 check(dispatch.includes("roleOk || hybridOk"), 'active transport/hybrid eligibility is missing');
-check(dispatch.includes('resolveAssignPlanStatus(currentStatus, !!editDriver)'), 'assignment lifecycle resolver is not used');
+check(dispatch.includes('await editDispatchOrderViaApi'), 'atomic server edit is not used');
 check(ordersService.includes('TRANSPORT_PROTECTED_LIFECYCLE_STATUSES'), 'server-side lifecycle protection is missing');
 check(ordersService.includes("'gati'") && ordersService.includes("'delivery'"), 'ready/delivery statuses are not protected');
 check(board.includes('function rowOwnedBySession'), 'transport board ownership filter is missing');

@@ -1,4 +1,5 @@
 "use client";
+import { PaymentCustomerCare } from '@/components/CustomerCare';
 import { computeM2FromRows } from '@/lib/baseCodes';
 import { clearTransportCodeReservationForOrder, getTransportCodeReservationForOrder, releaseTransportCodeIfUnused, reserveTransportCode } from '@/lib/transportCodes';
 import { normalizePhoneDigits } from '@/lib/transport/clientCodes';
@@ -1030,6 +1031,19 @@ function PranimiPageInner() {
   const [showStairsSheet, setShowStairsSheet] = useState(false);
   const [showMsgSheet, setShowMsgSheet] = useState(false);
   const [showReceiptSheet, setShowReceiptSheet] = useState(false);
+  const [paymentFeedback, setPaymentFeedback] = useState(null);
+
+  function finishPaymentFeedback() {
+    const returnToBoard = paymentFeedback?.returnToBoard;
+    setPaymentFeedback(null);
+    if (!returnToBoard) return;
+    try { window.parent && window.parent !== window && window.parent.postMessage({ type: 'transport-payment-complete' }, window.location.origin); } catch {}
+    const paymentReturnUrl = '/transport/board?tab=delivered&payment=ok';
+    try { router.replace(paymentReturnUrl); } catch {}
+    window.setTimeout(() => {
+      if (String(window.location.pathname || '').includes('/transport/pranimi')) window.location.replace(paymentReturnUrl);
+    }, 450);
+  }
   const [receiptText, setReceiptText] = useState('');
   const [msgKind, setMsgKind] = useState('start'); // 'start' | 'receipt'
   const [autoMsgAfterSave, setAutoMsgAfterSave] = useState(true);
@@ -2433,6 +2447,10 @@ function PranimiPageInner() {
         return;
       }
 
+      // TRANSPORT_PAYMENT_FAST_CLOSE_V1: once the durable payment intent exists, close the cash sheet immediately.
+      // The verified ledger write continues in the same handler and all existing idempotency/recovery guards stay active.
+      setPayAdd(0);
+      setShowPaySheet(false);
       paymentBusyRef.current = true;
       setPaymentBusy(true);
       try {
@@ -2484,28 +2502,14 @@ function PranimiPageInner() {
           }
         } catch {}
 
-        try {
-          window.parent && window.parent !== window && window.parent.postMessage(
-            { type: 'transport-payment-complete' },
-            window.location.origin
-          );
-        } catch {}
-
-        const paymentReturnUrl = '/transport/board?tab=delivered&payment=ok';
-        try { router.replace(paymentReturnUrl); } catch {}
-        try {
-          window.setTimeout(() => {
-            try {
-              if (String(window.location.pathname || '').includes('/transport/pranimi')) {
-                window.location.replace(paymentReturnUrl);
-              }
-            } catch {}
-          }, 450);
-        } catch {}
+        setPaymentFeedback({ orderId: oid, returnToBoard: true });
       } catch (error) {
+        // TRANSPORT_PAYMENT_FAST_CLOSE_V1: a failed/unverified request reopens the exact durable intent.
+        // This keeps the UI fast on success and fail-closed when the server cannot verify the money.
+        setPayAdd(paymentIntent.amountReceived);
+        setShowPaySheet(true);
         // Preserve the same key on ambiguous failures. The explicit balance
         // guard is the only pre-write rejection that is safe to clear.
-        setPayAdd(paymentIntent.amountReceived);
         const message = String(error?.message || error || 'PAGESA NUK U RUAJT.');
         if (
           message.includes('PAYMENT_BALANCE_CHANGED')
@@ -2631,23 +2635,7 @@ function PranimiPageInner() {
         }
       } catch {}
 
-      if (shouldFinalizeDelivery && isEdit && oid) {
-        try {
-          window.parent && window.parent !== window && window.parent.postMessage({ type: 'transport-payment-complete' }, window.location.origin);
-        } catch {}
-
-        const paymentReturnUrl = '/transport/board?tab=delivered&payment=ok';
-        try { router.replace(paymentReturnUrl); } catch {}
-        try {
-          window.setTimeout(() => {
-            try {
-              if (String(window.location.pathname || '').includes('/transport/pranimi')) {
-                window.location.replace(paymentReturnUrl);
-              }
-            } catch {}
-          }, 450);
-        } catch {}
-      }
+      if (oid) setPaymentFeedback({ orderId: oid, returnToBoard: shouldFinalizeDelivery && isEdit });
     } catch (error) {
       alert('ARKA PROBLEM: ' + String(error?.message || error || 'PAGESA NUK U RUAJT. PROVO PRAPË.'));
     } finally {
@@ -3149,6 +3137,7 @@ function PranimiPageInner() {
           </div>
         )}
       {/* PAY SHEET */}
+      {paymentFeedback ? <PaymentCustomerCare orderId={paymentFeedback.orderId} onClose={finishPaymentFeedback} /> : null}
       {showPaySheet && !isBaseWorkerBridgeEdit && (
         <PosModal
           open={showPaySheet}
