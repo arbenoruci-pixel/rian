@@ -30,6 +30,8 @@ Verified database access: feedback RLS enabled; anonymous feedback reads and aut
 
 ## Installed-phone acceptance checks
 
+Follow-up from the installed-phone screenshot: the staff detail route still contained its old handoff button inside a `display:none` section, while the replacement shared cash card only showed the balance. `arka-visible-handoff-v2` places the action directly beside the visible balance. Own staff details enter `/arka?personal=1`; the personal cash page opens its existing handoff flow from the same card. Viewing another person's account cannot initiate a handoff. The rendered-component regression uses the reported €18.33 + €7.15 carryover and checks visible navigation, wizard wiring, and zero/busy/duplicate guards. Payment amounts and submission RPCs are unchanged.
+
 1. Cold open with retained cache; confirm the new PWA identity contains `dispatch-customer-arka-v1`; weak-network creation and same-intent retry.
 2. Edit an assigned/working order without changing its worker/status; edit dimensions; check the same amount in Dispatch and Transport.
 3. Repeat-client warning/history; driver's payment → rating or skip; master and Dispatch personal cash handoff → one pending approval with the correct owner and amount.

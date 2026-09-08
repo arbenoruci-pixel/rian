@@ -3347,6 +3347,9 @@ function ArkaAccountPage() {
             title={actor?.name || actor?.pin}
             showManagerLinks={false}
             onSnapshot={setUnifiedWorkerFinance}
+            onHandoff={openHandoffWizard}
+            handoffBusy={!!busy}
+            handoffBlocked={n(workerSnapshot?.cashDuplicateTransportCount) > 0}
           />
           <div className="arkaHeroSingle arkaHeroMainDue" style={{ display:'none' }} aria-hidden="true">
             <div>
