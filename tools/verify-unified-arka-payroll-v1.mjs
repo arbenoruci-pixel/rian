@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import './verify-arka-visible-handoff-v2.mjs';
 
 const failures = [];
 const check = (condition, message) => { if (!condition) failures.push(message); };

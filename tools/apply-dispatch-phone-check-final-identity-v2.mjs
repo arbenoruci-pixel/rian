@@ -7,7 +7,9 @@ function appendTag(value) {
   const text = String(value || '').trim();
   const base = !text ? TAG : text.includes(TAG) ? text : `${text}-${TAG}`;
   const release = 'dispatch-customer-arka-v1';
-  return base.includes(release) ? base : `${base}-${release}`;
+  const released = base.includes(release) ? base : `${base}-${release}`;
+  const handoffRelease = 'arka-visible-handoff-v2';
+  return released.includes(handoffRelease) ? released : `${released}-${handoffRelease}`;
 }
 
 const packagePath = 'package.json';

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from '@/lib/routerCompat.jsx';
 import { supabase } from '@/lib/supabaseClient';
+import ArkaCashHandoffAction from './ArkaCashHandoffAction.jsx';
 
 const TIME_ZONE = 'Europe/Belgrade';
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -98,7 +99,7 @@ function PaymentRow({ row, showCommission }) {
   );
 }
 
-export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '', showManagerLinks = true, onSnapshot = null }) {
+export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '', showManagerLinks = true, onSnapshot = null, onHandoff = null, handoffBusy = false, handoffBlocked = false }) {
   // UNIFIED_WORKER_FINANCE_UI_V1
   const actorPin = String(actor?.pin || '').trim();
   const cleanTargetPin = String(targetPin || actorPin || '').trim();
@@ -199,6 +200,7 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
         <div style={{ color:c.muted, fontSize:11, fontWeight:800 }}>
           {fixedFullCash ? 'KREJT CASH-I I KLIENTËVE DORËZOHET NË BAZË.' : showCommission ? 'CASH BRUTO − KOMISIONI I DEFINUAR = PËR BAZË.' : 'TOTALI I HAPUR PËR DORËZIM.'}
         </div>
+        <ArkaCashHandoffAction actorPin={actorPin} targetPin={cleanTargetPin} amount={cash?.open_due_to_base} onHandoff={onHandoff} busy={handoffBusy} blocked={handoffBlocked} />
       </Card>
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))', gap:8 }}>
