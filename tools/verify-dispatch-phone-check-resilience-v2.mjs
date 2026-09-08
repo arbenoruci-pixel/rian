@@ -42,7 +42,7 @@ if (authoritativeV3) {
 // Nested legacy release installers may rewrite the future owner source after it
 // has already generated this build. The built Vite cache identity is authoritative.
 check(vite.includes('dispatch-phone-check-resilience-v2'), 'built PWA identity lacks resilience tag');
-check(gatiOwner.includes('sw-navigation-diag.js?v=3514'), 'service-worker generation was not bumped');
+check(vite.includes('sw-navigation-diag.js?v=3514'), 'built service-worker generation was not bumped');
 check(gatiOwner.includes("apply-dispatch-phone-check-final-identity-v2.mjs"), 'final identity layer is not called after nested release writers');
 check(finalIdentity.includes('DISPATCH_PHONE_CHECK_FINAL_IDENTITY_V2'), 'final identity script marker missing');
 

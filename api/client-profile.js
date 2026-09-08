@@ -1,4 +1,5 @@
 import { apiFail, apiOk, createAdminClientOrThrow, readBody } from './_helpers.js';
+import { customerCareServer } from '../lib/customerCareServer.js';
 import {
   ClientProfileError,
   authenticateClientProfileViewer,
@@ -53,10 +54,14 @@ export default async function handler(req, res) {
     if (req.method && req.method !== 'POST') return apiFail(res, 'METHOD_NOT_ALLOWED', 405);
     if (!requestOriginAllowed(req)) return apiFail(res, 'ORIGIN_NOT_ALLOWED', 403);
     const body = await readBody(req);
+    if (Buffer.byteLength(JSON.stringify(body || {}), 'utf8') > 96 * 1024) return apiFail(res, 'BODY_TOO_LARGE', 413);
     const supabase = createAdminClientOrThrow();
     const deviceId = readCookie(req, 'tepiha_device_id');
     const authUser = await authenticateClientProfileViewer(supabase, deviceId);
     const action = String(body?.action || 'GET_PROFILE').trim().toUpperCase();
+    if (['GET_CUSTOMER_CARE', 'ADD_CUSTOMER_FEEDBACK'].includes(action)) {
+      return apiOk(res, await customerCareServer({ ...body, action }, { supabase, authUser }));
+    }
     const output = action === 'UPDATE_BASE_CLIENT'
       ? await updateBaseClientProfileServer(body, { supabase, authUser })
       : await buildClientProfile(body, { supabase, authUser });

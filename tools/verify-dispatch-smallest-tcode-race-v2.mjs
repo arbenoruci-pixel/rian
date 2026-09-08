@@ -772,7 +772,7 @@ const dispatchPrepare = dispatchPrepareStart >= 0 && dispatchPrepareEnd > dispat
 const transportDbSource = fs.readFileSync(path.join(root, 'lib', 'transport', 'transportDb.js'), 'utf8');
 assert.ok(dispatchPrepare, 'Dispatch client-link preparation block missing');
 assert.doesNotMatch(dispatchPrepare, /reserveTransportCode\s*\(/, 'modern Dispatch still pre-reserves in the browser');
-assert.match(transportDbSource, /fetch\(\s*['"]\/api\/transport\/order['"]/, 'modern Dispatch does not use the atomic server endpoint');
+assert.match(transportDbSource, /fetchJsonWithDeadline\(\s*['"]\/api\/transport\/order['"]/, 'modern Dispatch does not use the bounded atomic server endpoint');
 assert.match(transportDbSource, /body:\s*requestJson/, 'network retry does not reuse the exact serialized request');
 
 // Force installed PWAs off the stale browser-side reservation bundle. Both

@@ -172,7 +172,7 @@ function patchArkaMain() {
   source = replaceOnce(
     source,
     '      const openBonusRows = await listOpenBaseReadyBonusPayments(actor?.pin);',
-    "      const openBonusRows = unifiedWorkerFinance?.profile?.ready_bonus_enabled === true\n        ? await listOpenBaseReadyBonusPayments(actor?.pin)\n        : [];",
+    "      const openBonusRows = unifiedWorkerFinance?.profile?.ready_bonus_enabled === true\n        ? await listOpenBaseReadyBonusPayments(actor?.pin, { allowNonWorker: true })\n        : [];",
     'ready bonus profile gate',
   );
 
