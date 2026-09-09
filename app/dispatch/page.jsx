@@ -2594,7 +2594,7 @@ export default function DispatchPage() {
       const savedClientId = String(createdRecord?.client_id || '').trim();
       const savedTcode = normTCode(createdRecord?.client_tcode || createdRecord?.data?.transport_client_tcode || createdRecord?.data?.client?.tcode || '');
       const savedCode = normTCode(createdRecord?.code_str || createdRecord?.data?.code_str || '');
-      if (!deduplicatedActive && savedOrderId !== submission.orderId) throw new Error('TRANSPORT_ORDER_UUID_VERIFY_FAILED');
+      if (!deduplicatedActive && !finalCreateResult?.recoveredStaleIntent && savedOrderId !== submission.orderId) throw new Error('TRANSPORT_ORDER_UUID_VERIFY_FAILED');
       if (!savedClientId) throw new Error('TRANSPORT_CLIENT_LINK_NOT_VERIFIED');
       if (!savedTcode || savedCode !== savedTcode) throw new Error(`TRANSPORT_PERMANENT_TCODE_VERIFY_FAILED: ${savedCode || '-'} / ${savedTcode || '-'}`);
       if (!dispatchSamePhone(createdRecord?.client_phone || createdRecord?.data?.client?.phone || '', cleanPhone)) throw new Error('TRANSPORT_ORDER_PHONE_VERIFY_FAILED');
@@ -2605,7 +2605,7 @@ export default function DispatchPage() {
       clearTransportCodeReservationForOrder(orderId);
       createIntentJournalRef.current?.clear(orderId);
       createIntentJournalRef.current?.clear(submission.orderId);
-      setMsg(deduplicatedActive
+      setMsg(deduplicatedActive && !finalCreateResult?.recoveredStaleIntent
         ? `POROSIA ${officialOrderCode} VEÇ EKZISTON — NUK U DYFISHUA ✅`
         : `U DËRGUA ${officialOrderCode} ✅`);
       setBusy(false);

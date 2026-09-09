@@ -268,8 +268,8 @@ class AtomicTransportDb {
   db.assertNoStrandedCodes();
 }
 
-// A reused UUID with changed business identity must fail before another DB
-// claim. Both phone and fingerprint conflicts leave the pool untouched.
+// A stale UUID for another phone gets one deterministic replacement. Repeated
+// recovery and same-phone fingerprint conflicts cannot consume more pool codes.
 {
   const db = new AtomicTransportDb({ pool: ['T40', 'T6', 'T2'] });
   const id = '56565656-5656-4565-8565-565656565656';
@@ -277,11 +277,15 @@ class AtomicTransportDb {
   await createDispatchTransportOrderServer(original, { supabase: db, authUser: ACTOR });
   assert.equal(db.calls.allocations, 1);
 
-  await assert.rejects(
-    createDispatchTransportOrderServer(request(id, '049 999 777'), { supabase: db, authUser: ACTOR }),
-    (error) => error instanceof DispatchOrderServerError
-      && error.code === 'TRANSPORT_ORDER_IDEMPOTENCY_PHONE_CONFLICT',
-  );
+  const originalRow = clone(db.state.transport_orders[0]);
+  const recovered = await createDispatchTransportOrderServer(request(id, '049 999 777'), { supabase: db, authUser: ACTOR });
+  assert.notEqual(recovered.data.id, id);
+  assert.equal(recovered.recoveredStaleIntent, true);
+  assert.equal(recovered.data.code_str, 'T6');
+  const repeated = await createDispatchTransportOrderServer(request(id, '049 999 777'), { supabase: db, authUser: ACTOR });
+  assert.equal(repeated.data.id, recovered.data.id);
+  assert.equal(repeated.idempotent, true);
+  assert.deepEqual(db.state.transport_orders[0], originalRow);
   await assert.rejects(
     createDispatchTransportOrderServer({
       ...original,
@@ -290,8 +294,8 @@ class AtomicTransportDb {
     (error) => error instanceof DispatchOrderServerError
       && error.code === 'DISPATCH_ORDER_IDEMPOTENCY_FINGERPRINT_CONFLICT',
   );
-  assert.equal(db.calls.allocations, 1, 'UUID conflicts cannot mutate the pool');
-  assert.equal(db.state.transport_code_pool.find((row) => row.code === 'T6').status, 'available');
+  assert.equal(db.calls.allocations, 2, 'only the new phone may consume one additional code');
+  assert.equal(db.state.transport_code_pool.find((row) => row.code === 'T40').status, 'available');
   db.assertNoStrandedCodes();
 }
 
