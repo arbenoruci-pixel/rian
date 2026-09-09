@@ -20,9 +20,10 @@ check(dispatch.includes("code === 'DISPATCH_PHONE_CHECK_TIMEOUT'"), 'timeout is 
 check(dispatch.includes('const phoneCheckDegraded = isTransientDispatchPhoneCheckError(phoneCheckError);'), 'degraded state missing');
 check(!dispatch.includes('&& !phoneCheckError;'), 'strict phone-check gate remains');
 check(dispatch.includes('SERVERI E VERIFIKON NË RUAJTJE'), 'friendly degraded warning missing');
-check(dispatch.includes('I NJËJTI TENTIM NUK E DYFISHON POROSINË'), 'final network retry guidance missing');
+check(dispatch.includes('RUAJTJA ENDE NUK ËSHTË KONFIRMUAR') && dispatch.includes('TENTIMI RUAHET PËR TË SHMANGUR DYFISHIMIN'), 'final network retry guidance missing');
 check(dispatch.includes('const createResult = await insertTransportOrder'), 'atomic create path missing');
-check(dispatch.includes('const deduplicatedActive = createResult?.deduplicatedActive === true;'), 'active-order server dedupe handling missing');
+check(dispatch.includes('const deduplicatedActive = finalCreateResult?.deduplicatedActive === true;'), 'active-order server dedupe handling missing');
+check(dispatch.includes('recoverDispatchCreatePhoneConflict({') && dispatch.includes('const finalCreateResult = submission.result;'), 'phone-conflict recovery result must feed normal identity verification');
 
 if (authoritativeV3) {
   check(dispatch.includes('const canCreateNewDispatchOrder = canSend;'), 'V3 create button is not form-validity only');

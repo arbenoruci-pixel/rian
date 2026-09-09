@@ -13,7 +13,7 @@ import { editDispatchOrderViaApi, findTransportClientByPhoneOnly, inspectDispatc
 import { withDeadline } from '@/lib/boundedRequest';
 import CustomerCare from '@/components/CustomerCare';
 import DispatchMeasurements from '@/components/DispatchMeasurements';
-import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
+import { createDispatchCreateIntentJournal, recoverDispatchCreatePhoneConflict } from "@/lib/dispatchCreateIntent";
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -2435,11 +2435,9 @@ export default function DispatchPage() {
       if (!createIntentJournalRef.current) {
         createIntentJournalRef.current = createDispatchCreateIntentJournal();
       }
-      // DISPATCH_CREATE_INTENT_V1: retries for the exact same form reuse the
-      // same UUID, including after reload/lost response. Until DB success is
-      // verified, form edits keep that UUID so a committed-but-lost response
-      // cannot turn into a duplicate visit.
-      const orderId = await createIntentJournalRef.current.acquire({
+      // DISPATCH_CREATE_INTENT_V2: unresolved retries retain their UUID per
+      // actor/phone. A different customer gets a separate retry identity.
+      const intentInput = {
         actor: String(actorNow?.id || actorNow?.user_id || actorNow?.pin || '').trim(),
         poolOwner,
         name: cleanName,
@@ -2452,7 +2450,8 @@ export default function DispatchPage() {
         slot,
         planMode,
         driverId,
-      });
+      };
+      const orderId = await createIntentJournalRef.current.acquire(intentInput);
       pendingOrderId = orderId;
       pendingCodeOwner = poolOwner;
       // The browser deliberately sends no client id/T-code authority here.
@@ -2579,14 +2578,23 @@ export default function DispatchPage() {
       }
 
       const createResult = await insertTransportOrder({ ...payload, code_owner: poolOwner });
-      if (!createResult?.ok) throw new Error(createResult?.error || 'TRANSPORT_ORDER_CREATE_FAILED');
-      const createdRecord = createResult.data;
-      const deduplicatedActive = createResult?.deduplicatedActive === true;
+      const submission = await recoverDispatchCreatePhoneConflict({
+        result: createResult,
+        journal: createIntentJournalRef.current,
+        input: intentInput,
+        payload: { ...payload, code_owner: poolOwner },
+        submit: insertTransportOrder,
+      });
+      pendingOrderId = submission.orderId;
+      const finalCreateResult = submission.result;
+      if (!finalCreateResult?.ok) throw new Error(finalCreateResult?.error || 'TRANSPORT_ORDER_CREATE_FAILED');
+      const createdRecord = finalCreateResult.data;
+      const deduplicatedActive = finalCreateResult?.deduplicatedActive === true;
       const savedOrderId = String(createdRecord?.id || '').trim();
       const savedClientId = String(createdRecord?.client_id || '').trim();
       const savedTcode = normTCode(createdRecord?.client_tcode || createdRecord?.data?.transport_client_tcode || createdRecord?.data?.client?.tcode || '');
       const savedCode = normTCode(createdRecord?.code_str || createdRecord?.data?.code_str || '');
-      if (!deduplicatedActive && savedOrderId !== orderId) throw new Error('TRANSPORT_ORDER_UUID_VERIFY_FAILED');
+      if (!deduplicatedActive && savedOrderId !== submission.orderId) throw new Error('TRANSPORT_ORDER_UUID_VERIFY_FAILED');
       if (!savedClientId) throw new Error('TRANSPORT_CLIENT_LINK_NOT_VERIFIED');
       if (!savedTcode || savedCode !== savedTcode) throw new Error(`TRANSPORT_PERMANENT_TCODE_VERIFY_FAILED: ${savedCode || '-'} / ${savedTcode || '-'}`);
       if (!dispatchSamePhone(createdRecord?.client_phone || createdRecord?.data?.client?.phone || '', cleanPhone)) throw new Error('TRANSPORT_ORDER_PHONE_VERIFY_FAILED');
@@ -2596,6 +2604,7 @@ export default function DispatchPage() {
       pendingReservedTcode = '';
       clearTransportCodeReservationForOrder(orderId);
       createIntentJournalRef.current?.clear(orderId);
+      createIntentJournalRef.current?.clear(submission.orderId);
       setMsg(deduplicatedActive
         ? `POROSIA ${officialOrderCode} VEÇ EKZISTON — NUK U DYFISHUA ✅`
         : `U DËRGUA ${officialOrderCode} ✅`);
@@ -2642,8 +2651,10 @@ export default function DispatchPage() {
       const sendErrorCode = dispatchPhoneCheckErrorCode(e);
       setErr(
         ['DISPATCH_ORDER_API_NETWORK_FAILED', 'DISPATCH_ORDER_API_TIMEOUT'].includes(sendErrorCode)
-          ? 'LIDHJA U NDËRPRE. POROSIA NUK U RUAJT. PROVO PRAPË — I NJËJTI TENTIM NUK E DYFISHON POROSINË.'
-          : (e?.message || "GABIM"),
+          ? 'LIDHJA U NDËRPRE. RUAJTJA ENDE NUK ËSHTË KONFIRMUAR. PROVO PRAPË — TENTIMI RUAHET PËR TË SHMANGUR DYFISHIMIN.'
+          : (sendErrorCode.includes('IDEMPOTENCY_FINGERPRINT_CONFLICT')
+            ? 'KY TENTIM ËSHTË RUAJTUR MË HERË ME TË DHËNA TË TJERA. HAPE POROSINË E KLIENTIT NË LISTË PËR TA KONTROLLUAR.'
+            : (e?.message || "GABIM")),
       );
     } finally {
       sendInFlightRef.current = false;

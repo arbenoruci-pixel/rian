@@ -6,6 +6,7 @@ import {
   DISPATCH_CREATE_INTENT_STORAGE_KEY,
   buildDispatchCreateIntentSignature,
   createDispatchCreateIntentJournal,
+  recoverDispatchCreatePhoneConflict,
 } from '../lib/dispatchCreateIntent.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -134,6 +135,71 @@ assert.equal(
 }
 
 const dispatchSource = fs.readFileSync(path.join(root, 'app/dispatch/page.jsx'), 'utf8');
+
+// Regression: a lost success for customer A must not block customer B, and
+// returning to A (even after a reload) must still reconcile A's original UUID.
+{
+  const phoneStorage = new MemoryStorage();
+  let index = 0;
+  const options = { storage: phoneStorage, uuidFactory: () => UUIDS[index++] };
+  const journal = createDispatchCreateIntentJournal(options);
+  const otherPhone = { ...baseInput, phone: '+383 49 999 999' };
+  const [a, b] = await Promise.all([journal.acquire(baseInput), journal.acquire(otherPhone)]);
+  assert.notEqual(a, b, 'concurrent different phones need separate UUIDs');
+  assert.equal(await journal.acquire({ ...baseInput, phone: '044123456', slot: 'evening' }), a);
+  const reloaded = createDispatchCreateIntentJournal(options);
+  assert.equal(await reloaded.acquire(otherPhone), b);
+  assert.equal(await reloaded.acquire(baseInput), a);
+  journal.clear(b);
+  assert.equal(await createDispatchCreateIntentJournal(options).acquire(baseInput), a,
+    'completing B must preserve unresolved A');
+  assert.notEqual(await journal.acquire({ ...baseInput, actor: 'another-dispatcher' }), a);
+  const raw = phoneStorage.getItem(DISPATCH_CREATE_INTENT_STORAGE_KEY);
+  for (const pii of [baseInput.name, '44123456', '49999999', baseInput.address, baseInput.actor]) {
+    assert.ok(!raw.includes(pii), 'customer and actor details must stay out of persisted journal');
+  }
+}
+
+// Upgrade path: old installations persisted a single UUID without phone identity.
+{
+  const legacyStorage = new MemoryStorage();
+  legacyStorage.setItem(DISPATCH_CREATE_INTENT_STORAGE_KEY, JSON.stringify({
+    version: 1, orderId: UUIDS[0], signatureHash: 'old', updatedAt: Date.now(),
+  }));
+  const journal = createDispatchCreateIntentJournal({ storage: legacyStorage, uuidFactory: () => UUIDS[1] });
+  assert.equal(await journal.acquire(baseInput), UUIDS[0], 'probe legacy UUID before replacing it');
+  let writes = 0;
+  const payload = { id: UUIDS[0], client_phone: baseInput.phone,
+    data: { order_id: UUIDS[0], public_order_id: UUIDS[0], pickup_slot: 'morning' } };
+  const recovered = await recoverDispatchCreatePhoneConflict({
+    result: { ok: false, error: 'TRANSPORT_ORDER_IDEMPOTENCY_PHONE_CONFLICT' },
+    journal, input: baseInput, payload,
+    submit: async (retry) => {
+      writes += 1;
+      assert.equal(retry.id, UUIDS[1]);
+      assert.equal(retry.data.order_id, retry.id);
+      assert.equal(retry.data.public_order_id, retry.id);
+      assert.equal(retry.client_phone, payload.client_phone);
+      assert.equal(retry.data.pickup_slot, 'morning');
+      return { ok: false, error: 'DISPATCH_ORDER_API_TIMEOUT' };
+    },
+  });
+  assert.equal(writes, 1, 'phone conflict recovery is bounded to one retry');
+  assert.equal(recovered.orderId, UUIDS[1]);
+  assert.equal(await createDispatchCreateIntentJournal({ storage: legacyStorage }).acquire(baseInput), UUIDS[1],
+    'lost response during recovery must preserve the replacement UUID across reload');
+  assert.equal(payload.id, UUIDS[0], 'recovery must not mutate its original payload');
+  for (const error of ['DISPATCH_ORDER_API_TIMEOUT', 'DISPATCH_ORDER_API_NETWORK_FAILED',
+    'DISPATCH_ORDER_IDEMPOTENCY_FINGERPRINT_CONFLICT', 'TRANSPORT_PHONE_IDENTITY_CONFLICT', 'AUTH_REQUIRED']) {
+    const result = { ok: false, error };
+    const retry = await recoverDispatchCreatePhoneConflict({ result, journal, input: baseInput,
+      payload: { ...payload, id: UUIDS[1] }, submit: () => assert.fail('unsafe retry') });
+    assert.equal(retry.result, result);
+    assert.equal(retry.orderId, UUIDS[1]);
+    assert.equal(await journal.acquire(baseInput), UUIDS[1]);
+  }
+}
+
 assert.match(dispatchSource, /createDispatchCreateIntentJournal/);
 assert.match(dispatchSource, /if \(sendInFlightRef\.current\) return;/);
 assert.match(dispatchSource, /const orderId = await createIntentJournalRef\.current\.acquire\(/);

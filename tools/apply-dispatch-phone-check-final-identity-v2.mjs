@@ -9,7 +9,9 @@ function appendTag(value) {
   const release = 'dispatch-customer-arka-v1';
   const released = base.includes(release) ? base : `${base}-${release}`;
   const handoffRelease = 'arka-visible-handoff-v2';
-  return released.includes(handoffRelease) ? released : `${released}-${handoffRelease}`;
+  const handoff = released.includes(handoffRelease) ? released : `${released}-${handoffRelease}`;
+  const intentRelease = 'dispatch-phone-intent-v2';
+  return handoff.includes(intentRelease) ? handoff : `${handoff}-${intentRelease}`;
 }
 
 const packagePath = 'package.json';
