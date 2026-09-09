@@ -60,6 +60,8 @@ function safeError(error) {
 }
 
 export default async function handler(req, res) {
+  const startedAt = Date.now();
+  let requestAction = 'CREATE';
   setPrivateNoStore(res);
   try {
     if (String(req?.method || '').toUpperCase() !== 'POST') {
@@ -77,9 +79,12 @@ export default async function handler(req, res) {
     const deviceId = readCookie(req, 'tepiha_device_id');
     const authUser = await authenticateDispatchOrderActor(supabase, deviceId);
     const action = String(body?.action || '').trim().toUpperCase();
+    requestAction = ['PHONE_CHECK', 'EDIT_ORDER', 'CLIENT_ADMIN_EDIT'].includes(action) ? action : 'CREATE';
     if (action === 'EDIT_ORDER') return apiOk(res, await editDispatchOrderServer(body, { supabase, authUser }));
     if (action === 'PHONE_CHECK') {
-      return apiOk(res, await inspectDispatchTransportPhoneServer(body, { supabase, authUser }));
+      const inspection = await inspectDispatchTransportPhoneServer(body, { supabase, authUser });
+      console.info('[transport-order]', { action: requestAction, ok: true, durationMs: Date.now() - startedAt });
+      return apiOk(res, inspection);
     }
     if (action === 'CLIENT_ADMIN_EDIT') {
       // Older installed clients send a second unguarded JSON write after this call.
@@ -90,10 +95,14 @@ export default async function handler(req, res) {
     const output = flow === 'PRANIMI'
       ? await createDispatchTransportPranimiOrderServer(body, { supabase, authUser })
       : await createDispatchTransportOrderServer(body, { supabase, authUser });
+    console.info('[transport-order]', { action: requestAction, ok: true,
+      recoveredStaleIntent: output?.recoveredStaleIntent === true,
+      idempotent: output?.idempotent === true, durationMs: Date.now() - startedAt });
     return apiOk(res, output);
   } catch (error) {
     const safe = safeError(error);
-    console.error('[transport-order]', { code: safe.code, status: safe.httpStatus });
+    console.error('[transport-order]', { code: safe.code, status: safe.httpStatus,
+      action: requestAction, durationMs: Date.now() - startedAt });
     return apiFail(res, safe.code, safe.httpStatus, safe.extra);
   }
 }

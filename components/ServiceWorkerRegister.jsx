@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { APP_DATA_EPOCH } from '@/lib/appEpoch';
+import { APP_DATA_EPOCH, APP_VERSION } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
 import { isSafeModeDisabledUntil, safeModeLeftMs } from '@/lib/safeMode';
 
 const CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS = 1400;
+const RESUME_UPDATE_CHECK_INTERVAL_MS = 60000;
 const VITE_SW_URL = '/vite-sw.js';
 const PASSIVE_UPDATE_KEY = 'tepiha_update_available_v1';
 const PASSIVE_UPDATE_EVENT = 'tepiha:update-available';
@@ -1187,16 +1188,12 @@ export default function ServiceWorkerRegister() {
 
       if (isManualUpdateLaunch()) return true;
 
-      const navType = readNavigationType();
-      if (navType === 'back_forward') return false;
-
       try {
-        const key = `tepiha_clean_launch_sw_update_check_v4:${APP_DATA_EPOCH}`;
-        if (window.sessionStorage?.getItem?.(key) === '1') return false;
-        window.sessionStorage?.setItem?.(key, '1');
+        const key = `tepiha_clean_launch_sw_update_check_v5:${APP_VERSION}`;
+        const lastCheck = Number(window.sessionStorage?.getItem?.(key) || 0);
+        if (lastCheck > 0 && Date.now() - lastCheck < RESUME_UPDATE_CHECK_INTERVAL_MS) return false;
       } catch {}
-
-      return navType === 'navigate' || navType === 'reload' || navType === '';
+      return true;
     };
 
     const installCleanLaunchUpdateCheck = (source, swUrl = '') => {
@@ -1214,11 +1211,18 @@ export default function ServiceWorkerRegister() {
 
         let timerId = null;
         const allowed = shouldRunCleanLaunchUpdateCheck();
+        const checkAfterResume = () => {
+          if (!shouldRunCleanLaunchUpdateCheck()) return;
+          try {
+            window.sessionStorage?.setItem?.(`tepiha_clean_launch_sw_update_check_v5:${APP_VERSION}`, String(Date.now()));
+          } catch {}
+          checkForUpdate(source, isManualUpdateLaunch() ? 'manual_update_launch_once' : 'launch_or_resume', swUrl);
+        };
 
         if (allowed) {
           try {
             timerId = window.setTimeout(() => {
-              checkForUpdate(source, isManualUpdateLaunch() ? 'manual_update_launch_once' : 'clean_launch_once', swUrl);
+              checkAfterResume();
             }, CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS);
           } catch (error) {
             logSwEvent('vite_pwa_sw_clean_launch_timer_error', {
@@ -1229,10 +1233,17 @@ export default function ServiceWorkerRegister() {
           }
         }
 
+        window.addEventListener('pageshow', checkAfterResume);
+        window.addEventListener('online', checkAfterResume);
+        document.addEventListener('visibilitychange', checkAfterResume);
+
         cleanupCleanLaunchUpdateCheckRef.current = () => {
           try {
             if (timerId !== null) window.clearTimeout(timerId);
           } catch {}
+          window.removeEventListener('pageshow', checkAfterResume);
+          window.removeEventListener('online', checkAfterResume);
+          document.removeEventListener('visibilitychange', checkAfterResume);
         };
 
         logSwEvent('vite_pwa_sw_clean_launch_update_check_ready', {
@@ -1244,7 +1255,7 @@ export default function ServiceWorkerRegister() {
           hasRegistrationUpdate: typeof registrationRef.current?.update === 'function',
           hasUpdateSW: typeof updateSWRef.current === 'function',
           delayMs: CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS,
-          noVisibilityUpdateChecks: true,
+          noVisibilityUpdateChecks: false,
           noIntervalUpdateChecks: true,
         });
       } catch (error) {

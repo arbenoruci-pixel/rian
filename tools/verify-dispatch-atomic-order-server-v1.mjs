@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { normalizeTransportPhoneKey } from '../lib/transport/phone.js';
 import {
   DispatchOrderServerError,
   authenticateDispatchOrderActor,
   buildDispatchOrderFingerprint,
+  buildDispatchPhoneRecoveryOrderId,
   createDispatchTransportOrderServer,
   inspectDispatchTransportPhoneServer,
 } from '../lib/transport/dispatchOrderServer.js';
@@ -120,6 +122,13 @@ function fakeSupabase({ rpcMode = 'success', approved = true } = {}) {
       }
       if (rpcMode === 'error') return { data: null, error: { message: 'DB_UNAVAILABLE' } };
       if (rpcMode === 'business-failure') return { data: { success: false, error: 'TRANSPORT_PHONE_IDENTITY_CONFLICT' }, error: null };
+
+      const committed = state.orders.find((row) => row.id === args.p_id);
+      if (committed) {
+        return { data: { success: true, order_id: committed.id, client_id: committed.client_id,
+          code_str: committed.code_str, client_tcode: committed.client_tcode, visit_nr: committed.visit_nr,
+          idempotent: true }, error: null };
+      }
 
       const clientId = '44444444-4444-4444-8444-444444444444';
       const code = 'T1234';
@@ -339,8 +348,63 @@ async function expectCode(run, code) {
       ...request().data,
       client: { ...request().data.client, phone: '+383 49 999 999' },
     },
-  }), { supabase, authUser: ACTOR }), 'TRANSPORT_ORDER_IDEMPOTENCY_PHONE_CONFLICT');
+  }), { supabase, authUser: ACTOR }), 'DISPATCH_DRIVER_NOT_AVAILABLE');
   assert.equal(state.rpcCalls.length, 1);
+}
+
+// Replay the cached iPhone request against the server with the old customer's
+// UUID. Recovery must work without a frontend update and without altering A.
+{
+  const { supabase, state } = fakeSupabase();
+  await createDispatchTransportOrderServer(request(), { supabase, authUser: ACTOR });
+  const original = clone(state.orders[0]);
+  const nextCustomer = request({ client_name: 'Customer B', client_phone: '+383 49 999 999' });
+  const [first, concurrent] = await Promise.all([
+    createDispatchTransportOrderServer(nextCustomer, { supabase, authUser: ACTOR }),
+    createDispatchTransportOrderServer(nextCustomer, { supabase, authUser: ACTOR }),
+  ]);
+  assert.equal(first.ok, true);
+  assert.equal(first.recoveredStaleIntent, true);
+  assert.equal(first.deduplicatedActive, true, 'cached client must accept the verified active row');
+  assert.equal(first.requestedOrderId, ORDER_ID);
+  assert.notEqual(first.data.id, ORDER_ID);
+  assert.equal(first.data.id, concurrent.data.id);
+  assert.equal(state.orders.length, 2, 'concurrent recovery creates only one replacement order');
+  assert.deepEqual(state.orders[0], original, 'the other customer must remain unchanged');
+  const retry = await createDispatchTransportOrderServer(nextCustomer, { supabase, authUser: ACTOR });
+  assert.equal(retry.data.id, first.data.id, 'lost recovery response must retry the same committed UUID');
+  assert.equal(retry.idempotent, true);
+  assert.equal(state.orders.length, 2);
+  const formatted = await createDispatchTransportOrderServer({ ...nextCustomer, client_phone: '049999999' }, { supabase, authUser: ACTOR });
+  assert.equal(formatted.data.id, first.data.id);
+
+  // Execute the existing, unchanged legacy client's actual response validator.
+  const clientSource = fs.readFileSync(new URL('../lib/transport/transportDb.js', import.meta.url), 'utf8');
+  const start = clientSource.indexOf('const DISPATCH_ACTIVE_DEDUP_STATUSES');
+  const end = clientSource.indexOf('export async function insertTransportOrder', start);
+  const legacyValidate = new Function('normalizeTransportPhoneKey', 'normTCode',
+    clientSource.slice(start, end) + '\nreturn assertDeduplicatedActiveDispatchOrder;')(
+      normalizeTransportPhoneKey, value => 'T' + String(value).replace(/\D/g, '').replace(/^0+/, ''),
+    );
+  legacyValidate(first.data, { id: ORDER_ID, phone: nextCustomer.client_phone });
+  assert.throws(() => legacyValidate(first.data, { id: ORDER_ID, phone: original.client_phone }));
+
+  await expectCode(() => createDispatchTransportOrderServer({ ...nextCustomer,
+    data: { ...nextCustomer.data, note: 'Changed after lost response' },
+  }, { supabase, authUser: ACTOR }), 'DISPATCH_ORDER_IDEMPOTENCY_FINGERPRINT_CONFLICT');
+  assert.equal(state.orders.length, 2, 'edited recovery payload must never fork a third visit');
+  state.orders[1].status = 'pickup';
+  const progressed = await createDispatchTransportOrderServer(nextCustomer, { supabase, authUser: ACTOR });
+  assert.equal(progressed.data.id, first.data.id);
+  assert.equal(progressed.data.status, 'pickup');
+  assert.equal(progressed.deduplicatedActive, false, 'never mislabel a progressed order as active');
+  assert.equal(state.orders.length, 2);
+
+  const target = buildDispatchPhoneRecoveryOrderId(ORDER_ID, ACTOR.id, '48888888');
+  state.orders.push({ ...original, id: target });
+  await expectCode(() => createDispatchTransportOrderServer(request({ client_phone: '048888888' }),
+    { supabase, authUser: ACTOR }), 'TRANSPORT_ORDER_IDEMPOTENCY_PHONE_CONFLICT');
+  assert.equal(state.orders.length, 3, 'a second identity collision must stop after one recovery attempt');
 }
 
 {
