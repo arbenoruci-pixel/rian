@@ -1,3 +1,4 @@
+import { readyNotificationServer } from '../lib/readyNotificationServer.js';
 import { apiFail, apiOk, createAdminClientOrThrow, readBody } from './_helpers.js';
 import { customerCareServer } from '../lib/customerCareServer.js';
 import {
@@ -59,6 +60,9 @@ export default async function handler(req, res) {
     const deviceId = readCookie(req, 'tepiha_device_id');
     const authUser = await authenticateClientProfileViewer(supabase, deviceId);
     const action = String(body?.action || 'GET_PROFILE').trim().toUpperCase();
+    if (['GET_READY_NOTIFICATIONS', 'ADD_READY_NOTIFICATION'].includes(action)) {
+      return apiOk(res, await readyNotificationServer({ ...body, action }, { supabase, authUser }));
+    }
     if (['GET_CUSTOMER_CARE', 'ADD_CUSTOMER_FEEDBACK'].includes(action)) {
       return apiOk(res, await customerCareServer({ ...body, action }, { supabase, authUser }));
     }

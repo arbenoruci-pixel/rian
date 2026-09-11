@@ -1,3 +1,4 @@
+import { TrackedReadySmsModal, ReadyNotificationBadge, useReadyNotifications } from '@/components/ReadyNotification';
 'use client';
 import PosModal from '@/components/PosModal';
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
@@ -1364,6 +1365,8 @@ function GatiPageInner() {
   const holdFired = useRef(false);
 
   const [orders, setOrders] = useState([]);
+  const notificationHistory = useReadyNotifications(orders.map(o => o.id));
+  const [onlyUnconfirmedNotifications, setOnlyUnconfirmedNotifications] = useState(false);
   const [localProblemRows, setLocalProblemRows] = useState([]);
   const [readyCountHint, setReadyCountHint] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2797,7 +2800,7 @@ function GatiPageInner() {
     );
     if (!phone) return alert('Nuk ka numër telefoni.');
     const text = buildSmartSmsText(smsOrder || row, 'gati_baze');
-    setSmsModal({ open: true, phone, text });
+    setSmsModal({ open: true, phone, text, orderId: String(row.id) });
   }
 
   // ---------------- KU E LAM ----------------
@@ -4353,6 +4356,7 @@ async function resolveReturnDbId(row) {
     openPay(row);
   }
 
+  const notificationFiltered = onlyUnconfirmedNotifications ? filtered.filter(o => notificationHistory.summary(o.id)?.kind !== 'confirmed') : filtered;
   const receiptSyncState = String(paymentSmsReceipt?.syncState || (paymentSmsReceipt?.syncPending ? 'pending' : 'synced')).toLowerCase();
   const receiptIsSynced = receiptSyncState === 'synced';
   const receiptHasError = receiptSyncState === 'error';
@@ -4515,6 +4519,7 @@ async function resolveReturnDbId(row) {
         </div>
       )}
 
+      <div style={{fontSize:12,color:'#cbd5e1',padding:'8px 0'}}>LAJMËRIMET GATI: {orders.filter(o => notificationHistory.summary(o.id)?.kind === 'confirmed').length}/{orders.length} me konfirmim nga punëtori. {notificationHistory.status}<button type="button" className="btn secondary" aria-pressed={onlyUnconfirmedNotifications} onClick={() => setOnlyUnconfirmedNotifications(v => !v)} style={{marginLeft:8}}>{onlyUnconfirmedNotifications ? 'SHFAQ TË GJITHA' : 'VETËM PA KONFIRMIM'}</button></div>
       {discrepancyRows.length > 0 && (
         <section className="card" style={{ padding: 12, marginTop: 10, display: 'grid', gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 900, color: '#fecaca' }}>MOSPËRPUTHJE / DISCREPANCIES</div>
@@ -4583,10 +4588,10 @@ async function resolveReturnDbId(row) {
       <section className="card" style={{ padding: '10px' }}>
         {loading ? (
           <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p>
-        ) : filtered.length === 0 ? (
+        ) : notificationFiltered.length === 0 ? (
           <p style={{ textAlign: 'center' }}>Nuk ka porosi GATI.</p>
         ) : (
-          filtered.map((o) => {
+          notificationFiltered.map((o) => {
             if (!o || !o.id) return null;
             const total = Number(o?.total || 0);
             const paid = Number(o?.paid || 0);
@@ -4669,6 +4674,7 @@ async function resolveReturnDbId(row) {
                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.48)', marginTop: 2 }}>
                       PRANUAR: {formatDayMonth(o.ts)}
                     </div>
+                    <ReadyNotificationBadge event={notificationHistory.summary(o.id)} onClick={() => sendPickupSms(o)} />
                     {o.paidUpfront && (
                       <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>
                     )}
@@ -4759,7 +4765,8 @@ async function resolveReturnDbId(row) {
       </footer>
 
       <LocalErrorBoundary boundaryKind="panel" routePath="/gati" routeName="GATI" moduleName="GatiSmartSmsModal" componentName="SmartSmsModal" sourceLayer="gati_panel" showHome={false}>
-        <SmartSmsModal
+        <TrackedReadySmsModal
+          orderId={smsModal.orderId}
           isOpen={smsModal.open}
         onClose={() => {
           smsOpenReqRef.current = Date.now() + Math.random();

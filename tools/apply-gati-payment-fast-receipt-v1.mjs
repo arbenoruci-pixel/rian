@@ -32,7 +32,7 @@ const prebuildSteps = String(pkg.scripts.prebuild || '')
 // It imports this hotfix again after its legacy version writers have finished.
 prebuildSteps.push(installerCommand, finalVersionOwner);
 pkg.scripts.prebuild = prebuildSteps.join(' && ');
-pkg.scripts['test:gati-payment-fast-receipt-v1'] = 'node tools/verify-gati-payment-fast-receipt-v1.mjs && node tools/verify-gati-offline-queue-first-v1.mjs';
+pkg.scripts['test:gati-payment-fast-receipt-v1'] = 'node tools/verify-gati-payment-fast-receipt-v1.mjs && node tools/verify-gati-offline-queue-first-v1.mjs && node tools/verify-ready-notifications-v1.mjs';
 const verifyCommand = 'npm run test:gati-payment-fast-receipt-v1';
 if (!String(pkg.scripts.build || '').includes(verifyCommand)) {
   pkg.scripts.build = String(pkg.scripts.build || '').replace(' && vite build', ` && ${verifyCommand} && vite build`);
