@@ -26,7 +26,7 @@ assert.doesNotMatch(page, /JO, VAZHDO PA LIDHJE/, 'Dispatch must not offer an id
 if (authoritativeV3) {
   assert.match(page, /const canCreateNewDispatchOrder = canSend;/, 'V3 create readiness must depend on valid form data, not the advisory lookup');
   assert.match(page, /server_atomic_create/, 'V3 must delegate client/T-code authority to the atomic server create');
-  assert.match(page, /const createResult = await insertTransportOrder/, 'V3 must use the approved-device CREATE endpoint');
+  assert.match(page, /getDispatchOutbox\(\)\.enqueue\(/, 'V3 must use the approved-device CREATE endpoint');
   assert.doesNotMatch(page, /inspectDispatchTransportPhoneViaApi\(cleanPhone/, 'V3 must not repeat the fragile phone precheck during submit');
   assert.doesNotMatch(page, /if \(!phoneCheckReady\)/, 'V3 must not block create on advisory phone-check state');
   assert.doesNotMatch(page, /if \(phoneHit && !existingClientConfirmed\)/, 'V3 must not require a browser confirmation before server identity resolution');

@@ -9,11 +9,13 @@ import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
 import { supabase } from "@/lib/supabaseClient";
 import { clearTransportCodeReservationForOrder, releaseTransportCodeIfUnused } from "@/lib/transportCodes";
-import { editDispatchOrderViaApi, findTransportClientByPhoneOnly, inspectDispatchTransportPhoneViaApi, insertTransportOrder, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
+import { editDispatchOrderViaApi, findTransportClientByPhoneOnly, inspectDispatchTransportPhoneViaApi, isValidTransportPhoneDigits, normTCode, normalizeTransportPhoneKey, sameTransportPhoneDigits } from "@/lib/transport/transportDb";
 import { withDeadline } from '@/lib/boundedRequest';
+import DispatchSendQueue from '@/components/DispatchSendQueue';
+import { getDispatchOutbox, wakeDispatchOutbox } from '@/lib/dispatchOutboxRuntime';
 import CustomerCare from '@/components/CustomerCare';
 import DispatchMeasurements from '@/components/DispatchMeasurements';
-import { createDispatchCreateIntentJournal, recoverDispatchCreatePhoneConflict } from "@/lib/dispatchCreateIntent";
+import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -2577,37 +2579,15 @@ export default function DispatchPage() {
         throw new Error("TRANSPORT_ORDER_PAYLOAD_INCOMPLETE");
       }
 
-      const createResult = await insertTransportOrder({ ...payload, code_owner: poolOwner });
-      const submission = await recoverDispatchCreatePhoneConflict({
-        result: createResult,
-        journal: createIntentJournalRef.current,
-        input: intentInput,
-        payload: { ...payload, code_owner: poolOwner },
-        submit: insertTransportOrder,
-      });
-      pendingOrderId = submission.orderId;
-      const finalCreateResult = submission.result;
-      if (!finalCreateResult?.ok) throw new Error(finalCreateResult?.error || 'TRANSPORT_ORDER_CREATE_FAILED');
-      const createdRecord = finalCreateResult.data;
-      const deduplicatedActive = finalCreateResult?.deduplicatedActive === true;
-      const savedOrderId = String(createdRecord?.id || '').trim();
-      const savedClientId = String(createdRecord?.client_id || '').trim();
-      const savedTcode = normTCode(createdRecord?.client_tcode || createdRecord?.data?.transport_client_tcode || createdRecord?.data?.client?.tcode || '');
-      const savedCode = normTCode(createdRecord?.code_str || createdRecord?.data?.code_str || '');
-      if (!deduplicatedActive && !finalCreateResult?.recoveredStaleIntent && savedOrderId !== submission.orderId) throw new Error('TRANSPORT_ORDER_UUID_VERIFY_FAILED');
-      if (!savedClientId) throw new Error('TRANSPORT_CLIENT_LINK_NOT_VERIFIED');
-      if (!savedTcode || savedCode !== savedTcode) throw new Error(`TRANSPORT_PERMANENT_TCODE_VERIFY_FAILED: ${savedCode || '-'} / ${savedTcode || '-'}`);
-      if (!dispatchSamePhone(createdRecord?.client_phone || createdRecord?.data?.client?.phone || '', cleanPhone)) throw new Error('TRANSPORT_ORDER_PHONE_VERIFY_FAILED');
-      if (!(Number(createdRecord?.visit_nr) > 0)) throw new Error('TRANSPORT_VISIT_NR_VERIFY_FAILED');
-
-      officialOrderCode = savedTcode;
-      pendingReservedTcode = '';
-      clearTransportCodeReservationForOrder(orderId);
-      createIntentJournalRef.current?.clear(orderId);
-      createIntentJournalRef.current?.clear(submission.orderId);
-      setMsg(deduplicatedActive && !finalCreateResult?.recoveredStaleIntent
-        ? `POROSIA ${officialOrderCode} VEÇ EKZISTON — NUK U DYFISHUA ✅`
-        : `U DËRGUA ${officialOrderCode} ✅`);
+      // DISPATCH_DURABLE_SEND_V1: acknowledge only a verified local write here.
+      // Server confirmation, identity checks and retries belong to the outbox.
+      const queued = getDispatchOutbox().enqueue({ ...payload, code_owner: poolOwner,
+        expected_actor_id: String(actorNow?.id || actorNow?.user_id || '') });
+      if (queued.alreadyQueued && queued.id !== orderId) createIntentJournalRef.current?.clear(orderId);
+      setMsg(queued.alreadyQueued
+        ? 'KJO POROSI ËSHTË NË PRITJE. DËRGIMI VAZHDON AUTOMATIKISHT ME TË DHËNAT E RUAJTURA.'
+        : 'POROSIA U RUAJT NË PAJISJE. DËRGIMI VAZHDON AUTOMATIKISHT.');
+      wakeDispatchOutbox();
       setBusy(false);
       setCreateOpen(false);
       setName("");
@@ -2624,21 +2604,6 @@ export default function DispatchPage() {
       setServerActivePhoneOrder(null);
       setExistingClientDecision(null);
       resetSmartCreateFillStatus();
-      try {
-        const createdItem = createdRecord || payload;
-        setAllRows((prev) => keepDispatchTransportOnly([
-          {
-            ...payload,
-            ...(createdItem || {}),
-            id: createdItem?.id || payload?.id || `optimistic_${officialOrderCode}_${Date.now()}`,
-            _table: 'transport_orders',
-          },
-          ...(Array.isArray(prev) ? prev : []),
-        ]));
-      } catch {}
-      try {
-        void loadRows();
-      } catch {}
     } catch (e) {
       if (pendingReservedTcode) {
         try {
@@ -2648,19 +2613,24 @@ export default function DispatchPage() {
       }
       // Keep the order→T-code binding when release could not be confirmed. The
       // stable UUID retry must reuse that reservation instead of burning a new one.
-      const sendErrorCode = dispatchPhoneCheckErrorCode(e);
-      setErr(
-        ['DISPATCH_ORDER_API_NETWORK_FAILED', 'DISPATCH_ORDER_API_TIMEOUT'].includes(sendErrorCode)
-          ? 'LIDHJA U NDËRPRE. RUAJTJA ENDE NUK ËSHTË KONFIRMUAR. PROVO PRAPË — TENTIMI RUAHET PËR TË SHMANGUR DYFISHIMIN.'
-          : (sendErrorCode.includes('IDEMPOTENCY_FINGERPRINT_CONFLICT')
-            ? 'KY TENTIM ËSHTË RUAJTUR MË HERË ME TË DHËNA TË TJERA. HAPE POROSINË E KLIENTIT NË LISTË PËR TA KONTROLLUAR.'
-            : (e?.message || "GABIM")),
-      );
+      setErr(e?.message === 'AUTH_REQUIRED'
+        ? 'HYR ME LLOGARINË E AUTORIZUAR PËR TA RUAJTUR POROSINË.'
+        : 'POROSIA NUK U RUAJT NË PAJISJE. TË DHËNAT MBETEN NË FORMULAR. ' + (e?.message || 'GABIM'));
     } finally {
       sendInFlightRef.current = false;
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    const committed = (event) => {
+      createIntentJournalRef.current?.clear(event.detail?.id);
+      setMsg('');
+      void loadRows();
+    };
+    window.addEventListener('tepiha:dispatch-order-committed', committed);
+    return () => window.removeEventListener('tepiha:dispatch-order-committed', committed);
+  }, [loadRows]);
 
   function openRow(row) {
     setEditAssignmentChanged(false);
@@ -2851,6 +2821,8 @@ export default function DispatchPage() {
 
   return (
     <div style={ui.page}>
+      <DispatchSendQueue onInspect={(customerPhone) => { setCommandQuery(customerPhone); setCommandOpen(true); setCreateOpen(false); }} />
+      {msg ? <div role="status" style={ui.ok}>{msg}</div> : null}
       {rowsError ? <div role="alert" style={{ ...ui.crmHitBox, marginBottom: 12 }}>{rowsError} <button type="button" style={ui.btnGhostMini} disabled={loadingRows} onClick={loadRows}>PROVO PËRSËRI</button></div> : null}
       <div style={ui.top}>
         <div style={ui.headerLeft}>
@@ -3208,7 +3180,6 @@ Mati 1, nesër paradite, 3 tepiha`}
         </div>
 
         {err ? <div style={ui.err}>{err}</div> : null}
-        {msg ? <div style={ui.ok}>{msg}</div> : null}
 
         {activePhoneOrder ? (
           <button
@@ -3223,7 +3194,7 @@ Mati 1, nesër paradite, 3 tepiha`}
           </button>
         ) : (
           <button style={{ ...ui.btnPrimary, opacity: canCreateNewDispatchOrder && !busy ? 1 : 0.5 }} disabled={!canCreateNewDispatchOrder || busy} onClick={send}>
-            {busy ? "DUKE DËRGU…" : phoneBusy ? "DUKE KONTROLLU TELEFONIN…" : (phoneHit && !existingClientConfirmed) ? "ZGJIDH KODIN EKZISTUES" : "DËRGO"}
+            {busy ? "DUKE RUAJTUR…" : "DËRGO"}
           </button>
         )}
       </div>
