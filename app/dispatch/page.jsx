@@ -3054,7 +3054,7 @@ Mati 1, nesër paradite, 3 tepiha`}
 
         {phoneHit ? (
           <div style={ui.crmHitBox}>
-            <CustomerCare key={phoneHit.id} clientId={phoneHit.id} compact />
+            {phoneHit.id ? <CustomerCare key={phoneHit.id} clientId={phoneHit.id} compact /> : null}
             <div style={ui.crmHitTitle}>KY NUMËR EKZISTON — KODI {getTransportTCode(phoneHit) || "—"}</div>
             <div style={ui.crmHitSub}>EMRI: {up(getClientName(phoneHit) || "PA EMËR")}</div>
             <div style={ui.crmHitSub}>TEL: {getClientPhone(phoneHit) || phoneHit?.phone_digits || "PA TEL"}</div>
