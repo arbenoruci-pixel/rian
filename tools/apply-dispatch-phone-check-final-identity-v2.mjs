@@ -10,7 +10,7 @@ function appendTag(value) {
   const released = base.includes(release) ? base : `${base}-${release}`;
   const handoffRelease = 'arka-visible-handoff-v2';
   const handoff = released.includes(handoffRelease) ? released : `${released}-${handoffRelease}`;
-  const intentRelease = 'dispatch-phone-intent-v2-server-recovery-v3-dispatch-durable-send-v1';
+  const intentRelease = 'dispatch-phone-intent-v2-server-recovery-v3-dispatch-durable-send-v1-gati-offline-queue-first-v1';
   return handoff.includes(intentRelease) ? handoff : `${handoff}-${intentRelease}`;
 }
 

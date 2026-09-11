@@ -3259,6 +3259,12 @@ function GatiPageInner() {
       let engineOrder = null;
       let finalPayload = optimisticPayload || payload;
       if (Number(applied || 0) > 0) {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          const error = new Error('PAYMENT_WAITING_FOR_NETWORK');
+          error.network = true;
+          throw error;
+        }
+        await ensureApprovedDeviceSession({ actor: pinData, force: true, timeoutMs: 1800 });
         const fastPayload = {
           ...(payload || {}),
           payment_external_id: idempotencyKey,
@@ -3352,6 +3358,8 @@ function GatiPageInner() {
       try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
       try { window.setTimeout(() => refreshOrders('gati_fast_confirm_background_done'), 900); } catch {}
     } catch (err) {
+      const waitingForNetwork = err?.network === true
+        || /network|load failed|failed to fetch|timeout|offline/i.test(String(err?.code || err?.message || ''));
       if (Number(applied || 0) > 0) {
         markPaymentDoneButDeliveryPending(orderId, {
           code: payload?.code || payOrder?.code || '',
@@ -3366,13 +3374,15 @@ function GatiPageInner() {
           ? {
             ...current,
             syncPending: true,
-            syncState: 'error',
-            syncError: String(err?.response?.error || err?.message || 'SINKRONIZIMI NË PRITJE'),
+            syncState: waitingForNetwork ? 'pending' : 'error',
+            syncError: waitingForNetwork ? '' : String(err?.response?.error || err?.message || 'SINKRONIZIMI NË PRITJE'),
           }
           : current
       ));
       try { console.error('[GATI FAST CONFIRM BACKGROUND FAILED]', err?.response || err); } catch {}
-      showFastPayNotice('U ruajt lokalisht — kontrollo Sync/ARKA nëse mbetet pending.', 'warn', 5200);
+      showFastPayNotice(waitingForNetwork
+        ? 'Pagesa u ruajt në radhë. Dërgohet kur të kthehet lidhja.'
+        : 'Pagesa u ruajt. Verifikimi kërkon vëmendje te Sync.', waitingForNetwork ? 'ok' : 'warn', 5200);
       try { window.dispatchEvent(new Event('tepiha:outbox-changed')); } catch {}
       try { window.dispatchEvent(new Event('TEPIHA_SYNC_TRIGGER')); } catch {}
       try { window.setTimeout(() => refreshOrders('gati_fast_confirm_background_retry_needed'), 1200); } catch {}
@@ -3690,8 +3700,8 @@ BORXHI PAS: ${newDebt.toFixed(2)}€
       const optimisticPayload = withOptimisticArkaRecordedPaid(payload, applied);
 
       if (applied > 0) {
-        setPayErr('Duke verifikuar pajisjen...');
-        await ensureApprovedDeviceSession({ actor: pinData, timeoutMs: 1800 });
+        // GATI_OFFLINE_QUEUE_FIRST_V1: local capture is pending work only.
+        // Device authorization belongs to the sender, after durable storage.
 
         // GATI_PAYMENT_FAST_RECEIPT_V1: persist the complete, idempotent money +
         // delivery command locally before closing. The worker now waits only
@@ -3741,7 +3751,7 @@ BORXHI PAS: ${newDebt.toFixed(2)}€
           syncError: '',
           idempotencyKey,
         });
-        showFastPayNotice('U ruajt. SMS-i i pagesës është gati.', 'ok', 2600);
+        showFastPayNotice('U ruajt. Pagesa është në radhë; SMS-i është gati.', 'ok', 2600);
 
         Promise.resolve().then(() => finishFastDeliverySync({
           payload,
@@ -3791,7 +3801,7 @@ BORXHI PAS: ${newDebt.toFixed(2)}€
       const friendlyReason = deviceBlocked
         ? 'PAJISJA NUK U VERIFIKUA. DIL TE LOGIN DHE HY PËRSËRI. NËSE DEL NË PRITJE, APROVOJE TE ADMIN / DEVICES.'
         : (/load failed|failed to fetch|arka_network_unreachable|arka_offline|network/i.test(rawReason)
-          ? 'RRJETI NUK U PËRGJIGJ DHE PAJISJA S’KISHTE APROVIM OFFLINE TË RUAJTUR. PROVO KUR TË KTHEHET LIDHJA.'
+          ? 'RUAJTJA NUK U PËRFUNDUA. MBAJE FORMULARIN HAPUR DHE PROVO PËRSËRI.'
           : rawReason);
       const reasonLine = friendlyReason ? `
 
@@ -4386,7 +4396,7 @@ async function resolveReturnDbId(row) {
               <div style={{ marginTop: 3, color: '#cbd5e1' }}>{paymentSmsReceipt.name}</div>
               {!receiptIsSynced ? (
                 <div style={{ marginTop: 6, color: receiptHasError ? '#fecaca' : '#fde68a', fontSize: 12, fontWeight: 850 }}>
-                  {receiptHasError ? 'Pagesa është e sigurt në telefon dhe do të provohet përsëri.' : 'Konfirmimi në ARKË po vazhdon në prapavijë.'}
+                  {receiptHasError ? 'Pagesa është e sigurt në telefon dhe do të provohet përsëri.' : 'Pagesa është ruajtur në telefon. Dërgohet automatikisht kur ka lidhje; nëse e mbyll aplikacionin, hape përsëri.'}
                 </div>
               ) : null}
             </div>

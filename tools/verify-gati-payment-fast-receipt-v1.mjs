@@ -46,7 +46,6 @@ const confirmEnd = files.gati.indexOf('async function closeDeliveryOnlyRetry()',
 const confirm = files.gati.slice(confirmStart, confirmEnd);
 ordered(confirm, [
   'paySubmitLockRef.current = true',
-  'ensureApprovedDeviceSession({ actor: pinData',
   "queueOp('gati_payment_delivery'",
   'await finalizeDeliveredUi(queuedPayload, { syncPending: true, closeImmediately: true })',
   'setPaymentSmsReceipt({',
@@ -64,6 +63,8 @@ check(files.offlineSyncClient.includes('const deferSync = options?.deferSync ===
 const fastSyncStart = files.gati.indexOf('async function finishFastDeliverySync');
 const fastSyncEnd = files.gati.indexOf('function formatPendingPaymentNotice', fastSyncStart);
 const fastSync = files.gati.slice(fastSyncStart, fastSyncEnd);
+check(!confirm.includes('await ensureApprovedDeviceSession('), 'local queue still depends on network approval');
+ordered(fastSync, ['await ensureApprovedDeviceSession({ actor: pinData', 'await recordOrderCashPayment('], 'authorization before protected send');
 ordered(fastSync, ['await saveOrderLocal({', 'await deleteOp(deliveryOpId)'], 'canonical local save before outbox deletion');
 
 check(files.recovery.includes("fetch('/api/auth/login'"), 'approved-session recovery does not use server login');
@@ -102,7 +103,7 @@ check(!files.server.includes("import { runArkaTransaction } from '../lib/arka/ar
 check(files.epoch.includes('gati-payment-fast-receipt-v1'), 'runtime build version marker missing');
 check(files.sw.includes('gati-payment-fast-receipt-v1'), 'service-worker build version marker missing');
 check(files.gati.includes("syncState: 'pending'"), 'receipt does not expose pending synchronization');
-check(files.gati.includes("syncState: 'error'"), 'background failure is not shown in the receipt');
+check(files.gati.includes("syncState: waitingForNetwork ? 'pending' : 'error'"), 'background failure is not shown in the receipt');
 check(files.gati.includes('PAGESA U RUAJT • DUKE U SINKRONIZUAR'), 'pending receipt is presented as confirmed success');
 check(files.gati.indexOf('const rootGatiPromise = onlineAtStart') < files.gati.indexOf('const durablePageSnapshotRows = await readGatiRowsFromDurableSnapshot()'), 'live DB fetch still waits behind durable snapshot hydration');
 check(files.gati.includes('isGatiRowBlockedByDeliveryTombstone'), 'delivered snapshot rows can become payable again');
