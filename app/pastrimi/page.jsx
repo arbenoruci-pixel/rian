@@ -14,6 +14,7 @@ import { queueOp } from '@/lib/offlineSyncClient';
 import PosModal from '@/components/PosModal'; // SHTUAR: Për leximin e porosive Offline
 import LocalErrorBoundary from '@/components/LocalErrorBoundary';
 import SmartSmsModal from '@/components/SmartSmsModal';
+import { TrackedReadySmsModal } from '@/components/ReadyNotification';
 import { buildSmartSmsText } from '@/lib/smartSms';
 import { bootLog, bootMarkReady } from '@/lib/bootLog';
 import { clearPageSnapshot, readPageSnapshot, writePageSnapshot } from '@/lib/pageSnapshotCache';
@@ -3735,6 +3736,7 @@ function PastrimiPageInner() {
   const exactSearchMode = !!openId && (exactMode || fromSearch);
   const phonePrefix = '+383';
   const longPressTimer = useRef(null);
+  const markReadyLocksRef = useRef(new Set());
   const isRefreshing = useRef(false);
   const refreshTimeout = useRef(null);
   const rackRefreshTimer = useRef(null);
@@ -5719,10 +5721,11 @@ function PastrimiPageInner() {
     try {
       const next = { ...draft, final_rack: rackLabel, found_location_note: '', status: 'final_ready' };
       await persistPaketimi(next, { forceStatus: 'final_ready' });
+      const completed = await handleMarkReady(paketimiOrder, { readyNote: '', readySlots: rackSlots });
+      if (!completed) return;
       setPaketimiSheet(false);
       setPaketimiOrder(null);
       setPaketimiDraft(null);
-      await handleMarkReady(paketimiOrder, { readyNote: '', readySlots: rackSlots });
     } catch (e) {
       alert('❌ Nuk u bë GATI. Order-i mbeti në PASTRIMI: ' + String(e?.message || e || 'UNKNOWN_ERROR'));
     }
@@ -5753,7 +5756,7 @@ function PastrimiPageInner() {
       return;
     }
     const text = buildSmartSmsText(smsOrder, 'gati_baze');
-    setSmsModal({ open: true, phone: resolvedPhone, text });
+    setSmsModal({ open: true, phone: resolvedPhone, text, orderId: String(smsOrder?.id || paketimiOrder?.id || '') });
   }
 
   function getExistingPaketimiBlock(o) {
@@ -5808,8 +5811,9 @@ function PastrimiPageInner() {
     const txt = String(readyPlaceText || '').trim();
     setReadyPlaceBusy(true);
     try {
+      const completed = await handleMarkReady(readyPlaceOrder, { readyNote: txt, readySlots: nextSlots });
+      if (!completed) return;
       setReadyPlaceSheet(false);
-      await handleMarkReady(readyPlaceOrder, { readyNote: txt, readySlots: nextSlots });
       scheduleRackMapRefresh(1600);
       setReadyPlaceOrder(null);
       setReadyPlaceText('');
@@ -5824,8 +5828,12 @@ function PastrimiPageInner() {
        alert("⏳ Kjo porosi është në pritje për internet. Prit sa të sinkronizohet lart.");
        return;
     }
+    const lockKey = String(o.id);
+    if (markReadyLocksRef.current.has(lockKey)) return false;
+    markReadyLocksRef.current.add(lockKey);
     const btnId = `btn-${o.id}`;
     const btn = document.getElementById(btnId);
+    try {
     if(btn) { btn.disabled = true; btn.innerText = "⏳..."; }
 
     const now = new Date().toISOString();
@@ -5873,7 +5881,7 @@ function PastrimiPageInner() {
           worker_name: readyBonusWorker.name,
           ready_at: now,
           rate_m2: 0.10,
-          window_hours: 48,
+          window_hours: 72,
           sync_state: 'PENDING_OR_DB',
         },
       } : {}),
@@ -5900,22 +5908,16 @@ function PastrimiPageInner() {
     try {
       const localBranch = isLocalReadyTransitionRow(o);
       const table = localBranch ? 'orders' : getReadyTargetTable(o);
-      let currentData = null;
-      let currentDataSource = 'fetch';
+      // The base RPC merges authoritative data itself. Offline work must not wait for a read.
+      let currentData = existingOrder;
+      let currentDataSource = 'row_fallback';
 
-      if (!localBranch && /^\d+$/.test(String(o?.id || '').trim())) {
-        const rowCheck = await fetchOrderByIdSafe(table, Number(o.id), 'id,status', { timeoutMs: 9000 }).catch(() => null);
-        if (!rowCheck) {
-          purgeGhostPastrimArtifacts(o, 'mark_ready_missing_db_row');
-          setOrders((prev) => (Array.isArray(prev) ? prev : []).filter((item) => String(item?.id || item?.db_id || '') !== String(o?.id || o?.db_id || '')));
-          alert('Kjo porosi nuk ekziston më në DB. U hoq nga lista.');
-          await refreshOrders({ force: true, source: 'mark_ready_missing_db_row' });
-          return;
-        }
-      }
 
       try {
-        currentData = await withTimeout(fetchOrderDataById(table, o.id));
+        if (table !== 'orders' && !(typeof navigator !== 'undefined' && navigator.onLine === false)) {
+          currentData = await withTimeout(fetchOrderDataById(table, o.id));
+          currentDataSource = 'fetch';
+        }
       } catch (fetchErr) {
         currentData = existingOrder;
         currentDataSource = 'row_fallback';
@@ -5940,15 +5942,7 @@ function PastrimiPageInner() {
         ...baseDriverNotifyPatch,
       };
       const transitionPatch = { data: updatedJson, ready_at: now, updated_at: now };
-      try {
-        await safeRecordReconcileTombstone({
-          id: o?.id,
-          local_oid: existingLocalOid || o?.local_oid || '',
-          code: o?.code || updatedJson?.code || updatedJson?.client?.code || '',
-          table: table,
-          status: 'gati',
-        }, { reason: 'pastrimi_mark_ready', ttlMs: 1000 * 60 * 60 * 8 });
-      } catch {}
+
 
       if (table === 'orders') {
         readyBonusResult = await markBaseOrderReadyWithBonus({
@@ -5985,12 +5979,22 @@ Shoferi u njoftua në listën e tij.`);
         }
       }
 
+      try {
+        await safeRecordReconcileTombstone({
+          id: o?.id,
+          local_oid: existingLocalOid || o?.local_oid || '',
+          code: o?.code || updatedJson?.code || updatedJson?.client?.code || '',
+          table: table,
+          status: 'gati',
+        }, { reason: 'pastrimi_mark_ready', ttlMs: 1000 * 60 * 60 * 8 });
+      } catch {}
+
       const optimisticReadyRow = {
         id: o?.id,
         status: 'gati',
         data: updatedJson,
-        ready_at: now,
-        updated_at: now,
+        ready_at: readyBonusResult?.order?.ready_at || updatedJson?.ready_at || now,
+        updated_at: readyBonusResult?.order?.updated_at || now,
         _table: table,
         _synced: table === 'orders' ? !readyBonusResult?.offlineQueued : !localBranch,
       };
@@ -6014,15 +6018,11 @@ Shoferi u njoftua në listën e tij.`);
         setOrders((prev) => (Array.isArray(prev) ? prev : []).filter((item) => !pastrimRowMatchesCleanupTarget(item, readyTransportTarget)));
       }
 
-      await refreshOrders({ force: true, source: 'mark_ready_success' });
+      void refreshOrders({ force: true, source: 'mark_ready_success' }).catch(() => {});
       scheduleRackMapRefresh(1800);
 
       if (!isPastrimTransportScopedRow(o)) {
-        let smsOrder = { ...(o || {}), fullOrder: updatedJson };
-        try {
-          const fresh = await import('@/lib/ordersService').then((m) => m.fetchOrderByIdSafe('orders', o.id, '*'));
-          if (fresh) smsOrder = fresh;
-        } catch {}
+        const smsOrder = { ...(o || {}), ...(readyBonusResult?.order || {}), data: updatedJson, fullOrder: updatedJson };
         const resolvedPhone = String(
           smsOrder?.client_phone ||
           smsOrder?.data?.client_phone ||
@@ -6033,8 +6033,9 @@ Shoferi u njoftua në listën e tij.`);
           ''
         ).trim();
         const text = buildSmartSmsText(smsOrder || o, 'gati_baze');
-        if (resolvedPhone) setSmsModal({ open: true, phone: resolvedPhone, text });
+        if (resolvedPhone) setSmsModal({ open: true, phone: resolvedPhone, text, orderId: String(smsOrder?.id || o?.id || '') });
       }
+      return true;
     } catch (e) {
       const safeUpdatedJson = updatedJson && typeof updatedJson === 'object' ? updatedJson : {};
       const diag = {
@@ -6072,14 +6073,19 @@ Shoferi u njoftua në listën e tij.`);
         if (typeof window !== 'undefined') window.__tepihaMarkReadyError = diag;
       } catch {}
       try { console.error('[PASTRIM mark_ready] failed', diag); } catch {}
-      if (/ORDER_NOT_FOUND|not found|PGRST116/i.test(diag.message || '')) {
+      if (/^(BASE_READY_ORDER_NOT_FOUND|ORDER_NOT_FOUND)$/.test(diag.message || '')) {
         purgeGhostPastrimArtifacts(o, 'mark_ready_error_missing_row');
         setOrders((prev) => (Array.isArray(prev) ? prev : []).filter((item) => String(item?.id || item?.db_id || '') !== String(o?.id || o?.db_id || '')));
         alert('Kjo porosi nuk ekziston më në DB. U hoq nga lista.');
       } else {
         alert(`❌ Diçka shkoi keq: ${diag.message || 'UNKNOWN_ERROR'}`);
       }
-      await refreshOrders({ force: true, source: 'mark_ready_error' });
+      void refreshOrders({ force: true, source: 'mark_ready_error' }).catch(() => {});
+      return false;
+    }
+    } finally {
+      markReadyLocksRef.current.delete(lockKey);
+      if (btn) { btn.disabled = false; btn.innerText = 'GATI'; }
     }
   }
 
@@ -8019,7 +8025,8 @@ Shoferi u njoftua në listën e tij.`);
         </button>
       </footer>
 
-      <SmartSmsModal
+      <TrackedReadySmsModal
+        orderId={smsModal.orderId}
         isOpen={smsModal.open}
         onClose={() => setSmsModal((s) => ({ ...s, open: false }))}
         phone={smsModal.phone}
