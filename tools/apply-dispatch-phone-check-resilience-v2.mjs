@@ -280,7 +280,7 @@ function patchPackage() {
   else prebuildParts.push(INSTALLER);
   scripts.prebuild = prebuildParts.join(' && ');
 
-  scripts['test:dispatch-phone-check-resilience-v2'] = 'node tools/verify-dispatch-phone-check-resilience-v2.mjs';
+  scripts['test:dispatch-phone-check-resilience-v2'] = 'node tools/verify-dispatch-phone-check-resilience-v2.mjs && node tools/verify-dispatch-history-phone-v1.mjs';
   const buildParts = String(scripts.build || '')
     .split('&&')
     .map((part) => part.trim())
