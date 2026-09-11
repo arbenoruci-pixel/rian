@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { buildSmartSmsLinks } from '../lib/smartSms';
 
-export default function SmartSmsModal({ isOpen = false, onClose, onAction, phone = '', messageText = '' }) {
+export default function SmartSmsModal({ isOpen = false, onClose, onAction, children, phone = '', messageText = '' }) {
   const links = useMemo(() => buildSmartSmsLinks(phone, messageText), [phone, messageText]);
   const lockRef = useRef(null);
 
@@ -85,7 +85,7 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, phone
 
   function openWhatsApp(event) {
     event?.preventDefault?.();
-    try { onAction?.('whatsapp'); } catch {}
+    try { if (onAction?.('whatsapp') === false) return; } catch { return; }
     const appHref = String(links?.whatsappApp || '').trim();
     const webHref = String(links?.whatsapp || '').trim();
     const target = appHref || webHref;
@@ -121,7 +121,7 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, phone
 
   function openViber(event) {
     event?.preventDefault?.();
-    try { onAction?.('viber'); } catch {}
+    try { if (onAction?.('viber') === false) return; } catch { return; }
     try { navigator.clipboard?.writeText(String(messageText || '').trim()); } catch {}
     const href = String(links?.viber || '').trim();
     if (!href) {
@@ -133,7 +133,7 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, phone
 
   function openSms(event) {
     event?.preventDefault?.();
-    try { onAction?.('sms'); } catch {}
+    try { if (onAction?.('sms') === false) return; } catch { return; }
     const href = String(links?.sms || '').trim();
     if (!href) {
       alert('Nuk ka numër valid për SMS.');
@@ -350,6 +350,7 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, phone
             )}
           </div>
 
+          {children}
           <div style={hintStyle}>
             WhatsApp hapet direkt me numrin e klientit. Viber e hap me tekst të gatshëm dhe mesazhi kopjohet automatikisht.
           </div>

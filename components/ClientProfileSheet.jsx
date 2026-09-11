@@ -1,3 +1,4 @@
+import { TrackedReadySmsModal } from './ReadyNotification';
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -333,7 +334,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
           </div>
         </section>
       </div>
-      <SmartSmsModal isOpen={smsOpen && canMessage} onClose={() => setSmsOpen(false)} phone={client.phone || ''} messageText={smartSms.messageText} />
+      {smartSms.action === 'gati_baze' ? <TrackedReadySmsModal orderId={smartSms.visit?.id} isOpen={smsOpen && canMessage} onClose={() => setSmsOpen(false)} phone={client.phone || ''} messageText={smartSms.messageText} /> : <SmartSmsModal isOpen={smsOpen && canMessage} onClose={() => setSmsOpen(false)} phone={client.phone || ''} messageText={smartSms.messageText} />}
     </>
   );
 }

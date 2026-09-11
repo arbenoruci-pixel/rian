@@ -1,3 +1,4 @@
+import { installReadyNotifications } from '../lib/readyNotifications.js';
 import React from 'react';
 import { installDispatchOutbox } from '../lib/dispatchOutboxRuntime.js';
 import ReactDOM from 'react-dom/client';
@@ -212,6 +213,7 @@ installCustomerTrackingCopyFix();
 installOfflineCodeBankWarmup();
 installOfflineRuntime();
 installDispatchOutbox();
+installReadyNotifications();
 installOfflineQueuedOrderUiGuard();
 installDispatchAdvanceBridge();
 installDispatchPayrollAccessBridge();
