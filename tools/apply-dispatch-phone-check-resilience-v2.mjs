@@ -32,7 +32,7 @@ function patchDispatch() {
       'DISPATCH_CREATE_SERVER_AUTHORITATIVE_V3',
       'const canCreateNewDispatchOrder = canSend;',
       'server_atomic_create',
-      'const createResult = await insertTransportOrder',
+      'getDispatchOutbox().enqueue(',
     ]) {
       if (!source.includes(token)) throw new Error('AUTHORITATIVE_DISPATCH_VERIFY_MISSING:' + token);
     }

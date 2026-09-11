@@ -53,7 +53,7 @@ check(transportDb.includes("fetchJsonWithDeadline('/api/transport/order'"), 'ato
 check(transportDb.includes('keepalive: requestJson.length < 60000'), 'Dispatch create survives iPhone lifecycle/network suspension');
 check(transportDb.includes('reconcileAtomicDispatchOrder(expected)'), 'Dispatch reconciles a committed order after a lost API response');
 check(transportDb.includes("query.timeout(10000, 'DISPATCH_ORDER_RECONCILE_TIMEOUT')"), 'Dispatch timeout reconciliation is bounded');
-check(transportDb.includes('}, 35000))'), 'Dispatch allows the verified server transaction to finish under load');
+check(transportDb.includes('input.expected_actor_id ? 12000 : 35000'), 'Dispatch allows the verified server transaction to finish under load');
 check(insertBlock.includes("tcodeAllocationMode === 'ATOMIC_DB' || tcodeAllocationMode === 'EXISTING_CLIENT'"), 'new and existing Dispatch clients use the trusted server boundary');
 check(insertBlock.includes('p_code_n: payload.code_n ?? null'), 'RPC always receives its p_code_n argument');
 check(insertBlock.includes('p_code_str: permanentTcode || null'), 'atomic Dispatch sends null p_code_str');

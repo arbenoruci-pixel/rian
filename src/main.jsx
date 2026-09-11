@@ -1,4 +1,5 @@
 import React from 'react';
+import { installDispatchOutbox } from '../lib/dispatchOutboxRuntime.js';
 import ReactDOM from 'react-dom/client';
 import AppRoot from './AppRoot.jsx';
 import { installCustomerTrackingCopyFix } from '../lib/customerTrackingCopy.js';
@@ -210,6 +211,7 @@ detectLegacyServiceWorkerPassively();
 installCustomerTrackingCopyFix();
 installOfflineCodeBankWarmup();
 installOfflineRuntime();
+installDispatchOutbox();
 installOfflineQueuedOrderUiGuard();
 installDispatchAdvanceBridge();
 installDispatchPayrollAccessBridge();
