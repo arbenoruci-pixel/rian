@@ -10,7 +10,7 @@ function appendTag(value) {
   const released = base.includes(release) ? base : `${base}-${release}`;
   const handoffRelease = 'arka-visible-handoff-v2';
   const handoff = released.includes(handoffRelease) ? released : `${released}-${handoffRelease}`;
-  const intentRelease = 'dispatch-phone-intent-v2-server-recovery-v3-dispatch-durable-send-v1-gati-offline-queue-first-v1-ready-notification-history-v1-base-ready-dispatch-flow-v1-dispatch-history-phone-v1-app-stability-audit-v1-device-pending-visibility-v1-pastrimi-modal-layer-v1';
+  const intentRelease = 'dispatch-phone-intent-v2-server-recovery-v3-dispatch-durable-send-v1-gati-offline-queue-first-v1-ready-notification-history-v1-base-ready-dispatch-flow-v1-dispatch-history-phone-v1-app-stability-audit-v1-device-pending-visibility-v1-pastrimi-modal-layer-v1-dispatch-create-verification-v1';
   return handoff.includes(intentRelease) ? handoff : `${handoff}-${intentRelease}`;
 }
 
@@ -18,7 +18,7 @@ const packagePath = 'package.json';
 if (fs.existsSync(packagePath)) {
   const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   pkg.version = appendTag(pkg.version);
-  pkg.scripts['test:app-stability-audit-v1'] = 'node tools/verify-app-stability-audit-v1.mjs && node tools/verify-device-pending-visibility-v1.mjs';
+  pkg.scripts['test:app-stability-audit-v1'] = 'node tools/verify-app-stability-audit-v1.mjs && node tools/verify-device-pending-visibility-v1.mjs && node tools/verify-dispatch-create-verification-v1.mjs';
   if (!pkg.scripts.build.includes('npm run test:app-stability-audit-v1')) pkg.scripts.build = pkg.scripts.build.replace('vite build', 'npm run test:app-stability-audit-v1 && vite build');
   fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
 }
