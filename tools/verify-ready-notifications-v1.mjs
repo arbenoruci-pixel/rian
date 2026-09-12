@@ -23,7 +23,7 @@ const ctx=vm.createContext({
   canTrackReadyNotifications, isReadyNotificationOrderId,
   readBestActor:()=>loggedActor,getDeviceId:()=>{},mergeNotificationEvents,
   window:{dispatchEvent(){},addEventListener(){},setInterval(){}},Event:class{},document:{addEventListener(){}},
-  navigator:{get onLine(){return online;}},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
+  navigator:{get onLine(){return online;}},localStorage:{get length(){return storage.size;},key:i=>[...storage.keys()][i]??null,removeItem:k=>storage.delete(k),getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
   crypto:{randomUUID:()=>`00000000-0000-4000-8000-${String(id++).padStart(12,'0')}`},
   AbortController,setTimeout,clearTimeout,
   fetch:async(_,options)=>{requests++; const body=JSON.parse(options.body);
@@ -45,7 +45,7 @@ const source=fs.readFileSync('lib/readyNotifications.js','utf8').replace(/^impor
 vm.runInContext(source,ctx);
 const opened=ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'});
 ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'confirmed',attemptId:opened.attempt_id});
-assert.equal(requests,0);assert.equal(JSON.parse(storage.values().next().value).length,2);
+assert.equal(requests,0);assert.equal(ctx.localNotifications().length,2);
 loggedActor={...actor,id:'another'};online=true;await ctx.flushReadyNotifications();assert.equal(requests,0);
 loggedActor=actor;rejectNetwork=true;await ctx.flushReadyNotifications();assert.equal(ctx.localNotifications().filter(e=>e.pending).length,2);
 rejectNetwork=false;denied=true;await ctx.flushReadyNotifications();assert.equal(server.size,0);
