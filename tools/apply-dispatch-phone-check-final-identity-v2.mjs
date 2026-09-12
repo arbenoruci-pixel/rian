@@ -17,7 +17,9 @@ function appendTag(value) {
   const retryRelease = 'dispatch-resume-retry-v1';
   const withRetry = withMobile.includes(retryRelease) ? withMobile : `${withMobile}-${retryRelease}`;
   const submitRelease = 'dispatch-submit-confirmed-v2';
-  return withRetry.includes(submitRelease) ? withRetry : `${withRetry}-${submitRelease}`;
+  const withSubmit = withRetry.includes(submitRelease) ? withRetry : `${withRetry}-${submitRelease}`;
+  const readRelease = 'dispatch-read-recovery-v1';
+  return withSubmit.includes(readRelease) ? withSubmit : `${withSubmit}-${readRelease}`;
 }
 
 const packagePath = 'package.json';
@@ -26,6 +28,7 @@ if (fs.existsSync(packagePath)) {
   pkg.version = appendTag(pkg.version);
   pkg.scripts['test:app-stability-audit-v1'] = 'node tools/verify-app-stability-audit-v1.mjs && node tools/verify-device-pending-visibility-v1.mjs && node tools/verify-dispatch-create-verification-v1.mjs && node tools/verify-search-payment-status-audit-v1.mjs && node tools/verify-extended-flow-v1.mjs && node tools/verify-transport-board-recovery-v3.mjs && node tools/verify-dispatch-storage-quota-v3.mjs && node tools/verify-dispatch-resume-retry-v1.mjs';
   pkg.scripts['test:app-stability-audit-v1'] += ' && node tools/verify-dispatch-submit-confirmed-v2.mjs';
+  pkg.scripts['test:app-stability-audit-v1'] += ' && node tools/verify-dispatch-read-recovery-v1.mjs';
   if (!pkg.scripts.build.includes('npm run test:app-stability-audit-v1')) pkg.scripts.build = pkg.scripts.build.replace('vite build', 'npm run test:app-stability-audit-v1 && vite build');
   fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
 }

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/lib/routerCompat.jsx";
 import { getOrderTable } from "@/lib/orderSource";
-import { listMixedOrderRecords, updateOrderData, updateOrderRecord } from "@/lib/ordersService";
+import { updateOrderData, updateOrderRecord } from "@/lib/ordersService";
 import { listUsers } from "@/lib/usersDb";
 import { bootLog, bootMarkReady } from "@/lib/bootLog";
 import { getActor } from "@/lib/actorSession";
@@ -17,7 +17,9 @@ import CustomerCare from '@/components/CustomerCare';
 import DispatchMeasurements from '@/components/DispatchMeasurements';
 import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
 import { isRecoverableDispatchPhoneCheck, watchDispatchPhoneCheck } from '@/lib/dispatchPhoneCheck';
-import { traceDispatchSubmission } from '@/lib/dispatchDiagnostics';
+import { traceDispatchSubmission, reportDispatchDiagnostic } from '@/lib/dispatchDiagnostics';
+import { createDispatchListLoader } from '@/lib/dispatchList';
+import { readDispatchOrders } from '@/lib/dispatchListApi';
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -26,10 +28,6 @@ const TAB_PHONE = "phone";
 const TAB_UPDATES = "updates";
 const TAB_CANCELLED = "cancelled";
 
-const DISPATCH_LOAD_LIMIT_ORDERS = 96;
-const DISPATCH_LOAD_LIMIT_TRANSPORT = 160;
-const DISPATCH_SEARCH_LIMIT_ORDERS = 120;
-const DISPATCH_SEARCH_LIMIT_TRANSPORT = 140;
 
 const SLOT_OPTIONS = [
   { value: "morning", label: "PARADITE", window: "09:00 – 13:00" },
@@ -1670,7 +1668,6 @@ export default function DispatchPage() {
   const [editMeasurements, setEditMeasurements] = useState(null);
   const [editMeasurementsChanged, setEditMeasurementsChanged] = useState(false);
   const savePlanInFlight = useRef(false);
-  const rowsInFlight = useRef(false);
   const [rowsError, setRowsError] = useState('');
   const [editNote, setEditNote] = useState("");
   const [editPickupMeasurements, setEditPickupMeasurements] = useState("");
@@ -1814,40 +1811,36 @@ export default function DispatchPage() {
     };
   }, [accessChecked, accessAllowed]); // DISPATCH_MIDNIGHT_DRIVERS_V1: resilient drivers
 
-  const loadRows = useCallback(async () => {
-    if (rowsInFlight.current) return;
-    rowsInFlight.current = true;
-    setLoadingRows(true);
-    try {
-      const merged = keepDispatchTransportOnly(
-        await withDeadline((signal) => listMixedOrderRecords({
-          signal,
-          tables: ["transport_orders"],
-          byTable: {
-            transport_orders: { orderBy: "updated_at", ascending: false, limit: DISPATCH_LOAD_LIMIT_TRANSPORT },
-          },
-        }), 12000, 'DISPATCH_LIST_TIMEOUT')
-      );
-      setAllRows(merged);
-      setRowsError('');
-    } catch {
-      setRowsError('LISTA NUK U RIFRESKUA. KONTROLLO INTERNETIN DHE PROVO PËRSËRI.');
-    } finally {
-      rowsInFlight.current = false;
-      setLoadingRows(false);
-    }
+  const rowsLoaderRef = useRef(null);
+  const getRowsLoader = useCallback(() => {
+    if (!rowsLoaderRef.current) rowsLoaderRef.current = createDispatchListLoader({
+      fetchRows: readDispatchOrders,
+      getActorId: () => { const actor = getActor(); return actor?.id || actor?.user_id || ''; },
+      available: () => navigator.onLine !== false && !document.hidden,
+      onRows: setAllRows,
+      onBusy: setLoadingRows,
+      onError: error => {
+        if (!error) { setRowsError(''); return; }
+        const code = error?.code || error?.message || 'DISPATCH_LIST_FAILED';
+        const denied = /AUTH_REQUIRED|NOT_APPROVED|NOT_ALLOWED|MISMATCH|DISABLED|RETIRED/.test(code);
+        setRowsError(denied
+          ? 'HYR ME LLOGARINË E AUTORIZUAR PËR TA RIFRESKUAR LISTËN.'
+          : 'LISTA PO RIFRESKOHET AUTOMATIKISHT. POROSITË E KONFIRMUARA JANË TË RUAJTURA.');
+        reportDispatchDiagnostic('list_failed', { code });
+      },
+    });
+    return rowsLoaderRef.current;
+  }, []);
+  const loadRows = useCallback(() => getRowsLoader().refresh(), [getRowsLoader]);
+
+  useEffect(() => () => {
+    rowsLoaderRef.current?.stop(); rowsLoaderRef.current = null;
   }, []);
 
   async function getSearchRows() {
     if (Array.isArray(allRows) && allRows.length) return keepDispatchTransportOnly(allRows);
-    return keepDispatchTransportOnly(
-      await listMixedOrderRecords({
-        tables: ["transport_orders"],
-        byTable: {
-          transport_orders: { orderBy: "updated_at", ascending: false, limit: DISPATCH_SEARCH_LIMIT_TRANSPORT },
-        },
-      })
-    );
+    const actor = getActor();
+    return keepDispatchTransportOnly(await withDeadline(signal => readDispatchOrders(actor?.id || actor?.user_id || '', signal), 15000, 'DISPATCH_LIST_TIMEOUT'));
   }
 
   useEffect(() => {
@@ -1882,8 +1875,17 @@ export default function DispatchPage() {
       try { if (document?.visibilityState === "hidden") return; } catch {}
       loadRows();
     }, 20000);
+    const resume = () => { if (!document.hidden) void loadRows(); };
+    window.addEventListener('online', resume);
+    window.addEventListener('focus', resume);
+    window.addEventListener('pageshow', resume);
+    document.addEventListener('visibilitychange', resume);
 
     return () => {
+      window.removeEventListener('online', resume);
+      window.removeEventListener('focus', resume);
+      window.removeEventListener('pageshow', resume);
+      document.removeEventListener('visibilitychange', resume);
       try { if (realtimeTimerRef.current) window.clearTimeout(realtimeTimerRef.current); } catch {}
       try { if (pollTimer) window.clearInterval(pollTimer); } catch {}
       try { if (channel && supabase?.removeChannel) supabase.removeChannel(channel); } catch {}
@@ -1927,8 +1929,8 @@ export default function DispatchPage() {
     }
 
     return watchDispatchPhoneCheck({
-      inspect: () => inspectDispatchTransportPhoneViaApi(phone, { timeoutMs: 15000 }),
-      onBusy: setPhoneBusy,
+      inspect: signal => inspectDispatchTransportPhoneViaApi(phone, { timeoutMs: 15000, signal }),
+      onBusy: busy => { setPhoneBusy(busy); if (busy) setPhoneCheckError(''); },
       onResult: (inspection) => {
         if (Number(phoneCheckSeqRef.current || 0) !== checkSeq) return;
         const rawHit = inspection?.client || null;
@@ -1951,6 +1953,7 @@ export default function DispatchPage() {
         if (Number(phoneCheckSeqRef.current || 0) !== checkSeq) return;
         const phoneError = dispatchPhoneCheckErrorCode(error) || 'DISPATCH_PHONE_CHECK_FAILED';
         const transient = isTransientDispatchPhoneCheckError(phoneError);
+        reportDispatchDiagnostic('phone_check_failed', { code: phoneError });
         setPhoneCheckedKey(phoneDigits);
         setPhoneCheckError(phoneError);
         if (transient) {
@@ -2657,14 +2660,24 @@ export default function DispatchPage() {
   }
 
   useEffect(() => {
+    let alive = true;
     const committed = (event) => {
       createIntentJournalRef.current?.clear(event.detail?.id);
-      setMsg('');
+      getRowsLoader().record(event.detail?.order, event.detail?.actorId);
+      const actor = getActor();
+      if (event.detail?.order && event.detail.actorId === String(actor?.id || actor?.user_id || '')) {
+        setMsg(`POROSIA ${event.detail.order.client_tcode || event.detail.order.code_str || ''} U KONFIRMUA NË SERVER ✓`);
+      }
       void loadRows();
     };
     window.addEventListener('tepiha:dispatch-order-committed', committed);
-    return () => window.removeEventListener('tepiha:dispatch-order-committed', committed);
-  }, [loadRows]);
+    // Restore verified receipts on refresh even when the list connection fails.
+    void getDispatchOutbox().list().then(items => {
+      if (!alive) return;
+      for (const item of items) if (item.state === 'sent' && item.confirmedOrder) getRowsLoader().record(item.confirmedOrder, item.actorId);
+    }).catch(error => reportDispatchDiagnostic('receipt_read_failed', { code: error?.code || error?.name }));
+    return () => { alive = false; window.removeEventListener('tepiha:dispatch-order-committed', committed); };
+  }, [loadRows, getRowsLoader]);
 
   function openRow(row) {
     setEditAssignmentChanged(false);
@@ -2706,7 +2719,7 @@ export default function DispatchPage() {
         },
         ...(editMeasurementsChanged ? { measurements: editMeasurements } : {}),
       }, { timeoutMs: 18000 });
-      setAllRows((current) => current.map((row) => row.id === result.order.id ? { ...row, ...result.order } : row));
+      getRowsLoader().record(result.order);
       setMsg('NDRYSHIMET U RUAJTËN ✅');
       setSelectedRow(null);
       void loadRows();
@@ -3077,7 +3090,7 @@ Mati 1, nesër paradite, 3 tepiha`}
               <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <div style={{ ...ui.mini, color: phoneCheckDegraded ? "#a16207" : "#b91c1c" }}>
                   {phoneCheckDegraded
-                    ? "MUND TA DËRGOSH POROSINË. KONTROLLI RIFILLON AUTOMATIKISHT KUR KTHEHET LIDHJA. SERVERI E VERIFIKON NË RUAJTJE."
+                    ? "KONTROLLI PO VONOHET. PROVOHET SËRISH AUTOMATIKISHT. MUND TA DËRGOSH POROSINË."
                     : "KONTROLLI NË DB DËSHTOI"}
                 </div>
                 <button type="button" style={ui.btnGhostMini} onClick={() => setPhoneCheckNonce((value) => Number(value || 0) + 1)}>RIPROVO</button>

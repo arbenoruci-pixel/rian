@@ -94,7 +94,7 @@ for (const retiredPin of RETIRED_PINS) {
 // permanent denylist/history evidence.
 const sourceFiles = execFileSync(
   'git',
-  ['ls-files', '--cached', '--others', '--exclude-standard'],
+  ['ls-files', '--cached', '--others', '--exclude-standard', '--', '.', ':(exclude)dist/**', ':(exclude)node_modules/**'],
   { cwd: ROOT, encoding: 'utf8' },
 ).split(/\r?\n/).filter(Boolean).filter((relativePath) => (
   SOURCE_FILE.test(relativePath)
