@@ -11,7 +11,9 @@ function appendTag(value) {
   const handoffRelease = 'arka-visible-handoff-v2';
   const handoff = released.includes(handoffRelease) ? released : `${released}-${handoffRelease}`;
   const intentRelease = 'dispatch-phone-intent-v2-server-recovery-v3-dispatch-durable-send-v1-gati-offline-queue-first-v1-ready-notification-history-v1-base-ready-dispatch-flow-v1-dispatch-history-phone-v1-app-stability-audit-v1-device-pending-visibility-v1-pastrimi-modal-layer-v1-dispatch-create-verification-v1-search-payment-status-audit-v1-extended-flow-verification-v1-transport-board-recovery-v3-dispatch-storage-quota-v3';
-  return handoff.includes(intentRelease) ? handoff : `${handoff}-${intentRelease}`;
+  const withIntent = handoff.includes(intentRelease) ? handoff : `${handoff}-${intentRelease}`;
+  const mobileRelease = 'transport-mobile-fit-v1';
+  return withIntent.includes(mobileRelease) ? withIntent : `${withIntent}-${mobileRelease}`;
 }
 
 const packagePath = 'package.json';

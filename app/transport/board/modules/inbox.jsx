@@ -637,6 +637,10 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
   };
 
   const listCardStyle = {
+    width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
+    boxSizing: 'border-box',
     borderRadius: 14,
     border: '1px solid rgba(245,158,11,0.45)',
     background: 'linear-gradient(180deg, rgba(245,158,11,0.11), rgba(245,158,11,0.04))',
@@ -650,11 +654,11 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
 
   const cardLabelStyle = { color: 'rgba(255,255,255,0.58)', fontSize: 10.5, fontWeight: 950, letterSpacing: 0.8, textTransform: 'uppercase' };
   const cardAddressStyle = { color: '#f8fafc', fontSize: 13.5, fontWeight: 900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
-  const cardFooterStyle = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 2 };
+  const cardFooterStyle = { display: 'flex', flexWrap: 'wrap', minWidth: 0, alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 2 };
   const openPillStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 68, height: 28, padding: '0 10px', borderRadius: 999, background: 'linear-gradient(180deg, rgba(59,130,246,0.26), rgba(37,99,235,0.18))', border: '1px solid rgba(96,165,250,0.30)', color: '#dbeafe', fontSize: 10.5, fontWeight: 950, letterSpacing: 0.2, boxShadow: '0 6px 16px rgba(30,64,175,0.24)', whiteSpace: 'nowrap' };
   const newPillStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px', borderRadius: 999, fontSize: 10, fontWeight: 950, letterSpacing: 0.5, textTransform: 'uppercase', background: 'rgba(245,158,11,0.18)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.35)', whiteSpace: 'nowrap' };
   const missingAddressStyle = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px', borderRadius: 999, fontSize: 10, fontWeight: 950, letterSpacing: 0.4, textTransform: 'uppercase', background: 'rgba(255,59,48,0.14)', color: '#ffb4ab', border: '1px solid rgba(255,95,87,0.28)', width: 'fit-content' };
-  const dateBadgeStyle = { display: 'inline-flex', alignItems: 'center', width: 'fit-content', maxWidth: '100%', padding: '3px 7px', borderRadius: 999, border: '1px solid rgba(96,165,250,0.24)', background: 'rgba(59,130,246,0.12)', color: '#bfdbfe', fontSize: 10.5, fontWeight: 950, lineHeight: 1, letterSpacing: 0.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+  const dateBadgeStyle = { display: 'inline-flex', alignItems: 'center', width: 'fit-content', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', padding: '3px 7px', borderRadius: 999, border: '1px solid rgba(96,165,250,0.24)', background: 'rgba(59,130,246,0.12)', color: '#bfdbfe', fontSize: 10.5, fontWeight: 950, lineHeight: 1.25, letterSpacing: 0.2, whiteSpace: 'normal', overflowWrap: 'anywhere' };
   const cleanAddress = (value) => {
     const raw = String(value || '').trim();
     if (!raw || /pa adres|adresë jo e ruajtur|adrese jo e ruajtur/i.test(raw)) return '';
@@ -669,7 +673,7 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
 
   return (
     <>
-      <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', minWidth: 0, maxWidth: '100%', gap: 10 }}>
         {loading ? (
           <div style={{ color: 'rgba(255,255,255,0.72)', padding: '10px 4px', fontWeight: 800 }}>
             Duke u ngarkuar...
@@ -709,12 +713,12 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                   appearance: 'none',
                 }}
               >
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', minWidth: 0, gap: 6 }}>
+                  <div style={{ display: 'flex', minWidth: 0, alignItems: 'flex-start', gap: 10 }}>
                     <div style={{ width: 32, minWidth: 32, height: 32, marginRight: 4, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#39d86f', color: '#03140a', fontSize: 9.5, fontWeight: 1000, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 6px 12px rgba(57,216,111,0.18)', ...getOrderCodeCircleStyle(displayCode, { diameter: 32, fontSize: 9.5 }) }}>
                       {displayCode}
                     </div>
-                    <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: 4 }}>
+                    <div style={{ minWidth: 0, flex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                         <span role="button" tabIndex={0} aria-label={`Hap kartelën e ${orderTitle(order)}`} onClick={(e) => { e.stopPropagation(); onOpenProfile && onOpenProfile(order); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpenProfile && onOpenProfile(order); } }} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#ffffff', fontSize: 14.5, fontWeight: 950, letterSpacing: 0.1, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
                           {orderTitle(order)}
@@ -734,11 +738,11 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                       ) : null}
 
                       {pickupPlanLabel ? (
-                        <div style={{ color:'#fde68a', fontSize:11.5, fontWeight:950 }}>TEPIHAT: {pickupPlanLabel}</div>
+                        <div style={{ minWidth: 0, overflowWrap: 'anywhere', color:'#fde68a', fontSize:11.5, fontWeight:950 }}>TEPIHAT: {pickupPlanLabel}</div>
                       ) : null}
 
                       <div style={cardFooterStyle}>
-                        <span style={{ color: 'rgba(255,255,255,0.70)', fontSize: 12, fontWeight: 900 }}>{pieces} copë{m2Total > 0 ? ' • ' + Number(m2Total).toFixed(1) + ' m²' : ''}{total > 0 ? ' • ' + Number(total).toFixed(2) + ' €' : ''}</span>
+                        <span style={{ minWidth: 0, maxWidth: '100%', overflowWrap: 'anywhere', color: 'rgba(255,255,255,0.70)', fontSize: 12, fontWeight: 900 }}>{pieces} copë{m2Total > 0 ? ' • ' + Number(m2Total).toFixed(1) + ' m²' : ''}{total > 0 ? ' • ' + Number(total).toFixed(2) + ' €' : ''}</span>
                         <span
                           role="button"
                           tabIndex={0}
@@ -750,7 +754,7 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                             event.stopPropagation();
                             openInboxOrder();
                           }}
-                          style={openPillStyle}
+                          style={{ ...openPillStyle, flexShrink: 0, marginLeft: 'auto' }}
                         >HAP ➔</span>
                       </div>
 
