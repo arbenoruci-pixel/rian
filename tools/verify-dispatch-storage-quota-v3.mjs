@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
+import { IDBFactory, IDBObjectStore, forceCloseDatabase } from 'fake-indexeddb';
 import { createDispatchOutboxStorage } from '../lib/dispatchOutboxStorage.js';
 import { createDispatchOutbox, DISPATCH_OUTBOX_KEY, DISPATCH_OUTBOX_ITEM_PREFIX } from '../lib/dispatchOutbox.js';
 
@@ -124,6 +124,33 @@ await test('blocked storage open has a deadline and permits a later recovery', a
   const storage = createDispatchOutboxStorage({ indexedDB: { open(...args) { if (stuck) return {}; return f.indexedDB.open(...args); } }, localStorage: f.localStorage, timeoutMs: 20 });
   await assert.rejects(f.queue(storage).enqueue(payload(1)), /STORAGE_TIMEOUT/);
   stuck = false; assert.equal((await f.queue(storage).enqueue(payload(1))).id, uuid(1));
+});
+await test('blocked order retries after the device clock moves backward', async () => {
+  let allowed = false;
+  const f = fixture({ submit: async body => allowed
+    ? { ok: true, data: { id: body.id, client_tcode: 'T101' } }
+    : { ok: false, error: 'AUTH_REQUIRED' } });
+  const q = f.queue(); f.state.now = 100000; f.state.online = true;
+  await q.enqueue(payload(1)); await q.drain();
+  assert.equal((await q.list())[0].state, 'blocked');
+  f.state.now = 1000; allowed = true;
+  await q.retry(uuid(1)); await q.drain();
+  assert.equal((await f.queue().list())[0].state, 'sent');
+  assert.deepEqual(f.state.calls[0], f.state.calls[1]);
+});
+await test('unexpected database close recovers in the same running queue', async () => {
+  const factory = new IDBFactory(); let db;
+  const f = fixture({ indexedDB: { open(...args) {
+    const request = factory.open(...args);
+    request.addEventListener('success', () => { db = request.result; });
+    return request;
+  } } });
+  const q = f.queue(); await q.enqueue(payload(1));
+  forceCloseDatabase(db);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await q.list())[0].id, uuid(1));
+  f.state.online = true; await q.drain();
+  assert.equal((await q.list())[0].state, 'sent');
 });
 await test('form awaits persistence and runtime uses the durable adapter', () => {
   assert.match(fs.readFileSync('app/dispatch/page.jsx', 'utf8'), /const queued = await getDispatchOutbox\(\)\.enqueue\(/);
