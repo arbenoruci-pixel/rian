@@ -140,5 +140,22 @@ await test('the actual form preserves input when the durable write fails and nev
   assert.equal(form.state.name, undefined); assert.match(form.state.err, /NUK U RUAJT/);
   assert.equal(form.trace.at(-1), 'failed');
 });
+await test('the actual review-and-retry button sends its order during another slow request', async () => {
+  const storage=memory(); let release, started;
+  const entered=new Promise(resolve=>{started=resolve;});
+  const q=createDispatchOutbox({storage,getActorId:()=>actor,submit:async body=>{
+    if(body.id===id(1)){started();await new Promise(resolve=>{release=resolve;});}
+    return {ok:true,data:{id:body.id,client_tcode:'T123'}};
+  }});
+  await q.enqueue(payload(1));await q.enqueue(payload(2));
+  const key=DISPATCH_OUTBOX_ITEM_PREFIX+id(2);
+  storage.setItem(key,JSON.stringify({...JSON.parse(storage.getItem(key)),state:'blocked',error:'DISPATCH_OUTBOX_REVIEW_REQUIRED'}));
+  const draining=q.drain();await entered;
+  const source=fs.readFileSync('components/DispatchSendQueue.jsx','utf8');
+  const callback=source.slice(source.indexOf('onClick={async () => {')+'onClick={'.length,source.indexOf('}>KONTROLLOVA'));
+  const retry=vm.runInNewContext('('+callback+')',{getDispatchOutbox:()=>q,item:{id:id(2)},wakeDispatchOutbox:()=>{},setError:assert.fail});
+  try {await retry();assert.equal((await q.list()).find(item=>item.id===id(2)).state,'sent');}
+  finally {release();await draining;}
+});
 if(failed.length){console.error(failed.join('\n'));process.exitCode=1;}
 console.log(`${passed} passed; ${failed.length} failed: Dispatch submit confirmed v2`);

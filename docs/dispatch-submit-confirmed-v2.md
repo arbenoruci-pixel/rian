@@ -21,7 +21,7 @@ The diagnostic endpoint also sent explicit nulls for `events_json` and `meta_jso
 ## Submission contract
 
 1. Freeze the order payload and retain its UUID. Commit the complete request locally before any network write.
-2. Send that specific order immediately. Per-order in-flight promises prevent the foreground path and background replay from submitting the same request simultaneously. Two background workers keep older requests moving independently.
+2. Send that specific order immediately, including after an operator reviews a blocked request and chooses to retry it. Per-order in-flight promises prevent the foreground path and background replay from submitting the same request simultaneously. Two background workers keep older requests moving independently.
 3. Await the first server result in the form. Disable the form while that immutable request is being saved/sent.
 4. Show the confirmed T-code after a verified server response. Otherwise clearly show a durable pending request or a blocked request requiring attention. Pending requests retry with the same UUID and payload.
 
@@ -33,6 +33,6 @@ Diagnostics now record stage, elapsed time, build and error codes through the ex
 
 ## Verification
 
-Eleven regression scenarios cover malformed old rows, targeted submission during an earlier slow request, direct/background deduplication, confirmed receipt storage failure, bulk reads/cleanup, a permanently unresolved submit, and an IndexedDB abort event that never arrives. The shipping form's click handler is also executed with the actual outbox to check server confirmation, rapid double taps, offline acknowledgement, blocked responses and failed local writes. Existing offline/reload, immutable payload, 100-timeout replay, actor isolation, phone identity, search, status and payment tests passed in the full production build.
+Twelve regression scenarios cover malformed old rows, targeted submission during an earlier slow request, direct/background deduplication, confirmed receipt storage failure, bulk reads/cleanup, a permanently unresolved submit, and an IndexedDB abort event that never arrives. The shipping form and review-and-retry click handlers are also executed with the actual outbox to check server confirmation, rapid double taps, offline acknowledgement, blocked responses, failed local writes and targeted retries. Existing offline/reload, immutable payload, 100-timeout replay, actor isolation, phone identity, search, status and payment tests passed in the full production build.
 
 Physical iPhone confirmation remains outstanding. No live customer order was created or altered in this investigation.

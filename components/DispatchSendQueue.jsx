@@ -43,7 +43,11 @@ export default function DispatchSendQueue({ onInspect }) {
       {item.payload?.data?.pickup_date ? <div style={{ marginTop: 4 }}>Marrja: {item.payload.data.pickup_date} · {item.payload.data.pickup_slot === 'evening' ? 'Mbrëmje' : 'Paradite'}</div> : null}
       <div style={{ marginTop: 4, color: item.state === 'sent' ? '#166534' : item.state === 'blocked' ? '#991b1b' : '#475569' }}>{explanation(item)}</div>
       {item.state === 'blocked' && /AUTH|DEVICE|ACTOR|ROLE|DISABLED|RETIRED|REVIEW_REQUIRED/.test(item.error) ? <button type="button" style={{ marginTop: 8, minHeight: 44, padding: '8px 12px' }} onClick={async () => {
-        try { await getDispatchOutbox().retry(item.id); wakeDispatchOutbox(); } catch { setError('Tentimi nuk u ruajt. Mbaje aplikacionin hapur.'); }
+        try {
+          await getDispatchOutbox().retry(item.id);
+          await getDispatchOutbox().send(item.id, { force: true });
+          wakeDispatchOutbox();
+        } catch { setError('Tentimi nuk u konfirmua. Porosia mbetet e ruajtur në këtë pajisje.'); }
       }}>KONTROLLOVA — VAZHDO DËRGIMIN</button> : null}
       {item.state === 'blocked' && onInspect ? <button type="button" style={{ marginTop: 8, minHeight: 44, padding: '8px 12px' }} onClick={() => onInspect(item.phone)}>KONTROLLO POROSITË E KLIENTIT</button> : null}
     </div>)}</div>
