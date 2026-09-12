@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/lib/routerCompat.jsx";
 import { useRouter } from "@/lib/routerCompat.jsx";
 import { approvePendingDevice, listPendingDevices, rejectPendingDevice } from '@/lib/deviceAdminClient';
@@ -82,7 +82,12 @@ export default function StaffPage() {
   const router = useRouter();
   const [actor, setActor] = useState(null);
 
-  const [pending, setPending] = useState([]);
+  const [pending, setPending] = useState(null);
+  const [deviceLoadError, setDeviceLoadError] = useState('');
+  const [staffLoadError, setStaffLoadError] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const reloadSequence = useRef(0);
+  const reloadInFlight = useRef(false);
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
@@ -104,7 +109,7 @@ export default function StaffPage() {
   const normalizedRole = String(actor?.role || '').toUpperCase();
   const canManageStaff = isStaffAdmin(normalizedRole);
 
-  const pendingCount = pending.length;
+  const pendingCount = deviceLoadError || pending === null ? '—' : pending.length;
   const activeCount = useMemo(
     () => (staff || []).filter((u) => u.is_active !== false).length,
     [staff]
@@ -144,27 +149,53 @@ export default function StaffPage() {
     };
   }, [router]);
 
+  useEffect(() => {
+    if (!canManageStaff) return;
+    const refresh = () => {
+      if (!document.hidden && !reloadInFlight.current && !actionBusy) void reloadAll(true);
+    };
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    const timer = window.setInterval(refresh, 30000);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+      window.clearInterval(timer);
+    };
+  }, [canManageStaff, actionBusy]);
+
+  useEffect(() => () => { reloadSequence.current += 1; }, []);
+
   async function reloadAll(isSilent = false) {
+    const sequence = ++reloadSequence.current;
+    reloadInFlight.current = true;
+    setRefreshing(true);
     if (!isSilent) setLoading(true);
-
-    try {
-      const st = await withTimeout(listUserRecords({ orderBy: "name", ascending: true, eq: { is_active: true } }), DB_TIMEOUT_MS, 'arka_stafi_users_timeout');
-      setStaff((st || []).filter((u) => u?.is_active !== false));
-
-      const devices = await withTimeout(
-        listPendingDevices(),
-        DB_TIMEOUT_MS,
-        'arka_stafi_devices_timeout',
-      );
-      setPending(Array.isArray(devices) ? devices : []);
-    } catch (err) {
-      console.error("Gabim sinkronizimi:", err);
-      if (!isSilent) {
-        console.warn('PATCH M V25: ARKA/STAFI DB timeout/failure; fail-open instead of stuck loader.', err);
-      }
-    } finally {
-      if (!isSilent) setLoading(false);
+    // Independent reads: staff failure must not suppress device requests.
+    const [usersResult, devicesResult] = await Promise.allSettled([
+      withTimeout(listUserRecords({ orderBy: 'name', ascending: true, eq: { is_active: true } }), DB_TIMEOUT_MS, 'arka_stafi_users_timeout'),
+      listPendingDevices(),
+    ]);
+    if (sequence !== reloadSequence.current) return;
+    if (usersResult.status === 'fulfilled') {
+      setStaff((usersResult.value || []).filter(u => u?.is_active !== false));
+      setStaffLoadError('');
+    } else setStaffLoadError('Lista e stafit nuk u rifreskua. Provo përsëri.');
+    if (devicesResult.status === 'fulfilled') {
+      setPending(devicesResult.value);
+      setDeviceLoadError('');
+    } else {
+      setPending(null);
+      const code = String(devicesResult.reason?.code || '');
+      setDeviceLoadError(code.includes('AUTH_REQUIRED') || code.includes('DEVICE_NOT_APPROVED') || code.includes('ACTOR_NOT_ALLOWED')
+        ? 'Hyrja e kësaj pajisjeje nuk lejon leximin e kërkesave. Hyr përsëri si administrator nga një pajisje e miratuar.'
+        : 'Kërkesat nuk u lexuan. Kontrollo lidhjen dhe shtyp RIFRESKO KËRKESAT.');
     }
+    reloadInFlight.current = false;
+    setRefreshing(false);
+    setLoading(false);
   }
 
   async function handleOneClickApprove(device) {
@@ -387,6 +418,7 @@ export default function StaffPage() {
           </div>
         </div>
 
+        {staffLoadError ? <p role="alert">{staffLoadError}</p> : null}
         <div className="stats">
           <div className="statCard">
             <span className="statLabel">Kërkesa Pajisjesh</span>
@@ -411,13 +443,15 @@ export default function StaffPage() {
                 <div className="panelEyebrow">Pending Devices</div>
                 <h2 className="panelTitle">Aprovimet e Pajisjeve</h2>
               </div>
-              <button className="miniBtn" onClick={() => reloadAll(false)} disabled={actionBusy}>
-                REFRESH
+              <button className="miniBtn" onClick={() => reloadAll(false)} disabled={actionBusy || refreshing}>
+                {refreshing ? 'DUKE RIFRESKUAR…' : 'RIFRESKO KËRKESAT'}
               </button>
             </div>
 
-            {loading ? (
-              <div className="empty">Po lexohen pajisjet...</div>
+            {deviceLoadError ? (
+              <div className="empty" role="alert">{deviceLoadError}</div>
+            ) : loading || pending === null ? (
+              <div className="empty" role="status">Po lexohen pajisjet...</div>
             ) : pending.length === 0 ? (
               <div className="empty">Nuk ka kërkesa të reja për aprovime.</div>
             ) : (
