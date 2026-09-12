@@ -134,7 +134,7 @@ export async function recordOrderCashPayment(...args) {
   const statusOnFullPayment = normalizeFullPaymentStatus(input);
   const paymentOutcome = String(input.paymentOutcome || input.payment_outcome || '').trim().toUpperCase();
   const expectedDebtRaw = input.expectedDebt ?? input.expected_debt;
-  const expectedDebt = Number(expectedDebtRaw);
+  const expectedDebt = expectedDebtRaw == null || expectedDebtRaw === '' ? NaN : Number(expectedDebtRaw);
   const linkedDebts = Array.isArray(input.linkedDebts || input.linked_debts)
     ? (input.linkedDebts || input.linked_debts)
     : [];
@@ -195,8 +195,8 @@ export async function recordOrderCashPayment(...args) {
       idempotency_key: result?.idempotencyKey || null,
     };
     return {
-      ok: false,
       ...(result || {}),
+      ok: false,
       queued: true,
       offlineQueued: true,
       pending: true,
@@ -210,10 +210,10 @@ export async function recordOrderCashPayment(...args) {
 
   const payment = result?.payment || result?.row || null;
   const order = result?.order || null;
-  if (!payment?.id || !order?.id) {
+  if (result?.ok === false || !payment?.id || !order?.id || String(order.id) !== String(orderId)) {
     return {
-      ok: false,
       ...(result || {}),
+      ok: false,
       pending: false,
       direct: false,
       row: payment,

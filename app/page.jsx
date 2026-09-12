@@ -191,8 +191,7 @@ export default function HomePage() {
     event?.preventDefault?.();
     const query = cleanSearch(q);
     if (!query || searching) return;
-    const token = Date.now();
-    searchTokenRef.current = token;
+    const token = ++searchTokenRef.current;
     setSearching(true);
     setDidSearch(true);
     setSearchMessage('');
@@ -201,7 +200,9 @@ export default function HomePage() {
       if (searchTokenRef.current !== token) return;
       const nextResults = Array.isArray(response?.results) ? response.results : [];
       setResults(nextResults);
-      if (!nextResults.length) {
+      if (response?.incomplete) {
+        setSearchMessage('Kërkimi në server nuk u përfundua. Rezultatet e ruajtura mund të jenë të paplota. Provo sërish kur të kthehet lidhja.');
+      } else if (!nextResults.length) {
         setSearchMessage('Nuk u gjet asnjë porosi lokale. Provo me emër, tel, kod ose T-code.');
       }
     } catch (error) {
@@ -213,9 +214,10 @@ export default function HomePage() {
     }
   };
 
-  const clearSearch = () => {
-    searchTokenRef.current = Date.now();
-    setQ('');
+  const clearSearch = (value = '') => {
+    searchTokenRef.current += 1;
+    setQ(typeof value === 'string' ? value : '');
+    setOpeningResultKey('');
     setResults([]);
     setDidSearch(false);
     setSearchMessage('');
@@ -225,17 +227,21 @@ export default function HomePage() {
   const openSearchResult = async (result) => {
     const resultKey = [result?.kind, result?.orderId || result?.id, result?.code].filter(Boolean).join(':');
     if (openingResultKey) return;
+    const openToken = searchTokenRef.current;
     setOpeningResultKey(resultKey || 'opening');
     setSearchMessage('Duke verifikuar statusin aktual në DB...');
     try {
       // HOME_SEARCH_LIVE_RESOLVER_COMPAT: await resolveHomeSearchTarget(result)
       const resolved = await resolveHomeSearchTarget(result, { query: q });
+      if (searchTokenRef.current !== openToken) return;
       const href = resolved?.href || buildHomeSearchHref(result);
       if (!href) throw new Error('NUK U GJET FAQJA E POROSISË.');
       router.push(href);
     } catch (error) {
+      if (searchTokenRef.current !== openToken) return;
       setSearchMessage(String(error?.message || error || 'Porosia nuk u hap. Provo përsëri.'));
-      setOpeningResultKey('');
+    } finally {
+      if (searchTokenRef.current === openToken) setOpeningResultKey('');
     }
   };
 
@@ -318,8 +324,7 @@ export default function HomePage() {
             className="search-input"
             value={q}
             onChange={(event) => {
-              setQ(event.target.value);
-              if (!String(event.target.value || '').trim()) clearSearch();
+              clearSearch(event.target.value);
             }}
             placeholder="Shkruaj kodin, emrin ose telefonin"
             inputMode="text"

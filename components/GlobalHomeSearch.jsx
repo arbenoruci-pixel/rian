@@ -477,9 +477,10 @@ export default function GlobalHomeSearch() {
     };
   }, [open]);
 
-  const resetSearch = React.useCallback(() => {
-    searchTokenRef.current = Date.now();
-    setQuery('');
+  const resetSearch = React.useCallback((value = '') => {
+    searchTokenRef.current += 1;
+    setQuery(typeof value === 'string' ? value : '');
+    setOpeningResultKey('');
     setSearching(false);
     setDidSearch(false);
     setResults([]);
@@ -488,8 +489,9 @@ export default function GlobalHomeSearch() {
   }, []);
 
   const closeModal = React.useCallback(() => {
-    searchTokenRef.current = Date.now();
+    searchTokenRef.current += 1;
     setOpen(false);
+    setOpeningResultKey('');
     setSearching(false);
     setDidSearch(false);
     setMessage('');
@@ -501,8 +503,7 @@ export default function GlobalHomeSearch() {
     const nextQuery = cleanSearch(query);
     if (!nextQuery || searching) return;
 
-    const token = Date.now();
-    searchTokenRef.current = token;
+    const token = ++searchTokenRef.current;
     setSearching(true);
     setDidSearch(true);
     setMessage('');
@@ -512,7 +513,9 @@ export default function GlobalHomeSearch() {
       if (searchTokenRef.current !== token) return;
       const nextResults = Array.isArray(response?.results) ? response.results : [];
       setResults(nextResults);
-      if (!nextResults.length) {
+      if (response?.incomplete) {
+        setMessage('Kërkimi në server nuk u përfundua. Rezultatet e ruajtura mund të jenë të paplota. Provo sërish kur të kthehet lidhja.');
+      } else if (!nextResults.length) {
         setMessage('Nuk u gjet asnjë porosi. Provo me kod, emër, telefon ose T-code.');
       }
     } catch (error) {
@@ -527,17 +530,21 @@ export default function GlobalHomeSearch() {
   const openSearchResult = React.useCallback(async (result) => {
     const resultKey = [result?.kind, result?.orderId || result?.id, result?.code].filter(Boolean).join(':');
     if (openingResultKey) return;
+    const openToken = searchTokenRef.current;
     setOpeningResultKey(resultKey || 'opening');
     setMessage('Duke verifikuar porosinë në DB...');
     try {
       const resolved = await resolveHomeSearchTarget(result, { query });
+      if (searchTokenRef.current !== openToken) return;
       const href = resolved?.href || buildHomeSearchHref(result);
       if (!href) throw new Error('NUK U GJET FAQJA E POROSISË.');
       closeModal();
       router.push(href);
     } catch (error) {
+      if (searchTokenRef.current !== openToken) return;
       setMessage(String(error?.message || error || 'Porosia nuk u hap. Provo përsëri.'));
-      setOpeningResultKey('');
+    } finally {
+      if (searchTokenRef.current === openToken) setOpeningResultKey('');
     }
   }, [closeModal, openingResultKey, query, router]);
 
@@ -624,7 +631,7 @@ export default function GlobalHomeSearch() {
                 ref={inputRef}
                 className="ghs-input"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => resetSearch(event.target.value)}
                 placeholder="Kërko kod, emër, telefon ose T-code"
                 autoComplete="off"
                 inputMode="search"
