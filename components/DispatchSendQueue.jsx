@@ -16,12 +16,22 @@ export default function DispatchSendQueue({ onInspect }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   useEffect(() => {
-    const read = () => { try { setItems(getDispatchOutbox().list()); setError(''); } catch { setError('Ruajtja në pajisje nuk është e disponueshme. Mbaje formularin hapur.'); } };
-    const failed = () => setError('Ruajtja në pajisje nuk u konfirmua. Kontrollo porosinë para se ta krijosh përsëri.');
+    let alive = true;
+    let sequence = 0;
+    const read = async () => {
+      const current = ++sequence;
+      try {
+        const saved = await getDispatchOutbox().list();
+        if (alive && current === sequence) { setItems(saved); setError(''); }
+      } catch {
+        if (alive && current === sequence) setError('Ruajtja në pajisje nuk është e disponueshme. Mbaje formularin hapur.');
+      }
+    };
+    const failed = () => { sequence++; setError('Ruajtja në pajisje nuk u konfirmua. Kontrollo porosinë para se ta krijosh përsëri.'); };
     read();
     window.addEventListener(DISPATCH_OUTBOX_EVENT, read);
     window.addEventListener('tepiha:dispatch-outbox-storage-error', failed);
-    return () => { window.removeEventListener(DISPATCH_OUTBOX_EVENT, read); window.removeEventListener('tepiha:dispatch-outbox-storage-error', failed); };
+    return () => { alive = false; sequence++; window.removeEventListener(DISPATCH_OUTBOX_EVENT, read); window.removeEventListener('tepiha:dispatch-outbox-storage-error', failed); };
   }, []);
   const visible = [...items.filter((item) => item.state !== 'sent'), ...items.filter((item) => item.state === 'sent').slice(-3).reverse()];
   if (!visible.length && !error) return null;
@@ -32,8 +42,8 @@ export default function DispatchSendQueue({ onInspect }) {
       <strong>{item.name}</strong> · {item.phone}
       {item.payload?.data?.pickup_date ? <div style={{ marginTop: 4 }}>Marrja: {item.payload.data.pickup_date} · {item.payload.data.pickup_slot === 'evening' ? 'Mbrëmje' : 'Paradite'}</div> : null}
       <div style={{ marginTop: 4, color: item.state === 'sent' ? '#166534' : item.state === 'blocked' ? '#991b1b' : '#475569' }}>{explanation(item)}</div>
-      {item.state === 'blocked' && /AUTH|DEVICE|ACTOR|ROLE|DISABLED|RETIRED|REVIEW_REQUIRED/.test(item.error) ? <button type="button" style={{ marginTop: 8, minHeight: 44, padding: '8px 12px' }} onClick={() => {
-        try { getDispatchOutbox().retry(item.id); wakeDispatchOutbox(); } catch { setError('Tentimi nuk u ruajt. Mbaje aplikacionin hapur.'); }
+      {item.state === 'blocked' && /AUTH|DEVICE|ACTOR|ROLE|DISABLED|RETIRED|REVIEW_REQUIRED/.test(item.error) ? <button type="button" style={{ marginTop: 8, minHeight: 44, padding: '8px 12px' }} onClick={async () => {
+        try { await getDispatchOutbox().retry(item.id); wakeDispatchOutbox(); } catch { setError('Tentimi nuk u ruajt. Mbaje aplikacionin hapur.'); }
       }}>KONTROLLOVA — VAZHDO DËRGIMIN</button> : null}
       {item.state === 'blocked' && onInspect ? <button type="button" style={{ marginTop: 8, minHeight: 44, padding: '8px 12px' }} onClick={() => onInspect(item.phone)}>KONTROLLO POROSITË E KLIENTIT</button> : null}
     </div>)}</div>

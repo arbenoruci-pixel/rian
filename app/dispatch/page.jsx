@@ -2592,7 +2592,7 @@ export default function DispatchPage() {
 
       // DISPATCH_DURABLE_SEND_V1: acknowledge only a verified local write here.
       // Server confirmation, identity checks and retries belong to the outbox.
-      const queued = getDispatchOutbox().enqueue({ ...payload, code_owner: poolOwner,
+      const queued = await getDispatchOutbox().enqueue({ ...payload, code_owner: poolOwner,
         expected_actor_id: String(actorNow?.id || actorNow?.user_id || '') });
       if (queued.alreadyQueued && queued.id !== orderId) createIntentJournalRef.current?.clear(orderId);
       setMsg(queued.alreadyQueued
