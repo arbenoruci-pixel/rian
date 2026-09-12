@@ -1341,12 +1341,15 @@ function TransportBoardInner() {
       }));
     } catch {}
     loadGuardRef.current.seq = seq;
+    // TRANSPORT_BOARD_RECOVERY_V3: only the current route/session may publish.
+    const isCurrentLoad = () => loadGuardRef.current.seq === seq && !pageCtrl?.signal?.aborted;
     if (loadGuardRef.current.timeoutId) {
       clearTimeout(loadGuardRef.current.timeoutId);
       loadGuardRef.current.timeoutId = null;
     }
 
     const finish = () => {
+      if (loadGuardRef.current.seq !== seq) return;
       if (loadGuardRef.current.seq === seq && loadGuardRef.current.timeoutId) {
         clearTimeout(loadGuardRef.current.timeoutId);
         loadGuardRef.current.timeoutId = null;
@@ -1431,6 +1434,9 @@ function TransportBoardInner() {
           `&limit=${fetchLimit}`;
 
         const ctrl = new AbortController();
+        const abortWithPage = () => ctrl.abort();
+        pageCtrl?.signal?.addEventListener('abort', abortWithPage, { once: true });
+        if (!isCurrentLoad()) ctrl.abort();
         const t = setTimeout(() => ctrl.abort(), 10000);
         try {
           const res = await fetch(url, {
@@ -1450,6 +1456,7 @@ function TransportBoardInner() {
           return Array.isArray(json) ? json : [];
         } finally {
           clearTimeout(t);
+          pageCtrl?.signal?.removeEventListener('abort', abortWithPage);
         }
       }
 
@@ -1471,6 +1478,7 @@ function TransportBoardInner() {
         });
         if (!Array.isArray(data)) data = [];
       } catch (e1) {
+        if (!isCurrentLoad()) return;
         const msg = String(e1?.message || e1 || '');
         try {
           data = await fetchRest();
@@ -1479,6 +1487,7 @@ function TransportBoardInner() {
         }
       }
 
+      if (!isCurrentLoad()) return;
       if (!isAdminLoad) {
         data = (Array.isArray(data) ? data : []).filter((row) => rowOwnedBySession(row, sessionObj));
       }
@@ -1506,8 +1515,15 @@ function TransportBoardInner() {
           timeoutMs: 7000,
           timeoutLabel: 'TRANSPORT_BOARD_DONE_TIMEOUT',
         });
-      } catch {}
+      } catch (error) {
+        if (!isCurrentLoad()) return;
+        // A failed history read is not an empty history. Keep the last complete
+        // snapshot and show the existing stale-data warning instead of caching
+        // a partial response as a successful refresh.
+        throw new Error('Dorëzimet nuk u lexuan. Provo REFRESH.');
+      }
 
+      if (!isCurrentLoad()) return;
       if (!isAdminLoad) {
         deliveredToday = (Array.isArray(deliveredToday) ? deliveredToday : []).filter((row) => rowOwnedBySession(row, sessionObj));
       }
@@ -1540,7 +1556,7 @@ function TransportBoardInner() {
       } catch {}
       scheduleCacheWrite(masterCacheKey, list, { delay: 3200 });
     } catch (e) {
-      if (pageCtrl?.signal?.aborted) return;
+      if (!isCurrentLoad()) return;
       console.error(e);
       const translatedError = translateBoardError(e);
       const staleRows = (() => {
@@ -1611,6 +1627,9 @@ function TransportBoardInner() {
       }
       try { loadGuardRef.current.abortController?.abort(); } catch {}
       loadGuardRef.current.abortController = null;
+      loadGuardRef.current.seq += 1;
+      loadGuardRef.current.active = false;
+      loadGuardRef.current.rerunRequested = false;
     };
   }, [load]);
 
