@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import SmartSmsModal from './SmartSmsModal';
-import { notificationSummary } from '../lib/readyNotificationModel.js';
-import { NOTIFICATION_CHANGE, currentNotificationActorId, localNotifications, fetchReadyNotifications, recordReadyNotification } from '../lib/readyNotifications.js';
+import { notificationSummary, isReadyNotificationOrderId } from '../lib/readyNotificationModel.js';
+import { NOTIFICATION_CHANGE, currentNotificationActorId, canUseReadyNotifications, localNotifications, fetchReadyNotifications, recordReadyNotification } from '../lib/readyNotifications.js';
 export function useReadyNotifications(ids) {
   const [events,setEvents] = useState([]);
   const [status,setStatus] = useState('Duke lexuar lajmërimet…');
@@ -11,7 +11,7 @@ export function useReadyNotifications(ids) {
     const loadLocal = () => { try { if (active) setEvents(localNotifications()); } catch { if (active) setStatus('Historia lokale nuk lexohet.'); } };
     const refresh = async () => {
       loadLocal();
-      try { const result = await fetchReadyNotifications(key ? key.split(',') : []); if (active) setStatus(result?.offline ? 'Offline • historia e ruajtur në këtë telefon' : ''); }
+      try { const result = await fetchReadyNotifications(key ? key.split(',') : []); if (active) setStatus(result?.unavailable ? 'Ky rol nuk e ka historinë e lajmërimeve të bazës.' : result?.offline ? 'Offline • historia e ruajtur në këtë telefon' : ''); }
       catch { if (active) setStatus('Historia nuk u rifreskua • provo kur të kthehet lidhja.'); }
     };
     void refresh();
@@ -40,6 +40,7 @@ export function TrackedReadySmsModal({ orderId, ...props }) {
     try { const e = recordReadyNotification({orderId,kind,channel,attemptId}); setAttempt(e); setError(''); return true; }
     catch(e) { setError(e.message); return false; }
   };
+  if (!canUseReadyNotifications() || !isReadyNotificationOrderId(orderId)) return <SmartSmsModal {...props}><p>Ky lajmërim hapet pa regjistrim në historinë GATI të bazës.</p></SmartSmsModal>;
   return <SmartSmsModal {...props} onAction={channel => record('opened',channel)}>
     <div style={{padding:12,border:'1px solid #475569',borderRadius:12,fontSize:12}}>
       <b>LAJMËRIMI “GATI”</b>
@@ -52,7 +53,7 @@ export function TrackedReadySmsModal({ orderId, ...props }) {
       {error ? <p role="alert" style={{color:'#fca5a5'}}>{error}</p> : null}
       {history.forOrder(orderId).slice().sort((a,b)=>Date.parse(b.occurred_at)-Date.parse(a.occurred_at)).slice(0,8).map(e => <div key={e.id} style={{marginTop:7}}>
         {e.kind==='confirmed'?'Konfirmoi dërgimin':e.kind==='cancelled'?'Nuk e dërgoi':'Hapi mesazhin'} • {e.author_name} • {e.channel.toUpperCase()} • {new Date(e.occurred_at).toLocaleString('sq-AL')}
-        {e.pending?<div style={{color:'#fde68a'}}>Ruajtur në telefon • {e.sync_error?'sinkronizimi në pritje':'duke u sinkronizuar'}</div>:null}
+        {e.pending?<div style={{color:'#fde68a'}}>Ruajtur në telefon • {e.blocked?'kërkon kontroll nga administratori':e.sync_error?'sinkronizimi në pritje':'duke u sinkronizuar'}</div>:null}
       </div>)}
     </div>
   </SmartSmsModal>;

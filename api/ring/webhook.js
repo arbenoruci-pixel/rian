@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     console.log('[ring-webhook]', { requestId: result.requestId, eventType: result.eventType });
     return res.status(200).json({ ok: true });
   } catch (error) {
-    console.error('[ring-webhook]', { code: error?.code || error?.message, status: error?.httpStatus || 500 });
+    console.error('[ring-webhook]', { code: error?.code || error?.message, status: error?.httpStatus || 500, dbCode: error?.extra?.dbCode || null });
     return res.status(Number(error?.httpStatus || 500)).json({ ok: false, error: String(error?.code || 'RING_WEBHOOK_FAILED') });
   }
 }

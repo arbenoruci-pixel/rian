@@ -1,12 +1,26 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { approvedApiRequest } from '@/lib/approvedApiRequest';
+import { readBestActor } from '@/lib/sessionStore';
+import { canUseCustomerCare } from '@/lib/roles';
+import { customerCareFailure } from '@/lib/customerCareErrors';
 
 const issues = { PAYMENT: 'Problem me pagesën', NO_SHOW: 'Nuk ishte në adresë', ACCESS: 'Problem me qasjen/adresën', OTHER: 'Tjetër' };
 const field = { width: '100%', boxSizing: 'border-box', minHeight: 42, padding: 10, border: '1px solid #475569', borderRadius: 10, background: '#0f172a', color: '#f8fafc', fontSize: 16 };
 const button = { ...field, width: 'auto', cursor: 'pointer', fontWeight: 800 };
 
-export default function CustomerCare({ clientId = '', orderId = '', onSaved, compact = false }) {
+export default function CustomerCare(props) {
+  const [actor, setActor] = useState(() => readBestActor({ allowTransportFallback: true }));
+  useEffect(() => {
+    const refresh = () => setActor(readBestActor({ allowTransportFallback: true }));
+    window.addEventListener('tepiha:session-changed', refresh);
+    return () => window.removeEventListener('tepiha:session-changed', refresh);
+  }, []);
+  if (!actor?.id || !canUseCustomerCare(actor.role, props.orderId) || (!props.clientId && !props.orderId)) return null;
+  return <CustomerCareForm key={`${actor.id}:${props.clientId || ''}:${props.orderId || ''}`} {...props} />;
+}
+
+function CustomerCareForm({ clientId = '', orderId = '', onSaved, compact = false }) {
   const [record, setRecord] = useState(null);
   const [error, setError] = useState('');
   const [rating, setRating] = useState('');
@@ -24,7 +38,7 @@ export default function CustomerCare({ clientId = '', orderId = '', onSaved, com
     setError('');
     approvedApiRequest('/api/client-profile', { action: 'GET_CUSTOMER_CARE', clientId, orderId })
       .then((value) => { if (alive) setRecord(value); })
-      .catch(() => { if (alive) setError('SHËNIMET NUK U NGARKUAN. PROVO PËRSËRI.'); });
+      .catch((err) => { if (alive) setError(customerCareFailure(err).message); });
     return () => { alive = false; };
   }, [clientId, orderId, revision]);
 
@@ -44,8 +58,10 @@ export default function CustomerCare({ clientId = '', orderId = '', onSaved, com
       setRating(''); setNote(''); setIssue(''); setFlag(''); setSaved(true);
       setRevision((n) => n + 1);
       onSaved?.();
-    } catch {
-      setError('SHËNIMI NUK U KONFIRMUA. “PROVO RUAJTJEN PËRSËRI” E DËRGON TË NJËJTIN SHËNIM.');
+    } catch (err) {
+      const failure = customerCareFailure(err);
+      if (failure.rejected) intent.current = null;
+      setError(failure.rejected ? failure.message : 'SHËNIMI NUK U KONFIRMUA. “PROVO RUAJTJEN PËRSËRI” E DËRGON TË NJËJTIN SHËNIM.');
     } finally { saving.current = false; setBusy(false); }
   }
 
@@ -67,7 +83,7 @@ export default function CustomerCare({ clientId = '', orderId = '', onSaved, com
           <label>Shënim specifik<textarea aria-label="Shënim specifik për klientin" style={{ ...field, minHeight: 85 }} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="P.sh. telefono para mbërritjes; hyrja nga ana e oborrit." /></label>
           {record?.canManage ? <label>Marrjet e ardhshme<select style={field} value={flag} onChange={(e) => setFlag(e.target.value)}><option value="">Mbaje udhëzimin aktual</option><option value="yes">Mos e merr përsëri</option><option value="no">Lejo marrjet përsëri</option></select></label> : null}
         </fieldset>
-        <button type="button" style={{ ...button, background: '#1d4ed8', marginTop: 10 }} onClick={save} disabled={busy}>{busy ? 'DUKE RUAJTUR…' : intent.current ? 'PROVO RUAJTJEN PËRSËRI' : 'RUAJ SHËNIMIN'}</button>
+        <button type="button" style={{ ...button, background: '#1d4ed8', marginTop: 10 }} onClick={save} disabled={busy || (!record && !intent.current)}>{busy ? 'DUKE RUAJTUR…' : intent.current ? 'PROVO RUAJTJEN PËRSËRI' : 'RUAJ SHËNIMIN'}</button>
       </details>
       {record?.entries?.length ? <details style={{ marginTop: 12 }}><summary>HISTORIA ({record.entries.length}{record.entries.length === 30 ? ' të fundit' : ''})</summary>{record.entries.map((entry) => <div key={entry.id} style={{ borderTop: '1px solid #475569', padding: '10px 0' }}><strong>{entry.rating ? `${entry.rating}/5 · ` : ''}{entry.author_name}</strong><small> · {new Date(entry.created_at).toLocaleDateString('sq')}</small>{entry.issue ? <div>{issues[entry.issue]}</div> : null}<div style={{ whiteSpace: 'pre-wrap' }}>{entry.note}</div>{entry.no_pickup !== null ? <small>{entry.no_pickup ? 'Mos e merr përsëri' : 'Marrjet u lejuan përsëri'}</small> : null}</div>)}</details> : null}
     </section>
