@@ -80,7 +80,7 @@ await test('IndexedDB timeout releases the form even if the abort event never ar
 // Execute the shipping click handler with real outbox persistence. These tests
 // verify its acknowledgement/reset behavior, independently of browser rendering.
 const page = fs.readFileSync('app/dispatch/page.jsx', 'utf8');
-const clickSource = page.slice(page.indexOf('  async function send() {'), page.indexOf('\n  useEffect(() => {\n    const committed'));
+const clickSource = page.slice(page.indexOf('  async function send() {'), page.indexOf('\n  useEffect(', page.indexOf('  async function send() {')));
 function formHarness({ submit, online = true, storage = memory() }) {
   const state = { busy: false, createOpen: true }, trace = [];
   const queue = createDispatchOutbox({ storage, getActorId: () => actor, online: () => online, submit });

@@ -26,9 +26,10 @@ await test('temporary iPhone Load failed recovers without another tap', async ()
   await f.tick(); assert.equal(f.errors.length, 1); await f.tick();
   assert.equal(f.results[0].client.tcode, 'T101'); assert.equal(f.calls, 2); assert.equal(f.timers.size, 0); f.stop();
 });
-await test('failed pre-check has bounded retries and resumes when connection returns', async () => {
+await test('failed pre-check backs off and resumes when connection returns', async () => {
   const f = fixture(async n => { if (n <= 3) throw failure('DISPATCH_PHONE_CHECK_TIMEOUT'); return { client: null }; });
-  await f.tick(); await f.tick(); await f.tick(); assert.equal(f.calls, 3); assert.equal(f.timers.size, 0);
+  await f.tick(); await f.tick(); await f.tick(); assert.equal(f.calls, 3); assert.equal(f.timers.size, 1);
+  assert.equal([...f.timers.values()][0].delay, 15000);
   f.events.dispatchEvent(new Event('online')); f.events.dispatchEvent(new Event('focus'));
   assert.equal(f.timers.size, 1); await f.tick(); assert.equal(f.calls, 4); assert.equal(f.results.length, 1); f.stop();
 });
@@ -51,6 +52,7 @@ await test('hard device and identity denials never auto-retry', async () => {
 await test('changing phone/closing form ignores late replies and removes resume listeners', async () => {
   let resolve;
   const f = fixture(() => new Promise(done => { resolve = done; })); const pending = f.tick();
+  await Promise.resolve(); await Promise.resolve();
   f.stop(); resolve({ client: { name: 'OLD PHONE' } }); await pending;
   assert.equal(f.results.length, 0); assert.deepEqual(f.busy, [true]);
   f.events.dispatchEvent(new Event('online')); assert.equal(f.timers.size, 0);

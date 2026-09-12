@@ -6,6 +6,7 @@ import {
   createDispatchTransportPranimiOrderServer,
   createDispatchTransportOrderServer,
   inspectDispatchTransportPhoneServer,
+  listDispatchTransportOrdersServer,
   editDispatchTransportClientServer,
 } from '../../lib/transport/dispatchOrderServer.js';
 
@@ -78,9 +79,14 @@ export default async function handler(req, res) {
     const supabase = createAdminClientOrThrow();
     const deviceId = readCookie(req, 'tepiha_device_id');
     const action = String(body?.action || '').trim().toUpperCase();
-    requestAction = ['PHONE_CHECK', 'EDIT_ORDER', 'CLIENT_ADMIN_EDIT'].includes(action) ? action : 'CREATE';
+    requestAction = ['LIST', 'PHONE_CHECK', 'EDIT_ORDER', 'CLIENT_ADMIN_EDIT'].includes(action) ? action : 'CREATE';
     console.info('[transport-order]', { action: requestAction, stage: 'received' });
     const authUser = await authenticateDispatchOrderActor(supabase, deviceId);
+    if (action === 'LIST') {
+      const output = await listDispatchTransportOrdersServer(body, { supabase, authUser });
+      console.info('[transport-order]', { action: requestAction, ok: true, count: output.items.length, durationMs: Date.now() - startedAt });
+      return apiOk(res, output);
+    }
     if (action === 'EDIT_ORDER') return apiOk(res, await editDispatchOrderServer(body, { supabase, authUser }));
     if (action === 'PHONE_CHECK') {
       const inspection = await inspectDispatchTransportPhoneServer(body, { supabase, authUser });

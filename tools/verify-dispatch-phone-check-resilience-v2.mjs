@@ -19,7 +19,7 @@ check(dispatch.includes("code === 'DISPATCH_PHONE_CHECK_NETWORK_FAILED'"), 'netw
 check(dispatch.includes("code === 'DISPATCH_PHONE_CHECK_TIMEOUT'"), 'timeout is not classified');
 check(dispatch.includes('const phoneCheckDegraded = isTransientDispatchPhoneCheckError(phoneCheckError);'), 'degraded state missing');
 check(!dispatch.includes('&& !phoneCheckError;'), 'strict phone-check gate remains');
-check(dispatch.includes('SERVERI E VERIFIKON NË RUAJTJE'), 'friendly degraded warning missing');
+check(dispatch.includes('MUND TA DËRGOSH POROSINË'), 'friendly degraded warning missing');
 const runtime = fs.readFileSync('lib/dispatchOutboxRuntime.js', 'utf8');
 const transport = fs.readFileSync('lib/transport/transportDb.js', 'utf8');
 check(dispatch.includes('getDispatchOutbox().enqueue('), 'complete request must persist before sending');
