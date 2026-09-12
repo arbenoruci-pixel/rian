@@ -17,6 +17,7 @@ import CustomerCare from '@/components/CustomerCare';
 import DispatchMeasurements from '@/components/DispatchMeasurements';
 import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
 import { isRecoverableDispatchPhoneCheck, watchDispatchPhoneCheck } from '@/lib/dispatchPhoneCheck';
+import { traceDispatchSubmission } from '@/lib/dispatchDiagnostics';
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -1710,6 +1711,7 @@ export default function DispatchPage() {
   const realtimeTimerRef = useRef(null);
   const createIntentJournalRef = useRef(null);
   const sendInFlightRef = useRef(false);
+  const [sendStage, setSendStage] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -2413,6 +2415,10 @@ export default function DispatchPage() {
       return;
     }
     sendInFlightRef.current = true;
+    const sendTrace = traceDispatchSubmission();
+    let sendOutcome = 'incomplete';
+    let sendErrorCode = '';
+    setSendStage('DUKE RUAJTUR POROSINË…');
     setBusy(true);
     setErr("");
     setMsg("");
@@ -2588,12 +2594,29 @@ export default function DispatchPage() {
 
       // DISPATCH_DURABLE_SEND_V1: acknowledge only a verified local write here.
       // Server confirmation, identity checks and retries belong to the outbox.
+      sendTrace.stage('local_save');
       const queued = await getDispatchOutbox().enqueue({ ...payload, code_owner: poolOwner,
         expected_actor_id: String(actorNow?.id || actorNow?.user_id || '') });
       if (queued.alreadyQueued && queued.id !== orderId) createIntentJournalRef.current?.clear(orderId);
-      setMsg(queued.alreadyQueued
-        ? 'KJO POROSI ËSHTË NË PRITJE. DËRGIMI VAZHDON AUTOMATIKISHT ME TË DHËNAT E RUAJTURA.'
-        : 'POROSIA U RUAJT NË PAJISJE. DËRGIMI VAZHDON AUTOMATIKISHT.');
+      // Send this saved request directly. A different order's slow response
+      // must never hold the operator's newly submitted order behind it.
+      let outcome = queued;
+      if (navigator.onLine !== false) {
+        setSendStage('DUKE PRITUR KONFIRMIMIN…');
+        sendTrace.stage('server_confirmation');
+        try { outcome = await getDispatchOutbox().send(queued.id, { force: true }); }
+        catch (error) { sendErrorCode = error?.code || error?.name || 'QUEUE_SEND_FAILED'; }
+      }
+      sendOutcome = outcome.state;
+      sendErrorCode ||= outcome.error || '';
+      if (outcome.state === 'blocked') {
+        sendErrorCode = outcome.error || '';
+        setErr('POROSIA ËSHTË RUAJTUR NË PAJISJE DHE KËRKON KONTROLL: ' + outcome.error);
+        return;
+      }
+      setMsg(outcome.state === 'sent'
+        ? `POROSIA ${outcome.code || ''} U KONFIRMUA NË SERVER ✓`
+        : 'POROSIA ËSHTË NË PRITJE. DËRGIMI VAZHDON AUTOMATIKISHT — NUK KA NEVOJË TA KRIJOSH PËRSËRI.');
       wakeDispatchOutbox();
       setBusy(false);
       setCreateOpen(false);
@@ -2612,6 +2635,8 @@ export default function DispatchPage() {
       setExistingClientDecision(null);
       resetSmartCreateFillStatus();
     } catch (e) {
+      sendOutcome = 'failed';
+      sendErrorCode = /^[A-Z_]+$/.test(String(e?.message || '')) ? e.message : e?.name || 'LOCAL_SAVE_FAILED';
       if (pendingReservedTcode) {
         try {
           const released = await releaseTransportCodeIfUnused(pendingReservedTcode, pendingCodeOwner);
@@ -2624,6 +2649,8 @@ export default function DispatchPage() {
         ? 'HYR ME LLOGARINË E AUTORIZUAR PËR TA RUAJTUR POROSINË.'
         : 'POROSIA NUK U RUAJT NË PAJISJE. TË DHËNAT MBETEN NË FORMULAR. ' + (e?.message || 'GABIM'));
     } finally {
+      sendTrace.finish(sendOutcome, sendErrorCode);
+      setSendStage('');
       sendInFlightRef.current = false;
       setBusy(false);
     }
@@ -2950,7 +2977,7 @@ export default function DispatchPage() {
       </div>
 
       {createOpen ? (
-      <div style={ui.cardCompact}>
+      <fieldset disabled={busy} style={{ ...ui.cardCompact, minWidth: 0 }}>
         <div style={ui.sectionHeadRowCompact}>
           <div>
             <div style={ui.sectionTitle}>DISPATCH SMART CREATE</div>
@@ -3201,10 +3228,10 @@ Mati 1, nesër paradite, 3 tepiha`}
           </button>
         ) : (
           <button style={{ ...ui.btnPrimary, opacity: canCreateNewDispatchOrder && !busy ? 1 : 0.5 }} disabled={!canCreateNewDispatchOrder || busy} onClick={send}>
-            {busy ? "DUKE RUAJTUR…" : "DËRGO"}
+            {busy ? sendStage || "DUKE RUAJTUR…" : "DËRGO"}
           </button>
         )}
-      </div>
+      </fieldset>
       ) : null}
 
       {liveOpen ? (

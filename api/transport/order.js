@@ -77,9 +77,10 @@ export default async function handler(req, res) {
 
     const supabase = createAdminClientOrThrow();
     const deviceId = readCookie(req, 'tepiha_device_id');
-    const authUser = await authenticateDispatchOrderActor(supabase, deviceId);
     const action = String(body?.action || '').trim().toUpperCase();
     requestAction = ['PHONE_CHECK', 'EDIT_ORDER', 'CLIENT_ADMIN_EDIT'].includes(action) ? action : 'CREATE';
+    console.info('[transport-order]', { action: requestAction, stage: 'received' });
+    const authUser = await authenticateDispatchOrderActor(supabase, deviceId);
     if (action === 'EDIT_ORDER') return apiOk(res, await editDispatchOrderServer(body, { supabase, authUser }));
     if (action === 'PHONE_CHECK') {
       const inspection = await inspectDispatchTransportPhoneServer(body, { supabase, authUser });

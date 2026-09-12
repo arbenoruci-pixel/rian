@@ -114,7 +114,11 @@ for (const dbError of [null,{code:'23502',message:'private detail'}]) {
   let output, logged;
   const context=vm.createContext({
     readBody:async()=>({bootId:'synthetic-boot',currentPath:'/dispatch'}),
-    createAdminClientOrThrow:()=>({from:()=>({insert:async()=>({error:dbError})})}),
+    createAdminClientOrThrow:()=>({from:()=>({insert:async(row)=>{
+      check(Array.isArray(row.events_json), 'missing diagnostic events use the non-null database default');
+      check(row.meta_json && typeof row.meta_json==='object' && !Array.isArray(row.meta_json), 'missing diagnostic metadata uses an object');
+      return {error:dbError};
+    }})}),
     apiOk:(_res,data)=>{output=data;},apiFail:()=>assert.fail('diagnostics interrupted app'),
     console:{error:(_tag,data)=>{logged=data;}},
   });
