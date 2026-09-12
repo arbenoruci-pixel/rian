@@ -29,8 +29,8 @@ export default async function handler(req, res) {
         sw_epoch: body.swEpoch == null ? null : String(body.swEpoch),
         user_agent: body.userAgent == null ? null : String(body.userAgent).slice(0, 500),
         event_count: Array.isArray(body.events) ? body.events.length : null,
-        events_json: Array.isArray(body.events) ? body.events : null,
-        meta_json: body.meta && typeof body.meta === 'object' ? body.meta : null,
+        events_json: Array.isArray(body.events) ? body.events : [],
+        meta_json: body.meta && typeof body.meta === 'object' && !Array.isArray(body.meta) ? body.meta : {},
       };
       const { error } = await supabase.from('runtime_incidents').insert(row);
       if (error) throw error;

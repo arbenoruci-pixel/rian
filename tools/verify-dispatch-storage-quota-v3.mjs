@@ -104,14 +104,14 @@ await test('two instances preserve simultaneous independent requests', async () 
   assert.deepEqual((await f.queue().list()).map(row => row.id).sort(), [uuid(1), uuid(2)]);
 });
 await test('actor changes during async enqueue cannot submit another actors request', async () => {
-  const f = fixture(), storage = f.durable(); const keys = storage.keys;
-  storage.keys = async () => { f.state.actor = otherActor; return keys(); };
+  const f = fixture(), storage = f.durable(); const entries = storage.entries;
+  storage.entries = async (...args) => { f.state.actor = otherActor; return entries(...args); };
   await assert.rejects(f.queue(storage).enqueue(payload(1)), /ACTOR_SESSION_MISMATCH/);
   assert.equal((await f.queue().list()).length, 0); assert.equal(f.state.calls.length, 0);
 });
 await test('actor changes during list cannot reveal previous actors saved rows', async () => {
-  const f = fixture(); await f.queue().enqueue(payload(1)); const storage = f.durable(), keys = storage.keys;
-  storage.keys = async () => { f.state.actor = otherActor; return keys(); };
+  const f = fixture(); await f.queue().enqueue(payload(1)); const storage = f.durable(), entries = storage.entries;
+  storage.entries = async (...args) => { f.state.actor = otherActor; return entries(...args); };
   assert.deepEqual(await f.queue(storage).list(), []);
 });
 await test('mutation while persistence waits cannot alter the frozen order', async () => {
