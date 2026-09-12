@@ -64,13 +64,13 @@ export default function RackLocationModal({
   const overflowSlots = OVERFLOW_SPOTS_BY_ROOM[overflowRoom] || [];
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'#0b0b0b', zIndex:10001, display:'flex', flexDirection:'column' }}>
+    <div role="dialog" aria-modal="true" aria-label="Pozicioni i tepihave" style={{ position:'fixed', inset:0, background:'#0b0b0b', zIndex:10001, display:'flex', flexDirection:'column' }}>
       <div style={{ padding:14, borderBottom:'1px solid rgba(255,255,255,0.08)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div>
           <div style={{ fontWeight:900, fontSize:18 }}>POZICIONI (KODI: {orderCode || '—'})</div>
           <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)' }}>{subtitle}</div>
         </div>
-        <button className="btn secondary" onClick={onClose} disabled={busy}>✕</button>
+        <button type="button" aria-label="Mbyll pozicionin" className="btn secondary" style={{ width:44, minWidth:44, height:44, flexShrink:0 }} onClick={onClose} disabled={busy}>✕</button>
       </div>
       <div style={{ padding:'16px 14px', overflow:'auto', flex:1 }}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(6, 1fr)', gap:8, marginBottom:16 }}>
