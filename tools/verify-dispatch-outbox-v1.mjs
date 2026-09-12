@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { createDispatchOutbox, DISPATCH_OUTBOX_KEY, isRetryableDispatchFailure } from '../lib/dispatchOutbox.js';
+import { createDispatchOutbox, DISPATCH_OUTBOX_KEY, DISPATCH_OUTBOX_ITEM_PREFIX, isRetryableDispatchFailure } from '../lib/dispatchOutbox.js';
 import { createDispatchTransportOrderServer } from '../lib/transport/dispatchOrderServer.js';
 
 const actor = '22222222-2222-4222-8222-222222222222';
 const otherActor = '33333333-3333-4333-8333-333333333333';
 const id = '11111111-1111-4111-8111-111111111111';
 const payload = { id, client_name: 'TEST ONLY', client_phone: '+38344123456', data: { note: 'Original', pickup_date: '2026-09-11' } };
-function memory() { const map = new Map(); return { getItem: (key) => map.get(key) || null, setItem: (key, value) => map.set(key, value) }; }
+function memory() { const map = new Map(); return { get length() { return map.size; }, key: (index) => [...map.keys()][index] ?? null, removeItem: (key) => map.delete(key), getItem: (key) => map.get(key) || null, setItem: (key, value) => map.set(key, value) }; }
 function setup(options = {}) {
   const state = { time: 1000, actor, online: true, calls: [], committed: 0 };
   const storage = options.storage || memory();
@@ -28,7 +28,7 @@ function setup(options = {}) {
   assert.equal(state.calls.length, 1); assert.equal(state.calls[0].expected_actor_id, actor);
   assert.equal(state.calls[0].data.note, 'Original');
   assert.equal(restored.list()[0].state, 'sent');
-  assert.equal(JSON.parse(storage.getItem(DISPATCH_OUTBOX_KEY)).items[0].payload, null);
+  assert.equal(JSON.parse(storage.getItem(DISPATCH_OUTBOX_ITEM_PREFIX + id)).payload, null);
 }
 
 // Repeated failures are retried by the runtime, never by clicking/creating another UUID.

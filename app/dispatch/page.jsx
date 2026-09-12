@@ -992,9 +992,20 @@ function buildDispatchPickupPlan({ measurementsText = '', noteText = '', piecesH
   const noteHasCarpetWords = /\b(?:cop[eë]|copa|tepih(?:a|ë|at)?|qilim(?:a|ë|at)?)\b/i.test(note);
   const sourceText = explicit || (noteHasCarpetWords ? note : '');
   const hintedPieces = Math.max(0, Number(piecesHint || 0) || 0, dispatchPickupPieceHint(explicit), dispatchPickupPieceHint(note));
-  const tokens = parseDispatchPickupMeasurements(sourceText);
-  const measurements = hintedPieces > 0 ? tokens.slice(0, hintedPieces) : tokens;
-  const pieces = Math.max(hintedPieces, measurements.length);
+  // This dedicated m² field accepts whole values and decimal lists directly.
+  // Free-text notes still use the conservative phone/date-aware parser.
+  const numericList = explicit && /^\d+(?:[.,]\d+)?(?:[\s;,]+\d+(?:[.,]\d+)?)*$/.test(explicit);
+  const tokens = numericList
+    ? explicit.split(/[;\s]+/).filter(Boolean).flatMap((part) => {
+        const value = part.replace(/^,|,$/g, '');
+        return value.includes('.') || (value.match(/,/g) || []).length > 1 ? value.split(',') : [value];
+      }).filter(Boolean).map(normalizeDispatchPickupM2)
+    : parseDispatchPickupMeasurements(sourceText);
+  if (explicit && (tokens.some((n) => n <= 0) || (!numericList && !dispatchPickupPieceHint(explicit)))) {
+    throw new Error('MASAT NUK U LEXUAN. SHKRUAJ NJË VLERE PËR TEPIH, P.SH. 1; 5.8; 6.');
+  }
+  const measurements = explicit ? tokens : hintedPieces > 0 ? tokens.slice(0, hintedPieces) : tokens;
+  const pieces = numericList ? measurements.length : Math.max(hintedPieces, measurements.length);
   const items = measurements.map((m2, index) => ({ id: 'planned_' + (index + 1), type: 'tepih', qty: 1, m2, planned: true, source: 'DISPATCH' }));
   const m2Total = Math.round((measurements.reduce((sum, n) => sum + n, 0) + Number.EPSILON) * 100) / 100;
   return { version: 'DISPATCH_PICKUP_PLAN_V2', pieces, measurements_m2: measurements, m2_total: m2Total, items, source_text: sourceText };
@@ -2683,7 +2694,7 @@ export default function DispatchPage() {
         DISPATCH_MEASUREMENTS_INVALID: 'KONTROLLO MASAT DHE COPËT: DUHEN VLERA POZITIVE.',
         DISPATCH_EDIT_ORDER_CLOSED: 'POROSIA ËSHTË PËRFUNDUAR OSE ANULUAR.',
       };
-      alert(messages[error?.code] || 'NUK U KONFIRMUA RUAJTJA. KONTROLLO INTERNETIN DHE RIHAPE POROSINË PARA TENTIMIT TJETËR.');
+      alert(messages[error?.code] || (String(error?.message || '').startsWith('MASAT NUK U LEXUAN.') ? error.message : '') || 'NUK U KONFIRMUA RUAJTJA. KONTROLLO INTERNETIN DHE RIHAPE POROSINË PARA TENTIMIT TJETËR.');
     } finally {
       savePlanInFlight.current = false;
       setSaveBusy(false);
