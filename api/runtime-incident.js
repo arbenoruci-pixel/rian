@@ -32,9 +32,14 @@ export default async function handler(req, res) {
         events_json: Array.isArray(body.events) ? body.events : null,
         meta_json: body.meta && typeof body.meta === 'object' ? body.meta : null,
       };
-      await supabase.from('runtime_incidents').insert(row);
+      const { error } = await supabase.from('runtime_incidents').insert(row);
+      if (error) throw error;
       stored = true;
-    } catch {}
+    } catch (error) {
+      // Diagnostics must never claim persistence when PostgREST rejects a row.
+      // Log only a code; incident payloads can contain private client context.
+      console.error('[runtime-incident]', { code: String(error?.code || 'INCIDENT_STORE_FAILED') });
+    }
 
     return apiOk(res, { stored });
   } catch (error) {

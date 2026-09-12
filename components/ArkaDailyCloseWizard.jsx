@@ -2,6 +2,8 @@
 
 import Link from '@/lib/routerCompat.jsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { readDailyExpenseIntent, prepareDailyExpenseIntent, acknowledgeDailyExpenseIntent } from '../lib/dailyExpenseIntent.js';
+import { withDeadline } from '../lib/boundedRequest.js';
 import { getActor } from '@/lib/actorSession';
 import { supabase } from '@/lib/supabaseClient';
 import useRouteAlive from '@/lib/routeAlive';
@@ -366,11 +368,24 @@ export default function ArkaDailyCloseWizard() {
   const initializedRef = useRef(false);
   const requestRef = useRef(0);
   const expenseMutationLockRef = useRef(false);
+  const newExpenseIntentRef = useRef(null);
   const countedCashManualRef = useRef(false);
 
   useEffect(() => {
     const current = getActor() || null;
     setActor(current);
+    if (current?.id || current?.pin) {
+      try {
+        const pending = readDailyExpenseIntent(current.id || current.pin);
+        if (pending) {
+          newExpenseIntentRef.current = pending;
+          setNewExpenseAmount(String(pending.p_amount));
+          setNewExpenseNote(pending.p_note);
+          setNewExpenseOpen(true);
+          setStep(2);
+        }
+      } catch (err) { setError(String(err.message)); }
+    }
     try { bootMarkReady({ source: 'arka_daily_close_v2', page: 'arka_daily_close', path: '/arka/ditore' }); } catch {}
   }, []);
 
@@ -623,7 +638,7 @@ export default function ArkaDailyCloseWizard() {
     setCountedCash('');
 
     try {
-      const { data, error: rpcError } = await supabase.rpc(EXPENSE_CREATE_RPC, {
+      newExpenseIntentRef.current = prepareDailyExpenseIntent(actor?.id || actor?.pin, {
         p_actor_pin: String(actor?.pin || '').trim(),
         p_actor_name: String(actor?.name || actor?.pin || '').trim(),
         p_amount: amount,
@@ -631,19 +646,27 @@ export default function ArkaDailyCloseWizard() {
         p_resolution: 'BUSINESS_EXPENSE',
         p_beneficiary_pin: null,
         p_beneficiary_name: null,
-        p_idempotency_key: randomKey(`ARKA_DAILY_EXPENSE_V2:${date}:${String(actor?.pin || '').trim()}`),
       });
+      const intent = newExpenseIntentRef.current;
+      if (intent.p_actor_pin !== String(actor?.pin || '').trim()) throw new Error('Shpenzimi në pritje i përket një hyrjeje tjetër. Kërko kontroll nga administratori.');
+      if (intent.p_amount !== amount || intent.p_note !== description) {
+        setNewExpenseAmount(String(intent.p_amount)); setNewExpenseNote(intent.p_note);
+        throw new Error('Konfirmo shpenzimin e mëparshëm në pritje.');
+      }
+      const { data, error: rpcError } = await withDeadline(() => supabase.rpc(EXPENSE_CREATE_RPC, intent), 12000, 'EXPENSE_CONFIRMATION_TIMEOUT');
       if (rpcError) throw rpcError;
       if (data?.ok !== true) throw new Error(data?.message || 'SHPENZIMI NUK U RUAJT.');
-      setExpenseActionMessage(`U SHTUA SHPENZIMI ${money(amount)} DHE U ZBRIT NGA BUXHETI.`);
+      acknowledgeDailyExpenseIntent(actor?.id || actor?.pin, intent.p_idempotency_key);
+      newExpenseIntentRef.current = null;
+      setExpenseActionMessage(`U SHTUA SHPENZIMI ${money(intent.p_amount)} DHE U ZBRIT NGA BUXHETI.`);
       setNewExpenseAmount('');
       setNewExpenseNote('');
       setNewExpenseOpen(false);
       await loadPreview({ force: true });
       try { window.dispatchEvent(new Event('arka:refresh')); } catch {}
     } catch (err) {
-      setError(String(err?.message || err?.details || err || 'REGJISTRIMI I SHPENZIMIT DËSHTOI.'));
       await loadPreview({ force: true });
+      setError(newExpenseIntentRef.current ? 'Shpenzimi është në pritje të konfirmimit. “RIPROVO TË NJËJTIN SHPENZIM” nuk krijon shpenzim të ri.' : String(err?.message || err || 'REGJISTRIMI I SHPENZIMIT DËSHTOI.'));
     } finally {
       expenseMutationLockRef.current = false;
       setNewExpenseBusy(false);
@@ -929,6 +952,7 @@ export default function ArkaDailyCloseWizard() {
                         <input
                           inputMode="decimal"
                           value={newExpenseAmount}
+                          disabled={newExpenseBusy || !!newExpenseIntentRef.current}
                           onChange={(event) => setNewExpenseAmount(event.target.value)}
                           placeholder="0.00"
                           style={{ width: '100%', boxSizing: 'border-box', border: '1px solid rgba(245,158,11,.42)', borderRadius: 12, padding: 12, background: '#0f172a', color: '#fff', fontSize: 18, fontWeight: 1000, outline: 'none' }}
@@ -939,13 +963,14 @@ export default function ArkaDailyCloseWizard() {
                         <textarea
                           rows={3}
                           value={newExpenseNote}
+                          disabled={newExpenseBusy || !!newExpenseIntentRef.current}
                           onChange={(event) => setNewExpenseNote(event.target.value)}
                           placeholder="P.sh. naftë, material, servis, kompensim klienti..."
                           style={{ width: '100%', boxSizing: 'border-box', border: '1px solid rgba(245,158,11,.32)', borderRadius: 12, padding: 12, background: '#0f172a', color: '#fff', fontSize: 12, lineHeight: 1.4, fontWeight: 750, resize: 'vertical' }}
                         />
                       </label>
                       <button type="button" disabled={newExpenseBusy || !!expenseActionBusy} onClick={() => void createDailyExpense()} style={{ ...primaryButtonStyle, opacity: newExpenseBusy || expenseActionBusy ? .55 : 1, background: 'linear-gradient(135deg,#9a3412,#ea580c)' }}>
-                        {newExpenseBusy ? 'DUKE RUAJTUR...' : 'REGJISTRO DHE ZBRITE NGA BUXHETI'}
+                        {newExpenseBusy ? 'DUKE RUAJTUR...' : newExpenseIntentRef.current ? 'RIPROVO TË NJËJTIN SHPENZIM' : 'REGJISTRO DHE ZBRITE NGA BUXHETI'}
                       </button>
                     </div>
                   ) : null}

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { notificationSummary, mergeNotificationEvents } from '../lib/readyNotificationModel.js';
+import { notificationSummary, mergeNotificationEvents, isReadyNotificationOrderId } from '../lib/readyNotificationModel.js';
 import { normalizeReadyNotification, readyNotificationServer } from '../lib/readyNotificationServer.js';
+import { canTrackReadyNotifications } from '../lib/roles.js';
 const actor = {id:'11111111-1111-4111-8111-111111111111',name:'Test worker',role:'PUNTOR'};
 const base = {id:'22222222-2222-4222-8222-222222222222',attempt_id:'33333333-3333-4333-8333-333333333333',order_id:'1185',actor_id:actor.id,channel:'sms',kind:'opened',occurred_at:'2026-09-11T10:00:00.000Z'};
 assert.equal(normalizeReadyNotification({...base,author_name:'Forged'},actor).author_name,actor.name);
@@ -19,6 +20,7 @@ assert.equal(mergeNotificationEvents([base],[{...base,pending:false}]).length,1)
 const storage=new Map(); let online=false, requests=0, loggedActor=actor, rejectNetwork=false, denied=false, loseReply=false;
 const server=new Map(); let id=10;
 const ctx=vm.createContext({
+  canTrackReadyNotifications, isReadyNotificationOrderId,
   readBestActor:()=>loggedActor,getDeviceId:()=>{},mergeNotificationEvents,
   window:{dispatchEvent(){},addEventListener(){},setInterval(){}},Event:class{},document:{addEventListener(){}},
   navigator:{get onLine(){return online;}},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
@@ -32,6 +34,13 @@ const ctx=vm.createContext({
     return {ok:true,json:async()=>({ok:true,event:server.get(body.id)})};
   }
 });
+// Execute the same approved-request adapter boundary, including status metadata.
+ctx.approvedApiRequest = async (url, body) => {
+  const response = await ctx.fetch(url, {body: JSON.stringify(body)});
+  const result = await response.json();
+  if (!response.ok || result.ok !== true) throw Object.assign(new Error(result.error), {httpStatus:response.status});
+  return result;
+};
 const source=fs.readFileSync('lib/readyNotifications.js','utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'');
 vm.runInContext(source,ctx);
 const opened=ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'});
@@ -42,6 +51,12 @@ loggedActor=actor;rejectNetwork=true;await ctx.flushReadyNotifications();assert.
 rejectNetwork=false;denied=true;await ctx.flushReadyNotifications();assert.equal(server.size,0);
 denied=false;loseReply=true;await ctx.flushReadyNotifications();assert.equal(server.size,1);assert.equal(ctx.localNotifications().filter(e=>e.pending).length,2);await ctx.flushReadyNotifications();assert.equal(server.size,2);assert.equal(ctx.localNotifications().filter(e=>e.pending).length,0);
 await ctx.flushReadyNotifications();assert.equal(server.size,2);
+loggedActor={...actor,role:'TRANSPORT'};
+const priorRequests=requests;
+assert.equal((await ctx.fetchReadyNotifications(['1185'])).unavailable,true);
+await ctx.flushReadyNotifications();assert.equal(requests,priorRequests);
+assert.throws(()=>ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'}),/Ky rol/);
+loggedActor=actor;
 // No silent success or app handoff if storage is full or corrupt.
 ctx.localStorage.setItem=()=>{throw new Error('QuotaExceededError');};
 assert.throws(()=>ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'}),/Quota/);
