@@ -39,7 +39,7 @@ export default function ArkaDailyCloseShortcut() {
     };
   }, []);
 
-  if (!actor || !MANAGER_ROLES.has(upper(actor?.role)) || path === '/arka/ditore') return null;
+  if (!actor || !MANAGER_ROLES.has(upper(actor?.role)) || ['/arka/ditore', '/arka/stafi', '/admin/devices'].includes(path)) return null;
 
   return (
     <Link
