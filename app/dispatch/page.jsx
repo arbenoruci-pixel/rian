@@ -16,6 +16,7 @@ import { getDispatchOutbox, wakeDispatchOutbox } from '@/lib/dispatchOutboxRunti
 import CustomerCare from '@/components/CustomerCare';
 import DispatchMeasurements from '@/components/DispatchMeasurements';
 import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
+import { isRecoverableDispatchPhoneCheck, watchDispatchPhoneCheck } from '@/lib/dispatchPhoneCheck';
 
 const TAB_TODAY = "today";
 const TAB_TOMORROW = "tomorrow";
@@ -279,7 +280,8 @@ function isTransientDispatchPhoneCheckError(error) {
     || code === 'DISPATCH_PHONE_CHECK_FAILED'
     || code === 'AUTH_DEVICE_LOOKUP_FAILED'
     || code === 'AUTH_USER_LOOKUP_FAILED'
-    || /^DISPATCH_PHONE_CHECK_HTTP_(408|425|429|500|502|503|504)$/.test(code);
+    || /^DISPATCH_PHONE_CHECK_HTTP_(408|425|429|500|502|503|504)$/.test(code)
+    || isRecoverableDispatchPhoneCheck(error);
 }
 
 function dispatchExistingClientDecisionKey(row, phoneValue) {
@@ -1677,7 +1679,6 @@ export default function DispatchPage() {
   const [saveBusy, setSaveBusy] = useState(false);
   const [deleteBusyId, setDeleteBusyId] = useState("");
   const [searchTimer, setSearchTimer] = useState(null);
-  const phoneTimer = useRef(null);
   const phoneCheckSeqRef = useRef(0);
   const nameRef = useRef('');
   const addressRef = useRef('');
@@ -1900,7 +1901,6 @@ export default function DispatchPage() {
     const phoneDigits = getDispatchPhoneDigits(digits);
     const checkSeq = Number(phoneCheckSeqRef.current || 0) + 1;
     phoneCheckSeqRef.current = checkSeq;
-    if (phoneTimer.current) clearTimeout(phoneTimer.current);
 
     setCrmHits([]);
     setCrmOpen(false);
@@ -1917,17 +1917,17 @@ export default function DispatchPage() {
       autoAddressRef.current = { phoneKey: '', address: '' };
     }
 
-    if (!isValidTransportPhoneDigits(phoneDigits)) {
+    if (!createOpen || !isValidTransportPhoneDigits(phoneDigits)) {
       setPhoneBusy(false);
       setPhoneHit(null);
       setExistingClientDecision(null);
       return;
     }
 
-    phoneTimer.current = setTimeout(async () => {
-      setPhoneBusy(true);
-      try {
-        const inspection = await inspectDispatchTransportPhoneViaApi(phone, { timeoutMs: 15000 });
+    return watchDispatchPhoneCheck({
+      inspect: () => inspectDispatchTransportPhoneViaApi(phone, { timeoutMs: 15000 }),
+      onBusy: setPhoneBusy,
+      onResult: (inspection) => {
         if (Number(phoneCheckSeqRef.current || 0) !== checkSeq) return;
         const rawHit = inspection?.client || null;
         const hit = rawHit && dispatchSamePhone(getClientPhone(rawHit) || rawHit?.phone_digits || rawHit?.phone, phone) ? rawHit : null;
@@ -1944,7 +1944,8 @@ export default function DispatchPage() {
             autoAddressRef.current = { phoneKey: getDispatchPhoneDigits(phone), address: hitAddress };
           }
         }
-      } catch (error) {
+      },
+      onError: (error) => {
         if (Number(phoneCheckSeqRef.current || 0) !== checkSeq) return;
         const phoneError = dispatchPhoneCheckErrorCode(error) || 'DISPATCH_PHONE_CHECK_FAILED';
         const transient = isTransientDispatchPhoneCheckError(phoneError);
@@ -1968,14 +1969,9 @@ export default function DispatchPage() {
           setServerActivePhoneOrder(null);
           setExistingClientDecision(null);
         }
-      } finally {
-        if (Number(phoneCheckSeqRef.current || 0) === checkSeq) setPhoneBusy(false);
-      }
-    }, 320);
-    return () => {
-      if (phoneTimer.current) clearTimeout(phoneTimer.current);
-    };
-  }, [phone, phoneCheckNonce]);
+      },
+    });
+  }, [phone, phoneCheckNonce, createOpen]);
 
   useEffect(() => {
     if (searchTimer) clearTimeout(searchTimer);
@@ -3054,7 +3050,7 @@ Mati 1, nesër paradite, 3 tepiha`}
               <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <div style={{ ...ui.mini, color: phoneCheckDegraded ? "#a16207" : "#b91c1c" }}>
                   {phoneCheckDegraded
-                    ? "LIDHJA E KONTROLLIT U NDËRPRE — MUND TA DËRGOSH; SERVERI E VERIFIKON NË RUAJTJE"
+                    ? "MUND TA DËRGOSH POROSINË. KONTROLLI RIFILLON AUTOMATIKISHT KUR KTHEHET LIDHJA. SERVERI E VERIFIKON NË RUAJTJE."
                     : "KONTROLLI NË DB DËSHTOI"}
                 </div>
                 <button type="button" style={ui.btnGhostMini} onClick={() => setPhoneCheckNonce((value) => Number(value || 0) + 1)}>RIPROVO</button>
