@@ -1,5 +1,7 @@
-import { TrackedReadySmsModal } from './ReadyNotification';
 'use client';
+
+import ClientFamilyPanel from './ClientFamilyPanel.jsx';
+import { TrackedReadySmsModal } from './ReadyNotification';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from '@/lib/routerCompat.jsx';
@@ -157,6 +159,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
   const router = useRouter();
   const anchor = useMemo(() => buildClientProfileAnchor(anchorLike || {}), [anchorLike]);
   const [profile, setProfile] = useState(null);
+  const [familyRefresh, setFamilyRefresh] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [fromCache, setFromCache] = useState(false);
@@ -193,7 +196,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
       .catch((requestError) => setError(String(requestError?.code || requestError?.message || 'CLIENT_PROFILE_FAILED')))
       .finally(() => setLoading(false));
     return () => controller?.abort();
-  }, [open, anchor.clientId, anchor.orderId, anchor.phone, anchor.source]);
+  }, [open, anchor.clientId, anchor.orderId, anchor.phone, anchor.source, familyRefresh]);
 
   useEffect(() => {
     if (!open || typeof window === 'undefined' || typeof document === 'undefined') return undefined;
@@ -228,7 +231,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
   const visibleVisits = tab === 'ACTIVE' ? visits.filter((visit) => visit?.active) : visits;
   const payments = Array.isArray(profile?.payments) ? profile.payments : [];
   const tel = safePhoneHref(client.phone);
-  const canMessage = Boolean(client.phone && smartSms.ready && !loading && !fromCache);
+  const canMessage = Boolean((smartSms.visit?.contactPhone || client.phone) && smartSms.ready && !loading && !fromCache);
   const mapHref = client.gpsLat && client.gpsLng
     ? `https://www.google.com/maps?q=${encodeURIComponent(`${client.gpsLat},${client.gpsLng}`)}`
     : (client.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(client.address)}` : '');
@@ -274,6 +277,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
             {fromCache ? <div style={{ marginTop: 9, borderRadius: 12, background: 'rgba(245,158,11,.12)', border: '1px solid rgba(245,158,11,.25)', color: '#fde68a', padding: 9, fontSize: 10, fontWeight: 900 }}>PO SHFAQET SNAPSHOT-I I FUNDIT I RUAJTUR</div> : null}
             {profile?.identity?.warnings?.includes('SOURCE_CLIENT_UNLINKED') ? <div style={{ marginTop: 9, borderRadius: 12, background: 'rgba(239,68,68,.11)', border: '1px solid rgba(248,113,113,.23)', color: '#fecaca', padding: 9, fontSize: 10, fontWeight: 900 }}>KJO VIZITË S’KA LIDHJE TË PLOTË ME CLIENT_ID. HISTORIA E SIGURT SHFAQET NGA TELEFONI UNIK.</div> : null}
 
+            {!fromCache && <ClientFamilyPanel source={anchor.source} clientId={isTransportProfile ? profile?.identity?.transportClientId : profile?.identity?.baseClientId} onChanged={() => setFamilyRefresh(v => v + 1)} />}
             {isTransportProfile && profile?.identity?.transportClientId ? <CustomerCare key={profile.identity.transportClientId} clientId={profile.identity.transportClientId} orderId={anchor.orderId || ''} compact /> : null}
             <nav style={{ position: 'sticky', top: -12, zIndex: 3, margin: '12px -2px 10px', padding: '7px 2px', background: 'linear-gradient(180deg,#020617 78%,rgba(2,6,23,0))', display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 5 }}>
               {TABS.map((item) => (
@@ -334,7 +338,7 @@ export default function ClientProfileSheet({ open = false, onClose, anchor: anch
           </div>
         </section>
       </div>
-      {smartSms.action === 'gati_baze' ? <TrackedReadySmsModal orderId={smartSms.visit?.id} isOpen={smsOpen && canMessage} onClose={() => setSmsOpen(false)} phone={client.phone || ''} messageText={smartSms.messageText} /> : <SmartSmsModal isOpen={smsOpen && canMessage} onClose={() => setSmsOpen(false)} phone={client.phone || ''} messageText={smartSms.messageText} />}
+      {smartSms.action === 'gati_baze' ? <TrackedReadySmsModal orderId={smartSms.visit?.id} isOpen={smsOpen && canMessage} onClose={() => setSmsOpen(false)} phone={smartSms.visit?.contactPhone || client.phone || ''} messageText={smartSms.messageText} /> : <SmartSmsModal isOpen={smsOpen && canMessage} onClose={() => setSmsOpen(false)} phone={smartSms.visit?.contactPhone || client.phone || ''} messageText={smartSms.messageText} />}
     </>
   );
 }

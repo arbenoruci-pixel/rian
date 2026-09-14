@@ -1,9 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { prepareFamilySmartMessage } from '../lib/clientFamilyClient.js';
 import { buildSmartSmsLinks } from '../lib/smartSms';
 
-export default function SmartSmsModal({ isOpen = false, onClose, onAction, children, phone = '', messageText = '' }) {
+export default function SmartSmsModal({ isOpen = false, onClose, onAction, children, phone = '', messageText: originalMessageText = '' }) {
+  const [preparing, setPreparing] = useState(false);
+  const [prepared, setPrepared] = useState(null);
+  const messageText = prepared?.original === originalMessageText ? prepared.text : originalMessageText;
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    setPrepared(null); setPreparing(!!(isOpen && originalMessageText));
+    if (isOpen && originalMessageText) prepareFamilySmartMessage(originalMessageText, { signal: controller.signal, timeoutMs: 4000 })
+      .then(text => { if (active) setPrepared({ original: originalMessageText, text }); }).catch(() => {}).finally(() => { if (active) setPreparing(false); });
+    return () => { active = false; controller.abort(); };
+  }, [isOpen, originalMessageText]);
   const links = useMemo(() => buildSmartSmsLinks(phone, messageText), [phone, messageText]);
   const lockRef = useRef(null);
 
@@ -350,6 +362,7 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, child
             )}
           </div>
 
+          {preparing && <div role="status">Duke përgatitur linkun e familjes…</div>}
           {children}
           <div style={hintStyle}>
             WhatsApp hapet direkt me numrin e klientit. Viber e hap me tekst të gatshëm dhe mesazhi kopjohet automatikisht.
@@ -358,6 +371,7 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, child
           <div style={actionsStyle}>
             <button
               type="button"
+              disabled={preparing}
               onClick={openWhatsApp}
               style={{ ...baseBtn, background: 'linear-gradient(180deg, rgba(34,197,94,0.36), rgba(22,163,74,0.28))' }}
             >
@@ -366,6 +380,7 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, child
 
             <button
               type="button"
+              disabled={preparing}
               onClick={openViber}
               style={{ ...baseBtn, background: 'linear-gradient(180deg, rgba(168,85,247,0.36), rgba(126,34,206,0.26))' }}
             >
@@ -374,6 +389,7 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, child
 
             <button
               type="button"
+              disabled={preparing}
               onClick={openSms}
               style={{ ...baseBtn, background: 'linear-gradient(180deg, rgba(59,130,246,0.38), rgba(29,78,216,0.30))' }}
             >

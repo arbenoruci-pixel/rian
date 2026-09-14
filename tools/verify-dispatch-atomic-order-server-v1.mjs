@@ -94,6 +94,7 @@ function fakeSupabase({ rpcMode = 'success', approved = true } = {}) {
   const supabase = {
     from(table) { return new Query(table); },
     async rpc(name, args) {
+      if (name === 'client_family_phone_owner_v1') return { data: null, error: { code: 'PGRST202', message: 'Family migration absent in legacy fixture' } };
       state.rpcCalls.push({ name, args: clone(args) });
       if (name === 'inspect_dispatch_transport_phone') {
         return {
