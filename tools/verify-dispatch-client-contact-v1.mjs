@@ -159,7 +159,8 @@ await test('driver maps refuse failed/invalid reads and keep zero coordinates va
  assert.equal(legacyTransportLocation({data:{gps_lat:null,gps_lng:null}}),null);
  assert.equal(legacyTransportLocation({data:{gps_lat:'',gps_lng:''}}),null);
  assert.equal(legacyTransportLocation({data:{gps_lat:0,gps_lng:'0'}}).latitude,0);
- const fallback=await resolveTransportClientMap(row,async()=>({location:null}));assert.equal(new URL(fallback).searchParams.get('query'),'41,20');
+ await assert.rejects(resolveTransportClientMap(row,async()=>({location:null})),/ende/);
+ const fallback=await resolveTransportClientMap({...row,data:{...row.data,address:'Visit street'}},async()=>({location:null}));assert.equal(new URL(fallback).searchParams.get('query'),'Visit street');
 });
 await test('Dispatch refresh reads persisted address and opens a safe map link',async()=>{
  await open();await wait(()=>text().includes('Test rruga pa GPS'));
