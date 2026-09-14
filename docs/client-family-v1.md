@@ -1,6 +1,6 @@
 # Kartela familjare — implementation and verification
 
-Status: release candidate, deployment and live verification authorized on 2026-09-14. Built against main `f4a7cdb`.
+Status: database migration installed and verified on 2026-09-14; app deployment and live verification in progress. Built against main `f4a7cdb`.
 
 ## User flow
 
@@ -37,6 +37,7 @@ The branch `feat/family-client-links` has Vercel automatic deployment disabled i
 - Code backup: `backup/before-family-20260914` at `f4a7cdb1ea9d8d1d5a2fa921144b634e2bebee68`.
 - Previous production deployment: `dpl_AejLqLanwg1uzptWTgiNiHGAQVtu`, `rian-2qxnqyle4-tepiha.vercel.app`.
 - Private database snapshot: `tepiha_before_family_20260914`, captured at `2026-09-14T00:28:23Z`. All 206 public tables / 34,311 rows copied in one repeatable-read transaction and independently checked with row counts and ordered row digests. Functions, columns, constraints, indexes, policies, triggers, grants, sequences and migration metadata are also recorded. Browser roles and service_role cannot access the snapshot. This is an in-project logical snapshot, not an off-site physical backup.
+- Applied migration version: `20260914004440_client_family_links_v1`.
 - Candidate migration and `tools/fixtures/family-hosted-smoke.sql` passed against actual hosted PostgreSQL, with all original triggers active, inside a transaction ending in rollback. Explicit fixture IDs/codes avoid advancing sequences. No test rows survived.
 - The rehearsal exposed the original Base `upsert_client_from_order` trigger rewriting/rejecting family visit phones. The migration now adds guarded family resolution to that trigger, preserves selected aliases and exact visit contacts, and allows existing visits to receive status/payment updates after unlink/contact removal.
 - `tools/fixtures/family-rollback-unused.sql` restored both original admission functions byte-for-byte and removed unused family objects in the same hosted rehearsal. It refuses to discard any used family data. If families have already been used, retain their overlay and admission guards during a UI rollback.
