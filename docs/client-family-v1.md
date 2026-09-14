@@ -1,6 +1,18 @@
 # Kartela familjare — implementation and verification
 
-Status: database migration installed and verified on 2026-09-14; app deployment and live verification in progress. Built against main `f4a7cdb`.
+Status: deployed for verification on 2026-09-14, then rolled back under the user's instruction because live browser verification could not be completed. Feature code is retained on `feat/family-client-links`.
+
+## Deployment and rollback outcome
+
+- Feature commit `74dd1f1`, merged through PR #57 as `30fa6b3`, reached production READY in deployment `dpl_bm7djGeERAKvup4fSGXQsMDaGPHa`.
+- The approved live staff browser verified Base client cards, adding a named phone, merge preview/confirmation, both permanent codes and combined two-visit history. A screenshot showed the merged card and controls fitting correctly.
+- Smart Message signed the existing exact Base order link and added the invitation. The public tracking page displayed both codes, preserved tracking, and opened the family form.
+- Independent unauthenticated production HTTP tests passed: valid public info 200, staff search without login 401, wrong order 403, foreign origin 403, public contact append 200, exact retry 200 without duplicates, invalid batch 400 with full rollback. Public responses exposed no phone list.
+- Repeated CDP tab/binding timeouts and browser runtime resets blocked the final public form submission and Transport browser flow. These are uncompleted checks, not evidence of an application defect. No production 5xx responses appeared in the scanned deployment logs.
+- The user requested retaining the new version only after successful app verification. The exact old application tree was restored on main with rollback commit `5b3fbb5ac2e4f322ab97befb76407fe4b2a6db10`.
+- All synthetic rows and their family journal were privately archived, then removed. Transport codes T1337/T1338 returned to POOL/available. Ordered fingerprints of all original rows in `clients`, `transport_clients`, `orders`, and `transport_orders` matched the pre-test snapshot exactly.
+- With no real family usage, the unused-feature rollback removed the family schema objects and restored both original admission functions byte-for-byte. Backup `tepiha_before_family_20260914` remains private and intact.
+- Before the next release, finish the remaining browser checks in a stable browser and reapply the verified family SQL as a new migration: the recorded `20260914004440` migration was followed by an explicit rollback migration. Merely deploying this branch will not recreate the removed database objects.
 
 ## User flow
 
