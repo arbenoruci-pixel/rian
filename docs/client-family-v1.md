@@ -16,13 +16,15 @@ Status: reactivated for production on 2026-09-14 under the user's subsequent exp
 - Migration history: initial application `20260914004440`, unused-feature rollback `20260914010809`, then reactivation `20260914011841`. The canonical migration file now contains the active reactivation definition; the earlier up/down entries remain recorded in the hosted migration history.
 - Production is intentionally available for the user's remaining manual checks. Incomplete browser automation alone is no longer a reason to revert this release.
 
+Customer message update: the current short links and concise acceptance/ready copy are documented in [short-smart-messages-v1.md](short-smart-messages-v1.md). Previously delivered signed links remain supported.
+
 ## User flow
 
 Open the client card from Base or Transport. “Shto familjar / telefon” stores named family contacts. “Lidh / Merge kodin” searches an existing code, phone or name, shows the affected cards and asks for confirmation. Both permanent codes remain visible and searchable. “Shkëput” undoes a link; a linked subtree and its originally owned contacts stay together.
 
 A single family can include Base and Transport clients. The combined card reads their exact visits and payments; it does not reassign financial rows. Every order keeps the person/phone submitted for that visit. Smart Message uses that exact visit contact and adds a signed family capability to its existing `/k/<exact order id>?src=...` URL, followed by an optional invitation. On the tracking page the customer can add names/phones. Existing tracking, GPS and depot-choice behavior remains available.
 
-Invitation:
+Initial-release invitation (superseded by the shorter copy above):
 
 > Në këtë link mund t’i shtoni edhe emrat dhe telefonat e familjarëve që i sjellin tepihat, që t’i lidhim me kartelën tuaj dhe të shmangim ngatërrimet.
 

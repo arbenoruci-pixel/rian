@@ -20,7 +20,7 @@ export function createFamilyHandler({ createClient = createAdminClientOrThrow, a
       if (Buffer.byteLength(JSON.stringify(body)) > 16 * 1024) return apiFail(res, 'BODY_TOO_LARGE', 413);
       const supabase = createClient();
       let authUser;
-      if (!['PUBLIC_INFO', 'PUBLIC_ADD'].includes(body.action)) {
+      if (!['PUBLIC_INFO', 'PUBLIC_ADD', 'RESOLVE_LINK'].includes(body.action)) {
         const cookie = String(req.headers?.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith('tepiha_device_id='));
         let device = ''; try { device = decodeURIComponent(cookie?.slice('tepiha_device_id='.length) || ''); } catch {}
         authUser = await authenticate(supabase, device);

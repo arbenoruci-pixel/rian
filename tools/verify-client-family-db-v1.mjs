@@ -10,6 +10,7 @@ export async function createFamilyTestDb() {
  await db.exec(fs.readFileSync('tools/fixtures/family-base-identity-before.sql','utf8'));
  await db.exec(fs.readFileSync('tools/fixtures/family-base-upsert-before.sql','utf8'));
  await db.exec(fs.readFileSync('supabase/migrations/20260914011841_reactivate_client_family_links_v1.sql','utf8'));
+ await db.exec(fs.readFileSync('supabase/migrations/20260914020227_client_family_short_links_v1.sql','utf8'));
  await db.exec('create trigger trg_upsert_client_from_order before insert or update on orders for each row execute function upsert_client_from_order(); create trigger trg_v_prevent_code_reuse_different_client before insert or update on orders for each row execute function prevent_code_reuse_different_client();');
  return db;
 }

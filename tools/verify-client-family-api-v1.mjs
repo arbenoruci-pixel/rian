@@ -44,7 +44,7 @@ const response=await http({action:'GET_FAMILY',...base});check(response.status==
 const savedFetch=globalThis.fetch;globalThis.fetch=async(_,opts)=>{const r=await http(JSON.parse(opts.body));return {ok:r.status===200,status:r.status,json:async()=>r.value};};
 try{
  const original='Porosia juaj: https://tepiha.vercel.app/k/10?src=base';
- const prepared=await prepareFamilySmartMessage(original);check(prepared.includes('/k/10?src=base&family=')&&prepared.includes(FAMILY_INVITATION),'Smart Message augments the exact existing link');
+ const prepared=await prepareFamilySmartMessage(original);check(/\/k\/s_[A-Za-z0-9_-]{22}/.test(prepared)&&prepared.includes(FAMILY_INVITATION),'Smart Message uses a short capability bound to the exact existing order');
  check(await prepareFamilySmartMessage(prepared)===prepared,'preparing message twice adds one invitation');
  const bulk=original+' https://tepiha.vercel.app/k/11?src=base';check(await prepareFamilySmartMessage(bulk)===bulk,'bulk message never gets a shared family capability');
  check(await prepareFamilySmartMessage('Legacy https://tepiha.vercel.app/k/123')==='Legacy https://tepiha.vercel.app/k/123','source-less legacy message stays compatible');

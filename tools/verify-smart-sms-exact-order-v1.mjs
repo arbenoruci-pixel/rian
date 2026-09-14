@@ -93,12 +93,12 @@ check(
 );
 
 const baseReadyText = buildSmartSmsText(baseOrder, 'gati_baze');
-check(baseReadyText.includes('Tepihat e juaj janë GATI'), 'Baza customer wording uses “Tepihat e juaj”');
+check(baseReadyText.toLowerCase().includes('tepihat e juaj janë gati'), 'Baza customer wording uses “Tepihat e juaj”');
 check(!baseReadyText.includes('Porosia juaj'), 'Baza customer wording no longer says “Porosia juaj”');
 check(baseReadyText.includes('/k/2505?src=base'), 'Baza Smart SMS contains the exact order link');
 
 const transportAcceptedText = buildSmartSmsText(transportOrder, 'transport_pranimi');
-check(transportAcceptedText.includes('Tepihat e juaj u pranuan'), 'Transport customer wording uses “Tepihat e juaj”');
+check(transportAcceptedText.toLowerCase().includes('tepihat e juaj u pranuan'), 'Transport customer wording uses “Tepihat e juaj”');
 check(!transportAcceptedText.includes('Porosia juaj'), 'Transport customer wording no longer says “Porosia juaj”');
 check(transportAcceptedText.includes(`/k/${transportUuid}?src=transport`), 'Transport Smart SMS contains the exact UUID link');
 

@@ -32,7 +32,7 @@ check(resolveClientProfileSmartSmsAction(baseVisit) === 'pranimi_baze', 'BASE Pa
 
 const basePastrim = buildClientProfileSmartSms(baseProfile, baseAnchor);
 check(basePastrim.ready && basePastrim.action === 'pranimi_baze', 'BASE Pastrim Smart SMS is ready only for the exact live visit');
-check(basePastrim.messageText.includes('procesi i pastrimit profesional ka filluar'), 'Pastrimi message tells the client cleaning is in progress');
+check(basePastrim.messageText.includes('u pranuan për pastrim'), 'Pastrimi message tells the client cleaning is in progress');
 check(basePastrim.messageText.includes('/k/382?src=base'), 'Pastrimi message keeps the exact BASE order tracking link');
 check(!basePastrim.messageText.includes('/k/999'), 'another active visit never leaks into the message');
 
@@ -55,7 +55,7 @@ const transportProfile = {
 };
 const transportPastrim = buildClientProfileSmartSms(transportProfile, transportAnchor);
 check(transportPastrim.action === 'transport_pranimi', 'Transport Pastrim uses the existing transport acceptance Smart SMS');
-check(transportPastrim.messageText.includes('u pranuan me sukses për larje'), 'Transport Pastrim tells the client the rugs are being cleaned');
+check(transportPastrim.messageText.includes('u pranuan për pastrim'), 'Transport Pastrim tells the client the rugs are being cleaned');
 check(transportPastrim.messageText.includes(`/k/${transportId}?src=transport`), 'Transport message keeps the exact visit UUID tracking link');
 
 const transportReady = buildClientProfileSmartSms({

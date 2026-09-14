@@ -89,7 +89,7 @@
     "test:dispatch-durable-send-v1": "node tools/verify-dispatch-outbox-v1.mjs && node tools/verify-dispatch-request-recovery-v1.mjs",
     "test:app-stability-audit-v1": "node tools/verify-app-stability-audit-v1.mjs && node tools/verify-device-pending-visibility-v1.mjs && node tools/verify-dispatch-create-verification-v1.mjs && node tools/verify-search-payment-status-audit-v1.mjs && node tools/verify-extended-flow-v1.mjs && node tools/verify-transport-board-recovery-v3.mjs && node tools/verify-dispatch-storage-quota-v3.mjs && node tools/verify-dispatch-resume-retry-v1.mjs && node tools/verify-dispatch-submit-confirmed-v2.mjs && node tools/verify-dispatch-read-recovery-v1.mjs",
     "test:client-family-db-v1": "node tools/verify-client-family-db-v1.mjs",
-    "test:client-family-api-v1": "node tools/verify-client-family-api-v1.mjs",
+    "test:client-family-api-v1": "node tools/verify-client-family-api-v1.mjs && node tools/verify-short-smart-messages-v1.mjs",
     "test:client-family-base-admission-v1": "node tools/verify-client-family-base-admission-v1.mjs",
     "test:client-family-ui-v1": "node tools/verify-client-family-ui-v1.mjs"
   },

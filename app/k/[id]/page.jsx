@@ -1,8 +1,9 @@
 'use client';
 
 import PublicFamilyPanel from '@/components/PublicFamilyPanel.jsx';
+import { familyRequest } from '@/lib/clientFamilyClient.js';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from '@/lib/routerCompat.jsx';
 import { findLatestOrderByCode, resolveOrderById, updateOrderData, updateOrderGps } from '@/lib/ordersService';
 import { extractPieces, extractTotal } from '@/lib/smartSms';
@@ -77,14 +78,35 @@ function getStepState(index, activeIndex, isCancelled) {
 function OrderTrackingPageInner() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const id = useMemo(() => String(params?.id || '').trim(), [params]);
-  const srcHint = useMemo(() => {
-    const raw = String(searchParams?.get('src') || searchParams?.get('table') || searchParams?.get('type') || '').trim().toLowerCase();
-    if (raw === 'transport' || raw === 'transport_orders') return 'transport';
-    if (raw === 'base' || raw === 'orders') return 'base';
-    return '';
-  }, [searchParams]);
+  const rawId = String(params?.id || '').trim();
+  const isShort = rawId.startsWith('s_');
+  const [link, setLink] = useState(null);
+  const [linkError, setLinkError] = useState('');
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController(); let active = true;
+    setLink(null); setLinkError('');
+    if (isShort) familyRequest({ action: 'RESOLVE_LINK', token: rawId }, { signal: controller.signal })
+      .then(result => {
+        if (!['BASE', 'TRANSPORT'].includes(result.source) || !result.orderId) throw new Error('LINK_INVALID');
+        if (active) setLink({ ...result, key: rawId });
+      })
+      .catch(() => { if (active && !controller.signal.aborted) setLinkError('Linku nuk u hap. Provoje përsëri ose kërko një mesazh të ri.'); });
+    return () => { active = false; controller.abort(); };
+  }, [rawId, isShort, retry]);
+  if (isShort) {
+    if (link?.key !== rawId) return <main style={{ minHeight: '100vh', background: '#0b1220', color: '#fff', padding: 24, textAlign: 'center' }}>
+      <p role={linkError ? 'alert' : 'status'}>{linkError || 'Duke hapur tepihat…'}</p>
+      {linkError && <button type="button" onClick={() => setRetry(value => value + 1)}>Provo përsëri</button>}
+    </main>;
+    return <OrderTrackingContent key={rawId} id={String(link.orderId)} srcHint={link.source.toLowerCase()} familyToken={link.token} />;
+  }
+  const source = String(searchParams?.get('src') || searchParams?.get('table') || searchParams?.get('type') || '').trim().toLowerCase();
+  const srcHint = ['transport', 'transport_orders'].includes(source) ? 'transport' : ['base', 'orders'].includes(source) ? 'base' : '';
+  return <OrderTrackingContent key={`${rawId}:${srcHint}`} id={rawId} srcHint={srcHint} familyToken={String(searchParams?.get('family') || '')} />;
+}
 
+function OrderTrackingContent({ id, srcHint, familyToken }) {
   const [order, setOrder] = useState(null);
   const [orderType, setOrderType] = useState('transport'); // 'transport' or 'base'
   const [loading, setLoading] = useState(true);
@@ -187,7 +209,6 @@ function OrderTrackingPageInner() {
     else if (['dorzim', 'dorezim', 'done'].includes(status)) activeStep = 4;
   }
 
-  const familyToken = String(searchParams?.get('family') || '');
   const code = getCode(order);
   const pieces = getPieces(order || {});
   const total = getTotal(order || {});
