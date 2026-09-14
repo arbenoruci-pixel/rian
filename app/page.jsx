@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link, { useRouter } from '@/lib/routerCompat.jsx';
+import FamilySearchResults from '@/components/FamilySearchResults.jsx';
 import { APP_VERSION } from '@/lib/appEpoch';
 import useRouteAlive, { markRouteUiAlive } from '@/lib/routeAlive';
 import { buildHomeSearchHref, cleanVisiblePersonName, resolveHomeSearchTarget, searchHomeLocalFirst } from '@/lib/homeSearch';
@@ -337,6 +338,8 @@ export default function HomePage() {
             {searching ? '...' : 'KËRKO'}
           </button>
         </form>
+
+        <FamilySearchResults query={q} />
 
         {(didSearch || results.length > 0 || searchMessage) ? (
           <div className="inline-search-panel">
