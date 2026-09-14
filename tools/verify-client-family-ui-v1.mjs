@@ -9,13 +9,14 @@ import {familyDbAdapter} from './fixtures/family-db-adapter.mjs';
 import {createFamilyHandler} from '../api/client-family.js';
 import {buildClientProfile} from '../lib/clientProfileServer.js';
 const db=await createFamilyTestDb();await seedFamilyDb(db);const supabase=familyDbAdapter(db),authUser={id:ids.staff};
-await db.query("insert into transport_orders(id,client_id,client_tcode,code_str,client_name,client_phone,status,data) values('66666666-6666-4666-8666-666666666666',$1,'T123','T123','Agron transport','045111222','pastrim','{}')",[ids.t]);
+await db.query("insert into transport_orders(id,client_id,client_tcode,code_str,client_name,client_phone,status,data) values('66666666-6666-4666-8666-666666666666',$1,'T123','T123','Agron transport','045111222','assigned','{}')",[ids.t]);
 const handler=createFamilyHandler({createClient:()=>supabase,authenticate:async()=>authUser,getSecret:()=> 'isolated-ui-test-family-secret-value'});
 const bundle=await build({entryPoints:['tools/fixtures/family-browser.jsx'],bundle:true,write:false,format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"test"'},alias:{'@/lib/ordersService':path.resolve('tools/fixtures/family-browser-orders.js'),'@':process.cwd()},loader:{'.css':'empty'},logLevel:'silent'});
 let dom, token, shortUrl, scenarios=0;const errors=[];
 async function open(url='/') {
  dom?.window.close();const vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));
  dom=new JSDOM('<div id="root"></div>',{url:'http://test.local'+url,runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:vc});
+ Object.defineProperty(dom.window.navigator,'geolocation',{value:{getCurrentPosition(ok){ok({coords:{latitude:42.7,longitude:21.2}})}}});
  dom.window.scrollTo=()=>{};dom.window.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});
  dom.window.fetch=async(input,opts={})=>{
   const url=new URL(input,'http://test.local');const body=JSON.parse(opts.body||'{}');let status=200,value;
@@ -48,6 +49,18 @@ await open('/k/10?src=base&family='+baseToken.slice(0,-2)+'xx');await wait(()=>t
 await open('/k/10?src=base');await wait(()=>text().includes('Agron'));assert.ok(!text().includes('Shto familjarët'));pass('old tracking links remain compatible');
 await open('/test-transport');await wait(()=>text().includes('TRANSPORT T123'));await click('Lidh / Merge kodin');await type('Kërko kodin, emrin ose telefonin','T1021');await click('Kërko kartelën');await wait(()=>buttons().some(b=>b.textContent.includes('TRANSPORT T1021')));buttons().find(b=>b.textContent.includes('TRANSPORT T1021')).click();await click('Konfirmo');await wait(()=>text().includes('Shkëput T1021'));pass('Transport uses the same merge controls');
 token=null;await click('Smart Mesazh test');await wait(()=>token&&text().includes('Statusi dhe familjarët:'));await open(new URL(shortUrl).pathname);await wait(()=>text().includes('Transport T123 · Transport T1021'));pass('Transport Smart Message opens the exact visit family form');
+assert.equal(buttons().filter(b=>b.textContent==='Përdor lokacionin tim').length,1);
+assert(!text().includes('PËR SHOFERIN'));assert(!text().includes('assigned'));
+assert.equal(dom.window.document.querySelector('details').open,false);
+await click('Përdor lokacionin tim');await wait(()=>text().includes('Kontrolloje në hartë'));
+await click('Dërgo lokacionin / adresën');await wait(()=>text().includes('iu dërgua kompanisë'));
+await open('/test-dispatch');await wait(()=>text().includes('Hap lokacionin në hartë'));
+const map=[...dom.window.document.querySelectorAll('a')].find(a=>a.textContent==='Hap lokacionin në hartë');
+assert.equal(new URL(map.href).searchParams.get('query'),'42.7,21.2');
+pass('actual assigned transport tracking has one GPS form, saves and appears in Dispatch');
+await open('/k/66666666-6666-4666-8666-666666666666?src=transport');
+await wait(()=>text().includes('PËR SHOFERIN'));assert(!text().includes('Përdor lokacionin tim'));
+pass('unsigned legacy transport tracking retains its GPS control');
 await open();await wait(()=>text().includes('Shkëput 1021'));await click('Shkëput 1021');await click('Konfirmo');await wait(()=>!text().includes('Shkëput 1021'));pass('staff can undo a mistaken Base merge from the form');
 assert.deepEqual(errors,[],'no uncaught React or DOM errors');
 console.log(`PASS ${scenarios} React/API/SQL interaction scenarios (DOM, not visual browser QA)`);dom.window.close();await db.close();

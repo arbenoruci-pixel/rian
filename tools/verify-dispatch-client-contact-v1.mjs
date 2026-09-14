@@ -8,7 +8,7 @@ import { createFamilyTestDb, seedFamilyDb, ids } from './verify-client-family-db
 import { familyDbAdapter } from './fixtures/family-db-adapter.mjs';
 import { familyAction } from '../lib/clientFamilyServer.js';
 import { createFamilyHandler } from '../api/client-family.js';
-import { cleanClientLocation, clientLocationMapUrl } from '../lib/clientLocation.js';
+import { cleanClientLocation, clientLocationMapUrl, orderClientLocation } from '../lib/clientLocation.js';
 const db = await createFamilyTestDb(); await seedFamilyDb(db);
 const orderId = '66666666-6666-4666-8666-666666666666', otherId = '77777777-7777-4777-8777-777777777777';
 await db.query("insert into transport_orders(id,client_id,client_name,client_phone,status,client_tcode,code_str) values($1,$2,'Test client','045111222','gati','T123','T123'),($3,$4,'Other client','045222333','gati','T1021','T1021')", [orderId,ids.t,otherId,ids.u]);
@@ -22,6 +22,20 @@ await test('GPS plus address is saved once after a retry, and only the exact vis
  assert.equal((await db.query('select count(*)::int as n from client_family_locations')).rows[0].n,1);
  assert.equal((await familyAction({action:'GET_LOCATION',source:'TRANSPORT',orderId},env)).location.address,'Rruga test 16');
  assert.equal((await familyAction({action:'GET_LOCATION',source:'TRANSPORT',orderId:otherId},env)).location,null);
+});
+await test('legacy order GPS appears in Dispatch without a new-table entry or a fabricated date',async()=>{
+ await db.exec('begin');
+ try {
+  await db.query("update transport_orders set data=$1 where id=$2",[JSON.stringify({gps_lat:'42.65',gps_lng:'21.15',pay:{paid:5}}),otherId]);
+  const legacy=(await familyAction({action:'GET_LOCATION',source:'TRANSPORT',orderId:otherId},env)).location;
+  assert.equal(legacy.latitude,42.65);assert.equal(legacy.longitude,21.15);assert.equal(legacy.created_at,null);
+  assert.equal(legacy.order_id,otherId);
+  // A newer explicit customer submission takes priority over an old order GPS.
+  await db.query("update transport_orders set data=$1 where id=$2",[JSON.stringify({gps_lat:40,gps_lng:20}),orderId]);
+  assert.equal((await familyAction({action:'GET_LOCATION',source:'TRANSPORT',orderId},env)).location.latitude,42.66);
+  for(const value of [null,'',false,{},'oops',91])assert.equal(orderClientLocation({id:otherId,data:{gps_lat:value,gps_lng:21}}),null);
+  assert.equal(orderClientLocation({id:otherId,data:{gps_lat:0,gps_lng:'0'}}).latitude,0);
+ } finally {await db.exec('rollback');}
 });
 await test('reusing a request for different data fails without replacing the original',async()=>{
  await assert.rejects(familyAction({...locationBody,location:{address:'Changed'}},publicEnv),/CONFLICT/);
@@ -119,6 +133,18 @@ await test('Dispatch refresh reads persisted address and opens a safe map link',
  await open();await wait(()=>text().includes('Test rruga pa GPS'));
  const link=[...dom.window.document.querySelectorAll('a')].find(a=>a.textContent==='Hap lokacionin në hartë');assert.equal(new URL(link.href).hostname,'www.google.com');assert.equal(new URL(link.href).searchParams.get('query'),'Test rruga pa GPS');
  await click('Rifresko');await wait(()=>text().includes('Test rruga pa GPS'));
+});
+await test('returning to Dispatch refreshes the location without closing the selected client',async()=>{
+ await open();await wait(()=>text().includes('Test rruga pa GPS'));
+ await familyAction({...locationBody,requestId:randomUUID(),location:{address:'New address while tab was away'}},publicEnv);
+ dom.window.dispatchEvent(new dom.window.Event('focus'));
+ await wait(()=>text().includes('New address while tab was away'));
+ // Visibility resume also reads fresh state; selecting another visit clears it.
+ const reads=requests.filter(r=>r.action==='GET_LOCATION').length;
+ dom.window.document.dispatchEvent(new dom.window.Event('visibilitychange'));
+ await wait(()=>requests.filter(r=>r.action==='GET_LOCATION').length>reads);
+ dom.window.show(otherId);await wait(()=>text().includes('Ende pa lokacion.'));
+ assert(!text().includes('New address while tab was away'));
 });
 await test('client names, existing addresses, order statuses and financial records stay unchanged',async()=>{
  const after=JSON.stringify((await db.query("select 'transport' as kind,to_jsonb(t) as row from transport_orders t union all select 'cash',to_jsonb(p) from arka_pending_payments p union all select 'client',to_jsonb(c) from transport_clients c")).rows.sort((a,b)=>(a.kind+a.row.id).localeCompare(b.kind+b.row.id)));

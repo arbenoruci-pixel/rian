@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import SmartSmsModal from './SmartSmsModal.jsx';
 import { familyRequest } from '../lib/clientFamilyClient.js';
 import { clientLocationMapUrl } from '../lib/clientLocation.js';
@@ -13,7 +13,7 @@ export default function DispatchClientContact({ orderId, name, phone, code, mess
   const [loading, setLoading] = useState(true);
   const controller = useRef(null), preparing = useRef(false), readController = useRef(null);
   const phoneHref = String(phone || '').replace(/[^\d+]/g, '');
-  async function refreshLocation() {
+  const refreshLocation = useCallback(async () => {
     readController.current?.abort();
     const request = new AbortController(); readController.current = request;
     setLoading(true); setLocationError('');
@@ -23,11 +23,22 @@ export default function DispatchClientContact({ orderId, name, phone, code, mess
     } catch {
       if (!request.signal.aborted) setLocationError('Lokacioni nuk u ngarkua. Prek Rifresko.');
     } finally { if (!request.signal.aborted) setLoading(false); }
-  }
+  }, [orderId]);
   useEffect(() => {
     void refreshLocation();
-    return () => { controller.current?.abort(); readController.current?.abort(); };
-  }, [orderId]);
+    const refreshVisible = () => { if (document.visibilityState !== 'hidden') void refreshLocation(); };
+    window.addEventListener('focus', refreshVisible);
+    window.addEventListener('pageshow', refreshVisible);
+    document.addEventListener('visibilitychange', refreshVisible);
+    const timer = window.setInterval(refreshVisible, 20000);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshVisible);
+      window.removeEventListener('pageshow', refreshVisible);
+      document.removeEventListener('visibilitychange', refreshVisible);
+      controller.current?.abort(); readController.current?.abort();
+    };
+  }, [refreshLocation]);
   async function invite() {
     if (preparing.current) return;
     const request = new AbortController(); controller.current = request;
@@ -50,7 +61,6 @@ export default function DispatchClientContact({ orderId, name, phone, code, mess
     <button type="button" style={{ ...button, background: '#075985', textAlign: 'left' }} disabled={!phoneHref || busy} onClick={invite}>
       {busy ? 'Po përgatitet linku…' : 'Dërgo linkun: familjarë dhe lokacion'}
     </button>
-    <div style={{ color: '#cbd5e1', fontSize: 12 }}>Klienti shton emrat, telefonat dhe adresën nga telefoni i vet.</div>
     {!phoneHref && <div role="status" style={{ color: '#fde68a' }}>Klientit i mungon numri i telefonit.</div>}
     {error && <div role="alert" style={{ color: '#fda4af' }}>{error}</div>}
     <div style={{ padding: 12, background: '#0b1223', border: '1px solid #334155', borderRadius: 12, display: 'grid', gap: 8 }}>
@@ -60,9 +70,9 @@ export default function DispatchClientContact({ orderId, name, phone, code, mess
       </div>
       {loading ? <span style={{ fontSize: 12 }}>Po kontrollohet…</span> : locationError ? <span role="alert" style={{ color: '#fda4af', fontSize: 12 }}>{locationError}</span> : location ? <>
         {location.address && <span style={{ overflowWrap: 'anywhere' }}>{location.address}</span>}
-        <span style={{ fontSize: 12, color: '#cbd5e1' }}>Dërguar më {new Date(location.created_at).toLocaleString('sq-AL', { timeZone: 'Europe/Belgrade' })}</span>
+        {location.created_at && <span style={{ fontSize: 12, color: '#cbd5e1' }}>Dërguar më {new Date(location.created_at).toLocaleString('sq-AL', { timeZone: 'Europe/Belgrade' })}</span>}
         {map && <a href={map} target="_blank" rel="noreferrer" style={button}>Hap lokacionin në hartë</a>}
-      </> : <span style={{ fontSize: 12, color: '#cbd5e1' }}>Klienti ende s’ka dërguar lokacion për këtë porosi.</span>}
+      </> : <span style={{ fontSize: 12, color: '#cbd5e1' }}>Ende pa lokacion.</span>}
     </div>
     <SmartSmsModal isOpen={!!message} onClose={() => setMessage('')} phone={phone} messageText={message} />
   </section>;

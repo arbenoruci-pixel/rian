@@ -33,7 +33,8 @@ export default function PublicClientLocation({ source, orderId, token }) {
     try {
       intent.current ||= { action: 'PUBLIC_LOCATION', source, orderId: String(orderId), token, requestId: newFamilyRequestId(), location: { ...coords, address: address.trim() } };
       setPending(true);
-      await familyRequest(intent.current);
+      const result = await familyRequest(intent.current);
+      if (result.saved !== true) throw new Error('LOCATION_NOT_CONFIRMED');
       if (!live.current) return;
       intent.current = null; setPending(false); setSaved(true);
     } catch (err) {
@@ -43,15 +44,14 @@ export default function PublicClientLocation({ source, orderId, token }) {
     } finally { if (live.current) { lock.current = false; setBusy(''); } }
   }
   const map = clientLocationMapUrl({ ...coords, address });
-  return <div style={{ borderTop: '1px solid #334155', marginTop: 20, paddingTop: 16, display: 'grid', gap: 10 }}>
-    <h3 style={{ margin: 0 }}>Ku t’i marrim ose t’i sjellim tepihat?</h3>
-    <p style={{ margin: 0 }}>Nëse je te adresa e tepihave, përdor lokacionin e telefonit.</p>
+  return <div style={{ borderTop: '1px solid #334155', marginTop: 12, paddingTop: 12, display: 'grid', gap: 8 }}>
+    <h3 style={{ margin: 0, fontSize: 15 }}>Lokacioni i tepihave</h3>
+    <p style={{ margin: 0, fontSize: 12, color: '#cbd5e1' }}>Përdor GPS kur je te adresa e tepihave.</p>
     <button type="button" style={button} disabled={!!busy || pending} onClick={locate}>{busy === 'gps' ? 'Po merret lokacioni…' : 'Përdor lokacionin tim'}</button>
-    {coords && <div>Lokacioni u zgjodh. <a href={map} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc' }}>Kontrolloje në hartë</a></div>}
+    {coords && <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><a href={map} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc' }}>Kontrolloje në hartë</a><button type="button" disabled={!!busy || pending} style={{ ...button, padding: '6px 10px' }} onClick={() => { setCoords(null); setSaved(false); }}>Hiq GPS</button></div>}
     <label>Adresa / hyrja / kati
       <input aria-label="Adresa e tepihave" maxLength={300} value={address} disabled={!!busy || pending} onChange={event => { setAddress(event.target.value); setSaved(false); }} placeholder="P.sh. rruga, numri i shtëpisë, hyrja" style={{ display: 'block', width: '100%', boxSizing: 'border-box', padding: 12, marginTop: 6, background: '#020617', color: '#f1f5f9', border: '1px solid #475569', borderRadius: 10 }} />
     </label>
-    {coords && !pending && <button type="button" disabled={!!busy} style={button} onClick={() => { setCoords(null); setSaved(false); }}>Përdor vetëm adresën e shkruar</button>}
     <button type="button" style={button} disabled={!!busy} onClick={save}>{busy === 'save' ? 'Po dërgohet…' : pending ? 'Riprovo dërgimin' : 'Dërgo lokacionin / adresën'}</button>
     {saved && <p role="status" style={{ margin: 0, color: '#86efac' }}>Lokacioni / adresa iu dërgua kompanisë.</p>}
     {error && <p role="alert" style={{ margin: 0, color: '#fda4af' }}>{error}</p>}

@@ -84,5 +84,5 @@ await import('./apply-dispatch-boss-controls-v1.mjs');
 const server = fs.readFileSync('lib/transport/dispatchOrderServer.js', 'utf8');
 const page = fs.readFileSync('app/dispatch/page.jsx', 'utf8');
 if (!server.includes('DISPATCH_PHONE_CHANGE_NOT_ALLOWED')) throw new Error('FIXED_PHONE_SERVER_GUARD_MISSING');
-if (!page.includes('TELEFONI — MBETET I NJËJTË')) throw new Error('FIXED_PHONE_UI_LOCK_MISSING');
+if (!/value=\{editClientPhone\}\s+readOnly\s+aria-readonly="true"/.test(page)) throw new Error('FIXED_PHONE_UI_LOCK_MISSING');
 console.log('PASS Dispatch Boss fixed-phone V2: name/address editable; phone and permanent T-code remain unchanged.');

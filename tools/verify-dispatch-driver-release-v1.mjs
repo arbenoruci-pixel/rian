@@ -7,9 +7,9 @@ const board = fs.readFileSync('app/transport/board/page.jsx', 'utf8');
 const failures = [];
 const check = (ok, message) => { if (!ok) failures.push(message); };
 
-check(dispatch.includes('LIROJA TRANSPORTUESIT'), 'dedicated Dispatch release control is missing');
-check(dispatch.includes('TRANSPORTUESI QË E MERR POROSINË'), 'transporter chooser label is missing');
-check(dispatch.includes('PA TRANSPORTUES — MBETET VETËM TE DISPATCH'), 'unassigned visibility warning is missing');
+check(dispatch.includes('CAKTO SHOFERIN'), 'dedicated Dispatch release control is missing');
+check(dispatch.includes('SHOFERI'), 'transporter chooser label is missing');
+check(dispatch.includes('value="">PA SHOFER</option>'), 'unassigned driver option is missing');
 check(!dispatch.includes('PA SHOFER – TË GJITHË E SHOHIN INBOX'), 'false all-drivers visibility label is still present');
 
 check(dispatch.includes('drivers.find((d) => rowMatchesDriver(row, d))'), 'legacy UUID/PIN/name driver matching is missing');

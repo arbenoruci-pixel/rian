@@ -284,7 +284,7 @@ function OrderTrackingContent({ id, srcHint, familyToken }) {
           gps_lng: lng,
         },
       }));
-      setGpsNotice('✅ Lokacioni juaj u dërgua me sukses. Shoferi tani mund ta shohë GPS-in tuaj.');
+      setGpsNotice('Lokacioni u dërgua.');
     } catch (err) {
       const geoCode = err?.code;
       if (geoCode === 1) {
@@ -313,9 +313,9 @@ function OrderTrackingContent({ id, srcHint, familyToken }) {
 
       <div style={styles.shell}>
         <div style={styles.headerWrap}>
-          <div style={styles.eyebrow}>LIVE TRACKING</div>
+
           <h1 style={styles.title}>JONI - Pastrimi i Tepihave</h1>
-          <p style={styles.subtitle}>Ndiqeni progresin e porosisë suaj në kohë reale.</p>
+
         </div>
 
         {loading ? (
@@ -334,25 +334,13 @@ function OrderTrackingContent({ id, srcHint, familyToken }) {
         ) : (
           <>
             <div style={styles.glassCard}>
-              <div style={styles.cardGrid}>
-                {clientName && (
-                  <div style={{ ...styles.infoBox, gridColumn: '1 / -1' }}>
-                    <div style={styles.infoLabel}>Klienti</div>
-                    <div style={{ ...styles.infoValue, fontSize: 22, color: '#fff' }}>{clientName}</div>
-                  </div>
-                )}
-                <div style={styles.infoBox}>
-                  <div style={styles.infoLabel}>Kodi</div>
-                  <div style={styles.infoValue}>{isWaitingStep ? 'Në pritje...' : code}</div>
-                </div>
-                <div style={styles.infoBox}>
-                  <div style={styles.infoLabel}>Total Copë</div>
-                  <div style={styles.infoValue}>{isWaitingStep ? 'Në pritje...' : pieces}</div>
-                </div>
-                <div style={{ ...styles.infoBox, gridColumn: '1 / -1' }}>
-                  <div style={styles.infoLabel}>Totali (€)</div>
-                  <div style={styles.infoValue}>€ {formatMoney(total)}</div>
-                </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: 18, overflowWrap: 'anywhere' }}>{clientName || 'Porosia juaj'} · {code}</strong>
+                <span style={styles.progressStatusPill(isCancelled)}>{isCancelled ? 'E anuluar' : isDepo ? 'Në depo' : ['assigned', 'dispatched', 'riplan'].includes(status) ? 'E planifikuar' : STEP_LABELS[activeStep]}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 12, fontSize: 14 }}>
+                <span>Copë: <strong>{isWaitingStep ? '—' : pieces}</strong></span>
+                <span>Totali: <strong>€ {formatMoney(total)}</strong></span>
               </div>
             </div>
 
@@ -434,12 +422,9 @@ function OrderTrackingContent({ id, srcHint, familyToken }) {
                     : 'Keni zgjedhur t\'i merrni vetë. Ju mirëpresim në depon tonë!'}
                 </p>
               </div>
-            ) : isWaitingStep ? (
+            ) : isWaitingStep && !familyToken ? (
               <div style={styles.glassCard}>
-                <div style={styles.gpsCardTitle}>📍 Dërgojeni lokacionin tuaj shoferit</div>
-                <div style={styles.gpsCardText}>
-                  Nëse e shtypni butonin më poshtë, shoferi do ta marrë GPS-in tuaj të saktë për ta gjetur adresën më shpejt.
-                </div>
+                <div style={styles.gpsCardText}>Dërgo GPS kur je te adresa e tepihave.</div>
                 <button
                   type="button"
                   onClick={handleSendGps}
@@ -457,14 +442,8 @@ function OrderTrackingContent({ id, srcHint, familyToken }) {
               </div>
             ) : null}
 
-            <div style={styles.glassCard}>
-              <div style={styles.progressHeader}>
-                <div style={styles.progressTitle}>Statusi i Porosisë</div>
-                <div style={styles.progressStatusPill(isCancelled)}>
-                  {isCancelled ? '❌ E anuluar' : (status === 'gati' ? 'Gati' : (status === 'pastrim' ? 'Në pastrim' : order?.status || 'Në proces'))}
-                </div>
-              </div>
-
+            <details style={styles.glassCard}>
+              <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 800, padding: '6px 0' }}>Ecuria e porosisë</summary>
               <div style={styles.timeline}>
                 {STEP_LABELS.map((label, index) => {
                   const state = getStepState(index, activeStep, isCancelled);
@@ -501,21 +480,13 @@ function OrderTrackingContent({ id, srcHint, familyToken }) {
                         }}
                       >
                         <div style={styles.stepLabel}>{label}</div>
-                        <div style={styles.stepMeta}>
-                          {isCancelled
-                            ? 'Kjo porosi është anuluar.'
-                            : isDone
-                              ? 'Hap i përfunduar.'
-                              : isActive
-                                ? 'Ky është hapi aktual.'
-                                : 'Në pritje.'}
-                        </div>
+
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
+            </details>
 
             <a href={`tel:${COMPANY_PHONE}`} style={styles.callBtn}>
               📞 KONTAKTO KOMPANINË
@@ -532,7 +503,7 @@ const styles = {
     minHeight: '100dvh',
     background: PAGE_BG,
     color: '#F5F7FB',
-    padding: '20px 14px 28px',
+    padding: '14px 12px 24px',
     fontFamily:
       'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
@@ -541,7 +512,7 @@ const styles = {
     margin: '0 auto',
   },
   headerWrap: {
-    padding: '8px 4px 18px',
+    padding: '4px 2px 14px',
   },
   eyebrow: {
     fontSize: 12,
@@ -553,7 +524,7 @@ const styles = {
   },
   title: {
     margin: 0,
-    fontSize: 30,
+    fontSize: 22,
     lineHeight: 1.05,
     fontWeight: 900,
     letterSpacing: '-0.03em',
@@ -571,8 +542,8 @@ const styles = {
     backdropFilter: 'blur(18px)',
     WebkitBackdropFilter: 'blur(18px)',
     boxShadow: '0 18px 50px rgba(0,0,0,0.28)',
-    padding: 16,
-    marginBottom: 16,
+    padding: 12,
+    marginBottom: 12,
   },
   
   // STILE E REJA QË I KISHTE HARRUAR KODI I MËPARSHËM
@@ -762,7 +733,8 @@ const styles = {
   timeline: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 12,
+    gap: 6,
+    marginTop: 10,
   },
   stepRow: {
     display: 'grid',
@@ -798,7 +770,7 @@ const styles = {
   stepLine: {
     width: 3,
     flex: 1,
-    minHeight: 48,
+    minHeight: 16,
     borderRadius: 999,
     marginTop: 6,
     background: 'rgba(255,255,255,0.12)',
@@ -813,7 +785,7 @@ const styles = {
     background: 'rgba(255,255,255,0.045)',
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 18,
-    padding: '14px 14px 13px',
+    padding: '8px 10px',
   },
   stepCardDone: {
     background: 'linear-gradient(180deg, rgba(52,199,89,0.16), rgba(52,199,89,0.08))',
