@@ -3,6 +3,7 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { buildSmsLink, buildTransportConfirmUrl, canonicalizePhone } from '@/lib/smartSms';
 import { useRenderBatches } from '@/lib/renderBatching';
+import { openTransportClientMap } from '@/lib/transport/clientLocationMap.js';
 import { getOrderCodeCircleStyle } from '@/lib/orderCodeBadge';
 
 const BOARD_RENDER_LIMIT = 50;
@@ -87,12 +88,6 @@ function getLatLngFromOrder(order, getOrderLatLng) {
 function openHref(href) {
   if (!href || typeof window === 'undefined') return;
   window.location.href = href;
-}
-
-function openMapsForCoords(lat, lng) {
-  if (typeof window === 'undefined') return;
-  const href = `https://www.google.com/maps?q=${lat},${lng}`;
-  window.open(href, '_blank', 'noopener,noreferrer');
 }
 
 function labelFromUser(user) {
@@ -497,7 +492,7 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
   async function handleSaveGps(order) {
     const existing = getLatLngFromOrder(order, getOrderLatLng);
     if (existing) {
-      openMapsForCoords(existing.lat, existing.lng);
+      await openTransportClientMap(order);
       return;
     }
 
@@ -914,7 +909,7 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                         fontSize: 12,
                       }}
                     >
-                      🧭 {activeCoords ? 'GPS i ruajtur' : 'GPS mungon'}
+                      🧭 {activeCoords ? 'GPS i ruajtur' : 'Lokacioni kontrollohet te harta'}
                     </span>
                     {actorRole ? (
                       <span
@@ -996,7 +991,10 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                 </ActionButton>
               </div>
 
-              <ActionButton onClick={() => handleSaveGps(activeOrder)} disabled={gpsBusy}>
+              <ActionButton onClick={() => openTransportClientMap(activeOrder)}>
+                <span>📍</span><span>LOKACIONI I KLIENTIT</span>
+              </ActionButton>
+              {!activeCoords && <ActionButton onClick={() => handleSaveGps(activeOrder)} disabled={gpsBusy}>
                 <span style={{ color: activeCoords ? '#2dd4bf' : '#fbbf24' }}>
                   {activeCoords ? '🗺️' : '📍'}
                 </span>
@@ -1005,9 +1003,9 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                     ? 'DUKE RUAJTUR GPS...'
                     : activeCoords
                     ? 'HARTA'
-                    : 'RUAJ GPS'}
+                    : 'RUAJ GPS TE DERA'}
                 </span>
-              </ActionButton>
+              </ActionButton>}
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 7 }}>
                 <ActionButton

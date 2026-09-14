@@ -8,6 +8,7 @@ import { createFamilyTestDb, seedFamilyDb, ids } from './verify-client-family-db
 import { familyDbAdapter } from './fixtures/family-db-adapter.mjs';
 import { familyAction } from '../lib/clientFamilyServer.js';
 import { createFamilyHandler } from '../api/client-family.js';
+import { resolveTransportClientMap, legacyTransportLocation } from '../lib/transport/clientLocationMap.js';
 import { cleanClientLocation, clientLocationMapUrl, orderClientLocation } from '../lib/clientLocation.js';
 const db = await createFamilyTestDb(); await seedFamilyDb(db);
 const orderId = '66666666-6666-4666-8666-666666666666', otherId = '77777777-7777-4777-8777-777777777777';
@@ -115,19 +116,50 @@ await test('changing the selected client discards a late link from the previous 
  let release;delaySign=new Promise(r=>{release=r});await open();await click('Dërgo linkun: familjarë dhe lokacion');
  dom.window.show(otherId);await new Promise(r=>setTimeout(r,30));release();delaySign=null;await new Promise(r=>setTimeout(r,80));assert(!text().includes('SMS KONFIRMIMI'));assert(!text().includes(signed.shortUrl));
 });
-await test('customer selects GPS explicitly, previews it and saves to the exact visit',async()=>{
- const before=geoCalls;await open('/public');await wait(()=>text().includes('Përdor lokacionin tim'));assert.equal(geoCalls,before);
- await click('Përdor lokacionin tim');await wait(()=>text().includes('Kontrolloje në hartë'));type('Test hyrja 2');await new Promise(r=>setTimeout(r,20));
- await click('Dërgo lokacionin / adresën');await wait(()=>text().includes('iu dërgua kompanisë'));
+await test('one GPS click sends once to the exact visit and confirms only after saving',async()=>{
+ const before=geoCalls;await open('/public');await wait(()=>text().includes('Dërgo lokacionin tim'));assert.equal(geoCalls,before);
+ type('Test hyrja 2');await new Promise(r=>setTimeout(r,20));
+ const writesBefore=requests.filter(r=>r.action==='PUBLIC_LOCATION').length;
+ await click('Dërgo lokacionin tim');await wait(()=>text().includes('Lokacioni u dërgua.'));
+ assert.equal(requests.filter(r=>r.action==='PUBLIC_LOCATION').length,writesBefore+1);
+ assert(text().includes('Shiko në hartë'));assert.equal(geoCalls,before+1);
  const saved=(await familyAction({...locationBody,action:'GET_LOCATION'},env)).location;assert.equal(saved.latitude,42.7);assert.equal(saved.address,'Test hyrja 2');
 });
 await test('GPS denial permits a typed address and a lost response retries the identical request',async()=>{
- geoAllowed=false;await open('/public');await wait(()=>text().includes('Përdor lokacionin tim'));await click('Përdor lokacionin tim');await wait(()=>text().includes('Lejo qasjen'));
+ geoAllowed=false;await open('/public');await wait(()=>text().includes('Dërgo lokacionin tim'));await click('Dërgo lokacionin tim');await wait(()=>text().includes('Lejo qasjen'));
  type('Test rruga pa GPS');await new Promise(r=>setTimeout(r,20));loseLocationResponse=true;
- await click('Dërgo lokacionin / adresën');await wait(()=>text().includes('Dërgimi nuk u konfirmua'));assert(dom.window.document.querySelector('input[aria-label="Adresa e tepihave"]').disabled);
- await click('Riprovo dërgimin');await wait(()=>text().includes('iu dërgua kompanisë'));
+ await click('Dërgo adresën');await wait(()=>text().includes('Dërgimi nuk u konfirmua'));assert(dom.window.document.querySelector('input[aria-label="Adresa e tepihave"]').disabled);
+ await click('Riprovo dërgimin');await wait(()=>text().includes('Lokacioni u dërgua.'));
  const writes=requests.filter(r=>r.action==='PUBLIC_LOCATION');assert.equal(writes.at(-1).requestId,writes.at(-2).requestId);
  assert.equal((await db.query("select count(*)::int as n from client_family_locations where address='Test rruga pa GPS'")).rows[0].n,1);
+});
+await test('a lost GPS response retries the saved coordinates without requesting GPS again',async()=>{
+ geoAllowed=true;await open('/public');await wait(()=>text().includes('Dërgo lokacionin tim'));
+ const before=geoCalls;loseLocationResponse=true;
+ await click('Dërgo lokacionin tim');await wait(()=>text().includes('Dërgimi nuk u konfirmua'));
+ assert(!text().includes('Lokacioni u dërgua.'));assert(btn('Dërgo lokacionin tim').disabled);
+ await click('Riprovo dërgimin');await wait(()=>text().includes('Lokacioni u dërgua.'));
+ assert.equal(geoCalls,before+1);
+ const writes=requests.filter(r=>r.action==='PUBLIC_LOCATION');assert.deepEqual(writes.at(-1),writes.at(-2));
+});
+await test('driver maps read the same persisted customer GPS/address as Dispatch',async()=>{
+ const row={id:orderId,client_id:ids.t,data:{gps_lat:41,gps_lng:20}};
+ const driverRequest=async body=>{const r=await http(body,{staff:true});assert.equal(r.status,200);return r.value;};
+ let url=await resolveTransportClientMap(row,driverRequest);
+ assert.equal(new URL(url).searchParams.get('query'),'42.7,21.2');
+ await familyAction({...locationBody,requestId:randomUUID(),location:{address:'Test rruga pa GPS'}},publicEnv);
+ url=await resolveTransportClientMap(row,driverRequest);
+ assert.equal(new URL(url).searchParams.get('query'),'Test rruga pa GPS');
+ assert.equal(new URL(url).hostname,'www.google.com');
+});
+await test('driver maps refuse failed/invalid reads and keep zero coordinates valid',async()=>{
+ const row={id:orderId,client_id:ids.t,data:{gps_lat:41,gps_lng:20}};
+ await assert.rejects(resolveTransportClientMap(row,async()=>{throw Error('offline')}),/offline/);
+ await assert.rejects(resolveTransportClientMap(row,async()=>({location:{latitude:99,longitude:20}})),/vlefshëm/);
+ assert.equal(legacyTransportLocation({data:{gps_lat:null,gps_lng:null}}),null);
+ assert.equal(legacyTransportLocation({data:{gps_lat:'',gps_lng:''}}),null);
+ assert.equal(legacyTransportLocation({data:{gps_lat:0,gps_lng:'0'}}).latitude,0);
+ const fallback=await resolveTransportClientMap(row,async()=>({location:null}));assert.equal(new URL(fallback).searchParams.get('query'),'41,20');
 });
 await test('Dispatch refresh reads persisted address and opens a safe map link',async()=>{
  await open();await wait(()=>text().includes('Test rruga pa GPS'));

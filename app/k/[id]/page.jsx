@@ -1,6 +1,7 @@
 'use client';
 
 import PublicFamilyPanel from '@/components/PublicFamilyPanel.jsx';
+import { CustomerIcon, CustomerPortalStyles, portal } from '@/components/CustomerPortalUi.jsx';
 import { familyRequest } from '@/lib/clientFamilyClient.js';
 
 import { Suspense, useEffect, useState } from 'react';
@@ -9,20 +10,9 @@ import { findLatestOrderByCode, resolveOrderById, updateOrderData, updateOrderGp
 import { extractPieces, extractTotal } from '@/lib/smartSms';
 
 function V33PageOpenFallback() {
-  return (
-    <div style={{ minHeight: '100vh', background: '#05070d', color: '#fff', display: 'grid', placeItems: 'center', padding: 24, fontFamily: '-apple-system,BlinkMacSystemFont,Roboto,sans-serif' }}>
-      <div style={{ width: 'min(420px, 100%)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 20, background: 'rgba(255,255,255,0.06)', padding: 20, textAlign: 'center' }}>
-        <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 1 }}>DUKE HAPUR…</div>
-        <div style={{ marginTop: 14, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <a href="/" style={{ color: '#fff', textDecoration: 'none', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 12, padding: '10px 14px', fontWeight: 900 }}>HOME</a>
-          <a href="/diag-raw" style={{ color: '#fff', textDecoration: 'none', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 12, padding: '10px 14px', fontWeight: 900 }}>DIAG RAW</a>
-        </div>
-      </div>
-    </div>
-  );
+  return <div style={{ minHeight: '100dvh', background: '#f3f6f9', color: '#19334a', padding: 24, fontFamily: 'system-ui,sans-serif' }}>Duke hapur porosinë…</div>;
 }
 
-const PAGE_BG = 'linear-gradient(180deg, #0b1220 0%, #0a0f1c 55%, #090d18 100%)';
 const COMPANY_PHONE = '+38344735312';
 
 function normalizeStatus(value) {
@@ -191,8 +181,8 @@ function OrderTrackingContent({ id, srcHint, familyToken }) {
 
   // Hapat sipas tipit të porosisë (Baza vs Transporti)
   const STEP_LABELS = isBase
-    ? ['🏢 Pranimi', '💦 Në Pastrim', '📦 Gati (Ejani merreni)', '✅ Përfunduar']
-    : ['🚐 Marrja e Porosisë', '💦 Në Pastrim', '📦 Gati', '🚚 Në Rrugë', '✅ Përfunduar'];
+    ? ['Pranimi', 'Në pastrim', 'Gati për tërheqje', 'Përfunduar']
+    : ['Marrja e tepihave', 'Në pastrim', 'Gati', 'Në dërgesë', 'Përfunduar'];
 
   // Gjetja e hapit aktual
   let activeStep = 0;
@@ -288,7 +278,7 @@ function OrderTrackingContent({ id, srcHint, familyToken }) {
     } catch (err) {
       const geoCode = err?.code;
       if (geoCode === 1) {
-        setGpsError('🔒 GPS është i bllokuar. Ju lutem lejojeni lokacionin nga shfletuesi dhe provoni sërish.');
+        setGpsError('GPS është i bllokuar. Ju lutem lejojeni lokacionin nga shfletuesi dhe provoni sërish.');
       } else if (geoCode === 2) {
         setGpsError('GPS nuk u gjet. Dilni pak më afër dritares ose provoni përsëri pas pak.');
       } else if (geoCode === 3) {
@@ -301,530 +291,88 @@ function OrderTrackingContent({ id, srcHint, familyToken }) {
     }
   }
 
+  const statusLabel = isCancelled ? 'E anuluar' : isDepo ? 'Në depo' : ['assigned', 'dispatched', 'riplan'].includes(status) ? 'E planifikuar' : STEP_LABELS[activeStep];
+  const stepIcons = isBase ? ['rug', 'wash', 'box', 'check'] : ['truck', 'wash', 'box', 'truck', 'check'];
   return (
-    <div style={styles.page}>
-      <style>{`
-        @keyframes pulse {
-          0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(10,132,255,0.45); }
-          70% { transform: scale(1.02); box-shadow: 0 0 0 14px rgba(10,132,255,0); }
-          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(10,132,255,0); }
-        }
-      `}</style>
-
+    <main className="customer-portal" style={styles.page}>
+      <CustomerPortalStyles />
       <div style={styles.shell}>
-        <div style={styles.headerWrap}>
-
-          <h1 style={styles.title}>JONI - Pastrimi i Tepihave</h1>
-
-        </div>
-
-        {loading ? (
-          <div style={styles.stateCard}>
-            <div style={styles.stateEmoji}>⏳</div>
-            <div style={styles.stateTitle}>Duke u ngarkuar...</div>
-            <div style={styles.stateText}>Po marrim të dhënat e porosisë suaj.</div>
+        <header style={styles.header}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ ...portal.icon, background: '#19334a', color: '#fff', width: 42, height: 42 }}><CustomerIcon name="rug" size={25} /></span>
+            <div><div style={{ fontSize: 21, letterSpacing: 2, fontWeight: 750, color: '#19334a' }}>JONI</div><div style={{ color: '#64798a', fontSize: 12, marginTop: 2 }}>Pastrimi i tepihave</div></div>
           </div>
-        ) : error ? (
-          <div style={styles.stateCard}>
-            <div style={styles.stateEmoji}>⚠️</div>
-            <div style={styles.stateTitle}>Nuk u ngarkua porosia</div>
-            <div style={styles.stateText}>{error}</div>
-            <button style={{ marginTop: 14, padding: '12px 16px', borderRadius: 12, background: '#0A84FF', color: '#fff', border: 'none', fontWeight: 900, cursor: 'pointer' }} onClick={() => { setError(''); setLoading(true); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('tepiha:k-page-soft-retry')); } catch {} setLoading(false); }, 120); }}>RIPROVO</button>
+          <a href={`tel:${COMPANY_PHONE}`} aria-label="Telefono kompaninë JONI" style={{ ...portal.icon, background: '#fff', color: '#355c72', border: '1px solid #dde5ec' }}><CustomerIcon name="phone" size={19} /></a>
+        </header>
+        {loading ? <div style={portal.card}><p style={portal.copy}>Duke ngarkuar porosinë…</p></div> : error ? (
+          <div style={portal.card}>
+            <div style={portal.heading}><CustomerIcon name="alert" /><h1 style={portal.title}>Nuk u ngarkua porosia</h1></div>
+            <p role="alert" style={portal.error}>{error}</p>
+            <button style={{ ...portal.button, marginTop: 14 }} onClick={() => window.location.reload()}>Provo përsëri</button>
           </div>
-        ) : (
-          <>
-            <div style={styles.glassCard}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <strong style={{ fontSize: 18, overflowWrap: 'anywhere' }}>{clientName || 'Porosia juaj'} · {code}</strong>
-                <span style={styles.progressStatusPill(isCancelled)}>{isCancelled ? 'E anuluar' : isDepo ? 'Në depo' : ['assigned', 'dispatched', 'riplan'].includes(status) ? 'E planifikuar' : STEP_LABELS[activeStep]}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 12, fontSize: 14 }}>
-                <span>Copë: <strong>{isWaitingStep ? '—' : pieces}</strong></span>
-                <span>Totali: <strong>€ {formatMoney(total)}</strong></span>
-              </div>
+        ) : <>
+          <section className="portal-card" aria-label="Porosia juaj" style={portal.card}>
+            <div style={{ color: '#64798a', fontSize: 13, marginBottom: 5 }}>Përshëndetje,</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <h1 style={{ fontSize: 24, lineHeight: 1.25, margin: 0, color: '#19334a', fontWeight: 650, overflowWrap: 'anywhere' }}>{clientName || 'Klient'}</h1>
+              <span style={{ fontSize: 13, background: '#f0f4f8', color: '#355168', borderRadius: 8, padding: '7px 10px', fontWeight: 600 }}>Kodi {code}</span>
             </div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: isCancelled ? '#a53131' : '#08715f', background: isCancelled ? '#fff0ee' : '#e8f5ef', padding: '7px 10px', borderRadius: 8, marginTop: 13, fontSize: 12, fontWeight: 600 }}><CustomerIcon name={isCancelled ? 'alert' : activeStep === STEP_LABELS.length - 1 ? 'check' : 'clock'} size={15} />{statusLabel}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderTop: '1px solid #e8edf1', paddingTop: 14, marginTop: 16, fontSize: 13, color: '#64798a' }}>
+              <span>Copë <strong style={{ color: '#19334a', fontWeight: 600, marginLeft: 5 }}>{isWaitingStep ? '—' : pieces}</strong></span>
+              <span>Totali <strong style={{ color: '#19334a', fontWeight: 600, marginLeft: 5 }}>{isWaitingStep && !pieces && !total ? 'Pas matjes' : `€ ${formatMoney(total)}`}</strong></span>
+            </div>
+          </section>
 
-            <PublicFamilyPanel token={familyToken} source={isBase ? 'BASE' : 'TRANSPORT'} orderId={order?.id} />
+          <PublicFamilyPanel token={familyToken} source={isBase ? 'BASE' : 'TRANSPORT'} orderId={order?.id} />
 
-            {smsCount > 0 && !needsDepotChoice && !depotChoice ? (
-              <div
-                style={{
-                  ...styles.glassCard,
-                  marginTop: 12,
-                  padding: '14px 16px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 900,
-                    color: 'rgba(255,255,255,0.85)',
-                    letterSpacing: 0.5,
-                  }}
-                >
-                  TENTATIVAT E DËRGESËS:
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {[0, 1, 2].map((idx) => {
-                    const isOn = idx < smsCount;
-                    return (
-                      <span
-                        key={idx}
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: 999,
-                          background: isOn ? '#FF9F0A' : 'transparent',
-                          border: `2px solid ${isOn ? '#FF9F0A' : 'rgba(255,255,255,0.25)'}`,
-                          boxShadow: isOn ? '0 0 0 4px rgba(255,159,10,0.15)' : 'none',
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
+          {smsCount > 0 && !needsDepotChoice && !depotChoice && <p style={{ ...portal.copy, fontSize: 13 }}>Tentativa të dërgesës: {Math.min(smsCount, 3)} / 3</p>}
+          {needsDepotChoice ? (
+            <section style={{ ...portal.card, borderColor: '#e8d4ab', background: '#fffcf4' }}>
+              <div style={portal.heading}><CustomerIcon name="box" /><h2 style={portal.title}>Tepihat janë në depo</h2></div>
+              <p style={portal.copy}>Zgjidhni nëse dëshironi dërgesë tjetër apo t’i merrni vetë në depo.</p>
+              <button disabled={submittingChoice} onClick={() => handleDepotChoice('resend')} style={portal.button}><CustomerIcon name="truck" size={18} />{submittingChoice ? 'Po dërgohet…' : 'Sillni përsëri (+5,00 €)'}</button>
+              <button disabled={submittingChoice} onClick={() => handleDepotChoice('pickup')} style={{ ...portal.button, ...portal.secondary, marginTop: 10 }}><CustomerIcon name="pin" size={18} />Vij i marr në depo</button>
+            </section>
+          ) : depotChoice ? (
+            <section style={portal.card}>
+              <p style={{ ...portal.success, marginTop: 0 }}><CustomerIcon name="check" />Zgjedhja u regjistrua.</p>
+              <p style={{ ...portal.copy, margin: '10px 0 0' }}>{depotChoice === 'resend' ? 'Dërgesë tjetër: +5,00 €. Shoferi do t’ju kontaktojë.' : 'Ju mirëpresim t’i merrni tepihat në depo.'}</p>
+            </section>
+          ) : isWaitingStep && !familyToken ? (
+            <section style={portal.card}>
+              <button type="button" onClick={handleSendGps} disabled={gpsBusy} style={portal.button}><CustomerIcon name="pin" size={18} />{gpsBusy ? 'Po dërgohet…' : 'Dërgo lokacionin tim'}</button>
+              <p style={{ ...portal.copy, margin: '10px 0 0', fontSize: 13 }}>Preke kur je aty ku duhet të vijë shoferi. Lokacioni i dërgohet për këtë porosi.</p>
+              {gpsNotice && <p role="status" style={portal.success}>{gpsNotice}</p>}
+              {gpsError && <p role="alert" style={portal.error}>{gpsError}</p>}
+            </section>
+          ) : null}
 
-            {needsDepotChoice ? (
-              <div style={{ ...styles.glassCard, marginTop: 20, padding: 24, textAlign: 'center', border: '1px solid rgba(255,59,48,0.5)', background: 'rgba(255,59,48,0.1)' }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
-                <h3 style={{ color: '#FF3B30', marginTop: 0, marginBottom: 10, fontSize: 20, fontWeight: 900 }}>Porosia ndodhet në Depo!</h3>
-                <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 1.5, marginBottom: 20 }}>
-                  Kemi provuar t'ju kontaktojmë 3 herë pa sukses. Sipas rregullores, porosia është kthyer në depo. Zgjidhni si dëshironi të veproni:
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <button
-                    disabled={submittingChoice}
-                    onClick={() => handleDepotChoice('resend')}
-                    style={{ padding: '16px', borderRadius: 14, background: '#0A84FF', color: '#fff', fontWeight: 900, border: 'none', cursor: 'pointer', fontSize: 14 }}
-                  >
-                    {submittingChoice ? 'DUKE DËRGUAR...' : '🔄 SILLNI PRAPË (+5.00 € Extra)'}
-                  </button>
-                  <button
-                    disabled={submittingChoice}
-                    onClick={() => handleDepotChoice('pickup')}
-                    style={{ padding: '16px', borderRadius: 14, background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: 900, border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: 14 }}
-                  >
-                    📍 VIJ I MARR VETË NË DEPO
-                  </button>
-                </div>
-              </div>
-            ) : depotChoice ? (
-              <div style={{ ...styles.glassCard, marginTop: 20, padding: 24, textAlign: 'center', border: '1px solid rgba(52,199,89,0.4)', background: 'rgba(52,199,89,0.1)' }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
-                <h3 style={{ color: '#34C759', marginTop: 0, marginBottom: 10, fontSize: 18, fontWeight: 900 }}>Zgjedhja juaj u regjistrua!</h3>
-                <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 1.5 }}>
-                  {depotChoice === 'resend'
-                    ? 'Keni zgjedhur rikthimin e porosisë (+5.00 € tarifë ekstra). Transporti do t\'ju kontaktojë së shpejti për t\'ua sjellë.'
-                    : 'Keni zgjedhur t\'i merrni vetë. Ju mirëpresim në depon tonë!'}
-                </p>
-              </div>
-            ) : isWaitingStep && !familyToken ? (
-              <div style={styles.glassCard}>
-                <div style={styles.gpsCardText}>Dërgo GPS kur je te adresa e tepihave.</div>
-                <button
-                  type="button"
-                  onClick={handleSendGps}
-                  disabled={gpsBusy}
-                  style={{
-                    ...styles.gpsBtn,
-                    ...(gpsBusy ? styles.gpsBtnDisabled : {}),
-                  }}
-                >
-                  {gpsBusy ? '⏳ DUKE DËRGUAR GPS...' : '📍 DËRGO LOKACIONIN TIM (GPS) PËR SHOFERIN'}
-                </button>
-
-                {gpsNotice ? <div style={styles.gpsSuccessBox}>{gpsNotice}</div> : null}
-                {gpsError ? <div style={styles.gpsErrorBox}>{gpsError}</div> : null}
-              </div>
-            ) : null}
-
-            <details style={styles.glassCard}>
-              <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 800, padding: '6px 0' }}>Ecuria e porosisë</summary>
-              <div style={styles.timeline}>
-                {STEP_LABELS.map((label, index) => {
-                  const state = getStepState(index, activeStep, isCancelled);
-                  const isActive = state === 'active';
-                  const isDone = state === 'done';
-                  const isLast = index === STEP_LABELS.length - 1;
-
-                  return (
-                    <div key={label} style={styles.stepRow}>
-                      <div style={styles.stepRailWrap}>
-                        <div
-                          style={{
-                            ...styles.stepDot,
-                            ...(isDone ? styles.stepDotDone : {}),
-                            ...(isActive ? styles.stepDotActive : {}),
-                          }}
-                        />
-                        {!isLast ? (
-                          <div
-                            style={{
-                              ...styles.stepLine,
-                              ...(isDone ? styles.stepLineDone : {}),
-                              ...(isActive ? styles.stepLineActive : {}),
-                            }}
-                          />
-                        ) : null}
-                      </div>
-
-                      <div
-                        style={{
-                          ...styles.stepCard,
-                          ...(isDone ? styles.stepCardDone : {}),
-                          ...(isActive ? styles.stepCardActive : {}),
-                        }}
-                      >
-                        <div style={styles.stepLabel}>{label}</div>
-
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </details>
-
-            <a href={`tel:${COMPANY_PHONE}`} style={styles.callBtn}>
-              📞 KONTAKTO KOMPANINË
-            </a>
-          </>
-        )}
+          <details className="portal-card" style={portal.card}>
+            <summary style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, color: '#19334a', fontSize: 16, fontWeight: 600 }}><span style={{ display: 'flex', alignItems: 'center', gap: 10 }}><CustomerIcon name="box" />Statusi</span><CustomerIcon name="chevron" size={18} className="portal-chevron" /></summary>
+            <ol style={{ listStyle: 'none', padding: 0, margin: '16px 0 0', display: 'grid', gap: 6 }}>
+              {STEP_LABELS.map((label, index) => {
+                const state = getStepState(index, activeStep, isCancelled);
+                return <li key={label} aria-current={state === 'active' ? 'step' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 12, borderRadius: 10, padding: '10px 8px', background: state === 'active' ? '#eaf5f1' : 'transparent', color: state === 'pending' ? '#7a8b98' : '#205e50', fontSize: 14, fontWeight: state === 'active' ? 600 : 400 }}><CustomerIcon name={state === 'done' ? 'check' : stepIcons[index]} size={19} /><span>{label}</span>{state === 'active' && <span style={{ marginLeft: 'auto', fontSize: 11 }}>Tani</span>}</li>;
+              })}
+            </ol>
+          </details>
+          <footer style={{ textAlign: 'center', padding: '4px 0 12px' }}>
+            <a href={`tel:${COMPANY_PHONE}`} style={{ ...portal.button, ...portal.secondary, background: '#fff' }}><CustomerIcon name="phone" size={18} />Na kontaktoni</a>
+            <div style={{ marginTop: 12, color: '#64798a', fontSize: 12 }}>Kompania JONI · +383 44 735 312</div>
+          </footer>
+        </>}
       </div>
-    </div>
+    </main>
   );
 }
 
 const styles = {
-  page: {
-    minHeight: '100dvh',
-    background: PAGE_BG,
-    color: '#F5F7FB',
-    padding: '14px 12px 24px',
-    fontFamily:
-      'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  },
-  shell: {
-    maxWidth: 560,
-    margin: '0 auto',
-  },
-  headerWrap: {
-    padding: '4px 2px 14px',
-  },
-  eyebrow: {
-    fontSize: 12,
-    letterSpacing: 1.8,
-    textTransform: 'uppercase',
-    color: 'rgba(255,255,255,0.58)',
-    fontWeight: 800,
-    marginBottom: 8,
-  },
-  title: {
-    margin: 0,
-    fontSize: 22,
-    lineHeight: 1.05,
-    fontWeight: 900,
-    letterSpacing: '-0.03em',
-  },
-  subtitle: {
-    margin: '10px 0 0',
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: 'rgba(255,255,255,0.72)',
-  },
-  glassCard: {
-    background: 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: 24,
-    backdropFilter: 'blur(18px)',
-    WebkitBackdropFilter: 'blur(18px)',
-    boxShadow: '0 18px 50px rgba(0,0,0,0.28)',
-    padding: 12,
-    marginBottom: 12,
-  },
-  
-  // STILE E REJA QË I KISHTE HARRUAR KODI I MËPARSHËM
-  depotCard: {
-    border: '1px solid rgba(255,69,58,0.3)',
-    background: 'linear-gradient(180deg, rgba(255,69,58,0.15), rgba(255,69,58,0.05))',
-  },
-  depotTitle: {
-    fontSize: 20,
-    fontWeight: 900,
-    color: '#FF453A',
-    marginBottom: 8,
-  },
-  depotText: {
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: 'rgba(255,255,255,0.76)',
-    marginBottom: 16,
-  },
-  depotButtonsWrap: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 12,
-  },
-  choiceBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    minHeight: 52,
-    borderRadius: 14,
-    padding: '0 16px',
-    fontSize: 15,
-    fontWeight: 800,
-    color: '#fff',
-    cursor: 'pointer',
-    border: 'none',
-  },
-  choiceBtnBlue: {
-    background: 'rgba(10,132,255,0.2)',
-    border: '1px solid rgba(10,132,255,0.4)',
-  },
-  choiceBtnGreen: {
-    background: 'rgba(52,199,89,0.2)',
-    border: '1px solid rgba(52,199,89,0.4)',
-  },
-  choiceBtnDisabled: {
-    opacity: 0.6,
-    cursor: 'not-allowed',
-  },
-  choicePriceBlue: {
-    color: '#64D2FF',
-  },
-  choicePriceGreen: {
-    color: '#30D158',
-  },
-  // FUNDI I STILEVE TË REJA
-
-  stateCard: {
-    background: 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: 24,
-    backdropFilter: 'blur(18px)',
-    WebkitBackdropFilter: 'blur(18px)',
-    boxShadow: '0 18px 50px rgba(0,0,0,0.28)',
-    padding: '28px 18px',
-    textAlign: 'center',
-    marginTop: 12,
-  },
-  stateEmoji: {
-    fontSize: 34,
-    marginBottom: 10,
-  },
-  stateTitle: {
-    fontSize: 20,
-    fontWeight: 900,
-    marginBottom: 8,
-  },
-  stateText: {
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: 'rgba(255,255,255,0.72)',
-  },
-  cardGrid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: 12,
-  },
-  infoBox: {
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 18,
-    padding: 14,
-    minHeight: 88,
-  },
-  infoLabel: {
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-    color: 'rgba(255,255,255,0.6)',
-    marginBottom: 8,
-    fontWeight: 800,
-  },
-  infoValue: {
-    fontSize: 26,
-    lineHeight: 1.05,
-    fontWeight: 900,
-    letterSpacing: '-0.03em',
-    wordBreak: 'break-word',
-  },
-  gpsCardTitle: {
-    fontSize: 18,
-    fontWeight: 900,
-    marginBottom: 8,
-  },
-  gpsCardText: {
-    fontSize: 14,
-    lineHeight: 1.55,
-    color: 'rgba(255,255,255,0.76)',
-    marginBottom: 14,
-  },
-  gpsBtn: {
-    width: '100%',
-    minHeight: 62,
-    borderRadius: 18,
-    border: '1px solid rgba(255,255,255,0.18)',
-    background: 'linear-gradient(180deg, rgba(10,132,255,0.95), rgba(88,86,214,0.92))',
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: 900,
-    letterSpacing: 0.2,
-    padding: '14px 16px',
-    boxShadow: '0 18px 38px rgba(10,132,255,0.24)',
-  },
-  gpsBtnDisabled: {
-    opacity: 0.72,
-    filter: 'saturate(0.9)',
-  },
-  gpsSuccessBox: {
-    marginTop: 12,
-    borderRadius: 18,
-    padding: '13px 14px',
-    background: 'linear-gradient(180deg, rgba(52,199,89,0.18), rgba(52,199,89,0.1))',
-    border: '1px solid rgba(52,199,89,0.3)',
-    color: '#F5FFF7',
-    fontSize: 14,
-    lineHeight: 1.5,
-    fontWeight: 700,
-  },
-  gpsErrorBox: {
-    marginTop: 12,
-    borderRadius: 18,
-    padding: '13px 14px',
-    background: 'linear-gradient(180deg, rgba(255,159,10,0.2), rgba(255,69,58,0.12))',
-    border: '1px solid rgba(255,159,10,0.28)',
-    color: '#FFF7ED',
-    fontSize: 14,
-    lineHeight: 1.5,
-    fontWeight: 700,
-  },
-  progressHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 16,
-    flexWrap: 'wrap',
-  },
-  progressTitle: {
-    fontSize: 18,
-    fontWeight: 900,
-  },
-  progressStatusPill: (isCancelled) => ({
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '8px 12px',
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 800,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: '#fff',
-    background: isCancelled ? 'rgba(255,69,58,0.24)' : 'rgba(10,132,255,0.2)',
-    border: `1px solid ${isCancelled ? 'rgba(255,69,58,0.34)' : 'rgba(10,132,255,0.34)'}`,
-  }),
-  timeline: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-    marginTop: 10,
-  },
-  stepRow: {
-    display: 'grid',
-    gridTemplateColumns: '28px 1fr',
-    gap: 12,
-    alignItems: 'stretch',
-  },
-  stepRailWrap: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-  },
-  stepDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 999,
-    background: 'rgba(255,255,255,0.18)',
-    border: '2px solid rgba(255,255,255,0.16)',
-    marginTop: 6,
-    flexShrink: 0,
-  },
-  stepDotDone: {
-    background: '#34C759',
-    borderColor: 'rgba(52,199,89,0.9)',
-    boxShadow: '0 0 0 6px rgba(52,199,89,0.14)',
-  },
-  stepDotActive: {
-    background: '#0A84FF',
-    borderColor: 'rgba(10,132,255,0.95)',
-    boxShadow: '0 0 0 8px rgba(10,132,255,0.14)',
-    animation: 'pulse 1.8s infinite',
-  },
-  stepLine: {
-    width: 3,
-    flex: 1,
-    minHeight: 16,
-    borderRadius: 999,
-    marginTop: 6,
-    background: 'rgba(255,255,255,0.12)',
-  },
-  stepLineDone: {
-    background: 'linear-gradient(180deg, rgba(52,199,89,0.95), rgba(52,199,89,0.5))',
-  },
-  stepLineActive: {
-    background: 'linear-gradient(180deg, rgba(10,132,255,0.95), rgba(10,132,255,0.24))',
-  },
-  stepCard: {
-    background: 'rgba(255,255,255,0.045)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 18,
-    padding: '8px 10px',
-  },
-  stepCardDone: {
-    background: 'linear-gradient(180deg, rgba(52,199,89,0.16), rgba(52,199,89,0.08))',
-    border: '1px solid rgba(52,199,89,0.3)',
-  },
-  stepCardActive: {
-    background: 'linear-gradient(180deg, rgba(10,132,255,0.2), rgba(10,132,255,0.08))',
-    border: '1px solid rgba(10,132,255,0.34)',
-  },
-  stepLabel: {
-    fontSize: 17,
-    lineHeight: 1.2,
-    fontWeight: 900,
-    letterSpacing: '-0.02em',
-  },
-  stepMeta: {
-    marginTop: 6,
-    fontSize: 13,
-    lineHeight: 1.45,
-    color: 'rgba(255,255,255,0.68)',
-  },
-  callBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    minHeight: 60,
-    marginTop: 8,
-    borderRadius: 18,
-    textDecoration: 'none',
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 900,
-    letterSpacing: 0.3,
-    background: 'linear-gradient(180deg, rgba(52,199,89,0.95), rgba(10,132,255,0.88))',
-    boxShadow: '0 18px 36px rgba(10,132,255,0.2)',
-    border: '1px solid rgba(255,255,255,0.18)',
-  },
+  page: { minHeight: '100dvh', background: '#f3f6f9', color: '#19334a', padding: '20px 16px calc(24px + env(safe-area-inset-bottom))', overflowWrap: 'anywhere' },
+  shell: { maxWidth: 520, margin: '0 auto' },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '0 2px 22px' },
 };
+
 export default function OrderTrackingPage() {
   return (
     <Suspense fallback={null}>
