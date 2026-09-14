@@ -14,6 +14,7 @@ import { withDeadline } from '@/lib/boundedRequest';
 import DispatchSendQueue from '@/components/DispatchSendQueue';
 import { getDispatchOutbox, wakeDispatchOutbox } from '@/lib/dispatchOutboxRuntime';
 import CustomerCare from '@/components/CustomerCare';
+import DispatchClientContact from '@/components/DispatchClientContact';
 import DispatchMeasurements from '@/components/DispatchMeasurements';
 import { createDispatchCreateIntentJournal } from "@/lib/dispatchCreateIntent";
 import { isRecoverableDispatchPhoneCheck, watchDispatchPhoneCheck } from '@/lib/dispatchPhoneCheck';
@@ -3384,6 +3385,15 @@ Mati 1, nesër paradite, 3 tepiha`}
               <button type="button" style={ui.btnGhostMini} onClick={() => setSelectedRow(null)}>MBYLLE</button>
             </div>
 
+            <DispatchClientContact
+              key={selectedRow.id}
+              orderId={selectedRow.id}
+              name={getClientName(selectedRow)}
+              phone={selectedPhone}
+              code={getDispatchCardCode(selectedRow)}
+              messageText={smartMessageText || buildCustomerConfirmText(selectedRow)}
+            />
+
             {selectedWarnings.length ? (
               <div style={ui.readonlyBadgeRow}>
                 {selectedWarnings.map((w) => <span key={`selected_${w}`} style={w.includes("ZBRITJE") ? ui.badgeWarn : ui.badgeBad}>{w}</span>)}
@@ -3396,11 +3406,11 @@ Mati 1, nesër paradite, 3 tepiha`}
                 <div style={ui.detailValue}>{dispatchStatusLabel(selectedRow)}</div>
               </div>
               <div style={ui.detailBox}>
-                <div style={ui.detailLabel}>SA I BËHEN</div>
+                <div style={ui.detailLabel}>PAGESA</div>
                 <div style={ui.paymentRows}>
-                  <div><span>TOTALI</span><strong>{moneyDash(selectedPay.total)}</strong></div>
-                  <div><span>PAGUAR</span><strong>{moneyDash(selectedPay.paid)}</strong></div>
-                  <div><span>BORXH</span><strong style={rowHasDebt(selectedRow) ? ui.debtInline : undefined}>{moneyDash(selectedPay.debt)}</strong></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}><span>TOTALI</span><strong>{moneyDash(selectedPay.total)}</strong></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}><span>PAGUAR</span><strong>{moneyDash(selectedPay.paid)}</strong></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}><span>BORXH</span><strong style={rowHasDebt(selectedRow) ? ui.debtInline : undefined}>{moneyDash(selectedPay.debt)}</strong></div>
                 </div>
               </div>
               <div style={ui.detailBox}>
@@ -3410,43 +3420,42 @@ Mati 1, nesër paradite, 3 tepiha`}
               <div style={ui.detailBox}>
                 <div style={ui.detailLabel}>SHOFERI / ORARI</div>
                 <div style={ui.detailValue}>Shoferi: {orderAssignedDriver(selectedRow) || "PA SHOFER"}</div>
-                <div style={ui.detailSub}>Data/sloti: {getScheduleText(selectedRow)}</div>
+                <div style={ui.detailSub}>Orari: {getScheduleText(selectedRow)}</div>
               </div>
             </div>
 
             <div style={ui.updateSection}>
-              <div style={ui.sectionTitle}>TIMELINE</div>
+              <div style={ui.sectionTitle}>Ecuria e porosisë</div>
               <div style={ui.timelineWrap}>
                 {DISPATCH_TIMELINE_STEPS.map((step, idx) => (
-                  <span key={step} style={timelineStyle(idx, transportStageIndex(selectedRow))}>{idx + 1}. {step}</span>
+                  <span key={step} style={timelineStyle(idx, transportStageIndex(selectedRow))}>{idx < transportStageIndex(selectedRow) ? "✓ " : ""}{idx + 1}. {idx === 0 && transportStageIndex(selectedRow) === 0 ? dispatchStatusLabel(selectedRow) : step}</span>
                 ))}
               </div>
             </div>
 
             <div style={ui.updateSection}>
-              <div style={ui.sectionTitle}>VEPRIME</div>
               <div style={ui.actionGrid}>
-                {selectedPhoneLink ? <a href={selectedPhoneLink} style={ui.actionBtn}>THIRR</a> : null}
-                {selectedWhatsappLink ? <a href={selectedWhatsappLink} target="_blank" rel="noreferrer" style={ui.actionBtn}>WHATSAPP</a> : null}
-                <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("phone")}>COPY TEL</button>
-                <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("name_phone")}>COPY EMËR + TEL</button>
-                <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("address")}>COPY ADRESË</button>
-                <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("driver")}>COPY PËR SHOFER</button>
-                <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("client")}>COPY PËR KLIENT</button>
-                {selectedPhone ? <button type="button" style={ui.actionBtn} onClick={() => openDispatchMessage("whatsapp", selectedPhone, smartMessageText || buildCustomerConfirmText(selectedRow))}>WHATSAPP</button> : null}
-                {selectedPhone ? <button type="button" style={ui.actionBtn} onClick={() => openDispatchMessage("viber", selectedPhone, smartMessageText || buildCustomerConfirmText(selectedRow))}>VIBER</button> : null}
-                {selectedPhone ? <button type="button" style={ui.actionBtn} onClick={() => openDispatchMessage("sms", selectedPhone, smartMessageText || buildCustomerConfirmText(selectedRow))}>SMS</button> : null}
-                <button type="button" style={ui.actionBtn} onClick={() => copyReply(selectedRow)}>KOPJO PËRGJIGJEN</button>
-                <button type="button" style={ui.actionBtn} onClick={() => setDispatchReschedule(selectedRow)}>RIPLAN</button>
-                <a href={selectedTransportHref} style={ui.actionBtn}>HAP NË TRANSPORT</a>
-                <button type="button" style={ui.actionBtn} onClick={() => document.getElementById("dispatch-boss-edit-address")?.focus()}>EDITO KLIENTIN / ADRESËN</button>
+                <button type="button" style={ui.actionBtn} onClick={() => setDispatchReschedule(selectedRow)}>Ndrysho orarin</button>
+                <button type="button" style={ui.actionBtn} onClick={() => document.getElementById("dispatch-boss-edit-address")?.focus()}>Ndrysho emrin / adresën</button>
+                <a href={selectedTransportHref} style={ui.actionBtn}>Hap porosinë në Transport</a>
               </div>
+              <details style={{ marginTop: 12 }}>
+                <summary style={ui.accordionToggle}>Më shumë: kopjo të dhënat</summary>
+                <div style={{ ...ui.actionGrid, marginTop: 8 }}>
+                  <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("phone")}>Kopjo telefonin</button>
+                  <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("name_phone")}>Kopjo emrin + telefonin</button>
+                  <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("address")}>Kopjo adresën</button>
+                  <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("driver")}>Kopjo për shoferin</button>
+                  <button type="button" style={ui.actionBtn} onClick={() => copyFromSelectedRow("client")}>Kopjo për klientin</button>
+                  <button type="button" style={ui.actionBtn} onClick={() => copyReply(selectedRow)}>Kopjo përgjigjen</button>
+                </div>
+              </details>
               {copyMsg ? <div style={ui.ok}>{copyMsg}</div> : null}
             </div>
 
             <div style={ui.updateSection}>
               <button type="button" style={ui.accordionToggle} onClick={() => setCustomerMessagesOpen(!customerMessagesOpen)}>
-                <span>Mesazhe klienti</span><strong>{customerMessagesOpen ? "MBYLL" : "HAP"}</strong>
+                <span>Mesazhe të gatshme për klientin</span><strong>{customerMessagesOpen ? "MBYLL" : "HAP"}</strong>
               </button>
               {customerMessagesOpen ? (
                 <div style={ui.messageChipRowCompact}>
@@ -3459,7 +3468,7 @@ Mati 1, nesër paradite, 3 tepiha`}
 
             <div style={ui.updateSection}>
               <button type="button" style={ui.accordionToggle} onClick={() => setDriverMessagesOpen(!driverMessagesOpen)}>
-                <span>Mesazhe shoferi</span><strong>{driverMessagesOpen ? "MBYLL" : "HAP"}</strong>
+                <span>Mesazhe për shoferin</span><strong>{driverMessagesOpen ? "MBYLL" : "HAP"}</strong>
               </button>
               {driverMessagesOpen ? (
                 <div style={ui.messageChipRowCompact}>
@@ -3472,7 +3481,7 @@ Mati 1, nesër paradite, 3 tepiha`}
 
             <div style={ui.updateSection}>
               <button type="button" style={ui.accordionToggle} onClick={() => setDiscountMessagesOpen(!discountMessagesOpen)}>
-                <span>Discount</span><strong>{discountMessagesOpen ? "MBYLL" : "HAP"}</strong>
+                <span>Mesazhe për zbritje</span><strong>{discountMessagesOpen ? "MBYLL" : "HAP"}</strong>
               </button>
               {discountMessagesOpen ? (
                 <div style={ui.messageChipRowCompact}>
@@ -3485,7 +3494,7 @@ Mati 1, nesër paradite, 3 tepiha`}
 
             <div style={ui.updateSection}>
               <button type="button" style={ui.accordionToggle} onClick={() => setOtherOptionsOpen(!otherOptionsOpen)}>
-                <span>Opsione tjera{smartMessageLabel ? ` • ${smartMessageLabel}` : ""}</span><strong>{otherOptionsOpen ? "MBYLL" : "HAP"}</strong>
+                <span>Shkruaj / ndrysho mesazhin{smartMessageLabel ? ` • ${smartMessageLabel}` : ""}</span><strong>{otherOptionsOpen ? "MBYLL" : "HAP"}</strong>
               </button>
               {otherOptionsOpen ? (
                 <div style={ui.messagePreviewBlock}>
@@ -3501,8 +3510,8 @@ Mati 1, nesër paradite, 3 tepiha`}
             </div>
 
             <div style={ui.updateSection}>
-              <div style={ui.sectionTitle}>DISPATCH ADMIN / BOSS — EDITO KLIENTIN</div>
-              <div style={ui.sectionHint}>Ky Dispatch ka të drejta operative admin. T-code dhe numri i telefonit mbesin të njëjtë. Mundesh me ndërru emrin dhe adresën.</div>
+              <div style={ui.sectionTitle}>Ndrysho të dhënat e klientit</div>
+              <div style={ui.sectionHint}>Përditëso emrin ose adresën e kësaj porosie.</div>
               <div style={ui.row2}>
                 <div style={ui.field}>
                   <div style={ui.label}>EMRI</div>
@@ -3626,9 +3635,9 @@ const ui = {
   planRow: { display: "flex", gap: 6, flexWrap: "wrap", minWidth: 0, maxWidth: "100%" },
   stageBadge: { fontSize: 11, fontWeight: 1000, borderRadius: 999, padding: "4px 8px", border: "1px solid rgba(37,99,235,0.24)", background: "rgba(59,130,246,0.12)", color: "#1d4ed8" },
   timelineWrap: { display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", minWidth: 0, maxWidth: "100%", marginTop: 2 },
-  timelineDone: { fontSize: 10, fontWeight: 1000, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(16,185,129,0.22)", background: "rgba(16,185,129,0.12)", color: "#047857", lineHeight: 1.15 },
-  timelineNow: { fontSize: 10, fontWeight: 1000, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(37,99,235,0.28)", background: "rgba(59,130,246,0.14)", color: "#1d4ed8", lineHeight: 1.15 },
-  timelinePending: { fontSize: 10, fontWeight: 900, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.03)", color: "rgba(17,17,17,0.56)", lineHeight: 1.15 },
+  timelineDone: { fontSize: 10, fontWeight: 1000, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(16,185,129,0.22)", background: "rgba(16,185,129,0.12)", color: "#86efac", lineHeight: 1.4 },
+  timelineNow: { fontSize: 10, fontWeight: 1000, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(37,99,235,0.28)", background: "rgba(59,130,246,0.14)", color: "#bfdbfe", lineHeight: 1.4 },
+  timelinePending: { fontSize: 10, fontWeight: 900, borderRadius: 999, padding: "4px 7px", border: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.03)", color: "#cbd5e1", lineHeight: 1.4 },
   cancelCard: { width: "100%", maxWidth: "100%", minWidth: 0, border: "1px solid rgba(185,28,28,0.18)", borderRadius: 16, padding: 12, display: "grid", gap: 8, background: "linear-gradient(180deg, rgba(254,242,242,0.95), rgba(255,255,255,0.96))", boxShadow: "0 8px 18px rgba(0,0,0,0.05)", boxSizing: "border-box", overflow: "hidden" },
   cancelTop: { display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, maxWidth: "100%" },
   cancelCode: { minWidth: 52, height: 42, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(185,28,28,0.10)", color: "#991b1b", fontSize: 13, fontWeight: 1000, border: "1px solid rgba(185,28,28,0.16)" },
@@ -3705,8 +3714,8 @@ const ui = {
   debtInline: { color: "#fecaca" },
   cardFooterRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", minWidth: 0 },
   compactOpen: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 74, height: 32, padding: "0 12px", borderRadius: 999, background: "rgba(59,130,246,0.20)", border: "1px solid rgba(96,165,250,0.30)", color: "#bfdbfe", fontSize: 11, fontWeight: 1000, letterSpacing: 0.3, flexShrink: 0 },
-  modalOverlay: { position: "fixed", inset: 0, background: "rgba(2,6,23,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60 },
-  modalCard: { width: "min(720px, 100%)", maxWidth: "100%", maxHeight: "90vh", overflow: "auto", background: "#0f172a", color: "#f8fafc", borderRadius: 20, border: "1px solid rgba(148,163,184,0.22)", padding: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.42)", boxSizing: "border-box" },
+  modalOverlay: { position: "fixed", inset: 0, background: "rgba(2,6,23,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, zIndex: 2147482000 },
+  modalCard: { width: "min(720px, 100%)", maxWidth: "100%", maxHeight: "90dvh", overflow: "auto", overscrollBehavior: "contain", background: "#0f172a", color: "#f8fafc", borderRadius: 20, border: "1px solid rgba(148,163,184,0.22)", padding: 16, boxShadow: "0 24px 48px rgba(0,0,0,0.42)", boxSizing: "border-box" },
   modalKicker: { fontSize: 11, fontWeight: 1000, color: "#93c5fd", letterSpacing: 0.7, marginBottom: 4 },
   detailGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10, marginTop: 10 },
   detailBox: { borderRadius: 16, border: "1px solid rgba(148,163,184,0.16)", background: "rgba(2,6,23,0.42)", padding: 12, display: "grid", gap: 6, minWidth: 0 },
@@ -3715,7 +3724,7 @@ const ui = {
   detailSub: { fontSize: 12, fontWeight: 800, color: "rgba(203,213,225,0.72)" },
   paymentRows: { display: "grid", gap: 6, fontSize: 13 },
   actionGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 },
-  actionBtn: { minHeight: 42, borderRadius: 12, border: "1px solid rgba(96,165,250,0.28)", background: "rgba(37,99,235,0.18)", color: "#dbeafe", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 12px", fontWeight: 1000, textDecoration: "none", cursor: "pointer", boxSizing: "border-box" },
+  actionBtn: { minHeight: 46, minWidth: 0, fontSize: 13, lineHeight: 1.35, textAlign: "center", overflowWrap: "anywhere", borderRadius: 12, border: "1px solid rgba(96,165,250,0.28)", background: "rgba(37,99,235,0.18)", color: "#dbeafe", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "10px 12px", fontWeight: 800, textDecoration: "none", cursor: "pointer", boxSizing: "border-box" },
   actionBtnDisabled: { minHeight: 42, borderRadius: 12, border: "1px solid rgba(148,163,184,0.14)", background: "rgba(148,163,184,0.08)", color: "rgba(203,213,225,0.42)", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 12px", fontWeight: 1000, cursor: "not-allowed", boxSizing: "border-box" },
   page: { minHeight: "100vh", background: "#070b14", color: "#f8fafc", padding: "16px 16px calc(120px + env(safe-area-inset-bottom))", width: "100%", maxWidth: "100vw", overflowX: "hidden", boxSizing: "border-box" },
   headerLeft: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 },

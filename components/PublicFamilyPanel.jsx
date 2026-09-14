@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import FamilyContactsForm, { familyButtonStyle as button } from './FamilyContactsForm.jsx';
 import { familyRequest, familyErrorText } from '../lib/clientFamilyClient.js';
+import PublicClientLocation from './PublicClientLocation.jsx';
 export default function PublicFamilyPanel({ token, source, orderId }) {
   const [info, setInfo] = useState(null);
   const [open, setOpen] = useState(false);
@@ -20,6 +21,7 @@ export default function PublicFamilyPanel({ token, source, orderId }) {
     {info && !open && <button style={button} type="button" onClick={() => { setOpen(true); setSaved(false); }}>＋ Shto familjarët</button>}
     {info && open && <FamilyContactsForm onCancel={() => setOpen(false)} onSave={async (contacts, requestId) => { await familyRequest({ action: 'PUBLIC_ADD', token, source, orderId: String(orderId), contacts, requestId }); setSaved(true); setOpen(false); }} />}
     {saved && <p role="status" style={{ color: '#86efac' }}>Familjarët u ruajtën dhe u lidhën me kartelën tuaj.</p>}
+    {info && <PublicClientLocation key={`${source}:${orderId}:${token}`} token={token} source={source} orderId={orderId} />}
     {error && <p role="alert" style={{ color: '#fda4af' }}>{error}</p>}
   </section>;
 }
