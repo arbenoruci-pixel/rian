@@ -83,7 +83,7 @@
     "test:home-search-local-oid-dedupe-v1": "node tools/verify-home-search-local-oid-dedupe-v1.mjs",
     "test:arka-daily-operations-v3": "node tools/verify-arka-daily-operations-v3.mjs",
     "test:fletore-linking": "node tools/verify-fletore-linking-v2.mjs",
-    "test:gati-payment-fast-receipt-v1": "node tools/verify-gati-payment-fast-receipt-v1.mjs && node tools/verify-gati-offline-queue-first-v1.mjs && node tools/verify-ready-notifications-v1.mjs && node tools/verify-base-ready-dispatch-flow-v1.mjs",
+    "test:gati-payment-fast-receipt-v1": "node tools/verify-gati-payment-fast-receipt-v1.mjs && node tools/verify-gati-offline-queue-first-v1.mjs && node tools/verify-ready-notifications-v1.mjs && node tools/verify-ready-notification-quota-v3.mjs && node tools/verify-base-ready-dispatch-flow-v1.mjs",
     "test:arka-reopenable-daily-wizard-v1": "node tools/verify-arka-reopenable-daily-wizard-v1.mjs",
     "test:dispatch-phone-check-resilience-v2": "node tools/verify-dispatch-phone-check-resilience-v2.mjs && node tools/verify-dispatch-history-phone-v1.mjs",
     "test:dispatch-durable-send-v1": "node tools/verify-dispatch-outbox-v1.mjs && node tools/verify-dispatch-request-recovery-v1.mjs",

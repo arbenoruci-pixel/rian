@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
+import { createReadyNotificationStorage, READY_NOTIFICATION_LEGACY_KEY, READY_NOTIFICATION_ITEM_PREFIX } from '../lib/readyNotificationStorage.js';
 import { notificationSummary, mergeNotificationEvents, isReadyNotificationOrderId } from '../lib/readyNotificationModel.js';
 import { normalizeReadyNotification, readyNotificationServer } from '../lib/readyNotificationServer.js';
 import { canTrackReadyNotifications } from '../lib/roles.js';
@@ -20,6 +22,7 @@ assert.equal(mergeNotificationEvents([base],[{...base,pending:false}]).length,1)
 const storage=new Map(); let online=false, requests=0, loggedActor=actor, rejectNetwork=false, denied=false, loseReply=false;
 const server=new Map(); let id=10;
 const ctx=vm.createContext({
+  createReadyNotificationStorage, READY_NOTIFICATION_LEGACY_KEY, READY_NOTIFICATION_ITEM_PREFIX, indexedDB: new IDBFactory(),
   canTrackReadyNotifications, isReadyNotificationOrderId,
   readBestActor:()=>loggedActor,getDeviceId:()=>{},mergeNotificationEvents,
   window:{dispatchEvent(){},addEventListener(){},setInterval(){}},Event:class{},document:{addEventListener(){}},
@@ -43,24 +46,32 @@ ctx.approvedApiRequest = async (url, body) => {
 };
 const source=fs.readFileSync('lib/readyNotifications.js','utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'');
 vm.runInContext(source,ctx);
-const opened=ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'});
-ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'confirmed',attemptId:opened.attempt_id});
-assert.equal(requests,0);assert.equal(ctx.localNotifications().length,2);
+const opened=await ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'});
+await ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'confirmed',attemptId:opened.attempt_id});
+assert.equal(requests,0);assert.equal((await ctx.localNotifications()).length,2);
 loggedActor={...actor,id:'another'};online=true;await ctx.flushReadyNotifications();assert.equal(requests,0);
-loggedActor=actor;rejectNetwork=true;await ctx.flushReadyNotifications();assert.equal(ctx.localNotifications().filter(e=>e.pending).length,2);
+loggedActor=actor;rejectNetwork=true;await ctx.flushReadyNotifications();assert.equal((await ctx.localNotifications()).filter(e=>e.pending).length,2);
 rejectNetwork=false;denied=true;await ctx.flushReadyNotifications();assert.equal(server.size,0);
-denied=false;loseReply=true;await ctx.flushReadyNotifications();assert.equal(server.size,1);assert.equal(ctx.localNotifications().filter(e=>e.pending).length,2);await ctx.flushReadyNotifications();assert.equal(server.size,2);assert.equal(ctx.localNotifications().filter(e=>e.pending).length,0);
+denied=false;loseReply=true;await ctx.flushReadyNotifications();assert.equal(server.size,1);assert.equal((await ctx.localNotifications()).filter(e=>e.pending).length,2);await ctx.flushReadyNotifications();assert.equal(server.size,2);assert.equal((await ctx.localNotifications()).filter(e=>e.pending).length,0);
 await ctx.flushReadyNotifications();assert.equal(server.size,2);
 loggedActor={...actor,role:'TRANSPORT'};
 const priorRequests=requests;
 assert.equal((await ctx.fetchReadyNotifications(['1185'])).unavailable,true);
 await ctx.flushReadyNotifications();assert.equal(requests,priorRequests);
-assert.throws(()=>ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'}),/Ky rol/);
+await assert.rejects(ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'}),/Ky rol/);
 loggedActor=actor;
-// No silent success or app handoff if storage is full or corrupt.
-ctx.localStorage.setItem=()=>{throw new Error('QuotaExceededError');};
-assert.throws(()=>ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'}),/Quota/);
-ctx.localStorage.getItem=()=>'{broken';assert.throws(()=>ctx.localNotifications());
+// Full localStorage no longer blocks an event. A failed IndexedDB commit must.
+ctx.localStorage.setItem=()=>{throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');};
+online=false;
+await ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'});
+assert.equal((await ctx.localNotifications()).length,3);
+const put=IDBObjectStore.prototype.put;
+try {
+  IDBObjectStore.prototype.put=function(){throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');};
+  await assert.rejects(ctx.recordReadyNotification({orderId:'1185',channel:'sms',kind:'opened'}),/quota/);
+} finally { IDBObjectStore.prototype.put=put; }
+assert.equal((await ctx.localNotifications()).length,3);
+ctx.localStorage.getItem=()=>'{broken';await assert.rejects(ctx.localNotifications());
 // API always authorizes before any database call.
 await assert.rejects(readyNotificationServer({action:'GET_READY_NOTIFICATIONS',order_ids:['1185']},{authUser:null,supabase:{from(){assert.fail();}}}),/AUTH_REQUIRED/);
 console.log('PASS ready notifications: honest status, worker identity, immutable events, offline persistence, actor isolation, network/auth retention, replay and storage failures.');

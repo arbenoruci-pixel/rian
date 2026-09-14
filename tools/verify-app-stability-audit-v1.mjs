@@ -93,6 +93,7 @@ let captured,recorded=0,tracking=true;
 const Ready=component('components/ReadyNotification.jsx',{
   './SmartSmsModal':{default:props=>{captured=props;return React.createElement('div',null,props.children);},__esModule:true},
   '../lib/readyNotificationModel.js':notificationModel,
+  '../lib/readyNotificationStorage.js':{readyNotificationStorageError:e=>e.message},
   '../lib/readyNotifications.js':{
     NOTIFICATION_CHANGE:'fixture-change',currentNotificationActorId:()=>uiActor.id,
     canUseReadyNotifications:()=>tracking,localNotifications:()=>[],fetchReadyNotifications:async()=>({}),
@@ -104,7 +105,7 @@ for (const orderId of ['11111111-1111-4111-8111-111111111111','local-order',''])
   check(captured.onAction===undefined,'transport/local SMS handoff is not blocked by base-only tracking');
 }
 renderToStaticMarkup(React.createElement(Ready,{isOpen:true,orderId:'123'}));
-check(captured.onAction('sms')===true && recorded===1,'base SMS persists opened event before handoff');
+check(await captured.onAction('sms')===true && recorded===1,'base SMS persists opened event before handoff');
 tracking=false;renderToStaticMarkup(React.createElement(Ready,{isOpen:true,orderId:'123'}));
 check(captured.onAction===undefined,'unsupported role can open message without false tracking');
 

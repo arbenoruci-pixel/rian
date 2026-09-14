@@ -1,16 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import SmartSmsModal from './SmartSmsModal';
 import { notificationSummary, isReadyNotificationOrderId } from '../lib/readyNotificationModel.js';
 import { NOTIFICATION_CHANGE, currentNotificationActorId, canUseReadyNotifications, localNotifications, fetchReadyNotifications, recordReadyNotification } from '../lib/readyNotifications.js';
+import { readyNotificationStorageError } from '../lib/readyNotificationStorage.js';
 export function useReadyNotifications(ids) {
   const [events,setEvents] = useState([]);
   const [status,setStatus] = useState('Duke lexuar lajmërimet…');
   const key = [...new Set(ids.map(String))].sort().join(',');
   useEffect(() => {
     let active = true;
-    const loadLocal = () => { try { if (active) setEvents(localNotifications()); } catch { if (active) setStatus('Historia lokale nuk lexohet.'); } };
+    let generation = 0;
+    const loadLocal = async () => {
+      const request = ++generation, viewer = currentNotificationActorId();
+      try { const rows = await localNotifications(); if (active && request === generation && viewer === currentNotificationActorId()) setEvents(rows); }
+      catch { if (active) setStatus('Historia lokale nuk lexohet.'); }
+    };
     const refresh = async () => {
-      loadLocal();
+      await loadLocal();
       try { const result = await fetchReadyNotifications(key ? key.split(',') : []); if (active) setStatus(result?.unavailable ? 'Ky rol nuk e ka historinë e lajmërimeve të bazës.' : result?.offline ? 'Offline • historia e ruajtur në këtë telefon' : ''); }
       catch { if (active) setStatus('Historia nuk u rifreskua • provo kur të kthehet lidhja.'); }
     };
@@ -21,7 +27,7 @@ export function useReadyNotifications(ids) {
     const timer = window.setInterval(refresh,60000);
     return () => { active=false; clearInterval(timer); window.removeEventListener(NOTIFICATION_CHANGE,loadLocal); window.removeEventListener('focus',refresh); window.removeEventListener('online',refresh); };
   },[key]);
-  const forOrder = id => events.filter(e => String(e.order_id) === String(id));
+  const forOrder = id => events.filter(e => e.viewer_id === currentNotificationActorId() && String(e.order_id) === String(id));
   return { events, status, forOrder, summary: id => notificationSummary(forOrder(id)) };
 }
 export function ReadyNotificationBadge({ event, onClick }) {
@@ -34,21 +40,32 @@ export function TrackedReadySmsModal({ orderId, ...props }) {
   const history = useReadyNotifications(props.isOpen && orderId ? [orderId] : []);
   const [attempt,setAttempt] = useState(null);
   const [error,setError] = useState('');
-  useEffect(() => { setAttempt(null); setError(''); },[orderId,props.isOpen]);
+  const [busy,setBusy] = useState(false);
+  const recording = useRef(false);
+  const scope = `${props.isOpen}:${orderId}:${currentNotificationActorId()}`;
+  const scopeRef = useRef(scope); scopeRef.current = scope;
+  useEffect(() => { setAttempt(null); setError(''); },[scope]);
   const activeAttempt = attempt || notificationSummary(history.forOrder(orderId).filter(e => e.actor_id === currentNotificationActorId()));
-  const record = (kind,channel,attemptId) => {
-    try { const e = recordReadyNotification({orderId,kind,channel,attemptId}); setAttempt(e); setError(''); return true; }
-    catch(e) { setError(e.message); return false; }
+  const record = async (kind,channel,attemptId) => {
+    if (recording.current) return false;
+    recording.current = true; setBusy(true);
+    try {
+      const e = await recordReadyNotification({orderId,kind,channel,attemptId});
+      if (scopeRef.current !== scope) return false;
+      setAttempt(e); setError(''); return true;
+    }
+    catch(e) { if (scopeRef.current === scope) setError(readyNotificationStorageError(e)); return false; }
+    finally { recording.current = false; setBusy(false); }
   };
   if (!canUseReadyNotifications() || !isReadyNotificationOrderId(orderId)) return <SmartSmsModal {...props}><p>Ky lajmërim hapet pa regjistrim në historinë GATI të bazës.</p></SmartSmsModal>;
-  return <SmartSmsModal {...props} onAction={channel => record('opened',channel)}>
+  return <SmartSmsModal {...props} actionScope={scope} onAction={channel => record('opened',channel)}>
     <div style={{padding:12,border:'1px solid #475569',borderRadius:12,fontSize:12}}>
       <b>LAJMËRIMI “GATI”</b>
       <div>Pas dërgimit, kthehu këtu dhe konfirmo. Telefoni nuk na jep dëshmi automatike të dorëzimit.</div>
       {history.status ? <p>{history.status}</p> : null}
       {activeAttempt?.kind==='opened' ? <div style={{display:'flex',gap:8,marginTop:10}}>
-        <button type="button" className="btn primary" onClick={() => record('confirmed',activeAttempt.channel,activeAttempt.attempt_id)}>E DËRGOVA</button>
-        <button type="button" className="btn secondary" onClick={() => record('cancelled',activeAttempt.channel,activeAttempt.attempt_id)}>S’E DËRGOVA</button>
+        <button disabled={busy} type="button" className="btn primary" onClick={() => record('confirmed',activeAttempt.channel,activeAttempt.attempt_id)}>E DËRGOVA</button>
+        <button disabled={busy} type="button" className="btn secondary" onClick={() => record('cancelled',activeAttempt.channel,activeAttempt.attempt_id)}>S’E DËRGOVA</button>
       </div> : null}
       {error ? <p role="alert" style={{color:'#fca5a5'}}>{error}</p> : null}
       {history.forOrder(orderId).slice().sort((a,b)=>Date.parse(b.occurred_at)-Date.parse(a.occurred_at)).slice(0,8).map(e => <div key={e.id} style={{marginTop:7}}>

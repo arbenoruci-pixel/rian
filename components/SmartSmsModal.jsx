@@ -4,9 +4,23 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { prepareFamilySmartMessage } from '../lib/clientFamilyClient.js';
 import { buildSmartSmsLinks } from '../lib/smartSms';
 
-export default function SmartSmsModal({ isOpen = false, onClose, onAction, children, phone = '', messageText: originalMessageText = '' }) {
+export default function SmartSmsModal({ isOpen = false, onClose, onAction, actionScope = '', children, phone = '', messageText: originalMessageText = '' }) {
   const [preparing, setPreparing] = useState(false);
   const [prepared, setPrepared] = useState(null);
+  const [savingAction, setSavingAction] = useState(false);
+  const [readyAction, setReadyAction] = useState('');
+  const [actionError, setActionError] = useState('');
+  const handoffRef = useRef({ pending: false, ready: '', scope: '' });
+  const currentScope = `${isOpen}\0${actionScope}\0${phone}\0${originalMessageText}`;
+  const scopeRef = useRef(currentScope); scopeRef.current = currentScope;
+  useEffect(() => {
+    const state = { pending: false, ready: '', scope: currentScope };
+    handoffRef.current = state;
+    setSavingAction(false); setReadyAction(''); setActionError('');
+    return () => {
+      if (handoffRef.current === state) handoffRef.current = { pending: false, ready: '', scope: '' };
+    };
+  }, [currentScope]);
   const messageText = prepared?.original === originalMessageText ? prepared.text : originalMessageText;
   useEffect(() => {
     const controller = new AbortController();
@@ -95,9 +109,38 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, child
     try { window.location.href = href; } catch {}
   }
 
+  function handoff(channel, open) {
+    const state = handoffRef.current;
+    if (state.pending) return;
+    if (state.ready === channel && state.scope === currentScope) {
+      state.ready = ''; setReadyAction(''); open(); return;
+    }
+    state.ready = ''; setReadyAction(''); setActionError('');
+    let result;
+    try { result = onAction?.(channel); }
+    catch { setActionError('Lajmërimi nuk u ruajt. Provo përsëri.'); return; }
+    if (!result || typeof result.then !== 'function') { if (result !== false) open(); return; }
+    state.pending = true; setSavingAction(true);
+    Promise.resolve(result).then(allowed => {
+      if (scopeRef.current !== currentScope || handoffRef.current !== state || allowed === false) return;
+      // A slow disk may outlive Safari's transient user activation. Keep the
+      // committed attempt and offer a fresh tap instead of recording it twice.
+      if (navigator.userActivation?.isActive) open();
+      else { state.ready = channel; state.scope = currentScope; setReadyAction(channel); }
+    }).catch(() => {
+      if (handoffRef.current === state) setActionError('Lajmërimi nuk u ruajt. Provo përsëri.');
+    }).finally(() => {
+      state.pending = false;
+      if (handoffRef.current === state) setSavingAction(false);
+    });
+  }
+
   function openWhatsApp(event) {
     event?.preventDefault?.();
-    try { if (onAction?.('whatsapp') === false) return; } catch { return; }
+    handoff('whatsapp', launchWhatsApp);
+  }
+
+  function launchWhatsApp() {
     const appHref = String(links?.whatsappApp || '').trim();
     const webHref = String(links?.whatsapp || '').trim();
     const target = appHref || webHref;
@@ -133,25 +176,24 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, child
 
   function openViber(event) {
     event?.preventDefault?.();
-    try { if (onAction?.('viber') === false) return; } catch { return; }
-    try { navigator.clipboard?.writeText(String(messageText || '').trim()); } catch {}
+    // Clipboard access stays in the original tap, including Safari.
+    try { navigator.clipboard?.writeText(String(messageText || '').trim())?.catch(() => {}); } catch {}
     const href = String(links?.viber || '').trim();
     if (!href) {
       alert('Nuk u ndërtua linku për Viber.');
       return;
     }
-    openHref(href);
+    handoff('viber', () => openHref(href));
   }
 
   function openSms(event) {
     event?.preventDefault?.();
-    try { if (onAction?.('sms') === false) return; } catch { return; }
     const href = String(links?.sms || '').trim();
     if (!href) {
       alert('Nuk ka numër valid për SMS.');
       return;
     }
-    openHref(href);
+    handoff('sms', () => openHref(href));
   }
 
   const overlayStyle = {
@@ -364,6 +406,9 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, child
 
           {preparing && <div role="status">Duke përgatitur linkun e familjes…</div>}
           {children}
+          {savingAction && <div role="status">Duke ruajtur lajmërimin…</div>}
+          {readyAction && <div role="status">Gati. Preke përsëri butonin për ta hapur mesazhin.</div>}
+          {actionError && <div role="alert" style={{color:'#fca5a5'}}>{actionError}</div>}
           <div style={hintStyle}>
             WhatsApp hapet direkt me numrin e klientit. Viber e hap me tekst të gatshëm dhe mesazhi kopjohet automatikisht.
           </div>
@@ -371,29 +416,29 @@ export default function SmartSmsModal({ isOpen = false, onClose, onAction, child
           <div style={actionsStyle}>
             <button
               type="button"
-              disabled={preparing}
+              disabled={preparing || savingAction}
               onClick={openWhatsApp}
               style={{ ...baseBtn, background: 'linear-gradient(180deg, rgba(34,197,94,0.36), rgba(22,163,74,0.28))' }}
             >
-              WHATSAPP
+              {readyAction === 'whatsapp' ? 'HAPE WHATSAPP' : 'WHATSAPP'}
             </button>
 
             <button
               type="button"
-              disabled={preparing}
+              disabled={preparing || savingAction}
               onClick={openViber}
               style={{ ...baseBtn, background: 'linear-gradient(180deg, rgba(168,85,247,0.36), rgba(126,34,206,0.26))' }}
             >
-              VIBER
+              {readyAction === 'viber' ? 'HAPE VIBER' : 'VIBER'}
             </button>
 
             <button
               type="button"
-              disabled={preparing}
+              disabled={preparing || savingAction}
               onClick={openSms}
               style={{ ...baseBtn, background: 'linear-gradient(180deg, rgba(59,130,246,0.38), rgba(29,78,216,0.30))' }}
             >
-              SMS NORMAL
+              {readyAction === 'sms' ? 'HAPE SMS' : 'SMS NORMAL'}
             </button>
           </div>
         </div>
