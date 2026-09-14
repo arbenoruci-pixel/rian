@@ -1,6 +1,6 @@
 # Kartela familjare — implementation and verification
 
-Status: draft, no deployment and no production migration. Built against main `f4a7cdb`.
+Status: release candidate, deployment and live verification authorized on 2026-09-14. Built against main `f4a7cdb`.
 
 ## User flow
 
@@ -30,7 +30,16 @@ Family tables, directory and data RPCs are service-role only with RLS enabled. T
 
 Before the migration is installed, missing family RPCs disable family lookup/panels without breaking existing profile reads. Deploy the endpoint and UI together. The migration also installs expression indexes, so validate migration lock duration on staging before production.
 
-The draft branch `feat/family-client-links` has Vercel automatic deployment disabled in `vercel.json`. See [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration#git.deploymentenabled). Existing GitHub operational workflows target main or their own maintenance branches. This draft must not be merged/deployed until the remaining checks below pass.
+The branch `feat/family-client-links` has Vercel automatic deployment disabled in `vercel.json`; main remains the production deployment branch. See [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration#git.deploymentenabled). Existing GitHub operational workflows do not match the changed paths.
+
+## Verified backup and hosted migration rehearsal — 2026-09-14
+
+- Code backup: `backup/before-family-20260914` at `f4a7cdb1ea9d8d1d5a2fa921144b634e2bebee68`.
+- Previous production deployment: `dpl_AejLqLanwg1uzptWTgiNiHGAQVtu`, `rian-2qxnqyle4-tepiha.vercel.app`.
+- Private database snapshot: `tepiha_before_family_20260914`, captured at `2026-09-14T00:28:23Z`. All 206 public tables / 34,311 rows copied in one repeatable-read transaction and independently checked with row counts and ordered row digests. Functions, columns, constraints, indexes, policies, triggers, grants, sequences and migration metadata are also recorded. Browser roles and service_role cannot access the snapshot. This is an in-project logical snapshot, not an off-site physical backup.
+- Candidate migration and `tools/fixtures/family-hosted-smoke.sql` passed against actual hosted PostgreSQL, with all original triggers active, inside a transaction ending in rollback. Explicit fixture IDs/codes avoid advancing sequences. No test rows survived.
+- The rehearsal exposed the original Base `upsert_client_from_order` trigger rewriting/rejecting family visit phones. The migration now adds guarded family resolution to that trigger, preserves selected aliases and exact visit contacts, and allows existing visits to receive status/payment updates after unlink/contact removal.
+- `tools/fixtures/family-rollback-unused.sql` restored both original admission functions byte-for-byte and removed unused family objects in the same hosted rehearsal. It refuses to discard any used family data. If families have already been used, retain their overlay and admission guards during a UI rollback.
 
 ## Automated verification
 
@@ -38,14 +47,14 @@ Run `npm ci`, then `npm run build`. The build includes the four family suites an
 
 | Suite | Evidence |
 | --- | --- |
-| `test:client-family-db-v1` | 40 scenarios on PGlite Postgres: merge/unlink, every alias, contacts, cross-module first master, original codes/orders/payments unchanged, atomic Transport create and UUID retry, stale simultaneous edits, actor/RLS checks, public append scope, rollback and normalization parity across 18 international formats, browser-role insert guard |
+| `test:client-family-db-v1` | 50 scenarios on PGlite Postgres: merge/unlink, every alias, contacts, cross-module first master, original codes/orders/payments unchanged, atomic Transport create and UUID retry, stale simultaneous edits, actor/RLS checks, public append scope, rollback and normalization parity across 18 international formats, browser-role insert guard |
 | `test:client-family-api-v1` | 22 scenarios through real server logic and SQL: protected API, exact-order token, tampering/wrong source/expiry, no public phone disclosure, combined history/debt/payments, exact-visit SMS contact, bulk/legacy compatibility and missing-migration fallback |
 | `test:client-family-base-admission-v1` | 6 scenarios executing the production final admission function: family phone resolution, selected alias preservation, separate visit code, mismatched selected client, unregistered phone and no master overwrite |
 | `test:client-family-ui-v1` | 12 React DOM → actual API → SQL interactions: Base/Transport merge, conflict correction, persisted reload, signed Smart Message, real tracking page customer form, invalid/old links, unmerge |
 
 `npm run build` passed all current build gates. Three additional legacy test scripts outside the build gate fail identically on main `f4a7cdb` and on this branch: `test:transport-permanent-tcode` (12 old static assertions), `test:authoritative-offline-lists` (5 old snapshot-marker assertions), `test:base-ready-bonus` (5 old 48-hour bonus assertions). Their unchanged baseline failures are not a new feature regression. All other additional package test scripts passed.
 
-## Still required before deployment
+## Remaining live and device checks
 
 - Visual browser/mobile QA: local Chromium is blocked by the environment's socket policy; the connected browser cannot open localhost (`ERR_BLOCKED_BY_CLIENT`). DOM interaction tests passed, but they do not verify layout, touch scrolling, Safari behavior or installed PWA behavior.
 - Run `node tools/serve-client-family-test.mjs` in an environment with a local browser; it binds only `127.0.0.1:4177`, uses synthetic data and the real family API/migration. `/` tests Base and `/test-transport` tests Transport. The real tracking page is used with a test-only order-read adapter. It never needs production credentials.

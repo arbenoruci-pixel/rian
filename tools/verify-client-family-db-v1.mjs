@@ -7,7 +7,10 @@ export async function createFamilyTestDb() {
  const db = new PGlite();
  await db.exec(fs.readFileSync('tools/fixtures/family-schema.sql','utf8'));
  await db.exec(fs.readFileSync('tools/fixtures/family-transport-create-before.sql','utf8'));
+ await db.exec(fs.readFileSync('tools/fixtures/family-base-identity-before.sql','utf8'));
+ await db.exec(fs.readFileSync('tools/fixtures/family-base-upsert-before.sql','utf8'));
  await db.exec(fs.readFileSync('supabase/migrations/20260913233058_client_family_links_v1.sql','utf8'));
+ await db.exec('create trigger trg_upsert_client_from_order before insert or update on orders for each row execute function upsert_client_from_order(); create trigger trg_v_prevent_code_reuse_different_client before insert or update on orders for each row execute function prevent_code_reuse_different_client();');
  return db;
 }
 export const ids = { a:'11111111-1111-4111-8111-111111111111',b:'22222222-2222-4222-8222-222222222222',t:'33333333-3333-4333-8333-333333333333',u:'44444444-4444-4444-8444-444444444444',x:'55555555-5555-4555-8555-555555555555',staff:'99999999-9999-4999-8999-999999999999' };
@@ -88,5 +91,29 @@ await db.query("insert into clients(code,name,phone) values('10000','Unrelated b
 await assert.rejects(db.query("insert into clients(code,name,phone) values('10001','Duplicate browser client','044555666')"),/FAMILY_PHONE_ALREADY_LINKED/);
 await db.exec('reset role');
 check(true,'browser-role master insert keeps legacy admission and enforces family integrity');
+await db.query("insert into orders(id,client_id,client_code,code,client_name,client_phone,status,data) values(100,$1,1021,1021,'Blerta today','044555666','pranim','{\"order\":{},\"pieces\":2}')",[ids.b]);
+let baseVisit=(await db.query('select * from orders where id=100')).rows[0];
+check(baseVisit.client_id===ids.b&&baseVisit.code===1021&&baseVisit.client_phone==='044555666'&&baseVisit.client_name==='Blerta today','real Base trigger accepts family contact and preserves selected code and visit person');
+check(baseVisit.data.order.client.phone==='044555666'&&baseVisit.data.client.phone==='044555666','Base trigger keeps exact contact in nested order and client payloads');
+await db.query("update orders set status='pastrim' where id=100");
+baseVisit=(await db.query('select * from orders where id=100')).rows[0];
+check(baseVisit.client_phone==='044555666'&&baseVisit.client_name==='Blerta today','later Base status update retains family visit contact');
+check(await one('select phone as value from clients where id=$1',[ids.b])==='+38344222333','Base family admission leaves permanent master phone unchanged');
+await assert.rejects(db.query("insert into orders(id,client_id,code,client_name,client_phone,status) values(101,$1,777,'Wrong family','044555666','pranim')",[ids.x]),/FAMILY_SELECTED_CLIENT_CONFLICT/);count++;
+await db.query("insert into orders(id,code,client_name,client_phone,status) values(102,1021,'Old device family','044555666','pranim')");
+check(await one('select client_id as value from orders where id=102')===ids.b,'legacy Base admission resolves registered family without creating another master');
+await merge(a,b);
+await db.query("insert into orders(id,client_id,code,client_name,client_phone,status) values(103,$1,1021,'Alias visit','044555666','pranim')",[ids.b]);
+check(await one('select code as value from orders where id=103')===1021,'selected secondary Base code survives merged-family trigger resolution');
+await db.query("insert into orders(id,client_id,code,client_name,client_phone,status) values(105,$1,123,'Family prior visit','044555666','pranim')",[ids.a]);
+await change(a,'UNLINK',{otherKey:b});
+await db.query("update orders set status='gati' where id=105");
+check(await one('select client_id as value from orders where id=105')===ids.a,'unlink does not block status updates on visits already saved under another family code');
+const ownedContact=(await snap(b)).contacts.find(c=>c.phone==='044555666');
+await change(b,'REMOVE_CONTACT',{contactId:ownedContact.id});
+await db.query("update orders set paid=15 where id=100");
+check(await one('select paid as value from orders where id=100')==='15'||Number(await one('select paid as value from orders where id=100'))===15,'contact removal does not block later payments on saved visits');
+await db.query("insert into orders(id,client_id,code,client_name,client_phone,status) values(104,$1,777,'Other','044999888','pranim')",[ids.x]);
+check(await one('select client_id as value from orders where id=104')===ids.x,'unrelated Base order continues through original identity trigger');
 console.log(`PASS ${count} family database scenarios`);await db.close();
 }

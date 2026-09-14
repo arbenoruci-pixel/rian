@@ -292,5 +292,65 @@ begin
  v_sql:=replace(v_sql,v_old,v_new);
  execute v_sql;
 end $patch$;
+-- The live Base order trigger historically resolves only the master phone and
+-- overwrites the visit contact. Resolve explicit families before that legacy
+-- path, keeping a selected alias and the exact contact for this visit.
+do $base_patch$
+declare v_sql text; v_old text; v_new text;
+begin
+ v_sql:=pg_get_functiondef('public.upsert_client_from_order()'::regprocedure);
+ -- Use the complete, unique phone-normalization line as the guarded anchor.
+ v_old:='  v_phone_key := public.normalize_kosovo_phone_v1(v_phone);';
+ if (length(v_sql)-length(replace(v_sql,v_old,'')))/length(v_old)<>1
+    or position('  if v_is_draft then return new; end if;' in v_sql)=0
+    or position('  v_original_code bigint := new.code;' in v_sql)=0 then
+   raise exception 'FAMILY_BASE_ORDER_ANCHOR_CHANGED';
+ end if;
+ v_new:=v_old||$block$
+  -- CLIENT_FAMILY_BASE_ORDER_RESOLUTION_V1
+  declare v_family_id uuid; v_selected_id uuid; v_selected_code text; v_key text; v_preserve_visit boolean:=false;
+  begin
+    -- A later unlink/contact removal must not block payment/status updates to
+    -- an already persisted visit whose exact identity has not changed.
+    if tg_op='UPDATE' then
+      v_preserve_visit:=new.client_id is not distinct from old.client_id
+        and new.code is not distinct from old.code
+        and new.client_code is not distinct from old.client_code
+        and new.client_name is not distinct from old.client_name
+        and new.client_phone is not distinct from old.client_phone
+        and exists(select 1 from public.client_family_nodes where key='BASE:'||old.client_id::text);
+    end if;
+    if v_preserve_visit then v_family_id:=old.client_id;
+    else v_family_id:=public.client_family_phone_owner_v1('BASE',v_phone); end if;
+    if v_family_id is not null then
+      v_key:='BASE:'||v_family_id::text;
+      v_selected_id:=new.client_id;
+      if v_selected_id is null then
+        select c.id into v_selected_id from public.clients c where c.code=v_requested_code;
+      end if;
+      v_selected_id:=coalesce(v_selected_id,v_family_id);
+      if not exists(select 1 from public.client_family_keys_v1(v_key) k where k.key='BASE:'||v_selected_id::text) then
+        raise exception 'FAMILY_SELECTED_CLIENT_CONFLICT';
+      end if;
+      select c.code into v_selected_code from public.clients c where c.id=v_selected_id;
+      if v_selected_code is null or v_selected_code !~ '^[0-9]+$' then raise exception 'FAMILY_CLIENT_CODE_INVALID'; end if;
+      new.client_id:=v_selected_id;
+      new.client_code:=v_selected_code::integer;
+      new.code:=v_selected_code::bigint;
+      new.client_name:=coalesce(v_name,'PA EMER');
+      new.client_phone:=v_phone;
+      new.data:=coalesce(new.data,'{}'::jsonb)
+        || jsonb_build_object('code',new.code,'client_code',new.client_code,'client_id',new.client_id::text,'client_master_id',new.client_id::text,'client_name',new.client_name,'client_phone',new.client_phone,'name',new.client_name,'phone',new.client_phone)
+        || jsonb_build_object('client',coalesce(new.data->'client','{}'::jsonb)||jsonb_build_object('id',new.client_id::text,'code',new.client_code,'name',new.client_name,'phone',new.client_phone))
+        || jsonb_build_object('identity_resolution',coalesce(new.data->'identity_resolution','{}'::jsonb)||jsonb_build_object('version','CLIENT_FAMILY_V1','resolved_at',now(),'original_order_code',v_original_code,'final_client_code',new.client_code));
+      if jsonb_typeof(new.data->'order')='object' then
+        new.data:=jsonb_set(new.data,'{order}',coalesce(new.data->'order','{}'::jsonb)||jsonb_build_object('code',new.code,'client_code',new.client_code,'client_id',new.client_id::text,'client_name',new.client_name,'client_phone',new.client_phone,'name',new.client_name,'phone',new.client_phone,'client',coalesce(new.data->'order'->'client','{}'::jsonb)||jsonb_build_object('id',new.client_id::text,'code',new.client_code,'name',new.client_name,'phone',new.client_phone)),true);
+      end if;
+      return new;
+    end if;
+  end;
+$block$;
+ execute replace(v_sql,v_old,v_new);
+end $base_patch$;
 notify pgrst,'reload schema';
 commit;
