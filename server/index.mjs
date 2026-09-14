@@ -1,4 +1,3 @@
-import clientFamilyHandler from '../api/client-family.js';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -167,7 +166,6 @@ app.post('/api/arka/transaction', arkaTransactionHandler);
 app.post('/api/admin/staff-identity', staffIdentityHandler);
 app.post('/api/admin/devices', deviceAdminHandler);
 app.post('/api/client-profile', clientProfileHandler);
-app.post('/api/client-family', clientFamilyHandler);
 app.post('/api/transport/order', transportOrderHandler);
 app.post('/api/transport/self-order', transportSelfOrderHandler);
 

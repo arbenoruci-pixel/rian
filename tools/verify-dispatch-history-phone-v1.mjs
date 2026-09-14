@@ -23,7 +23,6 @@ function harness(payload, { approved = true, role = 'DISPATCH', rpcError = null 
   let rpcCalls = 0;
   const db = {
     rpc: async (name, args) => {
-      if (name === 'client_family_phone_owner_v1') return { data: null, error: { code: 'PGRST202', message: 'Family migration absent in legacy fixture' } };
       rpcCalls++;
       assert.equal(name, 'inspect_dispatch_transport_phone');
       assert.equal(normalizeTransportPhoneKey(args.p_phone), '44999001');

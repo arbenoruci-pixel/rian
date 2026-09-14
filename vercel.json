@@ -72,10 +72,5 @@
         }
       ]
     }
-  ],
-  "git": {
-    "deploymentEnabled": {
-      "feat/family-client-links": false
-    }
-  }
+  ]
 }

@@ -1,6 +1,3 @@
-'use client';
-
-import { familyRequest, lookupFamilyPhone } from '@/lib/clientFamilyClient.js';
 "use client";
 
 import {
@@ -397,13 +394,7 @@ async function searchClientsLive(q) {
   const { data: clients, error } = await query;
   if (error) throw error;
 
-  const familyHits = (await familyRequest({ action: 'SEARCH', source: 'BASE', query: qq })).items || [];
-  const byId = new Map((Array.isArray(clients) ? clients : []).map(c => [c.id, c]));
-  for (const hit of familyHits) {
-    const contact = hit.family.contacts.find(c => normalizeMatchPhone(c.phone) === normalizeMatchPhone(qq) || c.name.toLowerCase().includes(qText));
-    if (!byId.has(hit.clientId) || contact) byId.set(hit.clientId, { id: hit.clientId, code: hit.code, full_name: contact?.name || hit.name, phone: contact?.phone || hit.phone });
-  }
-  const list = [...byId.values()];
+  const list = Array.isArray(clients) ? clients : [];
   if (!list.length) return [];
 
   const codes = list.map((c) => Number(c?.code)).filter((n) => Number.isFinite(n));
@@ -5105,8 +5096,6 @@ export default function PranimiPage() {
     };
 
     if (useLiveAsTruth) {
-      const familyClient = await lookupFamilyPhone('BASE', phoneFull);
-      if (familyClient) return { ...familyClient, name: familyClient.full_name || familyClient.name || '', source: 'live' };
       const { data, error } = await withSupabaseTimeout(
         supabase
           .from('clients')
@@ -5374,22 +5363,6 @@ export default function PranimiPage() {
       }
       return normalizeClientOut(inserted || insertRow, reason, { createdInThisFlow: !!inserted?.id });
     };
-
-    // Family contacts belong to visits; never replace a permanent master's name/phone.
-    if (hasValidPhone && phoneFull) {
-      const familyClient = await lookupFamilyPhone('BASE', phoneFull);
-      if (familyClient) {
-        const selectedMember = selectedId ? familyClient.family?.members?.find(m => m.source === 'BASE' && m.clientId === selectedId) : null;
-        if (selectedId && !selectedMember) return buildConflict(familyClient, 'FAMILY_SELECTED_CLIENT_CONFLICT');
-        const member = selectedMember || familyClient.family?.members?.find(m => m.source === 'BASE' && String(m.code) === String(requestedCodeNum));
-        return normalizeClientOut({ ...familyClient, id: member?.clientId || familyClient.id, code: member?.code || familyClient.code, full_name: safeName || familyClient.full_name, phone: phoneFull }, 'family_contact', { allowOrderCodeDifferentFromClientCode: true, orderCode: requestedCodeNum });
-      }
-    }
-
-    if (selectedId && hasValidPhone) {
-      const { family } = await familyRequest({ action: 'GET_FAMILY', source: 'BASE', clientId: selectedId });
-      if (family && (family.members.length > 1 || family.contacts.length)) throw new Error('FAMILY_PHONE_NOT_LINKED: Shtoje telefonin te familjarët e kartelës para pranimit.');
-    }
 
     // 1) Selected client is the only phone-independent hard lock.
     if (selectedId) {

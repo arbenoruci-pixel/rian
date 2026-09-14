@@ -1,7 +1,5 @@
 'use client';
 
-import PublicFamilyPanel from '@/components/PublicFamilyPanel.jsx';
-
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from '@/lib/routerCompat.jsx';
 import { findLatestOrderByCode, resolveOrderById, updateOrderData, updateOrderGps } from '@/lib/ordersService';
@@ -187,7 +185,6 @@ function OrderTrackingPageInner() {
     else if (['dorzim', 'dorezim', 'done'].includes(status)) activeStep = 4;
   }
 
-  const familyToken = String(searchParams?.get('family') || '');
   const code = getCode(order);
   const pieces = getPieces(order || {});
   const total = getTotal(order || {});
@@ -334,8 +331,6 @@ function OrderTrackingPageInner() {
                 </div>
               </div>
             </div>
-
-            <PublicFamilyPanel token={familyToken} source={isBase ? 'BASE' : 'TRANSPORT'} orderId={order?.id} />
 
             {smsCount > 0 && !needsDepotChoice && !depotChoice ? (
               <div
