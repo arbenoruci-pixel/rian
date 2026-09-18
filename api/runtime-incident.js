@@ -7,7 +7,6 @@ export default async function handler(req, res) {
     if (!body || typeof body !== 'object') return apiFail(res, 'INVALID_JSON', 400);
     if (!body.bootId && !body.boot_id) return apiFail(res, 'MISSING_BOOT_ID', 400);
 
-    let stored = false;
     try {
       const supabase = createAdminClientOrThrow();
       const row = {
@@ -32,16 +31,29 @@ export default async function handler(req, res) {
         events_json: Array.isArray(body.events) ? body.events : [],
         meta_json: body.meta && typeof body.meta === 'object' && !Array.isArray(body.meta) ? body.meta : {},
       };
-      const { error } = await supabase.from('runtime_incidents').insert(row);
-      if (error) throw error;
-      stored = true;
+      const { data, error } = await supabase.from('runtime_incidents').insert(row).select('id').single();
+      if (!error && data?.id) return apiOk(res, { stored: true, duplicate: false, id: data.id });
+      if (error?.code === '23505') {
+        // Match the complete production unique index, including event time.
+        // A duplicate is acknowledged only after verifying the existing row.
+        const { data: existing, error: lookupError } = await supabase.from('runtime_incidents')
+          .select('id').match({
+            boot_id: row.boot_id,
+            incident_type: row.incident_type,
+            current_path: row.current_path,
+            last_event_type: row.last_event_type,
+            last_event_at_client: row.last_event_at_client,
+          }).maybeSingle();
+        if (!lookupError && existing?.id) return apiOk(res, { stored: false, duplicate: true, id: existing.id });
+        throw lookupError || error;
+      }
+      throw error || new Error('INCIDENT_STORE_UNCONFIRMED');
     } catch (error) {
       // Diagnostics must never claim persistence when PostgREST rejects a row.
       // Log only a code; incident payloads can contain private client context.
       console.error('[runtime-incident]', { code: String(error?.code || 'INCIDENT_STORE_FAILED') });
+      return apiOk(res, { ok: false, stored: false, error: 'INCIDENT_STORE_FAILED' }, 503);
     }
-
-    return apiOk(res, { stored });
   } catch (error) {
     return apiFail(res, error, 500);
   }
