@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { IDBFactory } from 'fake-indexeddb';
-import { createIncidentDelivery, incidentKey, INCIDENT_PENDING_PREFIX } from '../lib/runtimeIncidentDelivery.js';
+import { createIncidentDelivery, incidentKey, INCIDENT_PENDING_PREFIX, MAX_PENDING_INCIDENTS, MAX_PENDING_INCIDENT_CHARS } from '../lib/runtimeIncidentDelivery.js';
 
 let passed = 0;
 async function test(name, run) { await run(); passed++; console.log(`PASS ${name}`); }
@@ -106,6 +106,28 @@ function storage() {
 const body = n => ({ bootId: 'boot-test', incidentType: 'window_error', currentPath: '/dispatch', lastEventType: 'window_error', lastEventAt: `2026-09-18T21:03:10.${String(n).padStart(3, '0')}Z` });
 const reply = (json, ok = true) => ({ ok, json: async () => json });
 const pendingCount = s => [...s.map.keys()].filter(k => k.startsWith(INCIDENT_PENDING_PREFIX)).length;
+
+await test('offline error storm has bounded count/size and keeps every accepted sample retryable', async () => {
+  const s = storage(); s.setItem('payment-intent', 'KEEP'); let online = false, ack = 0;
+  const q = createIncidentDelivery({ storage: s, online: () => online, onConfirmed: () => ack++, fetcher: async () => reply({ ok: true, stored: true }) });
+  for (let n = 0; n < 500; n++) await q.send({ ...body(n), meta: { message: 'repeat', stack: 'x'.repeat(1200) } });
+  const accepted = pendingCount(s);
+  assert(accepted > 0 && accepted <= MAX_PENDING_INCIDENTS);
+  const size = [...s.map].filter(([k]) => k.startsWith(INCIDENT_PENDING_PREFIX)).reduce((total, [k, v]) => total + k.length + v.length, 0);
+  assert(size <= MAX_PENDING_INCIDENT_CHARS); assert.equal(s.getItem('payment-intent'), 'KEEP');
+  assert.equal(JSON.parse(s.getItem('tepiha_incident_overflow_v3')).count, 500 - accepted);
+  assert(s.getItem(INCIDENT_PENDING_PREFIX + incidentKey(body(0))), 'oldest unconfirmed evidence retained');
+  online = true; for (let i = 0; i < 3; i++) await q.flush();
+  assert.equal(ack, accepted); assert.equal(pendingCount(s), 0);
+});
+await test('full Web Storage also bounds the memory queue and rejects oversized new diagnostics', async () => {
+  const s = storage(); s.setItem = () => { throw new Error('quota'); }; let online = false, ack = 0;
+  const q = createIncidentDelivery({ storage: s, online: () => online, onConfirmed: () => ack++, fetcher: async () => reply({ ok: true, stored: true }) });
+  assert.equal((await q.send({ ...body(999), meta: { stack: 'x'.repeat(9000) } })).queued, false);
+  for (let n = 0; n < 500; n++) await q.send(body(n));
+  online = true; for (let i = 0; i < 5; i++) await q.flush();
+  assert(ack > 0 && ack <= MAX_PENDING_INCIDENTS);
+});
 
 for (const [label, response] of [
   ['stored false', reply({ ok: true, stored: false })], ['malformed', reply(null)],
