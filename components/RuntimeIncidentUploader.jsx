@@ -3,10 +3,10 @@
 import { useEffect } from 'react';
 import { bootMarkReady, bootSnapshot, bootReadLastInterrupted, bootClearLastInterrupted } from '@/lib/bootLog';
 import { isSafeModeDisabledUntil, isTepihaSafeModeActive } from '@/lib/safeMode';
+import { createIncidentDelivery, incidentKey } from '@/lib/runtimeIncidentDelivery.js';
 
-const SENT_KEY = 'tepiha_simple_incident_sent_v2';
 const EARLY_QUEUE_KEY = 'tepiha_early_incident_queue_v1';
-const MAX_SENT = 40;
+let delivery = null;
 
 function isBrowser() {
   return typeof window !== 'undefined';
@@ -57,22 +57,20 @@ function isIgnoredBrowserBridgeError(errorLike) {
   }
 }
 
-function readSent() {
-  if (!isBrowser()) return [];
-  try {
-    const parsed = safeParse(window.localStorage?.getItem(SENT_KEY), []);
-    return Array.isArray(parsed) ? parsed.map((v) => String(v || '')).filter(Boolean) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeSent(list) {
-  if (!isBrowser()) return;
-  try {
-    const next = Array.from(new Set((Array.isArray(list) ? list : []).map((v) => String(v || '')).filter(Boolean))).slice(0, MAX_SENT);
-    window.localStorage?.setItem(SENT_KEY, JSON.stringify(next));
-  } catch {}
+function getDelivery() {
+  if (delivery) return delivery;
+  let storage;
+  try { storage = window.localStorage; } catch {}
+  delivery = createIncidentDelivery({
+    storage, fetcher: (...args) => fetch(...args),
+    online: () => isOnline() && incidentsEnabled() && !isSafeMode(),
+    onConfirmed: (body) => {
+      const pending = bootReadLastInterrupted();
+      // An older reply must never clear a newer incident from the same boot.
+      if (pending && incidentKey(pending) === incidentKey(body)) bootClearLastInterrupted(body.bootId);
+    },
+  });
+  return delivery;
 }
 
 function readEarlyQueue() {
@@ -85,9 +83,14 @@ function readEarlyQueue() {
   }
 }
 
-function clearEarlyQueue() {
+function acknowledgeEarlyItem(item) {
   if (!isBrowser()) return;
-  try { window.localStorage?.removeItem(EARLY_QUEUE_KEY); } catch {}
+  try {
+    const key = JSON.stringify(item);
+    const remaining = readEarlyQueue().filter((entry) => JSON.stringify(entry) !== key);
+    if (remaining.length) window.localStorage?.setItem(EARLY_QUEUE_KEY, JSON.stringify(remaining));
+    else window.localStorage?.removeItem(EARLY_QUEUE_KEY);
+  } catch {}
 }
 
 function readCurrentEpoch() {
@@ -112,6 +115,7 @@ function buildChunkCapturePayload(detail = {}) {
   const snap = bootSnapshot() || {};
   return {
     ...snap,
+    bootId: String(detail.bootId || snap.bootId || ''),
     incidentType: String(detail.reason || 'chunk_capture'),
     lastEventType: String(detail.reason || 'chunk_capture'),
     lastEventAt: String(detail.at || new Date().toISOString()),
@@ -124,20 +128,8 @@ function buildChunkCapturePayload(detail = {}) {
   };
 }
 
-function fingerprint(payload) {
-  return [
-    String(payload?.bootId || ''),
-    String(payload?.incidentType || ''),
-    String(payload?.currentPath || payload?.bootRootPath || ''),
-    String(payload?.lastEventAt || payload?.startedAt || ''),
-  ].join('|');
-}
-
 async function postIncident(payload) {
   if (!incidentsEnabled() || !payload) return { ok: false, skipped: true };
-  const key = fingerprint(payload);
-  if (!key) return { ok: false, skipped: true };
-  if (readSent().includes(key)) return { ok: true, duplicate: true };
 
   const body = {
     bootId: String(payload.bootId || ''),
@@ -148,7 +140,7 @@ async function postIncident(payload) {
     currentSearch: String(payload.currentSearch || window.location?.search || ''),
     startedAt: String(payload.startedAt || ''),
     readyAt: String(payload.readyAt || ''),
-    lastEventAt: String(payload.lastEventAt || new Date().toISOString()),
+    lastEventAt: String(payload.lastEventAt || payload.startedAt || new Date().toISOString()),
     lastEventType: String(payload.lastEventType || payload.incidentType || payload.reason || ''),
     uiReady: !!payload.uiReady,
     overlayShown: !!payload.overlayShown,
@@ -161,34 +153,7 @@ async function postIncident(payload) {
     meta: payload.meta && typeof payload.meta === 'object' ? payload.meta : {},
   };
 
-  try {
-    const text = JSON.stringify(body);
-    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-      const ok = navigator.sendBeacon('/api/runtime-incident', new Blob([text], { type: 'application/json' }));
-      if (ok) {
-        writeSent([key, ...readSent()]);
-        bootClearLastInterrupted(body.bootId);
-        return { ok: true, beacon: true };
-      }
-    }
-  } catch {}
-
-  try {
-    const res = await fetch('/api/runtime-incident', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      keepalive: true,
-      cache: 'no-store',
-    });
-    const json = await res.json().catch(() => null);
-    if (!res.ok || json?.ok === false) return { ok: false, status: res.status, json };
-    writeSent([key, ...readSent()]);
-    bootClearLastInterrupted(body.bootId);
-    return { ok: true, json };
-  } catch (error) {
-    return { ok: false, error: String(error?.message || error || 'incident_post_failed') };
-  }
+  return getDelivery().send(body);
 }
 
 function buildErrorPayload(kind, errorLike) {
@@ -211,11 +176,11 @@ export default function RuntimeIncidentUploader() {
   useEffect(() => {
     if (!incidentsEnabled()) return undefined;
     if (isSafeMode()) return undefined;
-    if (!isOnline()) return undefined;
 
     let disposed = false;
     let readyTimer = 0;
     let startupDelayTimer = 0;
+    let retryTimer = 0;
 
     const markReadySoon = () => {
       try {
@@ -260,9 +225,9 @@ export default function RuntimeIncidentUploader() {
       for (const item of queued) {
         if (disposed) break;
         if (hasEpochMismatch(item)) continue;
-        await postIncident(buildChunkCapturePayload(item));
+        const result = await postIncident(buildChunkCapturePayload(item));
+        if (result.ok) acknowledgeEarlyItem(item);
       }
-      clearEarlyQueue();
     };
 
     const onChunkCapture = async (event) => {
@@ -273,26 +238,38 @@ export default function RuntimeIncidentUploader() {
       await postIncident(buildChunkCapturePayload(detail));
     };
 
-    startupDelayTimer = window.setTimeout(() => {
+    const retryPending = () => {
       if (disposed || !isOnline() || isSafeMode()) return;
-      markReadySoon();
+      void getDelivery().flush();
       void flushPending();
       void flushEarlyQueue();
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') retryPending(); };
+    startupDelayTimer = window.setTimeout(() => {
+      if (disposed) return;
+      markReadySoon();
+      retryPending();
     }, 700);
+    retryTimer = window.setInterval(onVisible, 60000);
 
     try { window.addEventListener('tepiha:simple-incident', onSimpleIncident); } catch {}
     try { window.addEventListener('tepiha:chunk-capture', onChunkCapture); } catch {}
     try { window.addEventListener('error', onError); } catch {}
     try { window.addEventListener('unhandledrejection', onUnhandledRejection); } catch {}
+    try { window.addEventListener('online', retryPending); } catch {}
+    try { document.addEventListener('visibilitychange', onVisible); } catch {}
 
     return () => {
       disposed = true;
       try { window.clearTimeout(startupDelayTimer); } catch {}
       try { window.clearTimeout(readyTimer); } catch {}
+      try { window.clearInterval(retryTimer); } catch {}
       try { window.removeEventListener('tepiha:simple-incident', onSimpleIncident); } catch {}
       try { window.removeEventListener('tepiha:chunk-capture', onChunkCapture); } catch {}
       try { window.removeEventListener('error', onError); } catch {}
       try { window.removeEventListener('unhandledrejection', onUnhandledRejection); } catch {}
+      try { window.removeEventListener('online', retryPending); } catch {}
+      try { document.removeEventListener('visibilitychange', onVisible); } catch {}
     };
   }, []);
 
