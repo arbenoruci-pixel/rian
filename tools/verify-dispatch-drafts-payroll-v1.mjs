@@ -156,6 +156,21 @@ await test('edit draft keys are stable within an editor, fresh on re-entry and p
   assert.deepEqual(Array.from(ctx.visibleDrafts(rows), row => row.id), ['create']);
   assert.match(page, /setOid\(d.orderId \|\| d.id\)/);
 });
+await test('a pre-upgrade edit draft is recoverable only in its matching order editor', async () => {
+  const identitySource = page.slice(page.indexOf('  function getCurrentDraftStorageKey('), page.indexOf('  async function persistDraft('));
+  const restoreSource = page.slice(page.indexOf('  function loadDraft('), page.indexOf('  async function deleteDraft('));
+  let restoredId = '', restoredNotes = '';
+  const ctx = vm.createContext({ oid: 'server-order', isEdit: true, phonePrefix: '+1', PRICE_DEFAULT: 1.8, SHKALLORE_M2_PER_STEP_DEFAULT: 0.3,
+    editDraftKeyRef: { current: { orderId: 'server-order', key: 'fresh-edit-key' } }, priceSourceRef: { current: 'new' },
+    splitTransportPhoneForForm: () => ({ prefix: '+1', local: '2025550100' }), setOid: id => { restoredId = id; }, setNotes: notes => { restoredNotes = notes; } });
+  for (const setter of ['setCodeRaw', 'setName', 'setPhonePrefix', 'setPhone', 'setTepihaRows', 'setStazaRows', 'setClientPaid', 'setPricePerM2', 'setPriceTmp', 'setStairsQty', 'setStairsPer', 'setAddressDesc', 'setGpsLat', 'setGpsLng', 'setClientPhotoUrl', 'setCurrentStep', 'setShowDraftsSheet']) ctx[setter] = () => {};
+  vm.runInContext(identitySource + restoreSource, ctx);
+  const legacy = draft('server-order');
+  assert.deepEqual(Array.from(ctx.visibleDrafts([legacy, draft('unrelated')]), row => row.id), ['server-order']);
+  ctx.loadDraft(legacy); assert.equal(restoredId, 'server-order'); assert.equal(restoredNotes, 'Keep');
+  assert.equal(ctx.editDraftKeyRef.current.key, 'fresh-edit-key', 'next autosave uses a fresh edit operation, not the legacy create key');
+  ctx.loadDraft(draft('unrelated')); assert.equal(restoredId, 'server-order');
+});
 
 const worker = (pin, name) => ({ pin, name, role: 'PUNTOR', salary: 1000 });
 const workers = [worker('a', 'OPERATOR'), worker('b', 'RECIPIENT B'), worker('c', 'RECIPIENT C')];

@@ -1093,7 +1093,9 @@ function PranimiPageInner() {
   }
 
   function visibleDrafts(rows, orderId = oid) {
-    return rows.filter(draft => isEdit ? draft.orderId === orderId : !draft.orderId);
+    // Pre-upgrade edit drafts used the server order ID directly, with no
+    // orderId marker. They remain recoverable in that exact order's editor.
+    return rows.filter(draft => isEdit ? (draft.orderId || draft.id) === orderId : !draft.orderId);
   }
 
   async function persistDraft(draft) {
@@ -2763,8 +2765,8 @@ function PranimiPageInner() {
     catch { setDraftError('DRAFTET NUK U LEXUAN. Provo përsëri; të dhënat nuk u fshinë.'); }
   }
   function loadDraft(d) {
-      if (isEdit ? d.orderId !== oid : Boolean(d.orderId)) return;
-      if (isEdit) editDraftKeyRef.current = { orderId: d.orderId, key: d.id };
+      if (isEdit ? (d.orderId || d.id) !== oid : Boolean(d.orderId)) return;
+      if (isEdit && d.orderId) editDraftKeyRef.current = { orderId: d.orderId, key: d.id };
       const draftPhone = splitTransportPhoneForForm(
         d?.phoneFull || (d?.phonePrefix ? `${d.phonePrefix}${d?.phone || ''}` : d?.phone || ''),
         d?.phonePrefix || phonePrefix
