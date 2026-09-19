@@ -1063,6 +1063,7 @@ function PranimiPageInner() {
   const secretTapRef = useRef(0);
   const draftSnapshotRef = useRef('');
   const completedDraftsRef = useRef(new Set());
+  const editDraftKeyRef = useRef({ orderId: '', key: '' });
   const [draftError, setDraftError] = useState('');
   const [draftRetry, setDraftRetry] = useState(0);
   const liveSearchSeqRef = useRef(0);
@@ -1079,10 +1080,27 @@ function PranimiPageInner() {
     return String((actor?.role === 'TRANSPORT' ? me?.transport_id : assignTid) || '').trim();
   }
 
+  function getCurrentDraftStorageKey(orderId = oid) {
+    if (!isEdit) return orderId;
+    // A saved create stays closed forever. Each explicit edit has its own
+    // local draft operation while orderId remains the existing server order.
+    if (editDraftKeyRef.current.orderId !== orderId) {
+      const nonce = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      editDraftKeyRef.current = { orderId, key: `${orderId}:edit:${nonce}` };
+    }
+    return editDraftKeyRef.current.key;
+  }
+
+  function visibleDrafts(rows, orderId = oid) {
+    return rows.filter(draft => isEdit ? draft.orderId === orderId : !draft.orderId);
+  }
+
   async function persistDraft(draft) {
-    if (completedDraftsRef.current.has(draft.id)) return false;
+    const draftKey = getCurrentDraftStorageKey(draft.id);
+    if (completedDraftsRef.current.has(draftKey)) return false;
     try {
-      const result = await upsertDraftLocal(draft);
+      const result = await upsertDraftLocal({ ...draft, id: draftKey, ...(isEdit ? { orderId: draft.id } : {}) });
       if (result?.skipped) throw new Error('DRAFT_CHANGED_ELSEWHERE');
       setDraftError('');
       return true;
@@ -1186,7 +1204,7 @@ function PranimiPageInner() {
         
         const initDraftScopeTid = String((role === 'TRANSPORT' ? transportScope?.transport_id : adminTidLocal) || '').trim();
         // Draft storage must not delay opening an existing order.
-        void readAllDraftsLocal(initDraftScopeTid).then(setDrafts).catch(() => {});
+        void readAllDraftsLocal(initDraftScopeTid).then(rows => setDrafts(visibleDrafts(rows, editId))).catch(() => {});
         if (isEdit) {
             const row = await fetchTransportOrderById(editId).catch(() => null);
             if (row) {
@@ -1448,7 +1466,7 @@ function PranimiPageInner() {
   }, [clientQuery, me?.transport_id, assignTid, actor?.role]);
   // Autosave Draft
   useEffect(() => {
-      if(creating || !oid || completedDraftsRef.current.has(oid)) return;
+      if(creating || !oid || completedDraftsRef.current.has(getCurrentDraftStorageKey(oid))) return;
       clearTimeout(draftTimer.current);
       const draftPayload = buildDraftPayload({
         id: oid,
@@ -2149,11 +2167,12 @@ function PranimiPageInner() {
           setCodeRaw(clientBookTcode);
         }
 
-        completedDraftsRef.current.add(oid);
+        const completedDraftKey = getCurrentDraftStorageKey(oid);
+        completedDraftsRef.current.add(completedDraftKey);
         clearTimeout(draftTimer.current);
         // The server already confirmed success. Local cleanup must never turn
         // that success into a failed create, queue retry, or another payment.
-        void removeDraftLocal(oid).catch(() => {
+        void removeDraftLocal(completedDraftKey).catch(() => {
           setDraftError('POROSIA U RUAJT NË SERVER, POR DRAFTI LOKAL NUK U PASTRUA. MOS E DËRGO SËRISH.');
         });
         clearTransportCodeReservationForOrder(oid);
@@ -2740,15 +2759,17 @@ function PranimiPageInner() {
 
   // --- DRAFTS ---
   async function openDrafts() {
-    try { setDrafts(await readAllDraftsLocal(getCurrentDraftTransportId())); setShowDraftsSheet(true); }
+    try { setDrafts(visibleDrafts(await readAllDraftsLocal(getCurrentDraftTransportId()))); setShowDraftsSheet(true); }
     catch { setDraftError('DRAFTET NUK U LEXUAN. Provo përsëri; të dhënat nuk u fshinë.'); }
   }
   function loadDraft(d) {
+      if (isEdit ? d.orderId !== oid : Boolean(d.orderId)) return;
+      if (isEdit) editDraftKeyRef.current = { orderId: d.orderId, key: d.id };
       const draftPhone = splitTransportPhoneForForm(
         d?.phoneFull || (d?.phonePrefix ? `${d.phonePrefix}${d?.phone || ''}` : d?.phone || ''),
         d?.phonePrefix || phonePrefix
       );
-      setOid(d.id); setCodeRaw(d.codeRaw); setName(d.name || ''); setPhonePrefix(draftPhone.prefix); setPhone(draftPhone.local); 
+      setOid(d.orderId || d.id); setCodeRaw(d.codeRaw); setName(d.name || ''); setPhonePrefix(draftPhone.prefix); setPhone(draftPhone.local);
       setTepihaRows(d.tepihaRows||[]); setStazaRows(d.stazaRows||[]); setClientPaid(d.clientPaid||0);
       priceSourceRef.current = 'draft';
       setPricePerM2(Number(d.pricePerM2 || PRICE_DEFAULT));
@@ -2761,7 +2782,7 @@ function PranimiPageInner() {
       setShowDraftsSheet(false);
   }
   async function deleteDraft(id) {
-    try { await removeDraftLocal(id); setDrafts(await readAllDraftsLocal(getCurrentDraftTransportId())); }
+    try { await removeDraftLocal(id); setDrafts(visibleDrafts(await readAllDraftsLocal(getCurrentDraftTransportId()))); }
     catch { setDraftError('DRAFTI NUK U FSHI. Provo përsëri.'); }
   }
   // --- PAYMENT / PRICE ---

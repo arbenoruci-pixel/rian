@@ -72,6 +72,20 @@ await test('cleanup tombstone prevents stale autosave and legacy resurrection', 
   assert.equal((await f.create().save(draft())).skipped, true);
   assert.deepEqual(await f.create().list(), []);
 });
+await test('completion also blocks a newer autosave from a second tab and a newer legacy copy', async () => {
+  const f = drafts(), first = f.create(), second = f.create();
+  await first.save(draft()); await first.remove('draft-1');
+  const later = { ...draft('draft-1', Date.now() + 60000), notes: 'late second tab' };
+  assert.equal((await second.save(later)).skipped, true);
+  f.localStorage.setItem('transport_draft_order_draft-1', JSON.stringify(later));
+  assert.deepEqual(await second.list(), []);
+});
+await test('a later explicit edit saves independently without reopening the completed create', async () => {
+  const f = drafts(), q = f.create(); await q.save(draft()); await q.remove('draft-1');
+  const edit = { ...draft('draft-1:edit:session-2', Date.now()), orderId: 'draft-1' };
+  await q.save(edit); assert.deepEqual(await f.create().list(), [edit]);
+  await q.remove(edit.id); assert.deepEqual(await q.list(), []);
+});
 await test('transaction abort rejects the save, preserves earlier committed work, and allows retry', async () => {
   const f = drafts(), q = f.create(); await q.save(draft());
   const req = f.indexedDB.open('tepiha-transport-drafts-v2', 1);
@@ -88,11 +102,12 @@ await test('transaction abort rejects the save, preserves earlier committed work
   await q.save({ ...draft('draft-1', 300), notes: 'retry' });
   assert.equal((await q.list())[0].notes, 'retry');
 });
-await test('unavailable IndexedDB rejects new saves but preserves readable legacy work', async () => {
+await test('unavailable IndexedDB preserves legacy work without exposing possibly completed copies', async () => {
   const f = drafts(), q = f.create({ indexedDB: null });
   f.localStorage.setItem('transport_draft_order_draft-1', JSON.stringify(draft()));
   await assert.rejects(q.save(draft()), /UNAVAILABLE/);
-  assert.deepEqual(await q.list(), [draft()]);
+  await assert.rejects(q.list(), /UNAVAILABLE/);
+  assert.equal(f.localStorage.getItem('transport_draft_order_draft-1'), JSON.stringify(draft()));
 });
 await test('hung IndexedDB open returns a bounded failure and can be retried', async () => {
   const f = drafts(), q = f.create({ indexedDB: { open: () => ({}) }, timeoutMs: 5 });
@@ -104,7 +119,7 @@ const page = fs.readFileSync('app/transport/pranimi/page.jsx', 'utf8');
 const persistSource = page.slice(page.indexOf('  async function persistDraft('), page.indexOf('  // Base worker bridge'));
 await test('page reports a failed draft honestly and does not acknowledge uncommitted storage', async () => {
   let error = '', finish;
-  const ctx = vm.createContext({ completedDraftsRef: { current: new Set() }, setDraftError: value => { error = value; },
+  const ctx = vm.createContext({ isEdit: false, getCurrentDraftStorageKey: id => id, completedDraftsRef: { current: new Set() }, setDraftError: value => { error = value; },
     upsertDraftLocal: () => new Promise(resolve => { finish = resolve; }) });
   vm.runInContext(persistSource, ctx);
   let done = false; const pending = ctx.persistDraft(draft()).then(value => { done = true; return value; });
@@ -114,14 +129,32 @@ await test('page reports a failed draft honestly and does not acknowledge uncomm
   assert.equal(await ctx.persistDraft(draft()), true); assert.equal(error, '');
 });
 await test('page blocks completed draft autosave and awaits every fallback save', async () => {
-  const ctx = vm.createContext({ completedDraftsRef: { current: new Set(['draft-1']) }, setDraftError: () => {}, upsertDraftLocal: () => assert.fail('resurrected') });
+  const ctx = vm.createContext({ isEdit: false, getCurrentDraftStorageKey: id => id, completedDraftsRef: { current: new Set(['draft-1']) }, setDraftError: () => {}, upsertDraftLocal: () => assert.fail('resurrected') });
   vm.runInContext(persistSource, ctx); assert.equal(await ctx.persistDraft(draft()), false);
   assert.match(page, /const nextSnapshot = JSON.stringify\(\{ \.\.\.draftPayload, ts: 0 \}\)/);
   assert.match(page, /phone, phonePrefix, tepihaRows/);
-  assert.match(page, /void removeDraftLocal\(oid\)\.catch/);
+  assert.match(page, /void removeDraftLocal\(completedDraftKey\)\.catch/);
   assert.match(page, /draftSaved \? 'S’MORI T-KOD/);
   assert.match(page, /draftSaved \? "⚠️ RUJTJA NË SERVER/);
   assert.equal((page.match(/upsertDraftLocal\(/g) || []).length, 2, 'only wrapper and guarded persist helper call low-level storage');
+});
+await test('edit draft keys are stable within an editor, fresh on re-entry and preserve server identity', async () => {
+  const identitySource = page.slice(page.indexOf('  function getCurrentDraftStorageKey('), page.indexOf('  async function persistDraft('));
+  let nonce = 0, saved;
+  const ctx = vm.createContext({ oid: 'server-order', isEdit: true, crypto: { randomUUID: () => String(++nonce) },
+    editDraftKeyRef: { current: { orderId: '', key: '' } }, completedDraftsRef: { current: new Set() }, setDraftError: () => {},
+    upsertDraftLocal: async row => { saved = row; return { ok: true }; } });
+  vm.runInContext(identitySource + persistSource, ctx);
+  const first = ctx.getCurrentDraftStorageKey(); assert.equal(ctx.getCurrentDraftStorageKey(), first);
+  await ctx.persistDraft(draft('server-order'));
+  assert.equal(saved.id, first); assert.equal(saved.orderId, 'server-order');
+  ctx.editDraftKeyRef.current = { orderId: '', key: '' };
+  assert.notEqual(ctx.getCurrentDraftStorageKey(), first);
+  const rows = [{ id: 'create' }, { id: first, orderId: 'server-order' }, { id: 'other', orderId: 'other-order' }];
+  assert.deepEqual(Array.from(ctx.visibleDrafts(rows), row => row.id), [first]);
+  ctx.isEdit = false; assert.equal(ctx.getCurrentDraftStorageKey('create'), 'create');
+  assert.deepEqual(Array.from(ctx.visibleDrafts(rows), row => row.id), ['create']);
+  assert.match(page, /setOid\(d.orderId \|\| d.id\)/);
 });
 
 const worker = (pin, name) => ({ pin, name, role: 'PUNTOR', salary: 1000 });
