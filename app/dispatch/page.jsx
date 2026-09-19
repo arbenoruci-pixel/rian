@@ -1833,6 +1833,7 @@ export default function DispatchPage() {
     return rowsLoaderRef.current;
   }, []);
   const loadRows = useCallback(() => getRowsLoader().refresh(), [getRowsLoader]);
+  const loadRowsAmbient = useCallback(() => getRowsLoader().refresh({ followUp: false }), [getRowsLoader]);
 
   useEffect(() => () => {
     rowsLoaderRef.current?.stop(); rowsLoaderRef.current = null;
@@ -1874,9 +1875,9 @@ export default function DispatchPage() {
 
     pollTimer = window.setInterval(() => {
       try { if (document?.visibilityState === "hidden") return; } catch {}
-      loadRows();
+      loadRowsAmbient();
     }, 20000);
-    const resume = () => { if (!document.hidden) void loadRows(); };
+    const resume = () => { if (!document.hidden) void loadRowsAmbient(); };
     window.addEventListener('online', resume);
     window.addEventListener('focus', resume);
     window.addEventListener('pageshow', resume);
@@ -1891,7 +1892,7 @@ export default function DispatchPage() {
       try { if (pollTimer) window.clearInterval(pollTimer); } catch {}
       try { if (channel && supabase?.removeChannel) supabase.removeChannel(channel); } catch {}
     };
-  }, [accessChecked, accessAllowed, loadRows]);
+  }, [accessChecked, accessAllowed, loadRows, loadRowsAmbient]);
 
   useEffect(() => {
     nameRef.current = name;

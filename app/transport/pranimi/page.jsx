@@ -40,6 +40,7 @@ import { fetchTransportOrderById, isTransportOrderPaymentBlocked, listTransportO
 import { buildSmartSmsText } from '@/lib/smartSms';
 import { trackRender } from '@/lib/sensor';
 import useRouteAlive from '@/lib/routeAlive';
+import { transportDraftStorage } from '@/lib/transportDraftStorage';
 
 function V33PageOpenFallback() {
   return (
@@ -75,8 +76,6 @@ const PREFIX_OPTIONS = [
   { flag: '🇩🇪', code: '+49',  label: 'GJERMANI' },
   { flag: '🇦🇹', code: '+43',  label: 'AUSTRI' },
 ];
-const DRAFT_LIST_KEY = 'transport_draft_orders_v1';
-const DRAFT_ITEM_PREFIX = 'transport_draft_order_';
 const COMPANY_PHONE_DISPLAY = '+383 44 735 312';
 const AUTO_MSG_KEY = 'transport_pranimi_auto_msg_after_save';
 const PRICE_KEY = 'transport_pranimi_price_per_m2';
@@ -822,28 +821,14 @@ function getSafeTransportActorScope({ allowTransportFallback = true } = {}) {
 }
 
 // Local Drafts Helpers
-function safeJsonParse(s, f) { try { return JSON.parse(s); } catch { return f; } }
-function loadDraftIds() { const raw = localStorage.getItem(DRAFT_LIST_KEY); return safeJsonParse(raw || '[]', []); }
-function saveDraftIds(ids) { localStorage.setItem(DRAFT_LIST_KEY, JSON.stringify(ids)); }
 function upsertDraftLocal(d) {
-  if (!d?.id) return;
-  const next = { ...d, transport_id: String(d?.transport_id || '').trim() || null };
-  localStorage.setItem(`${DRAFT_ITEM_PREFIX}${d.id}`, JSON.stringify(next));
-  const ids = loadDraftIds();
-  if (!ids.includes(d.id)) { ids.unshift(d.id); saveDraftIds(ids); } 
+  return transportDraftStorage().save(d);
 }
 function removeDraftLocal(id) {
-  if (!id) return;
-  localStorage.removeItem(`${DRAFT_ITEM_PREFIX}${id}`);
-  saveDraftIds(loadDraftIds().filter((x) => x !== id));
+  return transportDraftStorage().remove(id);
 }
 function readAllDraftsLocal(scopeTid = '') {
-  const wantedTid = String(scopeTid || '').trim();
-  return loadDraftIds()
-    .map(id => safeJsonParse(localStorage.getItem(`${DRAFT_ITEM_PREFIX}${id}`), null))
-    .filter(Boolean)
-    .filter((d) => !wantedTid || String(d?.transport_id || '').trim() === wantedTid)
-    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return transportDraftStorage().list(scopeTid);
 }
 function buildDraftPayload(d = {}, scopeTid = '') {
   const nextPrefix = String(d?.phonePrefix || '+383').trim() || '+383';
@@ -1077,6 +1062,9 @@ function PranimiPageInner() {
   const draftTimer = useRef(null);
   const secretTapRef = useRef(0);
   const draftSnapshotRef = useRef('');
+  const completedDraftsRef = useRef(new Set());
+  const [draftError, setDraftError] = useState('');
+  const [draftRetry, setDraftRetry] = useState(0);
   const liveSearchSeqRef = useRef(0);
   const liveSearchAbortRef = useRef(null);
   const secretTapTimerRef = useRef(null);
@@ -1089,6 +1077,19 @@ function PranimiPageInner() {
 
   function getCurrentDraftTransportId() {
     return String((actor?.role === 'TRANSPORT' ? me?.transport_id : assignTid) || '').trim();
+  }
+
+  async function persistDraft(draft) {
+    if (completedDraftsRef.current.has(draft.id)) return false;
+    try {
+      const result = await upsertDraftLocal(draft);
+      if (result?.skipped) throw new Error('DRAFT_CHANGED_ELSEWHERE');
+      setDraftError('');
+      return true;
+    } catch {
+      setDraftError('DRAFTI NUK U RUAJT NË PAJISJE. Mos e mbyll këtë faqe; provo përsëri ose ruaje porosinë online.');
+      return false;
+    }
   }
 
   // Base worker bridge is allowed only to edit an existing transport order from PASTRIMI.
@@ -1184,7 +1185,8 @@ function PranimiPageInner() {
         }
         
         const initDraftScopeTid = String((role === 'TRANSPORT' ? transportScope?.transport_id : adminTidLocal) || '').trim();
-        try { setDrafts(readAllDraftsLocal(initDraftScopeTid)); } catch {}
+        // Draft storage must not delay opening an existing order.
+        void readAllDraftsLocal(initDraftScopeTid).then(setDrafts).catch(() => {});
         if (isEdit) {
             const row = await fetchTransportOrderById(editId).catch(() => null);
             if (row) {
@@ -1446,7 +1448,7 @@ function PranimiPageInner() {
   }, [clientQuery, me?.transport_id, assignTid, actor?.role]);
   // Autosave Draft
   useEffect(() => {
-      if(creating || !oid) return;
+      if(creating || !oid || completedDraftsRef.current.has(oid)) return;
       clearTimeout(draftTimer.current);
       const draftPayload = buildDraftPayload({
         id: oid,
@@ -1466,15 +1468,14 @@ function PranimiPageInner() {
         clientPaid,
         pricePerM2
       }, getCurrentDraftTransportId());
-      const nextSnapshot = JSON.stringify(draftPayload || {});
-      draftTimer.current = setTimeout(() => {
+      const nextSnapshot = JSON.stringify({ ...draftPayload, ts: 0 });
+      draftTimer.current = setTimeout(async () => {
           if(!(name || phone)) return;
           if (draftSnapshotRef.current === nextSnapshot) return;
-          upsertDraftLocal(draftPayload);
-          draftSnapshotRef.current = nextSnapshot;
+          if (await persistDraft(draftPayload)) draftSnapshotRef.current = nextSnapshot;
       }, 800);
       return () => clearTimeout(draftTimer.current);
-  }, [creating, oid, codeRaw, name, phone, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2, actor?.role, me?.transport_id, assignTid]);
+  }, [creating, oid, codeRaw, name, phone, phonePrefix, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2, actor?.role, me?.transport_id, assignTid, draftRetry]);
   const totalM2 = useMemo(() => {
     const tepihaM2 = (Array.isArray(tepihaRows) ? tepihaRows : []).reduce(
       (sum, row) => sum + (Number(row?.m2) || 0) * (Number(row?.qty) || 0),
@@ -1902,12 +1903,10 @@ function PranimiPageInner() {
         return;
       }
       if (!isEdit && currentIsPranimiAdmin && browserOfflineAtSave) {
-        try {
-          const draftActorPin = String(actor?.pin || me?.pin || '').trim();
-          upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw: '', name, phone, phonePrefix, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, actor?.id || (draftActorPin ? `ADMIN_DRAFT_${draftActorPin}` : 'ADMIN_DRAFT')));
-        } catch {}
+        const draftActorPin = String(actor?.pin || me?.pin || '').trim();
+        const draftSaved = await persistDraft(buildDraftPayload({ id: oid, codeRaw: '', name, phone, phonePrefix, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, actor?.id || (draftActorPin ? `ADMIN_DRAFT_${draftActorPin}` : 'ADMIN_DRAFT')));
         setSavingContinue(false);
-        alert('PRANIMI NGA ADMIN/DISPATCH KËRKON LIDHJE ONLINE. U RUAJT VETËM SI DRAFT; ASNJË T-KOD NUK U REZERVUA.');
+        alert(draftSaved ? 'PRANIMI NGA ADMIN/DISPATCH KËRKON LIDHJE ONLINE. U RUAJT VETËM SI DRAFT; ASNJË T-KOD NUK U REZERVUA.' : 'NUK U RUAJT AS DRAFTI. MOS E MBYLL FAQEN. PRANIMI NGA ADMIN/DISPATCH KËRKON LIDHJE ONLINE.');
         return;
       }
       const actorPin = String(actor?.pin || me?.pin || me?.transport_pin || '').trim();
@@ -1983,8 +1982,8 @@ function PranimiPageInner() {
       }
 
       if ((!officialOrderTcode || officialOrderTcode === 'T0') && !serverAllocatesOnlineTcode) {
-        try { upsertDraftLocal(buildDraftPayload({ id: oid, codeRaw, name, phone, phonePrefix, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId())); } catch {}
-        alert('S’MORI T-KOD. U RUAJT SI DRAFT. Provo prap online.');
+        const draftSaved = await persistDraft(buildDraftPayload({ id: oid, codeRaw, name, phone, phonePrefix, tepihaRows, stazaRows, stairsQty, stairsPer, addressDesc, gpsLat, gpsLng, clientPhotoUrl, notes, clientPaid, pricePerM2 }, getCurrentDraftTransportId()));
+        alert(draftSaved ? 'S’MORI T-KOD. U RUAJT SI DRAFT. Provo prap online.' : 'S’MORI T-KOD DHE DRAFTI NUK U RUAJT. MOS E MBYLL FAQEN. Provo prap online.');
         setSavingContinue(false);
         return;
       }
@@ -2150,7 +2149,13 @@ function PranimiPageInner() {
           setCodeRaw(clientBookTcode);
         }
 
-        removeDraftLocal(oid);
+        completedDraftsRef.current.add(oid);
+        clearTimeout(draftTimer.current);
+        // The server already confirmed success. Local cleanup must never turn
+        // that success into a failed create, queue retry, or another payment.
+        void removeDraftLocal(oid).catch(() => {
+          setDraftError('POROSIA U RUAJT NË SERVER, POR DRAFTI LOKAL NUK U PASTRUA. MOS E DËRGO SËRISH.');
+        });
         clearTransportCodeReservationForOrder(oid);
         setSavingContinue(false);
 
@@ -2159,6 +2164,7 @@ function PranimiPageInner() {
           closeAfterTransportPranimiSave();
         }
       } catch (e) {
+          let draftSaved = false;
           let queuedTransportOffline = Boolean(e?.offlineQueued);
           try {
             const browserOfflineNow = isBrowserTransportOffline();
@@ -2177,7 +2183,7 @@ function PranimiPageInner() {
           }
           if (!queuedTransportOffline) {
             try {
-              upsertDraftLocal(buildDraftPayload({
+              draftSaved = await persistDraft(buildDraftPayload({
                 id: oid,
                 codeRaw: officialOrderTcode || codeRaw,
                 name,
@@ -2207,7 +2213,7 @@ function PranimiPageInner() {
               ? ("⚠️ LOCAL / NOT SYNCED. POROSIA MBETI VETËM NË TRANSPORT OFFLINE QUEUE. SMS NUK U HAP.\n" + saveErrorMessage)
               : (e?.noOfflineQueue
                 ? ("⚠️ TRANSPORT_ORDER NUK U KRIJUA/VERIFIKUA NË DB. SMS NUK U HAP.\n" + saveErrorMessage)
-                : ("⚠️ RUJTJA NË SERVER DËSHTOI. U RUAJT SI TRANSPORT DRAFT/OFFLINE. SMS NUK U HAP.\n" + saveErrorMessage))
+                : ((draftSaved ? "⚠️ RUJTJA NË SERVER DËSHTOI. U RUAJT SI TRANSPORT DRAFT/OFFLINE. SMS NUK U HAP.\n" : "⚠️ RUJTJA NË SERVER DHE DRAFTI DËSHTUAN. MOS E MBYLL FAQEN. SMS NUK U HAP.\n") + saveErrorMessage))
           );
           setSavingContinue(false);
       }
@@ -2733,7 +2739,10 @@ function PranimiPageInner() {
   }
 
   // --- DRAFTS ---
-  function openDrafts() { setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); setShowDraftsSheet(true); }
+  async function openDrafts() {
+    try { setDrafts(await readAllDraftsLocal(getCurrentDraftTransportId())); setShowDraftsSheet(true); }
+    catch { setDraftError('DRAFTET NUK U LEXUAN. Provo përsëri; të dhënat nuk u fshinë.'); }
+  }
   function loadDraft(d) {
       const draftPhone = splitTransportPhoneForForm(
         d?.phoneFull || (d?.phonePrefix ? `${d.phonePrefix}${d?.phone || ''}` : d?.phone || ''),
@@ -2751,7 +2760,10 @@ function PranimiPageInner() {
       setCurrentStep(1);
       setShowDraftsSheet(false);
   }
-  function deleteDraft(id) { removeDraftLocal(id); setDrafts(readAllDraftsLocal(getCurrentDraftTransportId())); }
+  async function deleteDraft(id) {
+    try { await removeDraftLocal(id); setDrafts(await readAllDraftsLocal(getCurrentDraftTransportId())); }
+    catch { setDraftError('DRAFTI NUK U FSHI. Provo përsëri.'); }
+  }
   // --- PAYMENT / PRICE ---
   function openPay() {
     if (isBaseWorkerBridgeEdit) return;
@@ -2797,7 +2809,7 @@ function PranimiPageInner() {
 
       try {
         if (oid) {
-          upsertDraftLocal(buildDraftPayload({
+          await persistDraft(buildDraftPayload({
             id: oid,
             codeRaw,
             name,
@@ -2836,6 +2848,9 @@ function PranimiPageInner() {
   if (creating) return <div className="wrap"><p style={{textAlign:'center', paddingTop:30}}>Duke u hapur...</p></div>;
   return (
     <div className="wrap">
+        {draftError && <div role="alert" style={{ padding: 12, marginBottom: 12, border: '1px solid #d99b24', borderRadius: 12 }}>
+          {draftError} <button type="button" onClick={() => { draftSnapshotRef.current = ''; setDraftRetry(value => value + 1); }}>PROVO DRAFTIN PËRSËRI</button>
+        </div>}
         <header className="header-row" style={{ alignItems: 'flex-start' }}>
             <div><h1 className="title">PRANIMI</h1><div className="subtitle">KRIJO POROSI</div></div>
             <div className="code-badge"><span className="badge" onClick={handleSecretPriceTap} style={{ cursor: "pointer", WebkitTapHighlightColor: "transparent", userSelect: "none", WebkitUserSelect: "none" }}>KODI: {(codeRaw || clientTcode) ? normalizeTcode(codeRaw || clientTcode) : 'I RI'}</span></div>
