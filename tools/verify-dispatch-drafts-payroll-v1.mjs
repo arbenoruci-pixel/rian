@@ -86,6 +86,16 @@ await test('a later explicit edit saves independently without reopening the comp
   await q.save(edit); assert.deepEqual(await f.create().list(), [edit]);
   await q.remove(edit.id); assert.deepEqual(await q.list(), []);
 });
+await test('legacy edits after create completion recover only through the explicit matching edit route', async () => {
+  const f = drafts(), q = f.create(); await q.save(draft()); await q.remove('draft-1');
+  const legacyEdit = { ...draft('draft-1', Date.now() + 60000), notes: 'unfinished legacy edit' };
+  f.localStorage.setItem('transport_draft_order_draft-1', JSON.stringify(legacyEdit));
+  assert.deepEqual(await q.list('driver-a'), []);
+  assert.deepEqual(await q.list('driver-a', { editingOrderId: 'another-order' }), []);
+  assert.deepEqual(await q.list('driver-a', { editingOrderId: 'draft-1' }), [legacyEdit]);
+  assert.equal((await q.save(legacyEdit)).skipped, true, 'completed create key is still permanently closed');
+  assert.deepEqual(await q.list('driver-b', { editingOrderId: 'draft-1' }), [], 'driver scope is still enforced');
+});
 await test('transaction abort rejects the save, preserves earlier committed work, and allows retry', async () => {
   const f = drafts(), q = f.create(); await q.save(draft());
   const req = f.indexedDB.open('tepiha-transport-drafts-v2', 1);

@@ -827,8 +827,8 @@ function upsertDraftLocal(d) {
 function removeDraftLocal(id) {
   return transportDraftStorage().remove(id);
 }
-function readAllDraftsLocal(scopeTid = '') {
-  return transportDraftStorage().list(scopeTid);
+function readAllDraftsLocal(scopeTid = '', editingOrderId = '') {
+  return transportDraftStorage().list(scopeTid, { editingOrderId });
 }
 function buildDraftPayload(d = {}, scopeTid = '') {
   const nextPrefix = String(d?.phonePrefix || '+383').trim() || '+383';
@@ -1206,7 +1206,7 @@ function PranimiPageInner() {
         
         const initDraftScopeTid = String((role === 'TRANSPORT' ? transportScope?.transport_id : adminTidLocal) || '').trim();
         // Draft storage must not delay opening an existing order.
-        void readAllDraftsLocal(initDraftScopeTid).then(rows => setDrafts(visibleDrafts(rows, editId))).catch(() => {});
+        void readAllDraftsLocal(initDraftScopeTid, isEdit ? editId : '').then(rows => setDrafts(visibleDrafts(rows, editId))).catch(() => {});
         if (isEdit) {
             const row = await fetchTransportOrderById(editId).catch(() => null);
             if (row) {
@@ -2761,7 +2761,7 @@ function PranimiPageInner() {
 
   // --- DRAFTS ---
   async function openDrafts() {
-    try { setDrafts(visibleDrafts(await readAllDraftsLocal(getCurrentDraftTransportId()))); setShowDraftsSheet(true); }
+    try { setDrafts(visibleDrafts(await readAllDraftsLocal(getCurrentDraftTransportId(), isEdit ? oid : ''))); setShowDraftsSheet(true); }
     catch { setDraftError('DRAFTET NUK U LEXUAN. Provo përsëri; të dhënat nuk u fshinë.'); }
   }
   function loadDraft(d) {
@@ -2784,7 +2784,7 @@ function PranimiPageInner() {
       setShowDraftsSheet(false);
   }
   async function deleteDraft(id) {
-    try { await removeDraftLocal(id); setDrafts(visibleDrafts(await readAllDraftsLocal(getCurrentDraftTransportId()))); }
+    try { await removeDraftLocal(id); setDrafts(visibleDrafts(await readAllDraftsLocal(getCurrentDraftTransportId(), isEdit ? oid : ''))); }
     catch { setDraftError('DRAFTI NUK U FSHI. Provo përsëri.'); }
   }
   // --- PAYMENT / PRICE ---
