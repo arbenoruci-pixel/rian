@@ -54,6 +54,12 @@ await test('pausing clears scheduled retries and stopped loaders cannot restart'
   f.loader.stop(); f.loader.setPaused(false); await f.loader.refresh(); assert.equal(calls, 1);
 });
 
+await test('unmount before the scheduled read starts never launches a request', async () => {
+  const f = board(() => assert.fail('unmounted list started a request'));
+  const queued = f.loader.refresh(); f.loader.stop(); await queued;
+  assert.equal(f.busy, false); assert.equal(f.errors.length, 0);
+});
+
 function phone(inspect, hidden = false) {
   const events = new EventTarget(), visibility = new EventTarget(); visibility.hidden = hidden;
   const results = [], errors = [], timers = new Map(); let next = 0, busy = false;

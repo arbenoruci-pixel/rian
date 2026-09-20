@@ -36,7 +36,7 @@ their diffs do not prove the reported regression was introduced by those release
 
 ## Verification
 
-Nine focused behavioral scenarios cover cancellation, rapid hide/show, suppressed
+Ten focused behavioral scenarios cover cancellation, rapid hide/show, suppressed
 poll/realtime traffic, preserved local confirmation, silent phone recovery, hard
 denial, shipping-page effects, and a committed CREATE whose response body is lost.
 The latter executes the actual API client and real outbox: retry uses an identical
