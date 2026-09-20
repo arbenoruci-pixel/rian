@@ -50,7 +50,7 @@ const apiBranch = insertBlock.indexOf('if (useDispatchServerCreate)');
 const directUuidLookup = insertBlock.indexOf(".from('transport_orders')");
 check(apiBranch >= 0 && directUuidLookup > apiBranch, 'atomic Dispatch reaches the authenticated API before any client UUID short-circuit');
 check(transportDb.includes("fetchJsonWithDeadline('/api/transport/order'"), 'atomic Dispatch uses the same-origin transport endpoint with a response-body deadline');
-check(transportDb.includes('keepalive: requestJson.length < 60000'), 'Dispatch create survives iPhone lifecycle/network suspension');
+check(transportDb.includes('keepalive: !input.expected_actor_id && requestJson.length < 60000'), 'durable Dispatch retries avoid keepalive while legacy requests retain it');
 check(transportDb.includes('reconcileAtomicDispatchOrder(expected)'), 'Dispatch reconciles a committed order after a lost API response');
 check(transportDb.includes("query.timeout(10000, 'DISPATCH_ORDER_RECONCILE_TIMEOUT')"), 'Dispatch timeout reconciliation is bounded');
 check(transportDb.includes('input.expected_actor_id ? 12000 : 35000'), 'Dispatch allows the verified server transaction to finish under load');
