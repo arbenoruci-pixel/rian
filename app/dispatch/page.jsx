@@ -1835,6 +1835,15 @@ export default function DispatchPage() {
   const loadRows = useCallback(() => getRowsLoader().refresh(), [getRowsLoader]);
   const loadRowsAmbient = useCallback(() => getRowsLoader().refresh({ followUp: false }), [getRowsLoader]);
 
+  useEffect(() => {
+    // The full board is advisory while creating an order. Release its network
+    // request for the phone check / CREATE, and refresh once the form closes.
+    const update = () => getRowsLoader().setPaused(createOpen || document.hidden);
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, [createOpen, getRowsLoader]);
+
   useEffect(() => () => {
     rowsLoaderRef.current?.stop(); rowsLoaderRef.current = null;
   }, []);
@@ -1903,6 +1912,9 @@ export default function DispatchPage() {
   }, [address]);
 
   useEffect(() => {
+    // Cleanup cancels the advisory lookup as soon as an order is being saved.
+    // CREATE performs the authoritative phone/identity check itself.
+    if (busy) { setPhoneBusy(false); return; }
     const digits = onlyDigits(phone);
     const phoneDigits = getDispatchPhoneDigits(digits);
     const checkSeq = Number(phoneCheckSeqRef.current || 0) + 1;
@@ -1978,7 +1990,7 @@ export default function DispatchPage() {
         }
       },
     });
-  }, [phone, phoneCheckNonce, createOpen]);
+  }, [phone, phoneCheckNonce, createOpen, busy]);
 
   useEffect(() => {
     if (searchTimer) clearTimeout(searchTimer);
