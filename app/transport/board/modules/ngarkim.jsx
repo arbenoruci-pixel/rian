@@ -62,7 +62,7 @@ function renderBatchHint(remainingCount, onMore) {
 }
 
 // MODULE: NGARKIM (status: loaded)
-function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, setGpsSort, onBulkStatus, onGoRiplan, onOpenModal, onOpenSms, onOpenProfile, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
+function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, setGpsSort, onBulkStatus, onGoRiplan, onOpenModal, onOpenSms, onOpenProfile, onOpenRack, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
   const [toolsRow, setToolsRow] = useState(null);
   const selectedCount = selectedIds?.size || 0;
 
@@ -202,7 +202,8 @@ function NgarkimModule({ items, loading, selectedIds, setSelectedIds, gpsSort, s
               <button style={ui.toolBtnBig} onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenSms && row && onOpenSms(row, 'transport_pikap_konfirmim'); }, ACTION_DEFER_MS); }}><span style={{ fontSize: 24 }}>💬</span><span style={{ fontSize: 14 }}>SMS</span></button>
               <button
                 style={{ border: '1px solid rgba(34,197,94,0.3)', background: 'rgba(34,197,94,0.15)', color: '#34C759', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer', marginTop: 6 }}
-                onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { onOpenRack && row && onOpenRack(row); }, ACTION_DEFER_MS); }}
+                disabled={typeof onOpenRack !== 'function' || !toolsRow?.id}
+                onClick={() => { const row = toolsRow; setToolsRow(null); setTimeout(() => { if (typeof onOpenRack === 'function' && row?.id) onOpenRack(row); }, ACTION_DEFER_MS); }}
               >
                 📍 RAFTI / DEPO
               </button>
