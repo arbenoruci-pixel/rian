@@ -2484,6 +2484,7 @@ export default function DispatchPage() {
         driverId,
       };
       const orderId = await createIntentJournalRef.current.acquire(intentInput);
+      sendTrace.identify?.(orderId);
       pendingOrderId = orderId;
       pendingCodeOwner = poolOwner;
       // The browser deliberately sends no client id/T-code authority here.
@@ -2614,6 +2615,7 @@ export default function DispatchPage() {
       sendTrace.stage('local_save');
       const queued = await getDispatchOutbox().enqueue({ ...payload, code_owner: poolOwner,
         expected_actor_id: String(actorNow?.id || actorNow?.user_id || '') });
+      sendTrace.identify?.(queued.id);
       if (queued.alreadyQueued && queued.id !== orderId) createIntentJournalRef.current?.clear(orderId);
       // Send this saved request directly. A different order's slow response
       // must never hold the operator's newly submitted order behind it.
