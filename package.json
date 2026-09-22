@@ -25,7 +25,7 @@
     "test:pranimi-existing-client-lock": "node tools/verify-pranimi-existing-client-direct-lock-v477-1.mjs",
     "test:transport-permanent-tcode": "node tools/verify-transport-permanent-tcode-v2.mjs",
     "test:transport-server-atomic": "node tools/verify-transport-server-atomic-v2.mjs",
-    "test:transport-recovery-v1": "node tools/verify-transport-recovery-v1.mjs",
+    "test:transport-recovery-v1": "node tools/verify-transport-recovery-v1.mjs && node tools/verify-transport-rack-actions-v1.mjs",
     "test:transport-sync-hardening-v1": "node tools/verify-transport-sync-hardening-v1.mjs",
     "test:transport-incident-recovery-v1": "node tools/verify-transport-incident-recovery-v1.mjs",
     "test:transport-admin-pranimi-server-v1": "node tools/verify-transport-admin-pranimi-server-v1.mjs",

@@ -469,7 +469,7 @@ function renderBatchHint(remainingCount, onMore) {
   );
 }
 
-function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, onAssign, onCancel, onSaveGps, getOrderLatLng, onOpenSms, onOpenProfile, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
+function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, onAssign, onCancel, onSaveGps, getOrderLatLng, onOpenSms, onOpenProfile, onOpenRack, onMarkSeen, getUnseenRowStyle, renderUnseenBadge }) {
   const [activeOrder, setActiveOrder] = useState(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [gpsBusy, setGpsBusy] = useState(false);
@@ -982,9 +982,9 @@ function InboxModule({ items, loading, onOpenModal, actorRole, transportUsers, o
                   onClick={() => {
                     const row = activeOrder;
                     setActiveOrder(null);
-                    setTimeout(() => { if (onOpenRack && row) onOpenRack(row); }, ACTION_DEFER_MS);
+                    setTimeout(() => { if (typeof onOpenRack === 'function' && row?.id) onOpenRack(row); }, ACTION_DEFER_MS);
                   }}
-                  disabled={!activeTrackUrl}
+                  disabled={typeof onOpenRack !== 'function' || !activeOrder?.id}
                 >
                   <span style={{ color: '#34C759' }}>📍</span>
                   <span>RAFTI</span>
