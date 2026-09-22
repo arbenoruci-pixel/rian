@@ -157,5 +157,21 @@ await test('the actual review-and-retry button sends its order during another sl
   try {await retry();assert.equal((await q.list()).find(item=>item.id===id(2)).state,'sent');}
   finally {release();await draining;}
 });
+await test('the shipping form displays server success before a stalled receipt write finishes', async () => {
+  const storage = memory(), write = storage.setItem; let release;
+  const stalled = new Promise(resolve => { release = resolve; });
+  storage.setItem = async (key, raw) => {
+    if (JSON.parse(raw).state === 'sent') await stalled;
+    return write(key, raw);
+  };
+  const form = formHarness({ storage, submit: async body => ({ ok: true, data: { id: body.id, client_tcode: 'T123' } }) });
+  const sending = form.send();
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(form.state.busy, false); assert.equal(form.state.createOpen, false);
+    assert.match(form.state.msg, /T123 U KONFIRMUA NË SERVER/);
+    assert.equal(form.trace.at(-1), 'sent');
+  } finally { release(); await sending; await form.queue.drain(); }
+});
 if(failed.length){console.error(failed.join('\n'));process.exitCode=1;}
 console.log(`${passed} passed; ${failed.length} failed: Dispatch submit confirmed v2`);

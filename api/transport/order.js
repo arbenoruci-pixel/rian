@@ -63,6 +63,7 @@ function safeError(error) {
 export default async function handler(req, res) {
   const startedAt = Date.now();
   let requestAction = 'CREATE';
+  let requestId = '';
   setPrivateNoStore(res);
   try {
     if (String(req?.method || '').toUpperCase() !== 'POST') {
@@ -80,7 +81,8 @@ export default async function handler(req, res) {
     const deviceId = readCookie(req, 'tepiha_device_id');
     const action = String(body?.action || '').trim().toUpperCase();
     requestAction = ['LIST', 'PHONE_CHECK', 'EDIT_ORDER', 'CLIENT_ADMIN_EDIT'].includes(action) ? action : 'CREATE';
-    console.info('[transport-order]', { action: requestAction, stage: 'received' });
+    if (requestAction === 'CREATE' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(body?.id || ''))) requestId = body.id;
+    console.info('[transport-order]', { action: requestAction, stage: 'received', requestId });
     const authUser = await authenticateDispatchOrderActor(supabase, deviceId);
     if (action === 'LIST') {
       const output = await listDispatchTransportOrdersServer(body, { supabase, authUser });
@@ -102,14 +104,14 @@ export default async function handler(req, res) {
     const output = flow === 'PRANIMI'
       ? await createDispatchTransportPranimiOrderServer(body, { supabase, authUser })
       : await createDispatchTransportOrderServer(body, { supabase, authUser });
-    console.info('[transport-order]', { action: requestAction, ok: true,
+    console.info('[transport-order]', { action: requestAction, ok: true, requestId, orderId: output?.data?.id,
       recoveredStaleIntent: output?.recoveredStaleIntent === true,
       idempotent: output?.idempotent === true, durationMs: Date.now() - startedAt });
     return apiOk(res, output);
   } catch (error) {
     const safe = safeError(error);
     console.error('[transport-order]', { code: safe.code, status: safe.httpStatus,
-      action: requestAction, durationMs: Date.now() - startedAt });
+      action: requestAction, requestId, durationMs: Date.now() - startedAt });
     return apiFail(res, safe.code, safe.httpStatus, safe.extra);
   }
 }
