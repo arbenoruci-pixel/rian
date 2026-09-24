@@ -51,6 +51,21 @@ await test('reconnect during a running normal drain is coalesced into one immedi
   await Promise.all([running, ...wakes]);
   assert.equal(calls, 2); assert.equal((await f.q.list())[0].state, 'sent');
 });
+await test('reconnect while the form is awaiting a direct send preserves one recovery attempt', async () => {
+  let finish, calls = 0;
+  const f = queueFixture(async body => {
+    if (++calls === 1) return new Promise(resolve => { finish = resolve; });
+    return { ok: true, data: { id: body.id, client_tcode: 'T123' } };
+  });
+  await f.q.enqueue(payload);
+  const foreground = f.q.send(id, { force: true }); await turn();
+  const reconnect = f.q.drain({ force: true }); await turn();
+  assert.equal(calls, 1, 'reconnect must share the active request');
+  finish({ ok: false, error: 'DISPATCH_ORDER_API_TIMEOUT' });
+  await Promise.all([foreground, reconnect]);
+  assert.equal(calls, 2, 'the reconnect was lost while joining the foreground send');
+  assert.equal((await f.q.list())[0].state, 'sent');
+});
 await test('repeated resume events during a forced attempt preserve backoff after failure', async () => {
   let finish, calls = 0;
   const f = queueFixture(async () => { calls++; return new Promise(resolve => { finish = resolve; }); });
@@ -60,6 +75,20 @@ await test('repeated resume events during a forced attempt preserve backoff afte
   finish({ ok: false, error: 'DISPATCH_ORDER_API_TIMEOUT' });
   await Promise.all([running, ...wakes]); await f.q.drain();
   assert.equal(calls, 1); assert.equal((await f.q.list())[0].attempts, 1);
+});
+await test('a failed recovery after joining a foreground send returns to normal backoff', async () => {
+  let finish, calls = 0;
+  const failure = { ok: false, error: 'DISPATCH_ORDER_API_TIMEOUT' };
+  const f = queueFixture(async () => {
+    if (++calls === 1) return new Promise(resolve => { finish = resolve; });
+    return failure;
+  });
+  await f.q.enqueue(payload);
+  const foreground = f.q.send(id, { force: true }); await turn();
+  const reconnect = f.q.drain({ force: true }); await turn();
+  finish(failure); await Promise.all([foreground, reconnect]);
+  await f.q.drain(); assert.equal(calls, 2);
+  assert.equal((await f.q.list())[0].attempts, 2);
 });
 await test('forced recovery respects offline state, actor boundaries, expiry and explicit denial', async () => {
   let calls = 0;

@@ -39,7 +39,9 @@ Three behavioral tests fail against the production source:
 
 Real online/foreground-return events coalesce into one forced outbox drain.
 Normal polling and focus retain backoff. A reconnect during a normal drain queues
-one recovery pass; simultaneous forced passes share work. The existing immutable
+one recovery pass; simultaneous forced passes share work. A forced drain that
+joins the form's existing direct send retains one recovery attempt if that earlier
+request fails; a failed recovery then returns to normal backoff. The existing immutable
 UUID/payload, actor checks, explicit denials, expiry/review and server identity
 verification remain authoritative.
 
@@ -53,13 +55,13 @@ data migration or timeout increase is included.
 
 ## Verification
 
-Ten isolated behavioral scenarios exercise the real outbox and the shipping
+Twelve isolated behavioral scenarios exercise the real outbox and the shipping
 runtime/component functions. They cover unchanged replay bodies with one
 synthetic server row, event bursts, a reconnect during an active drain, normal
 backoff, authorization, actor isolation, expiry, offline/hidden state, update
 failure/retry, successful cooldown, bounded attempts and unmount during a check.
 The existing foreground, confirmation and durable-send tests pass. The complete
-`npm run build` passes with 592 PASS lines, including all ten new scenarios.
+`npm run build` passes with 594 PASS lines, including all twelve new scenarios.
 Tests create no production orders, payments or messages.
 
 Native installed-phone behavior and recovery from the original communication
