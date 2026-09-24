@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { APP_DATA_EPOCH, APP_VERSION } from '@/lib/appEpoch';
 import { bootLog } from '@/lib/bootLog';
 import { isSafeModeDisabledUntil, safeModeLeftMs } from '@/lib/safeMode';
+import { watchServiceWorkerUpdates } from '../lib/serviceWorkerUpdateRecovery.js';
 
 const CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS = 1400;
 const RESUME_UPDATE_CHECK_INTERVAL_MS = 60000;
@@ -493,6 +494,7 @@ function removeAutoUpdateReloadParam(source = 'unknown') {
   }
 }
 
+const activeUpdateChecks = new WeakMap();
 function safeUpdateRegistration(registration, source, swUrl = '') {
   try {
     if (shouldSkipUpdateChecksForSafeMode()) {
@@ -511,27 +513,16 @@ function safeUpdateRegistration(registration, source, swUrl = '') {
       });
       return false;
     }
-
-    let updatePromise = null;
-
-    try {
-      updatePromise = registration.update();
-    } catch (error) {
-      logSwEvent('vite_pwa_sw_update_check_throw', {
-        source,
-        swUrl: String(swUrl || ''),
-        message: safeMessage(error, 'update_check_throw'),
-      });
-      return false;
-    }
-
-    Promise.resolve(updatePromise)
+    if (navigator.onLine === false) return false;
+    if (activeUpdateChecks.has(registration)) return activeUpdateChecks.get(registration);
+    const updatePromise = Promise.resolve().then(() => registration.update())
       .then(() => {
         logSwEvent('vite_pwa_sw_update_check_ok', {
           source,
           swUrl: String(swUrl || ''),
           scope: String(registration?.scope || ''),
         });
+        return true;
       })
       .catch((error) => {
         logSwEvent('vite_pwa_sw_update_check_error', {
@@ -539,9 +530,11 @@ function safeUpdateRegistration(registration, source, swUrl = '') {
           swUrl: String(swUrl || ''),
           message: safeMessage(error, 'update_check_failed'),
         });
-      });
-
-    return true;
+        return false;
+      })
+      .finally(() => activeUpdateChecks.delete(registration));
+    activeUpdateChecks.set(registration, updatePromise);
+    return updatePromise;
   } catch (error) {
     logSwEvent('vite_pwa_sw_update_check_outer_error', {
       source,
@@ -1073,7 +1066,7 @@ export default function ServiceWorkerRegister() {
         if (cancelledRef.current) return;
         if (typeof navigator.serviceWorker?.getRegistration !== 'function') return;
 
-        Promise.resolve(navigator.serviceWorker.getRegistration())
+        return Promise.resolve(navigator.serviceWorker.getRegistration())
           .then((registration) => {
             try {
               if (cancelledRef.current) return;
@@ -1081,7 +1074,7 @@ export default function ServiceWorkerRegister() {
               if (registration && typeof registration.update === 'function') {
                 registrationRef.current = registration;
                 wireRegistrationAutoUpdate(registration, `${source}:recovered`, swUrl);
-                safeUpdateRegistration(registration, `${source}:recovered`, swUrl);
+                return safeUpdateRegistration(registration, `${source}:recovered`, swUrl);
               } else {
                 logSwEvent('vite_pwa_sw_update_registration_missing_after_recover', {
                   source,
@@ -1133,8 +1126,7 @@ export default function ServiceWorkerRegister() {
 
         if (registration && typeof registration.update === 'function') {
           wireRegistrationAutoUpdate(registration, `${source}:${reason}`, swUrl);
-          safeUpdateRegistration(registration, `${source}:${reason}`, swUrl);
-          return;
+          return safeUpdateRegistration(registration, `${source}:${reason}`, swUrl);
         }
 
         logSwEvent('vite_pwa_sw_update_registration_missing', {
@@ -1143,7 +1135,7 @@ export default function ServiceWorkerRegister() {
           hasUpdateSW: typeof updateSWRef.current === 'function',
         });
 
-        recoverRegistrationAndUpdate(`${source}:${reason}`, swUrl);
+        return recoverRegistrationAndUpdate(`${source}:${reason}`, swUrl);
       } catch (error) {
         logSwEvent('vite_pwa_sw_update_check_handler_error', {
           source,
@@ -1183,6 +1175,7 @@ export default function ServiceWorkerRegister() {
     const shouldRunCleanLaunchUpdateCheck = () => {
       try {
         if (cancelledRef.current) return false;
+        if (navigator.onLine === false || shouldSkipUpdateChecksForSafeMode()) return false;
         if (document.visibilityState && document.visibilityState !== 'visible') return false;
       } catch {}
 
@@ -1209,42 +1202,17 @@ export default function ServiceWorkerRegister() {
           return;
         }
 
-        let timerId = null;
         const allowed = shouldRunCleanLaunchUpdateCheck();
-        const checkAfterResume = () => {
-          if (!shouldRunCleanLaunchUpdateCheck()) return;
-          try {
+        cleanupCleanLaunchUpdateCheckRef.current = watchServiceWorkerUpdates({
+          events: window, visibility: document, online: () => navigator.onLine !== false,
+          setTimer: (fn, delay) => window.setTimeout(fn, delay), clearTimer: id => window.clearTimeout(id),
+          delayMs: CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS,
+          shouldCheck: shouldRunCleanLaunchUpdateCheck,
+          check: () => checkForUpdate(source, isManualUpdateLaunch() ? 'manual_update_launch_once' : 'launch_or_resume', swUrl),
+          onSuccess: () => {
             window.sessionStorage?.setItem?.(`tepiha_clean_launch_sw_update_check_v5:${APP_VERSION}`, String(Date.now()));
-          } catch {}
-          checkForUpdate(source, isManualUpdateLaunch() ? 'manual_update_launch_once' : 'launch_or_resume', swUrl);
-        };
-
-        if (allowed) {
-          try {
-            timerId = window.setTimeout(() => {
-              checkAfterResume();
-            }, CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS);
-          } catch (error) {
-            logSwEvent('vite_pwa_sw_clean_launch_timer_error', {
-              source,
-              swUrl: String(swUrl || ''),
-              message: safeMessage(error, 'clean_launch_timer_failed'),
-            });
-          }
-        }
-
-        window.addEventListener('pageshow', checkAfterResume);
-        window.addEventListener('online', checkAfterResume);
-        document.addEventListener('visibilitychange', checkAfterResume);
-
-        cleanupCleanLaunchUpdateCheckRef.current = () => {
-          try {
-            if (timerId !== null) window.clearTimeout(timerId);
-          } catch {}
-          window.removeEventListener('pageshow', checkAfterResume);
-          window.removeEventListener('online', checkAfterResume);
-          document.removeEventListener('visibilitychange', checkAfterResume);
-        };
+          },
+        });
 
         logSwEvent('vite_pwa_sw_clean_launch_update_check_ready', {
           source,

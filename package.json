@@ -93,7 +93,7 @@
     "test:client-family-api-v1": "node tools/verify-client-family-api-v1.mjs && node tools/verify-short-smart-messages-v1.mjs",
     "test:client-family-base-admission-v1": "node tools/verify-client-family-base-admission-v1.mjs",
     "test:client-family-ui-v1": "node tools/verify-client-family-ui-v1.mjs && node tools/verify-dispatch-client-contact-v1.mjs",
-    "test:dispatch-foreground-send-v1": "node tools/verify-dispatch-foreground-send-v1.mjs && node tools/verify-dispatch-confirmation-latency-v1.mjs"
+    "test:dispatch-foreground-send-v1": "node tools/verify-dispatch-foreground-send-v1.mjs && node tools/verify-dispatch-confirmation-latency-v1.mjs && node tools/verify-reconnect-recovery-v1.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.0",
