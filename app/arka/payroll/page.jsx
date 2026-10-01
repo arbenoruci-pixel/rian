@@ -339,12 +339,15 @@ export default function PayrollPage() {
       setStaff((st || []).filter((u) => u?.is_active !== false));
 
       const rawDebts = await withTimeout(listPendingPaymentRecords({
-        select: "amount, created_by_name",
-        in: { status: ["REJECTED", "OWED", "WORKER_DEBT", "ADVANCE"] },
+        select: "amount, created_by_name, type, status",
+        in: { status: ["ADVANCE"] },
       }), DB_TIMEOUT_MS, 'arka_payroll_debts_timeout');
 
       const dMap = {};
       (rawDebts || []).forEach((d) => {
+        const type = String(d.type || "").toUpperCase();
+        const status = String(d.status || "").toUpperCase();
+        if (type !== "ADVANCE" && status !== "ADVANCE") return;
         const amt = Number(d.amount || 0);
         const name = String(d.created_by_name || "").trim().toUpperCase();
         if (!name) return;
