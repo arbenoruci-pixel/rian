@@ -3159,6 +3159,12 @@ function getOrderPaketimi(row = {}) {
     : ((data?.paketimi_v1 && typeof data.paketimi_v1 === 'object') ? data.paketimi_v1 : null);
 }
 
+function isPaketimiReadyTransitionPending(row = {}, paketimi = {}) {
+  const status = normalizeStatus(row?.status || row?.fullOrder?.status || row?.data?.status);
+  return String(paketimi?.status || '').trim() === 'final_ready'
+    && TRANSPORT_PASTRIMI_STATUS_SET.has(status);
+}
+
 function getPaketimiBadge(row = {}) {
   const existing = getOrderPaketimi(row);
   if (!existing) return { text: 'PA PAKETU', tone: 'empty' };
@@ -3180,7 +3186,10 @@ function getPaketimiBadge(row = {}) {
   }
   if (status === 'complete_not_wrapped') return { text: `GJETUR ${stats.found}/${stats.total} — BËJE ROLL`, tone: 'complete' };
   if (status === 'wrapped_ready_for_rack') return { text: 'PAKETUAR — VENDOS RAFTIN', tone: 'wrapped' };
-  if (status === 'final_ready') return { text: 'GATI PËR SMS', tone: 'ready' };
+  if (status === 'final_ready') return {
+    text: isPaketimiReadyTransitionPending(row, paketimi) ? 'PAKETUAR • PËRFUNDO GATI' : 'GATI PËR SMS',
+    tone: 'ready',
+  };
   return { text: 'PA PAKETU', tone: 'empty' };
 }
 
@@ -5698,7 +5707,7 @@ function PastrimiPageInner() {
 
   async function paketimiMakeReady() {
     const draft = paketimiDraft && typeof paketimiDraft === 'object' ? paketimiDraft : null;
-    if (!draft || !paketimiOrder) return;
+    if (!draft || !paketimiOrder || paketimiBusy) return;
     const stats = getPaketimiStats(draft);
     const rack = normalizePaketimiFinalRack(draft?.final_rack);
     if (!stats.allFound) {
@@ -5719,9 +5728,19 @@ function PastrimiPageInner() {
     }
     const rackLabel = formatConcreteRackSlots(rackSlots);
     try {
-      const next = { ...draft, final_rack: rackLabel, found_location_note: '', status: 'final_ready' };
-      await persistPaketimi(next, { forceStatus: 'final_ready' });
-      const completed = await handleMarkReady(paketimiOrder, { readyNote: '', readySlots: rackSlots });
+      const alreadyFinalized = String(draft.status || '').trim() === 'final_ready';
+      const next = alreadyFinalized ? draft : { ...draft, final_rack: rackLabel, found_location_note: '', status: 'final_ready' };
+      // Package finalization and the lifecycle transition are separate writes.
+      // A failed transition must remain retryable without rewriting the locked
+      // measurements/package. Keep the saved package in the transport fallback.
+      const readyData = { ...(paketimiOrder.fullOrder || paketimiOrder.data || {}), paketimi_v1: next };
+      let readyOrder = { ...paketimiOrder, data: readyData, fullOrder: readyData };
+      if (!alreadyFinalized) {
+        const saved = await persistPaketimi(next, { forceStatus: 'final_ready' });
+        if (!saved) return;
+        readyOrder = { ...paketimiOrder, data: saved.data, fullOrder: saved.data };
+      }
+      const completed = await handleMarkReady(readyOrder, { readyNote: '', readySlots: rackSlots });
       if (!completed) return;
       setPaketimiSheet(false);
       setPaketimiOrder(null);
@@ -7668,7 +7687,11 @@ Shoferi u njoftua në listën e tij.`);
         let primaryLabel = 'RUAJ GRUMBULLIMIN';
         let primaryDisabled = !!paketimiBusy;
         let primaryAction = savePaketimiGrouping;
-        if (isFinalReady) {
+        if (isFinalReady && isPaketimiReadyTransitionPending(paketimiOrder, paketimiDraft)) {
+          primaryLabel = 'PËRFUNDO KALIMIN NË GATI';
+          primaryDisabled = !!paketimiBusy;
+          primaryAction = paketimiMakeReady;
+        } else if (isFinalReady) {
           primaryLabel = 'GATI PËR SMS';
           primaryDisabled = true;
           primaryAction = undefined;

@@ -144,10 +144,10 @@ for (const completed of [false, true]) {
     normalizeRackSlots: v => Array.isArray(v) ? v : [v], setReadyPlaceBusy: v => events.push(['busy', v]),
     handleMarkReady: async () => completed, setReadyPlaceSheet: v => events.push(['rack', v]),
     setReadyPlaceOrder() {}, setReadyPlaceText() {}, setReadySlots() {}, scheduleRackMapRefresh() {},
-    paketimiDraft: { final_rack: 'A1', wrapped: true }, paketimiOrder: order,
+    paketimiDraft: { final_rack: 'A1', wrapped: true }, paketimiOrder: order, paketimiBusy: false,
     getPaketimiStats: () => ({ allFound: true }), normalizePaketimiFinalRack: v => v,
     hasConcreteRackLocation: () => true, formatConcreteRackSlots: v => v.join(', '),
-    persistPaketimi: async () => {}, setPaketimiSheet: v => events.push(['packaging', v]),
+    persistPaketimi: async () => ({ data: { paketimi_v1: { status: 'final_ready' } } }), setPaketimiSheet: v => events.push(['packaging', v]),
     setPaketimiOrder() {}, setPaketimiDraft() {}, alert: e => { throw new Error(e); },
   });
   vm.runInContext(rack + '\n' + packaging, context);

@@ -10,6 +10,7 @@ import { buildHomeSearchHref, cleanVisiblePersonName, resolveHomeSearchTarget, s
 import { getActor } from '@/lib/actorSession';
 
 const HOME_FAST_BOOT_VERSION = 'home-old-search-restore-v20';
+const HOME_DISPLAY_VERSION = String(APP_VERSION || '').match(/^v?(\d+\.\d+\.\d+)/)?.[1] || '';
 
 function isOnlineNow() {
   try {
@@ -522,7 +523,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <div className="version-foot">{APP_VERSION}</div>
+      {HOME_DISPLAY_VERSION ? <div className="version-foot">v{HOME_DISPLAY_VERSION}</div> : null}
 
       <style jsx>{`
         .home-wrap { padding: 16px 14px 40px; background: #070b14; min-height: 100vh; color: #fff; font-family: system-ui, -apple-system, sans-serif; box-sizing: border-box; }
@@ -608,7 +609,7 @@ export default function HomePage() {
         .account-card:active { background: linear-gradient(145deg, rgba(30,30,46,1) 0%, rgba(40,39,70,1) 52%, rgba(59,130,246,0.24) 100%); border-color: rgba(129,140,248,0.42); }
         .account-icon { background: linear-gradient(180deg, rgba(99,102,241,0.24), rgba(59,130,246,0.18)); color: #dbeafe; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
         .fletore-card { grid-column: 1 / -1; min-height: 96px; }
-        .version-foot { margin-top: 14px; color: rgba(203,213,225,0.42); font-size: 9px; font-weight: 800; letter-spacing: 0.04em; text-align: right; }
+        .version-foot { margin-top: 8px; color: rgba(203,213,225,0.42); font-size: 9px; font-weight: 800; letter-spacing: 0.04em; text-align: right; line-height: 1.2; white-space: nowrap; }
       `}</style>
     </div>
   );
