@@ -148,7 +148,7 @@ for (const completed of [false, true]) {
     getPaketimiStats: () => ({ allFound: true }), normalizePaketimiFinalRack: v => v,
     hasConcreteRackLocation: () => true, formatConcreteRackSlots: v => v.join(', '),
     persistPaketimi: async () => ({ data: { paketimi_v1: { status: 'final_ready' } } }), setPaketimiSheet: v => events.push(['packaging', v]),
-    setPaketimiOrder() {}, setPaketimiDraft() {}, alert: e => { throw new Error(e); },
+    setPaketimiBusy() {}, setPaketimiOrder() {}, setPaketimiDraft() {}, alert: e => { throw new Error(e); },
   });
   vm.runInContext(rack + '\n' + packaging, context);
   await context.confirmReadyPlaceAndSend('A1');

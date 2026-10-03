@@ -5740,6 +5740,7 @@ function PastrimiPageInner() {
         if (!saved) return;
         readyOrder = { ...paketimiOrder, data: saved.data, fullOrder: saved.data };
       }
+      setPaketimiBusy(true);
       const completed = await handleMarkReady(readyOrder, { readyNote: '', readySlots: rackSlots });
       if (!completed) return;
       setPaketimiSheet(false);
@@ -5747,6 +5748,8 @@ function PastrimiPageInner() {
       setPaketimiDraft(null);
     } catch (e) {
       alert('❌ Nuk u bë GATI. Order-i mbeti në PASTRIMI: ' + String(e?.message || e || 'UNKNOWN_ERROR'));
+    } finally {
+      setPaketimiBusy(false);
     }
   }
 

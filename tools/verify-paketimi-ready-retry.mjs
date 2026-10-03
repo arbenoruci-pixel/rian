@@ -44,8 +44,10 @@ await check('An already ready/delivered package cannot be transitioned again fro
   for (const status of ['gati', 'dorzim', 'done', 'cancelled']) assert.equal(actionFor(status).primaryDisabled, true);
 });
 
-function makeHarness({ table = 'orders', status = 'final_ready', completed = true, saveError = false, noSavedResult = false, busy = false } = {}) {
+function makeHarness({ table = 'orders', status = 'final_ready', completed = true, saveError = false, noSavedResult = false, busy = false, transitionWait = null } = {}) {
   const events = [];
+  let markStarted;
+  const started = new Promise(resolve => { markStarted = resolve; });
   const draft = { status, wrapped: true, final_rack: 'A1', pieces: [{ piece_id: '1', found: true, m2: 2.5 }], updated_by: 'synthetic-worker' };
   const oldData = { status: 'pastrim', paid: 20, paketimi_v1: { status: 'wrapped_ready_for_rack' } };
   const savedData = { ...oldData, paid: 25, paketimi_v1: { ...draft, status: 'final_ready', updated_at: '2026-10-03T12:00:00Z' } };
@@ -68,13 +70,17 @@ function makeHarness({ table = 'orders', status = 'final_ready', completed = tru
       } else {
         assert.equal(order.fullOrder, savedData, 'Transition must use the saved snapshot, including concurrent data changes');
       }
+      markStarted();
+      if (transitionWait) await transitionWait;
       return completed;
     },
+    setPaketimiBusy: value => { context.paketimiBusy = value; },
     setPaketimiSheet: v => { if (!v) events.push('close'); }, setPaketimiOrder() {}, setPaketimiDraft() {},
+    setPaketimiError() {}, setPaketimiNotice() {}, setPaketimiRackZone() {},
     alert: message => events.push(['alert', message]),
   });
-  vm.runInContext(findFunction('paketimiMakeReady'), context);
-  return { run: () => context.paketimiMakeReady(), events };
+  vm.runInContext(findFunction('paketimiMakeReady') + '\n' + findFunction('closePaketimiSheet'), context);
+  return { run: () => context.paketimiMakeReady(), close: () => context.closePaketimiSheet(), isBusy: () => context.paketimiBusy, started, events };
 }
 for (const table of ['orders', 'transport_orders']) {
   for (const completed of [false, true]) await check(`${table}: retry finalized packaging, completed=${completed}`, async () => {
@@ -106,6 +112,29 @@ await check('Busy packaging cannot start a concurrent action', async () => {
   await harness.run();
   assert.deepEqual(harness.events, []);
 });
+for (const status of ['final_ready', 'wrapped_ready_for_rack']) {
+  for (const outcome of ['success', 'failure', 'throw']) await check(`${status}: slow ${outcome} keeps the sheet busy until settlement`, async () => {
+    let finish, fail;
+    const transitionWait = new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+    const harness = makeHarness({ status, completed: outcome === 'success', transitionWait });
+    const running = harness.run();
+    await harness.started;
+    assert.equal(harness.isBusy(), true);
+    harness.close();
+    await harness.run();
+    assert.equal(harness.events.filter(event => event === 'transition').length, 1);
+    assert.equal(harness.events.includes('close'), false, 'Close cannot replace an in-flight order sheet');
+    if (outcome === 'throw') fail(new Error('synthetic transition failure'));
+    else finish();
+    await running;
+    assert.equal(harness.isBusy(), false, 'Success and failure must release busy state');
+    assert.equal(harness.events.includes('close'), outcome === 'success');
+    if (outcome !== 'success') {
+      harness.close();
+      assert.equal(harness.events.includes('close'), true, 'A failed sheet can be closed after settlement');
+    }
+  });
+}
 if (failures.length) {
   failures.forEach(f => console.error(`FAIL ${f}`));
   process.exitCode = 1;
