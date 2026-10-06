@@ -83,7 +83,14 @@ function toMs(v) {
     if (n > 1000000000000) return n;
     if (n > 1000000000) return n * 1000;
   }
-  const parsed = Date.parse(s);
+  // Postgres JSON timestamps can use a space, microseconds and +00. Normalize
+  // to ISO milliseconds so Safari parses the same event time as other browsers.
+  const iso = s.replace(
+    /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.(\d+))?([+-]\d{2})(?::?(\d{2}))?$/,
+    (_, day, time, fraction = '', hours, minutes = '00') =>
+      `${day}T${time}.${fraction.padEnd(3, '0').slice(0, 3)}${hours}:${minutes}`
+  );
+  const parsed = Date.parse(iso);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -361,33 +368,28 @@ async function fetchTransportRowsForDate(dateKey) {
   const startIso = startOfLocalDay(dateKey).toISOString();
   const endIso = endOfLocalDay(dateKey).toISOString();
 
-  const dateFilter = `and(delivered_at.gte.${startIso},delivered_at.lt.${endIso}),and(completed_at.gte.${startIso},completed_at.lt.${endIso}),and(picked_up_at.gte.${startIso},picked_up_at.lt.${endIso})`;
-
-  let rows = [];
-  let directError = null;
-
-  try {
+  // Transport completion timestamps live in JSON data, not top-level columns.
+  // Query a calendar-date superset: JSON contains both ISO "T...Z" and Postgres
+  // " ...+00" strings, which cannot be compared lexically as exact instants.
+  // The event-time filter below applies the exact local day after parsing.
+  const queryStart = startIso.slice(0, 10);
+  const queryEnd = new Date(Date.parse(endIso) + 86400000).toISOString().slice(0, 10);
+  const dateFilter = ['delivered_at', 'completed_at', 'done_at', 'picked_up_at']
+    .map((field) => `and(data->>${field}.gte.${queryStart},data->>${field}.lt.${queryEnd})`)
+    .join(',');
+  const rows = [];
+  for (let offset = 0; ; offset += TRANSPORT_QUERY_LIMIT) {
     const { data, error } = await supabase
       .from('transport_orders')
       .select('*')
       .or(dateFilter)
       .order('updated_at', { ascending: false })
-      .limit(TRANSPORT_QUERY_LIMIT);
+      .order('id', { ascending: false })
+      .range(offset, offset + TRANSPORT_QUERY_LIMIT - 1);
     if (error) throw error;
-    rows = Array.isArray(data) ? data : [];
-  } catch (err) {
-    directError = err;
-  }
-
-  if (!rows.length) {
-    const { data, error } = await supabase
-      .from('transport_orders')
-      .select('*')
-      .order('updated_at', { ascending: false })
-      .limit(TRANSPORT_QUERY_LIMIT);
-    if (error && directError) throw directError;
-    if (error) throw error;
-    rows = Array.isArray(data) ? data : [];
+    const page = Array.isArray(data) ? data : [];
+    rows.push(...page);
+    if (page.length < TRANSPORT_QUERY_LIMIT) break;
   }
 
   const filtered = rows.filter((row) => {

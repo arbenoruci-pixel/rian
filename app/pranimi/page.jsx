@@ -105,7 +105,7 @@ const PRANIMI_CODE_RESERVE_RETRY_DELAYS_MS = [0, 400, 1200, 2500, 5000, 9000, 15
 const PRANIMI_DB_DRAFT_SAVE_TIMEOUT_MS = 5000;
 const PRANIMI_DB_DRAFT_VERIFY_TIMEOUT_MS = 3500;
 const PRANIMI_DB_DRAFT_STATUS = 'incomplete';
-const PRANIMI_DB_DRAFT_FALLBACK_TOP_STATUS = 'pranim';
+const PRANIMI_DB_DRAFT_TOP_STATUS = 'pranim';
 const PRANIMI_CONTINUE_CLIENT_LOOKUP_MS = 1000;
 const PRANIMI_DRAFT_GUARD_VERSION = 'v8_db_draft_api_backed_2026_06_05';
 const PRANIMI_TEPAPLOTESUARA_UI_GUARD_VERSION = 'tepaplotesuara-v8-db-api-guarded-before-render';
@@ -1492,12 +1492,12 @@ function readPranimiDbDraftPreferredStatus(row = {}) {
   return String(row?.status || data?.status || data?.order_status || '').trim();
 }
 
-function buildPranimiDbDraftRowForTopStatus(row = {}, topStatus = PRANIMI_DB_DRAFT_STATUS) {
+function buildPranimiDbDraftRowForTopStatus(row = {}, topStatus = PRANIMI_DB_DRAFT_TOP_STATUS) {
   const data = readPlainObject(row?.data);
   const life = { ...readPlainObject(data?.pranimi_code_lifecycle), ...readPlainObject(data?.draft_lifecycle) };
   return {
     ...(row || {}),
-    status: String(topStatus || PRANIMI_DB_DRAFT_STATUS).trim(),
+    status: String(topStatus || PRANIMI_DB_DRAFT_TOP_STATUS).trim(),
     data: {
       ...data,
       status: PRANIMI_DB_DRAFT_STATUS,
@@ -1622,8 +1622,8 @@ async function safeDirectPranimiDraftWrite(row = {}, reason = 'autosave_db_draft
   }
 
   const variants = [
-    buildPranimiDbDraftRowForTopStatus(row, PRANIMI_DB_DRAFT_STATUS),
-    buildPranimiDbDraftRowForTopStatus(row, PRANIMI_DB_DRAFT_FALLBACK_TOP_STATUS),
+    // Keep incomplete in data only; the database lifecycle status is pranim.
+    buildPranimiDbDraftRowForTopStatus(row, PRANIMI_DB_DRAFT_TOP_STATUS),
   ];
   let lastError = null;
 
@@ -1641,7 +1641,7 @@ async function safeDirectPranimiDraftWrite(row = {}, reason = 'autosave_db_draft
           .select(PRANIMI_DRAFT_ORDER_SELECT)
           .maybeSingle();
         if (error) throw error;
-        if (data) return { ok: true, row: data, via: i === 0 ? 'direct_cas_incomplete' : 'direct_cas_pranim_fallback' };
+        if (data) return { ok: true, row: data, via: 'direct_cas_pranim' };
 
         const currentHit = await findBaseOrderByLocalOidAny(localOid, PRANIMI_DRAFT_ORDER_SELECT);
         const current = currentHit?.row || null;
@@ -1668,7 +1668,7 @@ async function safeDirectPranimiDraftWrite(row = {}, reason = 'autosave_db_draft
         .select(PRANIMI_DRAFT_ORDER_SELECT)
         .maybeSingle();
       if (error) throw error;
-      if (data) return { ok: true, row: data, via: i === 0 ? 'direct_insert_incomplete' : 'direct_insert_pranim_fallback' };
+      if (data) return { ok: true, row: data, via: 'direct_insert_pranim' };
     } catch (error) {
       lastError = error;
       const currentHit = await findBaseOrderByLocalOidAny(localOid, PRANIMI_DRAFT_ORDER_SELECT);
