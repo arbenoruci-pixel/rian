@@ -1,0 +1,61 @@
+name: Tepiha CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tepiha-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  workflows:
+    name: Workflow validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate active workflow YAML and Actions syntax
+        shell: bash
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          lint_dir="$(mktemp -d)"
+          trap 'rm -rf "$lint_dir"' EXIT
+          archive="$lint_dir/actionlint.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 --max-time 60 \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            --output "$archive"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$lint_dir" actionlint
+          # Validate Actions configuration; legacy embedded scripts are not executed.
+          "$lint_dir/actionlint" -color -shellcheck= -pyflakes=
+
+  regression:
+    name: Build and regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify payment PIN session resilience
+        run: node tools/verify-payment-pin-session-resilience-v1.mjs
+      - name: Full regression suite and production build
+        # Includes prebuild plus Dispatch, Pastrimi, payroll, payments and offline gates.
+        run: npm run build
