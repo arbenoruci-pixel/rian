@@ -25,6 +25,7 @@ create trigger trg_base_ready_bonus_on_full_payment_v2 after update of data,stat
 create trigger trg_base_ready_bonus_order_payment_v3 after update of data,status on orders for each row execute function fixture_bonus();
 grant select on bonus_trigger_calls to service_role;`);
 await db.exec(fs.readFileSync('supabase/migrations/20261011155334_order_inventory_audit_v1.sql','utf8'));
+await db.exec(fs.readFileSync('supabase/migrations/20261011161413_inventory_audit_guard_hardening_v1.sql','utf8'));
 for (const [id,role,active] of [[admin,'ADMIN',true],[dispatch,'DISPATCH',true],[worker,'PUNTOR',true],[driver,'TRANSPORT',true],[disabled,'ADMIN',false]]) await db.query('insert into users values ($1,$2,$2,$3)',[id,role,active]);
 const revision = '2026-01-01T00:00:00.123456+00:00';
 const data = { client:{name:'Fixture',phone:'044000000'}, tepiha:[{qty:3,m2:10}],pay:{euro:30,paid:10}, audit:{history:[{status:'needs_review'}]}, data:{keep:'nested'} };
@@ -43,10 +44,14 @@ for (const actor of [worker,driver,disabled,randomUUID()]) await assert.rejects(
 check(true,'database rejects workers, Transport, inactive and missing actors');
 for (const [id,code] of [[2,'NOT_OVER_FOUR_DAYS'],[3,'STATUS_CHANGED'],[4,'DATE_UNKNOWN']]) await assert.rejects(write(id),new RegExp('AUDIT_'+code));
 check(true,'recent processing, delivered orders and unknown dates cannot move');
-for (const d of [{pastrim_started_at:'2026-01-05T10:00:00Z'}, {status_history:[{to:'pastrim',at:'2026-02-03T12:00:00Z'}]}, {pastrim_started_at:'invalid',ts:1767225600000}, {data:{base_processing_at:1767225600}}]) {
+for (const d of [{pastrim_started_at:'2026-01-05T10:00:00Z'}, {pastrim_started_at:'2026-01-02T00:00:00Z',status_history:[{to:'pastrim',at:'2026-02-01T00:00:00Z'}]}, {status_history:[{to:'pastrim',at:'2026-02-03T12:00:00Z'}]}, {pastrim_started_at:'invalid',ts:1767225600000}, {data:{base_processing_at:1767225600}}]) {
  const r={data:d,created_at:'2026-01-01T00:00:00Z',updated_at:'2026-10-11T00:00:00Z'};
  assert.equal(Date.parse(await one('select inventory_audit_started_at_v1($1)::text as value',[r])),auditProcessingStarted(r));
 }
+const renewed={id:7,status:'pastrim',created_at:'2020-01-01T00:00:00Z',data:{pastrim_started_at:'2020-01-02T00:00:00Z',status_history:[{to:'pastrim',at:new Date().toISOString()}]}};
+assert(!summarizeAuditOrder(renewed,'orders').overdue);
+assert.equal(auditProcessingStarted(renewed),Date.parse(renewed.data.status_history[0].at));
+check(true,'recent processing cycle overrides stale admission and previous-cycle timestamps');
 const now=Date.now();
 check(!summarizeAuditOrder({id:1,status:'pastrim',created_at:new Date(now-AUDIT_AGE_MS).toISOString()},'orders',now).overdue,'exactly four days is not overdue');
 check(summarizeAuditOrder({id:1,status:'pastrim',created_at:new Date(now-AUDIT_AGE_MS-1).toISOString()},'orders',now).overdue,'more than four days is overdue');
@@ -69,6 +74,12 @@ check((await one('select count(*)::int as value from bonus_trigger_calls'))===0,
 await db.exec('reset role');
 await db.exec("create function fixture_redirect() returns trigger language plpgsql as $$ begin if new.id=5 then new.status='dorzim'; end if; return new; end $$; create trigger fixture_redirect before update of status on orders for each row execute function fixture_redirect(); set role service_role;");
 await assert.rejects(write(5),/AUDIT_STATUS_CONFLICT/);check((await row('orders',5)).status==='pastrim','conflicting existing status trigger rolls back the entire item');
+await db.exec('reset role');
+await db.exec(`create function fixture_legacy_write(p_id bigint,p_data jsonb) returns void language sql security definer as $$ update public.orders set data=p_data where id=p_id $$; grant execute on function fixture_legacy_write(bigint,jsonb) to anon;`);
+await db.exec('set role anon');
+await db.query("select fixture_legacy_write(1,$1)",[{other:'legacy offline RPC'}]);
+assert.equal((await row('orders',1)).data.inventory_audit.result,'not_found');
+check(true,'legacy SECURITY DEFINER writes cannot erase or forge the audit');
 await db.exec('reset role');
 for (const role of ['anon','authenticated']) {
  await db.exec(`set role ${role}`);
