@@ -123,21 +123,10 @@ export async function buildLivePayload(sb) {
   ]);
 
   const clientsN = (clients || []).map(normalizeClient);
-  const byId = new Map(clientsN.map((c) => [String(c?.id ?? '').trim(), c]));
-  const ordersN = (orders || []).map((o) => {
-    const clientId = String(o?.client_id ?? '').trim();
-    const c = clientId ? byId.get(clientId) : null;
-    // Only an actual master link can enrich the live row. A code fallback can
-    // identify a review candidate, but must not overwrite the recorded visit.
-    if (!c) return { ...o };
-    const client_name = c.name || c.full_name || '';
-    const client_phone = String(c.phone || '');
-    return {
-      ...o,
-      client_name: client_name || null,
-      client_phone: client_phone || null,
-    };
-  });
+  // A backup is a record of the visit, including historical names and phones.
+  // Keep master clients separate: Fletore resolves verified links for display.
+  // Neither a valid link nor a code/phone candidate may rewrite source rows.
+  const ordersN = (orders || []).map((o) => ({ ...o }));
 
   const openOrdersCount = ordersN.filter(isBaseOrderActive).length;
   const generatedAt = new Date().toISOString();

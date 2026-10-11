@@ -7,7 +7,6 @@ import {
   normPhone,
   normalizeName,
   orderData,
-  extractClientKeys,
   pickClientCode,
   pickClientName,
   pickClientPhone,
@@ -259,26 +258,15 @@ function buildFletoreSection({ title, subtitle, count, statusSummaryHtml, cardsH
   return `<section style="margin:0 0 36px 0;"><div style="border-bottom:2px solid #000;margin-bottom:14px;padding-bottom:8px;"><h2 style="margin:0;font-size:22px;font-weight:900;text-transform:uppercase;">${escapeHtml(title)} (${escapeHtml(count)})</h2>${subtitle ? `<div style="margin-top:4px;font-size:13px;color:#444;">${escapeHtml(subtitle)}</div>` : ''}<div style="margin-top:8px;">${statusSummaryHtml || ''}</div></div>${cardsHtml}</section>`;
 }
 
-function buildTransportGroups({ transportOrders, transportClients, users }) {
+function buildTransportGroups({ transportOrders, users }) {
   const usersById = new Map((users || []).map((u) => [String(u?.id || '').trim(), u]));
-  const clientLookup = new Map();
-  for (const row of transportClients || []) {
-    const keys = new Set();
-    const tcode = String(row?.tcode || row?.code || '').trim();
-    const id = String(row?.id || '').trim();
-    const phone = normPhone(row?.phone);
-    if (tcode) keys.add(`tcode:${tcode.toUpperCase()}`);
-    if (id) keys.add(`id:${id}`);
-    if (phone) keys.add(`phone:${phone}`);
-    for (const key of keys) clientLookup.set(key, row);
-  }
   const normalizedOrders = (transportOrders || []).map((row) => {
     const data = orderData(row);
-    const keys = extractClientKeys(row, data);
-    const clientRow = keys.map((key) => clientLookup.get(key)).find(Boolean) || null;
     const transportKey = String(row?.transport_id || '').trim();
     const transportUser = usersById.get(transportKey) || null;
-    return { ...row, code: pickClientCode(row, data), client_name: pickClientName(row, data, clientRow), client_phone: pickClientPhone(row, data, clientRow), transport_name: normalizeName(transportUser?.name || data?.transport_name || row?.transport_name || transportKey || 'PA CAKTUAR'), data };
+    // Report the recorded visit, including embedded legacy contact fields.
+    // Master code/phone candidates must never replace its identity.
+    return { ...row, code: pickClientCode(row, data), client_name: pickClientName(row, data), client_phone: pickClientPhone(row, data), transport_name: normalizeName(transportUser?.name || data?.transport_name || row?.transport_name || transportKey || 'PA CAKTUAR'), data };
   });
   const transportMap = new Map();
   for (const order of normalizedOrders) {
