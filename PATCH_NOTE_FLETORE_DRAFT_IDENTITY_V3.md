@@ -18,6 +18,9 @@ an uncertain match look authoritative.
   visible and retain both sets of source rows in the JSON attachment.
 - Preserve the order's recorded code, name and phone in unresolved cards,
   warning rows and attachment entries. Candidate details are explicit metadata.
+- Preserve raw unresolved orders in the active `/api/backup/latest?live=1`
+  payload, so code fallback enrichment cannot erase their recorded identity
+  before Fletore receives them. Valid `client_id` enrichment stays available.
 - Leave final ready/cleaning visits visible even when they carry stale draft
   flags. Leave ordinary `pranim` visits without draft markers active.
 - Exclude drafts and archived records from the last operational visit lookup.
@@ -30,9 +33,9 @@ records. Drafts intentionally skip master-client creation until finalization.
 ## Validation
 
 - Existing Fletore linking/pagination regression passes.
-- Ten new behavioral scenarios cover lifecycle classification, original
+- Eleven new behavioral scenarios cover lifecycle classification, original
   identity display, ambiguity, a synthetic nineteen-row incident, and the
-  actual cron handler's HTML and JSON attachment. Email transport is mocked;
+  actual live backup API through Fletore and cron HTML/JSON output. Email transport is mocked;
   the test sends no messages and uses no production credentials.
 - Full `npm run build` passes, including the new Fletore regression gate.
 

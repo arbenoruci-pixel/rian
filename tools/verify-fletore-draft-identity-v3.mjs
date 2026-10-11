@@ -80,6 +80,48 @@ await check('nineteen-case lifecycle reproduction retains 2 operational, 15 draf
   assert.equal(b.archivedDraftOrders.length, 2);
 });
 
+await check('live backup API preserves unresolved source identity through Fletore rendering', async () => {
+  const rows = [
+    draft(800, { code: 72, status: 'gati', client_name: 'Original Visit Name', client_phone: '', data: {} }),
+    draft(801, { code: 72, client_id: 'missing-master', status: 'gati', client_name: 'Broken Link Name', client_phone: '+38344999999', data: {} }),
+    draft(802, { code: 72, status: 'gati', client_name: null, client_phone: null,
+      data: { client: { name: 'Embedded Visit Name', phone: '+38344888888' } } }),
+    draft(803, { code: 72, client_id: 'client-a', status: 'gati', data: {} }),
+    draft(804), draft(805, { data: { source: 'DB_ARCHIVED' } }),
+  ];
+  const before = structuredClone(rows);
+  const context = { ...fletore, URL, console, process: { env: { BACKUP_PIN: 'test-only' } },
+    createAdminClientOrThrow: () => ({}),
+    fetchAllRows: async (_sb, { table }) => table === 'clients' ? clients : rows,
+    apiOk: (_res, value) => value,
+    apiFail: (_res, error) => { throw new Error(error); },
+  };
+  vm.createContext(context);
+  const shared = fs.readFileSync('api/backup/_shared.js', 'utf8')
+    .replace(/^import[\s\S]*?;\n/gm, '').replace(/^export /gm, '');
+  const handler = fs.readFileSync('api/backup/latest.js', 'utf8')
+    .replace(/^import[\s\S]*?;\n/gm, '').replace('export default async function handler', 'async function handler');
+  vm.runInContext(shared + '\n' + handler, context);
+  const response = await context.handler({ method: 'GET', query: { live: '1', pin: 'test-only' } }, {});
+  assert.equal(response.source, 'live');
+  assert.equal(response.backup.open_orders_count, 4);
+  const liveRows = JSON.parse(JSON.stringify(response.backup.orders));
+  assert.deepEqual(liveRows.slice(0, 3), before.slice(0, 3));
+  assert.deepEqual(rows, before);
+  const buckets = fletore.buildBaseOrderBuckets(response.backup.clients, liveRows);
+  for (const [id, name, phone] of [[800, 'Original Visit Name', '-'], [801, 'Broken Link Name', '+38344999999'], [802, 'Embedded Visit Name', '+38344888888']]) {
+    const entry = buckets.repairActiveOrders.find(e => e.order.id === id);
+    assert.equal(entry.client.id, 'client-b');
+    assert.equal(fletore.baseReportClient(entry).full_name, name);
+    assert.equal(fletore.baseReportClient(entry).phone, phone);
+    assert.equal(fletore.baseReportClient(entry).code, 72);
+  }
+  assert.equal(liveRows.find(o => o.id === 803).client_name, 'Recorded Person');
+  assert.equal(liveRows.find(o => o.id === 803).client_phone, '+38344123456');
+  assert.equal(buckets.draftOrders.length, 1);
+  assert.equal(buckets.archivedDraftOrders.length, 1);
+});
+
 await check('cron HTML and attachment retain drafts, archive IDs, and original identity without sending', async () => {
   const rows = [draft(901), draft(902, { data: { source: 'DB_ARCHIVED' } }),
     draft(903, { code: 902, status: 'gati', client_name: 'Visit Snapshot Name', client_phone: '+38344654321', data: { pay: { euro: 12 } } })];
