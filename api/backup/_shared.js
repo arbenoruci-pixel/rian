@@ -1,6 +1,6 @@
 import { createAdminClientOrThrow } from '../_helpers.js';
 import { fetchAllRows } from '../_pagination.js';
-import { isBaseOrderActive, normalizeBaseCode } from '../../lib/fletoreBase.js';
+import { isBaseOrderActive } from '../../lib/fletoreBase.js';
 
 export function getAdmin() {
   return createAdminClientOrThrow();
@@ -124,14 +124,14 @@ export async function buildLivePayload(sb) {
 
   const clientsN = (clients || []).map(normalizeClient);
   const byId = new Map(clientsN.map((c) => [String(c?.id ?? '').trim(), c]));
-  const byCode = new Map(clientsN.map((c) => [normalizeBaseCode(c?.code), c]));
-
   const ordersN = (orders || []).map((o) => {
     const clientId = String(o?.client_id ?? '').trim();
-    const code = normalizeBaseCode(o?.client_code || o?.clientCode || o?.code);
-    const c = (clientId ? byId.get(clientId) : null) || (code ? byCode.get(code) : null);
-    const client_name = c ? (c.name || c.full_name || '') : String(o?.client_name || o?.clientName || '');
-    const client_phone = c ? String(c.phone || '') : String(o?.client_phone || o?.clientPhone || '');
+    const c = clientId ? byId.get(clientId) : null;
+    // Only an actual master link can enrich the live row. A code fallback can
+    // identify a review candidate, but must not overwrite the recorded visit.
+    if (!c) return { ...o };
+    const client_name = c.name || c.full_name || '';
+    const client_phone = String(c.phone || '');
     return {
       ...o,
       client_name: client_name || null,
