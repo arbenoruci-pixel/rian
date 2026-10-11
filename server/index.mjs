@@ -1,3 +1,4 @@
+import inventoryAuditHandler from '../api/inventory-audit.js';
 import clientFamilyHandler from '../api/client-family.js';
 import runtimeIncidentHandler from '../api/runtime-incident.js';
 import express from 'express';
@@ -169,6 +170,7 @@ app.post('/api/admin/staff-identity', staffIdentityHandler);
 app.post('/api/admin/devices', deviceAdminHandler);
 app.post('/api/client-profile', clientProfileHandler);
 app.post('/api/client-family', clientFamilyHandler);
+app.post('/api/inventory-audit', inventoryAuditHandler);
 app.post('/api/transport/order', transportOrderHandler);
 app.post('/api/transport/self-order', transportSelfOrderHandler);
 

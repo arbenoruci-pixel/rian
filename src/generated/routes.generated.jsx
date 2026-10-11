@@ -1,3 +1,4 @@
+import InventoryAuditPage from '@/app/auditimi/page.jsx';
 import React, { Suspense, lazy } from 'react';
 import {
   loadLazyModule,
@@ -676,6 +677,7 @@ export const appRoutes = [
   { path: '/diag-lite', element: lazyElement(Page11, '/diag-lite') },
   { path: '/dispatch', element: eagerElement(DispatchPageEager, '/dispatch') },
   { path: '/fletore', element: lazyElement(Page13, '/fletore') },
+  { path: '/auditimi', element: eagerElement(InventoryAuditPage, '/auditimi') },
   { path: '/gati', element: eagerElement(GatiPageEager, '/gati') },
   { path: '/k/:id', element: lazyElement(Page15, '/k/:id') },
   { path: '/llogaria-ime', element: lazyElement(Page16, '/llogaria-ime') },
