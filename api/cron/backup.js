@@ -16,6 +16,7 @@ import { fetchAllRows, fetchAllRowsResult } from '../_pagination.js';
 import {
   baseLinkIssueLabel,
   baseOrderTotalEur,
+  baseReportClient,
   buildBaseOrderBuckets,
 } from '../../lib/fletoreBase.js';
 
@@ -219,30 +220,17 @@ function cardsGrid(cards) {
 }
 
 function baseEntryClient(entry) {
-  if (entry?.client) {
-    return {
-      ...entry.client,
-      _activeOrder: entry.order,
-      _linkIssue: entry.linkIssue || null,
-      _linkedBy: entry.linkedBy || null,
-    };
-  }
   return {
-    code: entry?.hints?.code || entry?.order?.code || '',
-    full_name: entry?.hints?.name || 'PA KLIENT',
-    phone: entry?.order?.client_phone || entry?.hints?.phone || '-',
+    ...baseReportClient(entry),
     _activeOrder: entry?.order || null,
-    _linkIssue: entry?.linkIssue || 'MISSING_CUSTOMER_DATA',
-    _linkedBy: null,
-    _unlinked: true,
+    _linkIssue: entry?.linkIssue || null,
+    _linkedBy: entry?.linkedBy || null,
+    _unlinked: !entry?.client,
   };
 }
 
 function flattenBaseClientOrders(clients) {
-  return (clients || []).flatMap((client) => (client?._activeOrders || []).map((order) => ({
-    ...client,
-    _activeOrder: order,
-  })));
+  return (clients || []).flatMap((client) => (client?._activeOrderLinks || []).map(baseEntryClient));
 }
 
 function baseLinkWarningBox(entries, { title, border, background }) {
@@ -333,14 +321,15 @@ function buildBackupAttachment(payload) {
   return [{ filename: `tepiha-fletore-backup-${new Date().toISOString().slice(0, 10)}.json`, content: Buffer.from(json, 'utf8').toString('base64') }];
 }
 
-function summaryBox({ baseClientCount, baseOrderCount, transportActiveCount, baseRepairCount, baseUnlinkedCount, generatedAt, transportGroups }) {
+function summaryBox({ baseClientCount, baseOrderCount, transportActiveCount, baseRepairCount, baseUnlinkedCount, baseDraftCount, baseArchivedDraftCount, generatedAt, transportGroups }) {
   const driverLines = transportGroups.map((g) => `${g.name}: ${g.activeClients.length}`).join(' • ') || 'Pa transport aktiv';
-  return `<div style="border:2px solid #000;background:#f8fafc;padding:12px;margin:14px 0 22px 0;"><div style="font-size:13px;font-weight:900;text-transform:uppercase;margin-bottom:6px;">PËRMBLEDHJE PËR BACKUP</div><div style="font-size:13px;line-height:1.55;">Gjeneruar: <b>${escapeHtml(fmtDateTime(generatedAt))}</b><br>BAZË në proces: <b>${escapeHtml(baseClientCount)} klientë / ${escapeHtml(baseOrderCount)} porosi</b><br>BAZË me client_id për riparim: <b>${escapeHtml(baseRepairCount)}</b><br>BAZË pa klient të identifikuar: <b>${escapeHtml(baseUnlinkedCount)}</b><br>TRANSPORT në proces: <b>${escapeHtml(transportActiveCount)}</b><br>Shoferët: <b>${escapeHtml(driverLines)}</b></div><div style="font-size:12px;color:#444;margin-top:8px;">Ky email është fletore backup live. Mund të forward-ohet te bazistët ose shoferët nëse app-i nuk hapet.</div></div>`;
+  return `<div style="border:2px solid #000;background:#f8fafc;padding:12px;margin:14px 0 22px 0;"><div style="font-size:13px;font-weight:900;text-transform:uppercase;margin-bottom:6px;">PËRMBLEDHJE PËR BACKUP</div><div style="font-size:13px;line-height:1.55;">Gjeneruar: <b>${escapeHtml(fmtDateTime(generatedAt))}</b><br>BAZË në proces: <b>${escapeHtml(baseClientCount)} klientë / ${escapeHtml(baseOrderCount)} porosi</b><br>BAZË me client_id për riparim: <b>${escapeHtml(baseRepairCount)}</b><br>BAZË pa klient të identifikuar: <b>${escapeHtml(baseUnlinkedCount)}</b><br>Drafte të papërfunduara: <b>${escapeHtml(baseDraftCount)}</b><br>Drafte të arkivuara: <b>${escapeHtml(baseArchivedDraftCount)}</b><br>TRANSPORT në proces: <b>${escapeHtml(transportActiveCount)}</b><br>Shoferët: <b>${escapeHtml(driverLines)}</b></div><div style="font-size:12px;color:#444;margin-top:8px;">Ky email është fletore backup live. Mund të forward-ohet te bazistët ose shoferët nëse app-i nuk hapet.</div></div>`;
 }
 
 function basePayloadOrder(client, order, { linkIssue = null, linkedBy = 'client_id' } = {}) {
   return {
     code: client?.code || order?.code || '',
+    order_code: order?.code ?? '',
     name: nameOfClient(client),
     phone: phoneOfClient(client),
     client_id: order?.client_id || '',
@@ -357,10 +346,12 @@ function basePayloadOrder(client, order, { linkIssue = null, linkedBy = 'client_
 
 function basePayloadEntry(entry) {
   const client = baseEntryClient(entry);
-  return basePayloadOrder(client, entry?.order || {}, {
+  return { ...basePayloadOrder(client, entry?.order || {}, {
     linkIssue: entry?.linkIssue || null,
     linkedBy: entry?.linkedBy || '',
-  });
+  }), candidate_client: entry?.linkIssue && entry?.client ? {
+    id: entry.client.id, code: entry.client.code, name: nameOfClient(entry.client), phone: phoneOfClient(entry.client),
+  } : null };
 }
 
 export default async function handler(req, res) {
@@ -426,9 +417,11 @@ export default async function handler(req, res) {
     const repairWarning = baseLinkWarningBox(repairActiveOrders, { title: '⚠️ LIDHJE QË DUHEN RIPARUAR', border: '#d97706', background: '#fffbeb' });
     const unlinkedWarning = baseLinkWarningBox(unlinkedActiveOrders, { title: '⛔ POROSI PA KLIENT TË IDENTIFIKUAR', border: '#b91c1c', background: '#fef2f2' });
     const unlinkedSection = unlinkedOrderCards.length ? buildFletoreSection({ title: '⛔ BAZË — PA KLIENT TË IDENTIFIKUAR', subtitle: 'Këto porosi mbeten të dukshme, por klienti nuk mund të përcaktohet me siguri.', count: unlinkedOrderCards.length, statusSummaryHtml: '', cardsHtml: cardsGrid(unlinkedOrderCards.map(baseClientCard)) }) : '';
+    const draftSection = baseBuckets.draftOrders.length ? buildFletoreSection({ title: '📝 BAZË — DRAFTE TË PAPËRFUNDUARA', subtitle: 'Të ruajtura për verifikim. Nuk numërohen si porosi aktive; lidhjet e sugjeruara kërkojnë kontroll.', count: baseBuckets.draftOrders.length, statusSummaryHtml: '', cardsHtml: cardsGrid(baseBuckets.draftOrders.map(baseEntryClient).map(baseClientCard)) }) : '';
+    const archivedDraftSummary = baseBuckets.archivedDraftOrders.length ? `<p>Drafte të arkivuara: ${escapeHtml(baseBuckets.archivedDraftOrders.length)}. ID: ${escapeHtml(baseBuckets.archivedDraftOrders.map(entry => entry.order.id).join(', '))}. Historiku ruhet në bashkëngjitje.</p>` : '';
     const transportSections = transportGroups.map((group) => buildFletoreSection({ title: `🚚 FLETORE TRANSPORT — ${String(group?.name || 'PA CAKTUAR').toUpperCase()}`, subtitle: `ID: ${group?.id || '-'} • Pamje si /transport/fletore. Kjo pjesë mund të forward-ohet te ky shofer.`, count: group?.activeClients?.length || 0, statusSummaryHtml: statusPills(statusCounts(group?.activeOrders || [])), cardsHtml: cardsGrid((group?.activeClients || []).map(transportClientCard)) })).join('') || buildFletoreSection({ title: '🚚 FLETORE TRANSPORT', subtitle: 'Nuk ka transport aktiv.', count: 0, statusSummaryHtml: '', cardsHtml: cardsGrid([]) });
 
-    const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;max-width:1200px;margin:0 auto;padding:18px;"><div style="border-bottom:3px solid #000;margin-bottom:14px;padding-bottom:10px;"><h1 style="margin:0;font-size:25px;font-weight:900;text-transform:uppercase;">SISTEMI BACKUP — FLETORE DITORE</h1><p style="margin:5px 0 0 0;font-size:14px;color:#555;">Live nga databaza • Data: <b>${escapeHtml(fmtDate(generatedAt))}</b></p></div>${summaryBox({ baseClientCount: baseActiveClients.length, baseOrderCount: baseBuckets.activeOrderCount, baseRepairCount: repairActiveOrders.length, baseUnlinkedCount: unlinkedActiveOrders.length, transportActiveCount: activeTransportOrders.length, generatedAt, transportGroups })}${repairWarning}${unlinkedWarning}${baseSection}${unlinkedSection}${transportSections}</div>`;
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;max-width:1200px;margin:0 auto;padding:18px;"><div style="border-bottom:3px solid #000;margin-bottom:14px;padding-bottom:10px;"><h1 style="margin:0;font-size:25px;font-weight:900;text-transform:uppercase;">SISTEMI BACKUP — FLETORE DITORE</h1><p style="margin:5px 0 0 0;font-size:14px;color:#555;">Live nga databaza • Data: <b>${escapeHtml(fmtDate(generatedAt))}</b></p></div>${summaryBox({ baseClientCount: baseActiveClients.length, baseOrderCount: baseBuckets.activeOrderCount, baseRepairCount: repairActiveOrders.length, baseUnlinkedCount: unlinkedActiveOrders.length, baseDraftCount: baseBuckets.draftOrders.length, baseArchivedDraftCount: baseBuckets.archivedDraftOrders.length, transportActiveCount: activeTransportOrders.length, generatedAt, transportGroups })}${repairWarning}${unlinkedWarning}${baseSection}${unlinkedSection}${draftSection}${archivedDraftSummary}${transportSections}</div>`;
 
     const backupPayload = {
       generated_at: generatedAt,
@@ -442,7 +435,7 @@ export default async function handler(req, res) {
         active_clients: baseActiveClients.map((client) => {
           const activeOrders = (client?._activeOrders || []).map((order) => {
             const entry = (client?._activeOrderLinks || []).find((candidate) => candidate?.order === order);
-            return basePayloadOrder(client, order, { linkIssue: entry?.linkIssue || null, linkedBy: entry?.linkedBy || 'client_id' });
+            return basePayloadEntry(entry || { client, order });
           });
           return {
             code: client?.code || '',
@@ -458,6 +451,10 @@ export default async function handler(req, res) {
         link_repair_orders: repairActiveOrders.map(basePayloadEntry),
         unlinked_active_orders: unlinkedActiveOrders.map(basePayloadEntry),
         orphan_active_orders: unlinkedActiveOrders.map(basePayloadEntry),
+        draft_count: baseBuckets.draftOrders.length,
+        draft_orders: baseBuckets.draftOrders.map((entry) => ({ ...basePayloadEntry(entry), source_order: entry.order })),
+        archived_draft_count: baseBuckets.archivedDraftOrders.length,
+        archived_draft_orders: baseBuckets.archivedDraftOrders.map((entry) => ({ ...basePayloadEntry(entry), source_order: entry.order })),
       },
       transport: transportGroups.map((group) => ({ id: group?.id || '', name: group?.name || '', active_count: group?.activeClients?.length || 0, status_counts: statusCounts(group?.activeOrders || []), active_clients: (group?.activeClients || []).map((c) => ({ code: c?.code || '', name: nameOfClient(c), phone: phoneOfClient(c), order_id: c?._activeOrder?.id || '', status: c?._activeOrder?.status || '', total_eur: totalEurFromOrder(c?._activeOrder || {}), total_m2: totalM2FromOrder(c?._activeOrder || {}), pieces: piecesSummaryFromOrder(c?._activeOrder || {}), address: orderAddress(c?._activeOrder || {}), updated_at: c?._activeOrder?.updated_at || c?._activeOrder?.created_at || '' })) })),
       warnings: { clients_read_failed: false, transport_clients_read_failed: !!transportClientsRes?.error },
@@ -466,7 +463,7 @@ export default async function handler(req, res) {
     const attachments = buildBackupAttachment(backupPayload);
     const subject = `Fletore ditore — BAZË ${baseActiveClients.length} klientë / ${baseBuckets.activeOrderCount} porosi — TRANSPORT ${activeTransportOrders.length} (${new Date().toISOString().slice(0, 10)})`;
     const resend = await sendViaResend({ to, subject, html, attachments });
-    return apiOk(res, { sent_to: to, base_count: baseActiveClients.length, base_order_count: baseBuckets.activeOrderCount, base_link_repair_count: repairActiveOrders.length, base_unlinked_count: unlinkedActiveOrders.length, base_orphan_count: unlinkedActiveOrders.length, transport_count: activeTransportOrders.length, transport_groups: transportGroups.map((g) => ({ id: g.id, name: g.name, count: g.activeClients.length })), attachment_count: attachments.length, resend });
+    return apiOk(res, { sent_to: to, base_count: baseActiveClients.length, base_order_count: baseBuckets.activeOrderCount, base_link_repair_count: repairActiveOrders.length, base_unlinked_count: unlinkedActiveOrders.length, base_orphan_count: unlinkedActiveOrders.length, base_draft_count: baseBuckets.draftOrders.length, base_archived_draft_count: baseBuckets.archivedDraftOrders.length, transport_count: activeTransportOrders.length, transport_groups: transportGroups.map((g) => ({ id: g.id, name: g.name, count: g.activeClients.length })), attachment_count: attachments.length, resend });
   } catch (error) {
     return apiFail(res, 'CRON_BACKUP_FAILED', 500, { detail: String(error?.message || error) });
   }

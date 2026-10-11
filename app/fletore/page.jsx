@@ -8,6 +8,7 @@ import {
   baseLinkIssueLabel,
   baseOrderData,
   baseOrderTotalEur,
+  baseReportClient,
   buildBaseOrderBuckets,
 } from "@/lib/fletoreBase";
 
@@ -236,6 +237,8 @@ export default function FletorePage() {
     activeOrderCards,
     repairActiveOrders,
     unlinkedActiveOrders,
+    draftOrders,
+    archivedDraftOrders,
   } = useMemo(() => {
     const allClients = Array.isArray(data?.clients) ? data.clients : [];
     const allOrders = Array.isArray(data?.orders) ? data.orders : [];
@@ -279,7 +282,7 @@ export default function FletorePage() {
     const linkedCards = active.flatMap((client) => {
       const count = client?._activeOrders?.length || 0;
       return (client?._activeOrders || []).map((order, index) => ({
-        ...client,
+        ...baseReportClient(client._activeOrderLinks.find(entry => entry.order === order)),
         _activeOrder: order,
         _orderPosition: index + 1,
         _orderCount: count,
@@ -303,6 +306,8 @@ export default function FletorePage() {
       activeOrderCards: [...linkedCards, ...unlinkedCards],
       repairActiveOrders: buckets.repairActiveOrders.filter(matchesEntry),
       unlinkedActiveOrders: unlinked,
+      draftOrders: buckets.draftOrders.filter(matchesEntry),
+      archivedDraftOrders: buckets.archivedDraftOrders.filter(matchesEntry),
     };
   }, [data, q]);
 
@@ -488,6 +493,31 @@ export default function FletorePage() {
         </section>
       )}
 
+
+      {draftOrders.length > 0 && (
+        <section style={{ marginTop: 24 }}>
+          <h2>Drafte të papërfunduara ({draftOrders.length})</h2>
+          <p>Të ruajtura për verifikim. Nuk numërohen si porosi aktive.</p>
+          {draftOrders.map(entry => {
+            const client = baseReportClient(entry);
+            return <div key={`draft-${entry.order.id}`} style={{ borderBottom: '1px solid #ccc', padding: '12px 0', overflowWrap: 'anywhere' }}>
+              <b>ID {entry.order.id} · #{entry.order.code} · {nameOfClient(client)}</b>
+              <div>{phoneOfClient(client)} · {piecesSummaryFromOrder(entry.order)}</div>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{orderHandLines(entry.order).join('\n')}</div>
+              <div>{baseOrderTotalEur(entry.order).toFixed(2)} €{entry.linkIssue ? ` · ${baseLinkIssueLabel(entry.linkIssue)} — kërkon verifikim` : ''}</div>
+            </div>;
+          })}
+        </section>
+      )}
+      {archivedDraftOrders.length > 0 && (
+        <details style={{ marginTop: 24 }}>
+          <summary>Drafte të arkivuara ({archivedDraftOrders.length})</summary>
+          <p>Historiku ruhet. Këto regjistrime janë përjashtuar nga numri i porosive aktive.</p>
+          {archivedDraftOrders.map(entry => <div key={`archived-${entry.order.id}`}>
+            ID {entry.order.id} · #{entry.order.code} · {nameOfClient(baseReportClient(entry))}
+          </div>)}
+        </details>
+      )}
 
       {inactiveClients.length > 0 && (
         <section>
