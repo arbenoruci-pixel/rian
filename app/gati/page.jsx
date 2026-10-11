@@ -1,3 +1,5 @@
+import InventoryAuditLink from '@/components/InventoryAuditLink';
+import { canAuditInventory } from '@/lib/inventoryAudit';
 import { TrackedReadySmsModal, ReadyNotificationBadge, useReadyNotifications } from '@/components/ReadyNotification';
 'use client';
 import PosModal from '@/components/PosModal';
@@ -1372,21 +1374,6 @@ function GatiPageInner() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  const [auditMode, setAuditMode] = useState(false);
-  const [showAuditSheet, setShowAuditSheet] = useState(false);
-  const [auditOrder, setAuditOrder] = useState(null);
-  const [auditBusy, setAuditBusy] = useState(false);
-  const [auditErr, setAuditErr] = useState('');
-  const [auditActionMode, setAuditActionMode] = useState('');
-  const [auditLocationInput, setAuditLocationInput] = useState('');
-  const [auditNoteInput, setAuditNoteInput] = useState('');
-  const [auditHandedToName, setAuditHandedToName] = useState('');
-  const [auditPaymentStatus, setAuditPaymentStatus] = useState('paid');
-  const [auditAmountTaken, setAuditAmountTaken] = useState('');
-  const [auditDebtRemaining, setAuditDebtRemaining] = useState('0');
-  const [auditCleanupBusy, setAuditCleanupBusy] = useState(false);
-  const [auditCleanupMsg, setAuditCleanupMsg] = useState('');
-
   const [showPlace, setShowPlace] = useState(false);
   const [placeBusy, setPlaceBusy] = useState(false);
   const [placeErr, setPlaceErr] = useState('');
@@ -2424,355 +2411,11 @@ function GatiPageInner() {
       .filter(Boolean);
   }, [orders]);
 
-  const auditSummary = useMemo(() => {
-    const list = Array.isArray(orders) ? orders : [];
-    let verifiedPhysical = 0;
-    let unverified = 0;
-    let notFound = 0;
-    let handedNoClose = 0;
-    let discrepancyTotal = 0;
-
-    for (const row of list) {
-      const audit = readAuditState(row?.fullOrder || row || {}, row || {});
-      const status = normalizeAuditStatus(audit?.status || '');
-      const discrepancy = deriveAuditDiscrepancy({ ...(row || {}), audit });
-      if (status === AUDIT_STATUS.SEEN_IN_DEPOT) verifiedPhysical += 1;
-      if (status === AUDIT_STATUS.UNVERIFIED) unverified += 1;
-      if (status === AUDIT_STATUS.NOT_FOUND) notFound += 1;
-      if (discrepancy?.code === 'delivered_not_closed') handedNoClose += 1;
-      if (discrepancy) discrepancyTotal += 1;
-    }
-
-    return {
-      readyInSystem: list.length,
-      verifiedPhysical,
-      unverified,
-      notFound,
-      handedNoClose,
-      discrepancyTotal,
-    };
-  }, [orders]);
-
-  const auditCleanupSummary = useMemo(() => {
-    const today = new Date();
-    const out = {
-      verifiedToday: 0,
-      verifiedOld: 0,
-      noVerification: 0,
-      targets: [],
-    };
-
-    for (const row of Array.isArray(orders) ? orders : []) {
-      const audit = readAuditState(row?.fullOrder || row || {}, row || {});
-      const status = normalizeAuditStatus(audit?.status || '');
-      const auditedToday = status === AUDIT_STATUS.SEEN_IN_DEPOT && audit?.audited_at && sameCalendarDay(audit.audited_at, today);
-      if (auditedToday) {
-        out.verifiedToday += 1;
-        continue;
-      }
-
-      if (status === AUDIT_STATUS.SEEN_IN_DEPOT) out.verifiedOld += 1;
-      if (!status || status === AUDIT_STATUS.UNVERIFIED) out.noVerification += 1;
-      out.targets.push({ ...row, audit, cleanup_reason: status === AUDIT_STATUS.SEEN_IN_DEPOT ? 'old_verification' : 'not_verified_today' });
-    }
-
-    return out;
-  }, [orders]);
-
-  const activeAudit = useMemo(() => {
-    if (!auditOrder) return null;
-    return readAuditState(auditOrder?.fullOrder || auditOrder || {}, auditOrder || {});
-  }, [auditOrder]);
-
-  const activeAuditDiscrepancy = useMemo(() => {
-    if (!auditOrder) return null;
-    return deriveAuditDiscrepancy({ ...(auditOrder || {}), audit: activeAudit || undefined });
-  }, [auditOrder, activeAudit]);
-
-  function closeAuditSheet() {
-    if (auditBusy) return;
-    setShowAuditSheet(false);
-    setAuditOrder(null);
-    setAuditErr('');
-    setAuditActionMode('');
-    setAuditLocationInput('');
-    setAuditNoteInput('');
-    setAuditHandedToName('');
-    setAuditPaymentStatus('paid');
-    setAuditAmountTaken('');
-    setAuditDebtRemaining('0');
-  }
-
-  function openAuditPanel(row, forcedAction = '') {
-    if (!row) return;
-    const audit = readAuditState(row?.fullOrder || row || {}, row || {});
-    const total = Number(row?.total || 0) || 0;
-    const paid = Number(row?.paid || 0) || 0;
-    const due = Math.max(0, Number((total - paid).toFixed(2)));
-    const defaultPaymentStatus = audit?.paymentSnapshot?.payment_status || (due <= 0 ? 'paid' : 'unpaid');
-    setAuditOrder(row);
-    setAuditErr('');
-    setAuditActionMode(forcedAction || '');
-    setAuditLocationInput(String(audit?.location || row?.ready_location || '').trim());
-    setAuditNoteInput(String(audit?.note || '').trim());
-    setAuditHandedToName(String(audit?.handed_to_name || row?.name || '').trim());
-    setAuditPaymentStatus(defaultPaymentStatus);
-    setAuditAmountTaken(
-      audit?.paymentSnapshot?.amount_taken || audit?.lastEvent?.amount_taken
-        ? String(Number(audit?.paymentSnapshot?.amount_taken ?? audit?.lastEvent?.amount_taken ?? 0) || 0)
-        : ''
-    );
-    setAuditDebtRemaining(String(Number(audit?.paymentSnapshot?.debt_remaining ?? due) || 0));
-    setShowAuditSheet(true);
-  }
-
-  async function saveAuditStatus(nextStatus) {
-    if (!auditOrder) return;
-    const status = normalizeAuditStatus(nextStatus);
-    if (!status) return;
-
-    const actor = readActor() || {};
-    const fullOrder = unwrapGatiOrder(auditOrder?.fullOrder || auditOrder || {});
-    const audit = readAuditState(fullOrder, auditOrder || {});
-    const id = String(auditOrder?.id || fullOrder?.id || '').trim();
-    const localOid = String(auditOrder?.local_oid || fullOrder?.local_oid || fullOrder?.oid || id).trim();
-    const atIso = new Date().toISOString();
-    const note = String(auditNoteInput || '').trim();
-    const location = String(auditLocationInput || '').trim();
-    const handedToName = String(auditHandedToName || auditOrder?.name || '').trim();
-    const amountTaken = Number(auditAmountTaken || 0) || 0;
-    const debtRemaining = Number(auditDebtRemaining || 0) || 0;
-    const paymentStatus = normalizeAuditPaymentStatus(auditPaymentStatus || '');
-
-    if (status === AUDIT_STATUS.HANDED_TO_CLIENT && !paymentStatus) {
-      setAuditErr('Zgjedhe statusin e pagesës.');
-      return;
-    }
-
-    const event = {
-      id: `audit_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
-      status,
-      label: getAuditStatusLabel(status),
-      at: atIso,
-      by_name: String(actor?.name || actor?.pin || actor?.transport_id || 'STAF').trim(),
-      by_pin: String(actor?.pin || actor?.transport_id || actor?.id || '').trim(),
-      note,
-      location,
-      handed_to_name: status === AUDIT_STATUS.HANDED_TO_CLIENT ? handedToName : '',
-      payment_status: status === AUDIT_STATUS.HANDED_TO_CLIENT ? paymentStatus : '',
-      amount_taken: status === AUDIT_STATUS.HANDED_TO_CLIENT ? amountTaken : 0,
-      debt_remaining: status === AUDIT_STATUS.HANDED_TO_CLIENT ? debtRemaining : 0,
-    };
-
-    const nextHistory = [event, ...(audit?.history || [])].slice(0, 80);
-    const nextAudit = {
-      status,
-      audited_at: atIso,
-      audited_by_name: event.by_name,
-      audited_by_pin: event.by_pin,
-      note,
-      location,
-      handed_to_name: event.handed_to_name,
-      payment_snapshot: status === AUDIT_STATUS.HANDED_TO_CLIENT
-        ? {
-            payment_status: paymentStatus,
-            amount_taken: amountTaken,
-            debt_remaining: debtRemaining,
-          }
-        : {
-            payment_status: normalizeAuditPaymentStatus(audit?.paymentSnapshot?.payment_status || ''),
-            amount_taken: Number(audit?.paymentSnapshot?.amount_taken ?? 0) || 0,
-            debt_remaining: Number(audit?.paymentSnapshot?.debt_remaining ?? 0) || 0,
-          },
-      last_event: event,
-      history: nextHistory,
-    };
-
-    const mergedData = {
-      ...(fullOrder || {}),
-      local_oid: localOid || fullOrder?.local_oid || fullOrder?.oid || '',
-      oid: localOid || fullOrder?.oid || fullOrder?.local_oid || '',
-      audit: nextAudit,
-    };
-
-    setAuditBusy(true);
-    setAuditErr('');
-    try {
-      const localPatch = {
-        id: id || localOid,
-        local_oid: localOid || id,
-        updated_at: atIso,
-        audit: nextAudit,
-        data: mergedData,
-      };
-      try { await saveOrderLocal(localPatch); } catch {}
-      try { patchBaseMasterRow({ ...localPatch, table: 'orders' }); } catch {}
-      try { scheduleLocalShadowWrite(`order_${id || localOid}`, { ...(auditOrder?.fullOrder || {}), ...localPatch }, 350); } catch {}
-
-      setOrders((prev) =>
-        (prev || []).map((row) =>
-          String(row?.id || '') === String(auditOrder?.id || '')
-            ? {
-                ...row,
-                updated_at: atIso,
-                audit: nextAudit,
-                fullOrder: {
-                  ...(row?.fullOrder || {}),
-                  audit: nextAudit,
-                  local_oid: localOid || row?.fullOrder?.local_oid || row?.local_oid || '',
-                  oid: localOid || row?.fullOrder?.oid || row?.local_oid || '',
-                },
-              }
-            : row
-        )
-      );
-
-      let remoteSaved = false;
-      try {
-        await updateOrderData(
-          'orders',
-          id || localOid,
-          (current) => ({
-            ...(current || {}),
-            local_oid: localOid || current?.local_oid || current?.oid || '',
-            oid: localOid || current?.oid || current?.local_oid || '',
-            audit: nextAudit,
-          }),
-          { updated_at: atIso }
-        );
-        remoteSaved = true;
-      } catch {}
-
-      if (!remoteSaved) {
-        await queueOp('patch_order_data', {
-          table: 'orders',
-          id: id || localOid,
-          local_oid: localOid || id,
-          data: mergedData,
-          updated_at: atIso,
-        });
-      }
-
-      closeAuditSheet();
-    } catch (e) {
-      setAuditErr(e?.message || 'Audit-i nuk u ruajt.');
-    } finally {
-      setAuditBusy(false);
-    }
-  }
-
-  async function runGatiAuditCleanup() {
-    if (auditCleanupBusy) return;
-    const targets = Array.isArray(auditCleanupSummary?.targets) ? auditCleanupSummary.targets : [];
-    if (!targets.length) {
-      setAuditCleanupMsg('Nuk ka rreshta për cleanup. Vetëm verifikimet e sotme mbesin në GATI.');
-      return;
-    }
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      alert('Cleanup i GATI duhet të bëhet online që statusi dhe audit trail të ruhen në DB.');
-      return;
-    }
-
-    const conf = window.confirm(
-      `Cleanup GATI: ${targets.length} rreshta që nuk janë verifikuar sot do kalohen në DORZIM.\n\n` +
-      `Mbesin në GATI vetëm: ${auditCleanupSummary.verifiedToday} të verifikuara sot.\n` +
-      `Çdo ndryshim ruan audit_cleanup + backup në data. Vazhdoni?`
-    );
-    if (!conf) return;
-
-    const actor = readActor() || {};
-    const byName = String(actor?.name || actor?.pin || actor?.transport_id || 'STAF').trim();
-    const byPin = String(actor?.pin || actor?.transport_id || actor?.id || '').trim();
-    const nowIso = new Date().toISOString();
-    const doneIds = new Set();
-    let done = 0;
-    let skipped = 0;
-
-    setAuditCleanupBusy(true);
-    setAuditCleanupMsg('Cleanup në progres...');
-    try {
-      for (const row of targets) {
-        const id = String(row?.id || row?.fullOrder?.id || '').trim();
-        if (!isPersistedDbLikeId(id)) { skipped += 1; continue; }
-
-        let fresh = null;
-        try {
-          fresh = await fetchOrderByIdSafe('orders', Number(id), 'id,local_oid,code,status,client_name,client_phone,updated_at,created_at,data', { timeoutMs: GATI_DB_TIMEOUT_MS });
-        } catch {
-          skipped += 1;
-          continue;
-        }
-        const currentData = unwrapGatiOrder(fresh?.data || row?.fullOrder || row || {});
-        const currentStatus = String(fresh?.status || currentData?.status || row?.status || '').trim().toLowerCase();
-        if (currentStatus !== 'gati') { skipped += 1; continue; }
-
-        const freshAudit = readAuditState(currentData, fresh || row || {});
-        const status = normalizeAuditStatus(freshAudit?.status || '');
-        const verifiedToday = status === AUDIT_STATUS.SEEN_IN_DEPOT && freshAudit?.audited_at && sameCalendarDay(freshAudit.audited_at, nowIso);
-        if (verifiedToday) { skipped += 1; continue; }
-
-        const cleanupEntry = {
-          id: `gati_cleanup_${Date.now()}_${id}`,
-          action: 'GATI_AUDIT_CLEANUP_TO_DORZIM',
-          reason: row?.cleanup_reason || (status === AUDIT_STATUS.SEEN_IN_DEPOT ? 'old_verification' : 'not_verified_today'),
-          at: nowIso,
-          by_name: byName,
-          by_pin: byPin,
-          previous_status: 'gati',
-          next_status: 'dorzim',
-          audit_snapshot: freshAudit,
-          backup: {
-            id: fresh?.id || id,
-            code: normalizeCode(fresh?.code || currentData?.code || row?.code || ''),
-            status: fresh?.status || 'gati',
-            updated_at: fresh?.updated_at || null,
-            data: currentData,
-          },
-        };
-
-        const nextHistory = Array.isArray(currentData?.audit_cleanup_history) ? currentData.audit_cleanup_history : [];
-        const nextData = {
-          ...(currentData || {}),
-          status: 'dorzim',
-          state: 'dorzim',
-          audit_cleanup: cleanupEntry,
-          audit_cleanup_history: [cleanupEntry, ...nextHistory].slice(0, 50),
-        };
-
-        await transitionOrderStatus('orders', Number(id), 'dorzim', {
-          updated_at: nowIso,
-          data: nextData,
-        });
-
-        const localPatch = {
-          ...fresh,
-          id,
-          local_oid: String(fresh?.local_oid || currentData?.local_oid || currentData?.oid || id),
-          status: 'dorzim',
-          updated_at: nowIso,
-          data: nextData,
-          table: 'orders',
-          _local: false,
-          _synced: true,
-          _syncPending: false,
-        };
-        try { await saveOrderLocal(localPatch); } catch {}
-        try { patchBaseMasterRow(localPatch); } catch {}
-
-        doneIds.add(id);
-        done += 1;
-      }
-
-      if (doneIds.size) {
-        setOrders((prev) => (prev || []).filter((row) => !doneIds.has(String(row?.id || ''))));
-      }
-      setAuditCleanupMsg(`Cleanup GATI përfundoi: ${done} u kaluan në DORZIM, ${skipped} u lanë pa prekur.`);
-      await refreshOrders('gati_audit_cleanup');
-    } catch (e) {
-      setAuditCleanupMsg(`Gabim gjatë cleanup: ${String(e?.message || e || '')}`);
-    } finally {
-      setAuditCleanupBusy(false);
-    }
+  // Inventory decisions are authenticated and committed by the audit API.
+  // The historical cleanup-to-delivered action is retired.
+  function openAuditPanel(row) {
+    if (!canAuditInventory(readActor()?.role)) return;
+    router.push('/auditimi?stage=ready&code=' + encodeURIComponent(row?.code || ''));
   }
 
   async function sendPickupSms(row) {
@@ -4438,19 +4081,7 @@ async function resolveReturnDbId(row) {
             TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              onClick={() => setAuditMode((v) => !v)}
-              style={{
-                background: auditMode ? 'rgba(34,197,94,0.18)' : 'rgba(59,130,246,0.14)',
-                border: auditMode ? '1px solid rgba(34,197,94,0.45)' : '1px solid rgba(59,130,246,0.35)',
-                color: auditMode ? '#86efac' : '#93c5fd',
-                padding: '6px 10px',
-                borderRadius: '8px',
-                fontWeight: '900',
-                fontSize: '11px'
-              }}
-            >{auditMode ? 'AUDIT MODE: ON' : 'AUDIT MODE'}</button>
+            <InventoryAuditLink stage="ready" />
             <button
               onClick={async () => {
                 if (!window.confirm('A jeni të sigurt që doni të pastroni ghost cache për GATI?')) return;
@@ -4481,46 +4112,8 @@ async function resolveReturnDbId(row) {
         onChange={(e) => setSearch(e.target.value)}
       />
 
-      {auditMode && (
-        <div className="card" style={{ padding: 12, marginTop: 10, display: 'grid', gap: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 13, fontWeight: 900, color: '#c7d2fe' }}>AUDIT SUMMARY</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.68)', fontWeight: 700 }}>KLIKONI KODIN OSE BUTONIN AUDIT PËR KONTROLL TË SHPEJTË</div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 8 }}>
-            <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 10, background: 'rgba(255,255,255,0.03)' }}><div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>GATI NË SISTEM</div><div style={{ fontSize: 22, fontWeight: 900 }}>{auditSummary.readyInSystem}</div></div>
-            <div style={{ border: '1px solid rgba(34,197,94,0.18)', borderRadius: 12, padding: 10, background: 'rgba(34,197,94,0.08)' }}><div style={{ fontSize: 11, color: '#86efac' }}>TË VERIFIKUARA FIZIKISHT</div><div style={{ fontSize: 22, fontWeight: 900, color: '#bbf7d0' }}>{auditSummary.verifiedPhysical}</div></div>
-            <div style={{ border: '1px solid rgba(107,114,128,0.18)', borderRadius: 12, padding: 10, background: 'rgba(107,114,128,0.08)' }}><div style={{ fontSize: 11, color: '#d1d5db' }}>PA U VERIFIKU</div><div style={{ fontSize: 22, fontWeight: 900 }}>{auditSummary.unverified}</div></div>
-            <div style={{ border: '1px solid rgba(239,68,68,0.18)', borderRadius: 12, padding: 10, background: 'rgba(239,68,68,0.08)' }}><div style={{ fontSize: 11, color: '#fca5a5' }}>NUK U GJETËN</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fecaca' }}>{auditSummary.notFound}</div></div>
-            <div style={{ border: '1px solid rgba(59,130,246,0.2)', borderRadius: 12, padding: 10, background: 'rgba(59,130,246,0.08)' }}><div style={{ fontSize: 11, color: '#93c5fd' }}>IU DHANË PA MBYLLJE</div><div style={{ fontSize: 22, fontWeight: 900, color: '#bfdbfe' }}>{auditSummary.handedNoClose}</div></div>
-            <div style={{ border: '1px solid rgba(251,191,36,0.2)', borderRadius: 12, padding: 10, background: 'rgba(251,191,36,0.08)' }}><div style={{ fontSize: 11, color: '#fde68a' }}>MOSPËRPUTHJE TOTALE</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fef3c7' }}>{auditSummary.discrepancyTotal}</div></div>
-          </div>
-          <div style={{ border: '1px solid rgba(251,191,36,0.22)', borderRadius: 12, padding: 10, background: 'rgba(251,191,36,0.08)', display: 'grid', gap: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 1000, color: '#fde68a' }}>AUDITED CLEANUP</div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)' }}>Mban vetëm të verifikuarat sot; të tjerat kalohen në DORZIM me audit trail.</div>
-              </div>
-              <button
-                type="button"
-                disabled={auditCleanupBusy || auditCleanupSummary.targets.length === 0}
-                onClick={runGatiAuditCleanup}
-                style={{ background: 'rgba(251,191,36,0.18)', border: '1px solid rgba(251,191,36,0.42)', color: '#fef3c7', padding: '8px 10px', borderRadius: 10, fontWeight: 1000, fontSize: 11 }}
-              >{auditCleanupBusy ? 'DUKE PASTRUAR...' : `CLEANUP ${auditCleanupSummary.targets.length}`}</button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 6 }}>
-              <div style={{ fontSize: 11 }}>Verifikuar sot: <b>{auditCleanupSummary.verifiedToday}</b></div>
-              <div style={{ fontSize: 11 }}>Verifikim i vjetër: <b>{auditCleanupSummary.verifiedOld}</b></div>
-              <div style={{ fontSize: 11 }}>Pa verifikim: <b>{auditCleanupSummary.noVerification}</b></div>
-              <div style={{ fontSize: 11 }}>Target cleanup: <b>{auditCleanupSummary.targets.length}</b></div>
-            </div>
-            {auditCleanupMsg ? <div style={{ fontSize: 11, color: '#fef3c7' }}>{auditCleanupMsg}</div> : null}
-          </div>
-        </div>
-      )}
-
       <div style={{fontSize:12,color:'#cbd5e1',padding:'8px 0'}}>LAJMËRIMET GATI: {orders.filter(o => notificationHistory.summary(o.id)?.kind === 'confirmed').length}/{orders.length} me konfirmim nga punëtori. {notificationHistory.status}<button type="button" className="btn secondary" aria-pressed={onlyUnconfirmedNotifications} onClick={() => setOnlyUnconfirmedNotifications(v => !v)} style={{marginLeft:8}}>{onlyUnconfirmedNotifications ? 'SHFAQ TË GJITHA' : 'VETËM PA KONFIRMIM'}</button></div>
-      {discrepancyRows.length > 0 && (
+      {canAuditInventory(readActor()?.role) && discrepancyRows.length > 0 && (
         <section className="card" style={{ padding: 12, marginTop: 10, display: 'grid', gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 900, color: '#fecaca' }}>MOSPËRPUTHJE / DISCREPANCIES</div>
           <div style={{ display: 'grid', gap: 8 }}>
@@ -4636,7 +4229,7 @@ async function resolveReturnDbId(row) {
                         flexShrink: 0,
                         cursor: 'pointer',
                       }}
-                      onClick={() => (auditMode ? openAuditPanel(o) : openCodeMenu(o))}
+                      onClick={() => openCodeMenu(o)}
                     >
                       {normalizeCode(o.code)}
                     </div>
@@ -4710,15 +4303,9 @@ async function resolveReturnDbId(row) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {isPaid && <span style={{ fontSize: 14 }}>✅</span>}
-                  {auditMode ? (
-                    <button className="btn secondary" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openAuditPanel(o)}>
-                      AUDIT
-                    </button>
-                  ) : (
-                    <button className="btn secondary" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => sendPickupSms(o)}>
-                      SMS
-                    </button>
-                  )}
+                  <button className="btn secondary" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => sendPickupSms(o)}>
+                    SMS
+                  </button>
                   <button
                     className="btn primary"
                     style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }}
@@ -4785,115 +4372,6 @@ async function resolveReturnDbId(row) {
         </LocalErrorBoundary>
       ) : null}
 
-      {showAuditSheet && auditOrder && (
-        <LocalErrorBoundary boundaryKind="panel" routePath="/gati" routeName="GATI" moduleName="GatiAuditSheet" componentName="AuditSheet" sourceLayer="gati_panel" showHome={false}>
-          <div className="payfs">
-          <div className="payfs-top">
-            <div>
-              <div className="payfs-title">AUDIT MODE</div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.68)', marginTop: 4 }}>
-                NR {normalizeCode(auditOrder?.code)} • {auditOrder?.name || 'Pa emër'}
-              </div>
-            </div>
-            <button className="btn secondary" onClick={closeAuditSheet} disabled={auditBusy}>✕</button>
-          </div>
-          <div className="payfs-body">
-            <div className="card" style={{ marginTop: 0, display: 'grid', gap: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                <div><div className="label">NR / KODI</div><div style={{ fontWeight: 900, marginTop: 4 }}>{normalizeCode(auditOrder?.code)}</div></div>
-                <div><div className="label">STATUSI OPERATIV</div><div style={{ fontWeight: 900, marginTop: 4 }}>{String(auditOrder?.status || 'gati').toUpperCase()}</div></div>
-                <div><div className="label">KLIENTI</div><div style={{ fontWeight: 800, marginTop: 4 }}>{auditOrder?.name || 'Pa emër'}</div></div>
-                <div><div className="label">COPË / M² / TOTALI</div><div style={{ fontWeight: 800, marginTop: 4 }}>{Number(auditOrder?.cope || 0)} copë • {Number(auditOrder?.m2 || 0).toFixed(2)} m² • {(Number(auditOrder?.total || 0) || 0).toFixed(2)}€</div></div>
-                <div><div className="label">RAFTI / LOKACIONI</div><div style={{ fontWeight: 800, marginTop: 4 }}>{auditOrder?.ready_location || activeAudit?.location || 'Pa lokacion'}</div></div>
-                <div><div className="label">STATUSI I AUDITIT</div><div style={{ fontWeight: 900, marginTop: 4 }}>{activeAudit?.label || 'PA U VERIFIKU'}</div></div>
-                <div><div className="label">AUDITI I FUNDIT</div><div style={{ fontWeight: 800, marginTop: 4 }}>{activeAudit?.audited_at ? formatAuditDateTime(activeAudit.audited_at) : 'Pa auditim'}</div></div>
-                <div><div className="label">AUDITUAR NGA</div><div style={{ fontWeight: 800, marginTop: 4 }}>{activeAudit?.audited_by_name || activeAudit?.audited_by_pin || '—'}</div></div>
-              </div>
-
-              {activeAuditDiscrepancy && (
-                <div style={{ background: 'rgba(127,29,29,0.35)', border: '1px solid rgba(239,68,68,0.28)', color: '#fecaca', borderRadius: 12, padding: 10, fontWeight: 900 }}>
-                  {activeAuditDiscrepancy.label}
-                </div>
-              )}
-
-              <div style={{ display: 'grid', gap: 8 }}>
-                <div className="label">VEPRIME TË SHPEJTA</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                  <button className="btn secondary" disabled={auditBusy} onClick={() => saveAuditStatus(AUDIT_STATUS.SEEN_IN_DEPOT)}>U PA NË DEPO</button>
-                  <button className="btn secondary" disabled={auditBusy} onClick={() => saveAuditStatus(AUDIT_STATUS.NOT_FOUND)}>NUK U GJET</button>
-                  <button className="btn secondary" disabled={auditBusy} onClick={() => { setAuditActionMode(AUDIT_STATUS.HANDED_TO_CLIENT); }}>IU DHA KLIENTIT</button>
-                  <button className="btn secondary" disabled={auditBusy} onClick={() => saveAuditStatus(AUDIT_STATUS.MOVED_LOCATION)}>NË RAFT TJETËR</button>
-                  <button className="btn secondary" disabled={auditBusy} onClick={() => saveAuditStatus(AUDIT_STATUS.NEEDS_REVIEW)} style={{ gridColumn: '1 / -1' }}>KËRKON KONTROLL</button>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div>
-                  <div className="label">LOKACIONI AKTUAL</div>
-                  <input className="input" value={auditLocationInput} onChange={(e) => setAuditLocationInput(e.target.value)} placeholder="p.sh. RAFT 3 / KATI 2" />
-                </div>
-                <div>
-                  <div className="label">SHËNIM</div>
-                  <input className="input" value={auditNoteInput} onChange={(e) => setAuditNoteInput(e.target.value)} placeholder="Shënim opsional" />
-                </div>
-              </div>
-
-              {auditActionMode === AUDIT_STATUS.HANDED_TO_CLIENT && (
-                <div style={{ display: 'grid', gap: 10, padding: 10, borderRadius: 12, border: '1px solid rgba(59,130,246,0.25)', background: 'rgba(59,130,246,0.08)' }}>
-                  <div style={{ fontWeight: 900, color: '#bfdbfe' }}>KONFIRMIMI I DORËZIMIT FIZIK</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                    <label className="row" style={{ gap: 8, alignItems: 'center' }}><input type="radio" checked={auditPaymentStatus === 'paid'} onChange={() => setAuditPaymentStatus('paid')} /> <span>PO</span></label>
-                    <label className="row" style={{ gap: 8, alignItems: 'center' }}><input type="radio" checked={auditPaymentStatus === 'unpaid'} onChange={() => setAuditPaymentStatus('unpaid')} /> <span>JO</span></label>
-                    <label className="row" style={{ gap: 8, alignItems: 'center' }}><input type="radio" checked={auditPaymentStatus === 'partial'} onChange={() => setAuditPaymentStatus('partial')} /> <span>PJESËRISHT</span></label>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <div>
-                      <div className="label">SA U MOR?</div>
-                      <input className="input" inputMode="decimal" value={auditAmountTaken} onChange={(e) => setAuditAmountTaken(e.target.value)} placeholder="0" />
-                    </div>
-                    <div>
-                      <div className="label">SA MBETI BORXH?</div>
-                      <input className="input" inputMode="decimal" value={auditDebtRemaining} onChange={(e) => setAuditDebtRemaining(e.target.value)} placeholder="0" />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="label">KUJT IU DHA?</div>
-                    <input className="input" value={auditHandedToName} onChange={(e) => setAuditHandedToName(e.target.value)} placeholder="Emri i klientit / familjar / person tjetër" />
-                  </div>
-                  <button className="btn primary" disabled={auditBusy} onClick={() => saveAuditStatus(AUDIT_STATUS.HANDED_TO_CLIENT)}>
-                    {auditBusy ? 'DUKE RUAJTUR...' : 'RUAJ DORËZIMIN FIZIK'}
-                  </button>
-                </div>
-              )}
-
-              {auditErr ? <div style={{ color: '#fca5a5', fontSize: 13, fontWeight: 800 }}>{auditErr}</div> : null}
-
-              <div style={{ display: 'grid', gap: 8 }}>
-                <div className="label">AUDIT HISTORY</div>
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {(activeAudit?.history || []).length === 0 ? (
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.62)' }}>Nuk ka histori auditi ende.</div>
-                  ) : (
-                    (activeAudit?.history || []).map((item) => (
-                      <div key={item.id} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 10, background: 'rgba(255,255,255,0.03)' }}>
-                        <div style={{ fontSize: 12, fontWeight: 900 }}>{formatAuditDateTime(item.at)} — {item.label}</div>
-                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>NGA: {item.by_name || item.by_pin || '—'}{item.location ? ` • ${item.location}` : ''}</div>
-                        {item.handed_to_name ? <div style={{ fontSize: 11, color: '#bfdbfe', marginTop: 4 }}>IU DHA: {item.handed_to_name}</div> : null}
-                        {item.payment_status ? <div style={{ fontSize: 11, color: '#86efac', marginTop: 4 }}>PAGESA: {AUDIT_PAYMENT_STATUS_LABELS[item.payment_status] || item.payment_status} • U MOR: {(Number(item.amount_taken || 0) || 0).toFixed(2)}€ • BORXH: {(Number(item.debt_remaining || 0) || 0).toFixed(2)}€</div> : null}
-                        {item.note ? <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)', marginTop: 4 }}>SHËNIM: {item.note}</div> : null}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="payfs-footer">
-            <button className="btn secondary" onClick={closeAuditSheet} disabled={auditBusy}>MBYLL</button>
-          </div>
-          </div>
-        </LocalErrorBoundary>
-      )}
 
       {showCodeMenu && menuOrder && (
         <LocalErrorBoundary boundaryKind="panel" routePath="/gati" routeName="GATI" moduleName="GatiCodeMenu" componentName="CodeMenu" sourceLayer="gati_panel" showHome={false}>
