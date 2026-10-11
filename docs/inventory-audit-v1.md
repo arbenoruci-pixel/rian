@@ -5,6 +5,8 @@ Admin and Dispatch open **AUDITIMI** from Pastrimi or Gati. Existing owner/admin
 1. **Pastrim mbi 4 ditë** includes Base and Transport orders whose processing timestamp is older than 96 hours. Admission time is used only when an explicit processing timestamp/history is unavailable. The most recent processing cycle wins over older metadata. `updated_at` never restarts the clock. Select visible rows, review the count, and confirm **Kalo në Gati**.
 2. **Kontroll fizik në Gati** starts at **Pa kontrolluar**. After physically finding the carpets, choose **U gjet** or **Nuk u gjet**, optionally with a note. Missing orders stay in Gati. Filter by result or code/client/rack; **Rikontrollo** resets a result for another check.
 
+Physical lookup defaults to **Kodi i saktë**: `74` matches only Base code 74, and `T74` only Transport code T74. It never falls back to a phone, rack or partial code match. Spaces, `#` and leading zeros in a pasted label are normalized. Typing an exact code selects **Të gjitha** so already checked orders remain findable. Multiple visits with the same permanent code remain separate and show admission dates and order IDs; **U gjet** changes only the selected visit. Searching **Emër / telefon / raft** is a separate explicit mode. Changing the query clears hidden bulk selections.
+
 The audit does not collect payment, send SMS, assign a fictitious rack, award bonuses, or close delivery. The previous client-side cleanup that delivered unverified orders has been retired. Existing normal payment, ready/rack, SMS and delivery actions remain separate.
 
 ## Persistence and retries
