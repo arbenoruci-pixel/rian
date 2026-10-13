@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { getActor } from '@/lib/actorSession';
 import { canAuditInventory } from '@/lib/inventoryAudit';
-import { matchesInventoryAuditSearch, normalizeInventoryAuditCode } from '@/lib/inventoryAuditSearch';
+import { selectInventoryAuditRows, canSelectAuditMove, normalizeInventoryAuditCode } from '@/lib/inventoryAuditSearch';
 import { approvedApiRequest } from '@/lib/approvedApiRequest';
 import './style.css';
 
@@ -27,7 +27,7 @@ export default function InventoryAuditPage() {
   const stage = params.get('stage') === 'processing' ? 'processing' : 'ready';
   const allowed = canAuditInventory(getActor()?.role);
   const [items, setItems] = useState([]), [loading, setLoading] = useState(true), [loaded, setLoaded] = useState(false);
-  const [filter, setFilter] = useState(params.get('code') ? 'all' : 'unverified'), [search, setSearch] = useState(params.get('code') || '');
+  const [filter, setFilter] = useState('unverified'), [search, setSearch] = useState(params.get('code') || '');
   const [searchMode, setSearchMode] = useState('code');
   const [selected, setSelected] = useState(new Set()), [busy, setBusy] = useState(false), [confirm, setConfirm] = useState(false);
   const [notice, setNotice] = useState(''), [error, setError] = useState(''), [rowErrors, setRowErrors] = useState({});
@@ -54,30 +54,30 @@ export default function InventoryAuditPage() {
   }, [allowed]);
 
   const ready = items.filter(r => r.stage === 'ready');
-  const overdue = items.filter(r => r.stage === 'processing' && r.overdue);
+  const overdue = items.filter(canSelectAuditMove);
   const counts = Object.fromEntries(Object.keys(labels).map(k => [k, ready.filter(r => r.result === k).length]));
-  const exactSearch = searchMode === 'code' && !!search.trim();
+  const searching = !!search.trim();
+  const exactSearch = searchMode === 'code' && searching;
   const exactCode = normalizeInventoryAuditCode(search);
-  const matchingInStage = items.filter(r => r.stage === stage && (stage !== 'processing' || r.overdue) && matchesInventoryAuditSearch(r, search, searchMode));
-  const visible = useMemo(() => {
-    return items.filter(r => r.stage === stage && (stage === 'processing' ? r.overdue : filter === 'all' || r.result === filter))
-      .filter(r => matchesInventoryAuditSearch(r, search, searchMode))
-      .sort((a, b) => stage === 'processing' ? (b.ageDays || 0) - (a.ageDays || 0) || a.code.localeCompare(b.code, undefined, { numeric: true })
-        : a.location.localeCompare(b.location, 'sq') || a.code.localeCompare(b.code, undefined, { numeric: true }));
-  }, [items, stage, filter, search, searchMode]);
-  const selectedRows = overdue.filter(r => selected.has(r.key));
+  const visible = useMemo(() => selectInventoryAuditRows(items, { stage, filter, query: search, mode: searchMode }), [items, stage, filter, search, searchMode]);
+  const matchingProcessing = visible.filter(r => r.stage === 'processing').length;
+  const matchingReady = visible.filter(r => r.stage === 'ready').length;
+  const selectable = visible.filter(canSelectAuditMove);
+  const selectedRows = selectable.filter(r => selected.has(r.key));
+  const showBulk = stage === 'processing' || (searching && selectable.length > 0);
   const disabled = busy || loading || !online || !loaded;
-  function switchStage(value) { if (busy) return; setParams({ stage: value }); setFilter('unverified'); setSearch(''); setSearchMode('code'); setSelected(new Set()); setNotice(''); setError(''); }
+  function switchStage(value) { if (busy) return; setParams({ stage: value }); setFilter('unverified'); setSearch(''); setSearchMode('code'); setSelected(new Set()); setConfirm(false); setNotice(''); setError(''); }
   function changeSearch(value, mode = searchMode) {
-    setSearch(value); setSearchMode(mode); setSelected(new Set()); setNotice('');
-    // Exact physical lookup starts across every audit result, including an order
-    // already found/missing. Keep the active filter visible and consistent.
-    if (mode === 'code' && value.trim()) setFilter('all');
+    setSearch(value); setSearchMode(mode); setSelected(new Set()); setConfirm(false); setNotice('');
   }
   function toggle(key) { setSelected(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; }); }
 
   async function act(action, rows, result = 'unverified', note = '') {
     if (lock.current || disabled || !rows.length) return;
+    // Mixed-stage search must never turn a processing result into VERIFY, or
+    // include fresh/ready rows in MOVE_READY. The database rechecks these gates.
+    if (action === 'MOVE_READY' && rows.some(r => !canSelectAuditMove(r))) return;
+    if (action === 'VERIFY' && rows.some(r => r.stage !== 'ready')) return;
     lock.current = true; setBusy(true); setConfirm(false); setNotice(''); setError('');
     let done = 0, failed = 0;
     try {
@@ -110,29 +110,31 @@ export default function InventoryAuditPage() {
   if (!allowed) return <main className="inventory-audit"><h1>Auditimi</h1><p>Kjo faqe është vetëm për Admin dhe Dispatch.</p><Link to="/">Kthehu te kryefaqja</Link></main>;
   return <main className="inventory-audit">
     <header className="ia-header"><div><Link to={stage === 'processing' ? '/pastrimi' : '/gati'}>← Kthehu te {stage === 'processing' ? 'Pastrimi' : 'Gati'}</Link><h1>Auditimi i tepihave</h1><p>Kontrollo porositë, një nga një.</p></div><button type="button" onClick={refresh} disabled={busy || loading || !online}>Rifresko</button></header>
-    <nav className="ia-tabs" aria-label="Faza e auditimit"><button aria-pressed={stage === 'processing'} disabled={busy} onClick={() => switchStage('processing')}>1. Pastrim mbi 4 ditë <b>{loaded ? overdue.length : '—'}</b></button><button aria-pressed={stage === 'ready'} disabled={busy} onClick={() => switchStage('ready')}>2. Kontroll fizik në Gati <b>{loaded ? ready.length : '—'}</b></button></nav>
+    <nav className="ia-tabs" aria-label="Faza e auditimit"><button aria-pressed={!searching && stage === 'processing'} disabled={busy} onClick={() => switchStage('processing')}>1. Pastrim mbi 4 ditë <b>{loaded ? overdue.length : '—'}</b></button><button aria-pressed={!searching && stage === 'ready'} disabled={busy} onClick={() => switchStage('ready')}>2. Kontroll fizik në Gati <b>{loaded ? ready.length : '—'}</b></button></nav>
     {!online && <p className="ia-error" role="alert">Pa internet. Lidhu për ta ruajtur auditimin.</p>}
     {error && <p className="ia-error" role="alert">{error}</p>}
-    {notice && <p className="ia-notice" role="status">{notice} {stage === 'processing' && <button disabled={busy} onClick={() => switchStage('ready')}>Vazhdo te kontrolli fizik →</button>}</p>}
-    {stage === 'ready' ? <><p className="ia-help">Shiko tepihat fizikisht dhe shtyp <strong>U gjet</strong> ose <strong>Nuk u gjet</strong>. Porositë që mungojnë mbeten në Gati për rishikim.</p><div className="ia-filters" aria-label="Rezultati i kontrollit">{[...Object.keys(labels), 'all'].map(k => <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{labels[k] || 'Të gjitha'} <b>{loaded ? k === 'all' ? ready.length : counts[k] : '—'}</b></button>)}</div></>
-      : <p className="ia-help">Zgjidh porositë që i kanë kaluar 4 ditë në Pastrim. Kalojnë në Gati si <strong>Pa kontrolluar</strong>, për t’i verifikuar në depo.</p>}
-    <div className="ia-search-modes" role="group" aria-label="Mënyra e kërkimit"><button aria-pressed={searchMode === 'code'} onClick={() => changeSearch('', 'code')}>Kodi i saktë</button><button aria-pressed={searchMode === 'details'} onClick={() => changeSearch('', 'details')}>Emër / telefon / raft</button></div>
-    <label className="ia-search">{searchMode === 'code' ? 'Kërko kodin e tepihut' : 'Kërko emrin, telefonin ose raftin'}<input value={search} onChange={e => changeSearch(e.target.value)} placeholder={searchMode === 'code' ? 'P.sh. 74 ose T74' : 'P.sh. Hasan, 044123456 ose A12'} type="search" autoComplete="off" autoCorrect="off" autoCapitalize={searchMode === 'code' ? 'characters' : 'none'} spellCheck={false} /></label>
-    {searchMode === 'code' && <p className="ia-search-hint">74 = kodi 74 në Bazë · T74 = kodi T74 në Transport</p>}
-    {exactSearch && loaded && !loading && <p className="ia-search-result" role="status">{exactCode ? <>Kodi <strong>{exactCode}</strong> · {visible.length} porosi{matchingInStage.length > 1 && <span>Ky kod ka disa porosi. Kontrollo datën e hyrjes dhe copët e secilës.</span>}</> : 'Shkruaj kodin e plotë, p.sh. 74 ose T74.'}</p>}
-    {stage === 'processing' && visible.length > 0 && <label className="ia-select-all"><input type="checkbox" disabled={disabled} checked={visible.every(r => selected.has(r.key))} onChange={e => setSelected(prev => { const next = new Set(prev); visible.forEach(r => e.target.checked ? next.add(r.key) : next.delete(r.key)); return next; })} />Zgjidhi të gjitha në këtë listë ({visible.length})</label>}
+    {notice && <p className="ia-notice" role="status">{notice} {!searching && stage === 'processing' && <button disabled={busy} onClick={() => switchStage('ready')}>Vazhdo te kontrolli fizik →</button>}</p>}
+    {!searching && (stage === 'ready' ? <><p className="ia-help">Shiko tepihat fizikisht dhe shtyp <strong>U gjet</strong> ose <strong>Nuk u gjet</strong>. Porositë që mungojnë mbeten në Gati për rishikim.</p><div className="ia-filters" aria-label="Rezultati i kontrollit">{[...Object.keys(labels), 'all'].map(k => <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{labels[k] || 'Të gjitha'} <b>{loaded ? k === 'all' ? ready.length : counts[k] : '—'}</b></button>)}</div></>
+      : <p className="ia-help">Zgjidh porositë që i kanë kaluar 4 ditë në Pastrim. Kalojnë në Gati si <strong>Pa kontrolluar</strong>, për t’i verifikuar në depo.</p>)}
+    <div className="ia-search-modes" role="group" aria-label="Mënyra e kërkimit"><button aria-pressed={searchMode === 'code'} disabled={busy} onClick={() => changeSearch('', 'code')}>Kodi i saktë</button><button aria-pressed={searchMode === 'details'} disabled={busy} onClick={() => changeSearch('', 'details')}>Emër / telefon / raft</button></div>
+    <label className="ia-search">{searchMode === 'code' ? 'Kërko kodin në Pastrim dhe Gati' : 'Kërko emrin, telefonin ose raftin'}<input value={search} onChange={e => changeSearch(e.target.value)} disabled={busy} placeholder={searchMode === 'code' ? 'P.sh. 1339 ose T74' : 'P.sh. Hasan, 044123456 ose A12'} type="search" autoComplete="off" autoCorrect="off" autoCapitalize={searchMode === 'code' ? 'characters' : 'none'} spellCheck={false} /></label>
+    <p className="ia-search-hint">Kërkon në Pastrim dhe Gati, pavarësisht ditëve dhe kontrollit.{searchMode === 'code' && <> 74 = kodi 74 në Bazë · T74 = kodi T74 në Transport.</>}</p>
+    {searching && <button type="button" className="ia-clear-search" disabled={busy} onClick={() => changeSearch('')}>Pastro kërkimin</button>}
+    {searching && loaded && !loading && <p className="ia-search-result" role="status">{exactSearch && !exactCode ? 'Shkruaj kodin e plotë, p.sh. 74 ose T74.' : <>{exactSearch ? <>Kodi <strong>{exactCode}</strong></> : 'Rezultatet'} · {visible.length} porosi<span>{matchingProcessing} në Pastrim · {matchingReady} në Gati</span>{exactSearch && visible.length > 1 && <span>Ky kod ka disa porosi. Kontrollo datën e hyrjes dhe copët e secilës.</span>}</>}</p>}
+    {selectable.length > 0 && <label className="ia-select-all"><input type="checkbox" disabled={disabled} checked={selectable.every(r => selected.has(r.key))} onChange={e => setSelected(prev => { const next = new Set(prev); selectable.forEach(r => e.target.checked ? next.add(r.key) : next.delete(r.key)); return next; })} />Zgjidh për kalim në Gati: mbi 4 ditë ({selectable.length})</label>}
     {loading && <p role="status">Po ngarkohen porositë…</p>}
-    {!loading && loaded && !visible.length && <div className="ia-empty">{search.trim() ? matchingInStage.length ? <>Porosia është në një filtër tjetër. <button onClick={() => setFilter('all')}>Shfaq në të gjitha</button></> : exactSearch && exactCode ? `Kodi ${exactCode} nuk gjendet ${stage === 'ready' ? 'në Gati' : 'te porositë mbi 4 ditë në Pastrim'}.` : 'Nuk ka porosi me këtë kërkim.' : stage === 'processing' ? 'Nuk ka porosi mbi 4 ditë në Pastrim.' : 'Nuk ka porosi në këtë filtër.'}</div>}
-    <div className="ia-list">{visible.map(r => <article className={`ia-order ia-${r.result}`} key={r.key}>
-      <div className="ia-order-head">{stage === 'processing' && <input aria-label={`Zgjidh porosinë ${r.code}`} type="checkbox" checked={selected.has(r.key)} disabled={disabled} onChange={() => toggle(r.key)} />}<strong className="ia-code">{r.code}</strong><div className="ia-identity"><h2>{r.name}</h2><span>{r.table === 'orders' ? 'Bazë' : 'Transport'} · {r.pieces} copë · {r.m2.toFixed(1)} m²</span></div><span className="ia-state">{stage === 'processing' ? `${r.ageDays} ditë` : labels[r.result]}</span></div>
-      {exactSearch && matchingInStage.length > 1 && <p className="ia-order-visit">Hyrja: {entryDateText(r.createdAt)} · Porosia #{r.id}</p>}
+    {!loading && loaded && !visible.length && <div className="ia-empty">{searching ? exactSearch && exactCode ? `Kodi ${exactCode} nuk gjendet në Pastrim ose Gati.` : 'Nuk ka porosi me këtë kërkim në Pastrim ose Gati.' : stage === 'processing' ? 'Nuk ka porosi mbi 4 ditë në Pastrim.' : 'Nuk ka porosi në këtë filtër.'}</div>}
+    <div className="ia-list">{visible.map(r => <article className={`ia-order ia-${r.result}`} data-stage={r.stage} key={r.key}>
+      <div className="ia-order-head">{canSelectAuditMove(r) && <input aria-label={`Zgjidh porosinë ${r.code}`} type="checkbox" checked={selected.has(r.key)} disabled={disabled} onClick={() => {}} onChange={() => toggle(r.key)} />}<strong className="ia-code">{r.code}</strong><div className="ia-identity"><h2>{r.name}</h2><span>{r.table === 'orders' ? 'Bazë' : 'Transport'} · {r.pieces} copë · {r.m2.toFixed(1)} m²</span></div><span className="ia-state">{r.stage === 'processing' ? `Pastrim · ${r.ageDays == null ? 'Data mungon' : `${r.ageDays} ditë`}` : `Gati · ${labels[r.result]}`}</span></div>
+      {searching && <p className="ia-order-visit">Hyrja: {entryDateText(r.createdAt)} · Porosia #{r.id}</p>}
       <div className="ia-location">📍 {r.location || 'Rafti nuk është shënuar'}</div>
-      {stage === 'ready' && <><div className="ia-audit-info">{r.checkedAt ? `${r.movedForAudit ? 'Kaloi për kontroll' : 'Kontrolluar'}: ${dateText(r.checkedAt)} · ${r.checkedBy}` : 'Ende pa kontroll fizik.'}{r.note && <p>{r.note}</p>}</div>
+      {r.stage === 'processing' && <p className="ia-help">Porosia është në Pastrim. {r.overdue ? 'Mund ta zgjedhësh për kalim në Gati, pastaj ta verifikosh fizikisht.' : r.ageDays == null ? 'Data e Pastrimit mungon; kalimi në grup është i bllokuar.' : 'Ende brenda 4 ditëve; kalimi në grup bëhet pasi t’i ketë kaluar 4 ditë.'}</p>}
+      {r.stage === 'ready' && <><div className="ia-audit-info">{r.checkedAt ? `${r.movedForAudit ? 'Kaloi për kontroll' : 'Kontrolluar'}: ${dateText(r.checkedAt)} · ${r.checkedBy}` : 'Ende pa kontroll fizik.'}{r.note && <p>{r.note}</p>}</div>
         <details><summary>Shënim / hollësi</summary><label>Shënim (opsional)<input maxLength={500} value={notes[r.key] ?? r.note} onChange={e => setNotes(prev => ({ ...prev, [r.key]: e.target.value }))} placeholder="P.sh. u gjetën 2 nga 3 tepihat" /></label><p>{r.phone || 'Pa telefon'} · Vlera: {r.total.toFixed(2)} € · Porosia #{r.id}</p></details>
         <div className="ia-actions"><button className="ia-found" disabled={disabled} onClick={() => act('VERIFY', [r], 'seen_in_depot', notes[r.key] ?? r.note)}>✓ U gjet</button><button className="ia-missing" disabled={disabled} onClick={() => act('VERIFY', [r], 'not_found', notes[r.key] ?? r.note)}>✕ Nuk u gjet</button>{r.result !== 'unverified' && <button className="ia-reset" disabled={disabled} onClick={() => act('VERIFY', [r], 'unverified', notes[r.key] ?? r.note)}>Rikontrollo</button>}</div></>}
       {rowErrors[r.key] && <p className="ia-error" role="alert">{rowErrors[r.key]}</p>}
     </article>)}</div>
-    {stage === 'processing' && <footer className="ia-bulk"><span><b>{selectedRows.length}</b> të zgjedhura</span><button disabled={disabled || !selectedRows.length} onClick={() => setConfirm(true)}>{busy ? 'Duke ruajtur…' : `Kalo ${selectedRows.length || ''} në Gati`}</button></footer>}
-    {confirm && <div className="ia-overlay" onKeyDown={e => { if (e.key === 'Escape') setConfirm(false); if (e.key === 'Tab') { const buttons = e.currentTarget.querySelectorAll('button'); const first = buttons[0], last = buttons[buttons.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } } }}><section role="dialog" aria-modal="true" aria-labelledby="ia-confirm-title" className="ia-dialog"><h2 id="ia-confirm-title">Kalo {selectedRows.length} porosi në Gati?</h2><p>Do të shënohen “Pa kontrolluar”. Pastaj verifiko fizikisht cilat gjenden në depo.</p><div className="ia-actions"><button autoFocus onClick={() => setConfirm(false)}>Anulo</button><button className="ia-confirm" onClick={() => act('MOVE_READY', selectedRows)}>Po, kaloji në Gati</button></div></section></div>}
+    {showBulk && <footer className="ia-bulk"><span><b>{selectedRows.length}</b> të zgjedhura</span><button disabled={disabled || !selectedRows.length} onClick={() => setConfirm(true)}>{busy ? 'Duke ruajtur…' : `Kalo ${selectedRows.length || ''} në Gati`}</button></footer>}
+    {confirm && <div className="ia-overlay" onKeyDown={e => { if (e.key === 'Escape') setConfirm(false); if (e.key === 'Tab') { const buttons = e.currentTarget.querySelectorAll('button'); const first = buttons[0], last = buttons[buttons.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } } }}><section role="dialog" aria-modal="true" aria-labelledby="ia-confirm-title" className="ia-dialog"><h2 id="ia-confirm-title">Kalo {selectedRows.length} porosi në Gati?</h2><p>Do të shënohen “Pa kontrolluar”. Pastaj verifiko fizikisht cilat gjenden në depo.</p><div className="ia-actions"><button autoFocus onClick={() => setConfirm(false)}>Anulo</button><button className="ia-confirm" disabled={disabled || !selectedRows.length} onClick={() => act('MOVE_READY', selectedRows)}>Po, kaloji në Gati</button></div></section></div>}
   </main>;
 }
