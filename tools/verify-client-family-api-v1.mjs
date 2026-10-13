@@ -31,7 +31,18 @@ const info=await familyAction({action:'PUBLIC_INFO',source:'BASE',orderId:'10',t
 check(info.codes.length===2&&!JSON.stringify(info).includes('044')&&!('contacts' in info),'public link returns codes but no contact list or finances');
 await familyAction({action:'PUBLIC_ADD',source:'BASE',orderId:10,token,requestId:randomUUID(),contacts:[{name:'Public family',phone:'049555111'}]},{supabase,secret});
 check((await get(base)).contacts.length===2,'customer addition reaches real SQL transaction');
-for(const fields of [{orderId:11},{source:'TRANSPORT'},{token:token.slice(0,-2)+'xx'}]){await assert.rejects(familyAction({action:'PUBLIC_INFO',source:'BASE',orderId:10,token,...fields},{supabase,secret}),/FAMILY_LINK_INVALID/);n++;}
+// Changing trailing base64url text can change only unused padding bits and
+// leave the HMAC bytes intact (e.g. xw -> xx). Corrupt a decoded byte instead.
+const [tokenBody, signature] = token.split('.');
+const originalSignature = Buffer.from(signature, 'base64url');
+const corruptedSignature = Buffer.from(originalSignature);
+corruptedSignature[0] ^= 1;
+assert.notDeepEqual(corruptedSignature, originalSignature);
+const corruptedToken = `${tokenBody}.${corruptedSignature.toString('base64url')}`;
+assert.notEqual(corruptedToken, token);
+assert.throws(() => verifyFamilyToken(corruptedToken, secret), /FAMILY_LINK_INVALID/);n++;
+for(const fields of [{orderId:11},{source:'TRANSPORT'},{token:corruptedToken}]){await assert.rejects(familyAction({action:'PUBLIC_INFO',source:'BASE',orderId:10,token,...fields},{supabase,secret}),/FAMILY_LINK_INVALID/);n++;}
+console.log('PASS mismatched order/source and genuinely corrupted signature are rejected');
 await assert.rejects(familyAction({action:'MERGE',...base},{supabase,secret}),/AUTH_REQUIRED/);n++;
 const expired=signFamilyToken({...base,orderId:10},secret,Date.now()-31*24*3600000);assert.throws(()=>verifyFamilyToken(expired,secret),/EXPIRED/);n++;
 const handler=createFamilyHandler({createClient:()=>supabase,getSecret:()=>secret,authenticate:async(_,device)=>{if(device!=='test-approved')throw Object.assign(new Error('AUTH_REQUIRED'),{code:'AUTH_REQUIRED',httpStatus:401});return authUser;}});
