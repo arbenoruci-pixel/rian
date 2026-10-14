@@ -5,6 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { auditProcessingStarted, summarizeAuditOrder, canAuditInventory, AUDIT_AGE_MS } from '../lib/inventoryAudit.js';
 import { inventoryAuditAction } from '../lib/inventoryAuditServer.js';
 import { createInventoryAuditHandler } from '../api/inventory-audit.js';
+import { processingCycleCases, processingCycleRow } from './fixtures/inventory-audit-processing-cycle-v2.mjs';
 
 const db = new PGlite();
 let checks = 0;
@@ -26,6 +27,7 @@ create trigger trg_base_ready_bonus_order_payment_v3 after update of data,status
 grant select on bonus_trigger_calls to service_role;`);
 await db.exec(fs.readFileSync('supabase/migrations/20261011155334_order_inventory_audit_v1.sql','utf8'));
 await db.exec(fs.readFileSync('supabase/migrations/20261011161413_inventory_audit_guard_hardening_v1.sql','utf8'));
+await db.exec(fs.readFileSync('supabase/migrations/20261014004736_inventory_audit_processing_cycle_v2.sql','utf8'));
 for (const [id,role,active] of [[admin,'ADMIN',true],[dispatch,'DISPATCH',true],[worker,'PUNTOR',true],[driver,'TRANSPORT',true],[disabled,'ADMIN',false]]) await db.query('insert into users values ($1,$2,$2,$3)',[id,role,active]);
 const revision = '2026-01-01T00:00:00.123456+00:00';
 const data = { client:{name:'Fixture',phone:'044000000'}, tepiha:[{qty:3,m2:10}],pay:{euro:30,paid:10}, audit:{history:[{status:'needs_review'}]}, data:{keep:'nested'} };
@@ -48,6 +50,13 @@ for (const d of [{pastrim_started_at:'2026-01-05T10:00:00Z'}, {pastrim_started_a
  const r={data:d,created_at:'2026-01-01T00:00:00Z',updated_at:'2026-10-11T00:00:00Z'};
  assert.equal(Date.parse(await one('select inventory_audit_started_at_v1($1)::text as value',[r])),auditProcessingStarted(r));
 }
+for (const fixture of processingCycleCases) {
+ const r=processingCycleRow(fixture), expected=fixture.expected ? Date.parse(fixture.expected) : 0;
+ assert.equal(auditProcessingStarted(r),expected,fixture.name+' (JS)');
+ const actual=await one('select inventory_audit_started_at_v1($1)::text as value',[r]);
+ assert.equal(actual ? Date.parse(actual) : 0,expected,fixture.name+' (SQL)');
+}
+check(true,`${processingCycleCases.length} expected-date fixtures agree in JS and PostgreSQL`);
 const renewed={id:7,status:'pastrim',created_at:'2020-01-01T00:00:00Z',data:{pastrim_started_at:'2020-01-02T00:00:00Z',status_history:[{to:'pastrim',at:new Date().toISOString()}]}};
 assert(!summarizeAuditOrder(renewed,'orders').overdue);
 assert.equal(auditProcessingStarted(renewed),Date.parse(renewed.data.status_history[0].at));
@@ -123,4 +132,58 @@ assert.equal((await request({role:'PUNTOR',body:{action:'LIST',role:'ADMIN'}})).
 assert.equal((await request({headers:{'content-type':'text/plain'}})).statusCode,415);
 assert.match((await request()).headers['cache-control'],/no-store/);
 check(true,'HTTP endpoint enforces device, server actor, origin, method, content type and private cache');
+// Entire return/move flow runs only in isolated PGlite fixture tables.
+await db.exec('reset role');
+for (const table of ['orders','transport_orders']) {
+ const id=table==='orders'?101:randomUUID();
+ const oldData={pastrim_started_at:'2020-01-01T00:00:00Z',pastrim_delay_started_at:'2020-01-01T00:00:00Z',data:{keep:'nested'},pay:{paid:10}};
+ await db.query(`insert into ${table}(id,status,data,created_at,updated_at,total,paid,pieces) values($1,'gati',$2,'2020-01-01',$3,30,10,3)`,[id,oldData,revision]);
+ await db.exec('set role service_role');
+ // The old Base client changes only status; the old Transport client also sends
+ // stale processing fields. Both must get a fresh server-owned processing clock.
+ await db.query(`update ${table} set status='pastrim',data=$2 where id=$1`,[id,oldData]);
+ const returned=await row(table,id), started=auditProcessingStarted(returned);
+ assert(started>Date.now()-10000 && started<=Date.now());
+ assert.equal(returned.data.data.inventory_processing_started_at,returned.data.inventory_processing_started_at);
+ assert.equal(summarizeAuditOrder(returned,table).overdue,false);
+ assert.equal(Date.parse(await one('select inventory_audit_started_at_v1($1)::text as value',[returned])),started);
+ const eventCount=await one('select count(*)::int as value from inventory_audit_events');
+ for (const actor of [admin,dispatch]) {
+  await assert.rejects(write(id,{table,actor,revision:returned.updated_at}),/AUDIT_NOT_OVER_FOUR_DAYS/);
+  const api=await inventoryAuditAction({action:'MOVE_READY',items:[{table,id,revision:returned.updated_at,operationId:randomUUID()}]},{supabase:sqlClient,authUser:{id:actor,role:actor===admin?'ADMIN':'DISPATCH'}});
+  assert.equal(api.results[0].error,'AUDIT_NOT_OVER_FOUR_DAYS');
+ }
+ assert.deepEqual(await row(table,id),returned,'rejected writes cannot alter returned order');
+ assert.equal(await one('select count(*)::int as value from inventory_audit_events'),eventCount);
+ // Replays, status aliases and a stale offline snapshot cannot reset/backdate it.
+ for (const role of ['service_role','anon','authenticated']) {
+  await db.exec('reset role; set role '+role);
+  await db.query(`update ${table} set status='at_base',data=$2 where id=$1`,[id,{...oldData,inventory_processing_started_at:'2020-01-01',data:{inventory_processing_started_at:'2020-01-01'}}]);
+  assert.equal(auditProcessingStarted(await row(table,id)),started);
+ }
+ await db.exec('reset role');
+ // A subsequent genuine ready -> processing cycle restarts the clock again.
+ await db.query(`update ${table} set status='gati' where id=$1`,[id]);
+ await db.query(`update ${table} set status='pastrim' where id=$1`,[id]);
+ assert(auditProcessingStarted(await row(table,id))>=started);
+ for (const key of ['total','paid','pieces']) assert.equal((await row(table,id))[key],returned[key]);
+}
+check(true,'Admin and Dispatch RPC/API reject fresh Base/Transport returns; offline writes preserve the clock and money');
+// A status guard may redirect an attempted entry: the clock follows the final
+// database status rather than the requested status or JSON mirror.
+await db.exec(`create function fixture_block_return() returns trigger language plpgsql as $$ begin if new.id=102 then new.status='gati'; end if; return new; end $$;
+create trigger trg_zzz_fixture_block_return before update on orders for each row execute function fixture_block_return();`);
+await db.query("insert into orders(id,status,data,created_at,updated_at) values(102,'gati','{}','2020-01-01',$1)",[revision]);
+await db.exec("update orders set status='pastrim' where id=102");
+assert.equal((await row('orders',102)).data.inventory_processing_started_at,undefined);
+check(true,'clock respects final status after existing database guards');
+// Verify both sides of the strict >96-hour boundary on the database write path.
+for (const [id,hours,rejected] of [[103,95.999,true],[104,96.001,false]]) {
+ await db.query("insert into orders(id,status,data,created_at,updated_at) values($1,'pastrim',jsonb_build_object('pastrim_at',clock_timestamp()-($2*interval '1 hour')),clock_timestamp()-interval '30 days',$3)",[id,hours,revision]);
+ await db.exec('set role service_role');
+ if(rejected) await assert.rejects(write(id,{actor:dispatch}),/AUDIT_NOT_OVER_FOUR_DAYS/);
+ else assert.equal((await write(id,{actor:dispatch})).row.status,'gati');
+ await db.exec('reset role');
+}
+check(true,'server enforces strict 96-hour boundary');
 await db.close();console.log(`Inventory audit: ${checks} integration groups passed.`);
