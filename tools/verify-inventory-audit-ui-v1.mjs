@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import './verify-inventory-audit-search-v2.mjs';
 import { matchesInventoryAuditSearch, normalizeInventoryAuditCode } from '../lib/inventoryAuditSearch.js';
+import { summarizeAuditOrder } from '../lib/inventoryAudit.js';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { build } from 'esbuild';
 const bundle=await build({entryPoints:['tools/fixtures/inventory-audit-browser.jsx'],bundle:true,write:false,format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"test"'},alias:{'@':process.cwd()},loader:{'.css':'empty'},logLevel:'silent'});
@@ -110,6 +111,16 @@ console.log('PASS mixed-stage duplicate visits, eligible-only bulk move from Gat
 items=[{...base,key:'orders:1',id:'1',code:'74'},{...base,key:'orders:2',id:'2',code:'71',phone:'044740001'}];
 await open();await wait(()=>doc().querySelectorAll('.ia-order').length===2);doc().querySelector('.ia-select-all input').click();await click('Kalo 2 në Gati');await click('Anulo');await search('74');assert.deepEqual(codes(),['74']);assert.equal(doc().querySelector('.ia-bulk b').textContent,'0');
 console.log('PASS narrowing processing search clears hidden bulk selections');
+// Use real summaries for a fresh return with stale dates. Privileged users can
+// find it by code, but cannot select it for bulk-ready or physically verify it.
+items=[summarizeAuditOrder({id:301,code:301,status:'pastrim',created_at:'2020-01-01',data:{pastrim_started_at:'2020-01-01',kthim:{active:true,at:Date.now()}}},'orders')];
+for(const role of ['ADMIN','DISPATCH']) {
+ await open(role,'processing','301');await wait(()=>codes().length===1);
+ assert.equal(doc().querySelector('.ia-order input[type=checkbox]'),null);
+ assert.equal(doc().querySelector('.ia-found'),null);
+ assert.equal(doc().querySelector('.ia-select-all'),null);
+}
+console.log('PASS Admin and Dispatch can find a fresh returned order but cannot select it for an audit move');
 const count=requests.length;await open('PUNTOR');await wait(()=>text().includes('vetëm për Admin dhe Dispatch'));assert.equal(requests.length,count);assert.equal(doc().querySelectorAll('.ia-order').length,0);
 console.log('PASS worker cannot open audit UI or request the list');
 fail=true;await open();await wait(()=>text().includes('Lista e plotë nuk u ngarkua'));assert(buttons().find(b=>b.textContent.startsWith('Kalo')).disabled);
