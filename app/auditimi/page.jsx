@@ -15,6 +15,8 @@ const errors = {
   AUDIT_STATUS_CONFLICT: 'Statusi ka një pengesë në sistem. Duhet kontrolluar veçmas.',
   AUDIT_ORDER_NOT_FOUND: 'Porosia nuk gjendet më në sistem.',
   AUDIT_FORBIDDEN: 'Auditimi lejohet vetëm për Admin dhe Dispatch.',
+  AUDIT_CONFIRMATION_REQUIRED: 'Konfirmo që tepihat e kësaj porosie janë në raft dhe gati.',
+  AUDIT_SINGLE_ORDER_REQUIRED: 'Konfirmo fizikisht vetëm një porosi në herë.',
   DISPATCH_ORDER_ACTOR_NOT_ALLOWED: 'Auditimi lejohet vetëm për Admin dhe Dispatch.',
   AUTH_REQUIRED: 'Hyr përsëri në llogari.', DEVICE_NOT_APPROVED: 'Kjo pajisje nuk është e aprovuar.',
 };
@@ -30,13 +32,14 @@ export default function InventoryAuditPage() {
   const [filter, setFilter] = useState('unverified'), [search, setSearch] = useState(params.get('code') || '');
   const [searchMode, setSearchMode] = useState('code');
   const [selected, setSelected] = useState(new Set()), [busy, setBusy] = useState(false), [confirm, setConfirm] = useState(false);
+  const [foundRow, setFoundRow] = useState(null);
   const [notice, setNotice] = useState(''), [error, setError] = useState(''), [rowErrors, setRowErrors] = useState({});
   const [notes, setNotes] = useState({}), [online, setOnline] = useState(typeof navigator === 'undefined' || navigator.onLine);
   const lock = useRef(false), alive = useRef(true), operations = useRef(new Map());
 
   async function refresh() {
     if (lock.current) return;
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setFoundRow(null);
     try {
       const r = await approvedApiRequest('/api/inventory-audit', { action: 'LIST' }, { timeoutMs: 30000 });
       if (!r.complete || !Array.isArray(r.items)) throw new Error('AUDIT_LIST_INCOMPLETE');
@@ -66,19 +69,20 @@ export default function InventoryAuditPage() {
   const selectedRows = selectable.filter(r => selected.has(r.key));
   const showBulk = stage === 'processing' || (searching && selectable.length > 0);
   const disabled = busy || loading || !online || !loaded;
-  function switchStage(value) { if (busy) return; setParams({ stage: value }); setFilter('unverified'); setSearch(''); setSearchMode('code'); setSelected(new Set()); setConfirm(false); setNotice(''); setError(''); }
+  function switchStage(value) { if (busy) return; setParams({ stage: value }); setFilter('unverified'); setSearch(''); setSearchMode('code'); setSelected(new Set()); setConfirm(false); setFoundRow(null); setNotice(''); setError(''); }
   function changeSearch(value, mode = searchMode) {
-    setSearch(value); setSearchMode(mode); setSelected(new Set()); setConfirm(false); setNotice('');
+    setSearch(value); setSearchMode(mode); setSelected(new Set()); setConfirm(false); setFoundRow(null); setNotice('');
   }
   function toggle(key) { setSelected(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; }); }
 
-  async function act(action, rows, result = 'unverified', note = '') {
+  async function act(action, rows, result = 'unverified', note = '', confirmed = false) {
     if (lock.current || disabled || !rows.length) return;
     // Mixed-stage search must never turn a processing result into VERIFY, or
     // include fresh/ready rows in MOVE_READY. The database rechecks these gates.
     if (action === 'MOVE_READY' && rows.some(r => !canSelectAuditMove(r))) return;
     if (action === 'VERIFY' && rows.some(r => r.stage !== 'ready')) return;
-    lock.current = true; setBusy(true); setConfirm(false); setNotice(''); setError('');
+    if (action === 'FOUND_READY' && (!confirmed || rows.length !== 1 || rows[0].stage !== 'processing' || result !== 'seen_in_depot')) return;
+    lock.current = true; setBusy(true); setConfirm(false); setFoundRow(null); setNotice(''); setError('');
     let done = 0, failed = 0;
     try {
       for (let from = 0; from < rows.length; from += 10) {
@@ -88,7 +92,7 @@ export default function InventoryAuditPage() {
           if (!operations.current.has(k)) operations.current.set(k, crypto.randomUUID());
           return { table: r.table, id: r.id, revision: r.revision, operationId: operations.current.get(k) };
         });
-        const response = await approvedApiRequest('/api/inventory-audit', { action, result, note, items: payload }, { timeoutMs: 55000 });
+        const response = await approvedApiRequest('/api/inventory-audit', { action, result, note, items: payload, ...(action === 'FOUND_READY' ? { confirmed } : {}) }, { timeoutMs: 55000 });
         if (!Array.isArray(response.results) || response.results.length !== batch.length) throw new Error('AUDIT_RESPONSE_INVALID');
         const patches = new Map();
         const issues = {};
@@ -100,7 +104,7 @@ export default function InventoryAuditPage() {
         setItems(prev => prev.map(r => patches.get(r.key) || r));
         setSelected(prev => new Set([...prev].filter(k => !patches.has(k))));
         setRowErrors(prev => ({ ...prev, ...issues }));
-        setNotice(`${done} u ${action === 'MOVE_READY' ? 'kaluan në Gati për kontroll' : 'ruajtën'}.${failed ? ` ${failed} kërkojnë rishikim.` : ''}`);
+        setNotice(`${done} u ${action === 'MOVE_READY' ? 'kaluan në Gati për kontroll' : action === 'FOUND_READY' ? 'konfirmuan në Gati · U gjet' : 'ruajtën'}.${failed ? ` ${failed} kërkojnë rishikim.` : ''}`);
       }
     } catch (e) {
       if (alive.current) { setError(`${done ? `${done} u ruajtën. ` : ''}${errorText(e)}`); setLoaded(false); }
@@ -128,13 +132,14 @@ export default function InventoryAuditPage() {
       <div className="ia-order-head">{canSelectAuditMove(r) && <input aria-label={`Zgjidh porosinë ${r.code}`} type="checkbox" checked={selected.has(r.key)} disabled={disabled} onClick={() => {}} onChange={() => toggle(r.key)} />}<strong className="ia-code">{r.code}</strong><div className="ia-identity"><h2>{r.name}</h2><span>{r.table === 'orders' ? 'Bazë' : 'Transport'} · {r.pieces} copë · {r.m2.toFixed(1)} m²</span></div><span className="ia-state">{r.stage === 'processing' ? `Pastrim · ${r.ageDays == null ? 'Data mungon' : `${r.ageDays} ditë`}` : `Gati · ${labels[r.result]}`}</span></div>
       {searching && <p className="ia-order-visit">Hyrja: {entryDateText(r.createdAt)} · Porosia #{r.id}</p>}
       <div className="ia-location">📍 {r.location || 'Rafti nuk është shënuar'}</div>
-      {r.stage === 'processing' && <p className="ia-help">Porosia është në Pastrim. {r.overdue ? 'Mund ta zgjedhësh për kalim në Gati, pastaj ta verifikosh fizikisht.' : r.ageDays == null ? 'Data e Pastrimit mungon; kalimi në grup është i bllokuar.' : 'Ende brenda 4 ditëve; kalimi në grup bëhet pasi t’i ketë kaluar 4 ditë.'}</p>}
+      {r.stage === 'processing' && <><p className="ia-help">Nëse tepihat e kësaj porosie janë fizikisht në raft dhe gati, konfirmoji tani. {r.overdue ? 'Kalimi në grup i shënon Pa kontrolluar.' : 'Kalimi në grup kërkon mbi 4 ditë në Pastrim.'}</p><div className="ia-actions"><button className="ia-found-ready" disabled={disabled} onClick={() => setFoundRow(r)}>✓ U gjet në raft — konfirmo në Gati</button></div></>}
       {r.stage === 'ready' && <><div className="ia-audit-info">{r.checkedAt ? `${r.movedForAudit ? 'Kaloi për kontroll' : 'Kontrolluar'}: ${dateText(r.checkedAt)} · ${r.checkedBy}` : 'Ende pa kontroll fizik.'}{r.note && <p>{r.note}</p>}</div>
         <details><summary>Shënim / hollësi</summary><label>Shënim (opsional)<input maxLength={500} value={notes[r.key] ?? r.note} onChange={e => setNotes(prev => ({ ...prev, [r.key]: e.target.value }))} placeholder="P.sh. u gjetën 2 nga 3 tepihat" /></label><p>{r.phone || 'Pa telefon'} · Vlera: {r.total.toFixed(2)} € · Porosia #{r.id}</p></details>
         <div className="ia-actions"><button className="ia-found" disabled={disabled} onClick={() => act('VERIFY', [r], 'seen_in_depot', notes[r.key] ?? r.note)}>✓ U gjet</button><button className="ia-missing" disabled={disabled} onClick={() => act('VERIFY', [r], 'not_found', notes[r.key] ?? r.note)}>✕ Nuk u gjet</button>{r.result !== 'unverified' && <button className="ia-reset" disabled={disabled} onClick={() => act('VERIFY', [r], 'unverified', notes[r.key] ?? r.note)}>Rikontrollo</button>}</div></>}
       {rowErrors[r.key] && <p className="ia-error" role="alert">{rowErrors[r.key]}</p>}
     </article>)}</div>
     {showBulk && <footer className="ia-bulk"><span><b>{selectedRows.length}</b> të zgjedhura</span><button disabled={disabled || !selectedRows.length} onClick={() => setConfirm(true)}>{busy ? 'Duke ruajtur…' : `Kalo ${selectedRows.length || ''} në Gati`}</button></footer>}
+    {foundRow && <div className="ia-overlay" onKeyDown={e => { if (e.key === 'Escape') setFoundRow(null); if (e.key === 'Tab') { const buttons = e.currentTarget.querySelectorAll('button'); const first = buttons[0], last = buttons[buttons.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } } }}><section role="dialog" aria-modal="true" aria-labelledby="ia-found-title" className="ia-dialog"><h2 id="ia-found-title">Konfirmo {foundRow.code} në Gati</h2><p><strong>{foundRow.name}</strong> · {foundRow.table === 'orders' ? 'Bazë' : 'Transport'} · {foundRow.pieces} copë<br />Hyrja: {entryDateText(foundRow.createdAt)} · Porosia #{foundRow.id}</p><p>Konfirmoj që tepihat e kësaj porosie janë fizikisht në raft dhe gati. Porosia do të kalojë nga Pastrim në <strong>Gati · U gjet</strong>.</p><div className="ia-actions"><button autoFocus onClick={() => setFoundRow(null)}>Anulo</button><button className="ia-confirm" disabled={disabled} onClick={() => act('FOUND_READY', [foundRow], 'seen_in_depot', '', true)}>Po, janë në raft dhe gati</button></div></section></div>}
     {confirm && <div className="ia-overlay" onKeyDown={e => { if (e.key === 'Escape') setConfirm(false); if (e.key === 'Tab') { const buttons = e.currentTarget.querySelectorAll('button'); const first = buttons[0], last = buttons[buttons.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } } }}><section role="dialog" aria-modal="true" aria-labelledby="ia-confirm-title" className="ia-dialog"><h2 id="ia-confirm-title">Kalo {selectedRows.length} porosi në Gati?</h2><p>Do të shënohen “Pa kontrolluar”. Pastaj verifiko fizikisht cilat gjenden në depo.</p><div className="ia-actions"><button autoFocus onClick={() => setConfirm(false)}>Anulo</button><button className="ia-confirm" disabled={disabled || !selectedRows.length} onClick={() => act('MOVE_READY', selectedRows)}>Po, kaloji në Gati</button></div></section></div>}
   </main>;
 }
