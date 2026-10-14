@@ -7,7 +7,7 @@ import { summarizeAuditOrder } from '../lib/inventoryAudit.js';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { build } from 'esbuild';
 const bundle=await build({entryPoints:['tools/fixtures/inventory-audit-browser.jsx'],bundle:true,write:false,format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"test"'},alias:{'@':process.cwd()},loader:{'.css':'empty'},logLevel:'silent'});
-let dom,requests=[],fail=false,partial=false;const problems=[];
+let dom,requests=[],fail=false,partial=false,stalePhysical=false;const problems=[];
 const base={revision:'2026-01-01T00:00:00Z',table:'orders',name:'Klienti Test',phone:'044000000',location:'A12',pieces:3,m2:12,total:30,stage:'processing',overdue:true,ageDays:6,result:'unverified',note:''};
 let items=[{...base,key:'orders:1',id:'1',code:'123'},{...base,key:'orders:2',id:'2',code:'124'},{...base,key:'orders:3',id:'3',code:'125',overdue:false,ageDays:1}];
 async function open(role='ADMIN',stage='processing',code='') {
@@ -18,10 +18,12 @@ async function open(role='ADMIN',stage='processing',code='') {
   assert.equal(url,'/api/inventory-audit');const body=JSON.parse(opts.body);requests.push(body);
   if(fail)throw Error('offline');
   const result=body.action==='LIST'?{items,complete:true}:{results:body.items.map((req,i)=>{
+   if(stalePhysical&&body.action==='FOUND_READY')return {key:`${req.table}:${req.id}`,ok:false,error:'AUDIT_STALE'};
    if(partial&&i===1)return {key:`${req.table}:${req.id}`,ok:false,error:'AUDIT_STALE'};
    const ix=items.findIndex(r=>r.id===req.id&&r.table===req.table);
    assert(ix>=0);
    if(body.action==='VERIFY') assert.equal(items[ix].stage,'ready','VERIFY must use the result row stage, never the active tab');
+   if(body.action==='FOUND_READY') { assert.equal(body.items.length,1);assert.equal(body.confirmed,true);assert.equal(body.result,'seen_in_depot');assert.equal(items[ix].stage,'processing'); }
    if(body.action==='MOVE_READY') { assert.equal(items[ix].stage,'processing'); assert.equal(items[ix].overdue,true); }
    items[ix]={...items[ix],stage:'ready',status:'gati',overdue:false,revision:new Date().toISOString(),result:body.result,checkedBy:'Test Admin',checkedAt:new Date().toISOString(),note:body.note||''};
    return {key:items[ix].key,ok:true,item:items[ix]};
@@ -111,16 +113,36 @@ console.log('PASS mixed-stage duplicate visits, eligible-only bulk move from Gat
 items=[{...base,key:'orders:1',id:'1',code:'74'},{...base,key:'orders:2',id:'2',code:'71',phone:'044740001'}];
 await open();await wait(()=>doc().querySelectorAll('.ia-order').length===2);doc().querySelector('.ia-select-all input').click();await click('Kalo 2 në Gati');await click('Anulo');await search('74');assert.deepEqual(codes(),['74']);assert.equal(doc().querySelector('.ia-bulk b').textContent,'0');
 console.log('PASS narrowing processing search clears hidden bulk selections');
-// Use real summaries for a fresh return with stale dates. Privileged users can
-// find it by code, but cannot select it for bulk-ready or physically verify it.
-items=[summarizeAuditOrder({id:301,code:301,status:'pastrim',created_at:'2020-01-01',data:{pastrim_started_at:'2020-01-01',kthim:{active:true,at:Date.now()}}},'orders')];
+// Real summary: a fresh returned order remains ineligible for unverified bulk
+// moves, but Admin/Dispatch can attest a specific visit physically found/ready.
+const foundLabel='✓ U gjet në raft — konfirmo në Gati', confirmFound='Po, janë në raft dhe gati';
 for(const role of ['ADMIN','DISPATCH']) {
- await open(role,'processing','301');await wait(()=>codes().length===1);
+ items=[summarizeAuditOrder({id:301,code:301,status:'pastrim',created_at:'2020-01-01',data:{pastrim_started_at:'2020-01-01',kthim:{active:true,at:Date.now()}}},'orders'),processingRow(302,'301',{ageDays:null}),processingRow(303,'T301',{table:'transport_orders',key:'transport_orders:303'})];
+ await open(role,'ready','301');await wait(()=>codes().length===2);
  assert.equal(doc().querySelector('.ia-order input[type=checkbox]'),null);
- assert.equal(doc().querySelector('.ia-found'),null);
- assert.equal(doc().querySelector('.ia-select-all'),null);
+ assert.equal(doc().querySelector('.ia-found'),null);assert.equal(doc().querySelector('.ia-select-all'),null);
+ assert.equal(doc().querySelectorAll('.ia-found-ready').length,2);
+ const writesBefore=requests.filter(r=>r.action==='FOUND_READY').length;
+ // Pick the second visit with the same permanent code; never the first match.
+ doc().querySelectorAll('.ia-found-ready')[1].click();await wait(()=>doc().querySelector('[role=dialog]'));
+ assert(doc().querySelector('[role=dialog]').textContent.includes('Porosia #302'));
+ await click('Anulo');assert.equal(requests.filter(r=>r.action==='FOUND_READY').length,writesBefore);
+ doc().querySelectorAll('.ia-found-ready')[1].click();await wait(()=>doc().querySelector('[role=dialog]'));
+ Object.defineProperty(dom.window.navigator,'onLine',{configurable:true,value:false});dom.window.dispatchEvent(new dom.window.Event('offline'));await wait(()=>text().includes('Pa internet'));
+ assert(buttons().find(b=>b.textContent===confirmFound).disabled);
+ Object.defineProperty(dom.window.navigator,'onLine',{configurable:true,value:true});dom.window.dispatchEvent(new dom.window.Event('online'));await wait(()=>!buttons().find(b=>b.textContent===confirmFound).disabled);
+ const submit=buttons().find(b=>b.textContent===confirmFound);submit.click();submit.click();
+ await wait(()=>items[1].stage==='ready');
+ assert.equal(requests.filter(r=>r.action==='FOUND_READY').length,writesBefore+1);
+ assert.deepEqual(requests.at(-1).items.map(r=>r.id),['302']);assert.equal(items[1].result,'seen_in_depot');assert.equal(items[0].stage,'processing');
+ assert(text().includes('Gati · U gjet'));assert.deepEqual(codes(),['301','301']);
+ // A lost race stays in processing with an honest error, then can be retried.
+ await search('T301');stalePhysical=true;await click(foundLabel);await click(confirmFound);await wait(()=>text().includes('Porosia ndryshoi'));
+ assert.equal(items[2].stage,'processing');stalePhysical=false;
+ await click(foundLabel);await click(confirmFound);await wait(()=>items[2].stage==='ready');assert.equal(items[2].result,'seen_in_depot');
+ assert.equal(requests.at(-1).items[0].table,'transport_orders');assert.equal(requests.at(-1).items[0].id,'303');
 }
-console.log('PASS Admin and Dispatch can find a fresh returned order but cannot select it for an audit move');
+console.log('PASS Admin/Dispatch physical found-ready: fresh and unknown-date visits, exact duplicate selection, confirmation, cancel, offline, double-click, stale failure and Transport');
 const count=requests.length;await open('PUNTOR');await wait(()=>text().includes('vetëm për Admin dhe Dispatch'));assert.equal(requests.length,count);assert.equal(doc().querySelectorAll('.ia-order').length,0);
 console.log('PASS worker cannot open audit UI or request the list');
 fail=true;await open();await wait(()=>text().includes('Lista e plotë nuk u ngarkua'));assert(buttons().find(b=>b.textContent.startsWith('Kalo')).disabled);

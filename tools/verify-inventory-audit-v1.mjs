@@ -28,6 +28,7 @@ grant select on bonus_trigger_calls to service_role;`);
 await db.exec(fs.readFileSync('supabase/migrations/20261011155334_order_inventory_audit_v1.sql','utf8'));
 await db.exec(fs.readFileSync('supabase/migrations/20261011161413_inventory_audit_guard_hardening_v1.sql','utf8'));
 await db.exec(fs.readFileSync('supabase/migrations/20261014004736_inventory_audit_processing_cycle_v2.sql','utf8'));
+await db.exec(fs.readFileSync('supabase/migrations/20261014010216_inventory_audit_physical_found_ready_v1.sql','utf8'));
 for (const [id,role,active] of [[admin,'ADMIN',true],[dispatch,'DISPATCH',true],[worker,'PUNTOR',true],[driver,'TRANSPORT',true],[disabled,'ADMIN',false]]) await db.query('insert into users values ($1,$2,$2,$3)',[id,role,active]);
 const revision = '2026-01-01T00:00:00.123456+00:00';
 const data = { client:{name:'Fixture',phone:'044000000'}, tepiha:[{qty:3,m2:10}],pay:{euro:30,paid:10}, audit:{history:[{status:'needs_review'}]}, data:{keep:'nested'} };
@@ -186,4 +187,49 @@ for (const [id,hours,rejected] of [[103,95.999,true],[104,96.001,false]]) {
  await db.exec('reset role');
 }
 check(true,'server enforces strict 96-hour boundary');
+// A physical finding is a distinct, single-order action. It can confirm a fresh
+// or undated processing visit, while the unverified bulk move stays age-gated.
+let physicalId=200;
+for (const table of ['orders','transport_orders']) for (const actor of [admin,dispatch]) for (const dated of [true,false]) {
+ const id=table==='orders'?++physicalId:randomUUID();
+ const d={pay:{paid:10,euro:30},tepiha:[{qty:3,m2:12}],data:{keep:'nested'}};
+ await db.query(`insert into ${table}(id,status,data,created_at,updated_at,total,paid,pieces) values($1,'pastrim',$2,$3,$4,30,10,3)`,[id,d,dated?new Date().toISOString():null,revision]);
+ await db.exec('set role service_role');
+ const before=await row(table,id), op=randomUUID();
+ const body={action:'FOUND_READY',result:'seen_in_depot',confirmed:true,items:[{table,id,revision,operationId:op}]};
+ const ctx={supabase:sqlClient,authUser:{id:actor,role:actor===admin?'ADMIN':'DISPATCH'}};
+ await assert.rejects(write(id,{table,actor}),dated?/AUDIT_NOT_OVER_FOUR_DAYS/:/AUDIT_DATE_UNKNOWN/);
+ await assert.rejects(inventoryAuditAction({...body,confirmed:false},ctx),/AUDIT_CONFIRMATION_REQUIRED/);
+ await assert.rejects(inventoryAuditAction({...body,items:[...body.items,{...body.items[0],operationId:randomUUID()}]},ctx),/AUDIT_SINGLE_ORDER_REQUIRED/);
+ await assert.rejects(inventoryAuditAction({...body,result:'unverified'},ctx),/AUDIT_RESULT_INVALID/);
+ await assert.rejects(write(id,{table,actor,action:'FOUND_READY',result:'not_found'}),/AUDIT_RESULT_INVALID/);
+ for(const forbidden of [worker,driver,disabled]) await assert.rejects(write(id,{table,actor:forbidden,action:'FOUND_READY',result:'seen_in_depot'}),/AUDIT_FORBIDDEN/);
+ const bonuses=await one('select count(*)::int as value from bonus_trigger_calls');
+ const response=await inventoryAuditAction(body,ctx);
+ assert.equal(response.results[0].ok,true);
+ assert.equal(response.results[0].item.stage,'ready');assert.equal(response.results[0].item.result,'seen_in_depot');
+ const after=await row(table,id);
+ assert.equal(after.status,'gati');assert.equal(after.data.status,'gati');assert.equal(after.data.data.state,'gati');
+ assert(after.ready_at);assert.equal(after.data.inventory_audit.action,'FOUND_READY');assert.equal(after.data.inventory_audit.by_id,actor);
+ for(const key of ['total','paid','pieces','created_at']) assert.deepEqual(after[key],before[key]);
+ for(const key of ['pay','tepiha']) assert.deepEqual(after.data[key],before.data[key]);
+ assert.equal(after.data.data.keep,'nested');assert.equal(after.data.ready_location,undefined);
+ assert.equal(await one('select count(*)::int as value from bonus_trigger_calls'),bonuses);
+ assert.equal((await inventoryAuditAction(body,ctx)).results[0].replayed,true);
+ assert.equal(await one('select count(*)::int as value from inventory_audit_events where operation_id=$1',[op]),1);
+ await assert.rejects(write(id,{table,actor,action:'FOUND_READY',result:'seen_in_depot'}),/AUDIT_STALE/);
+ await assert.rejects(write(id,{table,actor,action:'FOUND_READY',result:'seen_in_depot',revision:after.updated_at}),/AUDIT_STATUS_CHANGED/);
+ const checkResult=await write(id,{table,actor,action:'VERIFY',result:'not_found',revision:after.updated_at});
+ assert.equal(checkResult.row.status,'gati');assert.equal(checkResult.row.data.inventory_audit.result,'not_found');
+ await db.exec('reset role');
+}
+check(true,'Admin/Dispatch can individually confirm fresh/undated Base and Transport as found and ready; money, retries and rechecks stay safe');
+await db.exec('set role service_role');
+await assert.rejects(write(3,{action:'FOUND_READY',result:'seen_in_depot'}),/AUDIT_STATUS_CHANGED/);
+await assert.rejects(write(5,{action:'FOUND_READY',result:'seen_in_depot'}),/AUDIT_STATUS_CONFLICT/);
+assert.equal((await row('orders',5)).status,'pastrim');
+await assert.rejects(inventoryAuditAction({action:'FOUND_READY'},{supabase:sqlClient,authUser:{id:worker,role:'PUNTOR'}}),/AUDIT_FORBIDDEN/);
+await db.exec('reset role; set role anon');
+await assert.rejects(write(2,{action:'FOUND_READY',result:'seen_in_depot'}),/permission denied/);
+check(true,'physical finding retains status guards, rollback and authorization');
 await db.close();console.log(`Inventory audit: ${checks} integration groups passed.`);
