@@ -1,6 +1,7 @@
 'use client';
 
 import { familyRequest, lookupFamilyPhone } from '@/lib/clientFamilyClient.js';
+import { findRecentPranimiDuplicate, PRANIMI_DUPLICATE_WINDOW_MS } from '@/lib/pranimiDuplicateGuard.js';
 "use client";
 
 import {
@@ -106,7 +107,7 @@ const PRANIMI_DB_DRAFT_SAVE_TIMEOUT_MS = 5000;
 const PRANIMI_DB_DRAFT_VERIFY_TIMEOUT_MS = 3500;
 const PRANIMI_DB_DRAFT_STATUS = 'incomplete';
 const PRANIMI_DB_DRAFT_TOP_STATUS = 'pranim';
-const PRANIMI_CONTINUE_CLIENT_LOOKUP_MS = 1000;
+const PRANIMI_CONTINUE_CLIENT_LOOKUP_MS = 5000;
 const PRANIMI_DRAFT_GUARD_VERSION = 'v8_db_draft_api_backed_2026_06_05';
 const PRANIMI_TEPAPLOTESUARA_UI_GUARD_VERSION = 'tepaplotesuara-v8-db-api-guarded-before-render';
 const PRANIMI_CONTINUE_CODE_VERIFY_MS = 6000;
@@ -248,7 +249,9 @@ function normalizeMatchName(raw) {
 
 function isValidClientPhoneDigits(raw) {
   const digits = normalizeMatchPhone(raw);
-  return digits.length >= 8;
+  // This form supplies +383 separately. Never accept extra digits and rely on
+  // the legacy DB normalizer, which takes only the last eight digits.
+  return digits.length === 8;
 }
 
 function pranimiIsOnline() {
@@ -3702,6 +3705,10 @@ export default function PranimiPage() {
   async function saveClientFromWizard() {
     const snapshot = clientEditSnapshotRef.current;
     const target = snapshot?.selectedClient;
+    if (!noPhone && !isValidClientPhoneDigits(phone)) {
+      setClientEditUi((prev) => ({ ...prev, error: 'Telefoni duhet t’i ketë saktësisht 8 shifra pas +383. Kontrollo numrin.' }));
+      return;
+    }
     if (!target?.id) {
       clientEditSnapshotRef.current = null;
       setShowWizard(false);
@@ -5006,8 +5013,7 @@ export default function PranimiPage() {
     if (!name.trim()) return alert('Shkruaj emrin dhe mbiemrin.'), false;
     if (name.trim().split(/\s+/).length < 2) return alert('Shkruaj edhe mbiemrin.'), false;
 
-    const ph = sanitizePhone(getCanonicalClientPhone());
-    if (!noPhone && (!ph || ph.length < 6)) return alert('Shkruaj një numër telefoni të vlefshëm ose zgjedh PA NUMËR.'), false;
+    if (!noPhone && !isValidClientPhoneDigits(phone)) return alert('Telefoni duhet t’i ketë saktësisht 8 shifra pas +383. Kontrollo numrin ose zgjedh PA NUMËR.'), false;
 
     const allRows = [...(tepihaRows || []), ...(stazaRows || [])];
     for (const r of allRows) {
@@ -5474,6 +5480,8 @@ export default function PranimiPage() {
       return;
     }
 
+    finalSaveInFlightRef.current = true;
+    setSavingContinue(true);
     try {
       if (!isBridgeEditMode && !noPhone) {
         const pendingMatch = await detectExistingClientSmart({ name, phone, clientsIndex, allowLive: pranimiIsOnline(), liveTimeoutMs: PRANIMI_CONTINUE_CLIENT_LOOKUP_MS, currentCode: getCurrentPranimiCodeNumber() });
@@ -5482,18 +5490,14 @@ export default function PranimiPage() {
           return;
         }
       }
-    } catch {}
 
-    finalSaveInFlightRef.current = true;
-    setSavingContinue(true);
-    try {
-      const finalizingOid = String(oidRef.current || oid || '').trim();
-      if (finalizingOid) suppressDraftId(finalizingOid);
-      try { if (draftTimer.current) clearTimeout(draftTimer.current); } catch {}
-      try { if (remoteDraftTimerRef.current) clearTimeout(remoteDraftTimerRef.current); } catch {}
-    } catch {}
+      try {
+        const finalizingOid = String(oidRef.current || oid || '').trim();
+        if (finalizingOid) suppressDraftId(finalizingOid);
+        try { if (draftTimer.current) clearTimeout(draftTimer.current); } catch {}
+        try { if (remoteDraftTimerRef.current) clearTimeout(remoteDraftTimerRef.current); } catch {}
+      } catch {}
 
-    try {
       const editSource = String(editBridgeRef.current?.source || '').trim();
       const isBaseEdit = ['orders', 'BASE_CACHE', 'LOCAL', 'OUTBOX'].includes(editSource);
       const editTargetId = String(editBridgeRef.current?.id || oid || '').trim();
@@ -6027,6 +6031,32 @@ export default function PranimiPage() {
         };
         pranimiDiagLog('[PRANIMI handleContinue] payload', payloadDebug);
       } catch {}
+
+      if (!isBaseEdit) {
+        let recentOrders;
+        try {
+          if (canAttemptDirectDbFinalSave) {
+            const { data: recent, error } = await withSupabaseTimeout(
+              supabase.from('orders')
+                .select('id,code,client_id,client_phone,status,created_at,local_oid,pieces,m2_total,price_total')
+                .eq('code', persistedClientCode)
+                .gte('created_at', new Date(Date.now() - PRANIMI_DUPLICATE_WINDOW_MS).toISOString())
+                .order('created_at', { ascending: false }).limit(50),
+              PRANIMI_CONTINUE_CLIENT_LOOKUP_MS,
+              'PRANIMI_RECENT_ORDER_CHECK_TIMEOUT'
+            );
+            if (error) throw error;
+            recentOrders = recent;
+          } else {
+            recentOrders = await getAllOrdersLocal();
+          }
+        } catch {
+          alert('Nuk u kontrolluan porositë e fundit. Të dhënat mbetën këtu; provo përsëri.');
+          return;
+        }
+        const duplicate = findRecentPranimiDuplicate(recentOrders, { ...payload, local_oid: stableLocalOid });
+        if (duplicate && !window.confirm(`Kujdes: porosia #${duplicate.id}, kodi ${duplicate.code}, është regjistruar brenda 30 minutave me të njëjtat copë, m² dhe shumë.\n\nNëse është e njëjta porosi, shtyp ANULO. Vazhdo vetëm nëse janë tepihë të tjerë / porosi e veçantë.`)) return;
+      }
 
       let syncedClientMaster = null;
       let clientMasterSyncBlockingFailure = false;
@@ -6960,10 +6990,10 @@ export default function PranimiPage() {
             }
             finishLocalOnlyWarning({
               severity: 'red',
-              title: 'PROBLEM ME KODIN — NUK U KONFIRMUA SI SUKSES',
+              title: 'POROSIA U GJET NË SISTEM — KËRKOHET KONTROLL',
               subtitle: 'DB VERIFY MISMATCH',
               status_label: 'DB VERIFY MISMATCH',
-              message: `Kodi i rezervuar/shfaqur ishte ${strictVerify.expectedCode || persistedClientCode}, por DB ktheu ${strictVerify.dbCode || 'pa kod'} për order #${strictVerify.serverId || '—'}. Mos e trajto si të ruajtur pa kontroll administrativ.`,
+              message: `Porosia #${strictVerify.serverId || '—'} ekziston në sistem me kodin ${strictVerify.dbCode || 'pa kod'}. Kodi i shfaqur ishte ${strictVerify.expectedCode || persistedClientCode}. MOS E REGJISTRO PRAPË. Përdor RETRY për të kontrolluar të njëjtën porosi ose lajmëro adminin.`,
               problem_title: 'PROBLEM ME ORDER — KODI I RUAJTUR NUK PËRPUTHET',
               allow_sms_after_ack: false,
               is_base_edit: !!isBaseEdit,
@@ -7296,9 +7326,10 @@ export default function PranimiPage() {
       }
     } catch (err) {
       alert('DB ERROR: ' + (err?.message || 'Unknown error'));
-      finalSaveInFlightRef.current = false;
-    setSavingContinue(false);
       return;
+    } finally {
+      finalSaveInFlightRef.current = false;
+      setSavingContinue(false);
     }
   }
 
@@ -7929,6 +7960,15 @@ KOMPANIA JONI`;
         return;
       }
       if (before?.found) {
+        const match = assertBaseOrderReservationMatch(before.row || {}, { ...payload, local_oid: safety.local_oid });
+        if (!match.ok) {
+          setLocalSyncWarning((prev) => ({ ...(prev || current), retrying: false, severity: 'red',
+            title: 'POROSIA EKZISTON — MOS E REGJISTRO PRAPË',
+            message: `Porosia #${before.row.id} ekziston me kodin ${before.row.code}. Kërko kontroll administrativ për mospërputhjen.`,
+            retry_message: 'U ndal përsëritja e ruajtjes. Porosia ekzistuese nuk u ndryshua.',
+            last_error: match.reason, server_id: String(before.row.id) }));
+          return;
+        }
         const lifecycleResult = await finalizeRetryCodeLifecycle(before.row || {}, payload, current);
         if (!lifecycleResult?.ok) {
           setLocalSyncWarning((prev) => ({ ...(prev || current), retrying: false, severity: 'red', title: 'ORDER U GJET, POR KODI NUK U FINALIZUA', subtitle: 'CODE LIFECYCLE PENDING', status_label: 'DB VERIFIED / CODE PENDING', retry_message: `RETRY I KODIT DËSHTOI: ${lifecycleResult?.reason || 'NOT_CONFIRMED'}`, last_error: lifecycleResult?.reason || 'CODE_LIFECYCLE_NOT_CONFIRMED' }));
@@ -8017,6 +8057,15 @@ KOMPANIA JONI`;
       const after = await verifyBaseOrderInDbBySafetyIds(payload, { ...current, outbox_op_id: requeued?.op_id || requeued?.outbox_op_id || safety.outbox_op_id || '' });
       let afterLifecycle = null;
       if (after?.found) {
+        const match = assertBaseOrderReservationMatch(after.row || {}, { ...payload, local_oid: safety.local_oid });
+        if (!match.ok) {
+          setLocalSyncWarning((prev) => ({ ...(prev || current), retrying: false, severity: 'red',
+            title: 'POROSIA EKZISTON — MOS E REGJISTRO PRAPË',
+            message: `Porosia #${after.row.id} ekziston me kodin ${after.row.code}. Kërko kontroll administrativ për mospërputhjen.`,
+            retry_message: 'Ruajtja u gjet, por të dhënat nuk përputhen. Mos krijo porosi të re.',
+            last_error: match.reason, server_id: String(after.row.id) }));
+          return;
+        }
         afterLifecycle = await finalizeRetryCodeLifecycle(after.row || {}, payload, { ...current, outbox_op_id: requeued?.op_id || requeued?.outbox_op_id || safety.outbox_op_id || '' });
         if (!afterLifecycle?.ok) {
           setLocalSyncWarning((prev) => ({ ...(prev || current), retrying: false, severity: 'red', title: 'ORDER U RUAJT, POR KODI NUK U FINALIZUA', subtitle: 'CODE LIFECYCLE PENDING', status_label: 'DB VERIFIED / CODE PENDING', retry_message: `RETRY I KODIT DËSHTOI: ${afterLifecycle?.reason || 'NOT_CONFIRMED'}`, last_error: afterLifecycle?.reason || 'CODE_LIFECYCLE_NOT_CONFIRMED' }));
@@ -8895,10 +8944,17 @@ KOMPANIA JONI`;
                         clearSelectedClientBinding('selected_client_phone_changed_restore_temp_code');
                       }
                     }}
+                    aria-invalid={!noPhone && !!phone && !isValidClientPhoneDigits(phone)}
+                    aria-describedby="pranimi-phone-help"
                     inputMode="numeric"
                     placeholder={noPhone ? 'PA NUMËR' : '44XXXXXX'}
                     disabled={noPhone || clientEditUi.saving}
                   />
+                </div>
+                <div id="pranimi-phone-help" role="status" style={{ marginTop: 6 }}>
+                  {!noPhone && phone && !isValidClientPhoneDigits(phone)
+                    ? 'Numri duhet t’i ketë saktësisht 8 shifra pas +383. Kontrollo shifrat.'
+                    : '8 shifra pas +383, p.sh. 44123456.'}
                 </div>
                 <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button
