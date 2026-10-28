@@ -2890,6 +2890,7 @@ export default function DispatchPage() {
       <div style={ui.top}>
         <div style={ui.headerLeft}>
           <div style={ui.title}>DISPATCH</div>
+          <Link href="/arka/bonuset" style={ui.btnGhost}>PROVAT E BUJARIT · APROVIM</Link>
           <button type="button" style={ui.liveChip} onClick={toggleLivePanel}>
             {liveMode === "REALTIME" ? "LIVE REALTIME" : "LIVE 20s"} {liveOpen ? "▴" : "▾"}
           </button>

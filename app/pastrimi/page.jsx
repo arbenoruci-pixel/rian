@@ -1,4 +1,5 @@
 import InventoryAuditLink from '@/components/InventoryAuditLink';
+import BonusEvidenceLink from '@/components/BonusEvidenceLink';
 'use client';
 
 // AUTHORITATIVE_OFFLINE_LISTS_V2:PASTRIMI
@@ -6939,6 +6940,7 @@ Shoferi u njoftua në listën e tij.`);
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <h1 className="title" style={{ margin: 0 }}>PASTRIMI</h1>
           <InventoryAuditLink stage="processing" />
+          <BonusEvidenceLink />
           <span
             aria-label={`Burimi i të dhënave: ${pastrimiSourceBadge}`}
             title={pastrimiSourceBadge === 'LOCAL' ? 'TË DHËNA LOKALE' : 'SYNC / DB'}

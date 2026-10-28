@@ -1,4 +1,5 @@
 import { apiFail, apiOk, createAdminClientOrThrow, readBody } from '../_helpers.js';
+import { cleanupBonusEvidence } from '../../lib/baseBonusEvidenceServer.js';
 import { runArkaTransaction } from '../../lib/arka/arkaEngine.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -356,6 +357,11 @@ export default async function handler(req, res) {
       actorRole: String(authorizedActor.role || ''),
     };
     const result = await runArkaTransaction(guardedBody, { supabase });
+    // Media cleanup follows a confirmed BASE pickup and never rolls back payment.
+    if (result?.ok !== false && result?.order?.id && String(result.order.status).toLowerCase() === 'dorzim') {
+      try { await cleanupBonusEvidence(supabase, { orderId: result.order.id }); }
+      catch { /* The authenticated cleanup cron retries durable cleanup_due_at rows. */ }
+    }
     return apiOk(res, result || {});
   } catch (error) {
     console.error('[arka-transaction]', {

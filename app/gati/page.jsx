@@ -1,4 +1,5 @@
 import InventoryAuditLink from '@/components/InventoryAuditLink';
+import BonusEvidenceLink from '@/components/BonusEvidenceLink';
 import { canAuditInventory } from '@/lib/inventoryAudit';
 import { TrackedReadySmsModal, ReadyNotificationBadge, useReadyNotifications } from '@/components/ReadyNotification';
 'use client';
@@ -4082,6 +4083,7 @@ async function resolveReturnDbId(row) {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <InventoryAuditLink stage="ready" />
+            <BonusEvidenceLink />
             <button
               onClick={async () => {
                 if (!window.confirm('A jeni të sigurt që doni të pastroni ghost cache për GATI?')) return;

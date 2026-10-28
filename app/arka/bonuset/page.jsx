@@ -12,6 +12,7 @@ import {
   isBaseReadyBonusWorkerRole,
 } from '@/lib/baseReadyBonusClient';
 import useRouteAlive from '@/lib/routeAlive';
+import BaseBonusEvidencePanel from '@/components/BaseBonusEvidencePanel';
 
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const M2 = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
@@ -218,6 +219,7 @@ export default function ArkaBonusetPage() {
           </div>
         </header>
 
+        <BaseBonusEvidencePanel actor={actor} />
         <section className="bonusDateBar">
           <button type="button" onClick={() => setDateKey((value) => addDays(value, -1))}>‹</button>
           <button type="button" className="dateMain" onClick={() => setDateKey(todayKey())}>{dateLabel(dateKey)}{dateKey === todayKey() ? ' • SOT' : ''}</button>
