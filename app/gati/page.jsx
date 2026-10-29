@@ -1800,7 +1800,7 @@ function GatiPageInner() {
     if (shouldHydrateFromSnapshot) {
       applyOrdersIfChanged(syncSnapshot, { seq, reason, source: 'sync_snapshot' });
       setReadyCountHint(syncSnapshot.length);
-      setLoading(false);
+      if (!target?.exactMode || !onlineAtStart) setLoading(false);
       gatiDbg('gati_sync_snapshot_applied', {
         seq,
         reason,
@@ -1815,7 +1815,7 @@ function GatiPageInner() {
       });
     }
 
-    const shouldBlockLoading = currentRows.length === 0 && !hasSyncSnapshot;
+    const shouldBlockLoading = (target?.exactMode && onlineAtStart) || (currentRows.length === 0 && !hasSyncSnapshot);
     if (shouldBlockLoading) setLoading(true);
     else {
       setReadyCountHint(currentRows.length > 0 ? currentRows.length : (hasSyncSnapshot ? syncSnapshot.length : 0));
@@ -1831,6 +1831,7 @@ function GatiPageInner() {
     try {
       const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
       if (isOffline) {
+        if (exactTargetRef.current?.key === target?.key) setExactOpenState({ kind: 'offline', row: null });
         const offlineRows = await buildImmediateGatiLocalRows().catch(() => []);
         const transitionPendingRows = [
           ...(Array.isArray(syncSnapshot) ? syncSnapshot : []),
