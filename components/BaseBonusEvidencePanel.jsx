@@ -28,6 +28,7 @@ export function BonusEvidenceWizard({ order, onClose, onSubmitted }) {
   const [carpet, setCarpet] = useState(null), [message, setMessage] = useState(null);
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState('');
   const [saved, setSaved] = useState({}), [resuming, setResuming] = useState(!!order.draft);
+  const [alreadyEarned, setAlreadyEarned] = useState(false);
   const firstRef = useRef(null);
   useEffect(() => {
     if (!order.draft) return;
@@ -57,12 +58,12 @@ export function BonusEvidenceWizard({ order, onClose, onSubmitted }) {
     {step === 3 ? <><h3>Kontrollo dhe dorëzo</h3><p><b>#{order.code} · {order.client_name}</b><br />Rafti: <b>{shelfLabel(shelf)}</b></p><p>Fotoja e tepihave ✓<br />Screenshot-i i mesazhit ✓</p><p>Dispeçeri i kontrollon provat. Pas aprovimit, afati bëhet <b>96 orë prej pranimit</b>. Deri atëherë kërkesa është në pritje.</p></> : null}
     {error ? <p className="bbeError" role="alert">{error}</p> : null}{busy ? <p role="status">{progress}</p> : null}
     {resuming ? <p role="status">Duke hapur provat e ruajtura…</p> : null}
-    <footer>{step > 0 ? <button type="button" disabled={busy} onClick={() => setStep(step - 1)}>Prapa</button> : null}<button className="bbePrimary" type="button" disabled={!valid || busy || resuming} onClick={async () => {
+    <footer>{alreadyEarned ? <button type="button" className="bbePrimary" onClick={onClose}>Mbyll dhe rifresko</button> : <>{step > 0 ? <button type="button" disabled={busy} onClick={() => setStep(step - 1)}>Prapa</button> : null}<button className="bbePrimary" type="button" disabled={!valid || busy || resuming} onClick={async () => {
       if (step < 3) { setStep(step + 1); return; }
       setBusy(true); setError('');
       try { const result = await submitBonusEvidence({ orderId: order.id, shelf, carpet, message, onProgress: setProgress, onUploaded: kind => setSaved(v => ({ ...v, [kind]: true })) }); onSubmitted(result); }
-      catch (e) { setError(e.message); } finally { setBusy(false); }
-    }}>{busy ? 'Duke dërguar…' : step === 3 ? 'Submit · Dërgo për aprovim' : 'Vazhdo'}</button></footer>
+      catch (e) { setError(e.message); if (e.code === 'BONUS_EVIDENCE_ALREADY_EARNED') setAlreadyEarned(true); } finally { setBusy(false); }
+    }}>{busy ? 'Duke dërguar…' : step === 3 ? 'Submit · Dërgo për aprovim' : 'Vazhdo'}</button></>}</footer>
   </section></div>;
 }
 
@@ -105,8 +106,9 @@ export default function BaseBonusEvidencePanel({ actor: suppliedActor }) {
     {error ? <p className="bbeError" role="alert">{error}</p> : null}{success ? <p className="bbeSuccess" role="status">{success}</p> : null}
     {!manager ? candidates.map(o => <div className="bbeRow" key={o.id}><div><b>#{o.code} · {o.client_name}</b><small>GATI · Dorëzo deri {stamp(o.deadline)}</small></div><button className="bbePrimary" type="button" onClick={() => { setSuccess(''); setWizard(o); }}>Fito +24 orë</button></div>) : null}
     {!manager && !candidates.length && data ? <p>S’ka porosi GATI brenda 72 orëve për kërkesë të re.</p> : null}
+    {!manager ? (data?.earnedOrders || []).map(o => <div className="bbeRow" key={`earned-${o.id}`}><div><b>#{o.code} · {o.client_name}</b><small>Bonusi është fituar · {Number(o.amount).toFixed(2).replace('.', ',')} €</small><small>Nuk nevojitet zgjatje +24 orë.</small></div></div>) : null}
     {activeRequests.map(r => <div className="bbeRow" key={r.id}><div><b>#{r.order?.code || r.order_id} · {r.order?.client_name}</b><small>{evidenceStatusLabel(r.status)}{r.status === 'APPROVED' ? ` · deri ${stamp(r.extended_deadline)}` : ''}</small>{r.review_note ? <small>{r.review_note}</small> : null}{r.files_deleted_at ? <small>Fotot u fshinë pas përfundimit të kontrollit/marrjes.</small> : null}</div>{manager && r.status === 'PENDING' ? <button type="button" className="bbePrimary" onClick={() => setReview(r)}>Kontrollo provat</button> : null}</div>)}
-    {wizard ? <BonusEvidenceWizard order={wizard} onClose={() => setWizard(null)} onSubmitted={() => { setWizard(null); setSuccess('Provat u dorëzuan. Kërkesa pret aprovimin e dispeçerit.'); void load(); }} /> : null}
+    {wizard ? <BonusEvidenceWizard order={wizard} onClose={() => { setWizard(null); void load(); }} onSubmitted={() => { setWizard(null); setSuccess('Provat u dorëzuan. Kërkesa pret aprovimin e dispeçerit.'); void load(); }} /> : null}
     {review ? <BonusEvidenceReview request={review} onClose={() => setReview(null)} onReviewed={() => { setReview(null); setSuccess('Vendimi u ruajt.'); window.dispatchEvent(new CustomEvent('base-ready-bonus:refresh')); void load(); }} /> : null}
   </section>;
 }

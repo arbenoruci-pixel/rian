@@ -7,7 +7,7 @@ import { BUJAR_USER_ID } from '../lib/baseBonusEvidence.js';
 // Actual React wizard and upload client; isolated HTTP/Storage contract fixtures.
 const bundle = await build({ stdin: { contents: `import React from 'react';import {createRoot} from 'react-dom/client';import Panel from './components/BaseBonusEvidencePanel.jsx';const root=createRoot(document.getElementById('root'));window.render=()=>root.render(<Panel actor={window.actor}/>);window.render();`, resolveDir: process.cwd(), loader: 'jsx' }, bundle: true, write: false, format: 'iife', jsx: 'automatic', alias: { '@': process.cwd() }, loader: { '.css': 'empty' }, define: { 'process.env.NODE_ENV': '"test"' }, plugins: [{ name: 'isolated-evidence-dependencies', setup(b) { b.onResolve({filter:/lib\/(actorSession|supabaseClient)$/}, a=>({path:a.path,namespace:'test'})); b.onLoad({filter:/.*/,namespace:'test'}, a=>({contents:a.path.endsWith('actorSession')?'export const getActor=()=>window.actor;':'export const supabase={storage:{from:()=>({uploadToSignedUrl:(...args)=>window.upload(...args)})}};',loader:'js'})); } }] });
 const order={id:101,code:123,client_name:'Klienti test',created_at:new Date(Date.now()-70*3600000).toISOString(),deadline:new Date(Date.now()+2*3600000).toISOString()};
-let dom, request=null, uploads=new Map(), calls=[], failMessage=false, failSubmit=false, checked=0;
+let dom, request=null, uploads=new Map(), calls=[], failMessage=false, failSubmit=false, earned=false, checked=0;
 const sha = async blob=>createHash('sha256').update(Buffer.from(await blob.arrayBuffer())).digest('hex');
 const jpg = kind=>new Blob([new Uint8Array([255,216,255,...Array(120).fill(kind),255,217])],{type:'image/jpeg'});
 async function open(manager=false) {
@@ -23,8 +23,9 @@ async function open(manager=false) {
     if(url.startsWith('https://proof/')) return {ok:true,blob:async()=>uploads.get(url.split('/').at(-1))};
     const b=JSON.parse(opts.body);calls.push(b);assert.equal(b.expectedActorId,w.actor.id);
     let result;
-    if(b.action==='LIST')result={manager,requests:request?[{...request,order}]:[],candidates:[order]};
+    if(b.action==='LIST')result={manager,requests:request?[{...request,order}]:[],candidates:earned?[]:[order],earnedOrders:earned?[{...order,amount:0.95}]:[]};
     if(b.action==='PREPARE'){
+      if(earned)return {ok:false,status:409,json:async()=>({ok:false,error:'BONUS_EVIDENCE_ALREADY_EARNED'})};
       request ||= {id:'22222222-2222-4222-8222-222222222222',order_id:101,status:'DRAFT',shelf:b.shelf,original_deadline:order.deadline,extended_deadline:new Date(Date.parse(order.deadline)+86400000).toISOString()};
       request.shelf=b.shelf;const items=[];for(const kind of ['carpet','message'])items.push({kind,path:kind,token:'signed-upload-only',exists:uploads.has(kind),hash:uploads.has(kind)?await sha(uploads.get(kind)):undefined});
       result={request:{...request},uploads:items};
@@ -55,4 +56,13 @@ await new Promise(r=>setTimeout(r,20));const boxes=[...dom.window.document.query
 pass('Dispatch must load and check both proofs before approving the fixed 24h');
 await open();await wait(()=>text().includes('+24 orë të aprovuara'));assert(!button('Fito +24 orë'));pass('approved order cannot request a second extension');
 request=null;uploads.clear();await open();Object.defineProperty(dom.window.navigator,'onLine',{configurable:true,value:false});await click('Rifresko');await wait(()=>text().includes('duhet internet'));pass('offline actions explain internet requirement and do not queue an unsafe approval');
+// Payment may win the race while the worker is already filling in the wizard.
+await open();await click('Fito +24 orë');await click('A12');await click('Vazhdo');await file('Bëj foto të tepihave');await click('Vazhdo');await file('Ngarko screenshot-in e mesazhit');await click('Vazhdo');
+earned=true;const submitsBefore=calls.filter(c=>c.action==='SUBMIT').length;await click('Submit · Dërgo për aprovim');
+await wait(()=>text().includes('Bonusi për këtë porosi është fituar tashmë.'));
+assert(!text().includes('BONUS_EVIDENCE_ALREADY_EARNED'));assert(!text().includes('Provo përsëri'));assert(!button('Submit · Dërgo për aprovim'));assert.equal(uploads.size,0);assert.equal(calls.filter(c=>c.action==='SUBMIT').length,submitsBefore);
+await click('Mbyll dhe rifresko');await wait(()=>text().includes('Bonusi është fituar · 0,95 €'));assert(!button('Fito +24 orë'));assert(!text().includes('Kërkesa pret aprovimin'));
+pass('already-earned race explains the bonus, stops retries/uploads and refreshes without a false submission');
+await open();await wait(()=>text().includes('Bonusi është fituar · 0,95 €'));assert(!button('Fito +24 orë'));
+pass('earned GATI orders show their bonus instead of an unnecessary four-step wizard');
 dom.window.close();console.log(`Verified ${checked} Bujar evidence UI groups.`);

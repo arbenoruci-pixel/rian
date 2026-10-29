@@ -121,4 +121,19 @@ assert.equal(submitted,0);imageKind='valid';assert.equal((await bonusEvidenceAct
 fakeRequest.status='PENDING';fakeRequest.carpet_hash='0'.repeat(64);fakeRequest.message_hash='0'.repeat(64);
 await assert.rejects(bonusEvidenceAction({action:'REVIEW',expectedActorId:dispatch,requestId:fakeRequest.id,decision:'APPROVED',checkedCarpet:true,checkedMessage:true},{supabase:mediaClient,actor:{id:dispatch,role:'DISPATCH',is_active:true}}),/FILES_CHANGED/);
 check(true,'server validates two different JPEGs and rechecks their hashes before approval');
+// Regression #1403: a prepaid order stays GATI after its bonus is already retained.
+const prepaidId=await order();await db.query('update orders set m2_total=9.5 where id=$1',[prepaidId]);await collect(prepaidId);
+await db.query("update base_ready_bonuses set status='RETAINED',remaining_amount=0,retained_amount=amount where order_id=$1",[prepaidId]);
+await db.query("update orders set status='gati',code=1403 where id=$1",[prepaidId]);
+const newVisit=await order();await db.query('update orders set code=1403 where id=$1',[newVisit]);
+const listClient={from(table){assert(['orders','base_bonus_extensions','base_ready_bonuses'].includes(table));const where=[],params=[];let limit=1000;const q={select(){return q},order(){return q},limit(n){limit=n;return q},eq(k,v){where.push(`"${k}"=$${params.push(v)}`);return q},gte(k,v){where.push(`"${k}">=$${params.push(v)}`);return q},in(k,v){where.push(`"${k}"=ANY($${params.push(v)})`);return q},async then(resolve,reject){try{return resolve({data:(await db.query(`select * from public.${table}${where.length?' where '+where.join(' and '):''} limit ${limit}`,params)).rows})}catch(e){return reject(e)}}};return q}};
+const listed=await bonusEvidenceAction({action:'LIST',expectedActorId:BUJAR_USER_ID},{supabase:listClient,actor:bujarActor});
+assert(!listed.candidates.some(o=>o.id===prepaidId));assert(listed.candidates.some(o=>o.id===newVisit));
+assert.equal(listed.earnedOrders.find(o=>o.id===prepaidId).amount,0.95);
+await assert.rejects(prepare(prepaidId),/ALREADY_EARNED/);
+assert.equal((await bonus(prepaidId)).retained_amount,0.95);
+check(true,'GATI with retained bonus is explained and excluded; new unpaid visit with same code stays eligible');
+const failingList={from(table){if(table!=='base_ready_bonuses')return listClient.from(table);return {select(){return this},in(){return this},async eq(){return {error:{message:'read failed'}}}}}};
+await assert.rejects(bonusEvidenceAction({action:'LIST',expectedActorId:BUJAR_USER_ID},{supabase:failingList,actor:bujarActor}),/READ_FAILED/);
+check(true,'failed bonus lookup never offers unverified extension candidates');
 await db.close();console.log(`Verified ${checks} Bujar evidence groups.`);
