@@ -1,3 +1,5 @@
+import { fetchGatiExactTarget } from '@/lib/gatiExactOpen';
+import GatiExactOpenNotice from '@/components/GatiExactOpenNotice';
 import InventoryAuditLink from '@/components/InventoryAuditLink';
 import BonusEvidenceLink from '@/components/BonusEvidenceLink';
 import { canAuditInventory } from '@/lib/inventoryAudit';
@@ -1374,6 +1376,12 @@ function GatiPageInner() {
   const [readyCountHint, setReadyCountHint] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [exactOpenState, setExactOpenState] = useState(null);
+  const exactTargetKey = exactMode ? `${openId}|${openCode}` : '';
+  const exactTargetRef = useRef(null);
+  exactTargetRef.current = { key: exactTargetKey, exactMode, openId, openCode };
+  const refreshOrdersRef = useRef(null);
+  refreshOrdersRef.current = refreshOrders;
 
   const [showPlace, setShowPlace] = useState(false);
   const [placeBusy, setPlaceBusy] = useState(false);
@@ -1472,7 +1480,13 @@ function GatiPageInner() {
   }, [sp]);
 
   useEffect(() => {
-    refreshOrders('mount');
+    setExactOpenState(null);
+    setOnlyUnconfirmedNotifications(false);
+    setLoading(true);
+    refreshOrdersRef.current(exactTargetKey ? 'exact_target' : 'mount');
+  }, [exactTargetKey]);
+
+  useEffect(() => {
     return () => {
       if (holdTimer.current) clearTimeout(holdTimer.current);
       if (deferredPersistTimer.current) clearTimeout(deferredPersistTimer.current);
@@ -1681,6 +1695,7 @@ function GatiPageInner() {
   }
 
   async function refreshOrders(reason = 'manual') {
+    const target = exactTargetRef.current;
     const autoReason = new Set(['mount', 'pageshow_visible', 'visibility_visible', 'focus_visible']).has(String(reason || '').trim());
     const now = Date.now();
     if (autoReason && now < Number(autoRefreshCooldownUntilRef.current || 0)) {
@@ -1691,7 +1706,7 @@ function GatiPageInner() {
       return;
     }
     if (refreshInFlightRef.current) {
-      if (autoReason) queuedAutoRefreshReasonRef.current = String(reason || 'auto');
+      if (autoReason || reason === 'exact_target') queuedAutoRefreshReasonRef.current = String(reason || 'auto');
       gatiDbg('gati_refresh_skip_inflight', {
         reason,
         queuedReason: queuedAutoRefreshReasonRef.current || '',
@@ -1723,13 +1738,18 @@ function GatiPageInner() {
         return [];
       })
       : Promise.resolve(null);
-    const dataPromise = rootGatiPromise.then((rootGatiRows) => {
+    // Read the requested visit independently of the 200-row overview.
+    const exactPromise = onlineAtStart && target?.exactMode
+      ? fetchGatiExactTarget(target, listOrderRecords).catch(() => ({ kind: 'error', row: null }))
+      : Promise.resolve({ kind: onlineAtStart ? 'none' : 'offline', row: null });
+    const dataPromise = Promise.all([rootGatiPromise, exactPromise]).then(([rootGatiRows, exact]) => {
       if (rootGatiRows === null) return null;
       const merged = new Map();
       for (const row of Array.isArray(rootGatiRows) ? rootGatiRows : []) {
         const key = String(row?.id || '').trim() || `${String(row?.code || '').trim()}|${String(row?.updated_at || row?.created_at || '').trim()}`;
         if (key && !merged.has(key)) merged.set(key, row);
       }
+      if (exact.row) merged.set(String(exact.row.id), exact.row);
       return Array.from(merged.values());
     }).catch((err) => {
       dataError = dataError || err;
@@ -1896,6 +1916,12 @@ function GatiPageInner() {
       }
 
       const data = await dataPromise;
+      const exact = await exactPromise;
+      if (exactTargetRef.current?.key !== target?.key) {
+        queuedAutoRefreshReasonRef.current = 'exact_target';
+        return;
+      }
+      setExactOpenState({ ...exact, blocked: !!exact.row && isGatiRowBlockedByDeliveryTombstone(exact.row) });
       if (dataError) {
         gatiDbg('gati_db_fetch_failed', {
           seq,
@@ -2228,51 +2254,6 @@ function GatiPageInner() {
       const nonTransportRows = rawRows.filter((r) => !/^T\d+$/i.test(String(r?.code || '').trim()));
       const baseOnly = dedupeOrders(nonTransportRows);
 
-      if (
-        exactMode
-        && /^\d+$/.test(String(openId || '').trim())
-        && !isGatiRowBlockedByDeliveryTombstone({ id: openId, status: 'gati' })
-        && !baseOnly.some((row) => String(row?.id || row?.dbId || '').trim() === openId)
-      ) {
-        try {
-          const exactHit = await dbFetchOrderById(openId);
-          const exactRow = exactHit?.row;
-          const exactOrder = exactHit?.order;
-          if (exactRow && extractGatiStatus(exactRow, exactOrder) === 'gati') {
-            baseOnly.push({
-              id: String(exactOrder?.id || exactRow?.id || openId),
-              local_oid: String(exactOrder?.local_oid || exactOrder?.oid || exactOrder?.id || exactRow?.id || openId),
-              source: 'DB',
-              ts: Number(exactOrder?.ts || 0),
-              updated_at: String(exactRow?.updated_at || exactOrder?.updated_at || ''),
-              readyTs: (exactRow?.ready_at ? Date.parse(exactRow.ready_at) : 0) || Number(exactOrder?.ready_at) || Number(exactOrder?.ts) || Date.now(),
-              name: exactRow?.client_name || exactOrder?.client_name || exactOrder?.client?.name || 'Pa Emër',
-              phone: exactRow?.client_phone || exactOrder?.client_phone || exactOrder?.client?.phone || '',
-              code: normalizeCode(exactRow?.code || exactOrder?.client?.code || exactOrder?.code || ''),
-              m2: computeM2(exactOrder || {}),
-              cope: computePieces(exactOrder || {}),
-              total: Number(exactOrder?.pay?.euro || computeTotalEuro(exactOrder || {})),
-              paid: Number(exactOrder?.pay?.paid || 0),
-              paidUpfront: !!exactOrder?.pay?.paidUpfront,
-              isReturn: !!exactOrder?.returnInfo?.active,
-              readyNote: String(exactOrder?.ready_note || exactOrder?.ready_location || exactOrder?.ready_note_text || ''),
-            });
-            gatiDbg('gati_exact_openid_recovered', {
-              seq,
-              reason,
-              openId,
-              code: normalizeCode(exactRow?.code || exactOrder?.client?.code || exactOrder?.code || ''),
-            });
-          }
-        } catch (exactErr) {
-          gatiDbg('gati_exact_openid_recover_fail', {
-            seq,
-            reason,
-            openId,
-            message: String(exactErr?.message || exactErr || ''),
-          });
-        }
-      }
 
       baseOnly.sort((a, b) => (b.readyTs || 0) - (a.readyTs || 0));
 
@@ -2350,7 +2331,7 @@ function GatiPageInner() {
           reason,
           appliedSeq: appliedSeqRef.current,
         });
-        setLoading(false);
+        if (exactTargetRef.current?.key === target?.key) setLoading(false);
       }
       const queuedReason = String(queuedAutoRefreshReasonRef.current || '').trim();
       const cooldownRemainingMs = Math.max(0, Number(autoRefreshCooldownUntilRef.current || 0) - Date.now());
@@ -2359,7 +2340,7 @@ function GatiPageInner() {
         if (resumeRefreshTimerRef.current) clearTimeout(resumeRefreshTimerRef.current);
         resumeRefreshTimerRef.current = window.setTimeout(() => {
           resumeRefreshTimerRef.current = null;
-          refreshOrders(queuedReason);
+          refreshOrdersRef.current(queuedReason);
         }, Math.max(cooldownRemainingMs + 80, 220));
       }
     }
@@ -2382,8 +2363,10 @@ function GatiPageInner() {
     const q = (search || '').trim().toLowerCase();
     const list = Array.isArray(orders) ? orders : [];
     if (exactMode && (openId || openCode)) {
-      const wantedId = String(openId || '').trim();
-      const wantedCode = normalizeCode(openCode || search || '');
+      if (exactOpenState?.kind === 'missing') return [];
+      const resolved = exactOpenState?.row;
+      const wantedId = String(resolved?.id || openId || '').trim();
+      const wantedCode = resolved ? '' : normalizeCode(openCode || search || '');
       return list.filter((o) => {
         const rowId = String(o?.id || '').trim();
         const rowDbId = String(o?.dbId || o?.db_id || '').trim();
@@ -2400,7 +2383,7 @@ function GatiPageInner() {
       const code = normalizeCode(o.code).toLowerCase();
       return name.includes(q) || phone.includes(q) || code.includes(q);
     });
-  }, [orders, search, exactMode, openId, openCode]);
+  }, [orders, search, exactMode, openId, openCode, exactOpenState]);
 
   const discrepancyRows = useMemo(() => {
     return (Array.isArray(orders) ? orders : [])
@@ -4184,7 +4167,7 @@ async function resolveReturnDbId(row) {
         {loading ? (
           <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p>
         ) : notificationFiltered.length === 0 ? (
-          <p style={{ textAlign: 'center' }}>Nuk ka porosi GATI.</p>
+          <GatiExactOpenNotice exactMode={exactMode} code={openCode} state={exactOpenState} filteredOut={onlyUnconfirmedNotifications && filtered.length > 0} onRetry={() => { setLoading(true); refreshOrders('exact_target'); }} onShowAll={() => setOnlyUnconfirmedNotifications(false)} />
         ) : (
           notificationFiltered.map((o) => {
             if (!o || !o.id) return null;

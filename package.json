@@ -96,7 +96,7 @@
     "test:dispatch-foreground-send-v1": "node tools/verify-dispatch-foreground-send-v1.mjs && node tools/verify-dispatch-confirmation-latency-v1.mjs && node tools/verify-reconnect-recovery-v1.mjs",
     "test:draft-status-transport-dates": "TZ=Europe/Belgrade node tools/verify-draft-status-transport-dates.mjs && TZ=America/Chicago node tools/verify-draft-status-transport-dates.mjs",
     "test:paketimi-ready-retry": "node tools/verify-paketimi-ready-retry.mjs",
-    "test:gati-status-visibility": "node tools/verify-gati-status-visibility.mjs",
+    "test:gati-status-visibility": "node tools/verify-gati-status-visibility.mjs && node tools/verify-gati-exact-open.mjs",
     "test:inventory-audit-v1": "node tools/verify-inventory-audit-v1.mjs && node tools/verify-inventory-audit-ui-v1.mjs",
     "test:backup-identity": "node tools/verify-backup-identity-v1.mjs",
     "test:pranimi-phone-duplicate-guard": "node tools/verify-pranimi-phone-duplicate-guard.mjs",
