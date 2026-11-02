@@ -1,6 +1,7 @@
 'use client';
 
 import { familyRequest, lookupFamilyPhone } from '@/lib/clientFamilyClient.js';
+import { fetchBaseCodeStatuses } from '@/lib/baseCodeStatusClient.js';
 import { findRecentPranimiDuplicate, PRANIMI_DUPLICATE_WINDOW_MS } from '@/lib/pranimiDuplicateGuard.js';
 "use client";
 
@@ -2337,12 +2338,7 @@ async function fetchBaseCodePoolRowsForDrafts(items = []) {
   if (!codes.length) return { ok: true, uncertain: false, byCode: new Map() };
 
   try {
-    const { data, error } = await supabase
-      .from('base_code_pool')
-      .select('*')
-      .in('code', codes)
-      .limit(500);
-    if (error) throw error;
+    const data = await fetchBaseCodeStatuses(codes);
     const byCode = new Map();
     for (const row of (Array.isArray(data) ? data : [])) {
       const code = normalizeCode(row?.code ?? row?.code_n ?? row?.base_code ?? null);
