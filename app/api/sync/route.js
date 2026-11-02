@@ -147,7 +147,7 @@ async function ensureArkaForPaidCashPatch(supabase, id, patch = {}) {
   if (!/^\d+$/.test(rawId)) return;
   const { data: order, error } = await supabase
     .from('orders')
-    .select('id,code,client_name,client_phone,status,price_total,data')
+    .select('id,code,client_name,client_phone,status,price_total,data,finance_opening_paid_cash')
     .eq('id', Number(rawId))
     .maybeSingle();
   if (error) throw error;
@@ -179,7 +179,8 @@ async function ensureArkaForPaidCashPatch(supabase, id, patch = {}) {
 
   const activeSum = await sumActiveArkaForOrder(supabase, order.id);
   const expectedPaid = roundMoney(Math.min(payState.paid, payState.total || payState.paid));
-  const missingAmount = roundMoney(expectedPaid - activeSum);
+  // Settled cash from before the reset must never be collected again by sync.
+  const missingAmount = roundMoney(expectedPaid - activeSum - roundMoney(order.finance_opening_paid_cash));
   if (missingAmount <= 0.005) return;
 
   const actor = actorFromPaidOrderPatch(patch, order);

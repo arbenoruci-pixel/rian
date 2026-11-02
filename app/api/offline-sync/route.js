@@ -179,7 +179,7 @@ export async function POST(req) {
       if (target !== 'orders' || !isDbNumericId(targetId)) return;
       const { data: order, error } = await supabase
         .from('orders')
-        .select('id,code,client_name,client_phone,status,price_total,data')
+        .select('id,code,client_name,client_phone,status,price_total,data,finance_opening_paid_cash')
         .eq('id', Number(targetId))
         .maybeSingle();
       if (error) throw error;
@@ -208,7 +208,8 @@ export async function POST(req) {
       if (cash.method !== 'CASH' || !(cash.paid > 0) || cash.debt > 0.01) return;
       const activeSum = await sumActiveArkaForOrder(order.id);
       const expectedPaid = roundMoney(Math.min(cash.paid, cash.total || cash.paid));
-      const missingAmount = roundMoney(expectedPaid - activeSum);
+      // Use the server's opening balance, never a baseline supplied by the queued patch.
+      const missingAmount = roundMoney(expectedPaid - activeSum - roundMoney(order.finance_opening_paid_cash));
       if (missingAmount <= 0.005) return;
       const actor = actorFromPaidOrderPatch(patch, order);
       if (!actor.pin) throw new Error('ARKA_OFFLINE_SYNC_ACTOR_PIN_REQUIRED_FOR_PAID_CASH_ORDER');
