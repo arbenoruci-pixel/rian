@@ -1,4 +1,5 @@
 import InventoryAuditLink from '@/components/InventoryAuditLink';
+import { fetchBaseCodeStatuses } from '@/lib/baseCodeStatusClient.js';
 import BonusEvidenceLink from '@/components/BonusEvidenceLink';
 'use client';
 
@@ -1882,9 +1883,8 @@ async function fetchPastrimiBaseCodePoolInfo(code) {
   const codeNum = Number(String(normalizeCode(code) || code || '').replace(/\D+/g, ''));
   if (!Number.isFinite(codeNum) || codeNum <= 0) return null;
   try {
-    const { data, error } = await supabase.from('base_code_pool').select('*').eq('code', codeNum).limit(1).maybeSingle();
-    if (error) return { code: codeNum, lookup_error: String(error?.message || error || '') };
-    return data || null;
+    const rows = await fetchBaseCodeStatuses([codeNum]);
+    return rows[0] || null;
   } catch (error) {
     return { code: codeNum, lookup_error: String(error?.message || error || '') };
   }

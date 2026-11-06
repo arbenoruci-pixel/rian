@@ -92,6 +92,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "fix/tepiha-public-rls-20261102": false,
       "feat/family-client-links": false,
       "fix/pranimi-phone-duplicate-guard": false
     }
