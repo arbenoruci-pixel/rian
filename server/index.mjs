@@ -1,3 +1,4 @@
+import transportControlHandler from '../api/transport-control.js';
 import inventoryAuditHandler from '../api/inventory-audit.js';
 import bonusEvidenceHandler from '../api/base-bonus-evidence.js';
 import clientFamilyHandler from '../api/client-family.js';
@@ -173,6 +174,7 @@ app.post('/api/client-profile', clientProfileHandler);
 app.post('/api/client-family', clientFamilyHandler);
 app.post('/api/inventory-audit', inventoryAuditHandler);
 app.post('/api/base-bonus-evidence', bonusEvidenceHandler);
+app.post('/api/transport-control', transportControlHandler);
 app.post('/api/transport/order', transportOrderHandler);
 app.post('/api/transport/self-order', transportSelfOrderHandler);
 

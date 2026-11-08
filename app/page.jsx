@@ -1,3 +1,4 @@
+import TransportControlLink from '@/components/TransportControlLink';
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -319,6 +320,7 @@ export default function HomePage() {
         <StatusPill online={online} />
       </header>
 
+      <TransportControlLink />
       <section className="search-section">
         <h2 className="section-title">🔍 KËRKO POROSINË</h2>
         <form className="search-box" onSubmit={submitSearch}>

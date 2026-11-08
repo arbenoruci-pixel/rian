@@ -1,0 +1,477 @@
+{
+  "columns": [
+    {
+      "name": "id",
+      "type": "int8",
+      "table": "base_ready_bonus_allocations",
+      "default": "nextval('base_ready_bonus_allocations_id_seq'::regclass)",
+      "nullable": "NO"
+    },
+    {
+      "name": "bonus_id",
+      "type": "int8",
+      "table": "base_ready_bonus_allocations",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "handoff_id",
+      "type": "int8",
+      "table": "base_ready_bonus_allocations",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "amount",
+      "type": "numeric",
+      "table": "base_ready_bonus_allocations",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "status",
+      "type": "text",
+      "table": "base_ready_bonus_allocations",
+      "default": "'RESERVED'::text",
+      "nullable": "NO"
+    },
+    {
+      "name": "created_at",
+      "type": "timestamptz",
+      "table": "base_ready_bonus_allocations",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "name": "updated_at",
+      "type": "timestamptz",
+      "table": "base_ready_bonus_allocations",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "name": "id",
+      "type": "int8",
+      "table": "base_ready_bonuses",
+      "default": "nextval('base_ready_bonuses_id_seq'::regclass)",
+      "nullable": "NO"
+    },
+    {
+      "name": "order_id",
+      "type": "int8",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "order_code",
+      "type": "int8",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "worker_pin",
+      "type": "text",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "worker_name",
+      "type": "text",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "worker_role",
+      "type": "text",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "m2",
+      "type": "numeric",
+      "table": "base_ready_bonuses",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "name": "rate_m2",
+      "type": "numeric",
+      "table": "base_ready_bonuses",
+      "default": "0.10",
+      "nullable": "NO"
+    },
+    {
+      "name": "amount",
+      "type": "numeric",
+      "table": "base_ready_bonuses",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "name": "entered_at",
+      "type": "timestamptz",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "ready_at",
+      "type": "timestamptz",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "elapsed_minutes",
+      "type": "int4",
+      "table": "base_ready_bonuses",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "name": "eligible",
+      "type": "bool",
+      "table": "base_ready_bonuses",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "name": "status",
+      "type": "text",
+      "table": "base_ready_bonuses",
+      "default": "'INELIGIBLE'::text",
+      "nullable": "NO"
+    },
+    {
+      "name": "remaining_amount",
+      "type": "numeric",
+      "table": "base_ready_bonuses",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "name": "reserved_amount",
+      "type": "numeric",
+      "table": "base_ready_bonuses",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "name": "retained_amount",
+      "type": "numeric",
+      "table": "base_ready_bonuses",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "name": "arka_payment_id",
+      "type": "int8",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "idempotency_key",
+      "type": "text",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "reason",
+      "type": "text",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "metadata",
+      "type": "jsonb",
+      "table": "base_ready_bonuses",
+      "default": "'{}'::jsonb",
+      "nullable": "NO"
+    },
+    {
+      "name": "created_at",
+      "type": "timestamptz",
+      "table": "base_ready_bonuses",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "name": "updated_at",
+      "type": "timestamptz",
+      "table": "base_ready_bonuses",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "name": "activated_at",
+      "type": "timestamptz",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "activation_payment_id",
+      "type": "int8",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "activation_source",
+      "type": "text",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "payment_id",
+      "type": "int8",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "qualification_source",
+      "type": "text",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "qualification_at",
+      "type": "timestamptz",
+      "table": "base_ready_bonuses",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "id",
+      "type": "int8",
+      "table": "cash_handoff_items",
+      "default": "nextval('cash_handoff_items_id_seq'::regclass)",
+      "nullable": "NO"
+    },
+    {
+      "name": "handoff_id",
+      "type": "int8",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "pending_payment_id",
+      "type": "int8",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "order_id",
+      "type": "int8",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "order_code",
+      "type": "int8",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "amount",
+      "type": "numeric",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "created_at",
+      "type": "timestamptz",
+      "table": "cash_handoff_items",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "name": "source_module",
+      "type": "text",
+      "table": "cash_handoff_items",
+      "default": "'BASE'::text",
+      "nullable": "YES"
+    },
+    {
+      "name": "transport_order_id",
+      "type": "uuid",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "transport_code_str",
+      "type": "text",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "transport_m2",
+      "type": "numeric",
+      "table": "cash_handoff_items",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "name": "payment_status_before_handoff",
+      "type": "text",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "released_at",
+      "type": "timestamptz",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "released_by_pin",
+      "type": "text",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "released_by_name",
+      "type": "text",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "release_reason",
+      "type": "text",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "legacy_integrity_note",
+      "type": "text",
+      "table": "cash_handoff_items",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "id",
+      "type": "int8",
+      "table": "cash_handoffs",
+      "default": "nextval('cash_handoffs_id_seq'::regclass)",
+      "nullable": "NO"
+    },
+    {
+      "name": "worker_pin",
+      "type": "text",
+      "table": "cash_handoffs",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "worker_name",
+      "type": "text",
+      "table": "cash_handoffs",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "amount",
+      "type": "numeric",
+      "table": "cash_handoffs",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "name": "status",
+      "type": "text",
+      "table": "cash_handoffs",
+      "default": "'PENDING_DISPATCH_APPROVAL'::text",
+      "nullable": "NO"
+    },
+    {
+      "name": "note",
+      "type": "text",
+      "table": "cash_handoffs",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "submitted_at",
+      "type": "timestamptz",
+      "table": "cash_handoffs",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "name": "decided_at",
+      "type": "timestamptz",
+      "table": "cash_handoffs",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "dispatch_pin",
+      "type": "text",
+      "table": "cash_handoffs",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "dispatch_name",
+      "type": "text",
+      "table": "cash_handoffs",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "dispatch_note",
+      "type": "text",
+      "table": "cash_handoffs",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "name": "company_ledger_entry_id",
+      "type": "int8",
+      "table": "cash_handoffs",
+      "default": null,
+      "nullable": "YES"
+    }
+  ],
+  "functions": [
+    {
+      "name": "base_ready_bonus_handoff_status_v1",
+      "definition": "CREATE OR REPLACE FUNCTION public.base_ready_bonus_handoff_status_v1()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\ndeclare\n  v_alloc record;\n  v_bonus public.base_ready_bonuses%rowtype;\nbegin\n  if new.status is not distinct from old.status then\n    return new;\n  end if;\n\n  if new.status = 'ACCEPTED' then\n    for v_alloc in\n      select * from public.base_ready_bonus_allocations\n      where handoff_id = new.id and status = 'RESERVED'\n      for update\n    loop\n      update public.base_ready_bonus_allocations\n      set status='RETAINED',updated_at=now()\n      where id=v_alloc.id;\n\n      update public.base_ready_bonuses\n      set reserved_amount=round(greatest(0,reserved_amount-v_alloc.amount),2),\n          retained_amount=round(retained_amount+v_alloc.amount,2),\n          updated_at=now()\n      where id=v_alloc.bonus_id\n      returning * into v_bonus;\n\n      perform public.base_ready_bonus_refresh_status_v1(v_alloc.bonus_id);\n\n      update public.arka_pending_payments\n      set handoff_note=case\n            when v_bonus.remaining_amount <= 0.005 then concat('READY_BONUS_RETAINED:',new.id,'|READY_BONUS:',v_bonus.id)\n            else concat('READY_BONUS_OPEN:',v_bonus.id,'|RETAINED_IN_HANDOFF:',new.id,':',to_char(v_alloc.amount,'FM999999990.00'))\n          end,\n          updated_at=now()\n      where id=v_bonus.arka_payment_id;\n    end loop;\n  elsif new.status in ('REJECTED','CANCELLED') then\n    for v_alloc in\n      select * from public.base_ready_bonus_allocations\n      where handoff_id = new.id and status = 'RESERVED'\n      for update\n    loop\n      update public.base_ready_bonus_allocations\n      set status='REVERSED',updated_at=now()\n      where id=v_alloc.id;\n\n      update public.base_ready_bonuses\n      set reserved_amount=round(greatest(0,reserved_amount-v_alloc.amount),2),\n          remaining_amount=round(remaining_amount+v_alloc.amount,2),\n          updated_at=now()\n      where id=v_alloc.bonus_id\n      returning * into v_bonus;\n\n      perform public.base_ready_bonus_refresh_status_v1(v_alloc.bonus_id);\n\n      update public.arka_pending_payments\n      set handoff_note=concat('READY_BONUS_OPEN:',v_bonus.id),\n          handed_at=null,\n          handed_by_pin=null,\n          handed_by_name=null,\n          handed_by_role=null,\n          updated_at=now()\n      where id=v_bonus.arka_payment_id;\n    end loop;\n  end if;\n\n  return new;\nend;\n$function$\n"
+    },
+    {
+      "name": "base_ready_bonus_refresh_status_v1",
+      "definition": "CREATE OR REPLACE FUNCTION public.base_ready_bonus_refresh_status_v1(p_bonus_id bigint)\n RETURNS base_ready_bonuses\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\ndeclare\n  v_bonus public.base_ready_bonuses%rowtype;\n  v_status text;\nbegin\n  select *\n  into v_bonus\n  from public.base_ready_bonuses\n  where id = p_bonus_id\n  for update;\n\n  if not found then\n    raise exception 'BASE_READY_BONUS_NOT_FOUND';\n  end if;\n\n  if v_bonus.status in ('VOIDED','REVIEW_REQUIRED','INELIGIBLE') then\n    return v_bonus;\n  end if;\n\n  if v_bonus.retained_amount >= v_bonus.amount-0.005 then\n    v_status := 'RETAINED';\n  elsif v_bonus.reserved_amount >= v_bonus.amount-v_bonus.retained_amount-0.005\n        and v_bonus.remaining_amount <= 0.005 then\n    v_status := 'RESERVED';\n  elsif v_bonus.reserved_amount > 0.005 then\n    v_status := 'PARTIAL_RESERVED';\n  elsif v_bonus.retained_amount > 0.005 then\n    v_status := 'PARTIAL_RETAINED';\n  else\n    v_status := 'EARNED';\n  end if;\n\n  update public.base_ready_bonuses\n  set status=v_status,\n      activated_at=coalesce(activated_at,ready_at),\n      activation_source=coalesce(nullif(activation_source,''),'GATI'),\n      updated_at=now()\n  where id=p_bonus_id\n  returning * into v_bonus;\n\n  return v_bonus;\nend;\n$function$\n"
+    },
+    {
+      "name": "enforce_bujar_only_base_bonus_v1",
+      "definition": "CREATE OR REPLACE FUNCTION public.enforce_bujar_only_base_bonus_v1()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\ndeclare\n  v_bujar_pin text;\nbegin\n  select pin into v_bujar_pin from public.users where id='19d3ab97-2067-493a-aeb1-8a23572dc5f8' and is_active is true limit 1;\n  if coalesce(new.worker_pin,'') <> coalesce(v_bujar_pin,'__NO_BUJAR__') then\n    new.eligible := false;\n    new.amount := 0;\n    new.remaining_amount := 0;\n    new.reserved_amount := 0;\n    new.retained_amount := 0;\n    new.status := 'INELIGIBLE';\n    new.reason := 'WORKER_NOT_EXCLUSIVE_BUJAR';\n  else\n    new.worker_name := 'bujar oruqi';\n    new.rate_m2 := 0.10;\n    if coalesce(new.eligible,false) then\n      new.amount := round(coalesce(new.m2,0)*0.10,2);\n      new.remaining_amount := greatest(0,new.amount-coalesce(new.reserved_amount,0)-coalesce(new.retained_amount,0));\n    end if;\n  end if;\n  return new;\nend;\n$function$\n"
+    },
+    {
+      "name": "submit_cash_handoff_with_ready_bonus_v1",
+      "definition": "CREATE OR REPLACE FUNCTION public.submit_cash_handoff_with_ready_bonus_v1(actor_pin text, actor_name text DEFAULT NULL::text, actor_role text DEFAULT NULL::text, payment_ids bigint[] DEFAULT NULL::bigint[], amount_declared numeric DEFAULT NULL::numeric, handoff_note text DEFAULT NULL::text, idempotency_key text DEFAULT NULL::text, meal_payment_ids bigint[] DEFAULT NULL::bigint[], ready_bonus_payment_ids bigint[] DEFAULT NULL::bigint[])\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\ndeclare\n  v_base jsonb;\n  v_handoff public.cash_handoffs%rowtype;\n  v_handoff_id bigint;\n  v_bonus_ids bigint[] := array[]::bigint[];\n  v_verify_ids bigint[] := array[]::bigint[];\n  v_requested_bonus_count integer := 0;\n  v_valid_bonus_count integer := 0;\n  v_existing_bonus_total numeric := 0;\n  v_bonus_total numeric := 0;\n  v_available numeric := 0;\n  v_alloc numeric := 0;\n  v_left numeric := 0;\n  v_cut numeric := 0;\n  v_remaining_after numeric := 0;\n  v_bonus public.base_ready_bonuses%rowtype;\n  v_item record;\n  v_item_sum numeric := 0;\n  v_item_count integer := 0;\n  v_payment_statuses jsonb := '[]'::jsonb;\n  v_allocation_ids jsonb := '[]'::jsonb;\nbegin\n  v_base := public.submit_cash_handoff_atomic(\n    actor_pin,\n    actor_name,\n    actor_role,\n    payment_ids,\n    null,\n    handoff_note,\n    idempotency_key,\n    meal_payment_ids\n  );\n\n  v_handoff_id := nullif(v_base->'handoff'->>'id','')::bigint;\n  if v_handoff_id is null then\n    raise exception 'BONUS_HANDOFF_RESPONSE_MISSING_ID';\n  end if;\n\n  select * into v_handoff\n  from public.cash_handoffs\n  where id = v_handoff_id\n  for update;\n  if not found then\n    raise exception 'BONUS_HANDOFF_NOT_FOUND';\n  end if;\n\n  select round(coalesce(sum(a.amount),0),2)\n  into v_existing_bonus_total\n  from public.base_ready_bonus_allocations a\n  where a.handoff_id = v_handoff_id\n    and a.status in ('RESERVED','RETAINED');\n\n  if ready_bonus_payment_ids is not null and array_length(ready_bonus_payment_ids,1) is not null then\n    select coalesce(array_agg(distinct x order by x),array[]::bigint[])\n    into v_bonus_ids\n    from unnest(ready_bonus_payment_ids) x\n    where x is not null and x > 0;\n  end if;\n  v_requested_bonus_count := coalesce(array_length(v_bonus_ids,1),0);\n\n  if v_existing_bonus_total <= 0.005 and v_requested_bonus_count > 0 then\n    select count(*)::integer into v_valid_bonus_count\n    from public.base_ready_bonuses b\n    where b.arka_payment_id = any(v_bonus_ids)\n      and b.worker_pin = btrim(coalesce(actor_pin,''))\n      and b.eligible is true\n      and b.remaining_amount > 0.005\n      and b.status not in ('VOIDED','REVIEW_REQUIRED','INELIGIBLE');\n\n    if v_valid_bonus_count <> v_requested_bonus_count then\n      raise exception 'READY_BONUS_PAYMENT_NOT_AVAILABLE requested=% valid=%',v_requested_bonus_count,v_valid_bonus_count;\n    end if;\n\n    v_available := greatest(0, round(v_handoff.amount - 0.01,2));\n\n    for v_bonus in\n      select b.*\n      from public.base_ready_bonuses b\n      where b.arka_payment_id = any(v_bonus_ids)\n        and b.worker_pin = btrim(coalesce(actor_pin,''))\n        and b.eligible is true\n        and b.remaining_amount > 0.005\n        and b.status not in ('VOIDED','REVIEW_REQUIRED','INELIGIBLE')\n      order by b.ready_at asc,b.id asc\n      for update\n    loop\n      exit when v_available <= 0.005;\n      v_alloc := least(v_bonus.remaining_amount,v_available);\n      if v_alloc <= 0.005 then\n        continue;\n      end if;\n\n      insert into public.base_ready_bonus_allocations (bonus_id,handoff_id,amount,status,created_at,updated_at)\n      values (v_bonus.id,v_handoff_id,round(v_alloc,2),'RESERVED',now(),now())\n      on conflict (bonus_id,handoff_id) do nothing;\n\n      if found then\n        update public.base_ready_bonuses\n        set remaining_amount = round(greatest(0,remaining_amount-v_alloc),2),\n            reserved_amount = round(reserved_amount+v_alloc,2),\n            updated_at = now()\n        where id = v_bonus.id\n        returning remaining_amount into v_remaining_after;\n\n        perform public.base_ready_bonus_refresh_status_v1(v_bonus.id);\n\n        update public.arka_pending_payments\n        set handoff_note = case\n              when v_remaining_after <= 0.005 then concat('SETTLED_IN_HANDOFF:',v_handoff_id,'|READY_BONUS:',v_bonus.id)\n              else concat('READY_BONUS_OPEN:',v_bonus.id,'|PARTIAL_IN_HANDOFF:',v_handoff_id,':',to_char(v_alloc,'FM999999990.00'))\n            end,\n            handed_at = now(),\n            handed_by_pin = actor_pin,\n            handed_by_name = actor_name,\n            handed_by_role = actor_role,\n            updated_at = now()\n        where id = v_bonus.arka_payment_id;\n\n        v_bonus_total := round(v_bonus_total + v_alloc,2);\n        v_available := round(v_available - v_alloc,2);\n      end if;\n    end loop;\n\n    if v_bonus_total > 0.005 then\n      v_left := v_bonus_total;\n      for v_item in\n        select id,amount\n        from public.cash_handoff_items\n        where handoff_id = v_handoff_id\n        order by amount desc,id asc\n        for update\n      loop\n        exit when v_left <= 0.005;\n        v_cut := least(v_item.amount,v_left);\n        if v_cut > 0 then\n          update public.cash_handoff_items\n          set amount = round(greatest(0,amount-v_cut),2)\n          where id = v_item.id;\n          v_left := round(v_left-v_cut,2);\n        end if;\n      end loop;\n\n      if v_left > 0.005 then\n        raise exception 'READY_BONUS_HANDOFF_ITEM_REDUCTION_FAILED remaining=%',v_left;\n      end if;\n\n      update public.cash_handoffs\n      set amount = round(amount-v_bonus_total,2),\n          note = concat_ws(' | ',nullif(note,''),concat('BONUS 48H MBAJTUR ',to_char(v_bonus_total,'FM999999990.00'),'€'))\n      where id = v_handoff_id\n      returning * into v_handoff;\n    end if;\n  else\n    v_bonus_total := v_existing_bonus_total;\n  end if;\n\n  if amount_declared is not null and amount_declared > 0 and abs(round(amount_declared,2)-round(v_handoff.amount,2)) > 0.05 then\n    raise exception 'HANDOFF_DECLARED_AMOUNT_MISMATCH_AFTER_READY_BONUS declared=% computed=%',amount_declared,v_handoff.amount;\n  end if;\n\n  select round(coalesce(sum(i.amount),0),2),count(*)::integer\n  into v_item_sum,v_item_count\n  from public.cash_handoff_items i\n  where i.handoff_id = v_handoff_id;\n\n  if abs(v_item_sum-v_handoff.amount) > 0.05 then\n    raise exception 'READY_BONUS_HANDOFF_SUM_MISMATCH handoff=% items=%',v_handoff.amount,v_item_sum;\n  end if;\n\n  select coalesce(array_agg(distinct x order by x),array[]::bigint[])\n  into v_verify_ids\n  from unnest(\n    coalesce(payment_ids,array[]::bigint[])\n    || coalesce(meal_payment_ids,array[]::bigint[])\n    || coalesce(v_bonus_ids,array[]::bigint[])\n  ) x\n  where x is not null and x > 0;\n\n  select coalesce(jsonb_agg(jsonb_build_object(\n    'id',p.id,\n    'type',p.type,\n    'status',p.status,\n    'handoff_note',p.handoff_note\n  ) order by p.id),'[]'::jsonb)\n  into v_payment_statuses\n  from public.arka_pending_payments p\n  where p.id = any(v_verify_ids);\n\n  select coalesce(jsonb_agg(jsonb_build_object(\n    'id',a.id,\n    'bonus_id',a.bonus_id,\n    'amount',a.amount,\n    'status',a.status\n  ) order by a.id),'[]'::jsonb)\n  into v_allocation_ids\n  from public.base_ready_bonus_allocations a\n  where a.handoff_id = v_handoff_id\n    and a.status in ('RESERVED','RETAINED');\n\n  return v_base || jsonb_build_object(\n    'ok',true,\n    'handoff',to_jsonb(v_handoff),\n    'total',round(v_handoff.amount,2),\n    'readyBonusTotal',round(v_bonus_total,2),\n    'readyBonusAllocations',v_allocation_ids,\n    'verification',jsonb_build_object(\n      'paymentCount',coalesce(array_length(v_verify_ids,1),0),\n      'paymentStatuses',v_payment_statuses,\n      'itemCount',v_item_count,\n      'itemSum',v_item_sum,\n      'handoffAmount',round(v_handoff.amount,2)\n    )\n  );\nend;\n$function$\n"
+    }
+  ]
+}

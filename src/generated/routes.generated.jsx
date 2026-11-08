@@ -1,3 +1,4 @@
+import TransportControlPage from '@/components/TransportControlPage.jsx';
 import InventoryAuditPage from '@/app/auditimi/page.jsx';
 import React, { Suspense, lazy } from 'react';
 import {
@@ -650,6 +651,7 @@ function eagerElement(Component, path) {
 }
 
 export const appRoutes = [
+  { path: '/kontrolli-transportit', element: eagerElement(TransportControlPage, '/kontrolli-transportit') },
   { path: '/arka/shpenzime', element: <Navigate to='/arka' replace /> },
   { path: '/arka/cash', element: <Navigate to='/arka' replace /> },
   { path: '/arka/corporate', element: <Navigate to='/arka/obligimet' replace /> },
