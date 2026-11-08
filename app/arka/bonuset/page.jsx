@@ -1,3 +1,4 @@
+import TransportControlLink from '@/components/TransportControlLink';
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -219,6 +220,7 @@ export default function ArkaBonusetPage() {
           </div>
         </header>
 
+        <TransportControlLink />
         <BaseBonusEvidencePanel actor={actor} />
         <section className="bonusDateBar">
           <button type="button" onClick={() => setDateKey((value) => addDays(value, -1))}>‹</button>

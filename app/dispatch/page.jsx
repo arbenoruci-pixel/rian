@@ -1,3 +1,4 @@
+import TransportControlLink from '@/components/TransportControlLink';
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -2884,6 +2885,7 @@ export default function DispatchPage() {
 
   return (
     <div style={ui.page}>
+      <TransportControlLink />
       <DispatchSendQueue onInspect={(customerPhone) => { setCommandQuery(customerPhone); setCommandOpen(true); setCreateOpen(false); }} />
       {msg ? <div role="status" style={ui.ok}>{msg}</div> : null}
       {rowsError ? <div role="alert" style={{ ...ui.crmHitBox, marginBottom: 12 }}>{rowsError} <button type="button" style={ui.btnGhostMini} disabled={loadingRows} onClick={loadRows}>PROVO PËRSËRI</button></div> : null}

@@ -93,7 +93,8 @@
   "git": {
     "deploymentEnabled": {
       "feat/family-client-links": false,
-      "fix/pranimi-phone-duplicate-guard": false
+      "fix/pranimi-phone-duplicate-guard": false,
+      "feat/transport-control-bonus": false
     }
   }
 }
