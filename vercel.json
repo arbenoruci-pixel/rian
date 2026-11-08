@@ -94,7 +94,8 @@
     "deploymentEnabled": {
       "feat/family-client-links": false,
       "fix/pranimi-phone-duplicate-guard": false,
-      "feat/transport-control-bonus": false
+      "feat/transport-control-bonus": false,
+      "fix/transport-control-empty-rows": false
     }
   }
 }
