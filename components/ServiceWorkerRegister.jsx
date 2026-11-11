@@ -6,8 +6,10 @@ import { bootLog } from '@/lib/bootLog';
 import { isSafeModeDisabledUntil, safeModeLeftMs } from '@/lib/safeMode';
 import { watchServiceWorkerUpdates } from '../lib/serviceWorkerUpdateRecovery.js';
 
-const CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS = 1400;
-const RESUME_UPDATE_CHECK_INTERVAL_MS = 60000;
+// Wait for the Android PWA's first screen before checking for updates.
+const CLEAN_LAUNCH_UPDATE_CHECK_DELAY_MS = 12000;
+// Avoid repeated update fetches on every foreground/background transition.
+const RESUME_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const VITE_SW_URL = '/vite-sw.js';
 const PASSIVE_UPDATE_KEY = 'tepiha_update_available_v1';
 const PASSIVE_UPDATE_EVENT = 'tepiha:update-available';
