@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/((?!api/|assets/|favicon\\.ico$|manifest(?:\\.json|\\.webmanifest)$|apple-touch-icon\\.png$|icon-192\\.png$|icon-512\\.png$|offline\\.html$|boot-sensor\\.js$|vite-sw\\.js$|sw(?:-kill)?\\.js$).*)",
+      "source": "/((?!api/|assets/|favicon\\.ico$|manifest(?:\\.json|\\.webmanifest)$|apple-touch-icon\\.png$|icon-192\\.png$|icon-512\\.png$|offline\\.html$|boot-sensor\\.js$|vite-sw\\.js$|transport-push-sw\\.js$|sw(?:-kill)?\\.js$).*)",
       "destination": "/index.html"
     }
   ],
@@ -88,6 +88,15 @@
           "value": "no-cache, no-store, must-revalidate"
         }
       ]
+    },
+    {
+      "source": "/transport-push-sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
     }
   ],
   "git": {
@@ -95,7 +104,8 @@
       "feat/family-client-links": false,
       "fix/pranimi-phone-duplicate-guard": false,
       "feat/transport-control-bonus": false,
-      "fix/transport-control-empty-rows": false
+      "fix/transport-control-empty-rows": false,
+      "feat/transport-driver-push": false
     }
   }
 }

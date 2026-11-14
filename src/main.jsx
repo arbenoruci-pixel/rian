@@ -1,4 +1,6 @@
 import { installReadyNotifications } from '../lib/readyNotifications.js';
+import { installPushSessionGuard } from '../lib/transportPushClient.js';
+import { getActor as getPushActor } from '../lib/actorSession.js';
 import React from 'react';
 import { installDispatchOutbox } from '../lib/dispatchOutboxRuntime.js';
 import ReactDOM from 'react-dom/client';
@@ -214,6 +216,7 @@ installOfflineCodeBankWarmup();
 installOfflineRuntime();
 installDispatchOutbox();
 installReadyNotifications();
+installPushSessionGuard(getPushActor);
 installOfflineQueuedOrderUiGuard();
 installDispatchAdvanceBridge();
 installDispatchPayrollAccessBridge();

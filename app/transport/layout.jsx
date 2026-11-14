@@ -5,6 +5,7 @@ import { usePathname, useRouter } from '@/lib/routerCompat.jsx';
 import { getTransportSession } from '@/lib/transportAuth';
 import { readBestActor } from '@/lib/sessionStore';
 import TransportSyncStarter from '@/components/transport/TransportSyncStarter';
+import TransportPushPanel from '@/components/transport/TransportPushPanel';
 
 function TransportLayoutShell({ text = 'DUKE HAPUR TRANSPORT…' }) {
   return (
@@ -114,6 +115,7 @@ export default function TransportLayout({ children }) {
   }
 
   return <>
+    <TransportPushPanel />
     {children}
     <TransportSyncStarter />
   </>;
