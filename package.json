@@ -57,7 +57,7 @@
     "test:arka-live-worker-payments": "node tools/verify-arka-live-worker-payments-v1.mjs",
     "test:beli-straight-salary-payment-recovery": "node tools/verify-beli-straight-salary-payment-recovery-v1.mjs",
     "test:operational-fullscreen": "node tools/verify-operational-fullscreen-v2.mjs",
-    "test:pastrimi-search-authoritative-v2": "node tools/verify-pastrimi-search-authoritative-v2.mjs",
+    "test:pastrimi-search-authoritative-v2": "node tools/verify-pastrimi-search-authoritative-v2.mjs && node tools/verify-pastrimi-worker-search.mjs",
     "test:dispatch-phone-atomic-fallback": "node tools/verify-dispatch-phone-lookup-atomic-fallback-v1.mjs",
     "test:dispatch-create-intent-v1": "node tools/verify-dispatch-create-intent-v1.mjs",
     "test:dispatch-tcode-reservation-resilience-v1": "node tools/verify-dispatch-tcode-reservation-resilience-v1.mjs",

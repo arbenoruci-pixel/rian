@@ -6935,7 +6935,7 @@ Shoferi u njoftua në listën e tij.`);
   const debugCounterText = `SOURCE: ${dbTruthState?.usingDbTruth ? 'DB_ONLY' : String(debugInfo?.source || localModeNotice || '—')} • DB: ${Number(debugInfo?.dbRowsCount ?? debugInfo?.dbCount ?? 0)} • DB M²: ${Number(headerPastrimM2 || 0).toFixed(2)} • LOCAL PROBLEM: ${Number(debugInfo?.localProblemRowsCount || 0)} • FLAGS: dbFetchOk=${dbTruthState?.dbFetchOk ? '1' : '0'} dbFetchFailed=${dbTruthState?.dbFetchFailed ? '1' : '0'} usingDbTruth=${dbTruthState?.usingDbTruth ? '1' : '0'}${debugInfo?.lastDbFetchAt ? ` • DB FETCH: ${String(debugInfo.lastDbFetchAt).slice(11, 19)}` : ''}`;
 
   return (
-    <div className="wrap">
+    <div className="wrap" data-pastrimi-search-active={String(search || openCode || '').trim() || exactSearchMode ? '1' : '0'}>
       <header className="header-row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <h1 className="title" style={{ margin: 0 }}>PASTRIMI</h1>
