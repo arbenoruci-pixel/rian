@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from '@/lib/routerCompat.jsx';
 import { supabase } from '@/lib/supabaseClient';
 import ArkaCashHandoffAction from './ArkaCashHandoffAction.jsx';
+import WorkerBonusAccount from './WorkerBonusAccount.jsx';
 
 const TIME_ZONE = 'Europe/Belgrade';
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -184,7 +185,7 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
         <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
           <ProfilePill enabled={profile?.salary_enabled === true}>RROGË {profile?.salary_enabled ? euro(profile?.salary_amount) : 'JO'}</ProfilePill>
           <ProfilePill enabled={profile?.meal_enabled === true}>USHQIM {profile?.meal_enabled ? euro(profile?.meal_amount) : 'JO'}</ProfilePill>
-          <ProfilePill enabled={profile?.transport_bonus_enabled === true}>BONUS TRANSPORT {profile?.transport_bonus_enabled ? euro(profile?.transport_bonus_amount) : 'JO'}</ProfilePill>
+          <ProfilePill enabled={profile?.transport_bonus_enabled === true}>SHTESË MUJORE TRANSPORTI {profile?.transport_bonus_enabled ? euro(profile?.transport_bonus_amount) : 'JO'}</ProfilePill>
           <ProfilePill enabled={profile?.commission_enabled === true}>KOMISION {profile?.commission_enabled ? `${n(profile?.commission_rate_m2).toFixed(2)}€/m²` : 'JO'}</ProfilePill>
           <ProfilePill enabled={profile?.ready_bonus_enabled === true}>BONUS BAZE {profile?.ready_bonus_enabled ? 'PO' : 'JO'}</ProfilePill>
           <ProfilePill enabled={fixedFullCash}>CASH: {upper(profile?.cash_mode || 'FULL_CASH')}</ProfilePill>
@@ -202,6 +203,8 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
         </div>
         <ArkaCashHandoffAction actorPin={actorPin} targetPin={cleanTargetPin} amount={cash?.open_due_to_base} onHandoff={onHandoff} busy={handoffBusy} blocked={handoffBlocked} />
       </Card>
+
+      <WorkerBonusAccount actor={actor} targetPin={cleanTargetPin} />
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))', gap:8 }}>
         <Metric label="PAGUAR SOT" value={euro(cash?.today_gross)} sub={`${n(cash?.today_count)} pagesa`} tone="green" />
@@ -231,7 +234,7 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(135px,1fr))', gap:8 }}>
           <Metric label="RROGA" value={euro(payroll?.salary)} tone="blue" />
           <Metric label="USHQIM / BONUS" value={euro(payroll?.meal_bonus)} tone="green" />
-          <Metric label="BONUS TRANSPORT" value={euro(payroll?.transport_bonus)} tone="green" />
+          <Metric label="SHTESË MUJORE TRANSPORTI" value={euro(payroll?.transport_bonus)} tone="green" />
           {showCommission ? <Metric label="KOMISION I MBAJTUR KËTË MUAJ" value={euro(payroll?.commission_retained_month)} tone="yellow" /> : null}
           <Metric label="AVANSE AKTIVE" value={euro(advances?.active_total)} tone="red" />
           <Metric label="NETO FIKSE PAS AVANSEVE" value={euro(payroll?.net_fixed_after_advances)} tone="purple" />
