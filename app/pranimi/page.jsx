@@ -12,6 +12,7 @@ import {
   resetBaseCodeReservationCompatibilityCache,
 } from '@/lib/baseCodes';
 import { getPranimiCodeAllocator } from '@/lib/pranimiCodeAllocator';
+import { fetchBaseCodeStatuses } from '@/lib/baseCodeStatusClient.js';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from '@/lib/routerCompat.jsx';
@@ -2327,7 +2328,7 @@ function readBaseCodePoolVerdict(row = null) {
   return { state: status || 'unknown', row };
 }
 
-async function fetchBaseCodePoolRowsForDrafts(items = []) {
+async function fetchBaseCodePoolRowsForDrafts(items = [], options = {}) {
   const codes = Array.from(new Set((Array.isArray(items) ? items : [])
     .map((item) => readPranimiDraftCodeForGuard(item))
     .filter((code) => code != null)
@@ -2337,12 +2338,14 @@ async function fetchBaseCodePoolRowsForDrafts(items = []) {
   if (!codes.length) return { ok: true, uncertain: false, byCode: new Map() };
 
   try {
-    const { data, error } = await supabase
-      .from('base_code_pool')
-      .select('*')
-      .in('code', codes)
-      .limit(500);
-    if (error) throw error;
+    // A shared draft keeps its original code owner. Only the exact draft being
+    // opened may request this context; list/diagnostic reads need statuses only.
+    const draftToOpen = options?.includeDraftOwner === true && items.length === 1 ? items[0] : null;
+    const draftId = String(draftToOpen?.local_oid || draftToOpen?.draft_lifecycle?.local_oid || draftToOpen?.id || (draftToOpen ? options?.fallbackId : '') || '').trim();
+    const draftCode = draftToOpen ? readPranimiDraftCodeForGuard(draftToOpen) : null;
+    const data = await fetchBaseCodeStatuses(codes, draftId && draftCode != null
+      ? { draft: { code: Number(draftCode), draft_session_id: draftId } }
+      : {});
     const byCode = new Map();
     for (const row of (Array.isArray(data) ? data : [])) {
       const code = normalizeCode(row?.code ?? row?.code_n ?? row?.base_code ?? null);
@@ -7468,7 +7471,7 @@ export default function PranimiPage() {
       const draftToOpen = preferInputDraft ? inputDraft : (remoteDraft || localDraft || inputDraft);
       if (!draftToOpen) return;
 
-      const openCodePool = await fetchBaseCodePoolRowsForDrafts([draftToOpen]);
+      const openCodePool = await fetchBaseCodePoolRowsForDrafts([draftToOpen], { includeDraftOwner: true, fallbackId: targetId });
       const openCodePoolVerdict = evaluateDraftCodePoolGuard(draftToOpen, openCodePool);
       if (!openCodePoolVerdict?.allow) {
         hideBlockedDraftFromUi(draftToOpen, { match_type: openCodePoolVerdict?.reason || 'CODE_POOL_GUARD' }, 'open_blocked_code_pool_guard');
