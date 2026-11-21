@@ -25,9 +25,9 @@ Queries paginate with deterministic IDs and fail instead of returning partial fi
 
 ## Historical reconciliation
 
-Accepted cash allocations are the source for `retained` and `retainedAllTime`. The bonus ledger's stored retained balance is also reported for comparison. A historical discrepancy is visible as a warning; the implementation never silently changes or removes an allocation. For example, an old repaired bonus can have two accepted allocation records while its current ledger retained amount records one. The history exposes both records for review.
+Accepted cash allocations are the source for `retained` and `retainedAllTime`. The bonus ledger's stored retained balance is also reported for comparison. A historical discrepancy is visible as a warning; the implementation never silently changes or removes an allocation. For example, an old repaired bonus can have two accepted allocation records while its current ledger retained amount records one. The history exposes allocation details only when the handoff belongs to the same worker. An allocation linked to a different worker's handoff is flagged as `HANDOFF_MISSING` without disclosing that handoff's details or treating it as this worker's retained cash.
 
-Reversed allocations remain visible with their cancelled state and are excluded from retained/available-money totals. Missing acceptance dates or handoff records are flagged rather than assigned an invented payment date.
+Reversed allocations remain visible with their cancelled state and do not count as retained cash. Any restored available balance comes from the current bonus ledger. Missing acceptance dates or handoff records are flagged rather than assigned an invented payment date.
 
 ## Verification
 
