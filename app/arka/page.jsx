@@ -7,11 +7,13 @@ import ReadyBonusLiveCard from '@/components/ReadyBonusLiveCard';
 import ArkaExpenseComposer from '@/components/ArkaExpenseComposer';
 import ArkaWorkerDailyStatus from '@/components/ArkaWorkerDailyStatus';
 import ArkaUnifiedWorkerAccount from '@/components/ArkaUnifiedWorkerAccount';
+import WorkerBonusHandoffSummary, { shouldShowWorkerBonusHandoff } from '@/components/WorkerBonusHandoffSummary';
 import '@/components/ArkaExpenseComposer.css';
 import HandoffWizard from '@/components/HandoffWizard';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getActor } from '@/lib/actorSession';
 import { computeReadyBonusDeductionForCash, listOpenBaseReadyBonusPayments } from '@/lib/baseReadyBonusClient';
+import { isArkaHistoryBonus, groupArkaHistoryBonuses, arkaHistoryBonusStatusLabel } from '@/lib/arkaHistoryBonuses';
 import { supabase } from '@/lib/supabaseClient';
 import { ARKA_ACTION, ARKA_SOURCE_MODULE } from '@/lib/arka/arkaConstants';
 import { arkaTransaction, buildArkaIdempotencyKey } from '@/lib/arka/arkaClient';
@@ -1236,6 +1238,7 @@ function historyStatusLabel(status = '') {
 }
 
 function isHistoryClientPayment(row = {}) {
+  if (isArkaHistoryBonus(row)) return false;
   const type = typeOf(row);
   if (['EXPENSE', 'MEAL_PAYMENT', 'MEAL_COVERED', 'ADVANCE', 'TIMA'].includes(type)) return false;
   return amountOf(row) > 0;
@@ -1246,6 +1249,7 @@ function isHistoryExpenseRow(row = {}) {
 }
 
 function isHistoryMealRow(row = {}) {
+  if (isArkaHistoryBonus(row)) return false;
   return isMealLikeRow(row) || ['MEAL_PAYMENT', 'MEAL_COVERED'].includes(typeOf(row));
 }
 
@@ -1295,6 +1299,9 @@ function buildArkaHistoryGroups({ payments = [], handoffs = [], workersByPin = {
       .filter(isHistoryClientPayment)
       .map((row) => buildHistoryPaymentLine(row, worker))
       .sort(byDateDesc);
+    const bonusGroups = groupArkaHistoryBonuses(paymentRows
+      .filter((row) => historyPaymentWorkerPin(row) === pin)
+      .sort(byDateDesc));
     const expenses = paymentRows
       .filter((row) => historyPaymentWorkerPin(row) === pin)
       .filter(isHistoryExpenseRow)
@@ -1315,9 +1322,9 @@ function buildArkaHistoryGroups({ payments = [], handoffs = [], workersByPin = {
     const handoffTotal = +workerHandoffs.reduce((sum, row) => sum + amountOf(row), 0).toFixed(2);
     const openCashTotal = +clientPayments.filter((row) => ['PENDING', 'COLLECTED'].includes(safeUpper(row?.status))).reduce((sum, row) => sum + n(row?.baseAmount), 0).toFixed(2);
     const openExpenseTotal = +expenses.filter((row) => ['PENDING', 'COLLECTED'].includes(statusOf(row))).reduce((sum, row) => sum + amountOf(row), 0).toFixed(2);
-    const pendingCount = paymentRows.filter((row) => historyPaymentWorkerPin(row) === pin && statusOf(row) === 'PENDING').length;
-    const collectedCount = paymentRows.filter((row) => historyPaymentWorkerPin(row) === pin && statusOf(row) === 'COLLECTED').length;
-    let dayStatus = 'PA LËVIZJE';
+    const pendingCount = paymentRows.filter((row) => historyPaymentWorkerPin(row) === pin && !isArkaHistoryBonus(row) && statusOf(row) === 'PENDING').length;
+    const collectedCount = paymentRows.filter((row) => historyPaymentWorkerPin(row) === pin && !isArkaHistoryBonus(row) && statusOf(row) === 'COLLECTED').length;
+    let dayStatus = bonusGroups.length ? 'BONUSE TË REGJISTRUARA' : 'PA LËVIZJE';
     if (pendingCount || collectedCount || openCashTotal > 0 || openExpenseTotal > 0) dayStatus = 'KA TË HAPURA';
     if (workerHandoffs.some((row) => isAcceptedHandoffStatus(row?.status))) dayStatus = openCashTotal > 0 || openExpenseTotal > 0 ? 'PJESËRISHT PRANUAR' : 'PRANUAR';
     if (workerHandoffs.some((row) => isPendingHandoffStatus(row?.status))) dayStatus = 'DËRGUAR TE DISPATCH';
@@ -1327,6 +1334,7 @@ function buildArkaHistoryGroups({ payments = [], handoffs = [], workersByPin = {
       worker,
       isHybrid: isHybridWorker(worker),
       clientPayments,
+      bonusGroups,
       expenses,
       meals,
       handoffs: workerHandoffs,
@@ -1405,6 +1413,23 @@ function ArkaHistoryGroup({ group }) {
           />
         )) : <div className="arkaEmpty">S’KA KLIENTË / PAGESA PËR KËTË DATË.</div>}
       </div>
+
+      {group?.bonusGroups?.length ? <section data-arka-history-bonuses="1" className="arkaSectionCard" style={{ margin:0, padding:12, background:'rgba(245,158,11,.06)', borderColor:'rgba(245,158,11,.22)' }}>
+        <div className="arkaSectionTitle">BONUSE TË REGJISTRUARA</div>
+        <div className="arkaSectionSub" style={{ marginTop:5, marginBottom:10 }}>Sipas datës së regjistrimit. Shumat e mbajtura dhe dorëzimet shihen në llogarinë e punëtorit.</div>
+        {group.bonusGroups.map((bonusGroup) => <div key={bonusGroup.source} data-bonus-source={bonusGroup.source} style={{ marginBottom:12 }}>
+          <HistoryMetricLine label={bonusGroup.label} value={euro(bonusGroup.amount)} />
+          {bonusGroup.rows.map((row) => <HistoryRow
+            key={`hist_bonus_${group.pin}_${row.id}`}
+            title={`${bonusGroup.label} • ${cashOrderCode(row)}`}
+            meta={`${fmtPaymentStamp(row?.created_at) || fmtDate(row?.created_at)}${row?.note ? ` • ${String(row.note)}` : ''}`}
+            amount={euro(amountOf(row))}
+            rightText={arkaHistoryBonusStatusLabel(row)}
+            tone="neutral"
+          />)}
+        </div>)}
+        <Link className="arkaTopBtn" href={`/arka/puntor/${encodeURIComponent(group.pin)}#bonuset`}>SHIKO BONUSAT DHE DORËZIMET →</Link>
+      </section> : null}
 
       <div>
         <div className="arkaSectionTitle">DORËZIMET TE DISPATCH</div>
@@ -1936,6 +1961,8 @@ function PendingHandoffRow({ row, actor, onDone, workerSummary, onReviewAccept }
         <div className="arkaReviewWarn">U gjet duplicate transport item. Totali është korrigjuar me dedupe.</div>
       ) : null}
 
+      {shouldShowWorkerBonusHandoff(workerSummary?.worker) ? <WorkerBonusHandoffSummary actor={actor} targetPin={row?.worker_pin} handoffId={row?.id} submittedAt={row?.submitted_at} /> : null}
+
       <div className="arkaCashCompactList">
         {clients.length ? clients.map((client) => (
           <CashClientCompactRow key={`handoff_client_${row.id}_${client.id}`} row={{ code: client?.code, clientName: client?.clientName, baseAmount: client?.baseAmount, gross: client?.gross, commission: client?.commission, typeLabel: 'DORËZIM' }} mini />
@@ -1943,6 +1970,7 @@ function PendingHandoffRow({ row, actor, onDone, workerSummary, onReviewAccept }
       </div>
 
       <div className="arkaPendingActions" style={{ justifyContent: 'flex-end' }}>
+        {row?.worker_pin ? <Link className="arkaTinyBtn" style={{ textDecoration:'none', textAlign:'center' }} href={`/arka/puntor/${encodeURIComponent(row.worker_pin)}#bonuset`}>SHIH LLOGARINË / BONUSET</Link> : null}
         <button type="button" className="arkaTinyBtn ok" disabled={!!busy} onClick={handleAccept}>{busy === 'accept' ? '...' : 'HAP MBYLLJEN DITORE'}</button>
         <button type="button" className="arkaTinyBtn bad" disabled={!!busy} onClick={handleReject}>{busy === 'reject' ? '...' : 'KTHEJE / REFUZO'}</button>
       </div>

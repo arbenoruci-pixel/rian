@@ -8,6 +8,8 @@ import { listWorkerDebtRows } from '@/lib/corporateFinance';
 import { listWorkerHandoffs, listWorkerPendingPayments } from '@/lib/arkaService';
 import { fetchSessionUserByPin } from '@/lib/usersService';
 import { listMixedOrderRecords } from '@/lib/ordersService';
+import WorkerBonusAccount from '@/components/WorkerBonusAccount';
+import { isArkaHistoryBonus } from '@/lib/arkaHistoryBonuses.js';
 
 const euro = new Intl.NumberFormat('de-DE', {
   style: 'currency',
@@ -96,7 +98,7 @@ function m2Of(row) {
 function cashPaymentRows(rows) {
   return (rows || []).filter((row) => {
     const type = safeUpper(row?.type);
-    return !['TIMA', 'EXPENSE'].includes(type);
+    return !isArkaHistoryBonus(row) && !['TIMA', 'EXPENSE'].includes(type);
   });
 }
 function paymentRowTitle(row) {
@@ -109,7 +111,7 @@ function paymentRowMeta(row) {
 }
 function buildHistory(payments, handoffs, debtRows) {
   const items = [];
-  (payments || []).forEach((row) => {
+  (payments || []).filter(row => !isArkaHistoryBonus(row)).forEach((row) => {
     items.push({
       id: `pay_${row.id || row.external_id || Math.random()}`,
       date: firstDefined(row.created_at, row.updated_at),
@@ -303,9 +305,10 @@ export default function LlogariaImePage() {
     const transportCommission = isHybridTransport ? deliveredTransportM2 * commissionRateM2 : 0;
     const neto = salary + bonusTransport + bonusUshqim + transportCommission - advances - debt;
 
-    const cashToday = (payments || []).filter((x) => isToday(x.created_at)).reduce((s, x) => s + amountOf(x), 0);
-    const inHand = (payments || []).filter((x) => ['PENDING', 'COLLECTED'].includes(safeUpper(x.status))).reduce((s, x) => s + amountOf(x), 0);
-    const handed = (payments || []).filter((x) => ['ACCEPTED_BY_DISPATCH', 'APPROVED'].includes(safeUpper(x.status))).reduce((s, x) => s + amountOf(x), 0)
+    const customerPayments = (payments || []).filter(row => !isArkaHistoryBonus(row));
+    const cashToday = customerPayments.filter((x) => isToday(x.created_at)).reduce((s, x) => s + amountOf(x), 0);
+    const inHand = customerPayments.filter((x) => ['PENDING', 'COLLECTED'].includes(safeUpper(x.status))).reduce((s, x) => s + amountOf(x), 0);
+    const handed = customerPayments.filter((x) => ['ACCEPTED_BY_DISPATCH', 'APPROVED'].includes(safeUpper(x.status))).reduce((s, x) => s + amountOf(x), 0)
       + (handoffs || []).filter((x) => safeUpper(x.status) === 'ACCEPTED').reduce((s, x) => s + amountOf(x), 0);
 
     const allOrders = [...orders, ...transportOrders];
@@ -377,9 +380,10 @@ export default function LlogariaImePage() {
       {loading ? <div className="surface loadingCard">DUKE NGARKUAR TË DHËNAT...</div> : null}
       {!loading && tab === 'PERMBLEDHJE' ? (
         <div className="stack">
+          <WorkerBonusAccount actor={actor} targetPin={actor?.pin} />
           <div className="grid three summaryTopGrid">
             <StatCard label="RROGA BAZË" value={fmt(summary.salary)} sub="Rroga bazë" accent="neutral" />
-            {hasTransportBonus ? <StatCard label="BONUS TRANSPORT" value={fmt(summary.bonusTransport)} sub="Shtesë transporti" accent="ok" /> : null}
+            {hasTransportBonus ? <StatCard label="SHTESË MUJORE TRANSPORTI" value={fmt(summary.bonusTransport)} sub="Shtesë fikse në rrogë" accent="ok" /> : null}
             {hasUshqimBonus ? <StatCard label="BONUS USHQIM" value={fmt(summary.bonusUshqim)} sub="P.sh. 3€/ditë" accent="ok" /> : null}
             {hasHybridCommission ? <StatCard label="KOMISIONI TRANSPORTIT" value={fmt(summary.transportCommission)} sub={`${summary.deliveredTransportM2.toFixed(2)} m² × ${fmt(summary.commissionRateM2)}/m²`} accent="ok" /> : null}
             <StatCard label="AVANSET" value={fmt(summary.advances)} sub="Aktive / manuale" accent="warn" />
@@ -390,14 +394,14 @@ export default function LlogariaImePage() {
             <div className="panelHead"><div><h3>GJENDJA AKTUALE</h3><p>Përmbledhje e saktë e rrogës, bonuseve dhe detyrimeve të tua.</p></div></div>
             <div className="detailRows">
               <div className="detailRow"><span>Rroga bazë</span><strong>{fmt(summary.salary)}</strong></div>
-              {hasTransportBonus ? <div className="detailRow"><span>Bonus transport</span><strong>{fmt(summary.bonusTransport)}</strong></div> : null}
+              {hasTransportBonus ? <div className="detailRow"><span>Shtesë mujore transporti</span><strong>{fmt(summary.bonusTransport)}</strong></div> : null}
               {hasUshqimBonus ? <div className="detailRow"><span>Bonus ushqim</span><strong>{fmt(summary.bonusUshqim)}</strong></div> : null}
               {hasHybridCommission ? <div className="detailRow"><span>Komisioni transportit</span><strong>{fmt(summary.transportCommission)}</strong></div> : null}
               {hasHybridCommission ? <div className="detailRow"><span>Formula e komisionit të transportit</span><strong>{summary.deliveredTransportM2.toFixed(2)} m² × {fmt(summary.commissionRateM2)}/m²</strong></div> : null}
               <div className="detailRow"><span>Avans manual</span><strong>{fmt(n(userRow?.avans_manual))}</strong></div>
               <div className="detailRow"><span>Borxh afatgjatë</span><strong>{fmt(n(userRow?.borxh_afatgjat))}</strong></div>
               <div className="detailRow"><span>Lëvizje borxhi/avansi</span><strong>{fmt(summary.debtRowsTotal)}</strong></div>
-              <div className="detailRow totalRow"><span>{hasAnyBonus ? 'NETO = RROGA + BONUS TRANSPORT + BONUS USHQIM + KOMISION TRANSPORTI - AVANSE - BORXHE' : 'NETO = RROGA - AVANSE - BORXHE'}</span><strong>{fmt(summary.neto)}</strong></div>
+              <div className="detailRow totalRow"><span>{hasAnyBonus ? 'NETO = RROGA + SHTESA MUJORE TRANSPORTI + BONUS USHQIM + KOMISION TRANSPORTI - AVANSE - BORXHE' : 'NETO = RROGA - AVANSE - BORXHE'}</span><strong>{fmt(summary.neto)}</strong></div>
             </div>
           </div>
         </div>

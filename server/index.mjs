@@ -1,4 +1,5 @@
 import transportControlHandler from '../api/transport-control.js';
+import workerBonusesHandler from '../api/worker-bonuses.js';
 import transportPushHandler from '../api/transport/push.js';
 import inventoryAuditHandler from '../api/inventory-audit.js';
 import baseCodeStatusHandler from '../api/base-codes/status.js';
@@ -178,6 +179,7 @@ app.post('/api/inventory-audit', inventoryAuditHandler);
 app.post('/api/base-codes/status', baseCodeStatusHandler);
 app.post('/api/base-bonus-evidence', bonusEvidenceHandler);
 app.post('/api/transport-control', transportControlHandler);
+app.post('/api/worker-bonuses', workerBonusesHandler);
 app.post('/api/transport/push', transportPushHandler);
 app.post('/api/transport/order', transportOrderHandler);
 app.post('/api/transport/self-order', transportSelfOrderHandler);
