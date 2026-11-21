@@ -8,6 +8,7 @@ import React, { Suspense, useDeferredValue, useEffect, useMemo, useRef, useState
 import { useRouter, useSearchParams } from '@/lib/routerCompat.jsx';
 import Link from '@/lib/routerCompat.jsx';
 import { supabase, storageWithTimeout } from '@/lib/supabaseClient';
+import { fetchBaseCodeStatuses } from '@/lib/baseCodeStatusClient.js';
 import { fetchOrderDataById, fetchOrderByIdSafe, listMixedOrderRecords, transitionOrderStatus, updateOrderData } from '@/lib/ordersService';
 import { deleteOp, getAllOrdersLocal, saveOrderLocal } from '@/lib/offlineStore';
 import { requirePaymentPin } from '@/lib/paymentPin';
@@ -1882,9 +1883,8 @@ async function fetchPastrimiBaseCodePoolInfo(code) {
   const codeNum = Number(String(normalizeCode(code) || code || '').replace(/\D+/g, ''));
   if (!Number.isFinite(codeNum) || codeNum <= 0) return null;
   try {
-    const { data, error } = await supabase.from('base_code_pool').select('*').eq('code', codeNum).limit(1).maybeSingle();
-    if (error) return { code: codeNum, lookup_error: String(error?.message || error || '') };
-    return data || null;
+    const data = await fetchBaseCodeStatuses([codeNum]);
+    return data[0] || null;
   } catch (error) {
     return { code: codeNum, lookup_error: String(error?.message || error || '') };
   }
