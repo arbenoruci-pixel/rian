@@ -291,6 +291,36 @@ for (const role of ['PUNTOR', 'PUNETOR', 'WORKER', 'BAZIST', 'BASE', 'TRANSPORT'
 }
 pass('Cookie identity fixes the worker scope; staff can read only their own account, while every manager alias can inspect a target account.');
 
+for (const longPin of ['01234567890', '012345678901']) {
+  const longWorker = { ...worker, id: '33333333-3333-4333-8333-333333333333', name: 'Punëtori test me PIN të gjatë', pin: longPin };
+  const seed = {
+    users: [longWorker, otherWorker, manager],
+    base_ready_bonuses: bonuses.map(bonus => ({ ...bonus, worker_pin: longPin })),
+    cash_handoffs: handoffs.map(handoff => ({ ...handoff, worker_pin: longPin })),
+    transport_controls: pendingControls.map(control => ({ ...control, worker_id: longWorker.id })),
+  };
+  const ownFixture = fixture({ ...seed, tepiha_user_devices: [{ user_id: longWorker.id, device_id: deviceId, is_approved: true }] });
+  const own = await request({ db: ownFixture.db, body: { month, expectedActorId: longWorker.id } });
+  assert.equal(own.statusCode, 200, 'Supported long PINs work for the authenticated worker.');
+  assert.deepEqual(own.body.worker, { id: longWorker.id, name: longWorker.name });
+  assert.deepEqual(own.body.totals, report.totals, 'The complete string PIN, including its leading zero, scopes the ledger.');
+  assert(!JSON.stringify(own.body).includes(longPin));
+
+  const managerFixture = fixture({ ...seed, tepiha_user_devices: [{ user_id: managerId, device_id: deviceId, is_approved: true }] });
+  const inspected = await request({ db: managerFixture.db, body: { month, targetPin: ` ${longPin} `, expectedActorId: managerId } });
+  assert.equal(inspected.statusCode, 200, 'Managers can inspect a supported long target PIN.');
+  assert.deepEqual(inspected.body.worker, own.body.worker);
+  assert.deepEqual(inspected.body.totals, own.body.totals);
+  assert(!JSON.stringify(inspected.body).includes(longPin));
+
+  const otherFixture = fixture({ ...seed, tepiha_user_devices: [{ user_id: otherId, device_id: deviceId, is_approved: true }] });
+  const denied = await request({ db: otherFixture.db, body: { month, targetPin: longPin, expectedActorId: otherId, role: 'OWNER' } });
+  assert.equal(denied.statusCode, 403, 'Long PIN support does not broaden cross-worker access.');
+  assert.equal(denied.body.error, 'WORKER_BONUS_FORBIDDEN');
+  assert(!otherFixture.calls.some(call => call.table === 'base_ready_bonuses'));
+}
+pass('Staff PIN compatibility supports 11/12 digits for own and manager reports while preserving exact identity and worker isolation.');
+
 for (const overrides of [
   { tepiha_user_devices: [] },
   { tepiha_user_devices: [{ user_id: workerId, device_id: deviceId, is_approved: false }] },
@@ -340,10 +370,12 @@ for (const invalid of ['2026-00', '2026-13', '26-11', '2026-1', '', null, [], 20
   assert.equal(result.body.error, 'WORKER_BONUS_MONTH_INVALID');
   assert(!f.calls.some(c => c.table === 'base_ready_bonuses'));
 }
-for (const invalid of ['', '1', 'x', '7001 OR true', '700170017001', {}]) {
-  const result = await request({ body: { month, targetPin: invalid } });
+for (const invalid of ['', '1', '123', 'x', '7001 OR true', '7001700170017', {}]) {
+  const f = fixture();
+  const result = await request({ db: f.db, body: { month, targetPin: invalid } });
   assert.equal(result.statusCode, 400);
   assert.equal(result.body.error, 'WORKER_BONUS_WORKER_INVALID');
+  assert(!f.calls.some(call => call.table === 'base_ready_bonuses'));
 }
 for (const table of ['tepiha_user_devices', 'users', 'base_ready_bonuses', 'transport_controls', 'base_ready_bonus_allocations', 'transport_orders', 'cash_handoffs']) {
   const result = await request({ db: fixture({}, { [table]: true }).db });
@@ -426,3 +458,4 @@ assert.equal((await queryMonth('2026-09')).marker, 'fresh-after-session-change',
 pass('The actual HTTP client revokes every cached month on denial and rejects prior in-flight responses after denial or actor changes.');
 
 console.log(`Verified ${checked} worker bonus account groups.`);
+
