@@ -10,7 +10,7 @@ const bundle = await build({
   bundle: true, write: false, format: 'iife', jsx: 'automatic', alias: { '@': process.cwd() },
   loader: { '.css': 'empty' }, define: { 'process.env.NODE_ENV': '"test"' },
   plugins: [{ name: 'read-only-account-fixtures', setup(builder) {
-    builder.onResolve({ filter: /lib\/(workerBonusAccountClient\.js|actorSession|routerCompat\.jsx|corporateFinance|arkaService|usersService|ordersService)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
+    builder.onResolve({ filter: /(?:lib\/(workerBonusAccountClient\.js|actorSession|routerCompat\.jsx|corporateFinance|arkaService|usersService|ordersService|supabaseClient|mealPolicyClient)|components\/HandoffReceiptsPanel)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
     builder.onLoad({ filter: /.*/, namespace: 'fixture' }, args => {
       const file = args.path.split('/').at(-1);
       const contents = {
@@ -21,6 +21,9 @@ const bundle = await build({
         arkaService: `export const listWorkerPendingPayments=async()=>window.paymentFixture||[];export const listWorkerHandoffs=async()=>[];`,
         usersService: `export const fetchSessionUserByPin=async()=>({salary:0,bonus_transport:0,bonus_ushqim:0});`,
         ordersService: `export const listMixedOrderRecords=async()=>[];`,
+        supabaseClient: `export const supabase={rpc:async()=>({data:{cash:window.financeFixture||{today_gross:0,open_due_to_base:0,received_handoff_total:0,pending_handoff_total:0,pending_handoff_count:0}},error:null})};`,
+        mealPolicyClient: `export const fetchMealPolicy=async()=>({actorId:window.actor.id,businessDate:'2026-11-21',settings:[],policies:[],dailyMealsAllowed:true});`,
+        HandoffReceiptsPanel: `export default function Receipts(){return null;}`,
       }[file];
       if (!contents) throw new Error(`Missing fixture: ${file}`);
       return { contents, loader: 'jsx', resolveDir: process.cwd() };
@@ -185,6 +188,7 @@ w.paymentFixture = [
   { id: 'base-bonus', type: 'READY_48H_BONUS', amount: 10.79, status: 'ACCEPTED_BY_DISPATCH', created_at: today, note: 'BONUS TEST BAZË' },
   { id: 'control-bonus', type: 'READY_48H_BONUS', source_module: 'TRANSPORT_CONTROL', amount: .50, status: 'ACCEPTED_BY_DISPATCH', created_at: today, note: 'BONUS TEST TRANSPORT' },
 ];
+w.financeFixture = {today_gross:101.92,open_due_to_base:101.92,received_handoff_total:0,pending_handoff_total:0,pending_handoff_count:0};
 w.renderWallet();
 await wait(() => button('CASH & POROSI') && !text().includes('DUKE NGARKUAR TË DHËNAT'));
 await click('CASH & POROSI');

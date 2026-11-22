@@ -25,7 +25,7 @@ check(unified.includes("supabase.rpc('get_worker_finance_snapshot_v1'"), 'canoni
 check(unified.includes('PAGUAR SOT'), 'today cash metric missing');
 check(unified.includes('MBETUR NGA MË HERËT'), 'carryover metric missing');
 check(unified.includes('i njëjti listim për punëtorin dhe adminin'), 'shared-view explanation missing');
-check(unified.includes('PAYROLL I LIDHUR ME STAFIN'), 'linked payroll block missing');
+check(unified.includes('Rroga dhe shtesat mujore') && unified.includes('payroll?.net_fixed_after_advances'), 'linked payroll details or net amount missing');
 check(unified.includes('MBYLLJA DITORE'), 'manager daily-close link missing from shared account');
 
 check(compensation.includes('WORKER_COMPENSATION_EDITOR_V1'), 'compensation editor marker missing');

@@ -27,7 +27,7 @@ function validBreakdown(row) {
   return Math.abs(Number(row.base) + Number(row.transport) - Number(row.total)) < 0.005;
 }
 
-export default function WorkerBonusHandoffSummary({ actor, targetPin, handoffId, submittedAt }) {
+export default function WorkerBonusHandoffSummary({ actor, targetPin, handoffId, submittedAt, receiptTracking = false }) {
   const pin = String(targetPin || '').trim();
   const id = String(handoffId ?? '');
   const actorIdentity = sessionActorKey(actor);
@@ -107,7 +107,7 @@ export default function WorkerBonusHandoffSummary({ actor, targetPin, handoffId,
       <div style={{ display:'flex', justifyContent:'space-between', gap:10, fontSize:12 }}><span>Bonus Baze</span><b>{money(Number(row.base))}</b></div>
       <div style={{ display:'flex', justifyContent:'space-between', gap:10, fontSize:12 }}><span>Kontroll Transporti</span><b>{money(Number(row.transport))}</b></div>
       <div style={{ display:'flex', justifyContent:'space-between', gap:12, borderTop:'1px solid rgba(245,158,11,.2)', paddingTop:8, fontSize:12 }}><strong>Gjithsej të mbajtura në këtë dorëzim</strong><b style={{ whiteSpace:'nowrap', color:'#fde68a' }}>{money(Number(row.total))}</b></div>
-      <small style={{ color:pending ? '#fde68a' : '#cbd5e1' }}>{pending ? 'Pret pranimin e Dispatch-it' : accepted ? 'Dorëzim i pranuar nga Dispatch-i' : 'Shiko gjendjen e dorëzimit në llogari.'}</small>
+      <small style={{ color:pending ? '#fde68a' : '#cbd5e1' }}>{pending && receiptTracking ? 'Bonusi u konfirmua në pranimin e parë. Mbetja cash ndiqet në këtë dorëzim.' : pending ? 'Pret pranimin e Dispatch-it' : accepted ? 'Dorëzim i pranuar nga Dispatch-i' : 'Shiko gjendjen e dorëzimit në llogari.'}</small>
     </> : <>
       <div role={current.error ? 'alert' : undefined} style={{ fontSize:12, color:'#cbd5e1' }}>{current.error ? 'Nuk u ngarkua ndarja e bonusit.' : 'Hape llogarinë për detajet e bonusit të këtij dorëzimi.'}</div>
       <Link href={`/arka/puntor/${encodeURIComponent(pin)}#bonuset`} style={{ fontSize:12, color:'#fde68a' }}>Shih llogarinë / bonuset →</Link>

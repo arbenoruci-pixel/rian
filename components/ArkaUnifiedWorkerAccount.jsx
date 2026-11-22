@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient';
 import ArkaCashHandoffAction from './ArkaCashHandoffAction.jsx';
 import WorkerBonusAccount from './WorkerBonusAccount.jsx';
 import WorkerDailyBonusLedger from './WorkerDailyBonusLedger.jsx';
+import HandoffReceiptsPanel from './HandoffReceiptsPanel.jsx';
 
 const TIME_ZONE = 'Europe/Belgrade';
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -107,7 +108,9 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
   const cleanTargetPin = String(targetPin || actorPin || '').trim();
   const actorRole = upper(actor?.role);
   const manager = MANAGER_ROLES.has(actorRole);
-  const [snapshot, setSnapshot] = useState(null);
+  const snapshotKey = `${actor?.id || actor?.user_id || actorPin}:${actorRole}:${cleanTargetPin}`;
+  const [snapshotState, setSnapshotState] = useState({ key:'', data:null });
+  const snapshot = snapshotState.key === snapshotKey ? snapshotState.data : null;
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -126,7 +129,7 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
       });
       if (rpcError) throw rpcError;
       if (seq !== seqRef.current) return;
-      setSnapshot(data || null);
+      setSnapshotState({ key:snapshotKey, data:data || null });
       try { onSnapshot?.(data || null); } catch {}
     } catch (err) {
       if (seq !== seqRef.current) return;
@@ -141,23 +144,28 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
 
   useEffect(() => {
     if (!actorPin || !cleanTargetPin) return undefined;
+    setSnapshotState({ key:snapshotKey, data:null });
+    try { onSnapshot?.(null); } catch {}
     let timer = null;
-    const refresh = () => void load({ silent:true });
+    const refresh = () => { if (document.visibilityState !== 'hidden') void load({ silent:true }); };
     const onVisible = () => { if (document.visibilityState !== 'hidden') refresh(); };
     void load();
     timer = window.setInterval(refresh, 15000);
     window.addEventListener('focus', refresh);
     window.addEventListener('pageshow', refresh);
     window.addEventListener('arka:refresh', refresh);
+    window.addEventListener('tepiha:meal-policy-updated', refresh);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
+      seqRef.current += 1;
       if (timer) window.clearInterval(timer);
       window.removeEventListener('focus', refresh);
       window.removeEventListener('pageshow', refresh);
       window.removeEventListener('arka:refresh', refresh);
+      window.removeEventListener('tepiha:meal-policy-updated', refresh);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [actorPin, cleanTargetPin]);
+  }, [actorPin, cleanTargetPin, snapshotKey]);
 
   const profile = snapshot?.profile || {};
   const cash = snapshot?.cash || {};
@@ -168,8 +176,8 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
   const showCommission = profile?.commission_enabled === true && upper(profile?.cash_mode) === 'HYBRID_COMMISSION';
   const openRows = useMemo(() => rows(cash?.rows), [cash?.rows]);
 
-  if (loading && !snapshot) {
-    return <Card tone="blue"><div style={{ padding:18, textAlign:'center', color:c.blue, fontWeight:1000 }}>DUKE NGARKUAR TË NJËJTËN LLOGARI NGA DB...</div></Card>;
+  if (!snapshot && (loading || !error)) {
+    return <Card tone="blue"><div style={{ padding:18, textAlign:'center', color:c.blue, fontWeight:1000 }}>DUKE NGARKUAR LLOGARINË...</div></Card>;
   }
 
   return (
@@ -177,9 +185,9 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
       <Card tone="blue">
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, flexWrap:'wrap' }}>
           <div>
-            <div style={{ color:c.blue, fontSize:10.5, fontWeight:1000, letterSpacing:'.12em' }}>ARKA • NJË BURIM I VETËM</div>
+            <div style={{ color:c.blue, fontSize:12, fontWeight:1000, letterSpacing:'.06em' }}>ARKA PERSONALE</div>
             <div style={{ marginTop:5, fontSize:26, lineHeight:1, fontWeight:1000 }}>{upper(title || snapshot?.worker?.name || cleanTargetPin)}</div>
-            <div style={{ marginTop:7, color:c.muted, fontSize:11.5, fontWeight:800 }}>PIN {snapshot?.worker?.pin || cleanTargetPin} • {upper(snapshot?.worker?.role || 'WORKER')} • {dayKey(new Date())}</div>
+            <div style={{ marginTop:7, color:c.muted, fontSize:12, fontWeight:800 }}>{upper(snapshot?.worker?.role || 'WORKER')} • {dayKey(new Date())}</div>
           </div>
           <button type="button" disabled={refreshing} onClick={() => void load({ silent:true })} style={{ border:`1px solid ${c.line}`, borderRadius:12, background:'rgba(51,65,85,.64)', color:'#fff', padding:'10px 12px', fontWeight:1000, cursor:'pointer' }}>{refreshing ? 'DUKE FRESKUAR...' : 'REFRESH'}</button>
         </div>
@@ -210,11 +218,13 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
         <Metric label="MBETUR NGA MË HERËT" value={euro(cash?.carryover_gross)} sub={`${n(cash?.carryover_count)} pagesa`} tone="blue" />
         {showCommission ? <Metric label="KOMISION I HAPUR" value={euro(cash?.open_commission)} sub={`${n(profile?.commission_rate_m2).toFixed(2)}€/m²`} tone="yellow" /> : null}
         <Metric label="SHPENZIME SOT" value={euro(expenses?.today_total)} sub={`Në pritje ${euro(expenses?.today_pending)}`} tone="yellow" />
-        <Metric label="TE DISPATCH" value={euro(cash?.pending_handoff_total)} sub={`${n(cash?.pending_handoff_count)} dorëzime`} tone="purple" />
+        <Metric label="MBETEN PËR PRANIM" value={euro(cash?.pending_handoff_total)} sub={`${n(cash?.pending_handoff_count)} dorëzime të hapura`} tone="purple" />
         <Metric label="DORËZUAR SOT" value={euro(cash?.accepted_handoff_today)} sub="Pranuar nga Dispatch" tone="green" />
       </div>
 
       <WorkerDailyBonusLedger actor={actor} targetPin={cleanTargetPin} />
+
+      <HandoffReceiptsPanel actor={actor} targetPin={cleanTargetPin} title="Dorëzimet e mia" onChange={() => void load({ silent:true })} />
 
       <Card tone="green">
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10 }}>
@@ -224,16 +234,20 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
           </div>
           <strong style={{ color:c.green, fontSize:17 }}>{euro(cash?.open_due_to_base)}</strong>
         </div>
-        <div style={{ display:'grid', gap:8 }}>
+        <details className="arkaSecondaryDetails">
+          <summary>Shiko pagesat ({openRows.length})</summary>
+          <div style={{ display:'grid', gap:8, marginTop:10 }}>
           {openRows.length ? openRows.map((row) => <PaymentRow key={`unified_cash_${row?.id}`} row={row} showCommission={showCommission} />) : <div style={{ color:c.muted, fontSize:11, padding:8 }}>S’KA PAGESA TË HAPURA.</div>}
-        </div>
+          </div>
+        </details>
       </Card>
 
       <WorkerBonusAccount actor={actor} targetPin={cleanTargetPin} />
 
-      <Card tone="blue">
-        <div style={{ fontSize:14, fontWeight:1000 }}>PAYROLL I LIDHUR ME STAFIN</div>
-        <div style={{ color:c.muted, fontSize:10.5, fontWeight:800 }}>Këto shifra lexohen nga të njëjtat opsione që caktohen te STAFI / PAYROLL.</div>
+      <details className="arkaSecondaryDetails">
+        <summary>Rroga dhe shtesat mujore</summary>
+        <Card tone="blue">
+        <div style={{ fontSize:14, fontWeight:1000 }}>RROGA E KËTIJ MUAJI</div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(135px,1fr))', gap:8 }}>
           <Metric label="RROGA" value={euro(payroll?.salary)} tone="blue" />
           <Metric label="USHQIM / BONUS" value={euro(payroll?.meal_bonus)} tone="green" />
@@ -242,7 +256,8 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
           <Metric label="AVANSE AKTIVE" value={euro(advances?.active_total)} tone="red" />
           <Metric label="NETO FIKSE PAS AVANSEVE" value={euro(payroll?.net_fixed_after_advances)} tone="purple" />
         </div>
-      </Card>
+        </Card>
+      </details>
 
       {manager && showManagerLinks ? (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:8 }}>

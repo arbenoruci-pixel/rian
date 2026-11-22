@@ -1,0 +1,12 @@
+.operationsTools { position: relative; text-align: left; }
+.operationsTools > summary { list-style: none; min-height: 44px; padding: 10px 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #475569; border-radius: 12px; background: #111827; color: #e2e8f0; font: 700 14px/1.2 system-ui,sans-serif; cursor: pointer; }
+.operationsTools > summary::-webkit-details-marker { display: none; }
+.operationsTools > summary:focus-visible { outline: 3px solid #60a5fa; outline-offset: 2px; }
+.operationsToolsPanel { position: absolute; z-index: 35; top: calc(100% + 7px); right: 0; width: min(330px, calc(100vw - 28px)); padding: 12px; display: grid; gap: 10px; border: 1px solid #475569; border-radius: 16px; background: #0f172a; box-shadow: 0 15px 45px #0009; }
+.operationsToolsPanel > a, .operationsToolsPanel > button { min-height: 44px; }
+.operationsToolsPanel a { max-width: 100%; }
+.operationsSearchContext { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 6px 0 12px; color: #cbd5e1; font-size: 13px; line-height: 1.4; }
+.operationsSearchContext button { min-height: 42px; border: 1px solid #475569; border-radius: 10px; padding: 8px 12px; background: #111827; color: #f8fafc; font: inherit; }
+.operationsOrderDetails { margin-top: 7px; color: #94a3b8; font-size: 12px; line-height: 1.4; }
+.operationsOrderDetails > summary { cursor: pointer; min-height: 36px; display: flex; align-items: center; font-weight: 700; }
+.operationsOrderDetails[open] > summary { margin-bottom: 5px; }

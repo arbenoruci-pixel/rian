@@ -18,6 +18,7 @@ export default function HandoffWizard({
   existingMealCovered = false,
   existingMealDeduct = 0,
   unsettledMealDeduct,
+  mealPolicy = null,
   staffOptions = [],
   onClose,
   onSubmit,
@@ -29,16 +30,18 @@ export default function HandoffWizard({
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState(null);
   const submitFlight = useRef(false);
+  const dailyMealStep = mealPolicy?.dailyMealsAllowed !== false;
+  const displayStep = !dailyMealStep && step >= 3 ? step - 1 : step;
 
   const workerHybrid = typeof hybridEnabled === 'boolean' ? hybridEnabled : actor?.is_hybrid_transport === true || String(actor?.is_hybrid_transport || '').toLowerCase() === 'true';
   // BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:WIZARD
   const carriedMealDeduct = unsettledMealDeduct == null ? null : Math.max(0, Number(unsettledMealDeduct) || 0);
-  const legacyMealDeduct = mealChoice === 'self'
+  const legacyMealDeduct = dailyMealStep && mealChoice === 'self'
     ? 3
     : (mealChoice === 'existing' ? Math.max(0, Number(existingMealDeduct || 0)) : 0);
   const requestedMealDeduct = carriedMealDeduct == null
     ? legacyMealDeduct
-    : carriedMealDeduct + (mealChoice === 'self' ? 3 : 0);
+    : carriedMealDeduct + (dailyMealStep && mealChoice === 'self' ? 3 : 0);
   const summary = buildHandoffCashSummary({ grossTotal, baseTotal, commissionTotal, workerHybrid, mealDeduct:requestedMealDeduct, bonusAvailable });
   const safeGross = summary.gross;
   const safeCommission = workerHybrid ? summary.commission : 0;
@@ -77,8 +80,8 @@ export default function HandoffWizard({
     setError('');
     try {
       const submitted = await onSubmit?.({
-        mealChoice: mealChoice === 'existing' ? '' : ({ self: '1', other: '2', none: '3' }[mealChoice] || ''),
-        mealPayerPin: mealChoice === 'other' ? mealPayerPin : '',
+        mealChoice: !dailyMealStep ? 'monthly' : mealChoice === 'existing' ? '' : ({ self: '1', other: '2', none: '3' }[mealChoice] || ''),
+        mealPayerPin: dailyMealStep && mealChoice === 'other' ? mealPayerPin : '',
       });
       // The returned handoff is already net of its bonus. Display it directly.
       setReceipt(readConfirmedHandoffReceipt(submitted));
@@ -97,13 +100,13 @@ export default function HandoffWizard({
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 14 }}>
           <div>
             <div style={{ color: '#79aefc', fontWeight: 900, letterSpacing: 2, fontSize: 13 }}>DORËZIMI TE DISPATCH</div>
-            <div style={{ fontSize: 28, fontWeight: 950, marginTop: 4 }}>{step === 4 ? 'U KRY' : `Hapi ${step} nga 3`}</div>
+            <div style={{ fontSize: 28, fontWeight: 950, marginTop: 4 }}>{step === 4 ? 'U KRY' : `Hapi ${displayStep} nga ${dailyMealStep ? 3 : 2}`}</div>
           </div>
           {step !== 4 ? <button type="button" onClick={resetAndClose} disabled={busy} style={{ width: 48, height: 48, borderRadius: 16, border: '1px solid #31425f', background: '#111a29', color: '#fff', fontSize: 24 }}>×</button> : null}
         </div>
 
-        {step !== 4 ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 7, marginBottom: 18 }}>
-          {[1, 2, 3].map((item) => <div key={item} style={{ height: 7, borderRadius: 999, background: step >= item ? '#22c58b' : '#1c2940' }} />)}
+        {step !== 4 ? <div style={{ display: 'grid', gridTemplateColumns: `repeat(${dailyMealStep ? 3 : 2},1fr)`, gap: 7, marginBottom: 18 }}>
+          {(dailyMealStep ? [1, 2, 3] : [1, 2]).map((item) => <div key={item} style={{ height: 7, borderRadius: 999, background: displayStep >= item ? '#22c58b' : '#1c2940' }} />)}
         </div> : null}
 
         {step === 1 ? <>
@@ -118,13 +121,13 @@ export default function HandoffWizard({
             <SummaryLine label="Cash për bazë para ushqimit/bonusit" value={money(safeBase)} accent="#83d9ff" />
             {carriedMealDeduct > 0 ? <SummaryLine label="Ushqim i mbetur për zbritje" value={money(carriedMealDeduct)} accent="#ffbd66" sub="Përfshin edhe regjistrimet e mëparshme." /> : null}
             <SummaryLine label="Bonus për ta mbajtur nga ky cash" value={money(bonusHeld)} accent="#ffd166" sub="Bazë + kontroll Transporti" />
-            <SummaryLine label="Për Dispatch pas bonusit" value={money(finalTotal)} accent="#8de6c4" sub={existingMealCovered ? 'Përfshin ushqimin e regjistruar për këtë dorëzim.' : carriedMealDeduct > 0 ? 'Përfshin ushqimin e mbetur. Zgjedhja për sot bëhet në hapin tjetër.' : 'Ushqimi llogaritet në hapin tjetër.'} />
+            <SummaryLine label="Për Dispatch pas bonusit" value={money(finalTotal)} accent="#8de6c4" sub={!dailyMealStep ? (carriedMealDeduct > 0 ? 'Përfshin vetëm regjistrimet e mëparshme të ushqimit.' : 'Pa zbritje të re për ushqim. Shtesa mujore shfaqet në rrogë.') : existingMealCovered ? 'Përfshin ushqimin e regjistruar për këtë dorëzim.' : carriedMealDeduct > 0 ? 'Përfshin ushqimin e mbetur. Zgjedhja për sot bëhet në hapin tjetër.' : 'Ushqimi llogaritet në hapin tjetër.'} />
             <SummaryLine label="Shpenzime në pritje" value={money(openExpenseTotal)} accent="#ffbd66" sub="Nuk zbriten pa aprovim" />
           </div>
-          <button type="button" onClick={() => setStep(2)} style={{ width: '100%', marginTop: 18, minHeight: 62, border: 0, borderRadius: 19, background: '#246df2', color: '#fff', fontSize: 20, fontWeight: 950 }}>VAZHDO</button>
+          <button type="button" onClick={() => setStep(dailyMealStep ? 2 : 3)} style={{ width: '100%', marginTop: 18, minHeight: 62, border: 0, borderRadius: 19, background: '#246df2', color: '#fff', fontSize: 20, fontWeight: 950 }}>VAZHDO</button>
         </> : null}
 
-        {step === 2 ? <>
+        {step === 2 && dailyMealStep ? <>
           <div style={{ fontSize: 25, fontWeight: 950, marginBottom: 7 }}>A ke marrë ushqim sot?</div>
           <div style={{ color: '#9fb0c8', marginBottom: 16 }}>Kjo zgjedhje përdoret direkt. Nuk ka pyetje tjetër jashtë wizard-it.</div>
           <div style={{ display: 'grid', gap: 10 }}>
@@ -152,13 +155,13 @@ export default function HandoffWizard({
             <Row label="Klientët kanë paguar" value={money(safeGross)} />
             {workerHybrid ? <Row label="Komisioni që e mban" value={safeCommission > 0 ? `− ${money(safeCommission)}` : '0.00 €'} accent="#ffd166" /> : null}
             <Row label="Për bazë para zbritjeve" value={money(safeBase)} accent="#83d9ff" />
-            <Row label="Ushqimi" value={mealDeduct > 0 ? `− ${money(mealDeduct)}` : '0.00 €'} accent={mealDeduct > 0 ? '#ffbd66' : undefined} sub={carriedMealDeduct > 0 ? `Përfshin ${money(carriedMealDeduct)} të mbetura nga regjistrimet e ushqimit.` : ''} />
+            {dailyMealStep || mealDeduct > 0 ? <Row label={dailyMealStep ? 'Ushqimi' : 'Ushqim nga periudha e mëparshme'} value={mealDeduct > 0 ? `− ${money(mealDeduct)}` : '0.00 €'} accent={mealDeduct > 0 ? '#ffbd66' : undefined} sub={carriedMealDeduct > 0 ? `Përfshin ${money(carriedMealDeduct)} të mbetura nga regjistrimet e ushqimit.` : ''} /> : null}
             <Row label="Bonusi që e mban për vete" value={bonusHeld > 0 ? `− ${money(bonusHeld)}` : '0.00 €'} accent="#ffd166" sub="Bazë + kontroll Transporti" />
             {Number(openExpenseTotal || 0) > 0 ? <Row label="Shpenzime në pritje" value={money(openExpenseTotal)} accent="#ffbd66" sub="Nuk janë zbritur" /> : null}
             <div style={{ padding: 18, background: '#063325' }}>
               <div style={{ color: '#8de6c4', fontWeight: 900 }}>JEP DISPATCH-IT · CASH NETO</div>
               <div data-handoff-net="1" style={{ fontSize: 48, fontWeight: 950, marginTop: 5 }}>{money(finalTotal)}</div>
-              <div style={{ color:'#b3e7d4', marginTop:8, lineHeight:1.4 }}>Kjo shumë e përfshin zbritjen e bonusit dhe të ushqimit.</div>
+              <div style={{ color:'#b3e7d4', marginTop:8, lineHeight:1.4 }}>{mealDeduct > 0 ? 'Kjo shumë e përfshin zbritjen e bonusit dhe të ushqimit.' : 'Kjo shumë e përfshin zbritjen e bonusit.'}</div>
             </div>
           </div>
           {!summary.canSubmit ? <ErrorBox text="Nuk mbetet cash për Dispatch pas ushqimit. Kontrollo cash-in dhe regjistrimet e ushqimit." /> : null}
@@ -167,7 +170,7 @@ export default function HandoffWizard({
           <div style={{ marginTop: 12, padding: 13, borderRadius: 14, background: '#111b2b', color: '#aebbd0' }}>Kur e prek butonin, dorëzimi regjistrohet direkt. Nuk hapet asnjë confirm ose prompt tjetër.</div>
           {error ? <ErrorBox text={error} /> : null}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.7fr', gap: 10, marginTop: 18 }}>
-            <button type="button" disabled={busy} onClick={() => setStep(2)} style={backStyle}>KTHEHU</button>
+            <button type="button" disabled={busy} onClick={() => setStep(dailyMealStep ? 2 : 1)} style={backStyle}>KTHEHU</button>
             <button type="button" disabled={busy || !summary.canSubmit} onClick={finish} style={{ ...nextStyle, background: '#15bf83', color: '#03130d', opacity:!summary.canSubmit ? 0.5 : 1 }}>{busy ? 'DUKE DORËZUAR…' : `DORËZO ${money(finalTotal)}`}</button>
           </div>
         </> : null}

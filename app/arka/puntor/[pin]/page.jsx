@@ -15,6 +15,8 @@ import {
   ensureMealDecisionBeforeHandoff,
   deleteWorkerExtraEntry,
   listMealStaffOptions,
+  listWorkerMealRowsToday,
+  listWorkerUnsettledMealPayments,
 } from '@/lib/arkaService';
 import { listWorkerDebtRows, submitWorkerCashToDispatch } from '@/lib/corporateFinance';
 import {
@@ -29,6 +31,9 @@ import HandoffWizard from '@/components/HandoffWizard';
 import { listOpenBaseReadyBonusPayments } from '@/lib/baseReadyBonusClient';
 import { bootLog } from '@/lib/bootLog';
 import ArkaUnifiedWorkerAccount from '@/components/ArkaUnifiedWorkerAccount';
+import { fetchMealPolicy } from '@/lib/mealPolicyClient';
+import { mealBusinessDate } from '@/lib/mealPolicy';
+import { loadWorkerHandoffPreview } from '@/lib/workerHandoffPreview';
 
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -770,12 +775,37 @@ export default function ArkaWorkerDetailPage() {
   const [mealNote, setMealNote] = useState('USHQIM');
   const [mealTargets, setMealTargets] = useState([]);
   const [mealSearch, setMealSearch] = useState('');
+  const [mealPolicy, setMealPolicy] = useState(null);
+  const [mealPolicyError, setMealPolicyError] = useState('');
   const [secondaryLoading, setSecondaryLoading] = useState(false);
   const reloadSeqRef = useRef(0);
   const handoffSubmitLockRef = useRef(false);
 
   const canManage = ['DISPATCH', 'ADMIN', 'ADMIN_MASTER', 'OWNER', 'PRONAR', 'SUPERADMIN'].includes(safeUpper(actor?.role));
   const sameWorker = String(actor?.pin || '').trim() === pin;
+
+  useEffect(() => {
+    if (!actor?.pin || (!canManage && !sameWorker)) return;
+    let alive = true;
+    let timer;
+    setMealPolicy(null);
+    const refresh = async () => {
+      try {
+        const next = await fetchMealPolicy({ targetPin:pin, force:true });
+        if (!alive) return;
+        setMealPolicy(next);
+        setMealPolicyError('');
+        clearTimeout(timer);
+        if (next.nextActivationAt) timer = setTimeout(refresh, Math.max(250, Math.min(Date.parse(next.nextActivationAt)-Date.parse(next.serverNow)+500,2147483000)));
+      } catch (error) {
+        if (alive) { setMealPolicy(null); setMealPolicyError(error?.message || 'Rregulli i ushqimit nuk u ngarkua.'); }
+      }
+    };
+    void refresh();
+    const events = ['focus','online','tepiha:meal-policy-updated'];
+    events.forEach(name => window.addEventListener(name,refresh));
+    return () => { alive=false; clearTimeout(timer); events.forEach(name => window.removeEventListener(name,refresh)); };
+  }, [actor?.id,actor?.pin,actor?.role,pin,canManage,sameWorker]);
 
   async function reload() {
     if (!pin) return;
@@ -1326,12 +1356,27 @@ export default function ArkaWorkerDetailPage() {
       alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
       return;
     }
+    setBusy(true);
     try {
-      const rows = await listOpenBaseReadyBonusPayments(pin);
-      const bonusAvailable = +(Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + n(row?.remaining_amount), 0).toFixed(2);
-      setHandoffWizard({ open: true, bonusAvailable });
-    } catch {
-      setHandoffWizard({ open: true, bonusAvailable: 0 });
+      const preview = await loadWorkerHandoffPreview({
+        actor, date:mealBusinessDate(), getCurrentActor:getActor, online:typeof navigator==='undefined'||navigator.onLine!==false,
+        readFinance:async ({pin:workerPin,date}) => {
+          const {data,error} = await supabase.rpc('get_worker_finance_snapshot_v1',{p_actor_pin:actor.pin,p_worker_pin:workerPin,p_date:date});
+          if (error) throw error;
+          return data;
+        },
+        readBonuses:listOpenBaseReadyBonusPayments,
+        readMeals:listWorkerUnsettledMealPayments,
+        readMealCoverage:listWorkerMealRowsToday,
+        readMealPolicy:fetchMealPolicy,
+      });
+      setMealPolicy(preview.mealPolicy);
+      setHandoffWizard({ ...preview, open:true });
+    } catch (error) {
+      setHandoffWizard({ open:false, bonusAvailable:0 });
+      alert(error?.message || 'Shumat e dorëzimit nuk u verifikuan. Provo përsëri.');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1436,14 +1481,16 @@ export default function ArkaWorkerDetailPage() {
       <HandoffWizard
         open={handoffWizard.open}
         actor={{ ...actor, pin, name: worker?.name || pin, role: worker?.role || actor?.role }}
-        clientCount={Array.isArray(cashAccount?.dispatchOpenRows) ? cashAccount.dispatchOpenRows.length : 0}
-        grossTotal={cashAccount.openGrossTotal}
-        baseTotal={cashAccount.totalDueToBase}
-        commissionTotal={cashAccount.openTransportCommissionTotal}
+        clientCount={handoffWizard.clientCount || 0}
+        grossTotal={handoffWizard.grossTotal || 0}
+        baseTotal={handoffWizard.baseTotal || 0}
+        commissionTotal={handoffWizard.commissionTotal || 0}
         bonusAvailable={handoffWizard.bonusAvailable}
+        mealPolicy={handoffWizard.mealPolicy}
         openExpenseTotal={(Array.isArray(cashAccount?.approvedTodayExpenseRows) ? cashAccount.approvedTodayExpenseRows : []).reduce((sum, row) => sum + n(row?.amount), 0)}
-        existingMealCovered={(Array.isArray(extras) ? extras : []).some((row) => ['MEAL_PAYMENT','MEAL_COVERED'].includes(safeUpper(row?.type)) && isToday(row?.created_at || row?.handed_at))}
-        existingMealDeduct={(Array.isArray(extras) ? extras : []).filter((row) => safeUpper(row?.type) === 'MEAL_PAYMENT' && isToday(row?.created_at || row?.handed_at)).reduce((sum, row) => sum + n(row?.amount), 0)}
+        existingMealCovered={handoffWizard.existingMealCovered === true}
+        existingMealDeduct={handoffWizard.unsettledMealDeduct || 0}
+        unsettledMealDeduct={handoffWizard.unsettledMealDeduct || 0}
         staffOptions={staffOptions}
         onClose={() => setHandoffWizard((prev) => ({ ...prev, open: false }))}
         onSubmit={handoffMine}
@@ -1662,7 +1709,7 @@ export default function ArkaWorkerDetailPage() {
             </div>
           ) : null}
 
-          {(canManage || sameWorker) ? (
+          {(canManage || sameWorker) && mealPolicy?.dailyMealsAllowed === true ? (
             <div className="arkaActionPanel">
               <div>
                 <div className="arkaActionHeader">PAGUAJ USHQIM PËR EKIPIN</div>
@@ -1738,6 +1785,9 @@ export default function ArkaWorkerDetailPage() {
               </div>
             </div>
           ) : null}
+
+          {(canManage || sameWorker) && mealPolicy?.dailyMealsAllowed === false ? <div className="arkaActionPanel"><div className="arkaActionHeader">USHQIMI NË RROGËN MUJORE</div><div className="arkaSimpleSub">Ushqimi ditor nga arka është mbyllur. Shumat e mëparshme mbeten në historik dhe dorëzimet i llogarisin vetëm një herë.</div></div> : null}
+          {mealPolicyError ? <div className="arkaReviewWarn" role="alert">{mealPolicyError} Rifresko faqen para regjistrimit të ushqimit.</div> : null}
 
 
           <div className="arkaSplitGrid detailPage">

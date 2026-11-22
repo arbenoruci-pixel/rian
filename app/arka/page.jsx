@@ -10,6 +10,12 @@ import ArkaUnifiedWorkerAccount from '@/components/ArkaUnifiedWorkerAccount';
 import WorkerBonusHandoffSummary, { shouldShowWorkerBonusHandoff } from '@/components/WorkerBonusHandoffSummary';
 import '@/components/ArkaExpenseComposer.css';
 import HandoffWizard from '@/components/HandoffWizard';
+import HandoffReceiptsPanel from '@/components/HandoffReceiptsPanel';
+import OperationsTools from '@/components/OperationsTools';
+import { getHandoffOutstandingAmount } from '@/lib/handoffReceipts';
+import { fetchMealPolicy } from '@/lib/mealPolicyClient';
+import { dailyMealsAllowed as policyAllowsDailyMeals } from '@/lib/mealPolicy';
+import { openStaffMessages } from '@/lib/staffMessagesClient';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getActor } from '@/lib/actorSession';
 import { listOpenBaseReadyBonusPayments } from '@/lib/baseReadyBonusClient';
@@ -64,8 +70,9 @@ const EXTRA_TYPES = new Set(['TIMA', 'EXPENSE', 'MEAL_PAYMENT', 'MEAL_COVERED', 
 // BASE_READY_48H_BONUS_V1:ARKA
 const NON_PAYMENT_STATUSES = new Set(['OWED', 'REJECTED', 'WORKER_DEBT', 'ADVANCE', 'PENDING_DISPATCH_APPROVAL', 'ACCEPTED_BY_DISPATCH']);
 const MANAGER_PAYMENT_SELECT = 'id,amount,type,status,note,created_at,updated_at,created_by_pin,created_by_name,handed_by_pin,handed_by_name,handed_by_role,handoff_note,client_name,order_id,order_code,source_module,transport_order_id,transport_code_str,transport_m2';
-const MANAGER_HANDOFF_SELECT = 'id,amount,status,worker_pin,worker_name,submitted_at,decided_at,note';
-const MANAGER_PENDING_HANDOFF_SELECT = 'id,amount,status,worker_pin,worker_name,submitted_at,note,cash_handoff_items(*)';
+const RECEIPT_SELECT = 'receipt_tracking,receipt_worker_id,receipt_received_amount,receipt_resolved_amount,receipt_outstanding_amount,receipt_updated_at';
+const MANAGER_HANDOFF_SELECT = `id,amount,status,worker_pin,worker_name,submitted_at,decided_at,note,${RECEIPT_SELECT}`;
+const MANAGER_PENDING_HANDOFF_SELECT = `id,amount,status,worker_pin,worker_name,submitted_at,note,${RECEIPT_SELECT},cash_handoff_items(*)`;
 const MANAGER_PENDING_EXPENSE_SELECT = 'id,amount,type,status,note,created_at,created_by_pin,created_by_name';
 
 async function listAdminPendingExpenseApprovals(limit = MANAGER_SECONDARY_LIMIT, select = MANAGER_PENDING_EXPENSE_SELECT) {
@@ -1000,7 +1007,7 @@ function summarizeArkaCore({ worker, paymentRows = [], extraRows = [], handoffRo
   const deliveredTodayRows = deliveredRows.filter((row) => isToday(row?.decided_at || row?.accepted_at || row?.submitted_at || row?.created_at));
   const deliveredTotal = deliveredRows.reduce((sum, row) => sum + amountOf(row), 0);
   const deliveredTodayTotal = deliveredTodayRows.reduce((sum, row) => sum + amountOf(row), 0);
-  const pendingHandoffTotal = pendingHandoffRows.reduce((sum, row) => sum + buildHandoffReview(row, worker).baseTotal, 0);
+  const pendingHandoffTotal = pendingHandoffRows.reduce((sum, row) => sum + (row?.receipt_tracking ? getHandoffOutstandingAmount(row) : buildHandoffReview(row, worker).baseTotal), 0);
 
   const advances = mapUniqueById(advanceRows)
     .filter((row) => statusOf(row) === 'ADVANCE')
@@ -2269,22 +2276,22 @@ function WorkerSummaryCard({ item, busy = '', onAcceptCash, onAddExpense, onAddA
       <div className="arkaWorkerTop">
         <div>
           <div className="arkaWorkerName">{String(item?.worker?.name || 'PUNTOR').toUpperCase()}</div>
-          <div className="arkaWorkerMeta">PIN {item?.worker?.pin || '—'} • {String(item?.worker?.role || 'WORKER').toUpperCase()} • {clientCount} KLIENTË</div>
+          <div className="arkaWorkerMeta">{String(item?.worker?.role || 'WORKER').toUpperCase()} • {clientCount} klientë në llogari</div>
         </div>
         <div className={`arkaWorkerBadge ${item?.tone || 'idle'}`}>{item?.status || 'PA LËVIZJE'}</div>
       </div>
-      <div className="arkaWorkerDueLine"><span>PËR BAZË</span><b>{euro(due)}</b></div>
+      <div className="arkaWorkerDueLine"><span>Ende pa dorëzim</span><b>{euro(due)}</b></div>
       <div className="arkaOwnerFormulaGrid compactStats">
-        <Stat label="KANË PAGUAR" value={euro(visiblePaid)} tone="ok" small />
-        {workerHybrid ? <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(visibleCommission)} tone="warn" small /> : null}
-        <Stat label="DËRGUAR" value={euro(item?.pendingHandoffTotal)} tone="info" small />
-        <Stat label="HISTORI" value={euro(item?.acceptedGrossTotal)} tone="neutral" small />
+        <Stat label="Dorëzime të pambyllura" value={euro(item?.pendingHandoffTotal)} tone="info" small />
+        {workerHybrid ? <Stat label="Komision i mbajtur · historik" value={euro(visibleCommission)} tone="warn" small /> : null}
       </div>
+      <details className="arkaInlineAdminTools"><summary>Pagesat dhe historiku</summary>
       {cashRows.length ? <div className="arkaCashCompactList adminMini">{cashRows.slice(0,4).map((row)=><CashClientCompactRow key={`worker_cash_${item?.worker?.pin}_${row.id || row.created_at}`} row={row} workerName={workerFirstName} mini />)}{cashRows.length > 4 ? <div className="arkaCashMore">+ {cashRows.length - 4} TJERA</div> : null}</div> : null}
       {!cashRows.length && historyRows.length ? <div className="arkaCashCompactList adminMini">{historyRows.slice(0,3).map((row)=><CashClientCompactRow key={`worker_history_${item?.worker?.pin}_${row.id || row.created_at}`} row={row} workerName={workerFirstName} mini />)}{historyRows.length > 3 ? <div className="arkaCashMore">+ {historyRows.length - 3} HISTORI</div> : null}</div> : null}
+      </details>
       <div className="arkaWorkerActions mainOnly">
         <Link prefetch={false} href={`/arka/puntor/${encodeURIComponent(item?.worker?.pin || '')}`} className="arkaTopBtn">HAP</Link>
-        <button type="button" className="arkaTopBtn" disabled={!!busy || !pendingCount} onClick={() => onAcceptCash?.(item)}>{pendingCount ? 'MBYLL DITËN (' + pendingCount + ')' : 'MBYLL DITËN'}</button>
+        <button type="button" className="arkaTopBtn" disabled={!!busy || !pendingCount} onClick={() => onAcceptCash?.(item)}>{pendingCount ? 'SHQYRTO DORËZIMET (' + pendingCount + ')' : 'PA DORËZIME'}</button>
       </div>
       <details className="arkaInlineAdminTools"><summary>ADMIN</summary><div className="arkaWorkerActions adminTools"><button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddExpense?.(item)}>SHTO SHPENZIM</button><button type="button" className="arkaTopBtn" disabled={!!busy} onClick={() => onAddAdvance?.(item)}>SHTO AVANS</button></div></details>
     </div>
@@ -2302,6 +2309,11 @@ function ArkaAccountPage() {
   const [actor, setActor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [secondaryLoading, setSecondaryLoading] = useState(false);
+  const [secondaryError, setSecondaryError] = useState('');
+  const [receiptSummary, setReceiptSummary] = useState(null);
+  const [mealPolicy, setMealPolicy] = useState(null);
+  const [mealPolicyError, setMealPolicyError] = useState('');
+  const [mealPolicyRetry, setMealPolicyRetry] = useState(0);
   const [error, setError] = useState('');
   const [workerSnapshot, setWorkerSnapshot] = useState(null);
   const [unifiedWorkerFinance, setUnifiedWorkerFinance] = useState(null);
@@ -2353,6 +2365,36 @@ function ArkaAccountPage() {
   const masterPersonalMode = isPersonalArkaMode(actor, arkaSearch.toString());
   const isWorker = actorIsWorkerAccount(actor) || masterPersonalMode;
   const canManage = roleCanManage(role) && !masterPersonalMode;
+  const dailyFoodAvailable = mealPolicy ? policyAllowsDailyMeals(mealPolicy) : false;
+
+  useEffect(() => {
+    let live = true;
+    let generation = 0;
+    let timer;
+    setMealPolicy(null);
+    setMealPolicyError('');
+    const refresh = async () => {
+      if (!actor?.pin) return;
+      const attempt = ++generation;
+      try {
+        const next = await fetchMealPolicy({ force: true });
+        if (!live || attempt !== generation) return;
+        setMealPolicy(next);
+        setMealPolicyError('');
+        if (!policyAllowsDailyMeals(next)) setMealFormOpen(false);
+        clearTimeout(timer);
+        if (next.nextActivationAt) timer = setTimeout(refresh, Math.max(250, Math.min(2147483000, Date.parse(next.nextActivationAt) - Date.parse(next.serverNow) + 500)));
+      } catch (error) {
+        if (live && attempt === generation) { setMealPolicy(null); setMealPolicyError(error?.message || 'Rregulli i ushqimit nuk u ngarkua.'); }
+      }
+    };
+    void refresh();
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    window.addEventListener('tepiha:meal-policy-open', refresh);
+    window.addEventListener('tepiha:meal-policy-updated', refresh);
+    return () => { live = false; clearTimeout(timer); window.removeEventListener('focus', refresh); window.removeEventListener('online', refresh); window.removeEventListener('tepiha:meal-policy-open', refresh); window.removeEventListener('tepiha:meal-policy-updated', refresh); };
+  }, [actor?.id, actor?.pin, mealPolicyRetry]);
   const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || String(actor?.pin || '').trim() === '4563' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(normalizeArkaRole(role)));
 
   useEffect(() => {
@@ -2440,9 +2482,9 @@ function ArkaAccountPage() {
     await scheduleManagerMutationRefresh(actor);
   }
 
-  function acceptWorkerCashFromCard() {
+  function acceptWorkerCashFromCard(item) {
       // ARKA_DAILY_CLOSE_V2_ONE_WAY: every manager entry point uses the same daily close route.
-      if (typeof window !== 'undefined') window.location.assign('/arka/ditore');
+      if (typeof window !== 'undefined') window.location.assign(item?.worker?.id ? `/arka/ditore?worker=${encodeURIComponent(item.worker.id)}` : '/arka/ditore');
     }
 
   async function confirmCashAcceptReview() {
@@ -2799,6 +2841,7 @@ function ArkaAccountPage() {
 
   async function loadManagerSecondary() {
     setSecondaryLoading(true);
+    setSecondaryError('');
     try {
       let hadErrors = false;
       const swallowToEmpty = (label, err) => {
@@ -2811,6 +2854,7 @@ function ArkaAccountPage() {
         withArkaTimeout(listAdminPendingExpenseApprovals(MANAGER_SECONDARY_LIMIT, MANAGER_PENDING_EXPENSE_SELECT), 'pending_expense_approvals', 4200).catch((err) => swallowToEmpty('expenses', err)),
       ]);
       if (hadErrors) {
+        setSecondaryError('Lista nuk u rifreskua. Po shfaqen të dhënat e fundit të ruajtura; provo përsëri.');
         const cached = readStoredJson(ARKA_MANAGER_CACHE_KEY);
         if (cached && typeof cached === 'object') {
           setPendingHandoffs(Array.isArray(cached?.pendingHandoffs) ? cached.pendingHandoffs : []);
@@ -2827,6 +2871,9 @@ function ArkaAccountPage() {
         pendingExpenseApprovals: Array.isArray(expenses) ? expenses : [],
       });
       secondaryLoadedAtRef.current = Date.now();
+    } catch (error) {
+      setSecondaryError('Shpenzimet në pritje nuk u ngarkuan. Rifresko për ta kontrolluar gjendjen.');
+      throw error;
     } finally {
       setSecondaryLoading(false);
     }
@@ -3137,6 +3184,7 @@ function ArkaAccountPage() {
   }
 
   async function openMealForm() {
+    if (!dailyFoodAvailable) return alert(mealPolicyError || (mealPolicy ? 'Ushqimi paguhet me rrogën mujore.' : 'Prit derisa të kontrollohet rregulli i ushqimit.'));
     const rows = await getSelfMealRowsTodaySafe();
     if (rows.length) {
       setMealFormOpen(false);
@@ -3270,6 +3318,7 @@ function ArkaAccountPage() {
         readBonuses: listOpenBaseReadyBonusPayments,
         readMeals: listWorkerUnsettledMealPayments,
         readMealCoverage: listWorkerMealRowsToday,
+        readMealPolicy: fetchMealPolicy,
       }), 'handoff_preview', 8000);
       setUnifiedWorkerFinance(preview.finance);
       // ARKA_SALARY_ONLY_HANDOFF_V1: skip only after fresh reads confirm there
@@ -3381,21 +3430,25 @@ function ArkaAccountPage() {
       <div className="arkaSimpleTop">
         <div>
           <div className="arkaSimpleEyebrow">ARKA V3</div>
-          <h1 className="arkaSimpleTitle">{canManage ? 'ADMIN / DISPATCH ARKA' : 'ARKA IME E DITËS'}</h1>
+          <h1 className="arkaSimpleTitle">{canManage ? 'ARKA E BIZNESIT' : 'ARKA IME E DITËS'}</h1>
           {canManage ? (
             <div className="arkaSimpleSub">KUSH KA CASH, SA DUHET PRANUAR, DHE CILËT KLIENTË JANË BRENDA.</div>
           ) : null}
         </div>
         <div className="arkaSimpleNav">
           <Link href="/" prefetch={false} className="arkaTopBtn">HOME</Link>
-          <Link href="/arka/bonuset" prefetch={false} className="arkaTopBtn">BONUSET</Link>
+          <button type="button" className="arkaTopBtn" onClick={() => openStaffMessages()}>MESAZHET</button>
+          {!canManage ? <Link href="/arka/bonuset" prefetch={false} className="arkaTopBtn">BONUSI I BAZËS</Link> : null}
           {canManage ? <Link href="/arka?personal=1" prefetch={false} className="arkaTopBtn">ARKA IME · DORËZO PARATË</Link> : null}
           {masterPersonalMode ? <Link href="/arka" prefetch={false} className="arkaTopBtn">ADMIN / DISPATCH ARKA</Link> : null}
-          {canOpenKapaku ? <Link href="/arka/kapaku" prefetch={false} className="arkaTopBtn">KAPAKU I ARKËS</Link> : null}
           {canManage ? <Link href="/arka/ditore" prefetch={false} className="arkaTopBtn">MBYLLJA DITORE</Link> : null}
-          {canManage ? <Link href="/arka/payroll" prefetch={false} className="arkaTopBtn">PAYROLL</Link> : null}
-          {canManage ? <Link href="/arka/stafi" prefetch={false} className="arkaTopBtn">STAFI</Link> : null}
-          {canManage ? <Link href="/arka/obligimet" prefetch={false} className="arkaTopBtn">OBLIGIMET</Link> : null}
+          {canManage || canOpenKapaku ? <OperationsTools label="Menaxhimi">
+            {canOpenKapaku ? <Link href="/arka/kapaku" prefetch={false} className="arkaTopBtn">KAPAKU I ARKËS</Link> : null}
+            {canManage ? <Link href="/arka/bonuset" prefetch={false} className="arkaTopBtn">BONUSI I BAZËS</Link> : null}
+            {canManage ? <Link href="/arka/payroll" prefetch={false} className="arkaTopBtn">RROGAT</Link> : null}
+            {canManage ? <Link href="/arka/stafi" prefetch={false} className="arkaTopBtn">STAFI</Link> : null}
+            {canManage ? <Link href="/arka/obligimet" prefetch={false} className="arkaTopBtn">OBLIGIMET</Link> : null}
+          </OperationsTools> : null}
         </div>
       </div>
 
@@ -3428,7 +3481,7 @@ function ArkaAccountPage() {
 
           {/* ARKA_WORKER_DAILY_STATUS_V1:PAGE */}
           <div style={{ display:'none' }} aria-hidden="true"><ArkaWorkerDailyStatus snapshot={workerSnapshot} actor={actor} /></div>
-          <ReadyBonusLiveCard actor={actor} />
+          <details className="arkaSecondaryDetails"><summary>Bonusi i bazës · afatet dhe detajet</summary><ReadyBonusLiveCard actor={actor} /></details>
 
           <section className="arkaSectionCard arkaCashListCard" style={{ display:'none' }} aria-hidden="true">
             <div className="arkaSectionHeadCompact">
@@ -3654,7 +3707,7 @@ function ArkaAccountPage() {
             </div>
           </section>
 
-          <section className="arkaSectionCard">
+          {dailyFoodAvailable || selfMealCoveredToday ? <section className="arkaSectionCard">
             <div className="arkaSectionHeadCompact">
               <div>
                 <div className="arkaSectionTitle">USHQIMI SOT</div>
@@ -3668,7 +3721,7 @@ function ArkaAccountPage() {
                 <div className="arkaPendingMeta">{cleanExpenseRequestBaseNote(primaryMealTodayRow?.note || '') || primaryMealTodayRow?.note || 'USHQIM'}</div>
               </div>
             ) : <div className="arkaEmpty">USHQIMI NUK ËSHTË REGJISTRUAR SOT.</div>}
-          </section>
+          </section> : null}
 
           {handoffPreviewVisible ? <HandoffWizard
             open={handoffWizard.open}
@@ -3679,6 +3732,7 @@ function ArkaAccountPage() {
             commissionTotal={handoffWizard.commissionTotal}
             hybridEnabled={handoffWizard.hybridEnabled}
             bonusAvailable={handoffWizard.bonusAvailable}
+            mealPolicy={handoffWizard.mealPolicy}
             openExpenseTotal={workerOpenExpenseRows.filter((row) => typeOf(row) === 'EXPENSE').reduce((sum, row) => sum + amountOf(row), 0)}
             existingMealCovered={handoffWizard.existingMealCovered}
             unsettledMealDeduct={handoffWizard.unsettledMealDeduct}
@@ -3695,9 +3749,13 @@ function ArkaAccountPage() {
             <div className="arkaWorkerActionHubHead">
               <div>
                 <div className="arkaSectionTitle">VEPRIME TË SHPEJTA</div>
-                <div className="arkaSectionSub">REGJISTRO SHPENZIM OSE USHQIM ME PAK PREKJE.</div>
+                <div className="arkaSectionSub">{dailyFoodAvailable ? 'REGJISTRO SHPENZIM OSE USHQIM ME PAK PREKJE.' : 'REGJISTRO SHPENZIMIN DHE KONTROLLO DORËZIMIN.'}</div>
               </div>
             </div>
+
+            {mealPolicyError ? <div className="arkaReviewWarn" role="alert">
+              {mealPolicyError} <button type="button" className="arkaGhostBtn" onClick={() => setMealPolicyRetry(value => value + 1)}>Provo përsëri</button>
+            </div> : null}
 
             <div className="arkaWorkerActionHubGrid">
               <button
@@ -3715,7 +3773,7 @@ function ArkaAccountPage() {
                 <span className="arkaLaunchActionArrow">›</span>
               </button>
 
-              <button
+              {dailyFoodAvailable ? <button
                 type="button"
                 className="arkaLaunchAction meal"
                 disabled={!!busy || selfMealCoveredToday}
@@ -3724,7 +3782,7 @@ function ArkaAccountPage() {
                 <span className="arkaLaunchActionIcon">3€</span>
                 <span className="arkaLaunchActionCopy"><b>{selfMealCoveredToday ? 'USHQIMI U REGJISTRUA' : 'REGJISTRO USHQIM'}</b><small>{selfMealCoveredToday ? 'ËSHTË RUAJTUR PËR SOT' : 'PËR TY OSE PËR KOLEGËT'}</small></span>
                 <span className="arkaLaunchActionArrow">›</span>
-              </button>
+              </button> : null}
             </div>
           </div>
 
@@ -3775,7 +3833,7 @@ function ArkaAccountPage() {
             }}
             onSubmit={submitExpense}
           />
-          {mealFormOpen && !selfMealCoveredToday ? (
+          {mealFormOpen && dailyFoodAvailable && !selfMealCoveredToday ? (
             <div className="arkaActionPanel">
               <div className="arkaActionHeader">USHQIMI I DITËS</div>
               <div className="arkaSimpleSub">3€ PËR PERSON. NUK LEJOHET DY HERË PËR TË NJËJTËN DITË.</div>
@@ -3838,34 +3896,52 @@ function ArkaAccountPage() {
 
       {!loading && actor?.pin && canManage ? (
         <>
-          <ReadyBonusLiveCard actor={actor} />
+          <div className="arkaWorkerStats arkaCurrentTotals">
+            <Stat label="Ende pa dorëzim" value={euro(totals.remainingToHandover)} tone="strong" />
+            <a href="#arka-pending" style={{ color: 'inherit', textDecoration: 'none' }}><Stat label="Dorëzime të pambyllura" value={receiptSummary ? euro(receiptSummary.outstandingTotal) : '…'} tone="info" /></a>
+            <Stat label="Pranuar realisht sot" value={receiptSummary ? euro(receiptSummary.receivedToday) : '…'} tone="ok" />
+          </div>
           {/* ARKA_DAILY_CONTROL_V1:ARKA — read-only daily facts for DISPATCH. */}
-          <div className="arkaSectionCard" style={{ marginBottom: 14, display: 'grid', gap: 9, border: '1px solid rgba(59,130,246,.34)', background: 'linear-gradient(135deg,rgba(30,64,175,.22),rgba(15,23,42,.82))' }}>
-            <div className="arkaSectionHeadCompact">
-              <div>
-                <div className="arkaSectionTitle">KONTROLLI DITOR</div>
-                <div className="arkaSectionSub">HYRJE / DALJE M² • CASH • SHPENZIME • KOMISIONE • ALARME</div>
+          <div className="arkaDailyControlCompact">
+            <div><strong>Kontrolli ditor</strong><div className="arkaSectionSub">Pranimet reale, shpenzimet dhe numërimi i arkës.</div></div>
+            <Link to="/arka/ditore" className="arkaSolidBtn big" style={{ textDecoration: 'none' }}>HAPE MBYLLJEN DITORE</Link>
+          </div>
+          <div className="arkaSplitGrid arkaOperationsGrid">
+            <section id="arka-pending" className="arkaSectionCard arkaQueueSection">
+              <HandoffReceiptsPanel actor={actor} title="Dorëzime për pranim" onSummary={setReceiptSummary} onChange={() => scheduleManagerMutationRefresh(actor)} />
+              <div className="arkaSectionDivider" />
+              <div className="arkaSectionTitle">Shpenzime në pritje</div>
+              {secondaryLoading ? <div className="arkaEmpty">Duke ngarkuar shpenzimet…</div> : null}
+              {secondaryError ? <div className="arkaReviewWarn" role="status">{secondaryError}<button type="button" className="arkaTopBtn" onClick={() => reloadAll(actor, { force: true, source: 'manual', target: 'all' })}>Rifresko</button></div> : null}
+              {!secondaryLoading && pendingExpenseApprovals.map((row) => (
+                <ArkaPanelBoundary key={row.id} name="ArkaPendingExpenseRow">
+                  <PendingExpenseRow row={row} actor={actor} beneficiaryOptions={workerCards.map((item) => item?.worker).filter(Boolean)} onDone={handlePendingExpenseDone} />
+                </ArkaPanelBoundary>
+              ))}
+              {!secondaryLoading && !secondaryError && !pendingExpenseApprovals.length ? <div className="arkaEmpty">S’ka shpenzime në pritje.</div> : null}
+            </section>
+            <section className="arkaSectionCard arkaStaffSection">
+              <div className="arkaSectionHeadCompact">
+                <div><div className="arkaSectionTitle">Llogaritë e punëtorëve</div><div className="arkaSectionSub">Cash i hapur dhe dorëzime të pambyllura.</div></div>
+                <button type="button" className="arkaTopBtn" onClick={() => reloadAll(actor, { force: true, source: 'manual', target: 'all' })}>Rifresko</button>
               </div>
-              <Link
-                to="/arka/ditore"
-                className="arkaSolidBtn big"
-                style={{ textDecoration: 'none', textAlign: 'center', minWidth: 150 }}
-              >
-                HAPE MBYLLJEN DITORE
-              </Link>
-            </div>
-            <div className="arkaSimpleSub">Dorëzimet hyjnë në buxhet vetëm nga wizard-i ditor. Numërimi fizik, daljet dhe diferenca ruhen me audit.</div>
+              <div className="arkaWorkerList">
+                {workerCards.filter(item => item?.tone !== 'idle').map((item) => (
+                  <ArkaPanelBoundary key={item?.worker?.pin || item?.worker?.id} name="ArkaWorkerSummaryCard">
+                    <WorkerSummaryCard item={item} busy={busy} onAcceptCash={acceptWorkerCashFromCard} onAddExpense={addWorkerExpenseFromCard} onAddAdvance={addWorkerAdvanceFromCard} />
+                  </ArkaPanelBoundary>
+                ))}
+                {!workerCards.some(item => item?.tone !== 'idle') ? <div className="arkaEmpty">Nuk ka llogari që kërkojnë veprim.</div> : null}
+              </div>
+              {workerCards.some(item => item?.tone === 'idle') ? <details className="arkaSecondaryDetails"><summary>Punëtorët pa lëvizje ({workerCards.filter(item => item?.tone === 'idle').length})</summary><div className="arkaWorkerList">
+                {workerCards.filter(item => item?.tone === 'idle').map((item) => (
+                  <ArkaPanelBoundary key={item?.worker?.pin || item?.worker?.id} name="ArkaWorkerSummaryCard">
+                    <WorkerSummaryCard item={item} busy={busy} onAcceptCash={acceptWorkerCashFromCard} onAddExpense={addWorkerExpenseFromCard} onAddAdvance={addWorkerAdvanceFromCard} />
+                  </ArkaPanelBoundary>
+                ))}
+              </div></details> : null}
+            </section>
           </div>
-
-          <div className="arkaWorkerStats adminTopGrid ownerTotalsGrid">
-            <Stat label="NË DORË TE SHOFERËT" value={euro(totals.remainingToHandover)} tone="strong" />
-            <Stat label="PËR PRANIM" value={euro(totals.pendingHandoffTotal)} tone="info" />
-            <Stat label="PRANUAR SOT" value={euro(totals.acceptedTodayTotal)} tone="ok" />
-            <Stat label="PËR BAZË / PËR DORËZIM" value={euro(totals.cashFromClientsTotal)} tone="ok" />
-            <Stat label="HISTORI PRANUAR" value={euro(totals.acceptedHistoryTotal)} tone="neutral" />
-            <Stat label="KOMISION SHOFERËT" value={euro(totals.commissionHeldTotal)} tone="warn" />
-          </div>
-
           <div className="arkaAdvancedDetails" style={{ marginBottom: 14 }}>
             <button
               type="button"
@@ -3893,46 +3969,7 @@ function ArkaAccountPage() {
             ) : null}
           </div>
 
-          <div className="arkaSplitGrid">
-            <section className="arkaSectionCard">
-              <div className="arkaSectionHeadCompact">
-                <div>
-                  <div className="arkaSectionTitle">NË DORË TE SHOFERËT</div>
-                  <div className="arkaSectionSub">SHOFER • TOTAL • KLIENTË</div>
-                </div>
-                <button type="button" className="arkaTopBtn" onClick={() => reloadAll(actor, { force: true, source: 'manual', target: 'all' })}>REFRESH</button>
-              </div>
-              <div className="arkaWorkerList">
-                {workerCards.length ? workerCards.map((item) => (
-                  <ArkaPanelBoundary key={item?.worker?.pin || item?.worker?.id} name="ArkaWorkerSummaryCard">
-                    <WorkerSummaryCard item={item} busy={busy} onAcceptCash={acceptWorkerCashFromCard} onAddExpense={addWorkerExpenseFromCard} onAddAdvance={addWorkerAdvanceFromCard} />
-                  </ArkaPanelBoundary>
-                )) : <div className="arkaEmpty">S’KA PUNTORË AKTIVË.</div>}
-              </div>
-            </section>
-
-            <section className="arkaSectionCard sideRail">
-              <div className="arkaSectionTitle">DORËZIME PËR PRANIM</div>
-              <div className="arkaSectionSub">DORËZIME TË DËRGUARA NGA SHOFERËT.</div>
-              {secondaryLoading ? <div className="arkaEmpty">PO NGARKOHET PANELI ANËSOR...</div> : null}
-              {!secondaryLoading && pendingHandoffs.length ? pendingHandoffs.map((row) => (
-                <ArkaPanelBoundary key={row.id} name="ArkaPendingHandoffRow">
-                  <PendingHandoffRow row={row} actor={actor} workerSummary={workerCardsByPin.get(String(row?.worker_pin || '').trim())} onReviewAccept={acceptWorkerCashFromCard} onDone={handlePendingHandoffDone} />
-                </ArkaPanelBoundary>
-              )) : null}
-              {!secondaryLoading && !pendingHandoffs.length ? <div className="arkaEmpty">S’KA DORËZIME NË PRITJE.</div> : null}
-
-              <div className="arkaSectionDivider" />
-
-              <div className="arkaSectionTitle">SHPENZIME NË PRITJE</div>
-              {!secondaryLoading && pendingExpenseApprovals.length ? pendingExpenseApprovals.map((row) => (
-                <ArkaPanelBoundary key={row.id} name="ArkaPendingExpenseRow">
-                  <PendingExpenseRow row={row} actor={actor} beneficiaryOptions={workerCards.map((item) => item?.worker).filter(Boolean)} onDone={handlePendingExpenseDone} />
-                </ArkaPanelBoundary>
-              )) : null}
-              {!secondaryLoading && !pendingExpenseApprovals.length ? <div className="arkaEmpty">S’KA SHPENZIME NË PRITJE.</div> : null}
-            </section>
-          </div>
+          <details className="arkaSecondaryDetails"><summary>Bonusi i bazës · afatet dhe detajet</summary><ReadyBonusLiveCard actor={actor} /></details>
         </>
       ) : null}
     </div>

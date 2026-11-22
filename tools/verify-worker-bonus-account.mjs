@@ -184,6 +184,34 @@ assert(december.rows.some(r => r.id === '103'));
 assert.equal(buildWorkerBonusAccount(modelInput({ month: undefined, now: '2026-10-31T23:00:00Z' })).month, '2026-11');
 pass('Earnings use qualification dates; cash taken uses acceptance dates, including carried balances and local month boundaries.');
 
+// Actual receipts confirm the earned deduction on the first receipt, even when
+// a cash shortage remains. Later settlement must keep that original bonus month.
+const trackedBonuses = [baseBonus(701), controlBonus(702)];
+const trackedAllocations = trackedBonuses.map((bonus, index) => ({ id:801+index, bonus_id:bonus.id, handoff_id:901, amount:bonus.amount, status:'RETAINED', updated_at:'2026-11-20T10:00:00Z' }));
+const trackedHandoff = { id:901, status:'PENDING_DISPATCH_APPROVAL', receipt_tracking:true, submitted_at:'2026-10-31T10:00:00Z', decided_at:null };
+const trackedInput = modelInput({ bonuses:trackedBonuses, allocations:trackedAllocations, handoffs:[trackedHandoff], pendingControls:[] });
+const partialReceiptReport = buildWorkerBonusAccount(trackedInput);
+assert.equal(partialReceiptReport.totals.retained,1.5);
+assert.equal(partialReceiptReport.sources.find(x=>x.source==='BASE').retained,1);
+assert.equal(partialReceiptReport.sources.find(x=>x.source==='TRANSPORT_CONTROL').retained,.5);
+assert.deepEqual(partialReceiptReport.warnings,[]);
+assert.equal(partialReceiptReport.handoffs[0].retainedAt,'2026-11-20T10:00:00Z');
+const finalTrackedInput = {...trackedInput,handoffs:[{...trackedHandoff,status:'ACCEPTED',decided_at:'2026-12-02T10:00:00Z'}]};
+assert.deepEqual(buildWorkerBonusAccount(finalTrackedInput).totals,partialReceiptReport.totals);
+assert.equal(buildWorkerBonusAccount(finalTrackedInput).handoffs[0].retainedAt,'2026-11-20T10:00:00Z');
+assert.equal(buildWorkerBonusAccount({...finalTrackedInput,month:'2026-12'}).totals.retained,0);
+assert.equal(buildWorkerBonusAccount({...finalTrackedInput,month:'2026-12'}).totals.retainedAllTime,1.5);
+const unconfirmedTracked = buildWorkerBonusAccount({...trackedInput,handoffs:[{...trackedHandoff,receipt_tracking:false}]});
+assert.equal(unconfirmedTracked.totals.retainedAllTime,0,'Legacy pending status alone is not proof of retention.');
+const missingTrackedDate=buildWorkerBonusAccount({...trackedInput,allocations:trackedAllocations.map(a=>({...a,updated_at:null}))});
+assert.equal(missingTrackedDate.totals.retained,0);
+assert(missingTrackedDate.warnings.some(x=>x.code==='RETENTION_DATE_MISSING'));
+const trackedDb=fixture({base_ready_bonuses:trackedBonuses,base_ready_bonus_allocations:trackedAllocations,cash_handoffs:[{...trackedHandoff,worker_pin:worker.pin}],transport_controls:[]});
+const trackedApiReport=await readWorkerBonusAccount({month},{supabase:trackedDb.db,actor:worker});
+assert.equal(trackedApiReport.totals.retained,1.5);
+assert(trackedDb.calls.filter(c=>c.table==='cash_handoffs').every(c=>c.columns.split(',').includes('receipt_tracking')));
+pass('Partial receipt confirms Base/Transport bonus once, preserves its original month after later cash/noncash settlement, and keeps missing-proof warnings.');
+
 const delayed = baseBonus(301, { qualification_at: '2026-10-28T08:00:00Z', activated_at: '2026-10-28T08:00:00Z', status: 'RETAINED' });
 const delayedBooking = { id: delayed.arka_payment_id, type: 'READY_48H_BONUS', created_at: '2026-11-03T08:00:00Z' };
 const daily = buildWorkerBonusAccount(modelInput({ bonuses: [delayed], allocations: [], handoffs: [], bonusPayments: [delayedBooking] }));

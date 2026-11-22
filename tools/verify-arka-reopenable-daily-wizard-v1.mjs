@@ -14,16 +14,22 @@ check(component.includes('ARKA_ACTIONABLE_REOPEN_V2'), 'actionable reopen marker
 check(component.includes('const hasLiveWizardWork = pendingHandoffs.length > 0'), 'live wizard work calculation missing');
 check(!component.includes('|| openCashAtWorkers.length > 0'), 'unsubmitted worker cash still reopens a finalized report');
 check(component.includes('const showClosedReceiptOnly = isClosed && !hasLiveWizardWork;'), 'receipt-only gate missing');
-check(component.includes('if (!preview || showClosedReceiptOnly || countedCashManualRef.current) return;'), 'counted cash still blocked by a prior close');
-check(component.includes('if (!initializedRef.current) {'), 'pending handoffs are not initialized after a prior close');
+const actualReceipts = component.includes('HANDOFF_ACTUAL_RECEIPTS_V1');
+if (actualReceipts) {
+  check(component.includes('<HandoffReceiptsPanel') && component.includes('setCountedCash(\'\');'), 'actual receipts and fresh physical count are missing');
+  check(component.includes("action:'daily-close'") && component.includes('requestKey:dryRun.receipt_request_key'), 'secure idempotent daily finalization missing');
+} else {
+  check(component.includes('if (!preview || showClosedReceiptOnly || countedCashManualRef.current) return;'), 'counted cash still blocked by a prior close');
+  check(component.includes('if (!initializedRef.current) {'), 'pending handoffs are not initialized after a prior close');
+  check(component.includes("const CLOSE_RPC = 'close_arka_day_v2';"), 'daily finalization RPC missing');
+}
 check(!component.includes('if (!initializedRef.current && !obj(next?.closed_cycle)?.is_closed)'), 'legacy closed initialization guard remains');
 check(component.includes('{showClosedReceiptOnly ? ('), 'receipt rendering does not use live-work gate');
 check(!component.includes('{activeReceiptCycle?.is_closed ? ('), 'closed receipt still permanently hides the wizard');
-check(component.includes('WIZARD-I ËSHTË RIHAPUR'), 'reopened-day warning missing');
+check(component.includes(actualReceipts ? 'DIFERENCAT E HAPURA MBETEN TE DORËZIMET' : 'WIZARD-I ËSHTË RIHAPUR'), 'reopened-day warning missing');
 check(component.includes('PARA ENDE TE PUNËTORËT'), 'closed-report worker cash information missing');
 check(component.includes('prit dorëzimin e punëtorit'), 'worker cash is not explained as waiting for a real handoff');
 check(component.includes('Raporti mbetet i finalizuar'), 'closed report status is not explained');
-check(component.includes("const CLOSE_RPC = 'close_arka_day_v2';"), 'daily finalization RPC missing');
 
 const installer = 'node tools/apply-arka-reopenable-daily-wizard-v1.mjs';
 const finalVersionOwner = 'node tools/apply-gati-rack-save-v1.mjs';

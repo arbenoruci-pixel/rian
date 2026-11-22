@@ -10,6 +10,11 @@ import { fetchSessionUserByPin } from '@/lib/usersService';
 import { listMixedOrderRecords } from '@/lib/ordersService';
 import WorkerBonusAccount from '@/components/WorkerBonusAccount';
 import { isArkaHistoryBonus } from '@/lib/arkaHistoryBonuses.js';
+import { fetchMealPolicy } from '@/lib/mealPolicyClient';
+import { resolveMonthlyMealAllowance } from '@/lib/mealPolicy';
+import { supabase } from '@/lib/supabaseClient';
+import { getHandoffReceiptTotals, getHandoffOutstandingAmount, receiptStateLabel } from '@/lib/handoffReceipts';
+import HandoffReceiptsPanel from '@/components/HandoffReceiptsPanel';
 
 const euro = new Intl.NumberFormat('de-DE', {
   style: 'currency',
@@ -123,13 +128,16 @@ function buildHistory(payments, handoffs, debtRows) {
     });
   });
   (handoffs || []).forEach((row) => {
+    const receipt = getHandoffReceiptTotals(row);
     items.push({
       id: `handoff_${row.id || Math.random()}`,
-      date: firstDefined(row.decided_at, row.submitted_at, row.created_at),
-      type: 'DORËZIM',
-      description: row.dispatch_note || row.note || 'Dorëzim cash te dispatch',
-      amount: amountOf(row),
-      status: safeUpper(row.status || 'PENDING'),
+      date: firstDefined(row.receipt_updated_at, row.decided_at, row.submitted_at, row.created_at),
+      type: receipt.tracked ? 'DORËZIM · PRANUAR REALISHT' : 'DORËZIM',
+      description: receipt.tracked
+        ? `Pritej ${fmt(receipt.expected)} · Mbeten ${fmt(receipt.outstanding)}${receipt.resolved > 0 ? ` · Sqaruar pa cash ${fmt(receipt.resolved)}` : ''}`
+        : row.dispatch_note || row.note || 'Dorëzim cash te dispatch',
+      amount: receipt.tracked ? receipt.received : amountOf(row),
+      status: receiptStateLabel(row),
       tone: surfaceTone(row.status || 'PENDING'),
     });
   });
@@ -172,16 +180,26 @@ export default function LlogariaImePage() {
   const [refreshTick, setRefreshTick] = useState(0);
   const [showCashPayments, setShowCashPayments] = useState(false);
   const [showPendingHandoffs, setShowPendingHandoffs] = useState(false);
+  const [mealPolicy, setMealPolicy] = useState(null);
+  const [mealPolicyError, setMealPolicyError] = useState('');
+  const [financeSnapshot, setFinanceSnapshot] = useState(null);
 
 
   async function reloadDashboardCore(pin) {
-    const [u, pays, hands] = await Promise.all([
+    const [u, pays, hands, policy, finance] = await Promise.all([
       fetchSessionUserByPin(pin),
-      listWorkerPendingPayments(pin).catch(() => []),
-      listWorkerHandoffs(pin).catch(() => []),
+      listWorkerPendingPayments(pin),
+      listWorkerHandoffs(pin),
+      fetchMealPolicy({ force:true }),
+      supabase.rpc('get_worker_finance_snapshot_v1', { p_actor_pin:pin, p_worker_pin:pin, p_date:null }).then(({data,error}) => {
+        if (error || !data?.cash || data.cash.received_handoff_total == null) throw error || new Error('Dorëzimet nuk u ngarkuan. Provo përsëri.');
+        return data;
+      }),
     ]);
     return {
       userRow: u || null,
+      mealPolicy: policy,
+      financeSnapshot: finance,
       payments: Array.isArray(pays) ? pays : [],
       handoffs: Array.isArray(hands) ? hands : [],
     };
@@ -242,12 +260,17 @@ export default function LlogariaImePage() {
       setTransportOrders([]);
       setOrdersLoadedPin('');
       setDebtRows([]);
+      setMealPolicy(null);
+      setFinanceSnapshot(null);
+      setMealPolicyError('');
       try {
         const snapshot = await reloadDashboardCore(actor.pin);
         if (!alive) return;
         setUserRow(snapshot.userRow);
         setPayments(snapshot.payments);
         setHandoffs(snapshot.handoffs);
+        setMealPolicy(snapshot.mealPolicy);
+        setFinanceSnapshot(snapshot.financeSnapshot);
         debtTimer = setTimeout(async () => {
           try {
             const nextDebtRows = await reloadDashboardDebt(actor.pin);
@@ -255,6 +278,8 @@ export default function LlogariaImePage() {
             setDebtRows(nextDebtRows);
           } catch {}
         }, DASHBOARD_DEBT_DELAY_MS);
+      } catch (error) {
+        if (alive) setMealPolicyError(error?.message || 'Llogaria nuk u ngarkua. Provo përsëri.');
       } finally {
         if (alive) setLoading(false);
       }
@@ -264,6 +289,13 @@ export default function LlogariaImePage() {
       if (debtTimer) clearTimeout(debtTimer);
     };
   }, [actor?.pin, refreshTick]);
+
+  useEffect(() => {
+    const refresh = () => setRefreshTick(value => value + 1);
+    window.addEventListener('tepiha:meal-policy-updated', refresh);
+    window.addEventListener('arka:refresh', refresh);
+    return () => { window.removeEventListener('tepiha:meal-policy-updated', refresh); window.removeEventListener('arka:refresh', refresh); };
+  }, []);
 
 
   useEffect(() => {
@@ -290,7 +322,8 @@ export default function LlogariaImePage() {
   const summary = useMemo(() => {
     const salary = n(userRow?.salary);
     const bonusTransport = n(userRow?.bonus_transport);
-    const bonusUshqim = n(userRow?.bonus_ushqim);
+    const mealAllowance = resolveMonthlyMealAllowance(userRow || {}, mealPolicy?.businessDate?.slice(0,7), mealPolicy || {});
+    const bonusUshqim = mealAllowance.amount;
     const isHybridTransport = userRow?.is_hybrid_transport === true;
     const commissionRateM2 = n(firstDefined(userRow?.commission_rate_m2, 0.5));
     const manualAdvance = n(userRow?.avans_manual);
@@ -305,11 +338,9 @@ export default function LlogariaImePage() {
     const transportCommission = isHybridTransport ? deliveredTransportM2 * commissionRateM2 : 0;
     const neto = salary + bonusTransport + bonusUshqim + transportCommission - advances - debt;
 
-    const customerPayments = (payments || []).filter(row => !isArkaHistoryBonus(row));
-    const cashToday = customerPayments.filter((x) => isToday(x.created_at)).reduce((s, x) => s + amountOf(x), 0);
-    const inHand = customerPayments.filter((x) => ['PENDING', 'COLLECTED'].includes(safeUpper(x.status))).reduce((s, x) => s + amountOf(x), 0);
-    const handed = customerPayments.filter((x) => ['ACCEPTED_BY_DISPATCH', 'APPROVED'].includes(safeUpper(x.status))).reduce((s, x) => s + amountOf(x), 0)
-      + (handoffs || []).filter((x) => safeUpper(x.status) === 'ACCEPTED').reduce((s, x) => s + amountOf(x), 0);
+    const cashToday = n(financeSnapshot?.cash?.today_gross);
+    const inHand = n(financeSnapshot?.cash?.open_due_to_base);
+    const handed = n(financeSnapshot?.cash?.received_handoff_total);
 
     const allOrders = [...orders, ...transportOrders];
     const active = allOrders.filter((x) => !['DORZIM', 'DORZUAR'].includes(statusOf(x))).length;
@@ -323,6 +354,7 @@ export default function LlogariaImePage() {
       salary,
       bonusTransport,
       bonusUshqim,
+      mealAllowance,
       isHybridTransport,
       commissionRateM2,
       deliveredTransportM2,
@@ -339,13 +371,13 @@ export default function LlogariaImePage() {
       deliveredToday,
       transportCount: transportOrders.filter((x) => !['DORZIM', 'DORZUAR'].includes(statusOf(x))).length,
     };
-  }, [userRow, debtRows, payments, handoffs, orders, transportOrders]);
+  }, [userRow, debtRows, payments, handoffs, orders, transportOrders, mealPolicy, financeSnapshot]);
 
   const history = useMemo(() => buildHistory(payments, handoffs, debtRows), [payments, handoffs, debtRows]);
   const workerCashRows = useMemo(() => cashPaymentRows(payments), [payments]);
   const workerCashTotal = useMemo(() => workerCashRows.reduce((s, row) => s + amountOf(row), 0), [workerCashRows]);
   const pendingHandoffs = useMemo(() => (handoffs || []).filter((row) => safeUpper(row?.status || '') === 'PENDING_DISPATCH_APPROVAL'), [handoffs]);
-  const pendingHandoffTotal = useMemo(() => pendingHandoffs.reduce((s, row) => s + amountOf(row), 0), [pendingHandoffs]);
+  const pendingHandoffTotal = n(financeSnapshot?.cash?.pending_handoff_total);
   const netTone = summary.neto > 0 ? 'ok' : summary.neto < 0 ? 'bad' : 'neutral';
   const hasTransportBonus = n(summary.bonusTransport) > 0;
   const hasUshqimBonus = n(summary.bonusUshqim) > 0;
@@ -366,7 +398,7 @@ export default function LlogariaImePage() {
       <div className="surface userStrip">
         <div>
           <div className="userName">{actor?.name || 'PËRDORUES'}</div>
-          <div className="userMeta">PIN {actor?.pin || '—'} • {safeUpper(actor?.role || 'USER')}</div>
+          <div className="userMeta">{safeUpper(actor?.role || 'USER')}</div>
         </div>
         <button className="refreshBtn" onClick={() => setRefreshTick((x) => x + 1)}>RIFRESKO</button>
       </div>
@@ -378,13 +410,14 @@ export default function LlogariaImePage() {
         ))}
       </div>
       {loading ? <div className="surface loadingCard">DUKE NGARKUAR TË DHËNAT...</div> : null}
-      {!loading && tab === 'PERMBLEDHJE' ? (
+      {mealPolicyError ? <div className="surface loadingCard" role="alert">{mealPolicyError} Përdor RIFRESKO për të ngarkuar shumat e verifikuara.</div> : null}
+      {!loading && mealPolicy && tab === 'PERMBLEDHJE' ? (
         <div className="stack">
           <WorkerBonusAccount actor={actor} targetPin={actor?.pin} />
           <div className="grid three summaryTopGrid">
             <StatCard label="RROGA BAZË" value={fmt(summary.salary)} sub="Rroga bazë" accent="neutral" />
             {hasTransportBonus ? <StatCard label="SHTESË MUJORE TRANSPORTI" value={fmt(summary.bonusTransport)} sub="Shtesë fikse në rrogë" accent="ok" /> : null}
-            {hasUshqimBonus ? <StatCard label="BONUS USHQIM" value={fmt(summary.bonusUshqim)} sub="P.sh. 3€/ditë" accent="ok" /> : null}
+            {hasUshqimBonus ? <StatCard label="USHQIMI MUJOR" value={fmt(summary.bonusUshqim)} sub={summary.mealAllowance.policy ? `${fmt(summary.mealAllowance.policy.dailyRate)} × ${summary.mealAllowance.policy.workDays} ditë pune · ${mealPolicy.businessDate.slice(0,7)}` : 'Shtesë mujore në rrogë'} accent="ok" /> : null}
             {hasHybridCommission ? <StatCard label="KOMISIONI TRANSPORTIT" value={fmt(summary.transportCommission)} sub={`${summary.deliveredTransportM2.toFixed(2)} m² × ${fmt(summary.commissionRateM2)}/m²`} accent="ok" /> : null}
             <StatCard label="AVANSET" value={fmt(summary.advances)} sub="Aktive / manuale" accent="warn" />
             <StatCard label="BORXHI" value={fmt(summary.debt)} sub="Borxh aktual" accent="bad" />
@@ -395,7 +428,7 @@ export default function LlogariaImePage() {
             <div className="detailRows">
               <div className="detailRow"><span>Rroga bazë</span><strong>{fmt(summary.salary)}</strong></div>
               {hasTransportBonus ? <div className="detailRow"><span>Shtesë mujore transporti</span><strong>{fmt(summary.bonusTransport)}</strong></div> : null}
-              {hasUshqimBonus ? <div className="detailRow"><span>Bonus ushqim</span><strong>{fmt(summary.bonusUshqim)}</strong></div> : null}
+              {hasUshqimBonus ? <div className="detailRow"><span>Ushqimi mujor në rrogë</span><strong>{fmt(summary.bonusUshqim)}</strong></div> : null}
               {hasHybridCommission ? <div className="detailRow"><span>Komisioni transportit</span><strong>{fmt(summary.transportCommission)}</strong></div> : null}
               {hasHybridCommission ? <div className="detailRow"><span>Formula e komisionit të transportit</span><strong>{summary.deliveredTransportM2.toFixed(2)} m² × {fmt(summary.commissionRateM2)}/m²</strong></div> : null}
               <div className="detailRow"><span>Avans manual</span><strong>{fmt(n(userRow?.avans_manual))}</strong></div>
@@ -406,13 +439,14 @@ export default function LlogariaImePage() {
           </div>
         </div>
       ) : null}
-      {!loading && tab === 'CASH' ? (
+      {!loading && financeSnapshot && tab === 'CASH' ? (
         <div className="stack">
           <div className="grid three">
             <StatCard label="CASH SOT" value={fmt(summary.cashToday)} sub="I mbledhur sot" accent="ok" />
-            <StatCard label="NË DORË" value={fmt(summary.inHand)} sub="PENDING / COLLECTED" accent="warn" />
-            <StatCard label="DORËZUAR" value={fmt(summary.handed)} sub="Handoff / approved" accent="ok" />
+            <StatCard label="NË DORË" value={fmt(summary.inHand)} sub="Cash para zbritjeve" accent="warn" />
+            <StatCard label="DORËZUAR" value={fmt(summary.handed)} sub="Para të pranuara realisht" accent="ok" />
           </div>
+          <HandoffReceiptsPanel actor={actor} targetPin={actor.pin} title="Dorëzimet e mia" />
           <div className="surface panel">
             <div className="panelHead">
               <div><h3>PAGESAT E MIA</h3><p>Pasqyrë e pastër e porosive dhe pagesave cash që i ke bërë.</p></div>
@@ -424,9 +458,9 @@ export default function LlogariaImePage() {
               <StatCard label="PËR DORËZIM" value={fmt(summary.inHand)} sub="Sa ke ende në dorë" accent="warn" />
             </div>
             <div className="grid three cashQuickGrid">
-              <StatCard label="DORËZIME NË PRITJE" value={String(pendingHandoffs.length)} sub="Kërkesa duke pritur dispatch" accent="warn" />
+              <StatCard label="DORËZIME NË PRITJE" value={String(n(financeSnapshot.cash.pending_handoff_count))} sub="Kërkesa duke pritur dispatch" accent="warn" />
               <StatCard label="TOTAL NË PRITJE" value={fmt(pendingHandoffTotal)} sub="Shuma që pret pranim" accent="warn" />
-              <StatCard label="DORËZUAR GJITHSEJ" value={fmt(summary.handed)} sub="Të pranuara / approved" accent="ok" />
+              <StatCard label="DORËZUAR GJITHSEJ" value={fmt(summary.handed)} sub="Para të pranuara realisht" accent="ok" />
             </div>
             <div style={{ display:'flex', justifyContent:'flex-end', marginTop: 10 }}>
               <button type="button" className="refreshBtn" onClick={() => setShowPendingHandoffs((v) => !v)}>{showPendingHandoffs ? 'MBYLLE DORËZIMET' : 'SHIH DORËZIMET NË PRITJE'}</button>
@@ -443,8 +477,8 @@ export default function LlogariaImePage() {
                         <div className="historyDate">{safeUpper(row?.status || 'PENDING_DISPATCH_APPROVAL')} • {normalizeDate(firstDefined(row?.submitted_at, row?.created_at))}</div>
                       </div>
                       <div className="historyRight">
-                        <div className="historyAmount">{fmt(amountOf(row))}</div>
-                        <div className="statusPill" style={{ background: tone.bg, borderColor: tone.bd, color: tone.fg }}>{safeUpper(row?.status || 'PENDING_DISPATCH_APPROVAL')}</div>
+                        <div className="historyAmount">{fmt(getHandoffOutstandingAmount(row))}</div>
+                        <div className="statusPill" style={{ background: tone.bg, borderColor: tone.bd, color: tone.fg }}>{receiptStateLabel(row)}</div>
                       </div>
                     </div>
                   );

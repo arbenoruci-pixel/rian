@@ -10,8 +10,9 @@ const isCanonicalCloseV2 = page.includes('ArkaDailyCloseWizard');
 
 if (isCanonicalCloseV2) {
   const wizard = fs.readFileSync('components/ArkaDailyCloseWizard.jsx', 'utf8');
+  const actualReceipts = wizard.includes('HANDOFF_ACTUAL_RECEIPTS_V1');
   check(wizard.includes("get_arka_daily_close_preview_v4"), 'Canonical daily preview V4 RPC missing');
-  check(wizard.includes("close_arka_day_v2"), 'Canonical daily close RPC missing');
+  check(actualReceipts ? wizard.includes('requestHandoffReceipts') && wizard.includes("action:'daily-close'") : wizard.includes("close_arka_day_v2"), 'Canonical authenticated daily close missing');
   check(wizard.includes('p_actor_pin:'), 'Actor PIN not passed to canonical RPC');
   check(wizard.includes('p_date: date'), 'Current business date not passed to canonical RPC');
   check(wizard.includes('MANAGER_ROLES'), 'Dispatch/Admin UI guard missing');
@@ -20,10 +21,10 @@ if (isCanonicalCloseV2) {
   check(wizard.includes('readCache'), 'Offline preview cache read missing');
   check(wizard.includes('SNAPSHOT LOKAL'), 'Offline snapshot notice missing');
   check(wizard.includes('BUXHETI PARA MBYLLJES'), 'Opening budget metric missing');
-  check(wizard.includes('DORËZIME TË ZGJEDHURA'), 'Handoff total metric missing');
+  check(wizard.includes(actualReceipts ? 'MBETET TE PUNËTORËT' : 'DORËZIME TË ZGJEDHURA'), 'Handoff total metric missing');
   check(wizard.includes('SHPENZIME TË POSTUARA'), 'Expense total metric missing');
   check(wizard.includes('AVANSE TË POSTUARA'), 'Advance total metric missing');
-  check(wizard.includes('SHUMA U VENDOS AUTOMATIKISHT'), 'Automatic physical cash metric missing');
+  check(wizard.includes(actualReceipts ? 'SHKRUAJ SHUMËN QË E NUMËROVE FIZIKISHT NË ARKË' : 'SHUMA U VENDOS AUTOMATIKISHT'), 'Physical cash count control missing');
   check(wizard.includes('SHPJEGO DIFERENCËN'), 'Discrepancy control missing');
   check(wizard.includes('GJURMA E MBYLLJES'), 'Closed-day audit receipt missing');
   check(wizard.includes('PARA ENDE TE PUNËTORËT'), 'Open worker cash section missing');
@@ -32,8 +33,12 @@ if (isCanonicalCloseV2) {
   check(wizard.includes('KONTROLLO DALJET NGA BOXHI'), 'Daily outflow control missing');
   check(wizard.includes('KONTROLLO NË SERVER'), 'Server dry-run control missing');
   check(wizard.includes('MBYLL DITËN DHE BARAZO BUXHETIN'), 'Final close control missing');
-  check(wizard.includes('p_dry_run: true'), 'Dry-run request missing');
-  check(wizard.includes('p_dry_run: false'), 'Final atomic request missing');
+  check(wizard.includes(actualReceipts ? "action:'daily-check'" : 'p_dry_run: true'), 'Dry-run request missing');
+  check(wizard.includes(actualReceipts ? "action:'daily-close'" : 'p_dry_run: false'), 'Final atomic request missing');
+  if (actualReceipts) {
+    check(wizard.includes('expectedBudget:n(dryRun?.budget_before)'), 'Checked cash balance must be retained through finalization');
+    check(wizard.includes('<HandoffReceiptsPanel') && !wizard.includes('p_handoff_ids: selectedIds'), 'Actual receipts must replace original-amount bulk credit');
+  }
   check(arka.includes('ARKA_DAILY_CONTROL_V1:ARKA'), 'ARKA daily entry marker missing');
   check(arka.includes('to="/arka/ditore"'), 'ARKA daily entry link missing');
   check(arka.includes('HAPE MBYLLJEN DITORE'), 'Canonical ARKA daily entry label missing');

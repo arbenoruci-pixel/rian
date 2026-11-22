@@ -147,6 +147,24 @@
 }
 
 .arkaMealTools{display:grid;grid-template-columns:1fr;gap:8px}
+.arkaCurrentTotals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+.arkaCurrentTotals>a{display:flex}.arkaCurrentTotals>a>.arkaMiniStat{width:100%}
+.arkaCurrentTotals .arkaMiniStatLabel{font-size:12px;line-height:1.4;letter-spacing:0;text-transform:none;color:#cbd5e1}
+.arkaDailyControlCompact{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px;padding:13px 15px;border:1px solid #334155;border-radius:15px;background:#0f172a}
+.arkaDailyControlCompact strong{font-size:15px}.arkaDailyControlCompact .arkaSectionSub{font-size:12px;letter-spacing:0;text-transform:none}
+.arkaOperationsGrid{grid-template-columns:minmax(0,1fr);margin-bottom:16px}
+.arkaOperationsGrid .arkaSectionTitle{font-size:15px;letter-spacing:.02em;text-transform:none}
+.arkaOperationsGrid .arkaSectionSub,.arkaOperationsGrid .arkaWorkerMeta{font-size:12px;line-height:1.4;letter-spacing:0;text-transform:none}
+.arkaOperationsGrid .arkaMiniStatLabel{font-size:12px;line-height:1.35;letter-spacing:0;text-transform:none}
+.arkaOperationsGrid .arkaTinyBtn,.arkaOperationsGrid .arkaTopBtn,.arkaSimpleNav .arkaTopBtn{min-height:44px;font-size:12px;letter-spacing:.025em}
+.arkaOperationsGrid .arkaWorkerName{font-size:17px;letter-spacing:0}
+.arkaOperationsGrid .arkaWorkerDueLine span{font-size:13px;letter-spacing:0}
+.arkaSecondaryDetails{margin:10px 0;border:1px solid #334155;border-radius:14px;background:#0b1018;padding:0 12px}
+.arkaSecondaryDetails>summary{min-height:48px;display:flex;align-items:center;font-size:14px;font-weight:750;cursor:pointer;color:#cbd5e1}
+.arkaSecondaryDetails[open]{padding-bottom:12px}
+.arkaInlineAdminTools>summary{min-height:40px;display:flex;align-items:center;font-size:13px;cursor:pointer}
+@media(min-width:980px){.arkaOperationsGrid{grid-template-columns:minmax(0,1.12fr) minmax(0,1fr);align-items:start}}
+@media(max-width:480px){.arkaCurrentTotals{grid-template-columns:1fr 1fr}.arkaCurrentTotals>:last-child{grid-column:1/-1}.arkaCurrentTotals .arkaMiniStat{min-height:76px}.arkaDailyControlCompact .arkaSolidBtn{width:100%}}
 .arkaMealToolbar{display:flex;flex-wrap:wrap;gap:8px}
 .arkaMealGrid{display:grid;grid-template-columns:1fr;gap:10px}
 .arkaMealChip{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;width:100%;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#fff;text-align:left;transition:transform .12s ease, border-color .18s ease, background .18s ease, opacity .18s ease}

@@ -183,7 +183,7 @@ function patchWizard() {
     'm² HYRË SOT',
     'm² DALË SOT',
     'countedCashManualRef.current = true',
-    'setCountedCash(expectedCash.toFixed(2))',
+    source.includes('HANDOFF_ACTUAL_RECEIPTS_V1') ? 'SHKRUAJ SHUMËN QË E NUMËROVE FIZIKISHT NË ARKË' : 'setCountedCash(expectedCash.toFixed(2))',
   ];
   for (const token of required) {
     if (!source.includes(token)) throw new Error(`WIZARD_PATCH_MISSING:${token}`);

@@ -16,6 +16,8 @@ import GlobalHomeSearch from '@/components/GlobalHomeSearch.jsx';
 import MainSwipeNavigation from '@/components/MainSwipeNavigation.jsx';
 import OfflineFirstWarmup from '@/components/OfflineFirstWarmup.jsx';
 import DeferredMount from '@/components/DeferredMount';
+import StaffMessagesDock from '@/components/StaffMessagesDock.jsx';
+import MealPolicyNotice from '@/components/MealPolicyNotice.jsx';
 import { appRoutes } from './generated/routes.generated.jsx';
 import { ACTIVE_ROUTE_REQUEST_KEY, recordRouteDiagEvent } from '@/lib/lazyImportRuntime';
 import { clearRuntimeTransition, readRuntimeTransition } from '@/lib/rootResumePanic';
@@ -751,6 +753,13 @@ export default function AppRoot() {
               <Route key={route.path} path={route.path} element={route.element} />
             ))}
           </Routes>
+
+          <LocalErrorBoundary name="StaffMessages" source="staff_messages" sourceLayer="app_root">
+            <StaffMessagesDock />
+          </LocalErrorBoundary>
+          <LocalErrorBoundary name="MealPolicyNotice" source="meal_policy_notice" sourceLayer="app_root">
+            <MealPolicyNotice />
+          </LocalErrorBoundary>
 
           <LocalErrorBoundary name="GlobalHomeSearch" source="app_root_global_home_search" sourceLayer="app_root_global_home_search">
             <GlobalHomeSearch />

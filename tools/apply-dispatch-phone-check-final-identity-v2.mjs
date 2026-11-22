@@ -19,7 +19,9 @@ function appendTag(value) {
   const submitRelease = 'dispatch-submit-confirmed-v2';
   const withSubmit = withRetry.includes(submitRelease) ? withRetry : `${withRetry}-${submitRelease}`;
   const readRelease = 'dispatch-read-recovery-v1';
-  return withSubmit.includes(readRelease) ? withSubmit : `${withSubmit}-${readRelease}`;
+  const withRead = withSubmit.includes(readRelease) ? withSubmit : `${withSubmit}-${readRelease}`;
+  const decemberRelease = 'december-meals-receipts-messages-v1';
+  return withRead.includes(decemberRelease) ? withRead : `${withRead}-${decemberRelease}`;
 }
 
 const packagePath = 'package.json';
