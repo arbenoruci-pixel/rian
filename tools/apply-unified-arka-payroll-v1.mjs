@@ -161,7 +161,7 @@ function patchArkaMain() {
     'canonical worker totals',
   );
 
-  source = replaceAllLiteral(
+  if (!source.includes('WORKER_HANDOFF_WIZARD_V1')) source = replaceAllLiteral(
     source,
     '    const total = n(workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);',
     '    const total = n(unifiedWorkerFinance?.cash?.open_due_to_base ?? workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);',
@@ -171,7 +171,7 @@ function patchArkaMain() {
 
   // The fresh handoff preview reads already-earned Base and Transport bonuses
   // independently of the Base earning flag. Preserve that newer flow.
-  if (!source.includes('loadWorkerHandoffPreview({')) {
+  if (!source.includes('loadWorkerHandoffPreview({') && !source.includes('WORKER_HANDOFF_WIZARD_V1')) {
     source = replaceOnce(
       source,
       '      const openBonusRows = await listOpenBaseReadyBonusPayments(actor?.pin);',

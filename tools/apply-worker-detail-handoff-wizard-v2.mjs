@@ -4,7 +4,7 @@ const PAGE = 'app/arka/puntor/[pin]/page.jsx';
 const MARKER = 'WORKER_DETAIL_HANDOFF_WIZARD_V2';
 let source = fs.readFileSync(PAGE, 'utf8');
 
-if (source.includes(MARKER)) {
+if (source.includes(MARKER) || source.includes('WORKER_HANDOFF_WIZARD_V1')) {
   console.log('[worker-detail-handoff-wizard-v2] already installed');
   process.exit(0);
 }

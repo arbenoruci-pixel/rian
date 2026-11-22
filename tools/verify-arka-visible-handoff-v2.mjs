@@ -31,7 +31,8 @@ for (const role of ['DISPATCH', 'MASTER', 'ADMIN_MASTER', 'PUNTOR', 'TRANSPORT']
   Action({ ...self, onHandoff }).props.onClick();
   assert.equal(taps, 1, 'the personal button opens the existing handoff flow');
   assert.equal(render({ ...self, targetPin: '9001' }), '', 'viewing another staff account cannot hand over their cash');
-  for (const override of [{ amount: 0 }, { busy: true }, { blocked: true }]) {
+  assert(!render({ ...self, onHandoff, amount:0 }).includes('disabled=""'), 'zero open cash must still allow recovery of a handover whose response was lost');
+  for (const override of [{ busy: true }, { blocked: true }, { amount:NaN }]) {
     assert.match(render({ ...self, onHandoff, ...override }), /disabled=""/);
   }
 }
@@ -62,4 +63,4 @@ assert.match(main, /onSnapshot=\{setUnifiedWorkerFinance\}\s+onHandoff=\{openHan
 assert(main.includes('handoffBlocked={n(workerSnapshot?.cashDuplicateTransportCount) > 0}'));
 const detail = fs.readFileSync('app/arka/puntor/[pin]/page.jsx', 'utf8');
 assert(detail.includes('<ArkaUnifiedWorkerAccount actor={actor} targetPin={pin}'), 'staff details must include the shared visible action');
-console.log('PASS visible Arka handoff: €25.48 carryover, own-account navigation, existing wizard callback, manager/worker access, zero/busy/duplicate guards, and no hidden ancestor.');
+console.log('PASS visible Arka handoff: €25.48 carryover, own-account navigation, mandatory wizard callback, zero-balance retry access, busy/duplicate guards, and no hidden ancestor.');

@@ -18,8 +18,7 @@ import { dailyMealsAllowed as policyAllowsDailyMeals } from '@/lib/mealPolicy';
 import { openStaffMessages } from '@/lib/staffMessagesClient';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getActor } from '@/lib/actorSession';
-import { listOpenBaseReadyBonusPayments } from '@/lib/baseReadyBonusClient';
-import { handoffActorKey, loadWorkerHandoffPreview } from '@/lib/workerHandoffPreview';
+import { handoffActorKey } from '@/lib/workerHandoffPreview';
 import { isArkaHistoryBonus, groupArkaHistoryBonuses, arkaHistoryBonusStatusLabel } from '@/lib/arkaHistoryBonuses';
 import { supabase } from '@/lib/supabaseClient';
 import { ARKA_ACTION, ARKA_SOURCE_MODULE } from '@/lib/arka/arkaConstants';
@@ -32,7 +31,6 @@ import {
   approveExpenseEntry,
   createExpenseEntry,
   createMealDistributionEntry,
-  ensureMealDecisionBeforeHandoff,
   isExtraSettled,
   listCashHandoffRecords,
   listMealStaffOptions,
@@ -41,7 +39,6 @@ import {
   listWorkerArkaExtras,
   listWorkerHandoffs,
   listWorkerPendingPayments,
-  listWorkerUnsettledMealPayments,
   listWorkerMealRowsToday,
   rejectExpenseEntry,
 } from '@/lib/arkaService';
@@ -49,7 +46,6 @@ import {
   acceptDispatchHandoff,
   listPendingDispatchHandoffs,
   rejectDispatchHandoff,
-  submitWorkerCashToDispatch,
 } from '@/lib/corporateFinance';
 
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -3300,93 +3296,22 @@ function ArkaAccountPage() {
     }
   }
 
-  async function openHandoffWizard() {
+  // WORKER_HANDOFF_WIZARD_V1: every worker reviews one server snapshot and counts physical cash.
+  function openHandoffWizard() {
     if (busyRef.current) return;
     if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) return alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
-    busyRef.current = 'handoff-preview';
-    setBusy('handoff-preview');
+    const currentActor = getActor();
+    if (!currentActor?.id || currentActor?.is_active === false || actor?.is_active === false || handoffActorKey(currentActor) !== handoffActorKey(actor)) {
+      setHandoffPreviewError('Llogaria ka ndryshuar. Hape përsëri arkën.');
+      return;
+    }
     setHandoffPreviewError('');
-    let straightSalaryOnly = false;
-    try {
-      const preview = await withArkaTimeout(loadWorkerHandoffPreview({
-        actor, date: formatBelgradeDateKey(new Date()), getCurrentActor: getActor, online: !isOfflineBrowser(),
-        readFinance: async ({ pin, date }) => {
-          const { data, error: readError } = await supabase.rpc('get_worker_finance_snapshot_v1', { p_actor_pin: pin, p_worker_pin: pin, p_date: date });
-          if (readError) throw readError;
-          return data;
-        },
-        readBonuses: listOpenBaseReadyBonusPayments,
-        readMeals: listWorkerUnsettledMealPayments,
-        readMealCoverage: listWorkerMealRowsToday,
-        readMealPolicy: fetchMealPolicy,
-      }), 'handoff_preview', 8000);
-      setUnifiedWorkerFinance(preview.finance);
-      // ARKA_SALARY_ONLY_HANDOFF_V1: skip only after fresh reads confirm there
-      // are no outstanding bonus or meal deductions for this salary worker.
-      straightSalaryOnly = preview.straightSalaryOnly;
-      if (!straightSalaryOnly) setHandoffWizard({ ...preview, open: true });
-    } catch (e) {
-      setHandoffPreviewError(e?.code === 'HANDOFF_SESSION_CHANGED' ? e.message : 'Nuk u kontrolluan shumat e dorëzimit. Kontrollo internetin dhe provo përsëri.');
-    } finally {
-      busyRef.current = '';
-      setBusy('');
-    }
-    if (straightSalaryOnly) {
-      try {
-        return await submitHandoff({ mealChoice: '3', wizard: true, straightSalaryOnly: true });
-      } catch (e) {
-        setHandoffPreviewError(e?.message || 'Nuk u dërgua dorëzimi. Provo përsëri.');
-      }
-    }
+    setHandoffWizard({ open: true, actorKey: handoffActorKey(currentActor) });
   }
 
-  async function submitHandoff(options = {}) {
-    if (busyRef.current) return;
-    busyRef.current = 'handoff';
-    try {
-      const assertHandoffSession = () => {
-        const currentActor = getActor();
-        if (!currentActor?.pin || actor?.is_active === false || currentActor?.is_active === false || handoffActorKey(actor) !== handoffActorKey(currentActor) || (options?.wizard && !options?.straightSalaryOnly && handoffWizard.actorKey !== handoffActorKey(currentActor))) throw new Error('Llogaria ka ndryshuar. Hape përsëri arkën.');
-      };
-      assertHandoffSession();
-      const rows = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
-      const total = n(unifiedWorkerFinance?.cash?.open_due_to_base ?? workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
-      if (!workerSnapshot || total <= 0 || !rows.length) throw new Error('NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
-      if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) throw new Error('U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
-
-      // Choice 3 means no meal. Existing coverage also arrives without a new
-      // choice. Only choices 1/2 create or attach a meal transaction.
-      const mealChoice = String(options?.mealChoice || '').trim();
-      if (mealChoice === '1' || mealChoice === '2') {
-        await ensureMealDecisionBeforeHandoff({
-          actor,
-          workerPin: actor?.pin,
-          workerName: actor?.name,
-          workerRole: actor?.role,
-          staffOptions: mealOptions,
-          amountPerPerson: FOOD_DEDUCTION,
-          presetChoice: mealChoice,
-          presetPayerPin: options?.mealPayerPin || '',
-        });
-      }
-
-      assertHandoffSession();
-      setBusy('handoff');
-      const submitted = await submitWorkerCashToDispatch({ actor });
-      await scheduleManagerMutationRefresh(actor);
-      return submitted;
-    } catch (e) {
-      if (options?.wizard) throw e;
-      alert(`🔴 ${e?.message || 'NUK U DËRGUA DORËZIMI.'}`);
-      return null;
-    } finally {
-      busyRef.current = '';
-      setBusy('');
-    }
-  }
-
-  async function submitHandoffFromWizard(decision = {}) {
-    return submitHandoff({ ...decision, wizard: true });
+  async function handoffSaved() {
+    // The wizard has already received the committed result; refresh errors must not invite another submission.
+    try { await scheduleManagerMutationRefresh(actor); } catch {}
   }
 
   const currentHandoffActor = getActor();
@@ -3726,24 +3651,12 @@ function ArkaAccountPage() {
           {handoffPreviewVisible ? <HandoffWizard
             open={handoffWizard.open}
             actor={actor}
-            clientCount={handoffWizard.clientCount}
-            grossTotal={handoffWizard.grossTotal}
-            baseTotal={handoffWizard.baseTotal}
-            commissionTotal={handoffWizard.commissionTotal}
-            hybridEnabled={handoffWizard.hybridEnabled}
-            bonusAvailable={handoffWizard.bonusAvailable}
-            mealPolicy={handoffWizard.mealPolicy}
-            openExpenseTotal={workerOpenExpenseRows.filter((row) => typeOf(row) === 'EXPENSE').reduce((sum, row) => sum + amountOf(row), 0)}
-            existingMealCovered={handoffWizard.existingMealCovered}
-            unsettledMealDeduct={handoffWizard.unsettledMealDeduct}
-            existingMealDeduct={workerOpenExpenseRows.filter((row) => typeOf(row) === 'MEAL_PAYMENT').reduce((sum, row) => sum + amountOf(row), 0)}
-            staffOptions={mealOptions}
-            onClose={() => setHandoffWizard({ open: false, bonusAvailable: 0 })}
-            onSubmit={submitHandoffFromWizard}
+            onClose={() => setHandoffWizard({ open: false })}
+            onSaved={handoffSaved}
           /> : null}
 
           <div className="arkaSectionCard arkaWorkerActionHub">
-            <button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={openHandoffWizard}>{busy ? 'DUKE KONTROLLUAR...' : 'DORËZO / SHIKO LLOGARITJEN'}</button>
+            <button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={openHandoffWizard}>{busy ? 'DUKE KONTROLLUAR...' : 'DORËZO / SHIKO LLOGARITJEN'}</button>
             {n(workerSnapshot?.cashDuplicateTransportCount) > 0 ? <div className="arkaReviewWarn">U gjet duplicate transport cash. Dorëzimi u ndalua për siguri.</div> : null}
 
             <div className="arkaWorkerActionHubHead">

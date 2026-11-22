@@ -65,6 +65,7 @@ function patchService() {
 
 function patchPage() {
   let source = fs.readFileSync(PAGE, 'utf8');
+  if (source.includes('WORKER_HANDOFF_WIZARD_V1')) return;
   if (source.includes(`${MARKER}:PAGE`)) {
     // A later source edit can regress the button while leaving the installer
     // marker behind. Keep the marker fast-path self-healing.
