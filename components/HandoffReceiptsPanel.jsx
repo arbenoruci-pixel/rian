@@ -19,12 +19,13 @@ export default function HandoffReceiptsPanel({ actor, targetPin, onChange, onSum
   const [data, setData] = useState(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const [editor, setEditor] = useState(null), [amount, setAmount] = useState(''), [note, setNote] = useState('');
   const [confirmNoCash, setConfirmNoCash] = useState(false), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
+  const [intentState, setIntentState] = useState(null);
   const [focus, setFocus] = useState(() => {
     const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
     return { handoff: params.get('handoff') || '', worker: params.get('worker') || '' };
   });
   const [bonusOpen, setBonusOpen] = useState({});
-  const generation = useRef(0), saving = useRef(false), editorRef = useRef(null), callbacks = useRef({}), focused = useRef('');
+  const generation = useRef(0), intentGeneration = useRef(0), saving = useRef(false), editorRef = useRef(null), callbacks = useRef({}), focused = useRef('');
   editorRef.current = editor; callbacks.current = { onChange, onSummary };
   const currentSession = String(getActor()?.id || getActor()?.user_id || '');
   const visible = data?.scope === scope && currentSession === actorId ? data : null;
@@ -63,12 +64,34 @@ export default function HandoffReceiptsPanel({ actor, targetPin, onChange, onSum
   const current = all.find(row => row.id === editor?.id);
   const totals = getHandoffReceiptTotals(current);
   const parsed = String(amount).trim() === '' ? null : validateReceiptAmount(String(amount).replace(',', '.'), { allowZero: editor?.mode === 'receive' });
-  const intent = editor ? readHandoffReceiptIntent(actorId, editor.id) : null;
+  const currentIntentState = editor && intentState?.scope === scope && intentState?.handoffId === editor.id ? intentState : null;
+  const intentReady = currentIntentState?.status === 'ready';
+  const intent = intentReady ? currentIntentState.intent : null;
+  const intentError = currentIntentState?.error || '';
+  async function refreshIntent(handoffId = editorRef.current?.id) {
+    const request = ++intentGeneration.current;
+    if (!handoffId) { setIntentState(null); return; }
+    setIntentState({ scope, handoffId, status: 'loading' });
+    try {
+      const saved = await readHandoffReceiptIntent(actorId, handoffId);
+      if (request === intentGeneration.current && editorRef.current?.id === handoffId && String(getActor()?.id || getActor()?.user_id || '') === actorId) {
+        setIntentState({ scope, handoffId, status: 'ready', intent: saved });
+      }
+    } catch (err) {
+      if (request === intentGeneration.current && editorRef.current?.id === handoffId && String(getActor()?.id || getActor()?.user_id || '') === actorId) {
+        setIntentState({ scope, handoffId, status: 'error', error: err.message });
+      }
+    }
+  }
+  useEffect(() => {
+    void refreshIntent(editor?.id);
+    return () => { intentGeneration.current++; };
+  }, [scope, editor?.id, editor?.mode]);
   function edit(row, mode) {
-    setEditor({ id: row.id, mode }); setAmount(''); setNote(''); setConfirmNoCash(false); setError(''); setNotice('');
+    setIntentState(null); setEditor({ id: row.id, mode }); setAmount(''); setNote(''); setConfirmNoCash(false); setError(''); setNotice('');
   }
   async function submit(retry = false) {
-    if (!current || saving.current) return;
+    if (!current || saving.current || !intentReady) return;
     if (!retry && (parsed == null || parsed > totals.outstanding || (editor.mode === 'resolve' && (!confirmNoCash || note.trim().length < 4)) || (parsed < totals.outstanding && note.trim().length < 4))) {
       setError('Kontrollo shumën dhe shkruaje arsyen e diferencës.'); return;
     }
@@ -80,7 +103,7 @@ export default function HandoffReceiptsPanel({ actor, targetPin, onChange, onSum
       await refresh();
       try { await callbacks.current.onChange?.(result); } catch {}
       try { window.dispatchEvent(new Event('arka:refresh')); } catch {}
-    } catch (err) { setError(err.message); await refresh(); setError(err.message); }
+    } catch (err) { setError(err.message); await refresh(); await refreshIntent(); setError(err.message); }
     finally { saving.current = false; setBusy(false); }
   }
   function card(row) {
@@ -120,15 +143,17 @@ export default function HandoffReceiptsPanel({ actor, targetPin, onChange, onSum
     {current && editor && <div role="dialog" aria-modal="true" aria-label={editor.mode === 'receive' ? 'Prano paratë e dorëzimit' : 'Sqaro diferencën pa cash'} onKeyDown={event => { if (event.key === 'Escape' && !busy) setEditor(null); }} style={{ position: 'fixed', inset: 0, zIndex: 10050, background: 'rgba(0,0,0,.78)', overflowY: 'auto', padding: 'max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom))', display: 'grid', alignItems: 'center' }}><div style={{ ...panel, width: '100%', maxWidth: 520, boxSizing: 'border-box', margin: 'auto' }}>
       <h3 style={{ margin: 0 }}>{editor.mode === 'receive' ? 'Sa para i pranove realisht?' : 'Sqaro diferencën pa hyrje cash'}</h3>
       <div>{current.worker_name} · Dorëzimi #{current.id}<br /><strong>Mbeten {money(totals.outstanding)}</strong></div>
+      {!intentReady && !intentError && <div role="status" style={{ color: '#cbd5e1' }}>Duke kontrolluar konfirmimet e ruajtura…</div>}
+      {intentError && <div role="alert" style={{ color: '#fecaca' }}>{intentError}<div style={{ marginTop: 8 }}><button type="button" disabled={busy} style={button} onClick={() => refreshIntent()}>Riprovo kontrollin</button></div></div>}
       {intent ? <div role="status" style={{ color: '#fde68a' }}>Veprimi i mëparshëm pret konfirmimin: {intent.action === 'receive' ? 'Pranim' : 'Sqarim'} {money(intent.amount)}. Riprovohet i njëjti veprim.</div> : <>
         {editor.mode === 'resolve' && <p style={{ margin: 0, color: '#fde68a', lineHeight: 1.5 }}>Kjo ul diferencën e punëtorit pa shtuar para në arkë. Shkruaje saktë pse kjo shumë nuk pritet më.</p>}
-        <label style={{ display: 'grid', gap: 6 }}>{editor.mode === 'receive' ? 'Shuma e numëruar (€)' : 'Shuma për sqarim (€)'}<input autoFocus inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} style={field} disabled={busy} /></label>
-        <label style={{ display: 'grid', gap: 6 }}>Arsyeja / shënimi<textarea value={note} onChange={event => setNote(event.target.value)} maxLength={1000} rows={3} style={field} disabled={busy} /></label>
+        <label style={{ display: 'grid', gap: 6 }}>{editor.mode === 'receive' ? 'Shuma e numëruar (€)' : 'Shuma për sqarim (€)'}<input autoFocus inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} style={field} disabled={busy || !intentReady} /></label>
+        <label style={{ display: 'grid', gap: 6 }}>Arsyeja / shënimi<textarea value={note} onChange={event => setNote(event.target.value)} maxLength={1000} rows={3} style={field} disabled={busy || !intentReady} /></label>
         {editor.mode === 'resolve' && <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 14 }}><input type="checkbox" checked={confirmNoCash} onChange={event => setConfirmNoCash(event.target.checked)} style={{ width: 22, height: 22 }} />Konfirmoj sqarimin e kësaj shume pa pranim parash. Arsyeja dhe emri im ruhen në historik.</label>}
         {parsed != null && parsed <= totals.outstanding && <strong style={{ color: '#fcd34d' }}>Pas veprimit mbeten {money(totals.outstanding - parsed)}</strong>}
       </>}
       {error && <div role="alert" style={{ color: '#fecaca' }}>{error}</div>}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}><button type="button" disabled={busy} style={button} onClick={() => setEditor(null)}>Mbyll</button><button type="button" disabled={busy} style={{ ...button, background: editor.mode === 'receive' ? '#166534' : '#92400e', flex: 1 }} onClick={() => submit(!!intent)}>{busy ? 'Duke konfirmuar…' : intent ? 'Riprovo të njëjtin veprim' : editor.mode === 'receive' ? `Prano ${money(parsed)}` : `Sqaro ${money(parsed)} pa cash`}</button></div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}><button type="button" disabled={busy} style={button} onClick={() => setEditor(null)}>Mbyll</button><button type="button" disabled={busy || !intentReady} style={{ ...button, background: editor.mode === 'receive' ? '#166534' : '#92400e', flex: 1 }} onClick={() => submit(!!intent)}>{busy ? 'Duke konfirmuar…' : !intentReady ? 'Duke kontrolluar…' : intent ? 'Riprovo të njëjtin veprim' : editor.mode === 'receive' ? `Prano ${money(parsed)}` : `Sqaro ${money(parsed)} pa cash`}</button></div>
     </div></div>}
   </section>;
 }

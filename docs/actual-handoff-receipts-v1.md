@@ -44,7 +44,17 @@ The receipt panel accepts `actor`, optional `targetPin`, `onChange` and `onSumma
 
 ## Concurrency and retry guarantees
 
-Receipt requests lock their actor/request key, then the handoff and linked source payments. They compare the submitted outstanding amount to the locked current value. A stale second operator refreshes before trying again. Reusing a request key with different financial values fails. Ambiguous client network failures retain the original request key in local storage and offer a retry of that exact intent.
+Receipt requests lock their actor/request key, then the handoff and linked source payments. They compare the submitted outstanding amount to the locked current value. A stale second operator refreshes before trying again. Reusing a request key with different financial values fails. Ambiguous client network failures retain the original request key in durable device storage and offer a retry of that exact intent.
+
+### Receipt storage recovery
+
+`handoff-receipt-durable-storage-v1` fixes receipt confirmation failing when the small localStorage quota is full. Existing localStorage intents stay readable. A new intent can instead be saved in a receipt-specific IndexedDB store, verified after transaction completion before any financial POST. Reloading the app recovers the original actor, handoff, amount, outstanding snapshot, note and request key. Memory or session-only storage never authorizes a receipt.
+
+The receipt modal checks saved confirmations before enabling a fresh acceptance. After an uncertain response it offers the exact stored action again. A changed account cannot submit the previous account's pending action, and cleanup only removes the matching intent. Local in-flight protection and Web Locks where available prevent overlapping confirmations from the same browser. Server-side receipt locks and idempotency remain authoritative.
+
+If persistent storage cannot be written or an earlier intent cannot be checked, the screen gives a storage-specific message and keeps acceptance blocked. “Riprovo kontrollin” repeats the read without sending cash. This release does not clear browser data, customer drafts, authentication, or offline queues. It requires no database migration and preserves the December food policy and the reviewed worker handoff wizard.
+
+`node tools/verify-handoff-receipt-storage.mjs` reproduces quota and storage failures, reload recovery, lost server replies, account changes and conditional cleanup using synthetic data. Production receipts are never submitted by these tests.
 
 Daily-close requests store a payload hash and full result in an append-only request table. Exact retries return that saved result before checking the current budget, including when the first close posted a discrepancy and its response was lost. The established day advisory lock is acquired before the shared cash-balance lock. Fresh closes reject changes to the balance since the server preview.
 
