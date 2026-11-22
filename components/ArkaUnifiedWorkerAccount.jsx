@@ -5,6 +5,7 @@ import Link from '@/lib/routerCompat.jsx';
 import { supabase } from '@/lib/supabaseClient';
 import ArkaCashHandoffAction from './ArkaCashHandoffAction.jsx';
 import WorkerBonusAccount from './WorkerBonusAccount.jsx';
+import WorkerDailyBonusLedger from './WorkerDailyBonusLedger.jsx';
 
 const TIME_ZONE = 'Europe/Belgrade';
 const MONEY = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -196,15 +197,13 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
 
       <Card tone="green">
         <div style={{ fontSize:10.5, color:c.green, fontWeight:1000, letterSpacing:'.11em' }}>PYETJA KRYESORE</div>
-        <div style={{ fontSize:16, fontWeight:1000 }}>DORËZO TASH</div>
+        <div style={{ fontSize:16, fontWeight:1000 }}>CASH PARA ZBRITJEVE</div>
         <div style={{ fontSize:44, lineHeight:1, fontWeight:1000, color:'#dcfce7' }}>{euro(cash?.open_due_to_base)}</div>
         <div style={{ color:c.muted, fontSize:11, fontWeight:800 }}>
-          {fixedFullCash ? 'KREJT CASH-I I KLIENTËVE DORËZOHET NË BAZË.' : showCommission ? 'CASH BRUTO − KOMISIONI I DEFINUAR = PËR BAZË.' : 'TOTALI I HAPUR PËR DORËZIM.'}
+          {showCommission ? 'KOMISIONI ËSHTË NDARË. TE DORËZO SHIHEN USHQIMI, BONUSI DHE NETOJA PËR DISPATCH.' : 'TE DORËZO SHIHEN BONUSI QË MBAHET DHE SHUMA FINALE PËR DISPATCH.'}
         </div>
-        <ArkaCashHandoffAction actorPin={actorPin} targetPin={cleanTargetPin} amount={cash?.open_due_to_base} onHandoff={onHandoff} busy={handoffBusy} blocked={handoffBlocked} />
+        <ArkaCashHandoffAction actorPin={actorPin} targetPin={cleanTargetPin} amount={cash?.open_due_to_base} onHandoff={onHandoff} busy={handoffBusy} blocked={handoffBlocked} label="DORËZO / SHIKO LLOGARITJEN" />
       </Card>
-
-      <WorkerBonusAccount actor={actor} targetPin={cleanTargetPin} />
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))', gap:8 }}>
         <Metric label="PAGUAR SOT" value={euro(cash?.today_gross)} sub={`${n(cash?.today_count)} pagesa`} tone="green" />
@@ -214,6 +213,8 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
         <Metric label="TE DISPATCH" value={euro(cash?.pending_handoff_total)} sub={`${n(cash?.pending_handoff_count)} dorëzime`} tone="purple" />
         <Metric label="DORËZUAR SOT" value={euro(cash?.accepted_handoff_today)} sub="Pranuar nga Dispatch" tone="green" />
       </div>
+
+      <WorkerDailyBonusLedger actor={actor} targetPin={cleanTargetPin} />
 
       <Card tone="green">
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10 }}>
@@ -227,6 +228,8 @@ export default function ArkaUnifiedWorkerAccount({ actor, targetPin, title = '',
           {openRows.length ? openRows.map((row) => <PaymentRow key={`unified_cash_${row?.id}`} row={row} showCommission={showCommission} />) : <div style={{ color:c.muted, fontSize:11, padding:8 }}>S’KA PAGESA TË HAPURA.</div>}
         </div>
       </Card>
+
+      <WorkerBonusAccount actor={actor} targetPin={cleanTargetPin} />
 
       <Card tone="blue">
         <div style={{ fontSize:14, fontWeight:1000 }}>PAYROLL I LIDHUR ME STAFIN</div>

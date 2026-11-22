@@ -169,12 +169,16 @@ function patchArkaMain() {
     2,
   );
 
-  source = replaceOnce(
-    source,
-    '      const openBonusRows = await listOpenBaseReadyBonusPayments(actor?.pin);',
-    "      const openBonusRows = unifiedWorkerFinance?.profile?.ready_bonus_enabled === true\n        ? await listOpenBaseReadyBonusPayments(actor?.pin, { allowNonWorker: true })\n        : [];",
-    'ready bonus profile gate',
-  );
+  // The fresh handoff preview reads already-earned Base and Transport bonuses
+  // independently of the Base earning flag. Preserve that newer flow.
+  if (!source.includes('loadWorkerHandoffPreview({')) {
+    source = replaceOnce(
+      source,
+      '      const openBonusRows = await listOpenBaseReadyBonusPayments(actor?.pin);',
+      "      const openBonusRows = unifiedWorkerFinance?.profile?.ready_bonus_enabled === true\n        ? await listOpenBaseReadyBonusPayments(actor?.pin, { allowNonWorker: true })\n        : [];",
+      'ready bonus profile gate',
+    );
+  }
 
   source = source
     .replace(
