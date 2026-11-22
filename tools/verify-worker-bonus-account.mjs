@@ -24,7 +24,7 @@ const pass = name => { checked++; console.log(`PASS ${name}`); };
 
 function baseBonus(id, overrides = {}) {
   return {
-    id, worker_pin: worker.pin, worker_name: worker.name, worker_role: worker.role,
+    id, arka_payment_id: id + 8000, worker_pin: worker.pin, worker_name: worker.name, worker_role: worker.role,
     order_id: id + 1000, order_code: id + 2000, transport_control_id: null,
     amount: 1, m2: 10, rate_m2: 0.1, eligible: true, status: 'RETAINED',
     remaining_amount: 0, reserved_amount: 0, retained_amount: 1,
@@ -77,7 +77,11 @@ const pendingControls = [
   { id: 'pending-1', order_id: 'transport-pending-1', status: 'PENDING', submitted_at: '2026-11-18T08:00:00Z', worker_id: workerId, order: { code_str: 'T901', status: 'pastrim' } },
   { id: 'returned-1', order_id: 'transport-returned-1', status: 'RETURNED', submitted_at: '2026-11-19T08:00:00Z', worker_id: workerId, order: { code_str: 'T902', status: 'gati' } },
 ];
-const modelInput = extra => ({ worker, bonuses, allocations, handoffs, pendingControls, month, now, ...extra });
+const bookingsFor = items => items.map(b => ({ id: b.arka_payment_id, type: 'READY_48H_BONUS', created_by_pin: b.worker_pin, created_at: b.qualification_at || b.activated_at || b.ready_at }));
+const modelInput = (extra = {}) => {
+  const input = { worker, bonuses, allocations, handoffs, pendingControls, month, now, ...extra };
+  return { ...input, bonusPayments: extra.bonusPayments ?? bookingsFor(input.bonuses) };
+};
 
 function fixture(overrides = {}, failures = {}) {
   const seed = {
@@ -92,6 +96,7 @@ function fixture(overrides = {}, failures = {}) {
     ],
     ...clone(overrides),
   };
+  if (!Object.prototype.hasOwnProperty.call(overrides, 'arka_pending_payments')) seed.arka_pending_payments = bookingsFor(seed.base_ready_bonuses);
   const calls = [];
   const mutation = () => { throw Error('The bonus report attempted a mutation or side-effect RPC.'); };
   const db = {
@@ -179,6 +184,22 @@ assert(december.rows.some(r => r.id === '103'));
 assert.equal(buildWorkerBonusAccount(modelInput({ month: undefined, now: '2026-10-31T23:00:00Z' })).month, '2026-11');
 pass('Earnings use qualification dates; cash taken uses acceptance dates, including carried balances and local month boundaries.');
 
+const delayed = baseBonus(301, { qualification_at: '2026-10-28T08:00:00Z', activated_at: '2026-10-28T08:00:00Z', status: 'RETAINED' });
+const delayedBooking = { id: delayed.arka_payment_id, type: 'READY_48H_BONUS', created_at: '2026-11-03T08:00:00Z' };
+const daily = buildWorkerBonusAccount(modelInput({ bonuses: [delayed], allocations: [], handoffs: [], bonusPayments: [delayedBooking] }));
+assert.equal(daily.totals.earned, 0, 'Daily booking must not move economic earnings into another month.');
+assert.equal(daily.rows.length, 0, 'Existing monthly row semantics remain unchanged.');
+assert.equal(daily.dailyRows.length, 1, 'A fully consumed bonus booked this month still appears in daily history.');
+assert.equal(daily.dailyRows[0].creditedAt, delayedBooking.created_at);
+assert.equal(daily.dailyRows[0].eligible, true);
+assert.deepEqual(daily.dailyWarnings, []);
+const noBooking = buildWorkerBonusAccount(modelInput({ bonuses: [delayed], allocations: [], handoffs: [], bonusPayments: [] }));
+assert.equal(noBooking.dailyRows.length, 0, 'Missing Arka booking cannot receive an invented qualification-date credit.');
+assert.deepEqual(noBooking.dailyWarnings, [{ code: 'BOOKING_MISSING', bonusId: String(delayed.id), orderCode: String(delayed.order_code) }]);
+const voided = buildWorkerBonusAccount(modelInput({ bonuses: [{ ...delayed, status: 'VOIDED' }], allocations: [], handoffs: [], bonusPayments: [delayedBooking] }));
+assert.equal(voided.dailyRows[0].eligible, false, 'A historic booked but voided bonus cannot inflate daily earned totals.');
+pass('Daily bonus history uses the exact linked Arka booking date, preserving cross-month qualification and missing-booking integrity.');
+
 assert.equal(report.pendingControls.length, 1);
 assert.deepEqual(report.pendingControls[0], {
   id: 'pending-1', code: 'T901', status: 'PENDING', orderStatus: 'pastrim',
@@ -261,6 +282,14 @@ assert.equal(response.headers.vary, 'Cookie, Origin');
 assert(dbFixture.calls.every(c => c.columns && c.columns !== '*'), 'No report query may request whole financial rows.');
 for (const secret of [worker.pin, manager.pin, 'fixture-private-payment-actor', deviceId, 'worker_pin', 'created_by_pin', 'device_id']) assert(!JSON.stringify(response.body).includes(secret));
 assert(!dbFixture.calls.some(c => c.table === 'orders'), 'Missing Base order relations must not remove bonus records.');
+assert.deepEqual(response.body.dailyRows, report.dailyRows);
+const foreignBookings = fixture({ arka_pending_payments: bookingsFor(bonuses).map(p => ({ ...p, created_by_pin: otherWorker.pin })) });
+const foreignResponse = await request({ db: foreignBookings.db });
+assert.equal(foreignResponse.statusCode, 200);
+assert.equal(foreignResponse.body.dailyRows.length, 0, 'Another worker\'s booking cannot leak into daily Arka.');
+assert(foreignResponse.body.dailyWarnings.length > 0);
+const wrongBookingType = await request({ db: fixture({ arka_pending_payments: bookingsFor(bonuses).map(p => ({ ...p, type: 'CASH' })) }).db });
+assert.equal(wrongBookingType.body.dailyRows.length, 0, 'A customer cash record cannot masquerade as a bonus credit.');
 pass('The actual endpoint reads ledger and allocations without joining away Transport, emits no PIN/device metadata, and performs no writes.');
 
 const foreignBonus = baseBonus(909, { worker_pin: otherWorker.pin, amount: 999, m2: 9990, status: 'EARNED', remaining_amount: 999, retained_amount: 0, metadata: { secret: 'foreign-worker-row' } });
@@ -377,7 +406,7 @@ for (const invalid of ['', '1', '123', 'x', '7001 OR true', '7001700170017', {}]
   assert.equal(result.body.error, 'WORKER_BONUS_WORKER_INVALID');
   assert(!f.calls.some(call => call.table === 'base_ready_bonuses'));
 }
-for (const table of ['tepiha_user_devices', 'users', 'base_ready_bonuses', 'transport_controls', 'base_ready_bonus_allocations', 'transport_orders', 'cash_handoffs']) {
+for (const table of ['tepiha_user_devices', 'users', 'base_ready_bonuses', 'transport_controls', 'base_ready_bonus_allocations', 'transport_orders', 'cash_handoffs', 'arka_pending_payments']) {
   const result = await request({ db: fixture({}, { [table]: true }).db });
   assert.equal(result.statusCode, 503, table);
   assert(!JSON.stringify(result.body).includes('private-database-fixture-error'));

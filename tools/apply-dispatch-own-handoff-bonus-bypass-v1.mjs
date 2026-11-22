@@ -54,8 +54,9 @@ function patchCorporateFinance() {
   const directCall = '      listOpenBaseReadyBonusPayments(pin),';
   const v1Call = '      listReadyBonusRowsWithoutBlockingHandoff(pin),';
   const guardedCall = '      listOpenBaseReadyBonusPayments(pin, { allowNonWorker: true }),';
+  const strictGuardedCall = '      listOpenBaseReadyBonusPayments(pin, { allowNonWorker: true, requireOnline: true }),';
 
-  if (!source.includes(guardedCall)) {
+  if (!source.includes(guardedCall) && !source.includes(strictGuardedCall)) {
     if (source.includes(directCall)) {
       source = replaceOnce(
         source,
@@ -81,7 +82,7 @@ function patchCorporateFinance() {
     throw new Error('DISPATCH_BONUS_BYPASS_V2_SUBMIT_BOUNDARY_MISSING');
   }
   const submitBlock = source.slice(submitStart, submitEnd);
-  if (!submitBlock.includes(guardedCall.trim())) {
+  if (!submitBlock.includes(guardedCall.trim()) && !submitBlock.includes(strictGuardedCall.trim())) {
     throw new Error('DISPATCH_BONUS_BYPASS_V2_SUBMIT_GUARD_VERIFY_FAILED');
   }
   if (submitBlock.includes('listOpenBaseReadyBonusPayments(pin),')) {

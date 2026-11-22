@@ -41,7 +41,7 @@ check(compensation.includes('RUAJ DHE SINKRONIZO KUDO'), 'single save action mis
 check(arka.includes("import ArkaUnifiedWorkerAccount from '@/components/ArkaUnifiedWorkerAccount';"), 'ARKA main canonical import missing');
 check(arka.includes('onSnapshot={setUnifiedWorkerFinance}'), 'ARKA main does not receive canonical snapshot');
 check(arka.includes('unifiedWorkerFinance?.cash?.open_due_to_base'), 'ARKA handoff amount is not canonical');
-check(arka.includes('unifiedWorkerFinance?.profile?.ready_bonus_enabled === true'), 'ARKA ready bonus is not profile-gated');
+check(arka.includes('loadWorkerHandoffPreview({') && arka.includes('readBonuses: listOpenBaseReadyBonusPayments') && arka.includes('readMeals: listWorkerUnsettledMealPayments'), 'ARKA handoff does not refresh canonical cash, earned bonuses and outstanding meals');
 check(arka.includes('ARKA_SALARY_ONLY_HANDOFF_V1'), 'straight-salary handoff bypass marker missing');
 check(arka.includes('onClick={openHandoffWizard}'), 'ARKA handoff button bypasses the wizard');
 check(!arka.includes('onClick={submitHandoff}'), 'ARKA handoff button regressed to direct submit');

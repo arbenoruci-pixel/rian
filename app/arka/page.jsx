@@ -12,7 +12,8 @@ import '@/components/ArkaExpenseComposer.css';
 import HandoffWizard from '@/components/HandoffWizard';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getActor } from '@/lib/actorSession';
-import { computeReadyBonusDeductionForCash, listOpenBaseReadyBonusPayments } from '@/lib/baseReadyBonusClient';
+import { listOpenBaseReadyBonusPayments } from '@/lib/baseReadyBonusClient';
+import { handoffActorKey, loadWorkerHandoffPreview } from '@/lib/workerHandoffPreview';
 import { isArkaHistoryBonus, groupArkaHistoryBonuses, arkaHistoryBonusStatusLabel } from '@/lib/arkaHistoryBonuses';
 import { supabase } from '@/lib/supabaseClient';
 import { ARKA_ACTION, ARKA_SOURCE_MODULE } from '@/lib/arka/arkaConstants';
@@ -34,6 +35,8 @@ import {
   listWorkerArkaExtras,
   listWorkerHandoffs,
   listWorkerPendingPayments,
+  listWorkerUnsettledMealPayments,
+  listWorkerMealRowsToday,
   rejectExpenseEntry,
 } from '@/lib/arkaService';
 import {
@@ -2332,6 +2335,7 @@ function ArkaAccountPage() {
   const [busy, setBusy] = useState('');
   // HANDOFF_WIZARD_V2_SINGLE_FLOW:PAGE
   const [handoffWizard, setHandoffWizard] = useState({ open: false, bonusAvailable: 0 });
+  const [handoffPreviewError, setHandoffPreviewError] = useState('');
 
   const reloadInFlightRef = useRef(false);
   const lastReloadAtRef = useRef(0);
@@ -2350,6 +2354,23 @@ function ArkaAccountPage() {
   const isWorker = actorIsWorkerAccount(actor) || masterPersonalMode;
   const canManage = roleCanManage(role) && !masterPersonalMode;
   const canOpenKapaku = canManage && (String(actor?.pin || '').trim() === '2380' || String(actor?.pin || '').trim() === '4563' || ['MASTER', 'ADMIN', 'ADMIN_MASTER', 'SUPERADMIN', 'DISPATCH'].includes(normalizeArkaRole(role)));
+
+  useEffect(() => {
+    const changed = () => {
+      const currentActor = getActor();
+      if (!currentActor?.pin || currentActor?.is_active === false || actor?.is_active === false || handoffActorKey(currentActor) !== handoffActorKey(actor)) {
+        setHandoffWizard({ open: false, bonusAvailable: 0 });
+        setHandoffPreviewError('');
+      }
+    };
+    changed();
+    window.addEventListener('tepiha:session-changed', changed);
+    window.addEventListener('storage', changed);
+    return () => {
+      window.removeEventListener('tepiha:session-changed', changed);
+      window.removeEventListener('storage', changed);
+    };
+  }, [actor?.id, actor?.user_id, actor?.pin, actor?.role, actor?.is_active]);
 
 
   function applyCachedBootState(currentActor = null) {
@@ -3233,32 +3254,40 @@ function ArkaAccountPage() {
 
   async function openHandoffWizard() {
     if (busyRef.current) return;
-    const rows = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
-    const total = n(unifiedWorkerFinance?.cash?.open_due_to_base ?? workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
-    if (!workerSnapshot || total <= 0 || !rows.length) return alert('🔴 NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
     if (n(workerSnapshot?.cashDuplicateTransportCount) > 0) return alert('🔴 U GJET DUPLICATE TRANSPORT CASH. DORËZIMI U NDALUA PËR SIGURI.');
-
-    // ARKA_SALARY_ONLY_HANDOFF_V1: a DB-confirmed straight-salary worker with
-    // every extra disabled hands the full cash to base without a meal/bonus step.
-    const profile = unifiedWorkerFinance?.profile;
-    const straightSalaryOnly = profile?.salary_enabled === true
-      && profile?.meal_enabled === false
-      && profile?.commission_enabled === false
-      && profile?.transport_bonus_enabled === false
-      && profile?.ready_bonus_enabled === false
-      && safeUpper(profile?.cash_mode) === 'FULL_CASH';
-    if (straightSalaryOnly) {
-      return submitHandoff({ mealChoice: '3', wizard: true, straightSalaryOnly: true });
-    }
-
+    busyRef.current = 'handoff-preview';
+    setBusy('handoff-preview');
+    setHandoffPreviewError('');
+    let straightSalaryOnly = false;
     try {
-      const openBonusRows = unifiedWorkerFinance?.profile?.ready_bonus_enabled === true
-        ? await listOpenBaseReadyBonusPayments(actor?.pin, { allowNonWorker: true })
-        : [];
-      const bonusAvailable = +(openBonusRows.reduce((sum, row) => sum + n(row?.remaining_amount), 0)).toFixed(2);
-      setHandoffWizard({ open: true, bonusAvailable });
-    } catch {
-      setHandoffWizard({ open: true, bonusAvailable: 0 });
+      const preview = await withArkaTimeout(loadWorkerHandoffPreview({
+        actor, date: formatBelgradeDateKey(new Date()), getCurrentActor: getActor, online: !isOfflineBrowser(),
+        readFinance: async ({ pin, date }) => {
+          const { data, error: readError } = await supabase.rpc('get_worker_finance_snapshot_v1', { p_actor_pin: pin, p_worker_pin: pin, p_date: date });
+          if (readError) throw readError;
+          return data;
+        },
+        readBonuses: listOpenBaseReadyBonusPayments,
+        readMeals: listWorkerUnsettledMealPayments,
+        readMealCoverage: listWorkerMealRowsToday,
+      }), 'handoff_preview', 8000);
+      setUnifiedWorkerFinance(preview.finance);
+      // ARKA_SALARY_ONLY_HANDOFF_V1: skip only after fresh reads confirm there
+      // are no outstanding bonus or meal deductions for this salary worker.
+      straightSalaryOnly = preview.straightSalaryOnly;
+      if (!straightSalaryOnly) setHandoffWizard({ ...preview, open: true });
+    } catch (e) {
+      setHandoffPreviewError(e?.code === 'HANDOFF_SESSION_CHANGED' ? e.message : 'Nuk u kontrolluan shumat e dorëzimit. Kontrollo internetin dhe provo përsëri.');
+    } finally {
+      busyRef.current = '';
+      setBusy('');
+    }
+    if (straightSalaryOnly) {
+      try {
+        return await submitHandoff({ mealChoice: '3', wizard: true, straightSalaryOnly: true });
+      } catch (e) {
+        setHandoffPreviewError(e?.message || 'Nuk u dërgua dorëzimi. Provo përsëri.');
+      }
     }
   }
 
@@ -3266,6 +3295,11 @@ function ArkaAccountPage() {
     if (busyRef.current) return;
     busyRef.current = 'handoff';
     try {
+      const assertHandoffSession = () => {
+        const currentActor = getActor();
+        if (!currentActor?.pin || actor?.is_active === false || currentActor?.is_active === false || handoffActorKey(actor) !== handoffActorKey(currentActor) || (options?.wizard && !options?.straightSalaryOnly && handoffWizard.actorKey !== handoffActorKey(currentActor))) throw new Error('Llogaria ka ndryshuar. Hape përsëri arkën.');
+      };
+      assertHandoffSession();
       const rows = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
       const total = n(unifiedWorkerFinance?.cash?.open_due_to_base ?? workerSnapshot?.baseCashForDispatchTotal ?? workerSnapshot?.collectedTotal);
       if (!workerSnapshot || total <= 0 || !rows.length) throw new Error('NUK KE KLIENTË ME CASH I MARRË PËR DORËZIM.');
@@ -3287,6 +3321,7 @@ function ArkaAccountPage() {
         });
       }
 
+      assertHandoffSession();
       setBusy('handoff');
       const submitted = await submitWorkerCashToDispatch({ actor });
       await scheduleManagerMutationRefresh(actor);
@@ -3305,6 +3340,8 @@ function ArkaAccountPage() {
     return submitHandoff({ ...decision, wizard: true });
   }
 
+  const currentHandoffActor = getActor();
+  const handoffPreviewVisible = handoffWizard.open && actor?.is_active !== false && currentHandoffActor?.is_active !== false && handoffWizard.actorKey === handoffActorKey(currentHandoffActor);
   const workerFirstName = String(actor?.name || 'PUNTORIT').trim().split(/\s+/)[0] || 'PUNTORIT';
   const workerCashLines = Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows : [];
   const workerGrossTotal = n(unifiedWorkerFinance?.cash?.open_gross ?? workerSnapshot?.cashFromClientsTotal ?? workerSnapshot?.collectedGrossTotal ?? workerSnapshot?.collectedTotal);
@@ -3379,6 +3416,7 @@ function ArkaAccountPage() {
             handoffBusy={!!busy}
             handoffBlocked={n(workerSnapshot?.cashDuplicateTransportCount) > 0}
           />
+          {handoffPreviewError ? <div className="arkaReviewWarn" role="alert">{handoffPreviewError}</div> : null}
           <div className="arkaHeroSingle arkaHeroMainDue" style={{ display:'none' }} aria-hidden="true">
             <div>
               <div className="arkaSimpleEyebrow">{String(actor?.name || 'PUNTOR').toUpperCase()} • PIN {actor?.pin || '—'}</div>
@@ -3632,24 +3670,26 @@ function ArkaAccountPage() {
             ) : <div className="arkaEmpty">USHQIMI NUK ËSHTË REGJISTRUAR SOT.</div>}
           </section>
 
-          <HandoffWizard
+          {handoffPreviewVisible ? <HandoffWizard
             open={handoffWizard.open}
             actor={actor}
-            clientCount={Array.isArray(unifiedWorkerFinance?.cash?.rows) ? unifiedWorkerFinance.cash.rows.length : (Array.isArray(workerSnapshot?.cashBreakdownRows) ? workerSnapshot.cashBreakdownRows.length : 0)}
-            grossTotal={workerGrossTotal}
-            baseTotal={workerBaseForDispatchTotal}
-            commissionTotal={workerCommissionTotal}
+            clientCount={handoffWizard.clientCount}
+            grossTotal={handoffWizard.grossTotal}
+            baseTotal={handoffWizard.baseTotal}
+            commissionTotal={handoffWizard.commissionTotal}
+            hybridEnabled={handoffWizard.hybridEnabled}
             bonusAvailable={handoffWizard.bonusAvailable}
             openExpenseTotal={workerOpenExpenseRows.filter((row) => typeOf(row) === 'EXPENSE').reduce((sum, row) => sum + amountOf(row), 0)}
-            existingMealCovered={selfMealCoveredToday}
+            existingMealCovered={handoffWizard.existingMealCovered}
+            unsettledMealDeduct={handoffWizard.unsettledMealDeduct}
             existingMealDeduct={workerOpenExpenseRows.filter((row) => typeOf(row) === 'MEAL_PAYMENT').reduce((sum, row) => sum + amountOf(row), 0)}
             staffOptions={mealOptions}
-            onClose={() => setHandoffWizard((prev) => ({ ...prev, open: false }))}
+            onClose={() => setHandoffWizard({ open: false, bonusAvailable: 0 })}
             onSubmit={submitHandoffFromWizard}
-          />
+          /> : null}
 
           <div className="arkaSectionCard arkaWorkerActionHub">
-            <button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={openHandoffWizard}>{busy === 'handoff' ? '...' : 'DORËZO TE DISPATCH — ' + euro(workerBaseForDispatchTotal)}</button>
+            <button type="button" className="arkaSolidBtn big arkaMainHandoffBtn" disabled={!!busy || workerBaseForDispatchTotal <= 0 || n(workerSnapshot?.cashDuplicateTransportCount) > 0} onClick={openHandoffWizard}>{busy ? 'DUKE KONTROLLUAR...' : 'DORËZO / SHIKO LLOGARITJEN'}</button>
             {n(workerSnapshot?.cashDuplicateTransportCount) > 0 ? <div className="arkaReviewWarn">U gjet duplicate transport cash. Dorëzimi u ndalua për siguri.</div> : null}
 
             <div className="arkaWorkerActionHubHead">
