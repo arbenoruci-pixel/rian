@@ -1458,14 +1458,14 @@ export default function PayrollPage() {
           <details className="calcDetails">
             <summary>SI LLOGARITET PAYROLL?</summary>
             <div className="calcGrid">
-              <div><span>Rroga bazë total</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
+              <div><span>Rroga + shtesa mujore, gjithsej</span><strong>{euro(monthlyPayrollTotals.gross)}</strong></div>
               <div><span>Zbritet nga rroga</span><strong>{euro(monthlyPayrollTotals.deductions)}</strong></div>
               <div><span>Avans bartet</span><strong>{euro(monthlyPayrollTotals.carryOver)}</strong></div>
               <div><span>Cash hapur</span><strong>{euro(monthlyPayrollTotals.openCash)}</strong></div>
               <div><span>Dorëzim në pritje</span><strong>{euro(monthlyPayrollTotals.pendingHandoff)}</strong></div>
               <div><span>Paguar këtë muaj</span><strong>{euro(monthlyPayrollTotals.paidTotal)}</strong></div>
             </div>
-            <p>Rroga mujore llogaritet nga rroga bazë minus avansi personal. Cash-i i hapur dhe dorëzimi në pritje përdoren vetëm për bllokim/kontroll.</p>
+            <p>Rroga bazë + ushqimi mujor + shtesa fikse e transportit − avansi personal = neto për pagesë. Shtesat merren sipas muajit të zgjedhur. Nëse avansi e tejkalon këtë total, neto është zero dhe diferenca shfaqet si avans për bartje. Cash-i i hapur dhe dorëzimi në pritje përdoren vetëm për bllokim/kontroll.</p>
           </details>
         </section>
         )}
@@ -1569,7 +1569,7 @@ export default function PayrollPage() {
             <div className="detailGrid">
               <div className="detailBox good">
                 <span>Rroga bazë</span>
-                <strong>{euro(selectedPayrollDetails.gross)}</strong>
+                <strong>{euro(selectedPayrollDetails.baseSalary)}</strong>
               </div>
               <div className="detailBox warn">
                 <span>Avans personal</span>
@@ -1588,12 +1588,23 @@ export default function PayrollPage() {
             <div className="detailFormula">
               <div className="formulaTitle">Formula e rrogës</div>
               <div className="formulaLine">
-                RROGA BAZË {euro(selectedPayrollDetails.baseSalary)}
-                {" - "} AVANS PERSONAL {euro(selectedPayrollDetails.advancesTotal)}
-                {" = "} NETO {euro(selectedPayrollDetails.net)}
+                {selectedPayrollDetails.statusKind === 'paid' ? <>
+                  PAGUAR KËTË MUAJ {euro(selectedPayrollDetails.salaryPaidAmount)}
+                  {" · "} MBETET PËR PAGESË {euro(selectedPayrollDetails.net)}
+                </> : Number(selectedPayrollDetails.carryOver) > 0 ? <>
+                  Avansi personal {euro(selectedPayrollDetails.advancesTotal)} tejkalon rrogën me shtesat {euro(selectedPayrollDetails.gross)}.
+                  {" "}Neto për pagesë {euro(selectedPayrollDetails.net)}.
+                  {" "}Avans për bartje {euro(selectedPayrollDetails.carryOver)}.
+                </> : <>
+                  RROGA BAZË {euro(selectedPayrollDetails.baseSalary)}
+                  {Number(selectedPayrollDetails.bonusUshqim) > 0 ? <> + USHQIMI MUJOR {euro(selectedPayrollDetails.bonusUshqim)}</> : null}
+                  {Number(selectedPayrollDetails.bonusTransport) > 0 ? <> + SHTESA E TRANSPORTIT {euro(selectedPayrollDetails.bonusTransport)}</> : null}
+                  {" - "} AVANS PERSONAL {euro(selectedPayrollDetails.advancesTotal)}
+                  {" = "} NETO {euro(selectedPayrollDetails.net)}
+                </>}
               </div>
               <div className="formulaNote">
-                Vetëm avansi personal zbritet nga rroga. Komisioni, ushqimi, shpenzimet e kompanisë, borxhi informativ dhe cash-i i klientëve nuk e ulin rrogën mujore në këtë ekran.
+                Ushqimi mujor dhe shtesa fikse e transportit i shtohen rrogës bazë sipas muajit të zgjedhur. Nga ky total zbritet avansi personal. Komisioni ditor, shpenzimet, borxhi informativ dhe cash-i i klientëve mbeten të ndara nga kjo formulë.
               </div>
             </div>
 
@@ -1601,6 +1612,9 @@ export default function PayrollPage() {
               <div className="breakdownCard infoOnly">
                 <h3>PAGA QË LLOGARITET</h3>
                 <p><span>Rroga bazë</span><strong>{euro(selectedPayrollDetails.baseSalary)}</strong></p>
+                <p><span>Ushqimi mujor{selectedPayrollDetails.mealPolicy ? <small> · {euro(selectedPayrollDetails.mealPolicy.dailyRate)} × {selectedPayrollDetails.mealPolicy.workDays} ditë pune</small> : null}</span><strong>{euro(selectedPayrollDetails.bonusUshqim)}</strong></p>
+                {Number(selectedPayrollDetails.bonusTransport) > 0 || selectedPayrollDetails.transportBonusEnabled ? <p><span>Shtesa mujore e transportit</span><strong>{euro(selectedPayrollDetails.bonusTransport)}</strong></p> : null}
+                <p><span>Rroga + shtesa mujore</span><strong>{euro(selectedPayrollDetails.gross)}</strong></p>
                 <p><span>Komision ditor informativ</span><strong>{euro(selectedPayrollDetails.transportCommission)}</strong></p>
                 <p><span>Transport m²</span><strong>{Number(selectedPayrollDetails.transportM2 || 0).toFixed(2)} m²</strong></p>
               </div>

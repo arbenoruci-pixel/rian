@@ -21,7 +21,9 @@ function appendTag(value) {
   const readRelease = 'dispatch-read-recovery-v1';
   const withRead = withSubmit.includes(readRelease) ? withSubmit : `${withSubmit}-${readRelease}`;
   const decemberRelease = 'december-meals-receipts-messages-v1';
-  return withRead.includes(decemberRelease) ? withRead : `${withRead}-${decemberRelease}`;
+  const withDecember = withRead.includes(decemberRelease) ? withRead : `${withRead}-${decemberRelease}`;
+  const mealBreakdownRelease = 'payroll-meal-breakdown-v1';
+  return withDecember.includes(mealBreakdownRelease) ? withDecember : `${withDecember}-${mealBreakdownRelease}`;
 }
 
 const packagePath = 'package.json';
