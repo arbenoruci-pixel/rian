@@ -23,7 +23,9 @@ function appendTag(value) {
   const decemberRelease = 'december-meals-receipts-messages-v1';
   const withDecember = withRead.includes(decemberRelease) ? withRead : `${withRead}-${decemberRelease}`;
   const mealBreakdownRelease = 'payroll-meal-breakdown-v1';
-  return withDecember.includes(mealBreakdownRelease) ? withDecember : `${withDecember}-${mealBreakdownRelease}`;
+  const withMealBreakdown = withDecember.includes(mealBreakdownRelease) ? withDecember : `${withDecember}-${mealBreakdownRelease}`;
+  const workerHandoffRelease = 'worker-handoff-wizard-v1';
+  return withMealBreakdown.includes(workerHandoffRelease) ? withMealBreakdown : `${withMealBreakdown}-${workerHandoffRelease}`;
 }
 
 const packagePath = 'package.json';

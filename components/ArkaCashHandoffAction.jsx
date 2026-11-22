@@ -6,7 +6,9 @@ export default function ArkaCashHandoffAction({ actorPin, targetPin, amount, onH
   const owner = String(actorPin || '').trim();
   if (!owner || owner !== String(targetPin || '').trim()) return null;
   const total = Number(amount);
-  const disabled = busy || blocked || !Number.isFinite(total) || total <= 0;
+  // The wizard also recovers a submitted request whose response was lost.
+  // It remains reachable after that request consumes the open cash balance.
+  const disabled = busy || blocked || !Number.isFinite(total);
   const label = actionLabel || ('DORËZO TE DISPATCH — €' + (Number.isFinite(total) ? total : 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const style = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', boxSizing: 'border-box', minHeight: 52, border: '1px solid #60a5fa', borderRadius: 12, background: '#1d4ed8', color: '#fff', padding: '12px 10px', fontSize: 15, fontWeight: 900, textAlign: 'center', textDecoration: 'none', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1 };
   if (onHandoff || disabled) return <button type="button" data-arka-cash-handoff="1" style={style} disabled={disabled} onClick={onHandoff}>{busy ? 'DUKE VAZHDUAR…' : label}</button>;

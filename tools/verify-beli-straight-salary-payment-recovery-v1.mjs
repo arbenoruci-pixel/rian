@@ -26,10 +26,10 @@ check(files.daily.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:DAILY'), 'd
 check(files.daily.includes('RROGË FIKSE • PA KOMISION') || files.daily.includes('RRUGË FIKSE • PA KOMISION'), 'daily status says straight salary');
 check(files.daily.includes('{workerHybrid ? (') || files.daily.includes('{isFixedRouteTransport ? ('), 'daily commission metric is conditional');
 
-check(files.wizard.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:WIZARD'), 'handoff wizard salary marker');
-check(files.wizard.includes('const safeCommission = workerHybrid ?'), 'handoff total applies commission only to hybrid workers');
-check(files.wizard.includes('{workerHybrid ? <SummaryLine label="Komision transporti'), 'handoff summary hides salary-worker commission');
-check(files.wizard.includes('{workerHybrid ? <Row label="Komisioni që e mban'), 'handoff final review hides salary-worker commission');
+check(files.wizard.includes('WORKER_HANDOFF_WIZARD_V1'), 'handoff wizard uses the canonical server snapshot');
+check(files.wizard.includes('api.preview(nextOptions)') && !files.wizard.includes('actor?.is_hybrid_transport'), 'handoff commission comes from current server profile');
+check(files.wizard.includes('Number(totals.commission) > 0'), 'handoff review hides zero salary-worker commission');
+check(files.wizard.includes('Number(current.totals.commission) > 0'), 'handoff client summary hides zero salary-worker commission');
 
 check(files.pay.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:TRANSPORT_PAY'), 'transport payment canonical-PIN marker');
 check(files.pay.includes("import { resolveActorPin } from '@/lib/pinIdentity';"), 'transport payment imports real-PIN resolver');

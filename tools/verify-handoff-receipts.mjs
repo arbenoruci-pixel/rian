@@ -249,11 +249,14 @@ assert.equal(validateReceiptAmount(''),null);
 // Exercise the approved-device HTTP boundary against the same actual SQL RPCs.
 const apiHandoff = await seedHandoff(20);
 await db.exec('create table tepiha_user_devices(device_id text primary key,user_id uuid,is_approved boolean); grant select on tepiha_user_devices to service_role;');
+await db.exec('create table worker_handoff_submissions(handoff_id bigint primary key,physical_cash numeric,projected_cash numeric,difference_amount numeric); grant select on worker_handoff_submissions to service_role;');
+await db.query('insert into worker_handoff_submissions values($1,5,15,-10),($2,40,40,0)',[apiHandoff.id,own.id]);
 for (const [device,id,approved] of [['fixture-manager',manager,true],['fixture-worker',worker,true],['fixture-unapproved',manager,false]]) await db.query('insert into tepiha_user_devices values($1,$2,$3)',[device,id,approved]);
+const declarationReads=[];let failDeclarationRead=false;
 function identityQuery(table) {
-  assert.ok(['users','tepiha_user_devices'].includes(table));
-  let fields='*'; const filters=[];
-  const q={ select(value){assert.match(value,/^[a-z_,*]+$/);fields=value;return q;},eq(field,value){assert.match(field,/^[a-z_]+$/);filters.push([field,value]);return q;},maybeSingle(){return q;},then(resolve,reject){return db.query('select '+fields+' from '+table+' where '+filters.map(([field],i)=>field+'=$'+(i+1)).join(' and '),filters.map(([,value])=>value)).then(result=>resolve({data:result.rows[0]||null,error:null}),reject);} }; return q;
+  assert.ok(['users','tepiha_user_devices','worker_handoff_submissions'].includes(table));
+  let fields='*',single=false; const filters=[];
+  const q={ select(value){assert.match(value,/^[a-z_,*]+$/);fields=value;return q;},eq(field,value){assert.match(field,/^[a-z_]+$/);filters.push([field,value,false]);return q;},in(field,values){assert.equal(table,'worker_handoff_submissions');assert.equal(field,'handoff_id');assert.ok(Array.isArray(values)&&values.length);declarationReads.push([...values]);filters.push([field,values,true]);return q;},maybeSingle(){single=true;return q;},then(resolve,reject){if(table==='worker_handoff_submissions'&&failDeclarationRead)return Promise.resolve(resolve({data:null,error:{message:'Synthetic declaration read unavailable'}}));return db.query('select '+fields+' from '+table+' where '+filters.map(([field,,array],i)=>array?field+'=any($'+(i+1)+'::bigint[])':field+'=$'+(i+1)).join(' and '),filters.map(([,value])=>value)).then(result=>resolve({data:single?result.rows[0]||null:result.rows,error:null}),reject);} }; return q;
 }
 const rpcFields={read_cash_handoff_receipts_v1:['p_actor_id','p_worker_pin'],record_cash_handoff_receipt_v1:['p_actor_id','p_handoff_id','p_event_kind','p_amount','p_expected_outstanding','p_reason','p_note','p_request_key'],close_arka_day_receipts_v1:['p_actor_id','p_date','p_counted_cash','p_expected_budget','p_reason','p_note','p_request_key','p_dry_run']};
 const connection={from:identityQuery,async rpc(name,args){const keys=rpcFields[name];assert.ok(keys);assert.deepEqual(Object.keys(args).sort(),[...keys].sort());try{return {data:await one('select '+name+'('+keys.map((_,i)=>'$'+(i+1)).join(',')+') v',keys.map(k=>args[k])),error:null};}catch(error){return {data:null,error:{message:error.message}};}}};
@@ -286,6 +289,18 @@ const listApi=await api({action:'list'});
 assert.equal(listApi.status,200);assert.match(listApi.headers['cache-control'],/no-store/);
 assert.equal(listApi.data.handoffs.find(x=>x.id===apiHandoff.id).worker_id,worker);
 assert.deepEqual(listApi.data.handoffs.find(x=>x.id===apiHandoff.id).pending_payment_ids,[apiHandoff.paymentId]);
+assert.equal(listApi.data.handoffs.find(x=>x.id===apiHandoff.id).has_worker_submission,true);
+assert.equal(listApi.data.handoffs.find(x=>x.id===apiHandoff.id).worker_declared_cash,5);
+assert.equal(listApi.data.handoffs.find(x=>x.id===apiHandoff.id).worker_projected_cash,15);
+assert.equal(listApi.data.handoffs.find(x=>x.id===apiHandoff.id).worker_declared_difference,-10);
+assert.deepEqual(declarationReads.at(-1).map(Number).sort((a,b)=>a-b),listApi.data.handoffs.map(row=>Number(row.id)).sort((a,b)=>a-b));
+const workerList=await api({action:'list',expectedActorId:worker},{headers:{cookie:'tepiha_device_id=fixture-worker'}});
+assert.equal(workerList.status,200);assert.ok(workerList.data.handoffs.every(row=>row.worker_id===worker));
+assert.ok(!declarationReads.at(-1).map(Number).includes(own.id));
+assert.deepEqual(declarationReads.at(-1).map(Number).sort((a,b)=>a-b),workerList.data.handoffs.map(row=>Number(row.id)).sort((a,b)=>a-b));
+failDeclarationRead=true;
+assert.equal((await api({action:'list'})).status,503);
+failDeclarationRead=false;
 assert.ok(listApi.data.events.every(e=>!('payload_hash' in e)&&!('request_key' in e)&&!('actor_id' in e)));
 const apiBudget=await balance();
 const dryApi=await api({action:'daily-check',date:businessDay,countedCash:apiBudget,expectedBudget:apiBudget,reason:'NO_DISCREPANCY',note:'',requestKey:randomUUID()});

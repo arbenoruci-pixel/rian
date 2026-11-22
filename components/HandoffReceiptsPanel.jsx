@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from '@/lib/routerCompat.jsx';
 import { getActor } from '@/lib/actorSession';
 import WorkerBonusHandoffSummary, { shouldShowWorkerBonusHandoff } from './WorkerBonusHandoffSummary.jsx';
+import WorkerHandoffSubmission from './WorkerHandoffSubmission.jsx';
 import { requestHandoffReceipts, readHandoffReceiptIntent, saveHandoffReceipt } from '../lib/handoffReceiptClient.js';
 import { getHandoffReceiptTotals, receiptStateLabel, validateReceiptAmount } from '../lib/handoffReceipts.js';
 
@@ -92,6 +93,7 @@ export default function HandoffReceiptsPanel({ actor, targetPin, onChange, onSum
       <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: '7px 12px', margin: 0, fontSize: 14 }}>
         <dt>Pritej pas zbritjeve</dt><dd style={{ margin: 0 }}>{money(values.expected)}</dd>
         <dt>Pranuar realisht</dt><dd style={{ margin: 0, color: '#86efac' }}>{money(values.received)}</dd>
+        {row.has_worker_submission && <><dt>Punëtori deklaroi fizikisht</dt><dd style={{ margin:0, color:'#93c5fd' }}>{money(row.worker_declared_cash)}</dd></>}
         {values.resolved > 0 && <><dt>Sqaruar pa hyrje cash</dt><dd style={{ margin: 0 }}>{money(values.resolved)}</dd></>}
         <dt><strong>Mbetet për dorëzim</strong></dt><dd style={{ margin: 0, fontWeight: 850, color: values.outstanding ? '#fcd34d' : '#86efac' }}>{money(values.outstanding)}</dd>
       </dl>
@@ -100,6 +102,7 @@ export default function HandoffReceiptsPanel({ actor, targetPin, onChange, onSum
         {values.tracked && <button type="button" style={button} onClick={() => edit(row, 'resolve')}>Sqaro diferencën</button>}
       </div>}
       {values.outstanding > 0 && visible.manager && row.worker_id === actorId && <p style={{ color: '#cbd5e1', fontSize: 13, margin: 0 }}>Dorëzimin tënd e pranon një person tjetër i autorizuar.</p>}
+      {row.has_worker_submission && <WorkerHandoffSubmission actor={actor} handoffId={row.id} receiptVersion={`${values.received}:${values.resolved}:${values.tracked}`} onChange={async () => { await refresh(); try { await callbacks.current.onChange?.(); } catch {} }} />}
       {showBonus && <details onToggle={event => { const open = event.currentTarget.open; setBonusOpen(previous => ({ ...previous, [row.id]:open })); }}><summary style={{ cursor:'pointer',padding:'10px 0',fontSize:14 }}>Bonuset e mbajtura · Baza / Transporti</summary>{bonusOpen[row.id] && <WorkerBonusHandoffSummary actor={actor} targetPin={row.worker_pin} handoffId={row.id} submittedAt={row.submitted_at} receiptTracking={values.tracked} />}</details>}
       {row.worker_pin && <Link href={`/arka/puntor/${encodeURIComponent(row.worker_pin)}`} style={{ color:'#93c5fd',fontSize:14,padding:'8px 0' }}>Hap llogarinë e punëtorit →</Link>}
       {history.length > 0 && <details><summary style={{ cursor: 'pointer', padding: '8px 0', fontSize: 14 }}>Historiku i pranimeve ({history.length})</summary><div style={{ display: 'grid', gap: 8 }}>{history.map(event => <div key={event.id} style={{ borderTop: '1px solid #334155', paddingTop: 8, fontSize: 13 }}><strong>{event.event_kind === 'RECEIPT' ? 'Pranim cash' : 'Sqarim pa cash'} · {money(event.amount)}</strong><div style={{ color: '#94a3b8' }}>{event.actor_name} · {stamp(event.created_at)}</div><div>Mbetja: {money(event.outstanding_before)} → {money(event.outstanding_after)}</div>{event.note && <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{event.note}</div>}</div>)}</div></details>}

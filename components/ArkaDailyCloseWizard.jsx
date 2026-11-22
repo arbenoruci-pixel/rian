@@ -562,8 +562,12 @@ export default function ArkaDailyCloseWizard() {
       await loadPreview({ force: true });
       try { window.dispatchEvent(new Event('arka:refresh')); } catch {}
     } catch (err) {
-      setError(String(err?.message || err?.details || err || 'VENDIMI PËR SHPENZIM DËSHTOI.'));
+      const message = String(err?.message || err?.details || err || 'VENDIMI PËR SHPENZIM DËSHTOI.');
       await loadPreview({ force: true });
+      if (message.includes('WHW_USE_EXPENSE_REVIEW')) {
+        setStep(1);
+        setError('Ky shpenzim është lidhur me një dorëzim. Hape “Deklarimi i punëtorit” te dorëzimi përkatës, verifiko burimin e parave dhe vendose aty.');
+      } else setError(message);
     } finally {
       expenseMutationLockRef.current = false;
       setExpenseActionBusy('');

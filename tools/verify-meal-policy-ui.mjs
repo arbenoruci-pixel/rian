@@ -4,7 +4,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 
 // Synthetic browser-only fixture: no live database, staff data or financial writes.
 const bundle=await build({
-  stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {BrowserRouter,useLocation} from 'react-router-dom';import Notice from './components/MealPolicyNotice.jsx';import Wizard from './components/HandoffWizard.jsx';function NoticePage(){const location=useLocation();React.useEffect(()=>{window.noticeRoute=location.pathname+location.search;},[location]);return <Notice/>;}const root=createRoot(document.getElementById('root'));window.renderNotice=()=>root.render(<BrowserRouter><NoticePage/></BrowserRouter>);window.renderWizard=props=>root.render(<Wizard key={props.fixtureKey} {...props} onClose={()=>{}} onSubmit={decision=>window.submitHandoff(decision)}/>);`,resolveDir:process.cwd(),loader:'jsx'},
+  stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {BrowserRouter,useLocation} from 'react-router-dom';import Notice from './components/MealPolicyNotice.jsx';function NoticePage(){const location=useLocation();React.useEffect(()=>{window.noticeRoute=location.pathname+location.search;},[location]);return <Notice/>;}const root=createRoot(document.getElementById('root'));window.renderNotice=()=>root.render(<BrowserRouter><NoticePage/></BrowserRouter>);`,resolveDir:process.cwd(),loader:'jsx'},
   bundle:true,write:false,format:'iife',jsx:'automatic',alias:{'@':process.cwd()},define:{'process.env.NODE_ENV':'"test"'},
   plugins:[{name:'meal-fixtures',setup(builder){
     builder.onResolve({filter:/lib\/(actorSession|mealPolicyClient)$/},args=>({path:args.path,namespace:'fixture'}));
@@ -98,18 +98,7 @@ let resolveResponse;w.fetch=()=>new Promise(resolve=>{resolveResponse=resolve;})
 await assert.rejects(()=>inflight,error=>error.code==='MEAL_POLICY_SESSION_CHANGED');
 pass('real policy client expires upcoming cache on server activation using a monotonic timer and rejects cached/in-flight cross-account results');
 
-const wizardProps={fixtureKey:'december-empty',open:true,actor,clientCount:1,grossTotal:100,baseTotal:100,bonusAvailable:5,mealPolicy:{dailyMealsAllowed:false},unsettledMealDeduct:0};
-w=open();w.returnedNet=95;w.renderWizard(wizardProps);await wait(()=>button('VAZHDO'));assert.match(text(),/Hapi 1 nga 2/);await click('VAZHDO');
-assert.match(text(),/Hapi 2 nga 2/);assert.doesNotMatch(text(),/A ke marrë ushqim sot/);assert.equal(query('[data-handoff-net]').textContent,'95.00 €');
-await click('DORËZO 95.00 €');await wait(()=>query('[data-handoff-confirmed-receipt]'));
-assert.equal(w.decisions.length,1);assert.equal(w.decisions[0].mealChoice,'monthly');assert.match(query('[data-handoff-confirmed-receipt]').textContent,/95.00/);
-pass('December wizard skips daily food, has two steps, preserves bonus retention and submits the visible net once');
-
-w=open();w.returnedNet=92;w.renderWizard({...wizardProps,fixtureKey:'december-carry',unsettledMealDeduct:3});await wait(()=>button('VAZHDO'));await click('VAZHDO');assert.equal(query('[data-handoff-net]').textContent,'92.00 €');assert.match(text(),/Ushqim nga periudha e mëparshme/);await click('DORËZO 92.00 €');await wait(()=>query('[data-handoff-confirmed-receipt]'));assert.equal(w.decisions[0].mealChoice,'monthly');
-pass('December handoff visibly settles an earlier €3 claim exactly once without creating a fresh daily meal');
-
-w=open();w.renderWizard({...wizardProps,fixtureKey:'november',mealPolicy:{dailyMealsAllowed:true},unsettledMealDeduct:3});await wait(()=>button('VAZHDO'));assert.match(text(),/Hapi 1 nga 3/);await click('VAZHDO');
-const selfButton=[...w.document.querySelectorAll('button')].find(item=>item.textContent.includes('Po, e kam pagu vet'));assert.ok(selfButton);selfButton.click();await sleep(20);await click('VAZHDO');assert.equal(query('[data-handoff-net]').textContent,'89.00 €');assert.match(text(),/Hapi 3 nga 3/);
-pass('November flow remains three steps and combines the existing claim with the selected daily meal once');
+// The five-step wizard’s November/December and carry tests live in
+// verify-worker-handoff-wizard-ui.mjs and run against its injected server API.
 dom.window.close();
 console.log(`Meal policy UI: ${passed} verification groups passed.`);

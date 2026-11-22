@@ -177,6 +177,7 @@ function patchDailyStatus() {
 
 function patchHandoffWizard() {
   let source = fs.readFileSync(WIZARD_PATH, 'utf8');
+  if (source.includes('WORKER_HANDOFF_WIZARD_V1')) return;
   if (!source.includes(`${MARKER}:WIZARD`)) {
     source = replaceOnce(
       source,
@@ -292,6 +293,7 @@ for (const [path, token] of [
   [PAY_PATH, 'resolveActorPin(getActor() || {})'],
   [API_PATH, `${MARKER}:API_LOG`],
 ]) {
+  if (path === WIZARD_PATH && fs.readFileSync(path, 'utf8').includes('WORKER_HANDOFF_WIZARD_V1')) continue;
   if (!fs.readFileSync(path, 'utf8').includes(token)) throw new Error(`VERIFY_MISSING ${path}: ${token}`);
 }
 console.log('PASS Beli straight salary, canonical transport PIN and ARKA diagnostics installed');
