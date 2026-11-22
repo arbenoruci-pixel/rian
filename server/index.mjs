@@ -1,5 +1,8 @@
 import transportControlHandler from '../api/transport-control.js';
 import workerBonusesHandler from '../api/worker-bonuses.js';
+import mealPolicyHandler from '../api/meal-policy.js';
+import handoffReceiptsHandler from '../api/handoff-receipts.js';
+import staffMessagesHandler from '../api/staff-messages.js';
 import transportPushHandler from '../api/transport/push.js';
 import inventoryAuditHandler from '../api/inventory-audit.js';
 import baseCodeStatusHandler from '../api/base-codes/status.js';
@@ -180,6 +183,9 @@ app.post('/api/base-codes/status', baseCodeStatusHandler);
 app.post('/api/base-bonus-evidence', bonusEvidenceHandler);
 app.post('/api/transport-control', transportControlHandler);
 app.post('/api/worker-bonuses', workerBonusesHandler);
+app.post('/api/meal-policy', mealPolicyHandler);
+app.post('/api/handoff-receipts', handoffReceiptsHandler);
+app.post('/api/staff-messages', staffMessagesHandler);
 app.post('/api/transport/push', transportPushHandler);
 app.post('/api/transport/order', transportOrderHandler);
 app.post('/api/transport/self-order', transportSelfOrderHandler);

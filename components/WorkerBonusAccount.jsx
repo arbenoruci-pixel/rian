@@ -68,6 +68,11 @@ function AllocationBadge({ status }) {
   const [label, tone] = ({ RETAINED: ['E mbajtur', 'green'], RESERVED: ['E rezervuar', 'gold'], REVERSED: ['Mbajtja u anulua', 'red'] })[value] || ['Në verifikim', ''];
   return <span className={`wba-status${tone ? ` wba-status-${tone}` : ''}`}>{label}</span>;
 }
+function HandoffStatus({ handoff }) {
+  return handoff.receiptTracking && ['PENDING', 'PENDING_DISPATCH_APPROVAL'].includes(handoff.status)
+    ? <span className="wba-status wba-status-gold">Cash-i ka diferencë të hapur</span>
+    : <Badge status={handoff.status} handoff />;
+}
 function Metric({ label, amount, sub, tone = '' }) {
   return <div className={`wba-metric${tone ? ` wba-metric-${tone}` : ''}`}>
     <div className="wba-metric-label">{label}</div><strong>{money(amount)}</strong><small>{sub}</small>
@@ -78,7 +83,7 @@ function SourceCard({ source }) {
   return <section className={`wba-source${transport ? ' wba-source-transport' : ''}`} data-bonus-source={source.source}>
     <div className="wba-source-title"><h3>{SOURCE_NAMES[source.source] || source.label}</h3><span className="wba-source-count">{Number(source.earnedCount || 0)} bonuse të fituara</span></div>
     <strong className="wba-source-main">{money(source.retained)}</strong>
-    <span className="wba-source-caption">Të mbajtura me dorëzim të pranuar këtë muaj</span>
+    <span className="wba-source-caption">Mbajtje bonusi të konfirmuara këtë muaj</span>
     <dl>
       <div><dt>Fituar këtë muaj</dt><dd>{money(source.earned)}</dd></div>
       <div><dt>Në dorëzim tani</dt><dd>{money(source.reserved)}</dd></div>
@@ -107,15 +112,15 @@ function BonusRow({ row }) {
     {handoffs.length ? <details className="wba-row-details">
       <summary>Dorëzimet e këtij bonusi <span>{handoffs.length}</span></summary>
       <ul>{handoffs.map((handoff, index) => <li key={`${handoff.id}-${index}`}>
-        <div><b>Dorëzimi #{handoff.id}</b><small>{stamp(handoff.decidedAt || handoff.submittedAt)}</small></div>
-        <div><strong>{money(handoff.amount)}</strong><Badge status={handoff.status} handoff /><AllocationBadge status={handoff.allocationStatus} /></div>
+        <div><b>Dorëzimi #{handoff.id}</b><small>{stamp(handoff.retainedAt || handoff.decidedAt || handoff.submittedAt)}</small></div>
+        <div><strong>{money(handoff.amount)}</strong><HandoffStatus handoff={handoff} /><AllocationBadge status={handoff.allocationStatus} /></div>
       </li>)}</ul>
     </details> : null}
   </article>;
 }
 function HandoffRow({ handoff }) {
   return <article className="wba-row" data-bonus-handoff={handoff.id}>
-    <div className="wba-row-head"><div><div className="wba-row-title"><strong>Dorëzimi #{handoff.id}</strong></div><p className="wba-row-meta">{handoff.decidedAt ? 'Vendosur' : 'Dërguar'} {stamp(handoff.decidedAt || handoff.submittedAt)}</p></div><Badge status={handoff.status} handoff /></div>
+    <div className="wba-row-head"><div><div className="wba-row-title"><strong>Dorëzimi #{handoff.id}</strong></div><p className="wba-row-meta">{handoff.retainedAt ? 'Bonusi u mbajt' : handoff.decidedAt ? 'Vendosur' : 'Dërguar'} {stamp(handoff.retainedAt || handoff.decidedAt || handoff.submittedAt)}</p></div><HandoffStatus handoff={handoff} /></div>
     <p className="wba-handoff-total">{money(handoff.total)} <small>bonuse në këtë dorëzim</small></p>
     <div className="wba-handoff-split"><span>Bazë <strong>{money(handoff.base)}</strong></span><span>Kontroll transporti <strong>{money(handoff.transport)}</strong></span></div>
     {list(handoff.allocations).length ? <details className="wba-row-details"><summary>Shiko bonuset e përfshira <span>{handoff.allocations.length}</span></summary><ul>
@@ -262,13 +267,13 @@ export default function WorkerBonusAccount({ actor, targetPin }) {
     {data ? <>
       <div className="wba-metrics">
         <Metric label="Fituar në muaj" amount={totals.earned} sub={`${Number(totals.earnedCount || 0)} bonuse · ${selectedMonth}`} />
-        <Metric label="Mbajtur në muaj" amount={totals.retained} sub="Dorëzime të pranuara nga Dispatch" tone="green" />
+        <Metric label="Mbajtur në muaj" amount={totals.retained} sub="Mbajtje të konfirmuara nga Dispatch" tone="green" />
         <Metric label="Në dorëzim tani" amount={totals.reserved} sub="Pret pranimin e Dispatch-it" tone="gold" />
         <Metric label="Në dispozicion" amount={totals.available} sub="Për t'u mbajtur në dorëzimin tjetër" tone="green" />
       </div>
       <p className="wba-scope-note">“Fituar” dhe “Mbajtur” i përkasin muajit të zgjedhur. Gjendja në dorëzim dhe në dispozicion përfshin edhe bonuset nga muajt e kaluar.</p>
       <div className="wba-sources">{sources.map(source => <SourceCard key={source.source} source={source} />)}</div>
-      <p className="wba-scope-note">Shumat e mbajtura verifikohen nga dorëzimet e pranuara. Një bonus i fituar më herët mund të jetë mbajtur këtë muaj.</p>
+      <p className="wba-scope-note">Dispatch-i e konfirmon bonusin kur regjistron pranimin. Diferenca e cash-it ndiqet në të njëjtin dorëzim. Një bonus i fituar më herët mund të jetë mbajtur këtë muaj.</p>
       {warnings.length ? <div className="wba-notice" role="status">{warnings.slice(0, warningLimit).map((warning, index) => <p key={`${warning.code}-${warning.bonusId}-${index}`}>Ka një mospërputhje në historikun e bonusit {warning.orderCode || ''} prej {money(warning.difference)}; duhet verifikim.</p>)}{warnings.length > warningLimit ? <button type="button" className="wba-more" onClick={() => setWarningLimit(warnings.length)}>Shiko të gjitha mospërputhjet ({warnings.length})</button> : null}</div> : null}
 
       <section className="wba-section" aria-label="Lista e bonuseve">

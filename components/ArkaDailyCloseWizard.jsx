@@ -4,6 +4,8 @@ import Link from '@/lib/routerCompat.jsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { readDailyExpenseIntent, prepareDailyExpenseIntent, acknowledgeDailyExpenseIntent } from '../lib/dailyExpenseIntent.js';
 import { withDeadline } from '../lib/boundedRequest.js';
+import HandoffReceiptsPanel from './HandoffReceiptsPanel.jsx';
+import { requestHandoffReceipts } from '../lib/handoffReceiptClient.js';
 import { getActor } from '@/lib/actorSession';
 import { supabase } from '@/lib/supabaseClient';
 import useRouteAlive from '@/lib/routeAlive';
@@ -12,7 +14,7 @@ import { bootMarkReady } from '@/lib/bootLog';
 const TIME_ZONE = 'Europe/Belgrade';
 const BUSINESS_DAY_CUTOFF_HOUR = 4; // ARKA_DAILY_OPERATIONS_V3
 const PREVIEW_RPC = 'get_arka_daily_close_preview_v4';
-const CLOSE_RPC = 'close_arka_day_v2';
+// HANDOFF_ACTUAL_RECEIPTS_V1: receipts post immediately; day close only counts physical box cash.
 const EXPENSE_RESOLVE_RPC = 'resolve_arka_expense_v2';
 const EXPENSE_CREATE_RPC = 'create_and_resolve_arka_expense_v2';
 const CACHE_PREFIX = 'tepiha_arka_daily_close_v2:';
@@ -25,7 +27,6 @@ const MANAGER_ROLES = new Set([
 const REASONS = [
   ['SHPENZIM_PA_REGJISTRUAR', 'SHPENZIM I PAREGJISTRUAR'],
   ['AVANS_PA_REGJISTRUAR', 'AVANS I PAREGJISTRUAR'],
-  ['PARA_TE_PUNTORI', 'PARA ENDE TE PUNËTORI'],
   ['GABIM_NUMERIMI', 'GABIM NË NUMËRIM'],
   ['HISTORICAL_RECONCILIATION', 'DIFERENCË HISTORIKE'],
   ['TJETER', 'ARSYE TJETËR'],
@@ -350,8 +351,6 @@ export default function ArkaDailyCloseWizard() {
   const [error, setError] = useState('');
   const [offlineSnapshot, setOfflineSnapshot] = useState(false);
   const [step, setStep] = useState(1);
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [confirmedIds, setConfirmedIds] = useState({});
   const [countedCash, setCountedCash] = useState('');
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
@@ -365,7 +364,6 @@ export default function ArkaDailyCloseWizard() {
   const [newExpenseNote, setNewExpenseNote] = useState('');
   const [newExpenseBusy, setNewExpenseBusy] = useState(false);
   const [result, setResult] = useState(null);
-  const initializedRef = useRef(false);
   const requestRef = useRef(0);
   const expenseMutationLockRef = useRef(false);
   const newExpenseIntentRef = useRef(null);
@@ -401,15 +399,11 @@ export default function ArkaDailyCloseWizard() {
   const closedItems = rows(preview?.closed_items);
   const isClosed = closedCycle?.is_closed === true || upper(closedCycle?.close_status) === 'CLOSED';
 
-  const selectedSet = useMemo(() => new Set(selectedIds.map(Number)), [selectedIds]);
-  const selectedHandoffs = pendingHandoffs.filter((row) => selectedSet.has(Number(row?.id)));
-  const selectedTotal = +selectedHandoffs.reduce((sum, row) => sum + n(row?.amount), 0).toFixed(2);
   const currentBudget = n(preview?.current_budget);
-  const expectedCash = +(currentBudget + selectedTotal).toFixed(2);
+  const expectedCash = currentBudget;
   const countedValue = parseMoneyInput(countedCash);
   const discrepancy = countedValue == null ? null : +(countedValue - expectedCash).toFixed(2);
   const hasDiscrepancy = discrepancy != null && Math.abs(discrepancy) > 0.01;
-  const everySelectedConfirmed = selectedHandoffs.every((row) => confirmedIds[String(row?.id)] === true);
   const pendingExpenseCount = n(preview?.pending_expenses_count ?? pendingExpenses.length);
   // ARKA_REOPENABLE_DAILY_WIZARD_V1 / ARKA_ACTIONABLE_REOPEN_V2: a prior final report reopens only for actions Dispatch can complete now.
   const openCashAtWorkers = rows(preview?.open_cash_at_workers);
@@ -432,12 +426,6 @@ export default function ArkaDailyCloseWizard() {
   const dailyNetM2 = n(dailyOperations?.net_m2);
   const dailyPastrimM2 = n(dailyCurrent?.pastrim?.m2);
   const dailyGatiM2 = n(dailyCurrent?.gati?.m2);
-
-  useEffect(() => {
-    if (!preview || showClosedReceiptOnly || countedCashManualRef.current) return;
-    const automaticValue = expectedCash.toFixed(2);
-    setCountedCash((current) => current === automaticValue ? current : automaticValue);
-  }, [expectedCash, showClosedReceiptOnly, preview?.generated_at]);
 
   async function loadPreview({ force = false } = {}) {
     const pin = String(actor?.pin || '').trim();
@@ -479,12 +467,6 @@ export default function ArkaDailyCloseWizard() {
       setPreview(next);
       setOfflineSnapshot(false);
       writeCache(pin, date, next);
-      if (!initializedRef.current) {
-        const ids = rows(next?.pending_handoffs).map((row) => Number(row?.id)).filter((id) => id > 0);
-        setSelectedIds(ids);
-        setConfirmedIds({});
-        initializedRef.current = true;
-      }
     } catch (err) {
       if (seq !== requestRef.current) return;
       const message = String(err?.message || err?.details || err || 'NUK U NGARKUA MBYLLJA DITORE.');
@@ -508,31 +490,14 @@ export default function ArkaDailyCloseWizard() {
     void loadPreview({ force: true });
   }, [actor?.pin]);
 
-  function toggleSelected(id) {
-    countedCashManualRef.current = false;
-    setCountedCash('');
-    const value = Number(id);
-    if (!(value > 0)) return;
-    setDryRun(null);
-    setFinalConfirm(false);
-    setSelectedIds((current) => current.includes(value) ? current.filter((x) => x !== value) : [...current, value]);
-    setConfirmedIds((current) => ({ ...current, [String(value)]: false }));
-  }
-
-  function toggleConfirmed(id) {
-    const key = String(id);
-    setDryRun(null);
-    setFinalConfirm(false);
-    setConfirmedIds((current) => ({ ...current, [key]: !current[key] }));
+  async function receiptChanged() {
+    setDryRun(null); setFinalConfirm(false); setResult(null);
+    countedCashManualRef.current = true; setCountedCash('');
+    await loadPreview({ force:true });
   }
 
   function goNextFromHandoffs() {
-    if (!everySelectedConfirmed) {
-      setError('KONFIRMO “I MORA” PËR SECILIN DORËZIM QË PO E FUT NË BOX.');
-      return;
-    }
-    setError('');
-    setStep(2);
+    setError(''); setStep(2);
   }
 
   function goNextFromOutgoings() {
@@ -542,7 +507,7 @@ export default function ArkaDailyCloseWizard() {
     }
     setError('');
     countedCashManualRef.current = false;
-    setCountedCash(expectedCash.toFixed(2));
+    setCountedCash('');
     setStep(3);
   }
 
@@ -691,22 +656,15 @@ export default function ArkaDailyCloseWizard() {
     setSubmitting(true);
     setError('');
     try {
-      const key = `ARKA_DAILY_CLOSE_V2:${date}:${selectedIds.slice().sort((a, b) => a - b).join('-')}:${counted.toFixed(2)}`;
-      const { data, error: rpcError } = await supabase.rpc(CLOSE_RPC, {
-        p_actor_pin: String(actor?.pin || '').trim(),
-        p_actor_name: String(actor?.name || actor?.pin || '').trim(),
-        p_date: date,
-        p_handoff_ids: selectedIds,
-        p_counted_cash: counted,
-        p_discrepancy_reason: hasDiscrepancy ? reason : 'NO_DISCREPANCY',
-        p_discrepancy_note: hasDiscrepancy ? String(note || '').trim() : 'PËRPUTHJE E PLOTË',
-        p_idempotency_key: key,
-        p_dry_run: true,
+      const key = randomKey('ARKA_RECEIPT_CLOSE');
+      const data = await requestHandoffReceipts({
+        action:'daily-check', date, countedCash:counted, expectedBudget:currentBudget,
+        reason:hasDiscrepancy ? reason : 'NO_DISCREPANCY',
+        note:hasDiscrepancy ? String(note || '').trim() : 'PËRPUTHJE E PLOTË', requestKey:key,
       });
-      if (rpcError) throw rpcError;
       const check = obj(data);
       if (check?.ok !== true || check?.dry_run !== true) throw new Error(check?.message || 'KONTROLLI I SERVERIT DËSHTOI.');
-      setDryRun(check);
+      setDryRun({ ...check, receipt_request_key:key });
       setFinalConfirm(false);
       setStep(4);
     } catch (err) {
@@ -731,20 +689,12 @@ export default function ArkaDailyCloseWizard() {
     setError('');
     try {
       const counted = n(dryRun?.counted_cash);
-      const ids = rows(dryRun?.selected_handoff_ids).map(Number).filter((id) => id > 0);
-      const key = `ARKA_DAILY_CLOSE_V2:${date}:${ids.slice().sort((a, b) => a - b).join('-')}:${counted.toFixed(2)}`;
-      const { data, error: rpcError } = await supabase.rpc(CLOSE_RPC, {
-        p_actor_pin: String(actor?.pin || '').trim(),
-        p_actor_name: String(actor?.name || actor?.pin || '').trim(),
-        p_date: date,
-        p_handoff_ids: ids,
-        p_counted_cash: counted,
-        p_discrepancy_reason: Math.abs(n(dryRun?.discrepancy)) > 0.01 ? reason : 'NO_DISCREPANCY',
-        p_discrepancy_note: Math.abs(n(dryRun?.discrepancy)) > 0.01 ? String(note || '').trim() : 'PËRPUTHJE E PLOTË',
-        p_idempotency_key: key,
-        p_dry_run: false,
+      const data = await requestHandoffReceipts({
+        action:'daily-close', date, countedCash:counted, expectedBudget:n(dryRun?.budget_before),
+        reason:Math.abs(n(dryRun?.discrepancy)) > 0.01 ? reason : 'NO_DISCREPANCY',
+        note:Math.abs(n(dryRun?.discrepancy)) > 0.01 ? String(note || '').trim() : 'PËRPUTHJE E PLOTË',
+        requestKey:dryRun.receipt_request_key,
       });
-      if (rpcError) throw rpcError;
       const closed = obj(data);
       if (closed?.ok !== true) throw new Error(closed?.message || 'MBYLLJA NUK U RUAJT.');
       setResult(closed);
@@ -844,7 +794,7 @@ export default function ArkaDailyCloseWizard() {
           <>
             {isClosed && hasLiveWizardWork ? (
               <Alert tone="warn">
-                RAPORTI I DITËS ËSHTË FINALIZUAR MË HERËT, POR KA DORËZIME OSE DALJE TË REJA. WIZARD-I ËSHTË RIHAPUR; PRANOJI DHE FINALIZOJE RAPORTIN PËRSËRI.
+                RAPORTI ËSHTË FINALIZUAR MË HERËT. PRANIMET E REJA PËRFSHIHEN KUR E FINALIZON PËRSËRI. DIFERENCAT E HAPURA MBETEN TE DORËZIMET E PUNËTORËVE.
               </Alert>
             ) : null}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 6 }}>
@@ -858,46 +808,21 @@ export default function ArkaDailyCloseWizard() {
               <div style={{ display: 'grid', gap: 12 }}>
                 <Card tone="info">
                   <div style={{ fontSize: 15, fontWeight: 1000 }}>1. KONTROLLO DORËZIMET</div>
-                  <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>Për secilin punëtor shëno “I MORA”. Vetëm dorëzimet e konfirmuara hyjnë në buxhet.</div>
+                  <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>Shkruaje shumën që e more realisht nga punëtori. Pjesa e mbetur ruhet te dorëzimi dhe mund të pranohet më vonë.</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(145px,1fr))', gap: 8 }}>
                     <Metric label="BUXHETI PARA MBYLLJES" value={money(currentBudget)} tone="strong" />
-                    <Metric label="DORËZIME TË ZGJEDHURA" value={money(selectedTotal)} tone="ok" sub={`${selectedHandoffs.length} dorëzime`} />
-                    <Metric label="PRITET PAS PRANIMIT" value={money(expectedCash)} tone="info" />
+                    <Metric label="MBETET TE PUNËTORËT" value={money(preview?.pending_handoffs_total)} tone="warn" sub={`${pendingHandoffs.length} dorëzime`} />
+                    <Metric label="PRANUAR REALISHT SOT" value={money(receivedTodayTotal)} tone="ok" />
                   </div>
                 </Card>
 
-                <Card>
-                  <div style={{ fontSize: 13, fontWeight: 1000 }}>DORËZIME NË PRITJE</div>
-                  {pendingHandoffs.length ? pendingHandoffs.map((row) => {
-                    const id = Number(row?.id);
-                    const selected = selectedSet.has(id);
-                    const confirmed = confirmedIds[String(id)] === true;
-                    return (
-                      <Row
-                        key={`pending_handoff_${id}`}
-                        title={`${upper(row?.worker_name || row?.worker_pin)} • DORËZIM #${id}`}
-                        meta={`${n(row?.item_count)} pagesa • dërguar ${stamp(row?.submitted_at)}${row?.note ? ` • ${row.note}` : ''}`}
-                        amount={money(row?.amount)}
-                        tone={selected && confirmed ? 'ok' : selected ? 'warn' : 'neutral'}
-                      >
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                          <button type="button" onClick={() => toggleSelected(id)} style={{ ...secondaryButtonStyle, background: selected ? 'rgba(37,99,235,.24)' : 'rgba(51,65,85,.52)', color: selected ? '#dbeafe' : '#cbd5e1' }}>
-                            {selected ? '✓ PËRFSHIJE' : 'MOS E PËRFSHI'}
-                          </button>
-                          <button type="button" disabled={!selected} onClick={() => toggleConfirmed(id)} style={{ ...secondaryButtonStyle, opacity: selected ? 1 : .45, background: confirmed ? 'rgba(21,128,61,.24)' : 'rgba(120,53,15,.24)', color: confirmed ? palette.ok : palette.warn }}>
-                            {confirmed ? '✓ I MORA' : 'I MORA PARATË'}
-                          </button>
-                        </div>
-                      </Row>
-                    );
-                  }) : <Alert tone="ok">S’KA DORËZIME TË REJA NË PRITJE. Mund ta mbyllësh ditën vetëm me numërimin fizik.</Alert>}
-                </Card>
+                <HandoffReceiptsPanel actor={actor} onChange={receiptChanged} />
 
                 {receivedToday.length ? (
                   <Card tone="ok">
                     <div style={{ fontSize: 13, fontWeight: 1000 }}>TASHMË TË PRANUARA SOT</div>
                     {receivedToday.map((row) => (
-                      <Row key={`received_${row?.handoff_id || row?.id}`} title={upper(row?.worker_name || row?.worker_pin)} meta={`DORËZIM #${row?.handoff_id || row?.id} • ${stamp(row?.accepted_at || row?.created_at)}`} amount={money(row?.amount)} tone="ok" />
+                      <Row key={`received_${row?.ledger_entry_id || row?.id}`} title={upper(row?.worker_name || row?.worker_pin)} meta={`DORËZIM #${row?.handoff_id || row?.id} • ${stamp(row?.accepted_at || row?.created_at)}`} amount={money(row?.amount)} tone="ok" />
                     ))}
                   </Card>
                 ) : null}
@@ -909,7 +834,7 @@ export default function ArkaDailyCloseWizard() {
                   )) : <div style={{ color: palette.muted, fontSize: 11 }}>S’KA CASH TË HAPUR TE PUNËTORËT.</div>}
                 </Card>
 
-                <button type="button" disabled={!everySelectedConfirmed} onClick={goNextFromHandoffs} style={{ ...primaryButtonStyle, opacity: everySelectedConfirmed ? 1 : .52 }}>
+                <button type="button" onClick={goNextFromHandoffs} style={primaryButtonStyle}>
                   VAZHDO TE DALJET →
                 </button>
               </div>
@@ -1035,14 +960,13 @@ export default function ArkaDailyCloseWizard() {
               <div style={{ display: 'grid', gap: 12 }}>
                 <Card tone="info">
                   <div style={{ fontSize: 15, fontWeight: 1000 }}>3. NUMËRO PARATË FIZIKISHT</div>
-                  <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>Numëro krejt paratë që janë realisht në box pasi i ke marrë dorëzimet e zgjedhura.</div>
+                  <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>Numëro paratë që janë fizikisht në arkë. Pranimet cash të ruajtura më lart janë përfshirë në gjendje.</div>
                   <div style={{ display: 'grid', gap: 7 }}>
                     <Row title="BUXHETI PARA MBYLLJES" amount={money(currentBudget)} />
-                    <Row title="+ DORËZIMET E KONFIRMUARA" amount={money(selectedTotal)} tone="ok" />
                     <Row title="= DUHET TË JENË NË BOX" amount={money(expectedCash)} tone="info" />
                   </div>
                   <label style={{ display: 'grid', gap: 7 }}>
-                    <span style={{ fontSize: 11, fontWeight: 1000, color: palette.info }}>SHUMA U VENDOS AUTOMATIKISHT — NDRYSHOJE VETËM NËSE CASH-I FIZIK NUK PËRPUTHET</span>
+                    <span style={{ fontSize: 11, fontWeight: 1000, color: palette.info }}>SHKRUAJ SHUMËN QË E NUMËROVE FIZIKISHT NË ARKË</span>
                     <input
                       inputMode="decimal"
                       value={countedCash}
@@ -1069,7 +993,7 @@ export default function ArkaDailyCloseWizard() {
                       {REASONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
                     <textarea value={note} onChange={(event) => { setNote(event.target.value); setDryRun(null); }} rows={4} placeholder="Shkruaj çka ka ndodhur, kujt i janë dhënë paratë ose çka duhet hetuar..." style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${palette.line}`, borderRadius: 12, padding: 12, background: '#0f172a', color: '#fff', fontSize: 12, lineHeight: 1.45, fontWeight: 750, resize: 'vertical' }} />
-                    <Alert>Diferenca ruhet në ledger dhe në raportin ditor. Buxheti final barazohet me shumën e numëruar fizikisht.</Alert>
+                    <Alert>Kjo është diferencë e parave brenda arkës. Mungesën në dorëzimin e një punëtori regjistroje te “Dorëzimet”, që të mbetet e lidhur me të. Diferenca e arkës ruhet në raportin ditor.</Alert>
                   </Card>
                 ) : null}
 
@@ -1084,10 +1008,9 @@ export default function ArkaDailyCloseWizard() {
               <div style={{ display: 'grid', gap: 12 }}>
                 <Card tone={Math.abs(n(dryRun?.discrepancy)) <= .01 ? 'ok' : 'warn'}>
                   <div style={{ fontSize: 15, fontWeight: 1000 }}>4. KONFIRMIMI FINAL</div>
-                  <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>Serveri e ka verifikuar listën. Pas konfirmimit, dorëzimet hyjnë në buxhet dhe dita mbyllet.</div>
+                  <div style={{ color: palette.muted, fontSize: 11, lineHeight: 1.45, fontWeight: 750 }}>Serveri e verifikoi gjendjen e arkës. Konfirmimi ruan numërimin dhe raportin ditor; diferencat e punëtorëve vazhdojnë të ndiqen te dorëzimet.</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(145px,1fr))', gap: 8 }}>
                     <Metric label="BUXHETI PARA" value={money(dryRun?.budget_before)} tone="strong" />
-                    <Metric label="DORËZIMET QË HYJNË" value={money(dryRun?.selected_handoffs_total)} tone="ok" sub={`${rows(dryRun?.selected_handoff_ids).length} dorëzime`} />
                     <Metric label="PRITEJ" value={money(dryRun?.expected_cash)} tone="info" />
                     <Metric label="NUMËRUAR" value={money(dryRun?.counted_cash)} tone="strong" />
                     <Metric label="DIFERENCA" value={money(dryRun?.discrepancy)} tone={Math.abs(n(dryRun?.discrepancy)) <= .01 ? 'ok' : 'warn'} />

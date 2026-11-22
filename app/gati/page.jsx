@@ -2,6 +2,7 @@ import { fetchGatiExactTarget } from '@/lib/gatiExactOpen';
 import GatiExactOpenNotice from '@/components/GatiExactOpenNotice';
 import InventoryAuditLink from '@/components/InventoryAuditLink';
 import BonusEvidenceLink from '@/components/BonusEvidenceLink';
+import OperationsTools from '@/components/OperationsTools';
 import { canAuditInventory } from '@/lib/inventoryAudit';
 import { TrackedReadySmsModal, ReadyNotificationBadge, useReadyNotifications } from '@/components/ReadyNotification';
 'use client';
@@ -4065,7 +4066,7 @@ async function resolveReturnDbId(row) {
           <div>
             TOTAL M²: <strong>{totalM2.toFixed(2)} m²</strong>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <OperationsTools>
             <InventoryAuditLink stage="ready" />
             <BonusEvidenceLink />
             <button
@@ -4087,16 +4088,23 @@ async function resolveReturnDbId(row) {
               }}
               style={{ background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.5)', color: '#fca5a5', padding: '6px 10px', borderRadius: '8px', fontWeight: '900', fontSize: '11px' }}
             >🧹 FSHI CACHE</button>
-          </div>
+          </OperationsTools>
         </div>
       </header>
 
       <input
         className="input"
+        aria-label="Kërko porosi gati"
         placeholder="🔎 Kërko emrin / telefonin / kodin..."
         value={search}
+        disabled={exactMode}
         onChange={(e) => setSearch(e.target.value)}
       />
+
+      <div className="operationsSearchContext">
+        <span>{exactMode ? `Porosia e kërkuar: ${openCode || '—'}` : `${notificationFiltered.length} porosi të shfaqura`}{search.trim() && !exactMode ? ' · Sipas kërkimit' : ''}</span>
+        {exactMode ? <button type="button" onClick={() => router.push('/gati')}>Kërko te të gjitha</button> : search.trim() ? <button type="button" onClick={() => setSearch('')}>Pastro kërkimin</button> : null}
+      </div>
 
       <div style={{fontSize:12,color:'#cbd5e1',padding:'8px 0'}}>LAJMËRIMET GATI: {orders.filter(o => notificationHistory.summary(o.id)?.kind === 'confirmed').length}/{orders.length} me konfirmim nga punëtori. {notificationHistory.status}<button type="button" className="btn secondary" aria-pressed={onlyUnconfirmedNotifications} onClick={() => setOnlyUnconfirmedNotifications(v => !v)} style={{marginLeft:8}}>{onlyUnconfirmedNotifications ? 'SHFAQ TË GJITHA' : 'VETËM PA KONFIRMIM'}</button></div>
       {canAuditInventory(readActor()?.role) && discrepancyRows.length > 0 && (
@@ -4168,7 +4176,7 @@ async function resolveReturnDbId(row) {
         {loading ? (
           <p style={{ textAlign: 'center' }}>Duke u ngarkuar...</p>
         ) : notificationFiltered.length === 0 ? (
-          <GatiExactOpenNotice exactMode={exactMode} code={openCode} state={exactOpenState} filteredOut={onlyUnconfirmedNotifications && filtered.length > 0} onRetry={() => { setLoading(true); refreshOrders('exact_target'); }} onShowAll={() => setOnlyUnconfirmedNotifications(false)} />
+          search.trim() && !exactMode ? <p role="status" style={{ padding: 16, color: '#cbd5e1' }}>Asnjë porosi nuk përputhet me kërkimin. Provo një emër ose kod tjetër.</p> : <GatiExactOpenNotice exactMode={exactMode} code={openCode} state={exactOpenState} filteredOut={onlyUnconfirmedNotifications && filtered.length > 0} onRetry={() => { setLoading(true); refreshOrders('exact_target'); }} onShowAll={() => setOnlyUnconfirmedNotifications(false)} />
         ) : (
           notificationFiltered.map((o) => {
             if (!o || !o.id) return null;
@@ -4228,6 +4236,7 @@ async function resolveReturnDbId(row) {
                   <div style={{ minWidth: 0 }}>
                     <button
                       type="button"
+                      data-gati-client-name="1"
                       aria-label={`Hap kartelën e klientit ${o.name || ''}`}
                       onClick={(event) => { event.stopPropagation(); setClientProfileAnchor(o); }}
                       style={{
@@ -4247,21 +4256,13 @@ async function resolveReturnDbId(row) {
                     >
                       {o.name || 'Pa emër'}
                     </button>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
+                    <div data-gati-quantity="1" style={{ fontSize: 13, color: '#cbd5e1' }}>
                       {cope} copë • {m2.toFixed(2)} m²
                     </div>
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.48)', marginTop: 2 }}>
-                      PRANUAR: {formatDayMonth(o.ts)}
-                    </div>
-                    <ReadyNotificationBadge event={notificationHistory.summary(o.id)} onClick={() => sendPickupSms(o)} />
-                    {o.paidUpfront && (
-                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 900 }}>✅ E PAGUAR (NË FILLIM)</div>
-                    )}
-                    {paid > 0 && !o.paidUpfront && (
-                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>Paguar: {paid.toFixed(2)}€</div>
-                    )}
+                    <div style={{ fontSize: 13, color: isPaid ? '#86efac' : '#fda4af', fontWeight: 800, marginTop: 4 }}>{isPaid ? 'E paguar' : `Për pagesë: ${debt.toFixed(2)} €`}</div>
                     <button
                       type="button"
+                      data-gati-rack="1"
                       onClick={() => openPlaceCard(o)}
                       style={{ display: 'block', padding: 0, border: 0, background: 'transparent', textAlign: 'left', fontSize: 11, color: hasReadyRack ? '#4ade80' : '#f59e0b', fontWeight: 900, cursor: 'pointer' }}
                     >
@@ -4270,6 +4271,12 @@ async function resolveReturnDbId(row) {
                       </span>
                       {!hasReadyRack ? <span style={{ display: 'inline-block', marginTop: 4, color: '#bfdbfe' }}>VENDOS RAFTIN KONKRET</span> : null}
                     </button>
+                    <ReadyNotificationBadge event={notificationHistory.summary(o.id)} compact />
+                    <details className="operationsOrderDetails">
+                      <summary>Detajet e porosisë</summary>
+                      <div>Pranuar: {formatDayMonth(o.ts)}</div>
+                      {paid > 0 ? <div>Paguar: {paid.toFixed(2)} €{o.paidUpfront ? ' · Në fillim' : ''}</div> : null}
+                      <button type="button" onClick={() => openReturn(o)} style={{ minHeight: 40, marginTop: 5, padding: '8px 10px', border: '1px solid #475569', borderRadius: 9, color: '#e2e8f0', background: '#111827' }}>Kthe në pastrim…</button>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
                       <span style={{ fontSize: 10, fontWeight: 900, padding: '4px 8px', borderRadius: 999, background: auditBadge.bg, color: auditBadge.color }}>
                         {auditBadge.text}
@@ -4280,8 +4287,9 @@ async function resolveReturnDbId(row) {
                         </span>
                       )}
                     </div>
+                    </details>
                     {discrepancy && (
-                      <div style={{ fontSize: 10, color: '#fca5a5', fontWeight: 900, marginTop: 4 }}>
+                      <div style={{ fontSize: 13, color: '#fca5a5', fontWeight: 900, marginTop: 4 }}>
                         {discrepancy.label}
                       </div>
                     )}
@@ -4293,8 +4301,10 @@ async function resolveReturnDbId(row) {
                     SMS
                   </button>
                   <button
+                    type="button"
                     className="btn primary"
                     style={{ padding: '6px 10px', fontSize: 12, touchAction: 'manipulation' }}
+                    onClick={(event) => { if (event.detail === 0) openPay(o); }}
                     onPointerDown={(e) => {
                       e.preventDefault();
                       onPayPressStart(o);
@@ -4310,7 +4320,7 @@ async function resolveReturnDbId(row) {
                       if (holdTimer.current) clearTimeout(holdTimer.current);
                     }}
                   >
-                    💶 PAGUAJ
+                    {isPaid ? 'DORËZO' : 'PAGUAJ & DORËZO'}
                   </button>
                 </div>
               </div>

@@ -348,6 +348,8 @@ function patchPayrollLib() {
 
 function patchPayrollPage() {
   let source = fs.readFileSync(PAYROLL_PATH, 'utf8');
+  // The dated allowance implementation already contains the unified payroll changes.
+  if (source.includes('MEAL_POLICY_DATED_V1')) return;
 
   if (!source.includes("import WorkerCompensationEditor from '@/components/WorkerCompensationEditor';")) {
     source = replaceOnce(

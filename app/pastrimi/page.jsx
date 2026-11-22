@@ -1,5 +1,6 @@
 import InventoryAuditLink from '@/components/InventoryAuditLink';
 import BonusEvidenceLink from '@/components/BonusEvidenceLink';
+import OperationsTools from '@/components/OperationsTools';
 'use client';
 
 // AUTHORITATIVE_OFFLINE_LISTS_V2:PASTRIMI
@@ -6939,8 +6940,6 @@ Shoferi u njoftua në listën e tij.`);
       <header className="header-row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <h1 className="title" style={{ margin: 0 }}>PASTRIMI</h1>
-          <InventoryAuditLink stage="processing" />
-          <BonusEvidenceLink />
           <span
             aria-label={`Burimi i të dhënave: ${pastrimiSourceBadge}`}
             title={pastrimiSourceBadge === 'LOCAL' ? 'TË DHËNA LOKALE' : 'SYNC / DB'}
@@ -6959,9 +6958,12 @@ Shoferi u njoftua në listën e tij.`);
               letterSpacing: '.04em',
               lineHeight: 1,
             }}
-          >{pastrimiSourceBadge}</span>
+          >{pastrimiSourceBadge === 'LOCAL' ? 'Pa lidhje' : 'Përditësuar'}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto' }}>
+          <OperationsTools>
+          <InventoryAuditLink stage="processing" />
+          <BonusEvidenceLink />
           <button
             onClick={async () => {
               if (!window.confirm('A jeni të sigurt që doni të pastroni ghost cache për PASTRIMI?')) return;
@@ -6977,14 +6979,15 @@ Shoferi u njoftua në listën e tij.`);
               }
             }}
             style={{ background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.5)', color: '#fca5a5', padding: '6px 10px', borderRadius: '8px', fontWeight: '900', fontSize: '11px' }}>🧹 FSHI CACHE</button>
+          </OperationsTools>
         </div>
       </header>
 
-      <section className="cap-card">
+      <section className="cap-card" data-capacity-state={Number(headerPastrimM2 || streamPastrimM2 || 0) > STREAM_MAX_M2 ? 'over' : 'normal'}>
         <div className="cap-title">TOTAL M² NË PROCES</div>
         <div className="cap-value">{Number(headerPastrimM2 || streamPastrimM2 || 0).toFixed(1)}</div>
-        <div className="cap-bar"><div className="cap-fill" style={{ width: `${streamPct}%` }} /></div>
-        <div className="cap-row"><span>0 m²</span><span>MAX: {STREAM_MAX_M2} m²</span></div>
+        <div className="cap-bar" role="meter" aria-label="Kapaciteti në pastrim" aria-valuemin={0} aria-valuemax={STREAM_MAX_M2} aria-valuenow={Math.min(STREAM_MAX_M2, Number(headerPastrimM2 || streamPastrimM2 || 0))} aria-valuetext={`${Number(headerPastrimM2 || streamPastrimM2 || 0).toFixed(1)} nga ${STREAM_MAX_M2} m²`}><div className="cap-fill" style={{ width: `${streamPct}%` }} /></div>
+        <div className="cap-row"><span>{Number(headerPastrimM2 || streamPastrimM2 || 0) > STREAM_MAX_M2 ? `${(Number(headerPastrimM2 || streamPastrimM2 || 0) - STREAM_MAX_M2).toFixed(1)} m² mbi kapacitet` : 'Kapaciteti i përgjithshëm'}</span><span>Maksimumi: {STREAM_MAX_M2} m²</span></div>
         {showPastrimiDebugUi ? (
           <div style={{ marginTop: 8, fontSize: 10, fontWeight: 900, color: 'rgba(226,232,240,.72)', letterSpacing: '.03em' }}>{debugCounterText}</div>
         ) : null}
@@ -7229,6 +7232,7 @@ Shoferi u njoftua në listën e tij.`);
 
       <input
         className="input"
+        aria-label="Kërko porosi në pastrim"
         placeholder="🔎 Kërko kodin, emrin ose telefonin"
         value={search}
         inputMode="search"
@@ -7245,7 +7249,9 @@ Shoferi u njoftua në listën e tij.`);
         }}
       />
 
-      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', margin: '2px 0 10px' }}>
+      {String(search || '').trim() ? <div className="operationsSearchContext" role="status"><span>Po kërkon te të gjithë punëtorët · {displayOrders.length} rezultate</span><button type="button" onClick={() => setSearch('')}>Pastro kërkimin</button></div> : null}
+
+      <div className="pastrimiFilterChips" style={{ display: 'flex', gap: 7, flexWrap: 'wrap', margin: '2px 0 10px' }}>
         {PASTRIM_FILTER_CHIPS.map((chip) => {
           const isActive = pastrimFilter === chip.key;
           const count = pastrimFilterCounts?.[chip.key] ?? 0;
@@ -7340,7 +7346,7 @@ Shoferi u njoftua në listën e tij.`);
                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.75)', fontWeight: 800 }}>{formatDayMonth(o.ts)}</div>
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <button type="button" aria-label={`Hap kartelën e klientit ${o.name || ''}`} onClick={(event) => { event.stopPropagation(); setClientProfileAnchor(o); }} style={{ display: 'block', width: '100%', padding: 0, border: 0, background: 'transparent', color: 'inherit', textAlign: 'left', fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', cursor: 'pointer' }}>
+                    <button type="button" data-pastrimi-client-name="1" aria-label={`Hap kartelën e klientit ${o.name || ''}`} onClick={(event) => { event.stopPropagation(); setClientProfileAnchor(o); }} style={{ display: 'block', width: '100%', padding: 0, border: 0, background: 'transparent', color: 'inherit', textAlign: 'left', fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'normal', maxWidth: '100%', cursor: 'pointer' }}>
                       {o.name} 
                       {/* SHTUAR: Etiketa NË PRITJE për Offline */}
                       {o._outboxPending && <span style={{ color: '#f59e0b', fontWeight: 800, marginLeft: 6 }}>⏳ PRITJE</span>}
@@ -7447,7 +7453,7 @@ Shoferi u njoftua në listën e tij.`);
                     </button>
                   )}
                   <button id={`btn-${o.id}`} className="btn primary" style={{ padding: '5px 6px', fontSize: 10, whiteSpace: 'nowrap', backgroundColor: isTransportDisplay ? '#dc2626' : '#16a34a' }} onClick={() => openReadyPlaceSheet(o)}>
-                    PAKETO / SMS
+                    {paketimiBadge.tone === 'wrapped' || paketimiBadge.tone === 'ready' ? 'VENDOS NË RAFT' : paketimiBadge.tone === 'complete' ? 'PAKETO' : 'KONTROLLO COPËT'}
                   </button>
                 </div>
               </div>
@@ -7703,7 +7709,7 @@ Shoferi u njoftua në listën e tij.`);
           primaryDisabled = true;
           primaryAction = undefined;
         } else if (stats.allFound && !paketimiDraft?.wrapped) {
-          primaryLabel = 'VAZHDO TE RAFTI';
+          primaryLabel = 'RUAJ PAKETIMIN DHE VAZHDO TE RAFTI';
           primaryDisabled = !!paketimiBusy;
           primaryAction = markPaketimiWrapped;
         } else if (paketimiDraft?.wrapped && (!rackValue || !hasConcreteRackLocation(rackValue))) {

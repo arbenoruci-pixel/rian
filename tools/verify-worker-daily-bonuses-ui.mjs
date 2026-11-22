@@ -10,7 +10,7 @@ const bundle = await build({
   bundle: true, write: false, format: 'iife', jsx: 'automatic', alias: { '@': process.cwd() },
   loader: { '.css': 'empty' }, define: { 'process.env.NODE_ENV': '"test"' },
   plugins: [{ name: 'read-only-daily-bonus-fixtures', setup(builder) {
-    builder.onResolve({ filter: /(?:lib\/(?:workerBonusAccountClient\.js|actorSession|routerCompat\.jsx|supabaseClient)|WorkerBonusAccount\.jsx)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
+    builder.onResolve({ filter: /(?:lib\/(?:workerBonusAccountClient\.js|actorSession|routerCompat\.jsx|supabaseClient)|WorkerBonusAccount\.jsx|HandoffReceiptsPanel\.jsx)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
     builder.onLoad({ filter: /.*/, namespace: 'fixture' }, args => {
       const contents = {
         'workerBonusAccountClient.js': `export const fetchWorkerBonusAccount=args=>window.fetchAccount(args);`,
@@ -18,6 +18,7 @@ const bundle = await build({
         'routerCompat.jsx': `import React from 'react';export default function Link({href,to,children,...props}){return <a href={href||to} {...props}>{children}</a>}`,
         supabaseClient: `export const supabase={rpc:async(name,args)=>{window.rpcCalls.push({name,args});if(name!=='get_worker_finance_snapshot_v1')throw new Error('Unexpected mutation');return {data:window.financeFixture,error:null}}};`,
         'WorkerBonusAccount.jsx': `import React from 'react';export default function Monthly(){return <section id="bonuset" data-monthly-bonus-fixture="true">Llogaria e plotë e bonuseve</section>}`,
+        'HandoffReceiptsPanel.jsx': `export default function Receipts(){return null;}`,
       }[args.path.split('/').at(-1)];
       if (!contents) throw new Error(`Missing fixture: ${args.path}`);
       return { contents, loader: 'jsx', resolveDir: process.cwd() };

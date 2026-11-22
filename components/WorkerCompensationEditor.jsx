@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { fetchMealPolicy } from '@/lib/mealPolicyClient';
+import { mealPolicyForWorker, resolveMonthlyMealAllowance } from '@/lib/mealPolicy';
 
 function n(value) {
   const parsed = Number(String(value ?? '').replace(',', '.'));
@@ -43,23 +45,34 @@ export default function WorkerCompensationEditor({ actor, worker, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
+  const [mealPolicy, setMealPolicy] = useState(null);
+  const loadVersion = useRef(0);
 
   async function load() {
     if (!actor?.pin || !workerPin) return;
+    const version = ++loadVersion.current;
     setLoading(true);
+    setForm(null);
+    setMealPolicy(null);
     setError('');
     try {
-      const { data, error: rpcError } = await supabase.rpc('get_worker_compensation_profile_v1', {
-        p_actor_pin: String(actor.pin),
-        p_worker_pin: workerPin,
-      });
+      const [{ data, error: rpcError }, policy] = await Promise.all([
+        supabase.rpc('get_worker_compensation_profile_v1', {
+          p_actor_pin: String(actor.pin),
+          p_worker_pin: workerPin,
+        }),
+        fetchMealPolicy({ targetPin: workerPin, force: true }),
+      ]);
+      if (version !== loadVersion.current) return;
       if (rpcError) throw rpcError;
+      setMealPolicy(policy);
       setForm({
         salary_enabled: data?.salary_enabled === true,
         salary_amount: String(data?.salary_amount ?? 0),
         salary_day: data?.salary_day == null ? '' : String(data.salary_day),
-        meal_enabled: data?.meal_enabled === true,
-        meal_amount: String(data?.meal_amount ?? 0),
+        // Preserve the legacy profile for earlier open payroll periods when saving other fields.
+        meal_enabled: (data?.legacy_meal_enabled ?? data?.meal_enabled) === true,
+        meal_amount: String(data?.legacy_meal_amount ?? data?.meal_amount ?? 0),
         commission_enabled: data?.commission_enabled === true,
         commission_rate_m2: String(data?.commission_rate_m2 ?? 0),
         transport_bonus_enabled: data?.transport_bonus_enabled === true,
@@ -69,26 +82,29 @@ export default function WorkerCompensationEditor({ actor, worker, onSaved }) {
         notes: String(data?.notes || ''),
       });
     } catch (err) {
-      setError(String(err?.message || err?.details || err || 'NUK U NGARKUAN OPSIONET E PAGESËS.'));
+      if (version === loadVersion.current) setError(String(err?.message || err?.details || err || 'NUK U NGARKUAN OPSIONET E PAGESËS.'));
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
   }
 
-  useEffect(() => { void load(); }, [actor?.pin, workerPin]);
+  useEffect(() => { void load(); return () => { loadVersion.current++; }; }, [actor?.pin, workerPin]);
 
   const role = upper(worker?.role);
   const transportRole = role === 'TRANSPORT';
   const canReadyBonus = !transportRole;
+  const schedule = mealPolicy?.settings?.slice().sort((a,b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
+  const scheduledAllowance = schedule ? mealPolicyForWorker({ workerId:mealPolicy.targetId, month:schedule.effectiveFrom.slice(0,7), ...mealPolicy }) : null;
   const formula = useMemo(() => {
     if (!form) return '';
     const parts = [];
     if (form.salary_enabled) parts.push(`RROGË ${n(form.salary_amount).toFixed(2)}€`);
-    if (form.meal_enabled) parts.push(`USHQIM ${n(form.meal_amount).toFixed(2)}€`);
+    const allowance = resolveMonthlyMealAllowance({ id:mealPolicy?.targetId, pay_meal_enabled:form.meal_enabled, pay_meal_amount:form.meal_amount }, mealPolicy?.businessDate?.slice(0,7), mealPolicy || {});
+    if (allowance.enabled) parts.push(`USHQIM MUJOR ${n(allowance.amount).toFixed(2)}€`);
     if (form.transport_bonus_enabled) parts.push(`BONUS TRANSPORT ${n(form.transport_bonus_amount).toFixed(2)}€`);
     if (form.commission_enabled) parts.push(`KOMISION ${n(form.commission_rate_m2).toFixed(2)}€/m²`);
     return parts.length ? parts.join(' + ') : 'ASNJË KOMPONENT PAGESE AKTIVE';
-  }, [form]);
+  }, [form, mealPolicy]);
 
   async function save() {
     if (!form || !actor?.pin || !workerPin) return;
@@ -127,7 +143,7 @@ export default function WorkerCompensationEditor({ actor, worker, onSaved }) {
       try { window.dispatchEvent(new Event('arka:refresh')); } catch {}
       await load();
     } catch (err) {
-      setError(String(err?.message || err?.details || err || 'NUK U RUAJT PROFILI I PAGESËS.'));
+      setError(String(err?.message || '').includes('MEAL_POLICY_PROFILE_MANAGED_BY_SCHEDULE') ? 'Ushqimi menaxhohet nga rregulli mujor me datë. Rifresko profilin; vlerat për muajt e mëparshëm ruhen.' : String(err?.message || err?.details || err || 'NUK U RUAJT PROFILI I PAGESËS.'));
     } finally {
       setSaving(false);
     }
@@ -152,9 +168,13 @@ export default function WorkerCompensationEditor({ actor, worker, onSaved }) {
         </div>
       </SwitchRow>
 
-      <SwitchRow label="USHQIM / SHTESË MUJORE" description="Shton shumën e ushqimit në payroll. Ushqimi ditor në ARKË mbetet transaksion i ndarë." checked={form.meal_enabled} onChange={(checked) => setForm({ ...form, meal_enabled:checked })}>
+      {schedule ? <div style={{ border:'1px solid #86cdb1', borderRadius:15, padding:14, background:'#eefbf5', color:'#164e3a', lineHeight:1.5 }}>
+        <strong>USHQIM / SHTESË MUJORE</strong>
+        <div style={{ marginTop:6 }}>{scheduledAllowance ? `${n(scheduledAllowance.monthlyAmount).toFixed(2)} € në muaj (${n(scheduledAllowance.dailyRate).toFixed(2)} € × ${scheduledAllowance.workDays} ditë pune), nga ${schedule.effectiveFrom}.` : `Ky profil nuk ka shtesë mujore ushqimi të caktuar nga ${schedule.effectiveFrom}.`}</div>
+        <small>Nga kjo datë ushqimi ditor nga arka mbyllet. Vlerat e profilit për muajt e mëparshëm ruhen.</small>
+      </div> : <SwitchRow label="USHQIM / SHTESË MUJORE" description="Shton shumën mujore të ushqimit në payroll." checked={form.meal_enabled} onChange={(checked) => setForm({ ...form, meal_enabled:checked })}>
         <MoneyField label="SHUMA MUJORE (€)" value={form.meal_amount} onChange={(value) => setForm({ ...form, meal_amount:value })} />
-      </SwitchRow>
+      </SwitchRow>}
 
       <SwitchRow label="BONUS TRANSPORTI" description="Shtesë fikse mujore për transport." checked={form.transport_bonus_enabled} onChange={(checked) => setForm({ ...form, transport_bonus_enabled:checked })}>
         <MoneyField label="SHUMA MUJORE (€)" value={form.transport_bonus_amount} onChange={(value) => setForm({ ...form, transport_bonus_amount:value })} />

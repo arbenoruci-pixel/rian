@@ -32,6 +32,15 @@ function appendTag(value, tag = TAG) {
 
 function patchWizard() {
   let source = fs.readFileSync(COMPONENT_PATH, 'utf8');
+  // The actual-receipt flow retains the reopening rules while replacing bulk
+  // acceptance and automatic physical counts. Do not reinstall those old steps.
+  if (source.includes('HANDOFF_ACTUAL_RECEIPTS_V1')) {
+    for (const token of [MARKER,ACTIONABLE_MARKER,'const showClosedReceiptOnly = isClosed && !hasLiveWizardWork;','<HandoffReceiptsPanel','action:\'daily-close\'','prit dorëzimin e punëtorit']) {
+      if (!source.includes(token)) throw new Error(`ACTUAL_RECEIPT_REOPEN_MISSING:${token}`);
+    }
+    if (source.includes('|| openCashAtWorkers.length > 0') || source.includes('p_handoff_ids: selectedIds')) throw new Error('ACTUAL_RECEIPT_REOPEN_UNSAFE_LEGACY_FLOW');
+    return;
+  }
 
   const liveWorkBlock = `  const pendingExpenseCount = n(preview?.pending_expenses_count ?? pendingExpenses.length);\n  // ${MARKER} / ${ACTIONABLE_MARKER}: a prior final report reopens only for actions Dispatch can complete now.\n  const openCashAtWorkers = rows(preview?.open_cash_at_workers);\n  const receivedTodayTotal = +receivedToday.reduce((sum, row) => sum + n(row?.amount), 0).toFixed(2);\n  const hasUnreflectedClosedTotals = isClosed && (\n    Math.abs(receivedTodayTotal - n(closedCycle?.accepted_handoffs_total)) > 0.01\n    || Math.abs(n(preview?.today_expenses?.total) - n(closedCycle?.posted_expenses_total)) > 0.01\n    || Math.abs(n(preview?.today_advances?.total) - n(closedCycle?.posted_advances_total)) > 0.01\n  );\n  const hasLiveWizardWork = pendingHandoffs.length > 0\n    || pendingExpenseCount > 0\n    || hasUnreflectedClosedTotals;\n  const showClosedReceiptOnly = isClosed && !hasLiveWizardWork;\n  const dailyOperations = obj(preview?.operations);`;
 

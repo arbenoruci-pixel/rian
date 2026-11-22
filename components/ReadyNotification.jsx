@@ -30,7 +30,11 @@ export function useReadyNotifications(ids) {
   const forOrder = id => events.filter(e => e.viewer_id === currentNotificationActorId() && String(e.order_id) === String(id));
   return { events, status, forOrder, summary: id => notificationSummary(forOrder(id)) };
 }
-export function ReadyNotificationBadge({ event, onClick }) {
+export function ReadyNotificationBadge({ event, onClick, compact = false }) {
+  if (compact) return <div style={{ marginTop: 5, fontSize: 12, lineHeight: 1.4, color: event?.kind === 'confirmed' ? '#86efac' : '#fde68a' }}>
+    {event?.kind === 'confirmed' ? '✓ Dërgimi i konfirmuar' : event?.kind === 'opened' ? 'Mesazhi u hap · pret konfirmim' : 'Pa konfirmim dërgimi'}
+    {event?.pending ? ' · Në këtë telefon' : ''}
+  </div>;
   return <button type="button" onClick={onClick} style={{display:'block',background:'transparent',border:0,padding:'5px 0',textAlign:'left',fontSize:11,color:event?.kind==='confirmed'?'#86efac':'#fde68a'}}>
     {event?.kind==='confirmed' ? '✓ Dërgimi u konfirmua nga punëtori' : event?.kind==='opened' ? 'Mesazhi u hap • pa konfirmim dërgimi' : 'Pa konfirmim dërgimi'}
     {event ? <span style={{display:'block',fontSize:10}}>{event.author_name} • {event.channel.toUpperCase()} • {new Date(event.occurred_at).toLocaleString('sq-AL')} {event.pending?'• vetëm në këtë telefon':''}</span> : null}

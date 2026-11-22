@@ -1,0 +1,394 @@
+{
+  "columns": [
+    {
+      "name": "id",
+      "type": "bigint",
+      "table": "arka_cycles",
+      "default": "nextval('arka_cycles_id_seq'::regclass)"
+    },
+    {
+      "name": "cycle_date",
+      "type": "date",
+      "table": "arka_cycles",
+      "default": "CURRENT_DATE"
+    },
+    {
+      "name": "opening_cash",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": "0"
+    },
+    {
+      "name": "closing_cash",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": "0"
+    },
+    {
+      "name": "total_in",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": "0"
+    },
+    {
+      "name": "total_out",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": "0"
+    },
+    {
+      "name": "notes",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "opened_by_pin",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "opened_by_name",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "closed_by_pin",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "closed_by_name",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "is_closed",
+      "type": "boolean",
+      "table": "arka_cycles",
+      "default": "false"
+    },
+    {
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "table": "arka_cycles",
+      "default": "now()"
+    },
+    {
+      "name": "updated_at",
+      "type": "timestamp with time zone",
+      "table": "arka_cycles",
+      "default": "now()"
+    },
+    {
+      "name": "close_status",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": "'OPEN'::text"
+    },
+    {
+      "name": "expected_cash",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "counted_cash",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "discrepancy",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "discrepancy_reason",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "discrepancy_note",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "budget_balance_before",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "budget_balance_after",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "accepted_handoffs_total",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": "0"
+    },
+    {
+      "name": "posted_expenses_total",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": "0"
+    },
+    {
+      "name": "posted_advances_total",
+      "type": "numeric",
+      "table": "arka_cycles",
+      "default": "0"
+    },
+    {
+      "name": "selected_handoff_ids",
+      "type": "ARRAY",
+      "table": "arka_cycles",
+      "default": "'{}'::bigint[]"
+    },
+    {
+      "name": "discrepancy_ledger_entry_id",
+      "type": "bigint",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "idempotency_key",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "close_version",
+      "type": "text",
+      "table": "arka_cycles",
+      "default": "'ARKA_DAILY_CLOSE_V2'::text"
+    },
+    {
+      "name": "closed_at",
+      "type": "timestamp with time zone",
+      "table": "arka_cycles",
+      "default": null
+    },
+    {
+      "name": "id",
+      "type": "bigint",
+      "table": "arka_daily_close_items",
+      "default": "nextval('arka_daily_close_items_id_seq'::regclass)"
+    },
+    {
+      "name": "cycle_id",
+      "type": "bigint",
+      "table": "arka_daily_close_items",
+      "default": null
+    },
+    {
+      "name": "item_type",
+      "type": "text",
+      "table": "arka_daily_close_items",
+      "default": null
+    },
+    {
+      "name": "source_table",
+      "type": "text",
+      "table": "arka_daily_close_items",
+      "default": null
+    },
+    {
+      "name": "source_id",
+      "type": "bigint",
+      "table": "arka_daily_close_items",
+      "default": null
+    },
+    {
+      "name": "worker_pin",
+      "type": "text",
+      "table": "arka_daily_close_items",
+      "default": null
+    },
+    {
+      "name": "worker_name",
+      "type": "text",
+      "table": "arka_daily_close_items",
+      "default": null
+    },
+    {
+      "name": "amount",
+      "type": "numeric",
+      "table": "arka_daily_close_items",
+      "default": "0"
+    },
+    {
+      "name": "direction",
+      "type": "text",
+      "table": "arka_daily_close_items",
+      "default": null
+    },
+    {
+      "name": "status_snapshot",
+      "type": "text",
+      "table": "arka_daily_close_items",
+      "default": null
+    },
+    {
+      "name": "included",
+      "type": "boolean",
+      "table": "arka_daily_close_items",
+      "default": "true"
+    },
+    {
+      "name": "confirmed",
+      "type": "boolean",
+      "table": "arka_daily_close_items",
+      "default": "true"
+    },
+    {
+      "name": "note",
+      "type": "text",
+      "table": "arka_daily_close_items",
+      "default": null
+    },
+    {
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "table": "arka_daily_close_items",
+      "default": "now()"
+    },
+    {
+      "name": "id",
+      "type": "bigint",
+      "table": "company_budget_ledger",
+      "default": "nextval('company_budget_ledger_id_seq'::regclass)"
+    },
+    {
+      "name": "direction",
+      "type": "text",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "amount",
+      "type": "numeric",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "category",
+      "type": "text",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "description",
+      "type": "text",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "source_type",
+      "type": "text",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "source_id",
+      "type": "bigint",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "related_handoff_id",
+      "type": "bigint",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "created_by_pin",
+      "type": "text",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "created_by_name",
+      "type": "text",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "approved_by_pin",
+      "type": "text",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "approved_by_name",
+      "type": "text",
+      "table": "company_budget_ledger",
+      "default": null
+    },
+    {
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "table": "company_budget_ledger",
+      "default": "now()"
+    },
+    {
+      "name": "id",
+      "type": "bigint",
+      "table": "company_budget_summary",
+      "default": "nextval('company_budget_summary_id_seq'::regclass)"
+    },
+    {
+      "name": "current_balance",
+      "type": "numeric",
+      "table": "company_budget_summary",
+      "default": "0"
+    },
+    {
+      "name": "total_in",
+      "type": "numeric",
+      "table": "company_budget_summary",
+      "default": "0"
+    },
+    {
+      "name": "total_out",
+      "type": "numeric",
+      "table": "company_budget_summary",
+      "default": "0"
+    },
+    {
+      "name": "updated_at",
+      "type": "timestamp with time zone",
+      "table": "company_budget_summary",
+      "default": "now()"
+    }
+  ],
+  "functions": [
+    {
+      "name": "accept_cash_handoff_atomic",
+      "definition": "CREATE OR REPLACE FUNCTION public.accept_cash_handoff_atomic(handoff_id bigint, accepted_by_pin text, accepted_by_name text)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\ndeclare\n  v_handoff public.cash_handoffs%rowtype;\n  v_item_sum numeric := 0;\n  v_item_count integer := 0;\n  v_missing_payment_count integer := 0;\n  v_existing_ledger_id text := null;\n  v_ledger_id text := null;\n  v_now timestamptz := now();\n  v_worker_label text := '';\n  v_handoff_patch jsonb := '{}'::jsonb;\n  v_payment_patch jsonb := '{}'::jsonb;\n  v_set_sql text := '';\n  v_ledger_description text := '';\n  v_ledger_json jsonb := '{}'::jsonb;\n  v_insert_cols text := '';\n  v_insert_values text := '';\nbegin\n  select *\n    into v_handoff\n  from public.cash_handoffs h\n  where h.id = $1\n  for update;\n\n  if not found then\n    raise exception 'HANDOFF_NOT_FOUND';\n  end if;\n\n  if v_handoff.status = 'ACCEPTED' then\n    begin\n      execute\n        'select id::text from public.company_budget_ledger where source_type = $1 and source_id::text = $2 limit 1'\n        into v_existing_ledger_id\n        using 'cash_handoff', $1::text;\n\n      if v_existing_ledger_id is not null and exists (\n        select 1 from information_schema.columns\n        where table_schema = 'public'\n          and table_name = 'cash_handoffs'\n          and column_name = 'company_ledger_entry_id'\n      ) then\n        execute\n          'update public.cash_handoffs set company_ledger_entry_id = $2::bigint where id = $1 and company_ledger_entry_id is null returning *'\n          into v_handoff\n          using $1, v_existing_ledger_id;\n      end if;\n    exception when others then\n      null;\n    end;\n\n    select * into v_handoff from public.cash_handoffs h where h.id = $1;\n\n    return jsonb_build_object(\n      'ok', true,\n      'alreadyAccepted', true,\n      'handoff', to_jsonb(v_handoff),\n      'ledger_id', v_existing_ledger_id\n    );\n  end if;\n\n  if v_handoff.status <> 'PENDING_DISPATCH_APPROVAL' then\n    raise exception 'HANDOFF_STATUS_NOT_PENDING_DISPATCH_APPROVAL: %', v_handoff.status;\n  end if;\n\n  select\n    coalesce(sum(coalesce(i.amount, 0)), 0)::numeric,\n    count(*)::integer\n    into v_item_sum, v_item_count\n  from public.cash_handoff_items i\n  where i.handoff_id = $1;\n\n  if v_item_count <= 0 then\n    raise exception 'HANDOFF_HAS_NO_ITEMS';\n  end if;\n\n  if abs(coalesce(v_handoff.amount, 0)::numeric - coalesce(v_item_sum, 0)::numeric) > 0.01 then\n    raise exception 'HANDOFF_AMOUNT_MISMATCH handoff=% items=%', v_handoff.amount, v_item_sum;\n  end if;\n\n  select count(*)::integer\n    into v_missing_payment_count\n  from public.cash_handoff_items i\n  left join public.arka_pending_payments p on p.id = i.pending_payment_id\n  where i.handoff_id = $1\n    and p.id is null;\n\n  if v_missing_payment_count > 0 then\n    raise exception 'HANDOFF_HAS_MISSING_PAYMENTS: %', v_missing_payment_count;\n  end if;\n\n  perform 1\n  from public.arka_pending_payments p\n  join public.cash_handoff_items i on i.pending_payment_id = p.id\n  where i.handoff_id = $1\n  for update of p;\n\n  if not exists (\n    select 1 from information_schema.columns\n    where table_schema = 'public'\n      and table_name = 'company_budget_ledger'\n      and column_name = 'source_type'\n  ) or not exists (\n    select 1 from information_schema.columns\n    where table_schema = 'public'\n      and table_name = 'company_budget_ledger'\n      and column_name = 'source_id'\n  ) then\n    raise exception 'COMPANY_BUDGET_LEDGER_SOURCE_COLUMNS_REQUIRED';\n  end if;\n\n  execute\n    'select id::text from public.company_budget_ledger where source_type = $1 and source_id::text = $2 limit 1'\n    into v_existing_ledger_id\n    using 'cash_handoff', $1::text;\n\n  v_worker_label := coalesce(\n    nullif(to_jsonb(v_handoff)->>'worker_name', ''),\n    nullif(to_jsonb(v_handoff)->>'driver_name', ''),\n    nullif(to_jsonb(v_handoff)->>'worker_pin', ''),\n    nullif(to_jsonb(v_handoff)->>'driver_pin', ''),\n    'PUNTOR'\n  );\n\n  v_ledger_description := concat('PRANIM NGA DISPATCH — ', v_worker_label);\n\n  if v_existing_ledger_id is null then\n    v_ledger_json := jsonb_build_object(\n      'direction', 'IN',\n      'amount', round(coalesce(v_handoff.amount, v_item_sum)::numeric, 2),\n      'category', 'WORKER_TO_DISPATCH',\n      'description', v_ledger_description,\n      'source_type', 'cash_handoff',\n      'source_id', $1::text,\n      'created_by_pin', nullif($2, ''),\n      'created_by_name', nullif($3, ''),\n      'approved_by_pin', nullif($2, ''),\n      'approved_by_name', nullif($3, '')\n    );\n\n    select\n      string_agg(quote_ident(c.column_name), ', ' order by c.ordinality),\n      string_agg(format('(jsonb_populate_record(null::public.company_budget_ledger, $1)).%I', c.column_name), ', ' order by c.ordinality)\n      into v_insert_cols, v_insert_values\n    from unnest(array[\n      'direction',\n      'amount',\n      'category',\n      'description',\n      'source_type',\n      'source_id',\n      'created_by_pin',\n      'created_by_name',\n      'approved_by_pin',\n      'approved_by_name'\n    ]) with ordinality as c(column_name, ordinality)\n    join information_schema.columns ic\n      on ic.table_schema = 'public'\n     and ic.table_name = 'company_budget_ledger'\n     and ic.column_name = c.column_name;\n\n    if v_insert_cols is null or position('direction' in v_insert_cols) = 0 or position('amount' in v_insert_cols) = 0 then\n      raise exception 'COMPANY_BUDGET_LEDGER_REQUIRED_COLUMNS_MISSING';\n    end if;\n\n    execute format(\n      'insert into public.company_budget_ledger (%s) select %s returning id::text',\n      v_insert_cols,\n      v_insert_values\n    )\n      into v_ledger_id\n      using v_ledger_json;\n\n    insert into public.company_budget_summary (id, current_balance, total_in, total_out)\n    values (1, 0, 0, 0)\n    on conflict (id) do nothing;\n\n    update public.company_budget_summary\n    set\n      current_balance = coalesce(current_balance, 0) + round(coalesce(v_handoff.amount, v_item_sum)::numeric, 2),\n      total_in = coalesce(total_in, 0) + round(coalesce(v_handoff.amount, v_item_sum)::numeric, 2)\n    where id = 1;\n  else\n    v_ledger_id := v_existing_ledger_id;\n  end if;\n\n  v_handoff_patch := jsonb_build_object(\n    'status', 'ACCEPTED',\n    'decided_at', v_now,\n    'accepted_at', v_now,\n    'accepted_by_pin', nullif($2, ''),\n    'accepted_by_name', nullif($3, ''),\n    'dispatch_pin', nullif($2, ''),\n    'company_ledger_entry_id', case when v_ledger_id ~ '^[0-9]+$' then v_ledger_id::bigint else null end,\n    'updated_at', v_now\n  );\n\n  select string_agg(\n    format('%I = (jsonb_populate_record(null::public.cash_handoffs, $2)).%I', c.column_name, c.column_name),\n    ', ' order by c.ordinality\n  )\n    into v_set_sql\n  from unnest(array[\n    'status',\n    'decided_at',\n    'accepted_at',\n    'accepted_by_pin',\n    'accepted_by_name',\n    'dispatch_pin',\n    'company_ledger_entry_id',\n    'updated_at'\n  ]) with ordinality as c(column_name, ordinality)\n  join information_schema.columns ic\n    on ic.table_schema = 'public'\n   and ic.table_name = 'cash_handoffs'\n   and ic.column_name = c.column_name;\n\n  if v_set_sql is null or v_set_sql = '' then\n    raise exception 'CASH_HANDOFFS_STATUS_COLUMN_REQUIRED';\n  end if;\n\n  execute format('update public.cash_handoffs set %s where id = $1 returning *', v_set_sql)\n    into v_handoff\n    using $1, v_handoff_patch;\n\n  v_payment_patch := jsonb_build_object(\n    'status', 'ACCEPTED_BY_DISPATCH',\n    'accepted_at', v_now,\n    'accepted_by_pin', nullif($2, ''),\n    'accepted_by_name', nullif($3, ''),\n    'approved_at', v_now,\n    'approved_by_pin', nullif($2, ''),\n    'approved_by_name', nullif($3, ''),\n    'updated_at', v_now\n  );\n\n  select string_agg(\n    format('%I = (jsonb_populate_record(null::public.arka_pending_payments, $2)).%I', c.column_name, c.column_name),\n    ', ' order by c.ordinality\n  )\n    into v_set_sql\n  from unnest(array[\n    'status',\n    'accepted_at',\n    'accepted_by_pin',\n    'accepted_by_name',\n    'approved_at',\n    'approved_by_pin',\n    'approved_by_name',\n    'updated_at'\n  ]) with ordinality as c(column_name, ordinality)\n  join information_schema.columns ic\n    on ic.table_schema = 'public'\n   and ic.table_name = 'arka_pending_payments'\n   and ic.column_name = c.column_name;\n\n  if v_set_sql is null or position('status =' in v_set_sql) = 0 then\n    raise exception 'ARKA_PENDING_PAYMENTS_STATUS_COLUMN_REQUIRED';\n  end if;\n\n  execute format(\n    'update public.arka_pending_payments p set %s where p.id in (\n       select i.pending_payment_id\n       from public.cash_handoff_items i\n       where i.handoff_id = $1\n     )',\n    v_set_sql\n  ) using $1, v_payment_patch;\n\n  return jsonb_build_object(\n    'ok', true,\n    'alreadyAccepted', false,\n    'handoff', to_jsonb(v_handoff),\n    'ledger_id', v_ledger_id,\n    'amount', round(coalesce(v_handoff.amount, v_item_sum)::numeric, 2)\n  );\nend;\n$function$\n"
+    },
+    {
+      "name": "get_dispatch_daily_control_v1",
+      "definition": "CREATE OR REPLACE FUNCTION public.get_dispatch_daily_control_v1(p_actor_pin text, p_date date DEFAULT NULL::date)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare\n  v_role text;\n  v_date date := coalesce(p_date, (now() at time zone 'Europe/Belgrade' - interval '4 hours')::date);\n  v_start timestamptz;\n  v_end timestamptz;\n  v_result jsonb;\nbegin\n  select upper(coalesce(role,'')) into v_role\n  from public.users\n  where pin = btrim(coalesce(p_actor_pin,'')) and is_active is true\n  limit 1;\n\n  if v_role not in ('DISPATCH','MASTER','MASTER USER','MASTER_USER','MASTERUSER','ADMIN','ADMIN_MASTER','OWNER','PRONAR','SUPERADMIN') then\n    raise exception 'DISPATCH_ONLY';\n  end if;\n\n  v_start := (v_date::timestamp + interval '4 hours') at time zone 'Europe/Belgrade';\n  v_end := ((v_date + 1)::timestamp + interval '4 hours') at time zone 'Europe/Belgrade';\n\n  with\n  base_all as (\n    select\n      o.*,\n      public.tepiha_daily_order_m2(o.data, o.m2_total) as calc_m2,\n      public.tepiha_daily_order_value(o.data, o.price_total) as calc_value,\n      coalesce(o.delivered_at, o.\"deliveredAt\", public.tepiha_daily_try_timestamptz(o.data->>'delivered_at'), public.tepiha_daily_try_timestamptz(o.data->>'picked_up_at')) as out_at,\n      upper(coalesce(o.data->>'source','')) as data_source\n    from public.orders o\n  ),\n  base_in as (\n    select * from base_all\n    where created_at >= v_start and created_at < v_end\n      and lower(coalesce(status,'')) not in ('cancelled','canceled')\n      and data_source <> 'DB_DRAFT'\n  ),\n  base_drafts as (\n    select * from base_all\n    where created_at >= v_start and created_at < v_end\n      and (data_source = 'DB_DRAFT' or lower(coalesce(status,'')) in ('draft','pranim'))\n  ),\n  base_out as (\n    select * from base_all where out_at >= v_start and out_at < v_end\n  ),\n  transport_all as (\n    select\n      t.*,\n      public.tepiha_daily_order_m2(t.data, 0) as calc_m2,\n      public.tepiha_daily_order_value(t.data, 0) as calc_value,\n      coalesce(\n        public.tepiha_daily_try_timestamptz(t.data->>'at_base_at'),\n        public.tepiha_daily_try_timestamptz(t.data->>'base_arrived_at'),\n        public.tepiha_daily_try_timestamptz(t.data->>'brought_to_base_at'),\n        public.tepiha_daily_try_timestamptz(t.data->>'unloaded_at'),\n        public.tepiha_daily_try_timestamptz(t.data->>'pastrim_at')\n      ) as in_at,\n      coalesce(\n        public.tepiha_daily_try_timestamptz(t.data->>'done_at'),\n        public.tepiha_daily_try_timestamptz(t.data->>'delivered_at'),\n        public.tepiha_daily_try_timestamptz(t.data->>'picked_up_at')\n      ) as out_at,\n      nullif(btrim(coalesce(t.data->>'brought_by_pin',t.data->>'transport_pin',t.data->>'driver_pin','')),'') as worker_pin,\n      nullif(btrim(coalesce(t.data->>'brought_by_name',t.data->>'transport_name',t.data->>'driver_name','')),'') as worker_name\n    from public.transport_orders t\n  ),\n  transport_in as (\n    select * from transport_all where in_at >= v_start and in_at < v_end\n  ),\n  transport_out as (\n    select * from transport_all where out_at >= v_start and out_at < v_end\n  ),\n  client_payments as (\n    select p.*\n    from public.arka_pending_payments p\n    where p.created_at >= v_start and p.created_at < v_end\n      and upper(coalesce(p.type,'')) in ('IN','TRANSPORT','ORDER')\n      and p.amount > 0\n  ),\n  ledger_day as (\n    select l.* from public.company_budget_ledger l\n    where l.created_at >= v_start and l.created_at < v_end\n  ),\n  handoffs_decided as (\n    select h.* from public.cash_handoffs h\n    where h.decided_at >= v_start and h.decided_at < v_end\n  ),\n  handoffs_submitted as (\n    select h.* from public.cash_handoffs h\n    where h.submitted_at >= v_start and h.submitted_at < v_end\n  ),\n  handoff_checks as (\n    select h.id, h.worker_pin, h.worker_name, h.amount,\n           coalesce(sum(i.amount),0) as items_amount,\n           h.status, h.company_ledger_entry_id, h.submitted_at, h.decided_at\n    from public.cash_handoffs h\n    left join public.cash_handoff_items i on i.handoff_id=h.id\n    where (h.submitted_at >= v_start and h.submitted_at < v_end)\n       or (h.decided_at >= v_start and h.decided_at < v_end)\n    group by h.id\n  ),\n  current_base_pastrim as (\n    select * from base_all where lower(coalesce(status,'')) in ('pastrim','pastrimi')\n  ),\n  current_transport_pastrim as (\n    select * from transport_all where lower(coalesce(status,'')) in ('pastrim','pastrimi')\n  ),\n  current_base_gati as (\n    select * from base_all where lower(coalesce(status,''))='gati'\n  ),\n  current_transport_gati as (\n    select * from transport_all where lower(coalesce(status,''))='gati'\n  ),\n  worker_commissions as (\n    select\n      coalesce(t.worker_pin,'PA PIN') as pin,\n      coalesce(max(u.name), max(t.worker_name), 'PA EMER') as name,\n      count(*)::int as order_count,\n      round(sum(t.calc_m2),2) as m2,\n      coalesce(max(u.commission_rate_m2) filter (where u.is_hybrid_transport is true),0) as rate,\n      round(sum(t.calc_m2) * coalesce(max(u.commission_rate_m2) filter (where u.is_hybrid_transport is true),0),2) as commission\n    from transport_in t\n    left join public.users u on u.pin=t.worker_pin and u.is_active is true\n    group by coalesce(t.worker_pin,'PA PIN')\n  ),\n  alert_rows as (\n    select 'BASE_DRAFT'::text as code, 'warn'::text as tone,\n           count(*)::int as count,\n           'Porosi BAZA te mbetura draft/pranim'::text as label,\n           jsonb_build_object('m2',round(coalesce(sum(calc_m2),0),2)) as detail\n    from base_drafts having count(*)>0\n    union all\n    select 'BASE_ZERO_M2','bad',count(*)::int,'Hyrje BAZA me 0 m²',jsonb_build_object('ids',jsonb_agg(id))\n    from base_in where calc_m2<=0 having count(*)>0\n    union all\n    select 'TRANSPORT_ZERO_M2','bad',count(*)::int,'Hyrje TRANSPORT me 0 m²',jsonb_build_object('ids',jsonb_agg(id))\n    from transport_in where calc_m2<=0 having count(*)>0\n    union all\n    select 'TRANSPORT_NO_WORKER','bad',count(*)::int,'Hyrje TRANSPORT pa personin qe i solli',jsonb_build_object('codes',jsonb_agg(code_str))\n    from transport_in where worker_pin is null and worker_name is null having count(*)>0\n    union all\n    select 'TRANSPORT_UNKNOWN_WORKER','warn',count(*)::int,'Transportuesi nuk u gjet aktiv ne USERS',jsonb_build_object('pins',jsonb_agg(distinct worker_pin))\n    from transport_in t where worker_pin is not null and not exists(select 1 from public.users u where u.pin=t.worker_pin and u.is_active is true) having count(*)>0\n    union all\n    select 'HANDOFF_MISMATCH','bad',count(*)::int,'Handoff nuk perputhet me shumen e artikujve',jsonb_build_object('handoffs',jsonb_agg(jsonb_build_object('id',id,'declared',amount,'items',items_amount)))\n    from handoff_checks where abs(amount-items_amount)>0.05 having count(*)>0\n    union all\n    select 'ACCEPTED_NO_LEDGER','bad',count(*)::int,'Handoff i pranuar pa ledger te kompanise',jsonb_build_object('handoff_ids',jsonb_agg(id))\n    from handoff_checks where upper(status) in ('ACCEPTED','ACCEPTED_BY_DISPATCH') and company_ledger_entry_id is null having count(*)>0\n    union all\n    select 'DUPLICATE_PAYMENT','bad',count(*)::int,'Pagesa te dyfishta per te njejten porosi sot',jsonb_build_object('keys',jsonb_agg(payment_key))\n    from (\n      select coalesce('B:'||order_id::text,'T:'||transport_order_id::text,'C:'||transport_code_str) as payment_key\n      from client_payments\n      where order_id is not null or transport_order_id is not null or transport_code_str is not null\n      group by coalesce('B:'||order_id::text,'T:'||transport_order_id::text,'C:'||transport_code_str)\n      having count(*)>1\n    ) d having count(*)>0\n  )\n  select jsonb_build_object(\n    'version','dispatch-daily-control-v1',\n    'date',v_date,\n    'timezone','Europe/Belgrade',\n    'generated_at',now(),\n    'operations',jsonb_build_object(\n      'incoming',jsonb_build_object(\n        'base',jsonb_build_object(\n          'count',(select count(*) from base_in),\n          'm2',(select round(coalesce(sum(calc_m2),0),2) from base_in),\n          'value',(select round(coalesce(sum(calc_value),0),2) from base_in),\n          'rows',(select coalesce(jsonb_agg(jsonb_build_object('id',id,'code',code,'client',client_name,'m2',calc_m2,'value',calc_value,'status',status,'at',created_at) order by created_at desc),'[]'::jsonb) from base_in)\n        ),\n        'transport',jsonb_build_object(\n          'count',(select count(*) from transport_in),\n          'm2',(select round(coalesce(sum(calc_m2),0),2) from transport_in),\n          'value',(select round(coalesce(sum(calc_value),0),2) from transport_in),\n          'rows',(select coalesce(jsonb_agg(jsonb_build_object('id',id,'code',code_str,'client',client_name,'m2',calc_m2,'value',calc_value,'status',status,'at',in_at,'worker_pin',worker_pin,'worker_name',worker_name) order by in_at desc),'[]'::jsonb) from transport_in)\n        ),\n        'total',jsonb_build_object(\n          'count',(select count(*) from base_in)+(select count(*) from transport_in),\n          'm2',(select round(coalesce(sum(calc_m2),0),2) from base_in)+(select round(coalesce(sum(calc_m2),0),2) from transport_in),\n          'value',(select round(coalesce(sum(calc_value),0),2) from base_in)+(select round(coalesce(sum(calc_value),0),2) from transport_in)\n        )\n      ),\n      'outgoing',jsonb_build_object(\n        'base',jsonb_build_object(\n          'count',(select count(*) from base_out),\n          'm2',(select round(coalesce(sum(calc_m2),0),2) from base_out),\n          'value',(select round(coalesce(sum(calc_value),0),2) from base_out),\n          'rows',(select coalesce(jsonb_agg(jsonb_build_object('id',id,'code',code,'client',client_name,'m2',calc_m2,'value',calc_value,'status',status,'at',out_at) order by out_at desc),'[]'::jsonb) from base_out)\n        ),\n        'transport',jsonb_build_object(\n          'count',(select count(*) from transport_out),\n          'm2',(select round(coalesce(sum(calc_m2),0),2) from transport_out),\n          'value',(select round(coalesce(sum(calc_value),0),2) from transport_out),\n          'rows',(select coalesce(jsonb_agg(jsonb_build_object('id',id,'code',code_str,'client',client_name,'m2',calc_m2,'value',calc_value,'status',status,'at',out_at,'worker_pin',worker_pin,'worker_name',worker_name) order by out_at desc),'[]'::jsonb) from transport_out)\n        ),\n        'total',jsonb_build_object(\n          'count',(select count(*) from base_out)+(select count(*) from transport_out),\n          'm2',(select round(coalesce(sum(calc_m2),0),2) from base_out)+(select round(coalesce(sum(calc_m2),0),2) from transport_out),\n          'value',(select round(coalesce(sum(calc_value),0),2) from base_out)+(select round(coalesce(sum(calc_value),0),2) from transport_out)\n        )\n      ),\n      'net_m2',((select round(coalesce(sum(calc_m2),0),2) from base_in)+(select round(coalesce(sum(calc_m2),0),2) from transport_in))-((select round(coalesce(sum(calc_m2),0),2) from base_out)+(select round(coalesce(sum(calc_m2),0),2) from transport_out)),\n      'current',jsonb_build_object(\n        'pastrim',jsonb_build_object('count',(select count(*) from current_base_pastrim)+(select count(*) from current_transport_pastrim),'m2',(select round(coalesce(sum(calc_m2),0),2) from current_base_pastrim)+(select round(coalesce(sum(calc_m2),0),2) from current_transport_pastrim)),\n        'gati',jsonb_build_object('count',(select count(*) from current_base_gati)+(select count(*) from current_transport_gati),'m2',(select round(coalesce(sum(calc_m2),0),2) from current_base_gati)+(select round(coalesce(sum(calc_m2),0),2) from current_transport_gati))\n      )\n    ),\n    'arka',jsonb_build_object(\n      'client_cash',jsonb_build_object(\n        'count',(select count(*) from client_payments),\n        'gross',(select round(coalesce(sum(amount),0),2) from client_payments),\n        'base',(select round(coalesce(sum(amount),0),2) from client_payments where upper(coalesce(source_module,''))='BASE'),\n        'transport',(select round(coalesce(sum(amount),0),2) from client_payments where upper(coalesce(source_module,''))='TRANSPORT'),\n        'pending',(select round(coalesce(sum(amount),0),2) from client_payments where upper(status)='PENDING'),\n        'collected',(select round(coalesce(sum(amount),0),2) from client_payments where upper(status)='COLLECTED'),\n        'accepted',(select round(coalesce(sum(amount),0),2) from client_payments where upper(status) in ('ACCEPTED','ACCEPTED_BY_DISPATCH')),\n        'rows',(select coalesce(jsonb_agg(jsonb_build_object('id',id,'amount',amount,'type',type,'status',status,'source',source_module,'code',coalesce(transport_code_str,order_code::text),'client',client_name,'worker_pin',created_by_pin,'worker_name',created_by_name,'m2',transport_m2,'at',created_at) order by created_at desc),'[]'::jsonb) from client_payments)\n      ),\n      'ledger',jsonb_build_object(\n        'in',(select round(coalesce(sum(amount),0),2) from ledger_day where upper(direction)='IN'),\n        'out',(select round(coalesce(sum(amount),0),2) from ledger_day where upper(direction)='OUT'),\n        'net',(select round(coalesce(sum(case when upper(direction)='IN' then amount else -amount end),0),2) from ledger_day),\n        'balance',(select round(coalesce(sum(case when upper(direction)='IN' then amount else -amount end),0),2) from public.company_budget_ledger),\n        'rows',(select coalesce(jsonb_agg(jsonb_build_object('id',id,'direction',direction,'amount',amount,'category',category,'description',description,'source_type',source_type,'source_id',source_id,'at',created_at) order by created_at desc),'[]'::jsonb) from ledger_day)\n      ),\n      'handoffs',jsonb_build_object(\n        'submitted_count',(select count(*) from handoffs_submitted),\n        'submitted_amount',(select round(coalesce(sum(amount),0),2) from handoffs_submitted),\n        'accepted_count',(select count(*) from handoffs_decided where upper(status) in ('ACCEPTED','ACCEPTED_BY_DISPATCH')),\n        'accepted_amount',(select round(coalesce(sum(amount),0),2) from handoffs_decided where upper(status) in ('ACCEPTED','ACCEPTED_BY_DISPATCH')),\n        'pending_now_count',(select count(*) from public.cash_handoffs where upper(status) in ('PENDING','PENDING_DISPATCH_APPROVAL')),\n        'pending_now_amount',(select round(coalesce(sum(amount),0),2) from public.cash_handoffs where upper(status) in ('PENDING','PENDING_DISPATCH_APPROVAL'))\n      ),\n      'open_cash',jsonb_build_object(\n        'count',(select count(*) from public.arka_pending_payments where upper(status) in ('PENDING','COLLECTED','PENDING_DISPATCH_APPROVAL') and upper(coalesce(type,'')) in ('IN','TRANSPORT','ORDER')),\n        'amount',(select round(coalesce(sum(amount),0),2) from public.arka_pending_payments where upper(status) in ('PENDING','COLLECTED','PENDING_DISPATCH_APPROVAL') and upper(coalesce(type,'')) in ('IN','TRANSPORT','ORDER')),\n        'old_count',(select count(*) from public.arka_pending_payments where created_at<v_start and upper(status) in ('PENDING','COLLECTED','PENDING_DISPATCH_APPROVAL') and upper(coalesce(type,'')) in ('IN','TRANSPORT','ORDER')),\n        'old_amount',(select round(coalesce(sum(amount),0),2) from public.arka_pending_payments where created_at<v_start and upper(status) in ('PENDING','COLLECTED','PENDING_DISPATCH_APPROVAL') and upper(coalesce(type,'')) in ('IN','TRANSPORT','ORDER'))\n      ),\n      'pending_expenses',jsonb_build_object(\n        'count',(select count(*) from public.arka_pending_payments where upper(type)='EXPENSE' and upper(status) in ('PENDING','PENDING_DISPATCH_APPROVAL')),\n        'amount',(select round(coalesce(sum(amount),0),2) from public.arka_pending_payments where upper(type)='EXPENSE' and upper(status) in ('PENDING','PENDING_DISPATCH_APPROVAL'))\n      )\n    ),\n    'commissions',jsonb_build_object(\n      'total',(select round(coalesce(sum(commission),0),2) from worker_commissions),\n      'workers',(select coalesce(jsonb_agg(jsonb_build_object('pin',pin,'name',name,'orders',order_count,'m2',m2,'rate',rate,'commission',commission) order by name),'[]'::jsonb) from worker_commissions)\n    ),\n    'alerts',(select coalesce(jsonb_agg(jsonb_build_object('code',code,'tone',tone,'count',count,'label',label,'detail',detail)),'[]'::jsonb) from alert_rows)\n  ) into v_result;\n\n  return v_result;\nend;\n$function$\n"
+    },
+    {
+      "name": "get_worker_compensation_profile_v1",
+      "definition": "CREATE OR REPLACE FUNCTION public.get_worker_compensation_profile_v1(p_actor_pin text, p_worker_pin text)\n RETURNS jsonb\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\ndeclare\n  v_actor_role text;\n  v_worker public.users%rowtype;\nbegin\n  select upper(coalesce(role,'')) into v_actor_role\n  from public.users\n  where pin=trim(coalesce(p_actor_pin,'')) and is_active is true\n  limit 1;\n\n  if trim(coalesce(p_actor_pin,'')) <> trim(coalesce(p_worker_pin,''))\n     and v_actor_role not in ('ADMIN','ADMIN_MASTER','DISPATCH','OWNER','PRONAR','SUPERADMIN','MASTER','MASTER_USER','MASTERUSER') then\n    raise exception 'WORKER_FINANCE_ACCESS_DENIED';\n  end if;\n\n  select * into v_worker\n  from public.users\n  where pin=trim(coalesce(p_worker_pin,'')) and is_active is true\n  limit 1;\n  if not found then raise exception 'WORKER_NOT_FOUND:%',p_worker_pin; end if;\n\n  return jsonb_build_object(\n    'pin',v_worker.pin,\n    'name',v_worker.name,\n    'role',v_worker.role,\n    'active',v_worker.is_active,\n    'salary_enabled',v_worker.pay_salary_enabled,\n    'salary_amount',round(coalesce(v_worker.salary,0)::numeric,2),\n    'salary_day',v_worker.salary_day,\n    'meal_enabled',v_worker.pay_meal_enabled,\n    'meal_amount',round(coalesce(v_worker.pay_meal_amount,0)::numeric,2),\n    'commission_enabled',v_worker.pay_commission_enabled,\n    'commission_rate_m2',round(coalesce(v_worker.pay_commission_rate_m2,0)::numeric,4),\n    'transport_bonus_enabled',v_worker.pay_transport_bonus_enabled,\n    'transport_bonus_amount',round(coalesce(v_worker.pay_transport_bonus_amount,0)::numeric,2),\n    'ready_bonus_enabled',v_worker.pay_ready_bonus_enabled,\n    'cash_mode',v_worker.pay_cash_mode,\n    'notes',v_worker.pay_notes,\n    'updated_at',v_worker.pay_updated_at,\n    'updated_by_pin',v_worker.pay_updated_by_pin,\n    'updated_by_name',v_worker.pay_updated_by_name\n  );\nend;\n$function$\n"
+    },
+    {
+      "name": "get_worker_finance_snapshot_v1",
+      "definition": "CREATE OR REPLACE FUNCTION public.get_worker_finance_snapshot_v1(p_actor_pin text, p_worker_pin text, p_date date DEFAULT NULL::date)\n RETURNS jsonb\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\ndeclare\n  v_actor_role text;\n  v_worker public.users%rowtype;\n  v_date date := coalesce(p_date,(now() at time zone 'Europe/Belgrade')::date);\n  v_start timestamptz := v_date::timestamp at time zone 'Europe/Belgrade';\n  v_end timestamptz := (v_date+1)::timestamp at time zone 'Europe/Belgrade';\n  v_month_start timestamptz := date_trunc('month',v_date::timestamp)::timestamp at time zone 'Europe/Belgrade';\n  v_month_end timestamptz := (date_trunc('month',v_date::timestamp)+interval '1 month')::timestamp at time zone 'Europe/Belgrade';\n  v_result jsonb;\nbegin\n  select upper(coalesce(role,'')) into v_actor_role\n  from public.users\n  where pin=trim(coalesce(p_actor_pin,'')) and is_active is true\n  limit 1;\n\n  if trim(coalesce(p_actor_pin,'')) <> trim(coalesce(p_worker_pin,''))\n     and v_actor_role not in ('ADMIN','ADMIN_MASTER','DISPATCH','OWNER','PRONAR','SUPERADMIN','MASTER','MASTER_USER','MASTERUSER') then\n    raise exception 'WORKER_FINANCE_ACCESS_DENIED';\n  end if;\n\n  select * into v_worker\n  from public.users\n  where pin=trim(coalesce(p_worker_pin,'')) and is_active is true\n  limit 1;\n  if not found then raise exception 'WORKER_NOT_FOUND:%',p_worker_pin; end if;\n\n  with all_real as (\n    select p.*,\n      case when upper(coalesce(p.source_module,''))='TRANSPORT'\n                 or upper(coalesce(p.type,''))='TRANSPORT'\n                 or p.transport_order_id is not null\n                 or upper(coalesce(p.transport_code_str,'')) ~ '^T[0-9]+$'\n           then true else false end as is_transport\n    from public.arka_pending_payments p\n    where p.created_by_pin=v_worker.pin\n      and upper(coalesce(p.type,'')) not in ('EXPENSE','TIMA','MEAL_PAYMENT','MEAL_COVERED','READY_48H_BONUS','ADVANCE','SALARY_PAYMENT')\n      and not exists(\n        select 1 from public.arka_payment_exclusions e\n        where e.payment_id=p.id and e.cancelled_at is null\n      )\n  ), calc as (\n    select r.*,\n      case when v_worker.pay_commission_enabled is true\n                 and v_worker.pay_cash_mode='HYBRID_COMMISSION'\n                 and r.is_transport\n           then least(round(r.amount::numeric,2),round((coalesce(r.transport_m2,0)*coalesce(v_worker.pay_commission_rate_m2,0))::numeric,2))\n           else 0::numeric end as commission,\n      (r.created_at at time zone 'Europe/Belgrade')::date as local_date\n    from all_real r\n  ), money_rows as (\n    select c.*,\n      round((round(c.amount::numeric,2)-round(c.commission::numeric,2))::numeric,2) as due_to_base\n    from calc c\n  ), open_rows as (\n    select * from money_rows where upper(coalesce(status,'')) in ('PENDING','COLLECTED')\n  ), accepted_rows as (\n    select * from money_rows where upper(coalesce(status,'')) in ('ACCEPTED_BY_DISPATCH','APPROVED','ACCEPTED')\n  ), extra_rows as (\n    select p.*,(p.created_at at time zone 'Europe/Belgrade')::date local_date\n    from public.arka_pending_payments p\n    where (p.created_by_pin=v_worker.pin or p.handed_by_pin=v_worker.pin)\n      and upper(coalesce(p.type,'')) in ('EXPENSE','MEAL_PAYMENT','MEAL_COVERED','TIMA')\n      and upper(coalesce(p.status,'')) not in ('REJECTED','REFUZUAR','CANCELLED','CANCELED','VOIDED')\n  ), active_advances as (\n    select p.*\n    from public.arka_pending_payments p\n    where p.created_by_pin=v_worker.pin\n      and (upper(coalesce(p.type,''))='ADVANCE' or upper(coalesce(p.status,''))='ADVANCE')\n      and upper(coalesce(p.status,'')) not in ('SETTLED_IN_SALARY','CANCELLED','CANCELED','VOIDED')\n  ), pending_handoffs as (\n    select h.* from public.cash_handoffs h\n    where h.worker_pin=v_worker.pin and upper(coalesce(h.status,''))='PENDING_DISPATCH_APPROVAL'\n  ), accepted_handoffs as (\n    select h.* from public.cash_handoffs h\n    where h.worker_pin=v_worker.pin and upper(coalesce(h.status,''))='ACCEPTED'\n  )\n  select jsonb_build_object(\n    'version','WORKER_FINANCE_SNAPSHOT_V1',\n    'date',v_date,\n    'generated_at',now(),\n    'actor',jsonb_build_object('pin',trim(p_actor_pin),'role',v_actor_role,'can_manage',v_actor_role in ('ADMIN','ADMIN_MASTER','DISPATCH','OWNER','PRONAR','SUPERADMIN','MASTER','MASTER_USER','MASTERUSER')),\n    'worker',jsonb_build_object('id',v_worker.id,'pin',v_worker.pin,'name',v_worker.name,'role',v_worker.role,'active',v_worker.is_active),\n    'profile',public.get_worker_compensation_profile_v1(p_actor_pin,p_worker_pin),\n    'cash',jsonb_build_object(\n      'open_gross',coalesce((select round(sum(amount)::numeric,2) from open_rows),0),\n      'open_commission',coalesce((select round(sum(commission)::numeric,2) from open_rows),0),\n      'open_due_to_base',coalesce((select round(sum(due_to_base)::numeric,2) from open_rows),0),\n      'open_count',(select count(*) from open_rows),\n      'today_gross',coalesce((select round(sum(amount)::numeric,2) from open_rows where local_date=v_date),0),\n      'today_commission',coalesce((select round(sum(commission)::numeric,2) from open_rows where local_date=v_date),0),\n      'today_due_to_base',coalesce((select round(sum(due_to_base)::numeric,2) from open_rows where local_date=v_date),0),\n      'today_count',(select count(*) from open_rows where local_date=v_date),\n      'carryover_gross',coalesce((select round(sum(amount)::numeric,2) from open_rows where local_date<v_date),0),\n      'carryover_commission',coalesce((select round(sum(commission)::numeric,2) from open_rows where local_date<v_date),0),\n      'carryover_due_to_base',coalesce((select round(sum(due_to_base)::numeric,2) from open_rows where local_date<v_date),0),\n      'carryover_count',(select count(*) from open_rows where local_date<v_date),\n      'accepted_month_gross',coalesce((select round(sum(amount)::numeric,2) from accepted_rows where created_at>=v_month_start and created_at<v_month_end),0),\n      'accepted_month_commission',coalesce((select round(sum(commission)::numeric,2) from accepted_rows where created_at>=v_month_start and created_at<v_month_end),0),\n      'accepted_month_due_to_base',coalesce((select round(sum(due_to_base)::numeric,2) from accepted_rows where created_at>=v_month_start and created_at<v_month_end),0),\n      'pending_handoff_total',coalesce((select round(sum(amount)::numeric,2) from pending_handoffs),0),\n      'pending_handoff_count',(select count(*) from pending_handoffs),\n      'accepted_handoff_today',coalesce((select round(sum(amount)::numeric,2) from accepted_handoffs where decided_at>=v_start and decided_at<v_end),0),\n      'rows',coalesce((select jsonb_agg(jsonb_build_object(\n        'id',id,'code',coalesce(transport_code_str,case when order_code is not null then order_code::text else null end),\n        'client_name',client_name,'amount',round(amount::numeric,2),'commission',round(commission::numeric,2),\n        'due_to_base',round(due_to_base::numeric,2),'m2',round(coalesce(transport_m2,0)::numeric,2),\n        'status',status,'type',type,'source_module',source_module,'created_at',created_at,'local_date',local_date\n      ) order by created_at desc,id desc) from open_rows),'[]'::jsonb),\n      'accepted_rows',coalesce((select jsonb_agg(jsonb_build_object(\n        'id',id,'code',coalesce(transport_code_str,case when order_code is not null then order_code::text else null end),\n        'client_name',client_name,'amount',round(amount::numeric,2),'commission',round(commission::numeric,2),\n        'due_to_base',round(due_to_base::numeric,2),'status',status,'created_at',created_at\n      ) order by created_at desc,id desc) from (select * from accepted_rows order by created_at desc,id desc limit 30) a),'[]'::jsonb)\n    ),\n    'expenses',jsonb_build_object(\n      'today_total',coalesce((select round(sum(amount)::numeric,2) from extra_rows where local_date=v_date and upper(type) in ('EXPENSE','MEAL_PAYMENT','MEAL_COVERED')),0),\n      'today_pending',coalesce((select round(sum(amount)::numeric,2) from extra_rows where local_date=v_date and upper(status) in ('PENDING','COLLECTED','PENDING_DISPATCH_APPROVAL')),0),\n      'today_accepted',coalesce((select round(sum(amount)::numeric,2) from extra_rows where local_date=v_date and upper(status) in ('ACCEPTED_BY_DISPATCH','APPROVED','ACCEPTED')),0),\n      'rows',coalesce((select jsonb_agg(jsonb_build_object('id',id,'type',type,'status',status,'amount',round(amount::numeric,2),'note',note,'created_at',created_at) order by created_at desc,id desc) from extra_rows where local_date=v_date),'[]'::jsonb)\n    ),\n    'advances',jsonb_build_object(\n      'active_total',coalesce((select round(sum(amount)::numeric,2) from active_advances),0),\n      'active_count',(select count(*) from active_advances),\n      'rows',coalesce((select jsonb_agg(jsonb_build_object('id',id,'amount',round(amount::numeric,2),'note',note,'status',status,'created_at',created_at) order by created_at desc,id desc) from active_advances),'[]'::jsonb)\n    ),\n    'payroll',jsonb_build_object(\n      'salary',case when v_worker.pay_salary_enabled then round(coalesce(v_worker.salary,0)::numeric,2) else 0 end,\n      'meal_bonus',case when v_worker.pay_meal_enabled then round(coalesce(v_worker.pay_meal_amount,0)::numeric,2) else 0 end,\n      'transport_bonus',case when v_worker.pay_transport_bonus_enabled then round(coalesce(v_worker.pay_transport_bonus_amount,0)::numeric,2) else 0 end,\n      'commission_retained_month',case when v_worker.pay_commission_enabled and v_worker.pay_cash_mode='HYBRID_COMMISSION' then coalesce((select round(sum(commission)::numeric,2) from money_rows where created_at>=v_month_start and created_at<v_month_end),0) else 0 end,\n      'advances_active',coalesce((select round(sum(amount)::numeric,2) from active_advances),0),\n      'gross_fixed',round((\n        case when v_worker.pay_salary_enabled then coalesce(v_worker.salary,0) else 0 end +\n        case when v_worker.pay_meal_enabled then coalesce(v_worker.pay_meal_amount,0) else 0 end +\n        case when v_worker.pay_transport_bonus_enabled then coalesce(v_worker.pay_transport_bonus_amount,0) else 0 end\n      )::numeric,2),\n      'net_fixed_after_advances',greatest(0,round((\n        case when v_worker.pay_salary_enabled then coalesce(v_worker.salary,0) else 0 end +\n        case when v_worker.pay_meal_enabled then coalesce(v_worker.pay_meal_amount,0) else 0 end +\n        case when v_worker.pay_transport_bonus_enabled then coalesce(v_worker.pay_transport_bonus_amount,0) else 0 end -\n        coalesce((select sum(amount) from active_advances),0)\n      )::numeric,2)),\n      'salary_day',v_worker.salary_day\n    )\n  ) into v_result;\n\n  return v_result;\nend;\n$function$\n"
+    }
+  ]
+}

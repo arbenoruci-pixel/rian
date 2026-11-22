@@ -19,7 +19,7 @@ check(files.arka.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:ARKA_PROFILE
 check(files.arka.includes("const hasDbHybridFlag = Object.prototype.hasOwnProperty.call(userRow, 'is_hybrid_transport');"), 'DB hybrid flag is authoritative');
 check(files.arka.includes('const nextCommissionRate = nextIsHybrid'), 'commission rate is gated by hybrid status');
 check(!files.arka.includes('const nextIsHybrid = isHybridWorker(userRow) || isHybridWorker(actor);'), 'stale actor cannot restore hybrid commission');
-check(files.arka.includes('{workerHybrid ? <Stat label={`KOMISION'), 'manager commission hidden for salary worker');
+check(files.arka.includes('{workerHybrid ? <Stat label={`KOMISION') || files.arka.includes('{workerHybrid ? <Stat label="Komision i mbajtur · historik"'), 'manager commission hidden for salary worker');
 check(files.arka.includes('KËTU HYJNË VETËM PAGESAT E RUAJTURA NË ARKA'), 'cash-versus-route-debt explanation');
 
 check(files.daily.includes('BELI_STRAIGHT_SALARY_PAYMENT_RECOVERY_V1:DAILY'), 'daily status marker');

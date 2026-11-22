@@ -10,7 +10,10 @@ import { arkaTransaction, buildArkaIdempotencyKey } from "@/lib/arka/arkaClient"
 import { deleteUserRecord, listUserRecords, updateUserRecord } from "@/lib/usersService";
 import { isStaffAdmin } from "@/lib/roles";
 import WorkerCompensationEditor from '@/components/WorkerCompensationEditor';
-import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow, isPayrollEligibleWorker } from "@/lib/payrollMonthClose";
+import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow, isPayrollEligibleWorker, pendingPayrollHandoffSummary } from "@/lib/payrollMonthClose";
+import { fetchMealPolicy } from '@/lib/mealPolicyClient';
+import { resolveMonthlyMealAllowance } from '@/lib/mealPolicy';
+import { requestHandoffReceipts } from '@/lib/handoffReceiptClient';
 
 function jparse(s, fallback) {
   try { return JSON.parse(s) ?? fallback; } catch { return fallback; }
@@ -27,6 +30,9 @@ function euro(n) {
 function normalizeDbError(errLike) {
   const msg = String(errLike?.message || errLike?.details || errLike?.hint || errLike || "");
   const low = msg.toLowerCase();
+
+  if (msg.includes('MEAL_POLICY_PAYROLL_QUOTE_CHANGED')) return 'Rroga ose shtesa mujore ka ndryshuar. Rifresko dhe hape përsëri fletëpagesën para pagesës.';
+  if (msg.includes('MEAL_POLICY_PAYROLL_CHECK_FAILED')) return 'Rregulli i ushqimit nuk u verifikua. Pagesa u ndalua para zbritjes së buxhetit; provo përsëri.';
 
   if (low.includes("duplicate key") && low.includes("pin")) {
     return "⚠️ Ky PIN po përdoret nga një anëtar tjetër i stafit. Zgjidhni një PIN unik.";
@@ -279,6 +285,8 @@ export default function PayrollPage() {
   const [payrollMonthRows, setPayrollMonthRows] = useState([]);
   const [payrollMonthLoading, setPayrollMonthLoading] = useState(false);
   const [payrollMonthError, setPayrollMonthError] = useState("");
+  const [mealPolicy, setMealPolicy] = useState(null);
+  const [payrollHandoffs, setPayrollHandoffs] = useState(null);
   const [monthCloseSummary, setMonthCloseSummary] = useState(null);
   const [monthCloseError, setMonthCloseError] = useState("");
   const [closedMonthSnapshot, setClosedMonthSnapshot] = useState(null);
@@ -329,6 +337,7 @@ export default function PayrollPage() {
 
   useEffect(() => {
     if (!actor || !isAdminUser) return;
+    setSalaryModal(null);
     void reloadMonthlyPayrollPreview(payrollMonth);
   }, [actor?.pin, isAdminUser, payrollMonth]);
 
@@ -369,6 +378,8 @@ export default function PayrollPage() {
 
     setPayrollMonthLoading(true);
     setPayrollMonthError("");
+    setMealPolicy(null);
+    setPayrollHandoffs(null);
     try {
       setMonthCloseError("");
 
@@ -404,7 +415,7 @@ export default function PayrollPage() {
       setClosedMonthSnapshot(null);
       setClosedMonthItems([]);
 
-      const [monthRes, paidRes, budgetRes, fixedRes, adminCashRes, exclusionRes] = await Promise.all([
+      const [monthRes, paidRes, budgetRes, fixedRes, adminCashRes, exclusionRes, nextMealPolicy, receiptState] = await Promise.all([
         supabase
           .from("arka_pending_payments")
           .select("*")
@@ -447,10 +458,16 @@ export default function PayrollPage() {
           .select("payment_id, reason_type, reason_note, created_at, created_by_name")
           .is("cancelled_at", null)
           .limit(5000),
+        fetchMealPolicy({ scope: 'team', force: true }),
+        requestHandoffReceipts({ action:'list' }),
       ]);
 
       if (monthRes.error) throw monthRes.error;
       if (paidRes.error) throw paidRes.error;
+      if (!Array.isArray(receiptState.handoffs)) throw new Error('Dorëzimet nuk u ngarkuan plotësisht.');
+      pendingPayrollHandoffSummary([],receiptState.handoffs);
+      setPayrollHandoffs(receiptState.handoffs);
+      setMealPolicy(nextMealPolicy);
 
       const map = new Map();
       [...(Array.isArray(monthRes.data) ? monthRes.data : []), ...(Array.isArray(paidRes.data) ? paidRes.data : [])].forEach((row) => {
@@ -626,10 +643,20 @@ export default function PayrollPage() {
     }
   }
 
-  function openSalaryModal(u) {
+  async function openSalaryModal(u) {
+    // MEAL_POLICY_DATED_V1: require the authoritative schedule for the selected payroll period.
+    let currentMealPolicy;
+    try {
+      currentMealPolicy = await fetchMealPolicy({ scope: 'team', force: true });
+      setMealPolicy(currentMealPolicy);
+    } catch (error) {
+      alert(error?.message || 'Rregulli i ushqimit nuk u ngarkua. Rifresko para pagesës.');
+      return;
+    }
     const workerName = String(u.name || "").trim().toUpperCase();
     const baseSalary = u.pay_salary_enabled === false ? 0 : Number(u.salary || 0);
-    const mealBonus = u.pay_meal_enabled === true ? Number(u.pay_meal_amount || u.bonus_ushqim || 0) : 0;
+    const mealAllowance = resolveMonthlyMealAllowance(u, payrollMonth, currentMealPolicy);
+    const mealBonus = mealAllowance.amount;
     const transportBonus = u.pay_transport_bonus_enabled === true ? Number(u.pay_transport_bonus_amount || u.bonus_transport || 0) : 0;
     const grossFixed = baseSalary + mealBonus + transportBonus;
     const autoDebt = Number(debtsMap[workerName] || 0);
@@ -640,6 +667,8 @@ export default function PayrollPage() {
       ...u,
       baseSalary,
       mealBonus,
+      mealPolicy: mealAllowance.policy,
+      payrollMonth,
       transportBonus,
       grossFixed,
       autoDebt,
@@ -714,6 +743,11 @@ export default function PayrollPage() {
       return;
     }
     if (actionBusy) return;
+    if (salaryModal.payrollMonth !== payrollMonth) {
+      setSalaryModal(null);
+      alert('Muaji ndryshoi. Hape përsëri fletëpagesën.');
+      return;
+    }
 
     const workerPin = String(salaryModal?.pin || '').trim();
     const workerName = String(salaryModal?.name || '').trim();
@@ -899,11 +933,13 @@ export default function PayrollPage() {
       });
   }, [staff, debtsMap]);
 
-  const monthlyPayrollPreview = useMemo(() => buildMonthlyPayrollPreview({
+  const monthlyPayrollPreview = useMemo(() => mealPolicy && payrollHandoffs ? buildMonthlyPayrollPreview({
     workers: financeCards,
     paymentRows: payrollMonthRows,
     month: payrollMonth,
-  }), [financeCards, payrollMonthRows, payrollMonth]);
+    mealPolicy,
+    handoffs:payrollHandoffs,
+  }) : [], [financeCards, payrollMonthRows, payrollMonth, mealPolicy, payrollHandoffs]);
 
   const monthlyPayrollTotals = useMemo(() => {
     return (monthlyPayrollPreview || []).reduce((acc, row) => {
@@ -1014,11 +1050,13 @@ export default function PayrollPage() {
       : [];
     const adminCashClassSummary = monthCloseSummary?.adminCashClassSummary || buildAdminCashClassSummary(adminCashOpenRows);
     const cashInHand = cashInHandRows.reduce((sum, row) => sum + Number(row?.amount || 0), 0);
-    const pendingDispatch = dispatchRows.reduce((sum, row) => sum + Number(row?.amount || 0), 0);
+    const pendingSummary = pendingPayrollHandoffSummary(dispatchRows,payrollHandoffs || []);
+    const pendingDispatch = pendingSummary.amount;
     const collectedMonth = collectedRows.reduce((sum, row) => sum + Number(row?.amount || 0), 0);
     const monthExpenses = expenseRows.reduce((sum, row) => sum + Number(row?.amount || 0), 0);
     const afterPayments = companyCash - essentialTotal - payrollNet;
     const reasons = [];
+    if (!mealPolicy || !payrollHandoffs || payrollMonthLoading) reasons.push('Duke verifikuar shtesat mujore dhe dorëzimet. Rifresko nëse leximi dështon.');
 
     if (cashInHand > 0) reasons.push(`Ka cash në dorë te punëtorët: ${euro(cashInHand)}`);
     if (adminCashOpenTotal > 0) reasons.push(`Ka cash admin/master të hapur: ${euro(adminCashOpenTotal)}`);
@@ -1029,6 +1067,7 @@ export default function PayrollPage() {
     if (monthCloseSummary?.adminCashOpenError) reasons.push(`Admin/master cash nuk u lexua plotësisht: ${monthCloseSummary.adminCashOpenError}`);
 
     const safe =
+      Boolean(mealPolicy && payrollHandoffs) && !payrollMonthLoading &&
       cashInHand <= 0 &&
       adminCashOpenTotal <= 0 &&
       pendingDispatch <= 0 &&
@@ -1049,7 +1088,7 @@ export default function PayrollPage() {
       adminCashOpenRows,
       adminCashClassSummary,
       pendingDispatch,
-      pendingDispatchCount: dispatchRows.length,
+      pendingDispatchCount: pendingSummary.count,
       monthExpenses,
       fixedTotal,
       essentialTotal,
@@ -1061,7 +1100,7 @@ export default function PayrollPage() {
       safe,
       reasons,
     };
-  }, [payrollMonthRows, monthCloseSummary, monthlyPayrollTotals, payrollMonth]);
+  }, [payrollMonthRows, monthCloseSummary, monthlyPayrollTotals, payrollMonth, mealPolicy, payrollHandoffs, payrollMonthLoading]);
 
   const payrollGroups = useMemo(() => {
     const rows = Array.isArray(monthlyPayrollPreview) ? monthlyPayrollPreview : [];
@@ -1834,13 +1873,15 @@ export default function PayrollPage() {
                 <div className="bigNumberCard salaryPayoutCard">
                   <span>Për me ia dhënë</span>
                   <strong>{euro(payableAmount)}</strong>
-                  <small>Formula fikse: Rroga bazë − avansi personal. Nuk ka zgjedhje manuale këtu.</small>
+                  <small>{payrollMonth}: rroga bazë + ushqimi + shtesa e transportit − avansi personal.</small>
                 </div>
 
                 <div className="salaryFormulaBox">
                   <div className="formulaTitle">Formula e pagesës</div>
                   <div className="formulaLine">
                     RROGA BAZË {euro(salaryModal.baseSalary)}
+                    {" + "} USHQIMI MUJOR {euro(salaryModal.mealBonus)}
+                    {" + "} SHTESA E TRANSPORTIT {euro(salaryModal.transportBonus)}
                     {" - "} AVANS PERSONAL {euro(Number(salaryModal.autoDebt || 0) + Number(salaryModal.manualAdvance || 0))}
                     {" = "} PËR PAGESË {euro(payableAmount)}
                   </div>
@@ -1850,6 +1891,14 @@ export default function PayrollPage() {
                   <div className="summaryRow salaryRow">
                     <span>Rroga bazë</span>
                     <strong>{euro(salaryModal.baseSalary)}</strong>
+                  </div>
+                  <div className="summaryRow deductRow">
+                    <span>Ushqimi mujor{salaryModal.mealPolicy ? ` (${salaryModal.mealPolicy.dailyRate}€ × ${salaryModal.mealPolicy.workDays} ditë)` : ''}</span>
+                    <strong>{euro(salaryModal.mealBonus)}</strong>
+                  </div>
+                  <div className="summaryRow">
+                    <span>Shtesa mujore e transportit</span>
+                    <strong>{euro(salaryModal.transportBonus)}</strong>
                   </div>
                   <div className="summaryRow deductRow">
                     <span>Avans personal që zbritet</span>

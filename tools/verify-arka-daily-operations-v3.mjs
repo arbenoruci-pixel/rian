@@ -27,7 +27,7 @@ check(wizard.includes('NETO m²'), 'net m² metric missing');
 check(wizard.includes('NË PASTRIM'), 'current cleaning m² metric missing');
 check(wizard.includes('dailyCurrent?.gati?.m2'), 'current ready m² metric missing');
 check(wizard.includes('countedCashManualRef'), 'manual override guard missing');
-check(wizard.includes('setCountedCash(expectedCash.toFixed(2))'), 'automatic expected cash population missing');
+check(wizard.includes('HANDOFF_ACTUAL_RECEIPTS_V1') ? wizard.includes('SHKRUAJ SHUMËN QË E NUMËROVE FIZIKISHT NË ARKË') : wizard.includes('setCountedCash(expectedCash.toFixed(2))'), 'physical cash count input missing');
 check(wizard.includes('countedCashManualRef.current = true'), 'manual physical cash override missing');
 check(wizard.includes('placeholder={expectedCash.toFixed(2)}'), 'automatic cash placeholder missing');
 check(wizard.includes('DITA OPERATIVE 04:00–04:00'), 'operational-day header missing');
@@ -79,4 +79,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('PASS ARKA daily operations V3: wizard is always reachable, 04:00 operational-day m² metrics are visible, and the cash/budget value is populated automatically.');
+console.log('PASS ARKA daily operations V3: wizard is always reachable, 04:00 operational-day m² metrics and expected cash remain visible, and physical count input is preserved.');

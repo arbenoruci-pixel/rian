@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/lib/routerCompat.jsx";
 import { supabase } from "@/lib/supabaseClient";
 import { getActor } from "@/lib/actorSession";
-import { buildMonthlyPayrollPreview, getCurrentPayrollMonth, getMonthWindow } from "@/lib/payrollMonthClose";
+import { buildMonthlyPayrollPreview, getMonthWindow } from "@/lib/payrollMonthClose";
+import { fetchMealPolicy } from "@/lib/mealPolicyClient";
+import { requestHandoffReceipts } from "@/lib/handoffReceiptClient";
 
 const RESERVE_AMOUNT = 1000;
 const OWNER_REPAYMENT_PERCENT = 30;
@@ -165,6 +167,12 @@ function normalizeRpcObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
+const sessionId = (value) => String(value?.id || value?.user_id || "");
+
+function emptyFinanceState(error = "") {
+  return { summary:null, ledger:[], owners:[], ownerEntries:[], fixedExpenses:[], users:[], monthPayments:[], openPayments:[], handoffs:[], payrollRows:[], mealPolicy:null, receiptSummary:null, actorId:"", month:"", errors:error ? { preview:error } : {} };
+}
+
 async function readKapakuPreview({ startIso, endIso }) {
   const res = await withTimeout(
     supabase.rpc("get_arka_kapaku_preview", {
@@ -214,26 +222,28 @@ function KapakuPage() {
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
-  const [state, setState] = useState({
-    summary: null,
-    ledger: [],
-    owners: [],
-    ownerEntries: [],
-    fixedExpenses: [],
-    users: [],
-    monthPayments: [],
-    openPayments: [],
-    handoffs: [],
-    errors: {},
-  });
+  const [state, setState] = useState(() => emptyFinanceState());
+  const loadVersion = useRef(0);
 
   async function reload() {
+    const version = ++loadVersion.current;
+    const actorId = sessionId(getActor());
     setLoading(true);
-    const month = getCurrentPayrollMonth();
-    const { startIso, endIso } = getMonthWindow(month);
-
     try {
-      const data = await readKapakuPreview({ startIso, endIso });
+      if (!actorId) throw new Error("Hyr përsëri për ta lexuar kapakun e arkës.");
+      const mealPolicy = await fetchMealPolicy({ scope:"team", force:true });
+      if (mealPolicy?.actorId !== actorId || !/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(mealPolicy?.businessDate || "") || !Array.isArray(mealPolicy?.settings) || !Array.isArray(mealPolicy?.policies)) throw new Error("Rregulli i ushqimit nuk u verifikua. Rifresko përpara llogaritjes së profitit.");
+      const month = mealPolicy.businessDate.slice(0, 7);
+      const { startIso, endIso } = getMonthWindow(month);
+      const [data, receipts] = await Promise.all([
+        readKapakuPreview({ startIso, endIso }),
+        requestHandoffReceipts({ action:"list" }),
+      ]);
+      if (version !== loadVersion.current || actorId !== sessionId(getActor())) return;
+      if (!normalizeRpcObject(data?.summary) || data.summary.current_balance == null || !Number.isFinite(Number(data.summary.current_balance)) || !["users","monthPayments","openPayments","fixedExpenses"].every(key => Array.isArray(data?.[key]))) throw new Error("Shumat e arkës dhe rrogave nuk u ngarkuan plotësisht.");
+      if (receipts?.actorId !== actorId || receipts?.manager !== true || !Array.isArray(receipts?.handoffs) || receipts?.summary?.outstandingTotal == null || !Number.isFinite(Number(receipts.summary.outstandingTotal)) || Number(receipts.summary.outstandingTotal) < 0) throw new Error("Dorëzimet në pritje nuk u verifikuan. Rifresko përpara llogaritjes së profitit.");
+      if (receipts.handoffs.some(row => row.receipt_tracking === true && upper(row.status) === "PENDING_DISPATCH_APPROVAL" && (!Array.isArray(row.pending_payment_ids) || row.pending_payment_ids.length === 0))) throw new Error("Lidhja e dorëzimeve me pagesat nuk u verifikua. Provo përsëri.");
+      const payrollRows = buildMonthlyPayrollPreview({ workers:data.users, paymentRows:data.monthPayments, month, mealPolicy, handoffs:receipts.handoffs });
       setState({
         summary: normalizeRpcObject(data?.summary),
         ledger: normalizeRpcArray(data?.ledger),
@@ -243,43 +253,45 @@ function KapakuPage() {
         users: normalizeRpcArray(data?.users),
         monthPayments: normalizeRpcArray(data?.monthPayments),
         openPayments: normalizeRpcArray(data?.openPayments),
-        handoffs: normalizeRpcArray(data?.handoffs),
+        handoffs: receipts.handoffs,
+        receiptSummary: receipts.summary,
+        mealPolicy,
+        actorId,
+        month,
+        payrollRows,
         errors: {},
       });
     } catch (error) {
-      setState({
-        summary: null,
-        ledger: [],
-        owners: [],
-        ownerEntries: [],
-        fixedExpenses: [],
-        users: [],
-        monthPayments: [],
-        openPayments: [],
-        handoffs: [],
-        errors: {
-          preview: compactError(error) || "Nuk u lexua",
-          owners: "Nuk u lexua",
-          ownerEntries: "Nuk u lexua",
-        },
-      });
+      if (version === loadVersion.current) setState(emptyFinanceState(compactError(error) || "Nuk u lexua"));
+    } finally {
+      if (version === loadVersion.current) setLoading(false);
     }
-
-    setLoading(false);
   }
 
   useEffect(() => {
-    try { setActor(getActor()); } catch { setActor(null); }
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
+    const changed = () => {
+      loadVersion.current++;
+      setActor(getActor()); setState(emptyFinanceState()); setActionMode(null); setActionError("");
+      void reload();
+    };
+    const refresh = () => { if (document.visibilityState !== "hidden") void reload(); };
+    setActor(getActor());
     const t = window.setTimeout(() => {
-      if (alive) void reload();
+      void reload();
     }, 80);
+    window.addEventListener("tepiha:session-changed", changed);
+    window.addEventListener("tepiha:meal-policy-updated", refresh);
+    window.addEventListener("arka:refresh", refresh);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
     return () => {
-      alive = false;
+      loadVersion.current++;
       window.clearTimeout(t);
+      window.removeEventListener("tepiha:session-changed", changed);
+      window.removeEventListener("tepiha:meal-policy-updated", refresh);
+      window.removeEventListener("arka:refresh", refresh);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
     };
   }, []);
 
@@ -302,11 +314,7 @@ function KapakuPage() {
       .filter((row) => row?.essential !== false)
       .reduce((sum, row) => sum + n(row?.amount), 0);
 
-    const payrollRows = buildMonthlyPayrollPreview({
-      workers: state.users || [],
-      paymentRows: state.monthPayments || [],
-      month: getCurrentPayrollMonth(),
-    });
+    const payrollRows = state.payrollRows || [];
     const payrollNet = payrollRows.reduce((sum, row) => sum + n(row?.net), 0);
 
     const openCashRows = (state.openPayments || []).filter(isOpenCashRow);
@@ -316,7 +324,7 @@ function KapakuPage() {
     const workerCash = workerCashRows.reduce((sum, row) => sum + n(row?.amount), 0);
     const openCashBlockers = masterCash + workerCash;
 
-    const pendingDispatch = (state.handoffs || []).reduce((sum, row) => sum + n(row?.amount || row?.total_amount), 0);
+    const pendingDispatch = n(state.receiptSummary?.outstandingTotal);
 
     const distributableProfit = +(
       companyCash
@@ -355,6 +363,8 @@ function KapakuPage() {
   }, [state]);
 
   const canManageKapaku = isKapakuManager(actor);
+  const financeReady = !loading && Boolean(state.mealPolicy && state.receiptSummary && state.summary && state.actorId === sessionId(actor) && state.actorId === sessionId(getActor()) && !state.errors.preview);
+  const verifiedMoney = value => financeReady ? money(value) : "—";
   const formAmount = parseMoneyInput(form.amount);
   const formTargetBalance = parseMoneyInput(form.targetBalance);
   const previewAfter = actionMode === "ADD_BUDGET"
@@ -367,6 +377,7 @@ function KapakuPage() {
   const previewDelta = +(previewAfter - computed.companyCash).toFixed(2);
 
   function openBudgetAction(mode) {
+    if (!financeReady) { setActionError("Prit verifikimin e arkës, rrogave dhe dorëzimeve përpara rregullimit."); return; }
     setActionMode(mode);
     setForm({ amount: "", targetBalance: "", reason: "", note: "" });
     setActionError("");
@@ -395,6 +406,10 @@ function KapakuPage() {
       setActionError("Nuk ke qasje për këtë veprim.");
       return;
     }
+    if (!financeReady) {
+      setActionError("Arka, rrogat dhe dorëzimet duhet të verifikohen para konfirmimit. Rifresko dhe provo përsëri.");
+      return;
+    }
     if (!pin) {
       setActionError("Mungon PIN-i i përdoruesit.");
       return;
@@ -416,6 +431,12 @@ function KapakuPage() {
     setActionError("");
     setActionMessage("");
     try {
+      const currentPolicy = await fetchMealPolicy({ scope:"team", force:true });
+      if (currentPolicy?.actorId !== state.actorId || sessionId(getActor()) !== state.actorId) throw new Error("Llogaria ka ndryshuar. Hape përsëri kapakun e arkës.");
+      if (currentPolicy.businessDate?.slice(0,7) !== state.month || JSON.stringify(currentPolicy.settings) !== JSON.stringify(state.mealPolicy.settings) || JSON.stringify(currentPolicy.policies) !== JSON.stringify(state.mealPolicy.policies)) {
+        await reload();
+        throw new Error("Rrogat ose rregulli i ushqimit kanë ndryshuar. Kontrollo llogaritjen dhe konfirmo përsëri.");
+      }
       const { error } = await supabase.rpc("post_manual_budget_adjustment", {
         p_adjustment_type: actionMode,
         p_amount: actionMode === "ALIGN_BALANCE" ? null : formAmount,
@@ -461,7 +482,7 @@ function KapakuPage() {
           <div className="arkaSectionTitle">BUXHETI AKTUAL</div>
           <div className="arkaSectionSub">COMPANY_BUDGET_SUMMARY ID=1</div>
         </div>
-        <div className="arkaHeroDueHuge">{money(computed.companyCash)}</div>
+        <div className="arkaHeroDueHuge">{verifiedMoney(computed.companyCash)}</div>
       </section>
 
       <section className="arkaSectionCard">
@@ -472,16 +493,16 @@ function KapakuPage() {
           </div>
           {canManageKapaku ? (
             <div style={styles.actionBtnWrap}>
-              <button className="arkaTopBtn" type="button" onClick={() => openBudgetAction("ADD_BUDGET")}>SHTO BUXHET</button>
-              <button className="arkaTopBtn" type="button" onClick={() => openBudgetAction("REMOVE_BUDGET")}>HEK NGA BUXHETI</button>
-              <button className="arkaTopBtn" type="button" onClick={() => openBudgetAction("ALIGN_BALANCE")}>RREGULLO CASH-IN REAL</button>
+              <button className="arkaTopBtn" type="button" disabled={!financeReady || submitting} onClick={() => openBudgetAction("ADD_BUDGET")}>SHTO BUXHET</button>
+              <button className="arkaTopBtn" type="button" disabled={!financeReady || submitting} onClick={() => openBudgetAction("REMOVE_BUDGET")}>HEK NGA BUXHETI</button>
+              <button className="arkaTopBtn" type="button" disabled={!financeReady || submitting} onClick={() => openBudgetAction("ALIGN_BALANCE")}>RREGULLO CASH-IN REAL</button>
             </div>
           ) : null}
         </div>
         <div className="arkaOwnerFormulaGrid compactStats">
-          <MiniStat label="Cash në kompani" value={money(computed.companyCash)} tone="ok" />
-          <MiniStat label="Total hyrje" value={money(computed.totalIn)} tone="info" />
-          <MiniStat label="Total dalje" value={money(computed.totalOut)} tone="warn" />
+          <MiniStat label="Cash në kompani" value={verifiedMoney(computed.companyCash)} tone="ok" />
+          <MiniStat label="Total hyrje" value={verifiedMoney(computed.totalIn)} tone="info" />
+          <MiniStat label="Total dalje" value={verifiedMoney(computed.totalOut)} tone="warn" />
           <MiniStat label="Përditësuar" value={fmtDateTime(state.summary?.updated_at)} tone="muted" />
         </div>
         <ReadError label="Buxheti aktual" error={state.errors.summary} />
@@ -493,7 +514,7 @@ function KapakuPage() {
             <div className="arkaSectionTitle">BORXHET NDAJ PRONARËVE</div>
             <div className="arkaSectionSub">Borxhe / investime • balancë historike</div>
           </div>
-          <div className="arkaCashTotalPill">TOTAL {money(computed.totalOwnerBalance)}</div>
+          <div className="arkaCashTotalPill">TOTAL {verifiedMoney(computed.totalOwnerBalance)}</div>
         </div>
 
         <div className="arkaSplitGrid detailPage">
@@ -528,11 +549,11 @@ function KapakuPage() {
           </div>
         </div>
         <div className="arkaOwnerFormulaGrid compactStats">
-          <MiniStat label="Obligime" value={money(computed.essentialObligations)} tone="warn" />
-          <MiniStat label="Rroga neto" value={money(computed.payrollNet)} tone="warn" />
-          <MiniStat label="Cash i hapur workers" value={money(computed.workerCash)} tone={computed.workerCash > 0 ? "warn" : "ok"} />
-          <MiniStat label="Master cash" value={money(computed.masterCash)} tone={computed.masterCash > 0 ? "warn" : "ok"} />
-          <MiniStat label="Në pritje dispatch" value={money(computed.pendingDispatch)} tone={computed.pendingDispatch > 0 ? "warn" : "ok"} />
+          <MiniStat label="Obligime" value={verifiedMoney(computed.essentialObligations)} tone="warn" />
+          <MiniStat label="Rroga neto" value={verifiedMoney(computed.payrollNet)} tone="warn" />
+          <MiniStat label="Cash i hapur workers" value={verifiedMoney(computed.workerCash)} tone={computed.workerCash > 0 ? "warn" : "ok"} />
+          <MiniStat label="Master cash" value={verifiedMoney(computed.masterCash)} tone={computed.masterCash > 0 ? "warn" : "ok"} />
+          <MiniStat label="Në pritje dispatch" value={verifiedMoney(computed.pendingDispatch)} tone={computed.pendingDispatch > 0 ? "warn" : "ok"} />
         </div>
         <ReadError label="Obligime" error={state.errors.fixedExpenses} />
         <ReadError label="Payroll users" error={state.errors.users} />
@@ -547,32 +568,34 @@ function KapakuPage() {
             <div className="arkaSectionTitle">WATERFALL</div>
             <div className="arkaSectionSub">Preview vetëm • nuk krijon shpërndarje</div>
           </div>
-          <div className="arkaCashTotalPill">{computed.distributableProfit > 0 ? "KA PROFIT" : "NUK KA PROFIT"}</div>
+          <div className="arkaCashTotalPill">{!financeReady ? "PRET VERIFIKIMIN" : computed.distributableProfit > 0 ? "KA PROFIT" : "NUK KA PROFIT"}</div>
         </div>
 
         <div style={styles.cleanBox}>
-          <RowLine label="Cash në kompani" value={money(computed.companyCash)} strong />
+          <RowLine label="Cash në kompani" value={verifiedMoney(computed.companyCash)} strong />
           <RowLine label="- Rezervë" value={money(RESERVE_AMOUNT)} />
-          <RowLine label="- Obligime" value={money(computed.essentialObligations)} />
-          <RowLine label="- Rroga neto" value={money(computed.payrollNet)} />
-          <RowLine label="- Cash i hapur" value={money(computed.openCashBlockers)} />
-          <RowLine label="- Në pritje dispatch" value={money(computed.pendingDispatch)} />
+          <RowLine label="- Obligime" value={verifiedMoney(computed.essentialObligations)} />
+          <RowLine label="- Rroga neto" value={verifiedMoney(computed.payrollNet)} />
+          <RowLine label="- Cash i hapur" value={verifiedMoney(computed.openCashBlockers)} />
+          <RowLine label="- Në pritje dispatch" value={verifiedMoney(computed.pendingDispatch)} />
           <RowLine
             label="= Profit i disponueshëm"
-            value={money(computed.distributableProfit)}
+            value={verifiedMoney(computed.distributableProfit)}
             strong
             tone={computed.distributableProfit > 0 ? "ok" : "bad"}
           />
         </div>
 
-        {computed.distributableProfit <= 0 ? (
+        {!financeReady ? (
+          <div style={styles.blockedBox} role="status">Llogaritja e profitit dhe rregullimet presin verifikimin e arkës, rrogave dhe dorëzimeve.</div>
+        ) : computed.distributableProfit <= 0 ? (
           <div style={styles.blockedBox}>NUK KA PROFIT TË DISPONUESHËM</div>
         ) : (
           <div className="arkaOwnerFormulaGrid compactStats" style={{ marginTop: 12 }}>
-            <MiniStat label="Kthim borxhi 30%" value={money(computed.ownerRepaymentPool)} tone="info" />
-            <MiniStat label="Ndarje profiti 70%" value={money(computed.profitSplitPool)} tone="ok" />
-            <MiniStat label="Arben 50%" value={money(computed.arbenProfit)} tone="strong" />
-            <MiniStat label="Fitim 50%" value={money(computed.fitimProfit)} tone="strong" />
+            <MiniStat label="Kthim borxhi 30%" value={verifiedMoney(computed.ownerRepaymentPool)} tone="info" />
+            <MiniStat label="Ndarje profiti 70%" value={verifiedMoney(computed.profitSplitPool)} tone="ok" />
+            <MiniStat label="Arben 50%" value={verifiedMoney(computed.arbenProfit)} tone="strong" />
+            <MiniStat label="Fitim 50%" value={verifiedMoney(computed.fitimProfit)} tone="strong" />
           </div>
         )}
       </section>
@@ -585,10 +608,10 @@ function KapakuPage() {
           </div>
         </div>
         <div style={styles.cleanBox}>
-          <RowLine label="Kthim borxhi/investimi" value={`${OWNER_REPAYMENT_PERCENT}% • ${money(computed.ownerRepaymentPool)}`} />
-          <RowLine label="Ndarje profiti 70%" value={`${PROFIT_SPLIT_PERCENT}% • ${money(computed.profitSplitPool)}`} />
-          <RowLine label="Arben 50%" value={money(computed.arbenProfit)} />
-          <RowLine label="Fitim 50%" value={money(computed.fitimProfit)} />
+          <RowLine label="Kthim borxhi/investimi" value={`${OWNER_REPAYMENT_PERCENT}% • ${verifiedMoney(computed.ownerRepaymentPool)}`} />
+          <RowLine label="Ndarje profiti 70%" value={`${PROFIT_SPLIT_PERCENT}% • ${verifiedMoney(computed.profitSplitPool)}`} />
+          <RowLine label="Arben 50%" value={verifiedMoney(computed.arbenProfit)} />
+          <RowLine label="Fitim 50%" value={verifiedMoney(computed.fitimProfit)} />
         </div>
       </section>
 
@@ -684,21 +707,21 @@ function KapakuPage() {
             <div style={styles.cleanBox}>
               {actionMode === "ADD_BUDGET" ? (
                 <>
-                  <RowLine label="Buxheti aktual" value={money(computed.companyCash)} />
+                  <RowLine label="Buxheti aktual" value={verifiedMoney(computed.companyCash)} />
                   <RowLine label="Shtohet" value={money(formAmount)} />
                   <RowLine label="Buxheti pas ndryshimit" value={money(previewAfter)} strong tone="ok" />
                 </>
               ) : null}
               {actionMode === "REMOVE_BUDGET" ? (
                 <>
-                  <RowLine label="Buxheti aktual" value={money(computed.companyCash)} />
+                  <RowLine label="Buxheti aktual" value={verifiedMoney(computed.companyCash)} />
                   <RowLine label="Hiqet" value={money(formAmount)} />
                   <RowLine label="Buxheti pas ndryshimit" value={money(previewAfter)} strong tone={previewAfter < 0 ? "bad" : "ok"} />
                 </>
               ) : null}
               {actionMode === "ALIGN_BALANCE" ? (
                 <>
-                  <RowLine label="Buxheti në sistem" value={money(computed.companyCash)} />
+                  <RowLine label="Buxheti në sistem" value={verifiedMoney(computed.companyCash)} />
                   <RowLine label="Cash real i numëruar" value={money(formTargetBalance)} />
                   <RowLine label="Diferenca" value={signedMoney(previewDelta)} tone={previewDelta >= 0 ? "ok" : "bad"} />
                   <RowLine label="Buxheti pas align" value={money(previewAfter)} strong />
@@ -712,7 +735,7 @@ function KapakuPage() {
               className="arkaPrimaryBtn"
               type="button"
               onClick={confirmBudgetAction}
-              disabled={submitting}
+              disabled={submitting || !financeReady}
               style={{ width: "100%", marginTop: 14 }}
             >
               {submitting ? "DUKE KONFIRMUAR..." : actionMode === "ADD_BUDGET" ? "KONFIRMO SHTIMIN" : actionMode === "REMOVE_BUDGET" ? "KONFIRMO HEQJEN" : "KONFIRMO ALIGN"}

@@ -104,12 +104,15 @@ function patchArkaPage() {
     "  const visibleCommission = n(item?.visibleCommissionHistoryTotal ?? item?.commissionHeldTotal);\n  const workerHybrid = isHybridWorker(item?.worker || {});\n  const clientCount = cashRows.length || historyRows.length || (Array.isArray(item?.collectedRows) ? item.collectedRows.length : 0);",
     'manager straight-salary flag',
   );
-  source = replaceOnce(
-    source,
-    "        <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(visibleCommission)} tone=\"warn\" small />",
-    "        {workerHybrid ? <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(visibleCommission)} tone=\"warn\" small /> : null}",
-    'hide manager commission',
-  );
+  // The current/history layout keeps the same authoritative hybrid gate.
+  if (!source.includes('{workerHybrid ? <Stat label="Komision i mbajtur · historik"')) {
+    source = replaceOnce(
+      source,
+      "        <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(visibleCommission)} tone=\"warn\" small />",
+      "        {workerHybrid ? <Stat label={`KOMISION ${workerFirstName.toUpperCase()}`} value={euro(visibleCommission)} tone=\"warn\" small /> : null}",
+      'hide manager commission',
+    );
+  }
   source = replaceOnce(
     source,
     `                  <div className="arkaWorkerFoot" style={{ alignItems: 'center', gap: 10 }}>
