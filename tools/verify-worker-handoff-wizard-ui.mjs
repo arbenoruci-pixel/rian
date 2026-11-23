@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { JSDOM, VirtualConsole } from 'jsdom';
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 
 // Real browser client and React component with synthetic server responses.
 // No application session, production identity, network, or financial write.
@@ -49,7 +50,7 @@ assert.equal(requests[0].expectedActorId,actor.id);assert.equal('actorId' in req
 const payload={snapshotHash:'a'.repeat(32),options:{mealChoice:'self',expenses:[]},physicalCash:25,differenceReason:'Synthetic cash count mismatch'};
 response=async()=>{throw new Error('Synthetic response lost after commit');};
 await assert.rejects(cw.client.submitWorkerHandoff(payload),/lost after commit/);
-const uncertain=clone(cw.client.readWorkerHandoffIntent());
+const uncertain=clone(await cw.client.readWorkerHandoffIntent());
 assert.equal(uncertain.actorId,actor.id);assert.equal(uncertain.physicalCash,25);assert.equal(uncertain.snapshotHash,payload.snapshotHash);
 assert.match(uncertain.requestKey,/^WH1:/);
 const requestAfterLoss=clone(requests.at(-1));
@@ -60,15 +61,15 @@ response=async()=>({ok:true,status:200,json:async()=>({ok:true,handoffId:42,repl
 const recovered=await cw.client.submitWorkerHandoff({...payload,physicalCash:99},{retry:true});
 assert.equal(recovered.handoffId,42);assert.equal(recovered.replayed,true);
 assert.deepEqual(requests.at(-1),requestAfterLoss);
-assert.equal(cw.client.readWorkerHandoffIntent(),null);
+assert.equal(await cw.client.readWorkerHandoffIntent(),null);
 console.log('PASS client binds requests to the current actor and durable retry reuses the exact saved payload and key after a lost reply');
 
 response=async()=>({ok:false,status:409,json:async()=>({ok:false,error:'WHW_SNAPSHOT_STALE'})});
 await assert.rejects(cw.client.submitWorkerHandoff(payload),/Rifresko|ndryshuar/);
-assert.equal(cw.client.readWorkerHandoffIntent(),null);
+assert.equal(await cw.client.readWorkerHandoffIntent(),null);
 response=async()=>({ok:false,status:503,json:async()=>({ok:false,error:'WORKER_HANDOFF_REQUEST_FAILED'})});
 await assert.rejects(cw.client.submitWorkerHandoff(payload));
-assert.ok(cw.client.readWorkerHandoffIntent());
+assert.ok(await cw.client.readWorkerHandoffIntent());
 response=async()=>({ok:true,status:200,json:async()=>({ok:true,handoffId:43,submission:{physicalCash:25}})});
 await cw.client.submitWorkerHandoff(null,{retry:true});
 
@@ -79,13 +80,13 @@ await wait(()=>finishOldRequest,'pending client HTTP request');
 cw.actor=clone(otherActor);
 finishOldRequest({ok:true,status:200,json:async()=>({ok:true,handoffId:44,submission:{physicalCash:25}})});
 await assert.rejects(oldRequest,/Llogaria ka ndryshuar/);
-assert.equal(cw.client.readWorkerHandoffIntent(),null);
+assert.equal(await cw.client.readWorkerHandoffIntent(),null);
 await assert.rejects(cw.client.submitWorkerHandoff(null,{retry:true}),/Nuk ka dorëzim/);
 cw.actor=clone(actor);
-assert.ok(cw.client.readWorkerHandoffIntent());
+assert.ok(await cw.client.readWorkerHandoffIntent());
 response=async()=>({ok:true,status:200,json:async()=>({ok:true,handoffId:44,replayed:true,submission:{physicalCash:25}})});
 await cw.client.submitWorkerHandoff(null,{retry:true});
-assert.equal(cw.client.readWorkerHandoffIntent(),null);
+assert.equal(await cw.client.readWorkerHandoffIntent(),null);
 
 const storageSet=cw.Storage.prototype.setItem;
 cw.Storage.prototype.setItem=()=>{throw new Error('Synthetic full storage');};
@@ -95,6 +96,76 @@ assert.equal(requests.length,beforeStorage);
 cw.Storage.prototype.setItem=storageSet;
 clientBrowser.close();
 console.log('PASS definite rejection clears intent, uncertain failure preserves it, account switch isolates it, and storage failure blocks unsafe submission');
+
+// Exercise the actual worker client under the same quota failure as a phone.
+const sharedIndexedDB = new IDBFactory();
+const localRows = new Map([['unsent-payment','KEEP'], ['customer-draft','KEEP']]);
+const fullLocal = {
+  getItem: key => localRows.get(key) ?? null,
+  setItem: () => { throw new DOMException('Synthetic full storage', 'QuotaExceededError'); },
+  removeItem: key => localRows.delete(key),
+};
+const fallbackRequests = [];
+const serverKeys = new Set();
+let loseReply = true;
+function fallbackBrowser() {
+  const page = browser(), w = page.w;
+  Object.defineProperty(w,'localStorage',{configurable:true,value:fullLocal});
+  Object.defineProperty(w,'indexedDB',{configurable:true,value:sharedIndexedDB});
+  w.structuredClone = structuredClone;
+  w.eval(clientBundle);
+  w.fetch = async (url, opts) => {
+    assert.equal(url,'/api/worker-handoff');
+    const body = JSON.parse(opts.body);
+    const saved = await w.client.readWorkerHandoffIntent();
+    assert.equal(saved?.requestKey, body.requestKey, 'Persist before POST');
+    assert.equal(body.expectedActorId, actor.id);
+    fallbackRequests.push(body);
+    const replayed = serverKeys.has(body.requestKey);
+    serverKeys.add(body.requestKey);
+    if (loseReply) { loseReply=false; throw new Error('Synthetic lost response'); }
+    return {ok:true,status:200,json:async()=>({ok:true,handoffId:45,replayed,submission:{physicalCash:body.physicalCash}})};
+  };
+  return page;
+}
+let fallback = fallbackBrowser();
+const smallCash = {...payload, physicalCash:10.92};
+await assert.rejects(fallback.w.client.submitWorkerHandoff(smallCash), /lost response/);
+assert.equal(serverKeys.size,1);
+const durable = clone(await fallback.w.client.readWorkerHandoffIntent());
+assert.equal(durable.physicalCash,10.92);
+fallback.close();
+fallback = fallbackBrowser();
+assert.deepEqual(clone(await fallback.w.client.readWorkerHandoffIntent()),durable);
+await assert.rejects(fallback.w.client.submitWorkerHandoff({...smallCash,physicalCash:99}),/pret përgjigjen/);
+assert.equal(fallbackRequests.length,1);
+const replay = await fallback.w.client.submitWorkerHandoff(null,{retry:true});
+assert.equal(replay.replayed,true);
+assert.deepEqual(fallbackRequests[1],fallbackRequests[0]);
+assert.equal(serverKeys.size,1);
+assert.equal(await fallback.w.client.readWorkerHandoffIntent(),null);
+assert.equal(localRows.get('unsent-payment'),'KEEP');
+assert.equal(localRows.get('customer-draft'),'KEEP');
+fallback.close();
+
+// A session change during IndexedDB persistence must not POST the old actor's
+// request with the new user's authenticated session.
+fallback = fallbackBrowser();
+const originalPut = IDBObjectStore.prototype.put;
+IDBObjectStore.prototype.put = function (...args) {
+  const request = originalPut.apply(this,args);
+  request.addEventListener('success',()=>{ fallback.w.actor=clone(otherActor); });
+  return request;
+};
+try {
+  const before = fallbackRequests.length;
+  await assert.rejects(fallback.w.client.submitWorkerHandoff(smallCash),/Llogaria ka ndryshuar/);
+  assert.equal(fallbackRequests.length,before);
+  assert.equal(await fallback.w.client.readWorkerHandoffIntent(),null);
+  fallback.w.actor=clone(actor);
+  assert.equal((await fallback.w.client.readWorkerHandoffIntent()).physicalCash,10.92);
+} finally { IDBObjectStore.prototype.put=originalPut; fallback.close(); }
+console.log('PASS worker submission survives full localStorage and reload, replays exactly once, preserves unrelated offline records, and blocks session-switch POST');
 
 const wizardBundle=await bundle("import React from 'react';import {createRoot} from 'react-dom/client';import Wizard from './components/HandoffWizard.jsx';import {handoffExpenseDescription} from './components/workerHandoffWizardModel.js';window.__expenseDescription=handoffExpenseDescription;const root=createRoot(document.getElementById('root'));window.__render=props=>{window.__props=props;window.actor=props.actor;root.render(<Wizard {...props}/>);};window.__unmount=()=>root.unmount();window.__render(window.__props);");
 const rawExpenseDescription = 'Buk\nARKA_EXPENSE_REQUEST_V1 type=BUSINESS_EXPENSE';
