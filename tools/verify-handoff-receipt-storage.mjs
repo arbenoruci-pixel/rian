@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
-import { createHandoffReceiptIntentStorage } from '../lib/handoffReceiptIntentStorage.js';
+import { createHandoffReceiptIntentStorage, createDurableHandoffIntentStorage } from '../lib/handoffReceiptIntentStorage.js';
 
 // Synthetic durable storage and HTTP ledger only. This suite never contacts a
 // hosted app, database, or a real worker's financial records.
@@ -260,6 +260,54 @@ await test('real client makes zero POSTs when neither storage can retain the req
     await assert.rejects(page.api.saveHandoffReceipt(request()));
     assert.equal(page.server.requests.length, 0); assert.equal(page.server.cash, 0);
   } finally { page.dom.window.close(); }
+});
+
+await test('reviewed worker state survives device failure with exact in-tab retry and rejects changed payload', async () => {
+  const storage=createDurableHandoffIntentStorage({localStorage:local(),indexedDB:{open(){throw new Error('blocked');}}},{
+    normalize:value=>({...value}),keyFor:actor=>'worker:'+actor,database:'synthetic-worker-recovery'
+  });
+  const options={serverRecovery:true};
+  const payload={actorId,requestKey:'WH1:STATE:'+'a'.repeat(32),snapshotHash:'a'.repeat(32),physicalCash:537.66,options:{expenses:[]}};
+  assert.equal(await storage.read(actorId,undefined,options),null);
+  assert.deepEqual(await storage.persist(payload,options),payload);
+  assert.deepEqual(await storage.read(actorId,undefined,options),payload);
+  await assert.rejects(storage.persist({...payload,physicalCash:500},options),storageError);
+  await storage.remove(payload).catch(()=>{});
+  assert.equal(await storage.read(actorId,undefined,options),null);
+});
+
+await test('reviewed receipt uses deterministic server recovery when IndexedDB fails, with exact retry and no double credit', async () => {
+  const f = fixture({ localStorage:local(), indexedDB:{ open(){ throw new Error('Synthetic IndexedDB blocked'); } } });
+  const server = ledger({ loseReply:true }); let page = clientPage(f, server);
+  const recovery = { serverRecovery:true };
+  try {
+    assert.equal(await page.api.readHandoffReceiptIntent(actorId,41,recovery),null);
+    await assert.rejects(page.api.saveHandoffReceipt(request(),recovery),/Synthetic response lost/);
+    assert.equal(server.cash,40);
+    const original = await page.api.readHandoffReceiptIntent(actorId,41,recovery);
+    assert.match(original.requestKey,/^HR1:STATE:/);
+    await assert.rejects(page.api.saveHandoffReceipt(request({amount:5}),recovery));
+    const replay = await page.api.saveHandoffReceipt(request(),{...recovery,retry:true});
+    assert.equal(replay.replayed,true); assert.equal(server.cash,40);
+    page.dom.window.close(); page=clientPage(f,server);
+    assert.equal(await page.api.readHandoffReceiptIntent(actorId,41,recovery),null);
+    const repeated = await page.api.saveHandoffReceipt(request(),recovery);
+    assert.equal(repeated.replayed,true); assert.equal(server.cash,40);
+    const remainder = await page.api.saveHandoffReceipt(request({amount:60,expectedOutstanding:60}),recovery);
+    assert.equal(remainder.ok,true); assert.equal(server.cash,100);
+  } finally { page.dom.window.close(); }
+});
+
+await test('reviewed recovery still blocks known corrupt or unreadable local storage', async () => {
+  for (const brokenRead of [false,true]) {
+    const ls=local({readError:brokenRead});
+    if (!brokenRead) ls.map.set(scopeKey(),'{corrupt');
+    const page=clientPage(fixture({localStorage:ls}));
+    try {
+      await assert.rejects(page.api.saveHandoffReceipt(request(),{serverRecovery:true}));
+      assert.equal(page.server.requests.length,0);
+    } finally {page.dom.window.close();}
+  }
 });
 
 await test('corrupt or unreadable pending storage never becomes a fresh financial POST', async () => {
