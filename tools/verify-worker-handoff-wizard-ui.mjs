@@ -167,6 +167,42 @@ try {
 } finally { IDBObjectStore.prototype.put=originalPut; fallback.close(); }
 console.log('PASS worker submission survives full localStorage and reload, replays exactly once, preserves unrelated offline records, and blocks session-switch POST');
 
+// Actual worker client: blocked IndexedDB must not strand a reviewed server snapshot.
+let recoveryPage=browser();
+const recoveryKeys=new Map();
+const recoveryPayload={...payload,physicalCash:537.66};
+let recoveryLose=true;
+function configureRecovery(page){
+  const w=page.w;
+  Object.defineProperty(w,'indexedDB',{configurable:true,value:{open(){throw new Error('Synthetic blocked database');}}});
+  w.structuredClone=structuredClone;w.eval(clientBundle);
+  w.fetch=async(url,opts)=>{
+    const body=JSON.parse(opts.body);
+    assert.equal(url,'/api/worker-handoff');
+    assert.equal(body.expectedActorId,actor.id);
+    assert.match(body.requestKey,/^WH1:STATE:/);
+    const previous=recoveryKeys.get(body.requestKey);
+    if(previous){assert.deepEqual(body,previous);return {ok:true,status:200,json:async()=>({ok:true,handoffId:45,replayed:true,submission:{physicalCash:body.physicalCash}})};}
+    recoveryKeys.set(body.requestKey,body);
+    if(recoveryLose){recoveryLose=false;throw new Error('Synthetic lost response after commit');}
+    return {ok:true,status:200,json:async()=>({ok:true,handoffId:45,replayed:false,submission:{physicalCash:body.physicalCash}})};
+  };
+  return w;
+}
+let rw=configureRecovery(recoveryPage);
+const recoveryOptions={serverRecovery:true};
+assert.equal(await rw.client.readWorkerHandoffIntent(recoveryOptions),null);
+await assert.rejects(rw.client.submitWorkerHandoff(recoveryPayload,recoveryOptions),/lost response/);
+assert.equal(recoveryKeys.size,1);
+assert.equal((await rw.client.readWorkerHandoffIntent(recoveryOptions)).physicalCash,537.66);
+assert.equal((await rw.client.submitWorkerHandoff(null,{...recoveryOptions,retry:true})).replayed,true);
+recoveryPage.close();recoveryPage=browser();rw=configureRecovery(recoveryPage);
+assert.equal(await rw.client.readWorkerHandoffIntent(recoveryOptions),null);
+assert.equal((await rw.client.submitWorkerHandoff(recoveryPayload,recoveryOptions)).replayed,true);
+assert.equal(recoveryKeys.size,1);
+recoveryPage.close();
+console.log('PASS reviewed worker confirmation recovers blocked IndexedDB and exact server replay');
+
 const wizardBundle=await bundle("import React from 'react';import {createRoot} from 'react-dom/client';import Wizard from './components/HandoffWizard.jsx';import {handoffExpenseDescription} from './components/workerHandoffWizardModel.js';window.__expenseDescription=handoffExpenseDescription;const root=createRoot(document.getElementById('root'));window.__render=props=>{window.__props=props;window.actor=props.actor;root.render(<Wizard {...props}/>);};window.__unmount=()=>root.unmount();window.__render(window.__props);");
 const rawExpenseDescription = 'Buk\nARKA_EXPENSE_REQUEST_V1 type=BUSINESS_EXPENSE';
 function quote(options={},settings={}) {
