@@ -84,6 +84,7 @@ export default function HandoffWizard({ open, actor, onClose, onSaved, api = wor
   const [step, setStep] = useState(1), [preview, setPreview] = useState(null), [options, setOptions] = useState(emptyOptions), [reviewOptions, setReviewOptions] = useState(emptyOptions);
   const [loading, setLoading] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState('');
   const [physical, setPhysical] = useState(''), [reason, setReason] = useState(''), [confirmed, setConfirmed] = useState(false);
+  const [manualCash, setManualCash] = useState(false);
   const [receipt, setReceipt] = useState(null), [pendingIntent, setPendingIntent] = useState(null);
   const [expenseForm, setExpenseForm] = useState(null), [expenseError, setExpenseError] = useState('');
   const [sessionChanged, setSessionChanged] = useState(false);
@@ -108,7 +109,7 @@ export default function HandoffWizard({ open, actor, onClose, onSaved, api = wor
       // Keep the exact options that produced this hash, including a missing meal
       // choice under monthly policy. The server owns policy normalization.
       setPreview(result); setStateScope(requestedScope); setOptions(resolvedOptions); setReviewOptions(resolvedOptions);
-      setPhysical(''); setReason(''); setConfirmed(false);
+      setPhysical(''); setReason(''); setConfirmed(false); setManualCash(false);
       if (nextStep) setStep(nextStep);
       return true;
     } catch (err) {
@@ -122,7 +123,7 @@ export default function HandoffWizard({ open, actor, onClose, onSaved, api = wor
   useEffect(() => {
     sequence.current++;
     setStateScope(scope); setStep(1); setPreview(null); setOptions(emptyOptions()); setReviewOptions(emptyOptions());
-    setPhysical(''); setReason(''); setConfirmed(false); setReceipt(null); setPendingIntent(null); setError(''); setExpenseForm(null); setExpenseError('');
+    setPhysical(''); setReason(''); setConfirmed(false); setManualCash(false); setReceipt(null); setPendingIntent(null); setError(''); setExpenseForm(null); setExpenseError('');
     setSessionChanged(false);
     submitting.current = false; setSaving(false); setLoading(!!open);
     if (!open) return;
@@ -147,7 +148,7 @@ export default function HandoffWizard({ open, actor, onClose, onSaved, api = wor
       // Immediately hide the old account and invalidate both reads and writes.
       sequence.current++;
       setSessionChanged(true); setStateScope(''); setPreview(null); setReceipt(null); setPendingIntent(null);
-      setPhysical(''); setReason(''); setConfirmed(false); setOptions(emptyOptions()); setReviewOptions(emptyOptions());
+      setPhysical(''); setReason(''); setConfirmed(false); setManualCash(false); setOptions(emptyOptions()); setReviewOptions(emptyOptions());
       setExpenseForm(null); setExpenseError(''); setError(''); setLoading(false); setSaving(false);
       submitting.current = false;
       callbacks.current.onClose?.();
@@ -172,7 +173,7 @@ export default function HandoffWizard({ open, actor, onClose, onSaved, api = wor
 
   function changeOptions(patch) {
     setOptions(previous => ({ ...previous, ...patch }));
-    setPhysical(''); setReason(''); setConfirmed(false); setError('');
+    setPhysical(''); setReason(''); setConfirmed(false); setManualCash(false); setError('');
   }
 
   function close() {
@@ -210,7 +211,16 @@ export default function HandoffWizard({ open, actor, onClose, onSaved, api = wor
       if (options.mealChoice === 'other' && !options.mealPayerId) { setError('Zgjedhe personin që ka paguar ushqimin.'); return; }
       await loadPreview(options, 4); return;
     }
-    if (step === 4 && validatePhysical()) { setConfirmed(false); setStep(5); }
+    if (step === 4) {
+      if (!manualCash) {
+        // The worker explicitly confirms the server-calculated amount.
+        // Never prefill or submit an unconfirmed physical count.
+        const amount = Number(current.totals.projectedCash);
+        const exact = (Math.round(amount * 100) / 100).toFixed(2);
+        if (parseHandoffCash(exact) == null) { setError('Shuma e llogaritur nuk mund të konfirmohet. Zgjedh shumën reale ose rifresko llogaritjen.'); return; }
+        setPhysical(exact.replace('.', ',')); setReason(''); setConfirmed(false); setError(''); setStep(5);
+      } else if (validatePhysical()) { setConfirmed(false); setStep(5); }
+    }
   }
 
   async function save(retry = false) {
@@ -285,14 +295,38 @@ export default function HandoffWizard({ open, actor, onClose, onSaved, api = wor
             </section> : null}{dirty ? <div className="whw-note whw-section">Kur të vazhdosh, sistemi i kontrollon zgjedhjet dhe e rifreskon shumën për dorëzim.</div> : null}
           </> : null}
 
-          {step === 4 ? <><h2 className="whw-step-title" ref={headingRef} tabIndex={-1}>Numëro paratë në dorë</h2><p className="whw-lead">Numëro paratë që po ia jep dispatch-it dhe shkruaje shumën reale.</p><Line label="Pritet sipas llogarisë" value={money(current.totals.projectedCash)} emphasis data-handoff-projected="1" /><label className="whw-field">Sa para po dorëzon realisht? (€)<input className="whw-input whw-physical" data-handoff-physical-input="1" inputMode="decimal" autoComplete="off" placeholder="0,00" value={physical} onChange={event => { setPhysical(event.target.value); setConfirmed(false); setError(''); }} /><small>Shuma duhet të plotësohet nga numërimi yt.</small></label><div className={`${difference === 0 ? 'whw-note' : 'whw-warning'} whw-section`} data-handoff-difference="1" role="status">{handoffDifferenceText(difference)}</div>{difference != null && difference !== 0 ? <label className="whw-field">Pse ka dallim?<textarea className="whw-textarea" maxLength={1000} value={reason} onChange={event => { setReason(event.target.value); setConfirmed(false); setError(''); }} placeholder="Shpjego konkretisht shumën dhe arsyen e dallimit." /><small>Ky sqarim i shfaqet dispatch-it bashkë me shumat.</small></label> : null}<details className="whw-details"><summary>Shiko llogaritjen e plotë</summary><Breakdown preview={current} compact /></details>{current.expenses.length ? <details className="whw-details"><summary>Kontrollo kërkesat e shpenzimeve</summary><ExpenseCards rows={current.expenses} /></details> : null}</> : null}
+          {step === 4 ? <>
+            <h2 className="whw-step-title" ref={headingRef} tabIndex={-1}>A po dorëzon shumën e saktë?</h2>
+            <p className="whw-lead">Numëro paratë që po ia jep dispatch-it dhe krahasoji me llogaritjen.</p>
+            <Total label="Shuma që duhet të dorëzosh" value={current.totals.projectedCash} data-handoff-projected="1" />
+            {!manualCash ? <>
+              <div className="whw-note whw-section">Nëse paratë e numëruara përputhen me këtë shumë, prek PO, VAZHDO. Nuk ke nevojë ta shkruash shumën.</div>
+              <button type="button" className="whw-button whw-full whw-section" data-handoff-manual-cash="1" onClick={() => { setManualCash(true); setPhysical(''); setReason(''); setConfirmed(false); setError(''); }}>JO, KAM SHUMË TJETËR</button>
+            </> : <>
+              <button type="button" className="whw-button whw-button-link whw-full" onClick={() => { setManualCash(false); setPhysical(''); setReason(''); setConfirmed(false); setError(''); }}>Kthehu te shuma e saktë</button>
+              <label className="whw-field">Sa para po dorëzon realisht? (€)<input className="whw-input whw-physical" data-handoff-physical-input="1" inputMode="decimal" autoComplete="off" placeholder="0,00" value={physical} onChange={event => {
+                // Some mobile keyboards insert both decimal separators.
+                // Only collapse adjacent separators when the decimal is unambiguous.
+                const value = event.target.value.replace(/^(\d+)[.,]{2,}(\d{0,2})$/, '$1,$2');
+                setPhysical(value); setConfirmed(false); setError('');
+                if (handoffDifference(parseHandoffCash(value), current.totals.projectedCash) === 0) setReason('');
+              }} /><small>Përdor pikën ose presjen për centët.</small></label>
+              <div className={`${difference === 0 ? 'whw-note' : 'whw-warning'} whw-section`} data-handoff-difference="1" role="status">{handoffDifferenceText(difference)}</div>
+              {difference != null && difference !== 0 ? <>
+                <label className="whw-field">Pse ka dallim?<textarea className="whw-textarea" maxLength={1000} value={reason} onChange={event => { setReason(event.target.value); setConfirmed(false); setError(''); }} placeholder="P.sh. karburant, material, ose arsye tjetër. Trego shumën dhe arsyen." /><small>Dispatch-i e sheh sqarimin dhe kontrollon diferencën. Shpenzimet e reja regjistrohen te hapi 3; mos i zbrit dy herë.</small></label>
+                <button type="button" className="whw-button whw-full whw-section" onClick={() => { setError(''); setStep(3); }}>SHTO / KONTROLLO SHPENZIMET</button>
+              </> : null}
+            </>}
+            <details className="whw-details"><summary>Shiko llogaritjen e plotë</summary><Breakdown preview={current} compact /></details>
+            {current.expenses.length ? <details className="whw-details"><summary>Kontrollo kërkesat e shpenzimeve</summary><ExpenseCards rows={current.expenses} /></details> : null}
+          </> : null}
 
           {step === 5 ? <><h2 className="whw-step-title" ref={headingRef} tabIndex={-1}>Kontrolli i fundit</h2><p className="whw-lead">Kjo llogaritje dhe deklarata jote ruhen bashkë me dorëzimin. Nëse ke provuar më parë, kontrollo dorëzimet e regjistruara para se të konfirmosh përsëri.</p><Line label="Paratë që po deklaron" value={money(parsedCash)} emphasis /><label className="whw-checkbox"><input type="checkbox" checked={confirmed} onChange={event => { setConfirmed(event.target.checked); setError(''); }} /><span>I kontrollova pagesat dhe zbritjet. I numërova paratë dhe po deklaroj <strong>{money(parsedCash)}</strong> për dispatch-in.</span></label><Breakdown preview={current} physical={parsedCash} reason={reason.trim()} /><details className="whw-details"><summary>Pagesat e përfshira ({current.payments.length})</summary><PaymentCards rows={current.payments} /></details>{current.expenses.length ? <details className="whw-details"><summary>Shpenzimet për verifikim ({current.expenses.length})</summary><ExpenseCards rows={current.expenses} /></details> : null}<div className="whw-note whw-section">Dispatch-i regjistron shumën që pranon fizikisht dhe verifikon shpenzimet. Çdo pjesë e mbetur ndiqet në këtë dorëzim.</div></> : null}
           {current.warnings?.length ? <div className="whw-stack whw-section">{current.warnings.map((warning,index) => <div className="whw-warning" key={index}>{warningText(warning)}</div>)}</div> : null}{!current.canSubmit && step >= 4 ? <div className="whw-warning whw-section">Kjo llogaritje kërkon korrigjim para dorëzimit. Kontrollo zgjedhjet e ushqimit dhe shpenzimet.</div> : null}
         </fieldset> : null}
       </div>
       {visible && error ? <div className="whw-error whw-action-error" role="alert">{error}{!pending && !saved && !loading ? <div><button type="button" className="whw-button whw-button-link" onClick={() => loadPreview(options, current ? 3 : 1)}>Rifresko llogaritjen</button></div> : null}</div> : null}
-      {saved ? <footer className="whw-footer whw-footer-single"><button className="whw-button whw-button-primary" type="button" onClick={close}>MBYLLE</button></footer> : pending ? <footer className="whw-footer whw-footer-single"><button className="whw-button whw-button-primary" type="button" disabled={saving} onClick={() => save(true)}>{saving ? 'DUKE KONTROLLUAR…' : 'RIPROVO DORËZIMIN'}</button></footer> : showNext ? <footer className="whw-footer"><button className="whw-button" type="button" disabled={busy} onClick={() => { if (step === 1) close(); else { setError(''); setStep(step - 1); } }}>{step === 1 ? 'MBYLLE' : 'KTHEHU'}</button><button className="whw-button whw-button-primary" type="button" disabled={busy || (step === 5 && (!confirmed || !current.canSubmit || dirty))} onClick={step === 5 ? () => save(false) : next}>{saving ? 'DUKE DËRGUAR…' : loading ? 'DUKE KONTROLLUAR…' : step === 5 ? 'KONFIRMO DORËZIMIN' : 'VAZHDO'}</button></footer> : !loading ? <footer className="whw-footer whw-footer-single"><button className="whw-button" type="button" onClick={close}>MBYLLE</button></footer> : null}
+      {saved ? <footer className="whw-footer whw-footer-single"><button className="whw-button whw-button-primary" type="button" onClick={close}>MBYLLE</button></footer> : pending ? <footer className="whw-footer whw-footer-single"><button className="whw-button whw-button-primary" type="button" disabled={saving} onClick={() => save(true)}>{saving ? 'DUKE KONTROLLUAR…' : 'RIPROVO DORËZIMIN'}</button></footer> : showNext ? <footer className="whw-footer"><button className="whw-button" type="button" disabled={busy} onClick={() => { if (step === 1) close(); else { setError(''); setStep(step - 1); } }}>{step === 1 ? 'MBYLLE' : 'KTHEHU'}</button><button className="whw-button whw-button-primary" type="button" disabled={busy || (step === 5 && (!confirmed || !current.canSubmit || dirty))} onClick={step === 5 ? () => save(false) : next}>{saving ? 'DUKE DËRGUAR…' : loading ? 'DUKE KONTROLLUAR…' : step === 5 ? 'KONFIRMO DORËZIMIN' : step === 4 && !manualCash ? 'PO, VAZHDO' : 'VAZHDO'}</button></footer> : !loading ? <footer className="whw-footer whw-footer-single"><button className="whw-button" type="button" onClick={close}>MBYLLE</button></footer> : null}
     </section>
   </div>;
 }
