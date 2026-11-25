@@ -246,6 +246,7 @@ async function toCount(ui,{meal='none'}={}) {
   await ui.click('VAZHDO');await wait(()=>ui.step()===4,'physical count step');
 }
 async function toConfirmation(ui,value,reason='') {
+  await ui.click('JO, KAM SHUMË TJETËR');
   await ui.input(ui.query('[data-handoff-physical-input]'),value);
   if(reason) await ui.input(ui.field('Pse ka dallim?'),reason);
   await ui.click('VAZHDO');assert.equal(ui.step(),5);
@@ -276,6 +277,9 @@ assert.equal(previews.length,2);assert.equal(previews.at(-1).expenses[0].amount,
 assert.equal(previews.at(-1).expenses[0].description, 'Buk'); assert.doesNotMatch(full.text(), /ARKA_EXPENSE_REQUEST_V1/);
 assert.equal(quote(previews.at(-1)).expenses[0].description, rawExpenseDescription);
 assert.match(full.query('[data-handoff-expected]').textContent,/87,00/);assert.match(full.query('[data-handoff-projected]').textContent,/75,00/);
+assert.equal(full.query('[data-handoff-physical-input]'),null);
+assert.ok(full.button('PO, VAZHDO'));
+await full.click('JO, KAM SHUMË TJETËR');
 assert.equal(full.query('[data-handoff-physical-input]').value,'');
 await full.click('VAZHDO');assert.equal(full.step(),4);assert.match(full.text(),/Numëro paratë dhe shkruaje/);
 await full.input(full.query('[data-handoff-physical-input]'),'25');await full.click('VAZHDO');assert.equal(full.step(),4);assert.match(full.text(),/Shpjego pse/);
@@ -291,6 +295,37 @@ assert.equal(saved.length,1);assert.equal(submits.length,1);
 assert.match(full.query('[data-handoff-receipt]').textContent,/25,00/);assert.match(full.query('[data-handoff-receipt]').textContent,/87,00/);assert.match(full.query('[data-handoff-receipt]').textContent,/75,00/);assert.match(full.text(),/Pranimi real regjistrohet nga dispatch/);
 full.close();
 console.log('PASS actual five-step wizard itemizes customers and Base/Transport bonuses, verifies expense source, requires a physical count and mismatch reason, submits once, and displays the saved server receipt');
+
+// Exact server amount requires one explicit yes at step 4, and still
+// requires the existing review and final confirmation before any write.
+const exactSettings={gross:792.64,bonus:10};
+const exactPayloads=[];
+const exactUi=await openWizard({api:{pending:()=>null,preview:async options=>quote(options,exactSettings),submit:async payload=>{exactPayloads.push(clone(payload));return reply(payload,exactSettings);}}});
+await toCount(exactUi);
+assert.match(exactUi.query('[data-handoff-projected]').textContent,/782,64/);
+assert.equal(exactUi.query('[data-handoff-physical-input]'),null);
+await exactUi.click('PO, VAZHDO');assert.equal(exactUi.step(),5);
+assert.equal(exactUi.button('KONFIRMO DORËZIMIN').disabled,true);
+assert.equal(exactPayloads.length,0);
+await exactUi.click('KTHEHU');assert.equal(exactUi.step(),4);
+await exactUi.click('JO, KAM SHUMË TJETËR');
+await exactUi.input(exactUi.query('[data-handoff-physical-input]'),'782.,64');
+assert.equal(exactUi.query('[data-handoff-physical-input]').value,'782,64');
+assert.match(exactUi.query('[data-handoff-difference]').textContent,/përputhet/);
+await exactUi.input(exactUi.query('[data-handoff-physical-input]'),'780,00');
+assert.match(exactUi.query('[data-handoff-difference]').textContent,/2,64/);
+await exactUi.click('VAZHDO');assert.equal(exactUi.step(),4);
+assert.match(exactUi.text(),/Shpjego pse/);
+await exactUi.click('SHTO / KONTROLLO SHPENZIMET');assert.equal(exactUi.step(),3);
+await exactUi.click('VAZHDO');assert.equal(exactUi.step(),4);
+assert.equal(exactUi.query('[data-handoff-physical-input]'),null);
+await exactUi.click('PO, VAZHDO');assert.equal(exactUi.step(),5);
+assert.equal(exactUi.button('KONFIRMO DORËZIMIN').disabled,true);
+exactUi.query('input[type="checkbox"]').click();await wait(()=>!exactUi.button('KONFIRMO DORËZIMIN').disabled);
+await exactUi.click('KONFIRMO DORËZIMIN');await wait(()=>exactUi.query('[data-handoff-receipt]'));
+assert.equal(exactPayloads.length,1);assert.equal(exactPayloads[0].physicalCash,782.64);assert.equal(exactPayloads[0].differenceReason,'');
+exactUi.close();
+console.log('PASS exact counted cash confirmation, accidental mixed decimal separators, mismatch reason, expense return and final explicit review');
 
 for (const includesOwnMeal of [true, false]) {
   const optionsSeen = [];
@@ -343,7 +378,7 @@ for(const settings of [{gross:5,bonus:10},{gross:100,bonus:6.5,commission:20,car
   const narrow=await openWizard({api:{pending:()=>null,preview:async options=>quote(options,settings),submit:async payload=>reply(payload,settings)}});
   await toCount(narrow,{meal});
   assert.ok(narrow.query('[data-handoff-projected]').textContent.includes(new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(server.totals.projectedCash)));
-  assert.equal(narrow.query('[data-handoff-physical-input]').value,'');narrow.close();
+  assert.equal(narrow.query('[data-handoff-physical-input]'),null);assert.ok(narrow.button('PO, VAZHDO'));narrow.close();
 }
 console.log('PASS monthly food has no new daily deduction, earlier meals remain visible, and cash-limited bonus plus hybrid commission render the server’s exact totals');
 
@@ -365,7 +400,7 @@ const staleUi=await openWizard({api:{pending:()=>null,preview:async options=>quo
 await toCount(staleUi);await toConfirmation(staleUi,'90');await staleUi.click('KONFIRMO DORËZIMIN');await wait(()=>staleUi.query('[role="alert"]'));
 assert.equal(staleUi.query('[data-handoff-receipt]'),null);assert.match(staleUi.text(),/kanë ndryshuar/);
 await staleUi.click('Rifresko llogaritjen');await wait(()=>staleUi.step()===3);await staleUi.click('VAZHDO');
-assert.equal(staleUi.step(),4);assert.equal(staleUi.query('[data-handoff-physical-input]').value,'');assert.match(staleUi.query('[data-handoff-projected]').textContent,/110,00/);staleUi.close();
+assert.equal(staleUi.step(),4);assert.equal(staleUi.query('[data-handoff-physical-input]'),null);assert.ok(staleUi.button('PO, VAZHDO'));assert.match(staleUi.query('[data-handoff-projected]').textContent,/110,00/);staleUi.close();
 console.log('PASS pending durable request offers its exact retry, and stale review reloads authoritative amounts and forces a fresh physical count');
 
 let oldResolve;let slowCalls=0;
