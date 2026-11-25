@@ -73,7 +73,7 @@ export default function HandoffReceiptsPanel({ actor, targetPin, onChange, onSum
     if (!handoffId) { setIntentState(null); return; }
     setIntentState({ scope, handoffId, status: 'loading' });
     try {
-      const saved = await readHandoffReceiptIntent(actorId, handoffId);
+      const saved = await readHandoffReceiptIntent(actorId, handoffId, { serverRecovery:true });
       if (request === intentGeneration.current && editorRef.current?.id === handoffId && String(getActor()?.id || getActor()?.user_id || '') === actorId) {
         setIntentState({ scope, handoffId, status: 'ready', intent: saved });
       }
@@ -97,7 +97,7 @@ export default function HandoffReceiptsPanel({ actor, targetPin, onChange, onSum
     }
     saving.current = true; setBusy(true); setError('');
     try {
-      const result = await saveHandoffReceipt({ handoffId: current.id, action: editor.mode, amount: parsed, expectedOutstanding: totals.outstanding, note: note.trim(), confirmNoCash }, { retry });
+      const result = await saveHandoffReceipt({ handoffId: current.id, action: editor.mode, amount: parsed, expectedOutstanding: totals.outstanding, note: note.trim(), confirmNoCash }, { retry, serverRecovery:true });
       setEditor(null);
       setNotice(result.event.event_kind === 'RECEIPT' ? `U pranuan ${money(result.event.amount)}. Mbeten ${money(result.handoff.outstanding)}.` : `U sqaruan ${money(result.event.amount)} pa hyrje cash në arkë. Mbeten ${money(result.handoff.outstanding)}.`);
       await refresh();
@@ -142,7 +142,7 @@ export default function HandoffReceiptsPanel({ actor, targetPin, onChange, onSum
     {settled.length > 0 && <details open={focus.handoff ? true : undefined}><summary style={{ padding: '10px 0', cursor: 'pointer' }}>Dorëzimet e mbyllura së fundi ({settled.length})</summary><div style={{ display: 'grid', gap: 12 }}>{settled.map(card)}</div></details>}
     {current && editor && <div role="dialog" aria-modal="true" aria-label={editor.mode === 'receive' ? 'Prano paratë e dorëzimit' : 'Sqaro diferencën pa cash'} onKeyDown={event => { if (event.key === 'Escape' && !busy) setEditor(null); }} style={{ position: 'fixed', inset: 0, zIndex: 10050, background: 'rgba(0,0,0,.78)', overflowY: 'auto', padding: 'max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom))', display: 'grid', alignItems: 'center' }}><div style={{ ...panel, width: '100%', maxWidth: 520, boxSizing: 'border-box', margin: 'auto' }}>
       <h3 style={{ margin: 0 }}>{editor.mode === 'receive' ? 'Sa para i pranove realisht?' : 'Sqaro diferencën pa hyrje cash'}</h3>
-      <div>{current.worker_name} · Dorëzimi #{current.id}<br /><strong>Mbeten {money(totals.outstanding)}</strong></div>
+      <div>{current.worker_name} · Dorëzimi #{current.id}<br /><strong>Mbeten {money(totals.outstanding)}</strong><br />Pranuar më parë: {money(totals.received)}</div><p style={{ margin:0, fontSize:13, color:'#cbd5e1' }}>Kontrollo shumën e pranuar në server dhe historikun para se të përsëritësh një konfirmim. Shkruaj vetëm paratë e reja që numërove fizikisht.</p>
       {!intentReady && !intentError && <div role="status" style={{ color: '#cbd5e1' }}>Duke kontrolluar konfirmimet e ruajtura…</div>}
       {intentError && <div role="alert" style={{ color: '#fecaca' }}>{intentError}<div style={{ marginTop: 8 }}><button type="button" disabled={busy} style={button} onClick={() => refreshIntent()}>Riprovo kontrollin</button></div></div>}
       {intent ? <div role="status" style={{ color: '#fde68a' }}>Veprimi i mëparshëm pret konfirmimin: {intent.action === 'receive' ? 'Pranim' : 'Sqarim'} {money(intent.amount)}. Riprovohet i njëjti veprim.</div> : <>

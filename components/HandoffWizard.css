@@ -17,3 +17,7 @@
 @media(min-width:640px){.whw-overlay{align-items:center;padding:18px}.whw-dialog{max-height:calc(100dvh - 36px);border-radius:24px}.whw-body{padding:22px}.whw-header{padding:21px 22px 12px}.whw-footer{padding-left:22px;padding-right:22px}.whw-progress{padding-left:22px;padding-right:22px}}
 @media(max-width:350px){.whw-overlay{padding:3px}.whw-dialog{max-height:calc(100dvh - 6px);border-radius:18px 18px 12px 12px}.whw-header{padding:14px 12px 10px}.whw-title{font-size:20px}.whw-progress{padding:9px 12px 11px}.whw-body{padding:14px 12px}.whw-footer{padding-left:12px;padding-right:12px;gap:7px}.whw-total-value{font-size:31px}.whw-step-title{font-size:21px}.whw-card-head{gap:7px}.whw-card-head strong{font-size:13px}.whw-card-amount{font-size:14px!important}.whw-form-grid{grid-template-columns:1fr}.whw-line{font-size:13px;gap:7px}.whw-physical{font-size:30px}}
 @media(prefers-reduced-motion:reduce){.whw-overlay *{scroll-behavior:auto!important}}
+
+/* Keep the required input, error and actions reachable on small phones. */
+.whw-body{flex:1 1 auto;min-height:0;scroll-padding-bottom:18px}.whw-action-error{flex-shrink:0;margin:0 12px 8px;max-height:24dvh;overflow:auto}.whw-field,.whw-checkbox{scroll-margin-block:12px}
+@media(max-height:550px){.whw-header{padding-block:8px}.whw-progress{padding-block:6px}.whw-footer{padding-block:7px}.whw-footer .whw-button{min-height:44px}.whw-action-error{max-height:19dvh}}
